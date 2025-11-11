@@ -26,3 +26,11 @@ repos:
         args: [--config-file=pyproject.toml]
         pass_filenames: false
         entry: mypy src/
+        additional_dependencies: [
+          fastapi,
+          uvicorn,
+          pydantic,
+          pydantic-settings,
+          email-validator,
+          httpx,
+        ]

@@ -18,7 +18,17 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 requires-python = ">=3.9"
-dependencies = []
+dependencies = [
+    "email-validator>=2.3.0",
+    "fastapi>=0.121.1",
+    "httpx>=0.28.1",
+    "pydantic>=2.12.4",
+    "pydantic-settings>=2.11.0",
+    "uvicorn>=0.38.0",
+]
+
+[project.scripts]
+syfthub-server = "syfthub.main:main"
 
 [project.optional-dependencies]
 dev = [
@@ -70,6 +80,7 @@ select = [
 ignore = [
     "E501",  # line too long (handled by formatter)
     "B008",  # do not perform function calls in argument defaults
+    "TC003", # Move standard library import into type-checking block (too strict for Pydantic models)
 ]
 fixable = ["ALL"]
 unfixable = []
@@ -107,7 +118,7 @@ markers = [
 
 [tool.mypy]
 python_version = "3.9"
-src = ["src"]
+packages = ["src/syfthub"]
 strict = true
 warn_return_any = true
 warn_unused_configs = true

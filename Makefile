@@ -1,4 +1,4 @@
-.PHONY: help install install-dev test test-cov lint format check type-check pre-commit build run clean clean-build clean-pyc clean-test clean-all
+.PHONY: help install install-dev test test-cov lint format check type-check pre-commit build run dev server clean clean-build clean-pyc clean-test clean-all
 
 help:  ## Show this help message
 	@echo 'Usage: make [target]'
@@ -49,8 +49,13 @@ pre-commit-update:  ## Update pre-commit hooks
 build:  ## Build the package
 	uv build
 
-run:  ## Run the main application
-	uv run python -m syfthub.main
+run:  ## Run the FastAPI server in production mode
+	uv run uvicorn syfthub.main:app --host 0.0.0.0 --port 8000
+
+dev:  ## Run the FastAPI server in development mode with reload
+	uv run uvicorn syfthub.main:app --host 0.0.0.0 --port 8000 --reload
+
+server: dev  ## Alias for dev command
 
 shell:  ## Start a Python shell with the package imported
 	uv run python -c "import syfthub; import code; code.interact(local=locals())"

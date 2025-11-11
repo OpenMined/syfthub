@@ -1,0 +1,1 @@
+"""Schemas module for syfthub."""
