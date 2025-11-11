@@ -33,4 +33,7 @@ repos:
           pydantic-settings,
           email-validator,
           httpx,
+          sqlalchemy,
+          alembic,
+          types-sqlalchemy,
         ]

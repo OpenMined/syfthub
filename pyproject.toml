@@ -19,6 +19,7 @@ classifiers = [
 ]
 requires-python = ">=3.9"
 dependencies = [
+    "alembic>=1.14.0",
     "argon2-cffi>=25.1.0",
     "email-validator>=2.3.0",
     "fastapi>=0.121.1",
@@ -28,6 +29,7 @@ dependencies = [
     "pydantic-settings>=2.11.0",
     "pyjwt>=2.10.1",
     "python-multipart>=0.0.20",
+    "sqlalchemy>=2.0.36",
     "uvicorn>=0.38.0",
 ]
 
@@ -133,6 +135,16 @@ show_column_numbers = true
 show_error_context = true
 pretty = true
 
+# SQLAlchemy 2.0 has complex typing, disable strict checking for database modules
+[[tool.mypy.overrides]]
+module = [
+    "syfthub.database.models",
+    "syfthub.database.connection",
+    "syfthub.database.repositories",
+    "syfthub.auth.security"
+]
+ignore_errors = true
+
 [tool.coverage.run]
 source = ["src"]
 branch = true
@@ -160,4 +172,5 @@ dev = [
     "ruff>=0.14.4",
     "types-passlib>=1.7.7.20250602",
     "types-pyjwt>=1.7.1",
+    "types-sqlalchemy>=1.4.0",
 ]

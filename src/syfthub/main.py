@@ -19,6 +19,7 @@ from syfthub.api.endpoints.datasites import (
 from syfthub.api.router import api_router
 from syfthub.auth.dependencies import get_optional_current_user, get_user_by_username
 from syfthub.core.config import settings
+from syfthub.database.connection import create_tables
 from syfthub.schemas.datasite import (
     DatasitePublicResponse,
     DatasiteResponse,
@@ -34,6 +35,9 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage application lifecycle."""
     # Startup
     print(f"Starting Syfthub API v{__version__}")
+    print("Initializing database...")
+    create_tables()
+    print("Database initialized successfully.")
     yield
     # Shutdown
     print("Shutting down Syfthub API")

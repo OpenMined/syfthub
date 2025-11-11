@@ -37,8 +37,9 @@ class Settings(BaseSettings):
     # Password settings
     password_min_length: int = 8
 
-    # Database settings (for future use)
+    # Database settings
     database_url: str = "sqlite:///./syfthub.db"
+    database_echo: bool = False  # Echo SQL queries for debugging
 
     # Logging
     log_level: str = "INFO"
