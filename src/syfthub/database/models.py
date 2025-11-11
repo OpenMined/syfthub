@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     ForeignKey,
@@ -118,6 +119,15 @@ class DatasiteModel(Base):
         String(20), nullable=False, default="public"
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    contributors: Mapped[list[int]] = mapped_column(
+        JSON, nullable=False, default=lambda: []
+    )
+    version: Mapped[str] = mapped_column(String(20), nullable=False, default="0.1.0")
+    readme: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    stars_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    policies: Mapped[list[dict]] = mapped_column(
+        JSON, nullable=False, default=lambda: []
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -140,4 +150,35 @@ class DatasiteModel(Base):
         Index("idx_datasites_user_slug", "user_id", "slug", unique=True),
         Index("idx_datasites_visibility", "visibility"),
         Index("idx_datasites_is_active", "is_active"),
+        Index("idx_datasites_version", "version"),
+        Index("idx_datasites_stars_count", "stars_count"),
+    )
+
+
+class DatasiteStarModel(Base):
+    """Datasite star relationship model for tracking user stars."""
+
+    __tablename__ = "datasite_stars"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    datasite_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("datasites.id", ondelete="CASCADE"), nullable=False
+    )
+    starred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    # Indexes for performance and uniqueness
+    __table_args__ = (
+        Index("idx_datasite_stars_user_id", "user_id"),
+        Index("idx_datasite_stars_datasite_id", "datasite_id"),
+        Index(
+            "idx_datasite_stars_unique", "user_id", "datasite_id", unique=True
+        ),  # Prevent duplicate stars
+        Index("idx_datasite_stars_starred_at", "starred_at"),
     )

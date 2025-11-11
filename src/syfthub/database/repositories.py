@@ -9,7 +9,7 @@ from sqlalchemy import and_, select
 
 from syfthub.database.models import DatasiteModel, ItemModel, UserModel
 from syfthub.schemas.auth import UserRole
-from syfthub.schemas.datasite import Datasite, DatasiteVisibility
+from syfthub.schemas.datasite import Datasite, DatasiteVisibility, Policy
 from syfthub.schemas.item import Item
 from syfthub.schemas.user import User
 
@@ -312,6 +312,50 @@ class DatasiteRepository:
 
         return self.session.execute(stmt).scalar_one_or_none() is not None
 
+    def get_most_starred(
+        self, skip: int = 0, limit: int = 100, min_stars: int = 0
+    ) -> list[Datasite]:
+        """Get datasites ordered by stars count (most popular first)."""
+        stmt = (
+            select(DatasiteModel)
+            .where(
+                and_(
+                    DatasiteModel.is_active == True,  # noqa: E712
+                    DatasiteModel.visibility == DatasiteVisibility.PUBLIC,
+                    DatasiteModel.stars_count >= min_stars,
+                )
+            )
+            .order_by(DatasiteModel.stars_count.desc(), DatasiteModel.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        datasite_models = self.session.execute(stmt).scalars().all()
+        return [
+            self._model_to_schema(datasite_model) for datasite_model in datasite_models
+        ]
+
+    def increment_stars(self, datasite_id: int) -> bool:
+        """Increment the stars count for a datasite."""
+        stmt = select(DatasiteModel).where(DatasiteModel.id == datasite_id)
+        datasite_model = self.session.execute(stmt).scalar_one_or_none()
+        if not datasite_model:
+            return False
+
+        datasite_model.stars_count += 1
+        self.session.commit()
+        return True
+
+    def decrement_stars(self, datasite_id: int) -> bool:
+        """Decrement the stars count for a datasite (with minimum of 0)."""
+        stmt = select(DatasiteModel).where(DatasiteModel.id == datasite_id)
+        datasite_model = self.session.execute(stmt).scalar_one_or_none()
+        if not datasite_model:
+            return False
+
+        datasite_model.stars_count = max(0, datasite_model.stars_count - 1)
+        self.session.commit()
+        return True
+
     @staticmethod
     def _model_to_schema(datasite_model: DatasiteModel) -> Datasite:
         """Convert DatasiteModel to Datasite schema."""
@@ -323,6 +367,11 @@ class DatasiteRepository:
             description=datasite_model.description,
             visibility=DatasiteVisibility(datasite_model.visibility),
             is_active=datasite_model.is_active,
+            contributors=datasite_model.contributors,
+            version=datasite_model.version,
+            readme=datasite_model.readme,
+            stars_count=datasite_model.stars_count,
+            policies=[Policy(**policy_data) for policy_data in datasite_model.policies],
             created_at=datasite_model.created_at,
             updated_at=datasite_model.updated_at,
         )

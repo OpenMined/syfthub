@@ -5,8 +5,9 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class DatasiteVisibility(str, Enum):
@@ -15,6 +16,36 @@ class DatasiteVisibility(str, Enum):
     PUBLIC = "public"  # Anyone can view
     PRIVATE = "private"  # Only owner (and future collaborators) can view
     INTERNAL = "internal"  # Only authenticated users can view
+
+
+class Policy(BaseModel):
+    """Policy configuration for datasites.
+
+    Provides a flexible structure for declaring policies that can be applied
+    to datasites without implementing the actual policy logic in this system.
+    """
+
+    type: str = Field(
+        ..., min_length=1, max_length=100, description="Policy type identifier"
+    )
+    version: str = Field(
+        default="1.0", pattern=r"^\d+\.\d+$", description="Policy version"
+    )
+    enabled: bool = Field(
+        default=True, description="Whether this policy is currently active"
+    )
+    description: str = Field(
+        default="", max_length=500, description="Human-readable policy description"
+    )
+    config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Flexible configuration object for policy-specific settings",
+    )
+
+    model_config = ConfigDict(
+        extra="forbid",  # Only allow defined fields at Policy level
+        str_strip_whitespace=True,
+    )
 
 
 # Reserved slugs that cannot be used for datasites
@@ -59,6 +90,23 @@ class DatasiteBase(BaseModel):
         default=DatasiteVisibility.PUBLIC, description="Who can access this datasite"
     )
     is_active: bool = Field(default=True, description="Whether the datasite is active")
+    contributors: list[int] = Field(
+        default_factory=list, description="List of contributor user IDs"
+    )
+    version: str = Field(
+        default="0.1.0",
+        pattern=r"^\d+\.\d+\.\d+$",
+        description="Semantic version of the datasite",
+    )
+    readme: str = Field(
+        default="", max_length=50000, description="Markdown content for the README"
+    )
+    stars_count: int = Field(
+        default=0, ge=0, description="Number of stars this datasite has received"
+    )
+    policies: list[Policy] = Field(
+        default_factory=list, description="List of policies applied to this datasite"
+    )
 
 
 class DatasiteCreate(DatasiteBase):
@@ -114,6 +162,20 @@ class DatasiteUpdate(BaseModel):
         None, description="Who can access this datasite"
     )
     is_active: bool | None = Field(None, description="Whether the datasite is active")
+    contributors: list[int] | None = Field(
+        None, description="List of contributor user IDs"
+    )
+    version: str | None = Field(
+        None,
+        pattern=r"^\d+\.\d+\.\d+$",
+        description="Semantic version of the datasite",
+    )
+    readme: str | None = Field(
+        None, max_length=50000, description="Markdown content for the README"
+    )
+    policies: list[Policy] | None = Field(
+        None, description="List of policies applied to this datasite"
+    )
 
 
 class Datasite(DatasiteBase):
@@ -142,6 +204,15 @@ class DatasiteResponse(BaseModel):
         ..., description="Who can access this datasite"
     )
     is_active: bool = Field(..., description="Whether the datasite is active")
+    contributors: list[int] = Field(..., description="List of contributor user IDs")
+    version: str = Field(..., description="Semantic version of the datasite")
+    readme: str = Field(..., description="Markdown content for the README")
+    stars_count: int = Field(
+        ..., description="Number of stars this datasite has received"
+    )
+    policies: list[Policy] = Field(
+        ..., description="List of policies applied to this datasite"
+    )
     created_at: datetime = Field(..., description="When the datasite was created")
     updated_at: datetime = Field(..., description="When the datasite was last updated")
 
@@ -154,6 +225,15 @@ class DatasitePublicResponse(BaseModel):
     name: str = Field(..., description="Display name of the datasite")
     slug: str = Field(..., description="URL-safe identifier")
     description: str = Field(..., description="Description of the datasite")
+    contributors: list[int] = Field(..., description="List of contributor user IDs")
+    version: str = Field(..., description="Semantic version of the datasite")
+    readme: str = Field(..., description="Markdown content for the README")
+    stars_count: int = Field(
+        ..., description="Number of stars this datasite has received"
+    )
+    policies: list[Policy] = Field(
+        ..., description="List of policies applied to this datasite"
+    )
     created_at: datetime = Field(..., description="When the datasite was created")
     updated_at: datetime = Field(..., description="When the datasite was last updated")
 

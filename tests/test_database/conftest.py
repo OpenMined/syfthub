@@ -100,4 +100,9 @@ def sample_datasite_data() -> dict:
         "description": "A test datasite",
         "visibility": "public",
         "is_active": True,
+        "contributors": [1],
+        "version": "0.1.0",
+        "readme": "# Test Datasite\n\nThis is a test datasite.",
+        "stars_count": 0,
+        "policies": [],
     }

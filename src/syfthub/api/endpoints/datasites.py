@@ -180,6 +180,33 @@ async def list_public_datasites(
     return [DatasitePublicResponse.model_validate(ds) for ds in public_datasites]
 
 
+@router.get("/trending", response_model=list[DatasitePublicResponse])
+async def list_trending_datasites(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100),
+    min_stars: int = Query(0, ge=0),
+) -> list[DatasitePublicResponse]:
+    """List datasites by popularity (stars count)."""
+    # Get all public datasites ordered by stars
+    trending_datasites = [
+        ds
+        for ds in fake_datasites_db.values()
+        if ds.visibility == DatasiteVisibility.PUBLIC
+        and ds.is_active
+        and ds.stars_count >= min_stars
+    ]
+
+    # Sort by stars count (desc) then by created_at (desc) for ties
+    trending_datasites.sort(
+        key=lambda ds: (ds.stars_count, ds.created_at), reverse=True
+    )
+
+    # Apply pagination
+    trending_datasites = trending_datasites[skip : skip + limit]
+
+    return [DatasitePublicResponse.model_validate(ds) for ds in trending_datasites]
+
+
 @router.get("/{datasite_id}", response_model=DatasiteResponse)
 async def get_datasite(
     datasite_id: int,
@@ -230,6 +257,15 @@ async def create_datasite(
                 detail=f"Slug '{slug}' is already taken. Please choose a different slug.",
             )
 
+    # Prepare datasite data with owner as contributor
+    datasite_dict = datasite_data.model_dump(exclude={"slug"})
+
+    # Ensure owner is in contributors list
+    if not datasite_dict.get("contributors"):
+        datasite_dict["contributors"] = [current_user.id]
+    elif current_user.id not in datasite_dict["contributors"]:
+        datasite_dict["contributors"].append(current_user.id)
+
     # Create datasite
     datasite = Datasite(
         id=datasite_id_counter,
@@ -237,7 +273,7 @@ async def create_datasite(
         slug=slug,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
-        **datasite_data.model_dump(exclude={"slug"}),
+        **datasite_dict,
     )
 
     # Store in database
