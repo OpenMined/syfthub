@@ -43,6 +43,7 @@ class Item(ItemBase):
     """Item model."""
 
     id: int = Field(..., description="Item's unique identifier")
+    user_id: int = Field(..., description="ID of the user who owns this item")
     category: str | None = Field(None, max_length=50, description="Item category")
     created_at: datetime = Field(..., description="When the item was created")
     updated_at: datetime = Field(..., description="When the item was last updated")
@@ -54,6 +55,7 @@ class ItemResponse(BaseModel):
     """Schema for item response."""
 
     id: int = Field(..., description="Item's unique identifier")
+    user_id: int = Field(..., description="ID of the user who owns this item")
     name: str = Field(..., description="Item name")
     description: str = Field(..., description="Item description")
     price: Decimal = Field(..., description="Item price")

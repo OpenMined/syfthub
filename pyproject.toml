@@ -19,11 +19,15 @@ classifiers = [
 ]
 requires-python = ">=3.9"
 dependencies = [
+    "argon2-cffi>=25.1.0",
     "email-validator>=2.3.0",
     "fastapi>=0.121.1",
     "httpx>=0.28.1",
+    "passlib[bcrypt]>=1.7.4",
     "pydantic>=2.12.4",
     "pydantic-settings>=2.11.0",
+    "pyjwt>=2.10.1",
+    "python-multipart>=0.0.20",
     "uvicorn>=0.38.0",
 ]
 
@@ -154,4 +158,6 @@ dev = [
     "pytest-asyncio>=1.2.0",
     "pytest-cov>=7.0.0",
     "ruff>=0.14.4",
+    "types-passlib>=1.7.7.20250602",
+    "types-pyjwt>=1.7.1",
 ]

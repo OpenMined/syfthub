@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     # Security settings
     secret_key: str = "your-secret-key-here-change-in-production"
     access_token_expire_minutes: int = 30
+    refresh_token_expire_days: int = 7
+
+    # Password settings
+    password_min_length: int = 8
 
     # Database settings (for future use)
     database_url: str = "sqlite:///./syfthub.db"
