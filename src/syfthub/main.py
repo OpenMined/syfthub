@@ -16,18 +16,111 @@ from syfthub.api.endpoints.datasites import (
     get_datasite_by_slug,
     user_datasites_lookup,
 )
+from syfthub.api.endpoints.organizations import (
+    get_organization_by_slug,
+    is_organization_member,
+)
 from syfthub.api.router import api_router
 from syfthub.auth.dependencies import get_optional_current_user, get_user_by_username
 from syfthub.core.config import settings
 from syfthub.database.connection import create_tables
 from syfthub.schemas.datasite import (
+    Datasite,
     DatasitePublicResponse,
     DatasiteResponse,
     DatasiteVisibility,
 )
 
 if TYPE_CHECKING:
+    from syfthub.schemas.organization import Organization
     from syfthub.schemas.user import User
+
+
+def resolve_owner(owner_slug: str) -> tuple[User | Organization | None, str]:
+    """Resolve owner slug to either user or organization.
+
+    Returns:
+        Tuple of (owner_object, owner_type) where owner_type is 'user' or 'organization'
+    """
+    # Try to find user first
+    user = get_user_by_username(owner_slug.lower())
+    if user:
+        return user, "user"
+
+    # Try to find organization
+    organization = get_organization_by_slug(owner_slug.lower())
+    if organization and organization.is_active:
+        return organization, "organization"
+
+    return None, ""
+
+
+def get_owner_datasites(owner: User | Organization, owner_type: str) -> list[Datasite]:
+    """Get datasites for an owner (user or organization)."""
+    if owner_type == "user":
+        # Get user's datasites
+        user_datasite_ids = user_datasites_lookup.get(owner.id, set())
+        return [
+            fake_datasites_db[ds_id]
+            for ds_id in user_datasite_ids
+            if ds_id in fake_datasites_db
+            and fake_datasites_db[ds_id].user_id == owner.id
+        ]
+    elif owner_type == "organization":
+        # Get organization's datasites
+        return [
+            datasite
+            for datasite in fake_datasites_db.values()
+            if datasite.organization_id == owner.id
+        ]
+    return []
+
+
+def get_datasite_by_owner_and_slug(
+    owner: User | Organization, owner_type: str, slug: str
+) -> Datasite | None:
+    """Get datasite by owner and slug."""
+    if owner_type == "user":
+        return get_datasite_by_slug(owner.id, slug)
+    elif owner_type == "organization":
+        # Look for datasite with organization_id and slug
+        for datasite in fake_datasites_db.values():
+            if datasite.organization_id == owner.id and datasite.slug == slug:
+                return datasite
+    return None
+
+
+def can_access_datasite_with_org(
+    datasite: Datasite, current_user: User | None, owner_type: str
+) -> bool:
+    """Check if user can access datasite, considering organization membership."""
+    # Public datasites are always accessible
+    if datasite.visibility == DatasiteVisibility.PUBLIC:
+        return True
+
+    # Unauthenticated users can only see public datasites
+    if current_user is None:
+        return False
+
+    # Admin can access everything
+    if current_user.role == "admin":
+        return True
+
+    # For user-owned datasites, use existing logic
+    if owner_type == "user" and datasite.user_id:
+        return can_access_datasite(datasite, current_user)
+
+    # For organization-owned datasites
+    if owner_type == "organization" and datasite.organization_id:
+        # Owner/members can access internal datasites
+        if datasite.visibility == DatasiteVisibility.INTERNAL:
+            return is_organization_member(datasite.organization_id, current_user.id)
+
+        # Private datasites only for organization members
+        if datasite.visibility == DatasiteVisibility.PRIVATE:
+            return is_organization_member(datasite.organization_id, current_user.id)
+
+    return False
 
 
 @asynccontextmanager
@@ -82,46 +175,47 @@ async def health_check() -> dict[str, str]:
 
 
 # Special routes for GitHub-like URLs (must be last to avoid conflicts)
-@app.get("/{username}", response_model=list[DatasitePublicResponse])
-async def list_user_public_datasites(
-    username: str,
+@app.get("/{owner_slug}", response_model=list[DatasitePublicResponse])
+async def list_owner_public_datasites(
+    owner_slug: str,
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
     current_user: User | None = Depends(get_optional_current_user),
 ) -> list[DatasitePublicResponse]:
-    """List a user's public datasites by username."""
-    # Get user by username
-    user = get_user_by_username(username.lower())
-    if not user:
+    """List an owner's (user or organization) public datasites."""
+    # Resolve owner (user or organization)
+    owner, owner_type = resolve_owner(owner_slug)
+    if not owner:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=f"User '{username}' not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"'{owner_slug}' not found"
         )
 
-    # Get user's datasites
-    user_datasite_ids = user_datasites_lookup.get(user.id, set())
-    user_datasites = [
-        fake_datasites_db[ds_id]
-        for ds_id in user_datasite_ids
-        if ds_id in fake_datasites_db
-    ]
+    # Get owner's datasites
+    owner_datasites = get_owner_datasites(owner, owner_type)
 
     # Filter to only show datasites the current user can access
     accessible_datasites = []
-    for datasite in user_datasites:
+    for datasite in owner_datasites:
         if not datasite.is_active:
             continue
 
-        # For listing, only show public datasites to others
-        # Owner and admin can see their own internal/private in the API endpoint
-        if datasite.visibility == DatasiteVisibility.PUBLIC:
-            accessible_datasites.append(datasite)
-        elif (
-            current_user
-            and can_access_datasite(datasite, current_user)
-            and current_user.id == datasite.user_id
-        ):
-            # Allow owner/admin to see their own datasites in this public listing
-            accessible_datasites.append(datasite)
+        # Check access permissions
+        if can_access_datasite_with_org(datasite, current_user, owner_type):
+            # For public listing, show different levels based on access
+            if datasite.visibility == DatasiteVisibility.PUBLIC:
+                accessible_datasites.append(datasite)
+            elif current_user and (
+                (owner_type == "user" and current_user.id == datasite.user_id)
+                or (
+                    owner_type == "organization"
+                    and datasite.organization_id is not None
+                    and is_organization_member(
+                        datasite.organization_id, current_user.id
+                    )
+                )
+            ):
+                # Allow owner/members to see their own datasites in public listing
+                accessible_datasites.append(datasite)
 
     # Sort by most recent first
     accessible_datasites.sort(key=lambda ds: ds.updated_at, reverse=True)
@@ -132,29 +226,29 @@ async def list_user_public_datasites(
     return [DatasitePublicResponse.model_validate(ds) for ds in accessible_datasites]
 
 
-@app.get("/{username}/{datasite_slug}")
-async def get_user_datasite(
-    username: str,
+@app.get("/{owner_slug}/{datasite_slug}")
+async def get_owner_datasite(
+    owner_slug: str,
     datasite_slug: str,
     current_user: User | None = Depends(get_optional_current_user),
 ) -> DatasiteResponse | DatasitePublicResponse:
-    """Get a specific datasite by username and slug."""
-    # Get user by username
-    user = get_user_by_username(username.lower())
-    if not user:
+    """Get a specific datasite by owner and slug."""
+    # Resolve owner (user or organization)
+    owner, owner_type = resolve_owner(owner_slug)
+    if not owner:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="User or datasite not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Owner or datasite not found"
         )
 
-    # Get datasite by slug
-    datasite = get_datasite_by_slug(user.id, datasite_slug.lower())
+    # Get datasite by owner and slug
+    datasite = get_datasite_by_owner_and_slug(owner, owner_type, datasite_slug.lower())
     if not datasite or not datasite.is_active:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="User or datasite not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Owner or datasite not found"
         )
 
     # Check access permissions
-    if not can_access_datasite(datasite, current_user):
+    if not can_access_datasite_with_org(datasite, current_user, owner_type):
         if current_user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -165,13 +259,22 @@ async def get_user_datasite(
             # Return 404 for private datasites to hide existence (like GitHub)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="User or datasite not found",
+                detail="Owner or datasite not found",
             )
 
-    # Return full details if user is owner/admin, public details otherwise
-    if current_user and (
-        current_user.id == datasite.user_id or current_user.role == "admin"
-    ):
+    # Return full details if user is owner/admin/org member, public details otherwise
+    can_see_full_details = False
+    if current_user:
+        if current_user.role == "admin" or (
+            owner_type == "user" and current_user.id == datasite.user_id
+        ):
+            can_see_full_details = True
+        elif owner_type == "organization" and datasite.organization_id:
+            can_see_full_details = is_organization_member(
+                datasite.organization_id, current_user.id
+            )
+
+    if can_see_full_details:
         return DatasiteResponse.model_validate(datasite)
     else:
         return DatasitePublicResponse.model_validate(datasite)

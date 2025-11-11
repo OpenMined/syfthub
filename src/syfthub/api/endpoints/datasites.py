@@ -7,6 +7,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from syfthub.api.endpoints.organizations import (
+    get_organization_by_id,
+    is_organization_admin_or_owner,
+)
 from syfthub.auth.dependencies import (
     get_current_active_user,
     get_optional_current_user,
@@ -241,26 +245,62 @@ async def create_datasite(
     datasite_data: DatasiteCreate,
     current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> DatasiteResponse:
-    """Create a new datasite."""
+    """Create a new datasite for user or organization."""
     global datasite_id_counter
+
+    # Determine ownership type and validate permissions
+    organization_id = datasite_data.organization_id
+    user_id = None if organization_id else current_user.id
+
+    if organization_id:
+        # Creating for organization - check if user can create org datasites
+        organization = get_organization_by_id(organization_id)
+        if not organization or not organization.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found"
+            )
+
+        # Check if user is admin/owner of organization
+        if current_user.role != "admin" and not is_organization_admin_or_owner(
+            organization_id, current_user.id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin or owner privileges required to create organization datasites",
+            )
 
     # Generate slug if not provided
     if datasite_data.slug is None:
-        slug = generate_unique_slug(datasite_data.name, current_user.id)
+        # Use organization_id or user_id for slug generation
+        owner_id = organization_id or current_user.id
+        slug = generate_unique_slug(datasite_data.name, owner_id)
     else:
         slug = datasite_data.slug.lower()
 
-        # Check if slug is available
-        if not is_slug_available(slug, current_user.id):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Slug '{slug}' is already taken. Please choose a different slug.",
-            )
+        # Check if slug is available for the owner
+        if organization_id:
+            # Check org datasite slug availability
+            for existing_ds in fake_datasites_db.values():
+                if (
+                    existing_ds.organization_id == organization_id
+                    and existing_ds.slug == slug
+                ):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Slug '{slug}' is already taken in this organization.",
+                    )
+        else:
+            # Check user datasite slug availability
+            if not is_slug_available(slug, current_user.id):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Slug '{slug}' is already taken. Please choose a different slug.",
+                )
 
-    # Prepare datasite data with owner as contributor
-    datasite_dict = datasite_data.model_dump(exclude={"slug"})
+    # Prepare datasite data
+    datasite_dict = datasite_data.model_dump(exclude={"slug", "organization_id"})
 
-    # Ensure owner is in contributors list
+    # Ensure creator is in contributors list
     if not datasite_dict.get("contributors"):
         datasite_dict["contributors"] = [current_user.id]
     elif current_user.id not in datasite_dict["contributors"]:
@@ -269,7 +309,8 @@ async def create_datasite(
     # Create datasite
     datasite = Datasite(
         id=datasite_id_counter,
-        user_id=current_user.id,
+        user_id=user_id,
+        organization_id=organization_id,
         slug=slug,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
@@ -280,10 +321,12 @@ async def create_datasite(
     fake_datasites_db[datasite_id_counter] = datasite
 
     # Update lookups
-    if current_user.id not in user_datasites_lookup:
-        user_datasites_lookup[current_user.id] = set()
-    user_datasites_lookup[current_user.id].add(datasite_id_counter)
-    slug_to_datasite_lookup[(current_user.id, slug)] = datasite_id_counter
+    if not organization_id:
+        # User-owned datasite
+        if current_user.id not in user_datasites_lookup:
+            user_datasites_lookup[current_user.id] = set()
+        user_datasites_lookup[current_user.id].add(datasite_id_counter)
+        slug_to_datasite_lookup[(current_user.id, slug)] = datasite_id_counter
 
     datasite_id_counter += 1
 
@@ -343,8 +386,9 @@ async def delete_datasite(
     del fake_datasites_db[datasite_id]
 
     # Clean up lookups
-    if datasite.user_id in user_datasites_lookup:
+    if datasite.user_id and datasite.user_id in user_datasites_lookup:
         user_datasites_lookup[datasite.user_id].discard(datasite_id)
 
-    lookup_key = (datasite.user_id, datasite.slug)
-    slug_to_datasite_lookup.pop(lookup_key, None)
+    if datasite.user_id is not None:
+        lookup_key = (datasite.user_id, datasite.slug)
+        slug_to_datasite_lookup.pop(lookup_key, None)

@@ -118,6 +118,10 @@ class DatasiteCreate(DatasiteBase):
         max_length=63,
         description="URL-safe identifier (auto-generated from name if not provided)",
     )
+    organization_id: int | None = Field(
+        None,
+        description="Organization ID if creating datasite for organization (optional)",
+    )
 
     @field_validator("slug")
     @classmethod
@@ -182,7 +186,12 @@ class Datasite(DatasiteBase):
     """Datasite model."""
 
     id: int = Field(..., description="Datasite's unique identifier")
-    user_id: int = Field(..., description="ID of the user who owns this datasite")
+    user_id: int | None = Field(
+        None, description="ID of the user who owns this datasite"
+    )
+    organization_id: int | None = Field(
+        None, description="ID of the organization that owns this datasite"
+    )
     slug: str = Field(
         ..., min_length=3, max_length=63, description="URL-safe identifier"
     )
@@ -196,7 +205,12 @@ class DatasiteResponse(BaseModel):
     """Schema for datasite response."""
 
     id: int = Field(..., description="Datasite's unique identifier")
-    user_id: int = Field(..., description="ID of the user who owns this datasite")
+    user_id: int | None = Field(
+        None, description="ID of the user who owns this datasite"
+    )
+    organization_id: int | None = Field(
+        None, description="ID of the organization that owns this datasite"
+    )
     name: str = Field(..., description="Display name of the datasite")
     slug: str = Field(..., description="URL-safe identifier")
     description: str = Field(..., description="Description of the datasite")
