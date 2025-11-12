@@ -9,7 +9,6 @@ from fastapi import Depends
 from syfthub.database.connection import get_db_session
 from syfthub.database.repositories import (
     DatasiteRepository,
-    ItemRepository,
     UserRepository,
 )
 
@@ -22,13 +21,6 @@ def get_user_repository(
 ) -> UserRepository:
     """Get UserRepository dependency."""
     return UserRepository(session)
-
-
-def get_item_repository(
-    session: Annotated[Session, Depends(get_db_session)],
-) -> ItemRepository:
-    """Get ItemRepository dependency."""
-    return ItemRepository(session)
 
 
 def get_datasite_repository(

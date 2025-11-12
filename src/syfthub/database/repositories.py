@@ -7,10 +7,9 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import and_, select
 
-from syfthub.database.models import DatasiteModel, ItemModel, UserModel
+from syfthub.database.models import DatasiteModel, UserModel
 from syfthub.schemas.auth import UserRole
-from syfthub.schemas.datasite import Datasite, DatasiteVisibility, Policy
-from syfthub.schemas.item import Item
+from syfthub.schemas.datasite import Connection, Datasite, DatasiteVisibility, Policy
 from syfthub.schemas.user import User
 
 if TYPE_CHECKING:
@@ -114,90 +113,6 @@ class UserRepository:
             is_active=user_model.is_active,
             created_at=user_model.created_at,
             updated_at=user_model.updated_at,
-        )
-
-
-class ItemRepository:
-    """Repository for item database operations."""
-
-    def __init__(self, session: Session):
-        """Initialize with database session."""
-        self.session = session
-
-    def create(self, item_data: dict[str, Any]) -> Item:
-        """Create a new item."""
-        item_model = ItemModel(**item_data)
-        self.session.add(item_model)
-        self.session.commit()
-        self.session.refresh(item_model)
-        return self._model_to_schema(item_model)
-
-    def get_by_id(self, item_id: int) -> Item | None:
-        """Get item by ID."""
-        stmt = select(ItemModel).where(ItemModel.id == item_id)
-        item_model = self.session.execute(stmt).scalar_one_or_none()
-        return self._model_to_schema(item_model) if item_model else None
-
-    def get_all(self, skip: int = 0, limit: int = 100) -> list[Item]:
-        """Get all items with pagination."""
-        stmt = select(ItemModel).offset(skip).limit(limit)
-        item_models = self.session.execute(stmt).scalars().all()
-        return [self._model_to_schema(item_model) for item_model in item_models]
-
-    def get_by_user_id(
-        self, user_id: int, skip: int = 0, limit: int = 100
-    ) -> list[Item]:
-        """Get items by user ID."""
-        stmt = (
-            select(ItemModel)
-            .where(ItemModel.user_id == user_id)
-            .offset(skip)
-            .limit(limit)
-        )
-        item_models = self.session.execute(stmt).scalars().all()
-        return [self._model_to_schema(item_model) for item_model in item_models]
-
-    def update(self, item_id: int, item_data: dict[str, Any]) -> Item | None:
-        """Update item by ID."""
-        stmt = select(ItemModel).where(ItemModel.id == item_id)
-        item_model = self.session.execute(stmt).scalar_one_or_none()
-        if not item_model:
-            return None
-
-        # Update fields
-        for key, value in item_data.items():
-            if hasattr(item_model, key):
-                setattr(item_model, key, value)
-
-        item_model.updated_at = datetime.now(timezone.utc)
-        self.session.commit()
-        self.session.refresh(item_model)
-        return self._model_to_schema(item_model)
-
-    def delete(self, item_id: int) -> bool:
-        """Delete item by ID."""
-        stmt = select(ItemModel).where(ItemModel.id == item_id)
-        item_model = self.session.execute(stmt).scalar_one_or_none()
-        if not item_model:
-            return False
-
-        self.session.delete(item_model)
-        self.session.commit()
-        return True
-
-    @staticmethod
-    def _model_to_schema(item_model: ItemModel) -> Item:
-        """Convert ItemModel to Item schema."""
-        return Item(
-            id=item_model.id,
-            user_id=item_model.user_id,
-            name=item_model.name,
-            description=item_model.description,
-            price=item_model.price,
-            is_available=item_model.is_available,
-            category=item_model.category,
-            created_at=item_model.created_at,
-            updated_at=item_model.updated_at,
         )
 
 
@@ -372,6 +287,10 @@ class DatasiteRepository:
             readme=datasite_model.readme,
             stars_count=datasite_model.stars_count,
             policies=[Policy(**policy_data) for policy_data in datasite_model.policies],
+            connect=[
+                Connection(**connection_data)
+                for connection_data in datasite_model.connect
+            ],
             created_at=datasite_model.created_at,
             updated_at=datasite_model.updated_at,
         )

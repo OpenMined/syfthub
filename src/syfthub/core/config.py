@@ -1,8 +1,12 @@
 """Application configuration."""
 
 from functools import lru_cache
+from typing import Any
 
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# from pydantic_settings.sources import DotEnvSettings
 
 
 class Settings(BaseSettings):
@@ -13,6 +17,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        env_nested_delimiter="__",
     )
 
     # Application settings
@@ -26,8 +31,35 @@ class Settings(BaseSettings):
     reload: bool = False
     workers: int = 1
 
-    # CORS settings
-    cors_origins: list[str] = ["*"]
+    # CORS settings - using string to avoid JSON parsing issues
+    cors_origins_str: str = Field(default="*", alias="cors_origins")
+
+    @field_validator("cors_origins_str", mode="before")
+    @classmethod
+    def validate_cors_origins(cls, v: Any) -> str:
+        """Validate CORS origins environment variable."""
+        if v is None or v == "":
+            return "*"
+        return str(v)
+
+    @property
+    def cors_origins(self) -> list[str]:
+        """Get parsed CORS origins as list."""
+        if not self.cors_origins_str or self.cors_origins_str.strip() == "":
+            return ["*"]
+
+        # Handle comma-separated string
+        if "," in self.cors_origins_str:
+            return [
+                origin.strip()
+                for origin in self.cors_origins_str.split(",")
+                if origin.strip()
+            ]
+
+        # Single origin
+        return (
+            [self.cors_origins_str.strip()] if self.cors_origins_str.strip() else ["*"]
+        )
 
     # Security settings
     secret_key: str = "your-secret-key-here-change-in-production"

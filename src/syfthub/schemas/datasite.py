@@ -48,6 +48,33 @@ class Policy(BaseModel):
     )
 
 
+class Connection(BaseModel):
+    """Connection configuration for datasites.
+
+    Provides a flexible structure for declaring connection methods that can be used
+    to access datasites without implementing the actual connection logic in this system.
+    """
+
+    type: str = Field(
+        ..., min_length=1, max_length=50, description="Connection type identifier"
+    )
+    enabled: bool = Field(
+        default=True, description="Whether this connection is currently available"
+    )
+    description: str = Field(
+        default="", max_length=500, description="Human-readable connection description"
+    )
+    config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Flexible configuration object for connection-specific settings",
+    )
+
+    model_config = ConfigDict(
+        extra="forbid",  # Only allow defined fields at Connection level
+        str_strip_whitespace=True,
+    )
+
+
 # Reserved slugs that cannot be used for datasites
 RESERVED_SLUGS = {
     "api",
@@ -106,6 +133,10 @@ class DatasiteBase(BaseModel):
     )
     policies: list[Policy] = Field(
         default_factory=list, description="List of policies applied to this datasite"
+    )
+    connect: list[Connection] = Field(
+        default_factory=list,
+        description="List of connection methods available for this datasite",
     )
 
 
@@ -180,6 +211,9 @@ class DatasiteUpdate(BaseModel):
     policies: list[Policy] | None = Field(
         None, description="List of policies applied to this datasite"
     )
+    connect: list[Connection] | None = Field(
+        None, description="List of connection methods available for this datasite"
+    )
 
 
 class Datasite(DatasiteBase):
@@ -227,6 +261,9 @@ class DatasiteResponse(BaseModel):
     policies: list[Policy] = Field(
         ..., description="List of policies applied to this datasite"
     )
+    connect: list[Connection] = Field(
+        ..., description="List of connection methods available for this datasite"
+    )
     created_at: datetime = Field(..., description="When the datasite was created")
     updated_at: datetime = Field(..., description="When the datasite was last updated")
 
@@ -247,6 +284,9 @@ class DatasitePublicResponse(BaseModel):
     )
     policies: list[Policy] = Field(
         ..., description="List of policies applied to this datasite"
+    )
+    connect: list[Connection] = Field(
+        ..., description="List of connection methods available for this datasite"
     )
     created_at: datetime = Field(..., description="When the datasite was created")
     updated_at: datetime = Field(..., description="When the datasite was last updated")

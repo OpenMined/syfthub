@@ -1,4 +1,4 @@
-.PHONY: help install install-dev test test-cov lint format check type-check pre-commit build run dev server clean clean-build clean-pyc clean-test clean-all
+.PHONY: help install install-dev test test-cov lint format check type-check pre-commit build run dev server seed clean clean-build clean-pyc clean-test clean-all docker-dev docker-prod docker-test docker-build docker-down docker-logs docker-clean
 
 help:  ## Show this help message
 	@echo 'Usage: make [target]'
@@ -57,6 +57,10 @@ dev:  ## Run the FastAPI server in development mode with reload
 
 server: dev  ## Alias for dev command
 
+seed:  ## 🌱 Populate database with sample data (server must be running)
+	@echo "Seeding database with sample data..."
+	@cd scripts && ./run_seed.sh
+
 shell:  ## Start a Python shell with the package imported
 	uv run python -c "import syfthub; import code; code.interact(local=locals())"
 
@@ -87,3 +91,91 @@ clean-test:  ## Remove test and coverage artifacts
 clean-all: clean  ## Clean everything including virtual environment
 	rm -rf .venv/
 	rm -rf uv.lock
+
+# Docker commands
+docker-dev:  ## Start development environment with Docker
+	@echo "Starting development environment..."
+	@cp -n .env.example .env 2>/dev/null || true
+	docker compose up -d
+	@echo "Development environment started!"
+	@echo "API: http://localhost:8000"
+	@echo "Docs: http://localhost:8000/docs"
+	@echo "Logs: make docker-logs"
+
+docker-prod:  ## Start production environment with Docker
+	@echo "Starting production environment..."
+	@if [ ! -f .env ]; then \
+		echo "Error: .env file not found. Please copy .env.example and configure it."; \
+		exit 1; \
+	fi
+	docker compose -f docker-compose.prod.yml up -d
+	@echo "Production environment started!"
+	@echo "Running migrations..."
+	docker compose -f docker-compose.prod.yml run --rm migrate || true
+	@echo "Production deployment complete!"
+
+docker-test:  ## Run tests in Docker container
+	@echo "Running tests in Docker..."
+	docker compose run --rm test
+
+docker-build:  ## Build Docker images
+	@echo "Building Docker images..."
+	docker compose build
+	@echo "Build complete!"
+
+docker-build-prod:  ## Build production Docker image
+	@echo "Building production Docker image..."
+	docker build --target production -t syfthub:latest .
+	@echo "Production image built: syfthub:latest"
+
+docker-down:  ## Stop all Docker containers
+	@echo "Stopping Docker containers..."
+	docker compose down
+	docker compose -f docker-compose.prod.yml down 2>/dev/null || true
+	@echo "All containers stopped"
+
+docker-logs:  ## View Docker container logs
+	docker compose logs -f api
+
+docker-logs-prod:  ## View production Docker container logs
+	docker compose -f docker-compose.prod.yml logs -f api
+
+docker-clean:  ## Clean Docker volumes and images
+	@echo "Cleaning Docker resources..."
+	docker compose down -v
+	docker compose -f docker-compose.prod.yml down -v 2>/dev/null || true
+	@echo "Docker volumes cleaned"
+
+docker-shell:  ## Access shell in running Docker container
+	docker compose exec api bash
+
+docker-shell-prod:  ## Access shell in production Docker container
+	docker compose -f docker-compose.prod.yml exec api bash
+
+docker-ps:  ## Show running Docker containers
+	@docker compose ps
+	@echo ""
+	@docker compose -f docker-compose.prod.yml ps 2>/dev/null || true
+
+docker-restart:  ## Restart Docker containers
+	docker compose restart
+
+docker-restart-prod:  ## Restart production Docker containers
+	docker compose -f docker-compose.prod.yml restart
+
+docker-health:  ## Check health status of Docker containers
+	@echo "Checking container health..."
+	@docker inspect syfthub-api-dev --format='Dev API: {{.State.Health.Status}}' 2>/dev/null || echo "Dev API: not running"
+	@docker inspect syfthub-api --format='Prod API: {{.State.Health.Status}}' 2>/dev/null || echo "Prod API: not running"
+
+docker-backup:  ## Run database backup in Docker
+	docker compose -f docker-compose.prod.yml --profile backup run --rm backup
+
+docker-migrate:  ## Run database migrations in Docker
+	docker compose -f docker-compose.prod.yml run --rm migrate
+
+docker-monitoring:  ## Start monitoring stack (Prometheus/Grafana)
+	docker compose -f docker-compose.prod.yml --profile monitoring up -d
+	@echo "Monitoring started!"
+	@echo "Prometheus: http://localhost:9090"
+	@echo "Grafana: http://localhost:3000"

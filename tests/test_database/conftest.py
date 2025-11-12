@@ -78,19 +78,6 @@ def sample_user_data() -> dict:
 
 
 @pytest.fixture
-def sample_item_data() -> dict:
-    """Sample item data for testing."""
-    return {
-        "user_id": 1,
-        "name": "Test Item",
-        "description": "A test item",
-        "price": 19.99,
-        "is_available": True,
-        "category": "test",
-    }
-
-
-@pytest.fixture
 def sample_datasite_data() -> dict:
     """Sample datasite data for testing."""
     return {

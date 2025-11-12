@@ -1,0 +1,2 @@
+# Requirements for the seed data script
+httpx>=0.28.0

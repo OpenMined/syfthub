@@ -1,12 +1,9 @@
 """Tests for repository classes."""
 
-from decimal import Decimal
-
 from sqlalchemy.orm import Session
 
 from syfthub.database.repositories import (
     DatasiteRepository,
-    ItemRepository,
     UserRepository,
 )
 from syfthub.schemas.auth import UserRole
@@ -145,156 +142,6 @@ class TestUserRepository:
 
         assert user_repo.exists_email("test@example.com") is True
         assert user_repo.exists_email("nonexistent@example.com") is False
-
-
-class TestItemRepository:
-    """Tests for ItemRepository."""
-
-    def test_create_item(
-        self, test_session: Session, sample_user_data: dict, sample_item_data: dict
-    ):
-        """Test creating an item through repository."""
-        # Create user first
-        user_repo = UserRepository(test_session)
-        user = user_repo.create(sample_user_data)
-
-        # Create item
-        item_data = sample_item_data.copy()
-        item_data["user_id"] = user.id
-        item_repo = ItemRepository(test_session)
-        item = item_repo.create(item_data)
-
-        assert item.id is not None
-        assert item.user_id == user.id
-        assert item.name == "Test Item"
-        assert item.description == "A test item"
-        assert item.price == Decimal("19.99")
-        assert item.is_available is True
-        assert item.category == "test"
-
-    def test_get_item_by_id(
-        self, test_session: Session, sample_user_data: dict, sample_item_data: dict
-    ):
-        """Test getting item by ID."""
-        # Setup
-        user_repo = UserRepository(test_session)
-        user = user_repo.create(sample_user_data)
-        item_data = sample_item_data.copy()
-        item_data["user_id"] = user.id
-
-        item_repo = ItemRepository(test_session)
-        created_item = item_repo.create(item_data)
-
-        # Test
-        retrieved_item = item_repo.get_by_id(created_item.id)
-        assert retrieved_item is not None
-        assert retrieved_item.id == created_item.id
-        assert retrieved_item.name == "Test Item"
-
-    def test_get_all_items(
-        self, test_session: Session, sample_user_data: dict, sample_item_data: dict
-    ):
-        """Test getting all items with pagination."""
-        # Setup
-        user_repo = UserRepository(test_session)
-        user = user_repo.create(sample_user_data)
-
-        item_repo = ItemRepository(test_session)
-        # Create multiple items
-        for i in range(5):
-            item_data = sample_item_data.copy()
-            item_data["user_id"] = user.id
-            item_data["name"] = f"Test Item {i}"
-            item_repo.create(item_data)
-
-        # Test pagination
-        items = item_repo.get_all(skip=0, limit=3)
-        assert len(items) == 3
-
-        items = item_repo.get_all(skip=3, limit=3)
-        assert len(items) == 2
-
-    def test_get_items_by_user_id(
-        self, test_session: Session, sample_user_data: dict, sample_item_data: dict
-    ):
-        """Test getting items by user ID."""
-        # Create two users
-        user_repo = UserRepository(test_session)
-        user1 = user_repo.create(sample_user_data)
-
-        user2_data = sample_user_data.copy()
-        user2_data["username"] = "testuser2"
-        user2_data["email"] = "test2@example.com"
-        user2 = user_repo.create(user2_data)
-
-        # Create items for both users
-        item_repo = ItemRepository(test_session)
-
-        # Items for user1
-        for i in range(3):
-            item_data = sample_item_data.copy()
-            item_data["user_id"] = user1.id
-            item_data["name"] = f"User1 Item {i}"
-            item_repo.create(item_data)
-
-        # Items for user2
-        for i in range(2):
-            item_data = sample_item_data.copy()
-            item_data["user_id"] = user2.id
-            item_data["name"] = f"User2 Item {i}"
-            item_repo.create(item_data)
-
-        # Test getting items by user
-        user1_items = item_repo.get_by_user_id(user1.id)
-        user2_items = item_repo.get_by_user_id(user2.id)
-
-        assert len(user1_items) == 3
-        assert len(user2_items) == 2
-        assert all("User1" in item.name for item in user1_items)
-        assert all("User2" in item.name for item in user2_items)
-
-    def test_update_item(
-        self, test_session: Session, sample_user_data: dict, sample_item_data: dict
-    ):
-        """Test updating an item."""
-        # Setup
-        user_repo = UserRepository(test_session)
-        user = user_repo.create(sample_user_data)
-        item_data = sample_item_data.copy()
-        item_data["user_id"] = user.id
-
-        item_repo = ItemRepository(test_session)
-        created_item = item_repo.create(item_data)
-
-        # Test update
-        update_data = {"name": "Updated Item", "price": Decimal("25.99")}
-        updated_item = item_repo.update(created_item.id, update_data)
-
-        assert updated_item is not None
-        assert updated_item.name == "Updated Item"
-        assert updated_item.price == Decimal("25.99")
-        assert updated_item.description == "A test item"  # Unchanged
-
-    def test_delete_item(
-        self, test_session: Session, sample_user_data: dict, sample_item_data: dict
-    ):
-        """Test deleting an item."""
-        # Setup
-        user_repo = UserRepository(test_session)
-        user = user_repo.create(sample_user_data)
-        item_data = sample_item_data.copy()
-        item_data["user_id"] = user.id
-
-        item_repo = ItemRepository(test_session)
-        created_item = item_repo.create(item_data)
-
-        # Test delete
-        result = item_repo.delete(created_item.id)
-        assert result is True
-
-        # Verify deletion
-        retrieved_item = item_repo.get_by_id(created_item.id)
-        assert retrieved_item is None
 
 
 class TestDatasiteRepository:
@@ -471,6 +318,79 @@ class TestDatasiteRepository:
         assert updated_datasite.name == "Updated Datasite"
         assert updated_datasite.visibility == DatasiteVisibility.PRIVATE
         assert updated_datasite.slug == "test-datasite"  # Unchanged
+
+    def test_datasite_with_connect_field(
+        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    ):
+        """Test creating and retrieving datasite with connect field."""
+        # Setup
+        user_repo = UserRepository(test_session)
+        user = user_repo.create(sample_user_data)
+
+        # Create datasite with connect configurations
+        datasite_data = sample_datasite_data.copy()
+        datasite_data["user_id"] = user.id
+        datasite_data["connect"] = [
+            {
+                "type": "http",
+                "enabled": True,
+                "description": "HTTP API connection",
+                "config": {"url": "https://api.example.com", "auth_required": False},
+            },
+            {
+                "type": "webrtc",
+                "enabled": False,
+                "description": "WebRTC connection",
+                "config": {"signaling_server": "wss://signal.example.com"},
+            },
+        ]
+
+        datasite_repo = DatasiteRepository(test_session)
+        created_datasite = datasite_repo.create(datasite_data)
+
+        # Test that connect field is correctly stored and retrieved
+        assert created_datasite.connect is not None
+        assert len(created_datasite.connect) == 2
+
+        # Verify first connection
+        http_conn = created_datasite.connect[0]
+        assert http_conn.type == "http"
+        assert http_conn.enabled is True
+        assert http_conn.description == "HTTP API connection"
+        assert http_conn.config["url"] == "https://api.example.com"
+
+        # Verify second connection
+        webrtc_conn = created_datasite.connect[1]
+        assert webrtc_conn.type == "webrtc"
+        assert webrtc_conn.enabled is False
+        assert webrtc_conn.config["signaling_server"] == "wss://signal.example.com"
+
+        # Test retrieval by ID
+        retrieved_datasite = datasite_repo.get_by_id(created_datasite.id)
+        assert retrieved_datasite is not None
+        assert len(retrieved_datasite.connect) == 2
+        assert retrieved_datasite.connect[0].type == "http"
+        assert retrieved_datasite.connect[1].type == "webrtc"
+
+    def test_datasite_default_empty_connect(
+        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    ):
+        """Test that datasite defaults to empty connect list when not specified."""
+        # Setup
+        user_repo = UserRepository(test_session)
+        user = user_repo.create(sample_user_data)
+
+        datasite_data = sample_datasite_data.copy()
+        datasite_data["user_id"] = user.id
+        # Note: not setting connect field, should default to empty list
+
+        datasite_repo = DatasiteRepository(test_session)
+        created_datasite = datasite_repo.create(datasite_data)
+
+        # Test that connect field defaults to empty list
+        assert created_datasite.connect is not None
+        assert len(created_datasite.connect) == 0
+        assert created_datasite.connect == []
 
     def test_delete_datasite(
         self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict

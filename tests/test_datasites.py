@@ -10,7 +10,6 @@ from syfthub.api.endpoints.datasites import (
     slug_to_datasite_lookup,
     user_datasites_lookup,
 )
-from syfthub.api.endpoints.items import fake_items_db
 from syfthub.auth.dependencies import fake_users_db, username_to_id
 from syfthub.auth.security import token_blacklist
 from syfthub.main import app
@@ -28,18 +27,15 @@ def reset_databases() -> None:
     fake_users_db.clear()
     username_to_id.clear()
     token_blacklist.clear()
-    fake_items_db.clear()
     fake_datasites_db.clear()
     user_datasites_lookup.clear()
     slug_to_datasite_lookup.clear()
 
     # Reset counters
     import syfthub.api.endpoints.datasites as datasites_module
-    import syfthub.api.endpoints.items as items_module
     import syfthub.auth.router as auth_module
 
     auth_module.user_id_counter = 1
-    items_module.item_id_counter = 1
     datasites_module.datasite_id_counter = 1
 
 
@@ -126,6 +122,7 @@ def test_create_datasite_with_auth(client: TestClient, user1_token: str) -> None
     assert data["readme"] == ""  # Default empty readme
     assert data["stars_count"] == 0  # Default stars count
     assert data["policies"] == []  # Default empty policies
+    assert data["connect"] == []  # Default empty connect list
     assert len(data["contributors"]) == 1  # Owner is auto-added as contributor
     assert "user_id" in data
     assert "id" in data
@@ -1177,3 +1174,239 @@ def test_complex_policy_configurations(client: TestClient, user1_token: str) -> 
     assert config["array_value"] == ["item1", "item2", "item3"]
     assert config["nested_object"]["level1"]["level2"]["deep_setting"] == "deep_value"
     assert config["null_value"] is None
+
+
+def test_create_datasite_with_connections(client: TestClient, user1_token: str) -> None:
+    """Test creating a datasite with connection configurations."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    datasite_data = {
+        "name": "Connection-Enabled Datasite",
+        "description": "A datasite with connection methods",
+        "visibility": "public",
+        "connect": [
+            {
+                "type": "http",
+                "enabled": True,
+                "description": "Public HTTP API access",
+                "config": {
+                    "url": "https://api.example.com",
+                    "auth_required": False,
+                    "rate_limit": "1000/hour",
+                },
+            },
+            {
+                "type": "webrtc",
+                "enabled": True,
+                "description": "WebRTC connection for real-time access",
+                "config": {
+                    "signaling_server": "wss://signal.example.com",
+                    "ice_servers": ["stun:stun.l.google.com:19302"],
+                    "requires_negotiation": True,
+                },
+            },
+        ],
+    }
+
+    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    assert response.status_code == 201
+
+    data = response.json()
+    assert data["name"] == "Connection-Enabled Datasite"
+    assert len(data["connect"]) == 2
+
+    # Check first connection
+    http_connection = data["connect"][0]
+    assert http_connection["type"] == "http"
+    assert http_connection["enabled"] is True
+    assert http_connection["description"] == "Public HTTP API access"
+    assert http_connection["config"]["url"] == "https://api.example.com"
+    assert http_connection["config"]["auth_required"] is False
+
+    # Check second connection
+    webrtc_connection = data["connect"][1]
+    assert webrtc_connection["type"] == "webrtc"
+    assert webrtc_connection["enabled"] is True
+    assert webrtc_connection["config"]["requires_negotiation"] is True
+
+
+def test_create_datasite_default_empty_connections(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test that datasites default to empty connections list."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+    datasite_data = {
+        "name": "No Connections Datasite",
+        "visibility": "public",
+    }
+
+    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    assert response.status_code == 201
+
+    data = response.json()
+    assert data["connect"] == []
+
+
+def test_create_datasite_with_minimal_connection(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test creating datasite with minimal connection (only type required)."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    datasite_data = {
+        "name": "Minimal Connection Datasite",
+        "visibility": "public",
+        "connect": [{"type": "simple_connection"}],
+    }
+
+    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    assert response.status_code == 201
+
+    data = response.json()
+    connection = data["connect"][0]
+    assert connection["type"] == "simple_connection"
+    assert connection["enabled"] is True  # Default enabled
+    assert connection["description"] == ""  # Default empty description
+    assert connection["config"] == {}  # Default empty config
+
+
+def test_create_datasite_invalid_connection_type(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test creating datasite with invalid connection type."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    datasite_data = {
+        "name": "Invalid Connection Datasite",
+        "visibility": "public",
+        "connect": [
+            {
+                "type": "",  # Empty type should fail validation
+                "config": {"test": "value"},
+            }
+        ],
+    }
+
+    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    assert response.status_code == 422  # Validation error
+
+
+def test_update_datasite_connections(client: TestClient, user1_token: str) -> None:
+    """Test updating datasite connections."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    # Create datasite with initial connection
+    datasite_data = {
+        "name": "Updateable Connections Datasite",
+        "visibility": "public",
+        "connect": [
+            {"type": "initial_connection", "description": "Initial connection setup"}
+        ],
+    }
+    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    datasite_id = response.json()["id"]
+
+    # Update with new connections
+    update_data = {
+        "connect": [
+            {
+                "type": "ngrok",
+                "enabled": True,
+                "description": "Temporary ngrok tunnel",
+                "config": {
+                    "tunnel_url": "https://abc123.ngrok.io",
+                    "expires": "2024-12-31T23:59:59Z",
+                    "tunnel_type": "http",
+                },
+            }
+        ]
+    }
+    response = client.patch(
+        f"/api/v1/datasites/{datasite_id}", json=update_data, headers=headers
+    )
+    assert response.status_code == 200
+
+    data = response.json()
+    assert len(data["connect"]) == 1
+    connection = data["connect"][0]
+    assert connection["type"] == "ngrok"
+    assert connection["enabled"] is True
+    assert connection["config"]["tunnel_url"] == "https://abc123.ngrok.io"
+
+
+def test_public_datasite_response_includes_connections(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test that public responses include connections."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    datasite_data = {
+        "name": "Public Connections Datasite",
+        "visibility": "public",
+        "connect": [
+            {
+                "type": "public_api",
+                "description": "A connection visible to all users",
+                "config": {"endpoint": "https://api.public.example.com"},
+            }
+        ],
+    }
+
+    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    assert response.status_code == 201
+
+    # Test public listing endpoint
+    response = client.get("/api/v1/datasites/public")
+    assert response.status_code == 200
+
+    data = response.json()
+    assert len(data) == 1
+    assert "connect" in data[0]
+    assert len(data[0]["connect"]) == 1
+    assert data[0]["connect"][0]["type"] == "public_api"
+
+
+def test_complex_connection_configurations(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test connections with complex nested configurations."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    datasite_data = {
+        "name": "Complex Connection Config Datasite",
+        "visibility": "public",
+        "connect": [
+            {
+                "type": "advanced_connection",
+                "description": "Connection with complex nested configuration",
+                "config": {
+                    "servers": [
+                        {"host": "server1.example.com", "port": 8080, "ssl": True},
+                        {"host": "server2.example.com", "port": 8081, "ssl": False},
+                    ],
+                    "auth": {
+                        "type": "oauth2",
+                        "client_id": "abc123",
+                        "scopes": ["read", "write", "admin"],
+                    },
+                    "features": {
+                        "real_time": True,
+                        "batch_processing": False,
+                        "max_connections": 100,
+                    },
+                    "metadata": {"version": "2.1", "region": "us-east-1"},
+                },
+            }
+        ],
+    }
+
+    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    assert response.status_code == 201
+
+    data = response.json()
+    config = data["connect"][0]["config"]
+    assert len(config["servers"]) == 2
+    assert config["servers"][0]["host"] == "server1.example.com"
+    assert config["auth"]["type"] == "oauth2"
+    assert config["features"]["max_connections"] == 100
+    assert config["metadata"]["region"] == "us-east-1"

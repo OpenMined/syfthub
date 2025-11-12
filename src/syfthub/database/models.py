@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from decimal import Decimal
 
 from sqlalchemy import (
     JSON,
@@ -13,7 +12,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    Numeric,
     String,
     Text,
 )
@@ -53,9 +51,6 @@ class UserModel(Base):
     datasites: Mapped[list[DatasiteModel]] = relationship(
         "DatasiteModel", back_populates="user", cascade="all, delete-orphan"
     )
-    items: Mapped[list[ItemModel]] = relationship(
-        "ItemModel", back_populates="user", cascade="all, delete-orphan"
-    )
 
     # Indexes for performance
     __table_args__ = (
@@ -63,44 +58,6 @@ class UserModel(Base):
         Index("idx_users_email", "email"),
         Index("idx_users_role", "role"),
         Index("idx_users_is_active", "is_active"),
-    )
-
-
-class ItemModel(Base):
-    """Item database model."""
-
-    __tablename__ = "items"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=False
-    )
-    name: Mapped[str] = mapped_column(String(100), nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    price: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
-    is_available: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    category: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=lambda: datetime.now(timezone.utc),
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-    )
-
-    # Relationships
-    user: Mapped[UserModel] = relationship("UserModel", back_populates="items")
-
-    # Indexes for performance
-    __table_args__ = (
-        Index("idx_items_user_id", "user_id"),
-        Index("idx_items_is_available", "is_available"),
-        Index("idx_items_category", "category"),
-        Index("idx_items_price", "price"),
     )
 
 
@@ -209,6 +166,9 @@ class DatasiteModel(Base):
     readme: Mapped[str] = mapped_column(Text, nullable=False, default="")
     stars_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     policies: Mapped[list[dict]] = mapped_column(
+        JSON, nullable=False, default=lambda: []
+    )
+    connect: Mapped[list[dict]] = mapped_column(
         JSON, nullable=False, default=lambda: []
     )
     created_at: Mapped[datetime] = mapped_column(

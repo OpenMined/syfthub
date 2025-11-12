@@ -8,7 +8,6 @@ from typing import Any
 from syfthub.database.connection import db_manager
 from syfthub.database.repositories import (
     DatasiteRepository,
-    ItemRepository,
     UserRepository,
 )
 
@@ -29,7 +28,6 @@ def reset_database() -> None:
 
 def migrate_mock_data_to_database(
     mock_users: dict[int, Any] | None = None,
-    mock_items: dict[int, Any] | None = None,
     mock_datasites: dict[int, Any] | None = None,
 ) -> None:
     """Migrate data from mock dictionaries to database.
@@ -43,7 +41,6 @@ def migrate_mock_data_to_database(
 
     try:
         user_repo = UserRepository(session)
-        item_repo = ItemRepository(session)
         datasite_repo = DatasiteRepository(session)
 
         # Migrate users first (they're referenced by items and datasites)
@@ -65,24 +62,6 @@ def migrate_mock_data_to_database(
                 }
                 user_repo.create(user_data)
             print("Users migrated successfully.")
-
-        # Migrate items
-        if mock_items:
-            print(f"Migrating {len(mock_items)} items...")
-            for item in mock_items.values():
-                item_data = {
-                    "id": item.id,
-                    "user_id": item.user_id,
-                    "name": item.name,
-                    "description": item.description,
-                    "price": item.price,
-                    "is_available": item.is_available,
-                    "category": item.category,
-                    "created_at": item.created_at,
-                    "updated_at": item.updated_at,
-                }
-                item_repo.create(item_data)
-            print("Items migrated successfully.")
 
         # Migrate datasites
         if mock_datasites:

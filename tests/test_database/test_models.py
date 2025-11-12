@@ -1,13 +1,12 @@
 """Tests for database models."""
 
 from datetime import datetime
-from decimal import Decimal
 
 import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from syfthub.database.models import DatasiteModel, ItemModel, UserModel
+from syfthub.database.models import DatasiteModel, UserModel
 
 
 class TestUserModel:
@@ -60,22 +59,12 @@ class TestUserModel:
             test_session.commit()
 
     def test_user_relationships(self, test_session: Session, sample_user_data: dict):
-        """Test user relationships with items and datasites."""
+        """Test user relationships with datasites."""
         # Create user
         user = UserModel(**sample_user_data)
         test_session.add(user)
         test_session.commit()
         test_session.refresh(user)
-
-        # Create item for user
-        item = ItemModel(
-            user_id=user.id,
-            name="Test Item",
-            description="Test description",
-            price=Decimal("10.00"),
-            is_available=True,
-        )
-        test_session.add(item)
 
         # Create datasite for user
         datasite = DatasiteModel(
@@ -91,79 +80,8 @@ class TestUserModel:
 
         # Test relationships
         test_session.refresh(user)
-        assert len(user.items) == 1
         assert len(user.datasites) == 1
-        assert user.items[0].name == "Test Item"
         assert user.datasites[0].name == "Test Datasite"
-
-
-class TestItemModel:
-    """Tests for ItemModel."""
-
-    def test_create_item(
-        self, test_session: Session, sample_user_data: dict, sample_item_data: dict
-    ):
-        """Test creating an item."""
-        # Create user first
-        user = UserModel(**sample_user_data)
-        test_session.add(user)
-        test_session.commit()
-        test_session.refresh(user)
-
-        # Update item data with user ID
-        item_data = sample_item_data.copy()
-        item_data["user_id"] = user.id
-
-        # Create item
-        item = ItemModel(**item_data)
-        test_session.add(item)
-        test_session.commit()
-        test_session.refresh(item)
-
-        assert item.id is not None
-        assert item.user_id == user.id
-        assert item.name == "Test Item"
-        assert item.description == "A test item"
-        assert item.price == Decimal("19.99")
-        assert item.is_available is True
-        assert item.category == "test"
-        assert isinstance(item.created_at, datetime)
-        assert isinstance(item.updated_at, datetime)
-
-    def test_item_user_relationship(
-        self, test_session: Session, sample_user_data: dict, sample_item_data: dict
-    ):
-        """Test item-user relationship."""
-        # Create user
-        user = UserModel(**sample_user_data)
-        test_session.add(user)
-        test_session.commit()
-        test_session.refresh(user)
-
-        # Create item
-        item_data = sample_item_data.copy()
-        item_data["user_id"] = user.id
-        item = ItemModel(**item_data)
-        test_session.add(item)
-        test_session.commit()
-        test_session.refresh(item)
-
-        # Test relationship
-        assert item.user.username == "testuser"
-        assert item.user.id == user.id
-
-    def test_item_foreign_key_constraint(
-        self, test_session: Session, sample_item_data: dict
-    ):
-        """Test that item requires a valid user_id."""
-        # Try to create item with non-existent user_id
-        item_data = sample_item_data.copy()
-        item_data["user_id"] = 999  # Non-existent user
-        item = ItemModel(**item_data)
-        test_session.add(item)
-
-        with pytest.raises(IntegrityError):
-            test_session.commit()
 
 
 class TestDatasiteModel:
