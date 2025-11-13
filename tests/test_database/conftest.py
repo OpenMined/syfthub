@@ -66,15 +66,19 @@ def test_session(test_engine) -> Generator[Session, None, None]:
 @pytest.fixture
 def sample_user_data() -> dict:
     """Sample user data for testing."""
-    return {
-        "username": "testuser",
-        "email": "test@example.com",
-        "full_name": "Test User",
-        "age": 25,
-        "role": "user",
-        "password_hash": "hashed_password_123",
-        "is_active": True,
-    }
+    from tests.test_utils import get_test_user_model_data
+
+    return get_test_user_model_data(
+        {
+            "username": "testuser",
+            "email": "test@example.com",
+            "full_name": "Test User",
+            "age": 25,
+            "role": "user",
+            "password_hash": "hashed_password_123",
+            "is_active": True,
+        }
+    )
 
 
 @pytest.fixture

@@ -80,18 +80,23 @@ class TestDatabaseInit:
         mock_datasite_repo_class.return_value = mock_datasite_repo
 
         # Create test user
-        test_user = User(
-            id=1,
-            username="testuser",
-            email="test@example.com",
-            full_name="Test User",
-            age=30,
-            role=UserRole.USER,
-            password_hash="hashed_password",
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+        from tests.test_utils import get_test_user_data
+
+        user_data = get_test_user_data(
+            {
+                "id": 1,
+                "username": "testuser",
+                "email": "test@example.com",
+                "full_name": "Test User",
+                "age": 30,
+                "role": UserRole.USER,
+                "password_hash": "hashed_password",
+                "is_active": True,
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+            }
         )
+        test_user = User(**user_data)
 
         mock_users = {1: test_user}
 
@@ -202,18 +207,23 @@ class TestDatabaseInit:
         mock_user_repo_class.return_value = mock_user_repo
 
         # Create test user
-        test_user = User(
-            id=1,
-            username="testuser",
-            email="test@example.com",
-            full_name="Test User",
-            age=30,
-            role=UserRole.USER,
-            password_hash="hashed_password",
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+        from tests.test_utils import get_test_user_data
+
+        user_data = get_test_user_data(
+            {
+                "id": 1,
+                "username": "testuser",
+                "email": "test@example.com",
+                "full_name": "Test User",
+                "age": 30,
+                "role": UserRole.USER,
+                "password_hash": "hashed_password",
+                "is_active": True,
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+            }
         )
+        test_user = User(**user_data)
 
         mock_users = {1: test_user}
 

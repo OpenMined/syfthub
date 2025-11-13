@@ -34,6 +34,9 @@ class UserModel(Base):
     age: Mapped[int | None] = mapped_column(Integer, nullable=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="user")
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    public_key: Mapped[str] = mapped_column(
+        String(88), nullable=False
+    )  # Base64 encoded Ed25519 public key
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -46,6 +49,11 @@ class UserModel(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
+    key_created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
 
     # Relationships
     datasites: Mapped[list[DatasiteModel]] = relationship(
@@ -56,6 +64,7 @@ class UserModel(Base):
     __table_args__ = (
         Index("idx_users_username", "username"),
         Index("idx_users_email", "email"),
+        Index("idx_users_public_key", "public_key", unique=True),
         Index("idx_users_role", "role"),
         Index("idx_users_is_active", "is_active"),
     )

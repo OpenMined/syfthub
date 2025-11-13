@@ -110,9 +110,11 @@ class UserRepository:
             age=user_model.age,
             role=UserRole(user_model.role),
             password_hash=user_model.password_hash,
+            public_key=user_model.public_key,
             is_active=user_model.is_active,
             created_at=user_model.created_at,
             updated_at=user_model.updated_at,
+            key_created_at=user_model.key_created_at,
         )
 
 

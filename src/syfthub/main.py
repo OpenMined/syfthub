@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import markdown  # type: ignore
+import markdown
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
@@ -250,7 +250,7 @@ async def list_owner_public_datasites(
     return [DatasitePublicResponse.model_validate(ds) for ds in accessible_datasites]
 
 
-@app.get("/{owner_slug}/{datasite_slug}")
+@app.get("/{owner_slug}/{datasite_slug}", response_model=None)
 async def get_owner_datasite(
     request: Request,
     owner_slug: str,

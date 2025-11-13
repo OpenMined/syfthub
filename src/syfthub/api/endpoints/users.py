@@ -12,7 +12,12 @@ from syfthub.auth.dependencies import (
     fake_users_db,
     get_current_active_user,
 )
-from syfthub.schemas.auth import UserRole
+from syfthub.auth.security import verify_ed25519_signature
+from syfthub.schemas.auth import (
+    SignatureVerificationRequest,
+    SignatureVerificationResponse,
+    UserRole,
+)
 from syfthub.schemas.user import User, UserResponse, UserUpdate
 
 router = APIRouter()
@@ -170,3 +175,52 @@ async def delete_user(
 
     # Delete user
     del fake_users_db[user_id]
+
+
+@router.post("/verify-signature", response_model=SignatureVerificationResponse)
+async def verify_signature(
+    request: SignatureVerificationRequest,
+) -> SignatureVerificationResponse:
+    """Verify an Ed25519 signature and return user information if valid.
+
+    This endpoint allows other services to verify that a signature was created
+    by a valid Syfthub user, enabling Syfthub to act as an identity provider.
+    """
+    # Convert message to bytes for verification
+    message_bytes = request.message.encode("utf-8")
+
+    # Find user by public key
+    user_owner = None
+    for user in fake_users_db.values():
+        if user.public_key == request.public_key and user.is_active:
+            user_owner = user
+            break
+
+    if not user_owner:
+        return SignatureVerificationResponse(
+            verified=False,
+            user_info=None,
+            message="Public key not found or user inactive",
+        )
+
+    # Verify the signature
+    is_valid = verify_ed25519_signature(
+        message_bytes, request.signature, request.public_key
+    )
+
+    if not is_valid:
+        return SignatureVerificationResponse(
+            verified=False, user_info=None, message="Invalid signature"
+        )
+
+    # Return user information (minimal data for privacy)
+    user_info: dict[str, str | int | None] = {
+        "id": user_owner.id,
+        "username": user_owner.username,
+        "full_name": user_owner.full_name,
+        "key_created_at": user_owner.key_created_at.isoformat(),
+    }
+
+    return SignatureVerificationResponse(
+        verified=True, user_info=user_info, message="Signature verified successfully"
+    )

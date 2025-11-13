@@ -25,9 +25,11 @@ class TestUserModel:
         assert user.full_name == "Test User"
         assert user.age == 25
         assert user.role == "user"
+        assert user.public_key is not None  # New field
         assert user.is_active is True
         assert isinstance(user.created_at, datetime)
         assert isinstance(user.updated_at, datetime)
+        assert isinstance(user.key_created_at, datetime)  # New field
 
     def test_user_unique_constraints(
         self, test_session: Session, sample_user_data: dict
@@ -38,9 +40,13 @@ class TestUserModel:
         test_session.add(user1)
         test_session.commit()
 
-        # Try to create user with same username
+        from tests.test_utils import generate_unique_test_keys
+
+        # Try to create user with same username (should fail on username, not public_key)
+        unique_keys_2 = generate_unique_test_keys()
         user2_data = sample_user_data.copy()
         user2_data["email"] = "different@example.com"
+        user2_data["public_key"] = unique_keys_2["public_key"]
         user2 = UserModel(**user2_data)
         test_session.add(user2)
 
@@ -49,9 +55,11 @@ class TestUserModel:
 
         test_session.rollback()
 
-        # Try to create user with same email
+        # Try to create user with same email (should fail on email, not public_key)
+        unique_keys_3 = generate_unique_test_keys()
         user3_data = sample_user_data.copy()
         user3_data["username"] = "differentuser"
+        user3_data["public_key"] = unique_keys_3["public_key"]
         user3 = UserModel(**user3_data)
         test_session.add(user3)
 
@@ -147,9 +155,14 @@ class TestDatasiteModel:
         user1 = UserModel(**sample_user_data)
         test_session.add(user1)
 
+        from tests.test_utils import generate_unique_test_keys
+
         user2_data = sample_user_data.copy()
         user2_data["username"] = "testuser2"
         user2_data["email"] = "test2@example.com"
+        # Generate unique public key for second user
+        unique_keys = generate_unique_test_keys()
+        user2_data["public_key"] = unique_keys["public_key"]
         user2 = UserModel(**user2_data)
         test_session.add(user2)
         test_session.commit()

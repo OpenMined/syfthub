@@ -21,6 +21,7 @@ requires-python = ">=3.9"
 dependencies = [
     "alembic>=1.14.0",
     "argon2-cffi>=25.1.0",
+    "cryptography>=43.0.0",
     "email-validator>=2.3.0",
     "fastapi>=0.121.1",
     "httpx>=0.28.1",

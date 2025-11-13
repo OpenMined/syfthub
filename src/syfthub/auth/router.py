@@ -23,14 +23,17 @@ from syfthub.auth.security import (
     blacklist_token,
     create_access_token,
     create_refresh_token,
+    generate_ed25519_key_pair,
     hash_password,
     verify_password,
     verify_token,
 )
 from syfthub.schemas.auth import (
-    AuthResponse,
+    Ed25519KeyPair,
+    KeyRegenerationResponse,
     PasswordChange,
     RefreshTokenRequest,
+    RegistrationResponse,
     Token,
     UserRegister,
     UserRole,
@@ -44,9 +47,11 @@ user_id_counter = 1
 
 
 @router.post(
-    "/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED
+    "/register",
+    response_model=RegistrationResponse,
+    status_code=status.HTTP_201_CREATED,
 )
-async def register_user(user_data: UserRegister) -> AuthResponse:
+async def register_user(user_data: UserRegister) -> RegistrationResponse:
     """Register a new user."""
     global user_id_counter
 
@@ -67,6 +72,9 @@ async def register_user(user_data: UserRegister) -> AuthResponse:
     # Create new user
     password_hash = hash_password(user_data.password)
 
+    # Generate Ed25519 key pair for the user
+    key_pair = generate_ed25519_key_pair()
+
     user = User(
         id=user_id_counter,
         username=user_data.username,
@@ -75,9 +83,11 @@ async def register_user(user_data: UserRegister) -> AuthResponse:
         age=user_data.age,
         role=UserRole.USER,  # Default role for new users
         password_hash=password_hash,
+        public_key=key_pair.public_key,
         is_active=True,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
+        key_created_at=datetime.now(timezone.utc),
     )
 
     # Store user in database
@@ -103,11 +113,18 @@ async def register_user(user_data: UserRegister) -> AuthResponse:
         "is_active": user.is_active,
     }
 
-    return AuthResponse(
+    # Create key pair response
+    keys = Ed25519KeyPair(
+        private_key=key_pair.private_key,
+        public_key=key_pair.public_key,
+    )
+
+    return RegistrationResponse(
         user=user_dict,
         access_token=access_token,
         refresh_token=refresh_token,
         token_type="bearer",
+        keys=keys,
     )
 
 
@@ -223,6 +240,31 @@ async def change_password(
 
     # In a real application, you would save to database here
     fake_users_db[current_user.id] = current_user
+
+
+@router.post("/regenerate-keys", response_model=KeyRegenerationResponse)
+async def regenerate_user_keys(
+    current_user: Annotated[User, Depends(get_current_active_user)],
+) -> KeyRegenerationResponse:
+    """Regenerate Ed25519 key pair for the current user."""
+    # Generate new key pair
+    key_pair = generate_ed25519_key_pair()
+
+    # Update user's public key in database
+    current_user.public_key = key_pair.public_key
+    current_user.key_created_at = datetime.now(timezone.utc)
+    current_user.updated_at = datetime.now(timezone.utc)
+
+    # Save to database
+    fake_users_db[current_user.id] = current_user
+
+    # Create key pair response
+    keys = Ed25519KeyPair(
+        private_key=key_pair.private_key,
+        public_key=key_pair.public_key,
+    )
+
+    return KeyRegenerationResponse(keys=keys)
 
 
 def authenticate_user(username: str, password: str) -> User | None:

@@ -116,6 +116,17 @@ class PasswordChange(BaseModel):
         return v
 
 
+class Ed25519KeyPair(BaseModel):
+    """Ed25519 key pair schema."""
+
+    private_key: str = Field(..., description="Base64 encoded Ed25519 private key")
+    public_key: str = Field(..., description="Base64 encoded Ed25519 public key")
+    warning: str = Field(
+        default="IMPORTANT: Store your private key securely. It will not be stored on our servers and cannot be recovered if lost.",
+        description="Security warning about private key storage",
+    )
+
+
 class AuthResponse(BaseModel):
     """Authentication response with user info and tokens."""
 
@@ -125,3 +136,43 @@ class AuthResponse(BaseModel):
     access_token: str = Field(..., description="JWT access token")
     refresh_token: str = Field(..., description="JWT refresh token")
     token_type: str = Field(default="bearer", description="Token type")
+
+
+class RegistrationResponse(BaseModel):
+    """Registration response with user info, tokens, and generated keys."""
+
+    user: dict[str, str | int | bool | None] = Field(
+        ..., description="User information"
+    )
+    access_token: str = Field(..., description="JWT access token")
+    refresh_token: str = Field(..., description="JWT refresh token")
+    token_type: str = Field(default="bearer", description="Token type")
+    keys: Ed25519KeyPair = Field(..., description="Generated Ed25519 key pair")
+
+
+class KeyRegenerationResponse(BaseModel):
+    """Key regeneration response with new key pair."""
+
+    keys: Ed25519KeyPair = Field(..., description="New Ed25519 key pair")
+    message: str = Field(
+        default="New key pair generated successfully. Your previous public key has been replaced.",
+        description="Success message",
+    )
+
+
+class SignatureVerificationRequest(BaseModel):
+    """Signature verification request schema."""
+
+    message: str = Field(..., description="Original message that was signed")
+    signature: str = Field(..., description="Base64 encoded Ed25519 signature")
+    public_key: str = Field(..., description="Base64 encoded Ed25519 public key")
+
+
+class SignatureVerificationResponse(BaseModel):
+    """Signature verification response schema."""
+
+    verified: bool = Field(..., description="Whether the signature is valid")
+    user_info: dict[str, str | int | None] | None = Field(
+        None, description="User information if signature is valid"
+    )
+    message: str = Field(..., description="Verification result message")

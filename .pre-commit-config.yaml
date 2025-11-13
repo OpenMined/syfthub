@@ -36,4 +36,5 @@ repos:
           sqlalchemy,
           alembic,
           types-sqlalchemy,
+          types-markdown,
         ]

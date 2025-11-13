@@ -70,16 +70,21 @@ class TestAuthenticationDependencies:
     @pytest.fixture
     def mock_user(self) -> User:
         """Mock user for testing."""
-        return User(
-            id=1,
-            username="testuser",
-            email="test@example.com",
-            full_name="Test User",
-            age=25,
-            role=UserRole.USER,
-            password_hash="hashed_password",
-            is_active=True,
+        from tests.test_utils import get_test_user_data
+
+        user_data = get_test_user_data(
+            {
+                "id": 1,
+                "username": "testuser",
+                "email": "test@example.com",
+                "full_name": "Test User",
+                "age": 25,
+                "role": UserRole.USER,
+                "password_hash": "hashed_password",
+                "is_active": True,
+            }
         )
+        return User(**user_data)
 
     @pytest.mark.asyncio
     async def test_get_current_user_success(
@@ -106,7 +111,11 @@ class TestAuthenticationDependencies:
                 "age": mock_user.age,
                 "role": mock_user.role.value,
                 "password_hash": mock_user.password_hash,
+                "public_key": mock_user.public_key,
                 "is_active": mock_user.is_active,
+                "created_at": mock_user.created_at,
+                "updated_at": mock_user.updated_at,
+                "key_created_at": mock_user.key_created_at,
             }
             created_user = user_repo.create(user_data)
 
@@ -203,7 +212,11 @@ class TestAuthenticationDependencies:
                 "age": mock_user.age,
                 "role": mock_user.role.value,
                 "password_hash": mock_user.password_hash,
+                "public_key": mock_user.public_key,
                 "is_active": mock_user.is_active,
+                "created_at": mock_user.created_at,
+                "updated_at": mock_user.updated_at,
+                "key_created_at": mock_user.key_created_at,
             }
             created_user = user_repo.create(user_data)
 

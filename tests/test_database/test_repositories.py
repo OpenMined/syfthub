@@ -75,11 +75,15 @@ class TestUserRepository:
         """Test getting all users."""
         user_repo = UserRepository(test_session)
 
-        # Create multiple users
+        from tests.test_utils import generate_unique_test_keys
+
+        # Create multiple users with unique keys
         user1_data = sample_user_data.copy()
         user2_data = sample_user_data.copy()
         user2_data["username"] = "testuser2"
         user2_data["email"] = "test2@example.com"
+        unique_keys_2 = generate_unique_test_keys()
+        user2_data["public_key"] = unique_keys_2["public_key"]
 
         user_repo.create(user1_data)
         user_repo.create(user2_data)
@@ -198,9 +202,13 @@ class TestDatasiteRepository:
         user_repo = UserRepository(test_session)
         user1 = user_repo.create(sample_user_data)
 
+        from tests.test_utils import generate_unique_test_keys
+
         user2_data = sample_user_data.copy()
         user2_data["username"] = "testuser2"
         user2_data["email"] = "test2@example.com"
+        unique_keys_2 = generate_unique_test_keys()
+        user2_data["public_key"] = unique_keys_2["public_key"]
         user2 = user_repo.create(user2_data)
 
         # Create datasites for both users
@@ -278,9 +286,13 @@ class TestDatasiteRepository:
         user_repo = UserRepository(test_session)
         user1 = user_repo.create(sample_user_data)
 
+        from tests.test_utils import generate_unique_test_keys
+
         user2_data = sample_user_data.copy()
         user2_data["username"] = "testuser2"
         user2_data["email"] = "test2@example.com"
+        unique_keys_2 = generate_unique_test_keys()
+        user2_data["public_key"] = unique_keys_2["public_key"]
         user2 = user_repo.create(user2_data)
 
         # Create datasite for user1
