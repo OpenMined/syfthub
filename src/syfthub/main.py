@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+import markdown  # type: ignore
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.templating import Jinja2Templates
 
 from syfthub import __version__
 from syfthub.api.endpoints.datasites import (
@@ -32,8 +35,15 @@ from syfthub.schemas.datasite import (
 )
 
 if TYPE_CHECKING:
+    from fastapi.responses import HTMLResponse
+
     from syfthub.schemas.organization import Organization
     from syfthub.schemas.user import User
+
+
+# Setup Jinja2 templates
+templates_dir = Path(__file__).parent / "templates"
+templates = Jinja2Templates(directory=str(templates_dir))
 
 
 def resolve_owner(owner_slug: str) -> tuple[User | Organization | None, str]:
@@ -88,6 +98,20 @@ def get_datasite_by_owner_and_slug(
             if datasite.organization_id == owner.id and datasite.slug == slug:
                 return datasite
     return None
+
+
+def is_browser_request(request: Request) -> bool:
+    """Check if request is from a browser (wants HTML) vs API client (wants JSON)."""
+    accept_header = request.headers.get("accept", "")
+    user_agent = request.headers.get("user-agent", "")
+
+    # Check if client specifically wants HTML
+    if "text/html" in accept_header:
+        return True
+
+    # Check if it's a browser user agent
+    browser_indicators = ["Mozilla", "Chrome", "Safari", "Firefox", "Edge"]
+    return any(indicator in user_agent for indicator in browser_indicators)
 
 
 def can_access_datasite_with_org(
@@ -228,10 +252,11 @@ async def list_owner_public_datasites(
 
 @app.get("/{owner_slug}/{datasite_slug}")
 async def get_owner_datasite(
+    request: Request,
     owner_slug: str,
     datasite_slug: str,
     current_user: User | None = Depends(get_optional_current_user),
-) -> DatasiteResponse | DatasitePublicResponse:
+) -> HTMLResponse | DatasiteResponse | DatasitePublicResponse:
     """Get a specific datasite by owner and slug."""
     # Resolve owner (user or organization)
     owner, owner_type = resolve_owner(owner_slug)
@@ -274,10 +299,42 @@ async def get_owner_datasite(
                 datasite.organization_id, current_user.id
             )
 
-    if can_see_full_details:
-        return DatasiteResponse.model_validate(datasite)
+    # Check if this is a browser request (wants HTML) or API request (wants JSON)
+    if is_browser_request(request):
+        # Render HTML template for browsers
+        if owner_type == "user":
+            from syfthub.schemas.user import User
+
+            owner_name = owner.username if isinstance(owner, User) else ""
+        else:
+            from syfthub.schemas.organization import Organization
+
+            owner_name = owner.name if isinstance(owner, Organization) else ""
+
+        # Convert README markdown to HTML
+        readme_html = ""
+        if datasite.readme and datasite.readme.strip():
+            readme_html = markdown.markdown(
+                datasite.readme, extensions=["codehilite", "fenced_code"]
+            )
+
+        return templates.TemplateResponse(
+            "datasite.html",
+            {
+                "request": request,
+                "datasite": datasite,
+                "owner_name": owner_name,
+                "owner_slug": owner_slug,
+                "readme_html": readme_html,
+                "can_see_full_details": can_see_full_details,
+            },
+        )
     else:
-        return DatasitePublicResponse.model_validate(datasite)
+        # Return JSON for API clients
+        if can_see_full_details:
+            return DatasiteResponse.model_validate(datasite)
+        else:
+            return DatasitePublicResponse.model_validate(datasite)
 
 
 def main() -> None:
