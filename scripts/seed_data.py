@@ -354,8 +354,26 @@ class SyfthubSeeder:
                     },
                 ],
                 "connections": [
-                    {"type": "rest-api", "description": "RESTful data access"},
-                    {"type": "sql", "description": "Direct SQL query access"},
+                    {
+                        "type": "http",
+                        "enabled": True,
+                        "description": "RESTful API endpoint",
+                        "config": {
+                            "url": "https://api.syfthub.io/v1/datasites/customer-segmentation",
+                            "auth_required": True,
+                            "rate_limit": "1000 req/min",
+                        },
+                    },
+                    {
+                        "type": "webrtc",
+                        "enabled": True,
+                        "description": "Peer-to-peer data streaming",
+                        "config": {
+                            "signaling_server": "wss://signal.syfthub.io",
+                            "datasite_id": "alice_chen/customer-segmentation",
+                            "ice_servers": ["stun:stun.l.google.com:19302"],
+                        },
+                    },
                 ],
             },
             {
@@ -367,6 +385,18 @@ class SyfthubSeeder:
                 "visibility": "public",
                 "version": "1.3.0",
                 "stars": 82,
+                "connections": [
+                    {
+                        "type": "websocket",
+                        "enabled": True,
+                        "description": "Real-time benchmark updates",
+                        "config": {
+                            "url": "wss://stream.syfthub.io/datasites/ml-benchmarks",
+                            "protocols": ["benchmark-stream-v1"],
+                            "reconnect": True,
+                        },
+                    }
+                ],
             },
             # Bob Smith - Machine Learning
             {
@@ -379,6 +409,28 @@ class SyfthubSeeder:
                 "version": "2.0.0",
                 "stars": 156,
                 "readme": "# Image Classification Dataset v2\n\n50,000 high-resolution images across 100 categories.",
+                "connections": [
+                    {
+                        "type": "http",
+                        "enabled": True,
+                        "description": "Direct download endpoint",
+                        "config": {
+                            "url": "https://cdn.syfthub.io/datasets/image-classification-v2",
+                            "method": "GET",
+                            "format": "tar.gz",
+                        },
+                    },
+                    {
+                        "type": "grpc",
+                        "enabled": True,
+                        "description": "High-performance data streaming",
+                        "config": {
+                            "endpoint": "grpc.syfthub.io:50051",
+                            "service": "ImageDataService",
+                            "tls_enabled": True,
+                        },
+                    },
+                ],
             },
             {
                 "owner": "bob_smith",
@@ -443,6 +495,28 @@ class SyfthubSeeder:
                 "version": "1.1.0",
                 "stars": 128,
                 "readme": "# Climate Model Outputs 2024\n\nRegional climate projections with 1km resolution.\n\n## Variables\n- Temperature\n- Precipitation\n- Wind patterns\n- Extreme weather events",
+                "connections": [
+                    {
+                        "type": "http",
+                        "enabled": True,
+                        "description": "OpenDAP data access",
+                        "config": {
+                            "url": "https://opendap.syfthub.io/climate-models-2024",
+                            "protocol": "OPeNDAP",
+                            "catalog_url": "https://opendap.syfthub.io/catalog",
+                        },
+                    },
+                    {
+                        "type": "webrtc",
+                        "enabled": True,
+                        "description": "Live climate data feed",
+                        "config": {
+                            "signaling_server": "wss://climate-signal.syfthub.io",
+                            "datasite_id": "emma_jones/climate-models-2024",
+                            "stream_type": "netcdf-stream",
+                        },
+                    },
+                ],
             },
             # Frank Taylor - Finance
             {
@@ -475,6 +549,29 @@ class SyfthubSeeder:
                 "visibility": "public",
                 "version": "4.0.0",
                 "stars": 203,
+                "connections": [
+                    {
+                        "type": "graphql",
+                        "enabled": True,
+                        "description": "Flexible query interface",
+                        "config": {
+                            "endpoint": "https://graphql.syfthub.io/v1",
+                            "playground_enabled": True,
+                            "schema_path": "/schema/multilingual-corpus",
+                        },
+                    },
+                    {
+                        "type": "mqtt",
+                        "enabled": True,
+                        "description": "Subscribe to corpus updates",
+                        "config": {
+                            "broker": "mqtt.syfthub.io",
+                            "port": 8883,
+                            "topic": "datasites/grace_wang/multilingual-corpus/updates",
+                            "tls": True,
+                        },
+                    },
+                ],
             },
             # Henry Brown - Physics
             {
@@ -507,6 +604,32 @@ class SyfthubSeeder:
                 "visibility": "public",
                 "version": "2.2.0",
                 "stars": 54,
+                "connections": [
+                    {
+                        "type": "ros",
+                        "enabled": True,
+                        "description": "ROS 2 topic bridge",
+                        "config": {
+                            "bridge_url": "ros2.syfthub.io:9090",
+                            "topics": [
+                                "/sensors/lidar",
+                                "/sensors/camera",
+                                "/sensors/imu",
+                            ],
+                            "qos_profile": "sensor_data",
+                        },
+                    },
+                    {
+                        "type": "websocket",
+                        "enabled": True,
+                        "description": "Real-time sensor stream",
+                        "config": {
+                            "url": "wss://robotics.syfthub.io/sensor-stream",
+                            "compression": "zlib",
+                            "buffer_size": 65536,
+                        },
+                    },
+                ],
             },
             {
                 "owner": "kate_miller",
@@ -527,6 +650,31 @@ class SyfthubSeeder:
                 "visibility": "public",
                 "version": "3.1.0",
                 "stars": 112,
+                "connections": [
+                    {
+                        "type": "sse",
+                        "enabled": True,
+                        "description": "Server-sent events for real-time updates",
+                        "config": {
+                            "url": "https://stream.syfthub.io/sse/social-sentiment",
+                            "retry_timeout": 3000,
+                            "event_types": ["sentiment_update", "trending_topic"],
+                        },
+                    },
+                    {
+                        "type": "kafka",
+                        "enabled": True,
+                        "description": "Kafka stream for high-volume data",
+                        "config": {
+                            "brokers": [
+                                "kafka1.syfthub.io:9092",
+                                "kafka2.syfthub.io:9092",
+                            ],
+                            "topic": "social-sentiment-stream",
+                            "consumer_group": "sentiment-consumers",
+                        },
+                    },
+                ],
             },
             {
                 "owner": "maya_patel",
@@ -577,7 +725,7 @@ class SyfthubSeeder:
             {
                 "owner": "tech-innovation-lab",
                 "type": "organization",
-                "created_by": "grace_wang",
+                "created_by": "alice_chen",
                 "name": "Patent Analysis Dataset",
                 "slug": "patent-analysis",
                 "description": "Technology patent landscape analysis and trends",
@@ -607,11 +755,34 @@ class SyfthubSeeder:
                         "description": "Citation required for publications",
                     },
                 ],
+                "connections": [
+                    {
+                        "type": "http",
+                        "enabled": True,
+                        "description": "PDB format downloads",
+                        "config": {
+                            "url": "https://proteins.syfthub.io/api/v2/structures",
+                            "formats": ["pdb", "mmcif", "xml"],
+                            "compression": "gzip",
+                        },
+                    },
+                    {
+                        "type": "ftp",
+                        "enabled": True,
+                        "description": "Bulk download via FTP",
+                        "config": {
+                            "host": "ftp.proteins.syfthub.io",
+                            "port": 21,
+                            "path": "/pub/databases/protein-structures",
+                            "anonymous": True,
+                        },
+                    },
+                ],
             },
             {
                 "owner": "biodatacorp",
                 "type": "organization",
-                "created_by": "iris_zhang",
+                "created_by": "carol_rodriguez",
                 "name": "Clinical Trial Analytics",
                 "slug": "clinical-trials",
                 "description": "Aggregated clinical trial outcomes and analysis",
@@ -634,7 +805,7 @@ class SyfthubSeeder:
             {
                 "owner": "climate-analytics",
                 "type": "organization",
-                "created_by": "noah_lee",
+                "created_by": "emma_jones",
                 "name": "Carbon Footprint Calculator",
                 "slug": "carbon-calculator",
                 "description": "Industry-specific carbon footprint calculation tools",
@@ -657,7 +828,7 @@ class SyfthubSeeder:
             {
                 "owner": "fintech-data",
                 "type": "organization",
-                "created_by": "kate_miller",
+                "created_by": "frank_taylor",
                 "name": "Fraud Detection Patterns",
                 "slug": "fraud-patterns",
                 "description": "Machine learning models for financial fraud detection",
@@ -677,11 +848,43 @@ class SyfthubSeeder:
                 "version": "1.0.0",
                 "stars": 312,
                 "readme": "# Foundation Model Benchmarks\n\nComprehensive evaluation suite for large language and vision models.\n\n## Test Categories\n- Language understanding\n- Code generation\n- Mathematical reasoning\n- Vision-language tasks",
+                "connections": [
+                    {
+                        "type": "http",
+                        "enabled": True,
+                        "description": "Benchmark API endpoint",
+                        "config": {
+                            "url": "https://benchmarks.syfthub.io/api/foundation-models",
+                            "api_version": "v3",
+                            "rate_limit": "100 req/min",
+                        },
+                    },
+                    {
+                        "type": "webrtc",
+                        "enabled": True,
+                        "description": "Live benchmark execution",
+                        "config": {
+                            "signaling_server": "wss://benchmarks-signal.syfthub.io",
+                            "datasite_id": "ai-research-collective/foundation-benchmarks",
+                            "execution_mode": "distributed",
+                        },
+                    },
+                    {
+                        "type": "torrent",
+                        "enabled": True,
+                        "description": "P2P dataset distribution",
+                        "config": {
+                            "magnet_link": "magnet:?xt=urn:btih:abc123...",
+                            "trackers": ["udp://tracker.syfthub.io:6969"],
+                            "piece_size": "2MB",
+                        },
+                    },
+                ],
             },
             {
                 "owner": "ai-research-collective",
                 "type": "organization",
-                "created_by": "jack_wilson",
+                "created_by": "grace_wang",
                 "name": "Robotics AI Datasets",
                 "slug": "robotics-ai",
                 "description": "Curated datasets for robotics AI research",
@@ -716,7 +919,7 @@ class SyfthubSeeder:
             {
                 "owner": "automotive-data-labs",
                 "type": "organization",
-                "created_by": "olivia_davis",
+                "created_by": "maya_patel",
                 "name": "Traffic Safety Analytics",
                 "slug": "traffic-safety",
                 "description": "Road safety analysis and accident prevention insights",
@@ -744,6 +947,39 @@ class SyfthubSeeder:
                     {
                         "type": "quality-review",
                         "description": "Peer-reviewed data submissions",
+                    },
+                ],
+                "connections": [
+                    {
+                        "type": "ipfs",
+                        "enabled": True,
+                        "description": "Decentralized data storage",
+                        "config": {
+                            "gateway": "https://ipfs.syfthub.io",
+                            "cid": "QmXoypizjW3WknFiJnKLwHCnL72vedxjQkDDP1mXWo6uco",
+                            "pinning_service": "pinata",
+                        },
+                    },
+                    {
+                        "type": "dat",
+                        "enabled": True,
+                        "description": "Dat protocol for versioned data",
+                        "config": {
+                            "dat_url": "dat://abc123def456.../open-research",
+                            "version": "latest",
+                            "discovery_swarm": "hyperswarm",
+                        },
+                    },
+                    {
+                        "type": "s3",
+                        "enabled": True,
+                        "description": "S3-compatible object storage",
+                        "config": {
+                            "endpoint": "https://s3.syfthub.io",
+                            "bucket": "open-research-data",
+                            "region": "us-east-1",
+                            "public_read": True,
+                        },
                     },
                 ],
             },
