@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Dict, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import (
@@ -104,7 +104,7 @@ async def register_user(user_data: UserRegister) -> RegistrationResponse:
     )
 
     # Return response
-    user_dict: dict[str, str | int | bool | None] = {
+    user_dict: Dict[str, Union[str, int, bool, None]] = {
         "id": user.id,
         "username": user.username,
         "email": user.email,
@@ -267,7 +267,7 @@ async def regenerate_user_keys(
     return KeyRegenerationResponse(keys=keys)
 
 
-def authenticate_user(username: str, password: str) -> User | None:
+def authenticate_user(username: str, password: str) -> Optional[User]:
     """Authenticate a user by username/email and password."""
     # Try to find user by username or email
     user = get_user_by_username(username)
@@ -283,6 +283,6 @@ def authenticate_user(username: str, password: str) -> User | None:
     return user
 
 
-def get_user_by_id(user_id: int) -> User | None:
+def get_user_by_id(user_id: int) -> Optional[User]:
     """Get user by ID from database."""
     return fake_users_db.get(user_id)

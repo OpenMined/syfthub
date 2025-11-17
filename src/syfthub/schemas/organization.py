@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from enum import Enum
+from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -66,7 +67,7 @@ class OrganizationBase(BaseModel):
     description: str = Field(
         "", max_length=500, description="Description of the organization"
     )
-    avatar_url: str | None = Field(
+    avatar_url: Optional[str] = Field(
         None, max_length=255, description="URL to organization avatar/logo"
     )
     is_active: bool = Field(
@@ -77,7 +78,7 @@ class OrganizationBase(BaseModel):
 class OrganizationCreate(OrganizationBase):
     """Schema for creating a new organization."""
 
-    slug: str | None = Field(
+    slug: Optional[str] = Field(
         None,
         min_length=3,
         max_length=63,
@@ -86,7 +87,7 @@ class OrganizationCreate(OrganizationBase):
 
     @field_validator("slug")
     @classmethod
-    def validate_slug(cls, v: str | None) -> str | None:
+    def validate_slug(cls, v: Optional[str]) -> Optional[str]:
         """Validate organization slug format."""
         if v is None:
             return v
@@ -117,19 +118,19 @@ class OrganizationCreate(OrganizationBase):
 class OrganizationUpdate(BaseModel):
     """Schema for updating an organization."""
 
-    name: str | None = Field(
+    name: Optional[str] = Field(
         None,
         min_length=1,
         max_length=100,
         description="Display name of the organization",
     )
-    description: str | None = Field(
+    description: Optional[str] = Field(
         None, max_length=500, description="Description of the organization"
     )
-    avatar_url: str | None = Field(
+    avatar_url: Optional[str] = Field(
         None, max_length=255, description="URL to organization avatar/logo"
     )
-    is_active: bool | None = Field(
+    is_active: Optional[bool] = Field(
         None, description="Whether the organization is active"
     )
 
@@ -156,7 +157,9 @@ class OrganizationResponse(BaseModel):
     name: str = Field(..., description="Display name of the organization")
     slug: str = Field(..., description="URL-safe identifier")
     description: str = Field(..., description="Description of the organization")
-    avatar_url: str | None = Field(..., description="URL to organization avatar/logo")
+    avatar_url: Optional[str] = Field(
+        ..., description="URL to organization avatar/logo"
+    )
     is_active: bool = Field(..., description="Whether the organization is active")
     created_at: datetime = Field(..., description="When the organization was created")
     updated_at: datetime = Field(
@@ -186,10 +189,12 @@ class OrganizationMemberCreate(OrganizationMemberBase):
 class OrganizationMemberUpdate(BaseModel):
     """Schema for updating organization membership."""
 
-    role: OrganizationRole | None = Field(
+    role: Optional[OrganizationRole] = Field(
         None, description="Member's role in the organization"
     )
-    is_active: bool | None = Field(None, description="Whether the membership is active")
+    is_active: Optional[bool] = Field(
+        None, description="Whether the membership is active"
+    )
 
 
 class OrganizationMemberResponse(BaseModel):
@@ -228,7 +233,7 @@ def generate_slug_from_name(name: str) -> str:
 
 def is_slug_available(
     slug: str,  # noqa: ARG001
-    exclude_organization_id: int | None = None,  # noqa: ARG001
+    exclude_organization_id: Optional[int] = None,  # noqa: ARG001
 ) -> bool:
     """Check if a slug is available for an organization."""
     # This will be implemented in the endpoints module

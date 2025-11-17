@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -37,7 +37,7 @@ class Policy(BaseModel):
     description: str = Field(
         default="", max_length=500, description="Human-readable policy description"
     )
-    config: dict[str, Any] = Field(
+    config: Dict[str, Any] = Field(
         default_factory=dict,
         description="Flexible configuration object for policy-specific settings",
     )
@@ -64,7 +64,7 @@ class Connection(BaseModel):
     description: str = Field(
         default="", max_length=500, description="Human-readable connection description"
     )
-    config: dict[str, Any] = Field(
+    config: Dict[str, Any] = Field(
         default_factory=dict,
         description="Flexible configuration object for connection-specific settings",
     )
@@ -117,7 +117,7 @@ class DatasiteBase(BaseModel):
         default=DatasiteVisibility.PUBLIC, description="Who can access this datasite"
     )
     is_active: bool = Field(default=True, description="Whether the datasite is active")
-    contributors: list[int] = Field(
+    contributors: List[int] = Field(
         default_factory=list, description="List of contributor user IDs"
     )
     version: str = Field(
@@ -131,10 +131,10 @@ class DatasiteBase(BaseModel):
     stars_count: int = Field(
         default=0, ge=0, description="Number of stars this datasite has received"
     )
-    policies: list[Policy] = Field(
+    policies: List[Policy] = Field(
         default_factory=list, description="List of policies applied to this datasite"
     )
-    connect: list[Connection] = Field(
+    connect: List[Connection] = Field(
         default_factory=list,
         description="List of connection methods available for this datasite",
     )
@@ -143,20 +143,20 @@ class DatasiteBase(BaseModel):
 class DatasiteCreate(DatasiteBase):
     """Schema for creating a new datasite."""
 
-    slug: str | None = Field(
+    slug: Optional[str] = Field(
         None,
         min_length=3,
         max_length=63,
         description="URL-safe identifier (auto-generated from name if not provided)",
     )
-    organization_id: int | None = Field(
+    organization_id: Optional[int] = Field(
         None,
         description="Organization ID if creating datasite for organization (optional)",
     )
 
     @field_validator("slug")
     @classmethod
-    def validate_slug(cls, v: str | None) -> str | None:
+    def validate_slug(cls, v: Optional[str]) -> Optional[str]:
         """Validate datasite slug format."""
         if v is None:
             return v
@@ -187,31 +187,33 @@ class DatasiteCreate(DatasiteBase):
 class DatasiteUpdate(BaseModel):
     """Schema for updating a datasite."""
 
-    name: str | None = Field(
+    name: Optional[str] = Field(
         None, min_length=1, max_length=100, description="Display name of the datasite"
     )
-    description: str | None = Field(
+    description: Optional[str] = Field(
         None, max_length=500, description="Description of the datasite"
     )
-    visibility: DatasiteVisibility | None = Field(
+    visibility: Optional[DatasiteVisibility] = Field(
         None, description="Who can access this datasite"
     )
-    is_active: bool | None = Field(None, description="Whether the datasite is active")
-    contributors: list[int] | None = Field(
+    is_active: Optional[bool] = Field(
+        None, description="Whether the datasite is active"
+    )
+    contributors: Optional[List[int]] = Field(
         None, description="List of contributor user IDs"
     )
-    version: str | None = Field(
+    version: Optional[str] = Field(
         None,
         pattern=r"^\d+\.\d+\.\d+$",
         description="Semantic version of the datasite",
     )
-    readme: str | None = Field(
+    readme: Optional[str] = Field(
         None, max_length=50000, description="Markdown content for the README"
     )
-    policies: list[Policy] | None = Field(
+    policies: Optional[List[Policy]] = Field(
         None, description="List of policies applied to this datasite"
     )
-    connect: list[Connection] | None = Field(
+    connect: Optional[List[Connection]] = Field(
         None, description="List of connection methods available for this datasite"
     )
 
@@ -220,10 +222,10 @@ class Datasite(DatasiteBase):
     """Datasite model."""
 
     id: int = Field(..., description="Datasite's unique identifier")
-    user_id: int | None = Field(
+    user_id: Optional[int] = Field(
         None, description="ID of the user who owns this datasite"
     )
-    organization_id: int | None = Field(
+    organization_id: Optional[int] = Field(
         None, description="ID of the organization that owns this datasite"
     )
     slug: str = Field(
@@ -239,10 +241,10 @@ class DatasiteResponse(BaseModel):
     """Schema for datasite response."""
 
     id: int = Field(..., description="Datasite's unique identifier")
-    user_id: int | None = Field(
+    user_id: Optional[int] = Field(
         None, description="ID of the user who owns this datasite"
     )
-    organization_id: int | None = Field(
+    organization_id: Optional[int] = Field(
         None, description="ID of the organization that owns this datasite"
     )
     name: str = Field(..., description="Display name of the datasite")
@@ -252,16 +254,16 @@ class DatasiteResponse(BaseModel):
         ..., description="Who can access this datasite"
     )
     is_active: bool = Field(..., description="Whether the datasite is active")
-    contributors: list[int] = Field(..., description="List of contributor user IDs")
+    contributors: List[int] = Field(..., description="List of contributor user IDs")
     version: str = Field(..., description="Semantic version of the datasite")
     readme: str = Field(..., description="Markdown content for the README")
     stars_count: int = Field(
         ..., description="Number of stars this datasite has received"
     )
-    policies: list[Policy] = Field(
+    policies: List[Policy] = Field(
         ..., description="List of policies applied to this datasite"
     )
-    connect: list[Connection] = Field(
+    connect: List[Connection] = Field(
         ..., description="List of connection methods available for this datasite"
     )
     created_at: datetime = Field(..., description="When the datasite was created")
@@ -276,16 +278,16 @@ class DatasitePublicResponse(BaseModel):
     name: str = Field(..., description="Display name of the datasite")
     slug: str = Field(..., description="URL-safe identifier")
     description: str = Field(..., description="Description of the datasite")
-    contributors: list[int] = Field(..., description="List of contributor user IDs")
+    contributors: List[int] = Field(..., description="List of contributor user IDs")
     version: str = Field(..., description="Semantic version of the datasite")
     readme: str = Field(..., description="Markdown content for the README")
     stars_count: int = Field(
         ..., description="Number of stars this datasite has received"
     )
-    policies: list[Policy] = Field(
+    policies: List[Policy] = Field(
         ..., description="List of policies applied to this datasite"
     )
-    connect: list[Connection] = Field(
+    connect: List[Connection] = Field(
         ..., description="List of connection methods available for this datasite"
     )
     created_at: datetime = Field(..., description="When the datasite was created")
@@ -318,7 +320,7 @@ def generate_slug_from_name(name: str) -> str:
 def is_slug_available(
     slug: str,  # noqa: ARG001
     user_id: int,  # noqa: ARG001
-    exclude_datasite_id: int | None = None,  # noqa: ARG001
+    exclude_datasite_id: Optional[int] = None,  # noqa: ARG001
 ) -> bool:
     """Check if a slug is available for a user."""
     # This will be implemented in the endpoints module

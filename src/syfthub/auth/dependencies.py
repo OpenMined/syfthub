@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Dict, List, Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -15,16 +15,16 @@ from syfthub.schemas.user import User  # noqa: TC001
 security = HTTPBearer(auto_error=False)
 
 # Mock user database (in production, this would be a real database)
-fake_users_db: dict[int, User] = {}
-username_to_id: dict[str, int] = {}
+fake_users_db: Dict[int, User] = {}
+username_to_id: Dict[str, int] = {}
 
 
-def get_user_by_id(user_id: int) -> User | None:
+def get_user_by_id(user_id: int) -> Optional[User]:
     """Get user by ID from database."""
     return fake_users_db.get(user_id)
 
 
-def get_user_by_username(username: str) -> User | None:
+def get_user_by_username(username: str) -> Optional[User]:
     """Get user by username from database."""
     user_id = username_to_id.get(username)
     if user_id:
@@ -32,7 +32,7 @@ def get_user_by_username(username: str) -> User | None:
     return None
 
 
-def get_user_by_email(email: str) -> User | None:
+def get_user_by_email(email: str) -> Optional[User]:
     """Get user by email from database."""
     for user in fake_users_db.values():
         if user.email == email:
@@ -41,7 +41,7 @@ def get_user_by_email(email: str) -> User | None:
 
 
 async def get_current_user(
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
 ) -> User:
     """Get the current authenticated user from JWT token."""
     credentials_exception = HTTPException(
@@ -95,8 +95,8 @@ async def get_current_active_user(
 
 
 async def get_optional_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-) -> User | None:
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> Optional[User]:
     """Get the current user if authenticated, otherwise return None."""
     if credentials is None:
         return None
@@ -127,7 +127,7 @@ async def get_optional_current_user(
 class RoleChecker:
     """Dependency class for role-based access control."""
 
-    def __init__(self, allowed_roles: list[UserRole]):
+    def __init__(self, allowed_roles: List[UserRole]):
         """Initialize with allowed roles."""
         self.allowed_roles = allowed_roles
 

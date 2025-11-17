@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -214,7 +214,7 @@ async def verify_signature(
         )
 
     # Return user information (minimal data for privacy)
-    user_info: dict[str, str | int | None] = {
+    user_info: Dict[str, str | Optional[int]] = {
         "id": user_owner.id,
         "username": user_owner.username,
         "full_name": user_owner.full_name,

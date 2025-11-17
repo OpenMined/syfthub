@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Dict, Optional
 
 from syfthub.database.connection import db_manager
 from syfthub.database.repositories import (
@@ -27,8 +27,8 @@ def reset_database() -> None:
 
 
 def migrate_mock_data_to_database(
-    mock_users: dict[int, Any] | None = None,
-    mock_datasites: dict[int, Any] | None = None,
+    mock_users: Optional[Dict[int, Any]] = None,
+    mock_datasites: Optional[Dict[int, Any]] = None,
 ) -> None:
     """Migrate data from mock dictionaries to database.
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from sqlalchemy import and_, select
 
@@ -23,7 +23,7 @@ class UserRepository:
         """Initialize with database session."""
         self.session = session
 
-    def create(self, user_data: dict[str, Any]) -> User:
+    def create(self, user_data: Dict[str, Any]) -> User:
         """Create a new user."""
         user_model = UserModel(**user_data)
         self.session.add(user_model)
@@ -31,19 +31,19 @@ class UserRepository:
         self.session.refresh(user_model)
         return self._model_to_schema(user_model)
 
-    def get_by_id(self, user_id: int) -> User | None:
+    def get_by_id(self, user_id: int) -> Optional[User]:
         """Get user by ID."""
         stmt = select(UserModel).where(UserModel.id == user_id)
         user_model = self.session.execute(stmt).scalar_one_or_none()
         return self._model_to_schema(user_model) if user_model else None
 
-    def get_by_username(self, username: str) -> User | None:
+    def get_by_username(self, username: str) -> Optional[User]:
         """Get user by username."""
         stmt = select(UserModel).where(UserModel.username == username.lower())
         user_model = self.session.execute(stmt).scalar_one_or_none()
         return self._model_to_schema(user_model) if user_model else None
 
-    def get_by_email(self, email: str) -> User | None:
+    def get_by_email(self, email: str) -> Optional[User]:
         """Get user by email."""
         stmt = select(UserModel).where(UserModel.email == email)
         user_model = self.session.execute(stmt).scalar_one_or_none()
@@ -55,7 +55,7 @@ class UserRepository:
         user_models = self.session.execute(stmt).scalars().all()
         return [self._model_to_schema(user_model) for user_model in user_models]
 
-    def update(self, user_id: int, user_data: dict[str, Any]) -> User | None:
+    def update(self, user_id: int, user_data: Dict[str, Any]) -> Optional[User]:
         """Update user by ID."""
         stmt = select(UserModel).where(UserModel.id == user_id)
         user_model = self.session.execute(stmt).scalar_one_or_none()
@@ -84,7 +84,7 @@ class UserRepository:
         return True
 
     def exists_username(
-        self, username: str, exclude_user_id: int | None = None
+        self, username: str, exclude_user_id: Optional[int] = None
     ) -> bool:
         """Check if username exists."""
         stmt = select(UserModel).where(UserModel.username == username.lower())
@@ -92,7 +92,7 @@ class UserRepository:
             stmt = stmt.where(UserModel.id != exclude_user_id)
         return self.session.execute(stmt).scalar_one_or_none() is not None
 
-    def exists_email(self, email: str, exclude_user_id: int | None = None) -> bool:
+    def exists_email(self, email: str, exclude_user_id: Optional[int] = None) -> bool:
         """Check if email exists."""
         stmt = select(UserModel).where(UserModel.email == email)
         if exclude_user_id:
@@ -125,7 +125,7 @@ class DatasiteRepository:
         """Initialize with database session."""
         self.session = session
 
-    def create(self, datasite_data: dict[str, Any]) -> Datasite:
+    def create(self, datasite_data: Dict[str, Any]) -> Datasite:
         """Create a new datasite."""
         datasite_model = DatasiteModel(**datasite_data)
         self.session.add(datasite_model)
@@ -133,13 +133,13 @@ class DatasiteRepository:
         self.session.refresh(datasite_model)
         return self._model_to_schema(datasite_model)
 
-    def get_by_id(self, datasite_id: int) -> Datasite | None:
+    def get_by_id(self, datasite_id: int) -> Optional[Datasite]:
         """Get datasite by ID."""
         stmt = select(DatasiteModel).where(DatasiteModel.id == datasite_id)
         datasite_model = self.session.execute(stmt).scalar_one_or_none()
         return self._model_to_schema(datasite_model) if datasite_model else None
 
-    def get_by_user_and_slug(self, user_id: int, slug: str) -> Datasite | None:
+    def get_by_user_and_slug(self, user_id: int, slug: str) -> Optional[Datasite]:
         """Get datasite by user ID and slug."""
         stmt = select(DatasiteModel).where(
             and_(DatasiteModel.user_id == user_id, DatasiteModel.slug == slug)
@@ -188,8 +188,8 @@ class DatasiteRepository:
         ]
 
     def update(
-        self, datasite_id: int, datasite_data: dict[str, Any]
-    ) -> Datasite | None:
+        self, datasite_id: int, datasite_data: Dict[str, Any]
+    ) -> Optional[Datasite]:
         """Update datasite by ID."""
         stmt = select(DatasiteModel).where(DatasiteModel.id == datasite_id)
         datasite_model = self.session.execute(stmt).scalar_one_or_none()
@@ -218,7 +218,7 @@ class DatasiteRepository:
         return True
 
     def slug_exists_for_user(
-        self, user_id: int, slug: str, exclude_datasite_id: int | None = None
+        self, user_id: int, slug: str, exclude_datasite_id: Optional[int] = None
     ) -> bool:
         """Check if slug exists for user."""
         stmt = select(DatasiteModel).where(

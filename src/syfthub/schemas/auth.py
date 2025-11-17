@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from typing import Dict, Optional, Union
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -28,9 +29,9 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     """Token data schema for JWT payload."""
 
-    username: str | None = None
-    user_id: int | None = None
-    role: UserRole | None = None
+    username: Optional[str] = None
+    user_id: Optional[int] = None
+    role: Optional[UserRole] = None
 
 
 class UserLogin(BaseModel):
@@ -53,7 +54,7 @@ class UserRegister(BaseModel):
         ..., min_length=1, max_length=100, description="User's full name"
     )
     password: str = Field(..., description="User password")
-    age: int | None = Field(None, ge=0, le=150, description="User's age")
+    age: Optional[int] = Field(None, ge=0, le=150, description="User's age")
 
     @field_validator("password")
     @classmethod
@@ -130,7 +131,7 @@ class Ed25519KeyPair(BaseModel):
 class AuthResponse(BaseModel):
     """Authentication response with user info and tokens."""
 
-    user: dict[str, str | int | bool | None] = Field(
+    user: Dict[str, Union[str, int, bool, None]] = Field(
         ..., description="User information"
     )
     access_token: str = Field(..., description="JWT access token")
@@ -141,7 +142,7 @@ class AuthResponse(BaseModel):
 class RegistrationResponse(BaseModel):
     """Registration response with user info, tokens, and generated keys."""
 
-    user: dict[str, str | int | bool | None] = Field(
+    user: Dict[str, Union[str, int, bool, None]] = Field(
         ..., description="User information"
     )
     access_token: str = Field(..., description="JWT access token")
@@ -172,7 +173,7 @@ class SignatureVerificationResponse(BaseModel):
     """Signature verification response schema."""
 
     verified: bool = Field(..., description="Whether the signature is valid")
-    user_info: dict[str, str | int | None] | None = Field(
+    user_info: Optional[Dict[str, Union[str, int, None]]] = Field(
         None, description="User information if signature is valid"
     )
     message: str = Field(..., description="Verification result message")

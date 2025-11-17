@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Dict, Optional, Set
 
 import jwt  # type: ignore[import-not-found]
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -25,7 +25,7 @@ from syfthub.core.config import settings
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 # Token blacklist (in-memory for development, use Redis for production)
-token_blacklist: set[str] = set()
+token_blacklist: Set[str] = set()
 
 # JWT algorithm
 ALGORITHM = "HS256"
@@ -42,7 +42,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def create_access_token(
-    data: dict[str, Any], expires_delta: timedelta | None = None
+    data: Dict[str, Any], expires_delta: Optional[timedelta] = None
 ) -> str:
     """Create a JWT access token."""
     to_encode = data.copy()
@@ -63,7 +63,7 @@ def create_access_token(
 
 
 def create_refresh_token(
-    data: dict[str, Any], expires_delta: timedelta | None = None
+    data: Dict[str, Any], expires_delta: Optional[timedelta] = None
 ) -> str:
     """Create a JWT refresh token."""
     to_encode = data.copy()
@@ -83,7 +83,7 @@ def create_refresh_token(
     return jwt.encode(to_encode, settings.secret_key, algorithm=ALGORITHM)  # type: ignore[no-any-return]
 
 
-def verify_token(token: str, token_type: str = "access") -> dict[str, Any] | None:
+def verify_token(token: str, token_type: str = "access") -> Optional[Dict[str, Any]]:
     """Verify a JWT token and return its payload."""
     try:
         # Check if token is blacklisted
@@ -120,7 +120,7 @@ def cleanup_expired_tokens() -> None:
     pass
 
 
-def get_token_from_header(authorization: str) -> str | None:
+def get_token_from_header(authorization: str) -> Optional[str]:
     """Extract token from Authorization header."""
     if not authorization or not authorization.startswith("Bearer "):
         return None

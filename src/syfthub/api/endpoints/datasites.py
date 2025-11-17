@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -31,22 +31,22 @@ from syfthub.schemas.user import User  # noqa: TC001
 router = APIRouter()
 
 # Mock database - in production this would be a real database
-fake_datasites_db: dict[int, Datasite] = {}
+fake_datasites_db: Dict[int, Datasite] = {}
 datasite_id_counter = 1
 
 # User slug lookups for efficient queries
-user_datasites_lookup: dict[int, set[int]] = {}  # user_id -> set of datasite_ids
-slug_to_datasite_lookup: dict[
+user_datasites_lookup: Dict[int, set[int]] = {}  # user_id -> set of datasite_ids
+slug_to_datasite_lookup: Dict[
     tuple[int, str], int
 ] = {}  # (user_id, slug) -> datasite_id
 
 
-def get_datasite_by_id(datasite_id: int) -> Datasite | None:
+def get_datasite_by_id(datasite_id: int) -> Optional[Datasite]:
     """Get datasite by ID."""
     return fake_datasites_db.get(datasite_id)
 
 
-def get_datasite_by_slug(user_id: int, slug: str) -> Datasite | None:
+def get_datasite_by_slug(user_id: int, slug: str) -> Optional[Datasite]:
     """Get datasite by user_id and slug."""
     datasite_id = slug_to_datasite_lookup.get((user_id, slug))
     if datasite_id:
@@ -55,7 +55,7 @@ def get_datasite_by_slug(user_id: int, slug: str) -> Datasite | None:
 
 
 def is_slug_available(
-    slug: str, user_id: int, exclude_datasite_id: int | None = None
+    slug: str, user_id: int, exclude_datasite_id: Optional[int] = None
 ) -> bool:
     """Check if a slug is available for a user."""
     if slug in RESERVED_SLUGS:
@@ -91,7 +91,7 @@ def generate_unique_slug(name: str, user_id: int) -> str:
     return f"{base_slug[:50]}-{timestamp}"
 
 
-def can_access_datasite(datasite: Datasite, current_user: User | None) -> bool:
+def can_access_datasite(datasite: Datasite, current_user: Optional[User]) -> bool:
     """Check if user can access a datasite based on visibility."""
     if datasite.visibility == DatasiteVisibility.PUBLIC:
         return True
@@ -117,8 +117,8 @@ async def list_my_datasites(
     current_user: Annotated[User, Depends(get_current_active_user)],
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
-    visibility: DatasiteVisibility | None = None,
-    search: str | None = None,
+    visibility: Optional[DatasiteVisibility] = None,
+    search: Optional[str] = None,
 ) -> list[DatasiteResponse]:
     """List current user's datasites."""
     # Get user's datasites
@@ -156,7 +156,7 @@ async def list_my_datasites(
 async def list_public_datasites(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
-    search: str | None = None,
+    search: Optional[str] = None,
 ) -> list[DatasitePublicResponse]:
     """List all public datasites."""
     # Get all public datasites
@@ -214,7 +214,7 @@ async def list_trending_datasites(
 @router.get("/{datasite_id}", response_model=DatasiteResponse)
 async def get_datasite(
     datasite_id: int,
-    current_user: Annotated[User | None, Depends(get_optional_current_user)],
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
 ) -> DatasiteResponse:
     """Get a datasite by ID (respects visibility rules)."""
     datasite = get_datasite_by_id(datasite_id)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Optional
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -25,14 +26,14 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     """Schema for creating a new user."""
 
-    age: int | None = Field(None, ge=0, le=150, description="User's age")
+    age: Optional[int] = Field(None, ge=0, le=150, description="User's age")
 
 
 class User(UserBase):
     """User model."""
 
     id: int = Field(..., description="User's unique identifier")
-    age: int | None = Field(None, ge=0, le=150, description="User's age")
+    age: Optional[int] = Field(None, ge=0, le=150, description="User's age")
     role: UserRole = Field(default=UserRole.USER, description="User role")
     password_hash: str = Field(..., description="Hashed password")
     public_key: str = Field(..., description="Base64 encoded Ed25519 public key")
@@ -50,7 +51,7 @@ class UserResponse(BaseModel):
     username: str = Field(..., description="Username")
     email: EmailStr = Field(..., description="User's email address")
     full_name: str = Field(..., description="User's full name")
-    age: int | None = Field(None, description="User's age")
+    age: Optional[int] = Field(None, description="User's age")
     role: UserRole = Field(..., description="User role")
     is_active: bool = Field(..., description="Whether the user is active")
     created_at: datetime = Field(..., description="When the user was created")
@@ -62,9 +63,9 @@ class UserResponse(BaseModel):
 class UserUpdate(BaseModel):
     """Schema for updating user profile."""
 
-    email: EmailStr | None = Field(None, description="User's email address")
-    full_name: str | None = Field(
+    email: Optional[EmailStr] = Field(None, description="User's email address")
+    full_name: Optional[str] = Field(
         None, min_length=1, max_length=100, description="User's full name"
     )
-    age: int | None = Field(None, ge=0, le=150, description="User's age")
-    is_active: bool | None = Field(None, description="Whether the user is active")
+    age: Optional[int] = Field(None, ge=0, le=150, description="User's age")
+    is_active: Optional[bool] = Field(None, description="Whether the user is active")

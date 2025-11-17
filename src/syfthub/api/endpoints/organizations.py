@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Annotated, Any
+from typing import Annotated, Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -26,24 +26,24 @@ from syfthub.schemas.user import User  # noqa: TC001
 router = APIRouter()
 
 # Mock database - in production this would be replaced with real database operations
-fake_organizations_db: dict[int, Organization] = {}
-fake_org_members_db: dict[
+fake_organizations_db: Dict[int, Organization] = {}
+fake_org_members_db: Dict[
     int, dict[int, dict[str, Any]]
 ] = {}  # org_id -> {user_id -> member_data}
 organization_id_counter = 1
 member_id_counter = 1
 
 # Lookup tables for efficient queries
-user_organizations_lookup: dict[int, set[int]] = {}  # user_id -> set of org_ids
-slug_to_organization_lookup: dict[str, int] = {}  # slug -> org_id
+user_organizations_lookup: Dict[int, set[int]] = {}  # user_id -> set of org_ids
+slug_to_organization_lookup: Dict[str, int] = {}  # slug -> org_id
 
 
-def get_organization_by_id(org_id: int) -> Organization | None:
+def get_organization_by_id(org_id: int) -> Optional[Organization]:
     """Get organization by ID."""
     return fake_organizations_db.get(org_id)
 
 
-def get_organization_by_slug(slug: str) -> Organization | None:
+def get_organization_by_slug(slug: str) -> Optional[Organization]:
     """Get organization by slug."""
     org_id = slug_to_organization_lookup.get(slug)
     if org_id:
@@ -51,7 +51,9 @@ def get_organization_by_slug(slug: str) -> Organization | None:
     return None
 
 
-def get_user_role_in_organization(org_id: int, user_id: int) -> OrganizationRole | None:
+def get_user_role_in_organization(
+    org_id: int, user_id: int
+) -> Optional[OrganizationRole]:
     """Get user's role in organization."""
     org_members = fake_org_members_db.get(org_id, {})
     member_data = org_members.get(user_id)
@@ -107,7 +109,7 @@ async def list_my_organizations(
     current_user: Annotated[User, Depends(get_current_active_user)],
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
-    role: OrganizationRole | None = None,
+    role: Optional[OrganizationRole] = None,
 ) -> list[OrganizationResponse]:
     """List current user's organizations."""
     # Get user's organization memberships
@@ -270,7 +272,7 @@ async def list_organization_members(
     current_user: Annotated[User, Depends(get_current_active_user)],
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
-    role: OrganizationRole | None = None,
+    role: Optional[OrganizationRole] = None,
 ) -> list[OrganizationMemberResponse]:
     """List organization members."""
     organization = get_organization_by_id(org_id)

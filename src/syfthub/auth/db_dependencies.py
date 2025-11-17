@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, List, Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -22,7 +22,7 @@ security = HTTPBearer(auto_error=False)
 def get_user_by_id(
     user_id: int,
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
-) -> User | None:
+) -> Optional[User]:
     """Get user by ID from database."""
     return user_repo.get_by_id(user_id)
 
@@ -30,7 +30,7 @@ def get_user_by_id(
 def get_user_by_username(
     username: str,
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
-) -> User | None:
+) -> Optional[User]:
     """Get user by username from database."""
     return user_repo.get_by_username(username)
 
@@ -38,13 +38,13 @@ def get_user_by_username(
 def get_user_by_email(
     email: str,
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
-) -> User | None:
+) -> Optional[User]:
     """Get user by email from database."""
     return user_repo.get_by_email(email)
 
 
 async def get_current_user(
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> User:
     """Get the current authenticated user from JWT token."""
@@ -99,9 +99,9 @@ async def get_current_active_user(
 
 
 async def get_optional_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     user_repo: UserRepository = Depends(get_user_repository),
-) -> User | None:
+) -> Optional[User]:
     """Get the current user if authenticated, otherwise return None."""
     if credentials is None:
         return None
@@ -132,7 +132,7 @@ async def get_optional_current_user(
 class RoleChecker:
     """Dependency class for role-based access control."""
 
-    def __init__(self, allowed_roles: list[UserRole]):
+    def __init__(self, allowed_roles: List[UserRole]):
         """Initialize with allowed roles."""
         self.allowed_roles = allowed_roles
 

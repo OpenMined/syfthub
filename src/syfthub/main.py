@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional, Union
 
 import markdown
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
@@ -46,7 +46,7 @@ templates_dir = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
 
 
-def resolve_owner(owner_slug: str) -> tuple[User | Organization | None, str]:
+def resolve_owner(owner_slug: str) -> tuple[Optional[Union[User, Organization]], str]:
     """Resolve owner slug to either user or organization.
 
     Returns:
@@ -65,7 +65,9 @@ def resolve_owner(owner_slug: str) -> tuple[User | Organization | None, str]:
     return None, ""
 
 
-def get_owner_datasites(owner: User | Organization, owner_type: str) -> list[Datasite]:
+def get_owner_datasites(
+    owner: Union[User, Organization], owner_type: str
+) -> list[Datasite]:
     """Get datasites for an owner (user or organization)."""
     if owner_type == "user":
         # Get user's datasites
@@ -87,8 +89,8 @@ def get_owner_datasites(owner: User | Organization, owner_type: str) -> list[Dat
 
 
 def get_datasite_by_owner_and_slug(
-    owner: User | Organization, owner_type: str, slug: str
-) -> Datasite | None:
+    owner: Union[User, Organization], owner_type: str, slug: str
+) -> Optional[Datasite]:
     """Get datasite by owner and slug."""
     if owner_type == "user":
         return get_datasite_by_slug(owner.id, slug)
@@ -115,7 +117,7 @@ def is_browser_request(request: Request) -> bool:
 
 
 def can_access_datasite_with_org(
-    datasite: Datasite, current_user: User | None, owner_type: str
+    datasite: Datasite, current_user: Optional[User], owner_type: str
 ) -> bool:
     """Check if user can access datasite, considering organization membership."""
     # Public datasites are always accessible
@@ -204,7 +206,7 @@ async def list_owner_public_datasites(
     owner_slug: str,
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
-    current_user: User | None = Depends(get_optional_current_user),
+    current_user: Optional[User] = Depends(get_optional_current_user),
 ) -> list[DatasitePublicResponse]:
     """List an owner's (user or organization) public datasites."""
     # Resolve owner (user or organization)
@@ -255,7 +257,7 @@ async def get_owner_datasite(
     request: Request,
     owner_slug: str,
     datasite_slug: str,
-    current_user: User | None = Depends(get_optional_current_user),
+    current_user: Optional[User] = Depends(get_optional_current_user),
 ) -> HTMLResponse | DatasiteResponse | DatasitePublicResponse:
     """Get a specific datasite by owner and slug."""
     # Resolve owner (user or organization)
