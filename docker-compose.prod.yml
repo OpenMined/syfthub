@@ -1,0 +1,232 @@
+version: '3.8'
+
+services:
+  # Production API service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: syfthub:latest
+    container_name: syfthub-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      # Persistent data volume
+      - ./data:/app/data
+      # Logs volume
+      - ./logs:/app/logs
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=${DATABASE_URL:-postgresql://syfthub:${DB_PASSWORD}@db:5432/syfthub}
+      - SECRET_KEY=${SECRET_KEY}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      - REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - CORS_ORIGINS=${CORS_ORIGINS:-https://yourdomain.com}
+      - REDIS_URL=redis://redis:6379/0
+    networks:
+      - syfthub-network
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  # PostgreSQL database for production
+  db:
+    image: postgres:16-alpine
+    container_name: syfthub-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=syfthub
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=syfthub
+      - POSTGRES_HOST_AUTH_METHOD=md5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backup:/backup
+    networks:
+      - syfthub-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U syfthub -d syfthub"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # Redis for caching and token blacklist
+  redis:
+    image: redis:7-alpine
+    container_name: syfthub-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - syfthub-network
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-redis_password}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  # Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: syfthub-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/html:/usr/share/nginx/html:ro
+      - nginx_logs:/var/log/nginx
+    networks:
+      - syfthub-network
+    depends_on:
+      - api
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Database backup service (runs periodically)
+  backup:
+    image: postgres:16-alpine
+    container_name: syfthub-backup
+    restart: unless-stopped
+    environment:
+      - POSTGRES_HOST=db
+      - POSTGRES_USER=syfthub
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=syfthub
+    volumes:
+      - ./backup:/backup
+      - ./scripts/backup.sh:/backup.sh:ro
+    networks:
+      - syfthub-network
+    depends_on:
+      - db
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["while true; do /backup.sh; sleep 86400; done"]
+    profiles:
+      - backup
+
+  # Prometheus for monitoring (optional)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: syfthub-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - syfthub-network
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    profiles:
+      - monitoring
+
+  # Grafana for visualization (optional)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: syfthub-grafana
+    restart: unless-stopped
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_INSTALL_PLUGINS=redis-datasource
+    networks:
+      - syfthub-network
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    profiles:
+      - monitoring
+
+  # Alembic migration runner
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: syfthub-migrate
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://syfthub:${DB_PASSWORD}@db:5432/syfthub}
+    volumes:
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    networks:
+      - syfthub-network
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      - migrate
+    command: [".venv/bin/alembic", "upgrade", "head"]
+
+networks:
+  syfthub-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  postgres_data:
+    name: syfthub_postgres_data
+    driver: local
+  redis_data:
+    name: syfthub_redis_data
+    driver: local
+  nginx_logs:
+    name: syfthub_nginx_logs
+    driver: local
+  prometheus_data:
+    name: syfthub_prometheus_data
+    driver: local
+  grafana_data:
+    name: syfthub_grafana_data
+    driver: local

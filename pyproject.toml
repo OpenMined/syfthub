@@ -28,6 +28,7 @@ dependencies = [
     "jinja2>=3.1.0",
     "markdown>=3.6.0",
     "passlib[bcrypt]>=1.7.4",
+    "psycopg2-binary>=2.9.0",
     "pydantic>=2.12.4",
     "pydantic-settings>=2.11.0",
     "pyjwt>=2.10.1",
@@ -90,6 +91,9 @@ ignore = [
     "E501",  # line too long (handled by formatter)
     "B008",  # do not perform function calls in argument defaults
     "TC003", # Move standard library import into type-checking block (too strict for Pydantic models)
+    "UP006", # Use `list` instead of `List` for type annotation (Python 3.9 compatibility)
+    "UP007", # Use `X | Y` for type annotations (Python 3.9 compatibility)
+    "UP035", # `typing.List` is deprecated (Python 3.9 compatibility)
 ]
 fixable = ["ALL"]
 unfixable = []

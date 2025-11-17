@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import List, Optional
 
 from sqlalchemy import (
     JSON,
@@ -31,7 +32,7 @@ class UserModel(Base):
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     full_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    age: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    age: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="user")
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     public_key: Mapped[str] = mapped_column(
@@ -56,7 +57,7 @@ class UserModel(Base):
     )
 
     # Relationships
-    datasites: Mapped[list[DatasiteModel]] = relationship(
+    datasites: Mapped[List[DatasiteModel]] = relationship(
         "DatasiteModel", back_populates="user", cascade="all, delete-orphan"
     )
 
@@ -79,7 +80,7 @@ class OrganizationModel(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     slug: Mapped[str] = mapped_column(String(63), unique=True, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    avatar_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    avatar_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -94,12 +95,12 @@ class OrganizationModel(Base):
     )
 
     # Relationships
-    members: Mapped[list[OrganizationMemberModel]] = relationship(
+    members: Mapped[List[OrganizationMemberModel]] = relationship(
         "OrganizationMemberModel",
         back_populates="organization",
         cascade="all, delete-orphan",
     )
-    datasites: Mapped[list[DatasiteModel]] = relationship(
+    datasites: Mapped[List[DatasiteModel]] = relationship(
         "DatasiteModel", back_populates="organization", cascade="all, delete-orphan"
     )
 
@@ -155,10 +156,10 @@ class DatasiteModel(Base):
     __tablename__ = "datasites"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    user_id: Mapped[int | None] = mapped_column(
+    user_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=True
     )
-    organization_id: Mapped[int | None] = mapped_column(
+    organization_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("organizations.id"), nullable=True
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -168,16 +169,16 @@ class DatasiteModel(Base):
         String(20), nullable=False, default="public"
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    contributors: Mapped[list[int]] = mapped_column(
+    contributors: Mapped[List[int]] = mapped_column(
         JSON, nullable=False, default=lambda: []
     )
     version: Mapped[str] = mapped_column(String(20), nullable=False, default="0.1.0")
     readme: Mapped[str] = mapped_column(Text, nullable=False, default="")
     stars_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    policies: Mapped[list[dict]] = mapped_column(
+    policies: Mapped[List[dict]] = mapped_column(
         JSON, nullable=False, default=lambda: []
     )
-    connect: Mapped[list[dict]] = mapped_column(
+    connect: Mapped[List[dict]] = mapped_column(
         JSON, nullable=False, default=lambda: []
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -193,10 +194,10 @@ class DatasiteModel(Base):
     )
 
     # Relationships
-    user: Mapped[UserModel | None] = relationship(
+    user: Mapped[Optional[UserModel]] = relationship(
         "UserModel", back_populates="datasites"
     )
-    organization: Mapped[OrganizationModel | None] = relationship(
+    organization: Mapped[Optional[OrganizationModel]] = relationship(
         "OrganizationModel", back_populates="datasites"
     )
 
