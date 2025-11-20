@@ -1,64 +1,68 @@
 """Main FastAPI application."""
 
-from __future__ import annotations
-
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union
+from typing import Annotated, Optional, Union
 
 import markdown
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from syfthub import __version__
 from syfthub.api.endpoints.datasites import (
     can_access_datasite,
-    fake_datasites_db,
-    get_datasite_by_slug,
-    user_datasites_lookup,
 )
 from syfthub.api.endpoints.organizations import (
-    get_organization_by_slug,
     is_organization_member,
 )
 from syfthub.api.router import api_router
-from syfthub.auth.dependencies import get_optional_current_user, get_user_by_username
+from syfthub.auth.db_dependencies import get_optional_current_user
 from syfthub.core.config import settings
 from syfthub.database.connection import create_tables
+from syfthub.database.dependencies import (
+    get_datasite_repository,
+    get_organization_member_repository,
+    get_organization_repository,
+    get_user_repository,
+)
+from syfthub.repositories.datasite import DatasiteRepository
+from syfthub.repositories.organization import (
+    OrganizationMemberRepository,
+    OrganizationRepository,
+)
+from syfthub.repositories.user import UserRepository
 from syfthub.schemas.datasite import (
     Datasite,
     DatasitePublicResponse,
     DatasiteResponse,
     DatasiteVisibility,
 )
-
-if TYPE_CHECKING:
-    from fastapi.responses import HTMLResponse
-
-    from syfthub.schemas.organization import Organization
-    from syfthub.schemas.user import User
-
+from syfthub.schemas.organization import Organization
+from syfthub.schemas.user import User
 
 # Setup Jinja2 templates
 templates_dir = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
 
 
-def resolve_owner(owner_slug: str) -> tuple[Optional[Union[User, Organization]], str]:
+def resolve_owner(
+    owner_slug: str, user_repo: UserRepository, org_repo: OrganizationRepository
+) -> tuple[Optional[Union[User, Organization]], str]:
     """Resolve owner slug to either user or organization.
 
     Returns:
         Tuple of (owner_object, owner_type) where owner_type is 'user' or 'organization'
     """
     # Try to find user first
-    user = get_user_by_username(owner_slug.lower())
+    user = user_repo.get_by_username(owner_slug.lower())
     if user:
         return user, "user"
 
     # Try to find organization
-    organization = get_organization_by_slug(owner_slug.lower())
+    organization = org_repo.get_by_slug(owner_slug.lower())
     if organization and organization.is_active:
         return organization, "organization"
 
@@ -66,39 +70,29 @@ def resolve_owner(owner_slug: str) -> tuple[Optional[Union[User, Organization]],
 
 
 def get_owner_datasites(
-    owner: Union[User, Organization], owner_type: str
+    owner: Union[User, Organization], owner_type: str, datasite_repo: DatasiteRepository
 ) -> list[Datasite]:
     """Get datasites for an owner (user or organization)."""
     if owner_type == "user":
         # Get user's datasites
-        user_datasite_ids = user_datasites_lookup.get(owner.id, set())
-        return [
-            fake_datasites_db[ds_id]
-            for ds_id in user_datasite_ids
-            if ds_id in fake_datasites_db
-            and fake_datasites_db[ds_id].user_id == owner.id
-        ]
+        return datasite_repo.get_user_datasites(owner.id)
     elif owner_type == "organization":
         # Get organization's datasites
-        return [
-            datasite
-            for datasite in fake_datasites_db.values()
-            if datasite.organization_id == owner.id
-        ]
+        return datasite_repo.get_organization_datasites(owner.id)
     return []
 
 
 def get_datasite_by_owner_and_slug(
-    owner: Union[User, Organization], owner_type: str, slug: str
+    owner: Union[User, Organization],
+    owner_type: str,
+    slug: str,
+    datasite_repo: DatasiteRepository,
 ) -> Optional[Datasite]:
     """Get datasite by owner and slug."""
     if owner_type == "user":
-        return get_datasite_by_slug(owner.id, slug)
+        return datasite_repo.get_by_user_and_slug(owner.id, slug)
     elif owner_type == "organization":
-        # Look for datasite with organization_id and slug
-        for datasite in fake_datasites_db.values():
-            if datasite.organization_id == owner.id and datasite.slug == slug:
-                return datasite
+        return datasite_repo.get_by_organization_and_slug(owner.id, slug)
     return None
 
 
@@ -117,7 +111,10 @@ def is_browser_request(request: Request) -> bool:
 
 
 def can_access_datasite_with_org(
-    datasite: Datasite, current_user: Optional[User], owner_type: str
+    datasite: Datasite,
+    current_user: Optional[User],
+    owner_type: str,
+    member_repo: Optional[OrganizationMemberRepository] = None,
 ) -> bool:
     """Check if user can access datasite, considering organization membership."""
     # Public datasites are always accessible
@@ -138,13 +135,21 @@ def can_access_datasite_with_org(
 
     # For organization-owned datasites
     if owner_type == "organization" and datasite.organization_id:
+        # If no member_repo provided, cannot check organization membership
+        if member_repo is None:
+            return False
+
         # Owner/members can access internal datasites
         if datasite.visibility == DatasiteVisibility.INTERNAL:
-            return is_organization_member(datasite.organization_id, current_user.id)
+            return is_organization_member(
+                datasite.organization_id, current_user.id, member_repo
+            )
 
         # Private datasites only for organization members
         if datasite.visibility == DatasiteVisibility.PRIVATE:
-            return is_organization_member(datasite.organization_id, current_user.id)
+            return is_organization_member(
+                datasite.organization_id, current_user.id, member_repo
+            )
 
     return False
 
@@ -153,13 +158,16 @@ def can_access_datasite_with_org(
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage application lifecycle."""
     # Startup
-    print(f"Starting Syfthub API v{__version__}")
-    print("Initializing database...")
+    import logging
+
+    logger = logging.getLogger(__name__)
+    logger.info(f"Starting Syfthub API v{__version__}")
+    logger.info("Initializing database...")
     create_tables()
-    print("Database initialized successfully.")
+    logger.info("Database initialized successfully.")
     yield
     # Shutdown
-    print("Shutting down Syfthub API")
+    logger.info("Shutting down Syfthub API")
 
 
 app = FastAPI(
@@ -204,20 +212,26 @@ async def health_check() -> dict[str, str]:
 @app.get("/{owner_slug}", response_model=list[DatasitePublicResponse])
 async def list_owner_public_datasites(
     owner_slug: str,
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
+    datasite_repo: Annotated[DatasiteRepository, Depends(get_datasite_repository)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    org_repo: Annotated[OrganizationRepository, Depends(get_organization_repository)],
+    member_repo: Annotated[
+        OrganizationMemberRepository, Depends(get_organization_member_repository)
+    ],
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
-    current_user: Optional[User] = Depends(get_optional_current_user),
 ) -> list[DatasitePublicResponse]:
     """List an owner's (user or organization) public datasites."""
     # Resolve owner (user or organization)
-    owner, owner_type = resolve_owner(owner_slug)
+    owner, owner_type = resolve_owner(owner_slug, user_repo, org_repo)
     if not owner:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"'{owner_slug}' not found"
         )
 
     # Get owner's datasites
-    owner_datasites = get_owner_datasites(owner, owner_type)
+    owner_datasites = get_owner_datasites(owner, owner_type, datasite_repo)
 
     # Filter to only show datasites the current user can access
     accessible_datasites = []
@@ -226,7 +240,9 @@ async def list_owner_public_datasites(
             continue
 
         # Check access permissions
-        if can_access_datasite_with_org(datasite, current_user, owner_type):
+        if can_access_datasite_with_org(
+            datasite, current_user, owner_type, member_repo
+        ):
             # For public listing, show different levels based on access
             if datasite.visibility == DatasiteVisibility.PUBLIC:
                 accessible_datasites.append(datasite)
@@ -236,7 +252,7 @@ async def list_owner_public_datasites(
                     owner_type == "organization"
                     and datasite.organization_id is not None
                     and is_organization_member(
-                        datasite.organization_id, current_user.id
+                        datasite.organization_id, current_user.id, member_repo
                     )
                 )
             ):
@@ -257,25 +273,35 @@ async def get_owner_datasite(
     request: Request,
     owner_slug: str,
     datasite_slug: str,
-    current_user: Optional[User] = Depends(get_optional_current_user),
-) -> HTMLResponse | DatasiteResponse | DatasitePublicResponse:
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
+    datasite_repo: Annotated[DatasiteRepository, Depends(get_datasite_repository)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    org_repo: Annotated[OrganizationRepository, Depends(get_organization_repository)],
+    member_repo: Annotated[
+        OrganizationMemberRepository, Depends(get_organization_member_repository)
+    ],
+) -> Union[HTMLResponse, DatasiteResponse, DatasitePublicResponse]:
     """Get a specific datasite by owner and slug."""
     # Resolve owner (user or organization)
-    owner, owner_type = resolve_owner(owner_slug)
+    owner, owner_type = resolve_owner(owner_slug, user_repo, org_repo)
     if not owner:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Owner or datasite not found"
         )
 
     # Get datasite by owner and slug
-    datasite = get_datasite_by_owner_and_slug(owner, owner_type, datasite_slug.lower())
+    datasite = get_datasite_by_owner_and_slug(
+        owner, owner_type, datasite_slug.lower(), datasite_repo
+    )
     if not datasite or not datasite.is_active:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Owner or datasite not found"
         )
 
     # Check access permissions
-    if not can_access_datasite_with_org(datasite, current_user, owner_type):
+    if not can_access_datasite_with_org(
+        datasite, current_user, owner_type, member_repo
+    ):
         if current_user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -298,7 +324,7 @@ async def get_owner_datasite(
             can_see_full_details = True
         elif owner_type == "organization" and datasite.organization_id:
             can_see_full_details = is_organization_member(
-                datasite.organization_id, current_user.id
+                datasite.organization_id, current_user.id, member_repo
             )
 
     # Check if this is a browser request (wants HTML) or API request (wants JSON)

@@ -15,7 +15,7 @@ from syfthub.auth.db_dependencies import (
     get_user_by_id,
     get_user_by_username,
 )
-from syfthub.database.repositories import UserRepository
+from syfthub.repositories import UserRepository
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.user import User
 

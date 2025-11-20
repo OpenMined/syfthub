@@ -6,7 +6,7 @@ import asyncio
 from typing import Any, Dict, Optional
 
 from syfthub.database.connection import db_manager
-from syfthub.database.repositories import (
+from syfthub.repositories import (
     DatasiteRepository,
     UserRepository,
 )

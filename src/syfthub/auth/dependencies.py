@@ -95,7 +95,7 @@ async def get_current_active_user(
 
 
 async def get_optional_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
 ) -> Optional[User]:
     """Get the current user if authenticated, otherwise return None."""
     if credentials is None:

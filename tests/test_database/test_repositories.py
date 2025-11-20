@@ -2,7 +2,7 @@
 
 from sqlalchemy.orm import Session
 
-from syfthub.database.repositories import (
+from syfthub.repositories import (
     DatasiteRepository,
     UserRepository,
 )

@@ -7,7 +7,6 @@ import base64
 import pytest
 from fastapi.testclient import TestClient
 
-from syfthub.auth.dependencies import fake_users_db, username_to_id
 from syfthub.auth.security import (
     Ed25519KeyPair,
     generate_ed25519_key_pair,
@@ -21,20 +20,24 @@ from syfthub.main import app
 @pytest.fixture
 def client() -> TestClient:
     """Create test client."""
-    return TestClient(app)
+    from syfthub.database.connection import create_tables, drop_tables
+
+    # Ensure clean database
+    drop_tables()
+    create_tables()
+
+    client = TestClient(app)
+
+    yield client
+
+    # Clean up
+    drop_tables()
 
 
 @pytest.fixture(autouse=True)
-def reset_auth_db() -> None:
-    """Reset the authentication database before each test."""
-    fake_users_db.clear()
-    username_to_id.clear()
+def reset_auth_data() -> None:
+    """Reset authentication data before each test."""
     token_blacklist.clear()
-
-    # Reset counters
-    import syfthub.auth.router as auth_module
-
-    auth_module.user_id_counter = 1
 
 
 class TestEd25519KeyGeneration:
@@ -490,9 +493,17 @@ class TestSignatureVerification:
 
         keys = register_response.json()["keys"]
 
-        # Deactivate user
+        # Deactivate user using repository
         user_id = 1
-        fake_users_db[user_id].is_active = False
+        from syfthub.database.connection import get_db_session
+        from syfthub.repositories.user import UserRepository
+
+        session = next(get_db_session())
+        try:
+            user_repo = UserRepository(session)
+            user_repo.update(user_id, is_active=False)
+        finally:
+            session.close()
 
         # Sign a message
         message = "Test message"

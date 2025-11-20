@@ -1,23 +1,16 @@
 """Authentication endpoints."""
 
-from __future__ import annotations
-
-from datetime import datetime, timezone
 from typing import Annotated, Dict, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import (
-    HTTPAuthorizationCredentials,  # noqa: TC002
-    OAuth2PasswordRequestForm,  # noqa: TC002
+    HTTPAuthorizationCredentials,
+    OAuth2PasswordRequestForm,
 )
 
-from syfthub.auth.dependencies import (
-    fake_users_db,
+from syfthub.auth.db_dependencies import (
     get_current_active_user,
-    get_user_by_email,
-    get_user_by_username,
     security,
-    username_to_id,
 )
 from syfthub.auth.security import (
     blacklist_token,
@@ -28,6 +21,8 @@ from syfthub.auth.security import (
     verify_password,
     verify_token,
 )
+from syfthub.database.dependencies import get_user_repository
+from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import (
     Ed25519KeyPair,
     KeyRegenerationResponse,
@@ -36,14 +31,10 @@ from syfthub.schemas.auth import (
     RegistrationResponse,
     Token,
     UserRegister,
-    UserRole,
 )
-from syfthub.schemas.user import User, UserResponse
+from syfthub.schemas.user import User, UserCreate, UserResponse
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
-
-# Global counter for user IDs (in production, use database auto-increment)
-user_id_counter = 1
 
 
 @router.post(
@@ -51,56 +42,55 @@ user_id_counter = 1
     response_model=RegistrationResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def register_user(user_data: UserRegister) -> RegistrationResponse:
+async def register_user(
+    user_data: UserRegister,
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+) -> RegistrationResponse:
     """Register a new user."""
-    global user_id_counter
-
     # Check if username already exists
-    if get_user_by_username(user_data.username):
+    if user_repo.username_exists(user_data.username):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Username already registered",
         )
 
     # Check if email already exists
-    if get_user_by_email(user_data.email):
+    if user_repo.email_exists(user_data.email):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered",
         )
 
-    # Create new user
+    # Create new user using repository
     password_hash = hash_password(user_data.password)
-
-    # Generate Ed25519 key pair for the user
     key_pair = generate_ed25519_key_pair()
 
-    user = User(
-        id=user_id_counter,
+    user_create = UserCreate(
         username=user_data.username,
         email=user_data.email,
         full_name=user_data.full_name,
         age=user_data.age,
-        role=UserRole.USER,  # Default role for new users
-        password_hash=password_hash,
-        public_key=key_pair.public_key,
         is_active=True,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
-        key_created_at=datetime.now(timezone.utc),
     )
 
-    # Store user in database
-    fake_users_db[user_id_counter] = user
-    username_to_id[user_data.username] = user_id_counter
-    user_id_counter += 1
+    user = user_repo.create_user(
+        user_data=user_create,
+        password_hash=password_hash,
+        public_key=key_pair.public_key,
+    )
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create user",
+        )
 
     # Create tokens
     access_token = create_access_token(
-        data={"sub": user.id, "username": user.username, "role": user.role}
+        data={"sub": str(user.id), "username": user.username, "role": user.role}
     )
     refresh_token = create_refresh_token(
-        data={"sub": user.id, "username": user.username}
+        data={"sub": str(user.id), "username": user.username}
     )
 
     # Return response
@@ -131,10 +121,11 @@ async def register_user(user_data: UserRegister) -> RegistrationResponse:
 @router.post("/login", response_model=Token)
 async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> Token:
     """OAuth2 compatible token login, get an access token for future requests."""
     # Authenticate user
-    user = authenticate_user(form_data.username, form_data.password)
+    user = authenticate_user(form_data.username, form_data.password, user_repo)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -149,17 +140,20 @@ async def login_for_access_token(
 
     # Create tokens
     access_token = create_access_token(
-        data={"sub": user.id, "username": user.username, "role": user.role}
+        data={"sub": str(user.id), "username": user.username, "role": user.role}
     )
     refresh_token = create_refresh_token(
-        data={"sub": user.id, "username": user.username}
+        data={"sub": str(user.id), "username": user.username}
     )
 
     return Token(access_token=access_token, refresh_token=refresh_token)
 
 
 @router.post("/refresh", response_model=Token)
-async def refresh_access_token(refresh_request: RefreshTokenRequest) -> Token:
+async def refresh_access_token(
+    refresh_request: RefreshTokenRequest,
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+) -> Token:
     """Refresh access token using refresh token."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -185,7 +179,7 @@ async def refresh_access_token(refresh_request: RefreshTokenRequest) -> Token:
         raise credentials_exception from None
 
     # Get user from database
-    user = get_user_by_id(user_id)
+    user = user_repo.get_by_id(user_id)
     if user is None or not user.is_active:
         raise credentials_exception
 
@@ -194,10 +188,10 @@ async def refresh_access_token(refresh_request: RefreshTokenRequest) -> Token:
 
     # Create new tokens
     access_token = create_access_token(
-        data={"sub": user.id, "username": user.username, "role": user.role}
+        data={"sub": str(user.id), "username": user.username, "role": user.role}
     )
     new_refresh_token = create_refresh_token(
-        data={"sub": user.id, "username": user.username}
+        data={"sub": str(user.id), "username": user.username}
     )
 
     return Token(access_token=access_token, refresh_token=new_refresh_token)
@@ -225,6 +219,7 @@ async def get_current_user_info(
 async def change_password(
     password_data: PasswordChange,
     current_user: Annotated[User, Depends(get_current_active_user)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> None:
     """Change current user's password."""
     # Verify current password
@@ -235,28 +230,20 @@ async def change_password(
 
     # Update password
     new_password_hash = hash_password(password_data.new_password)
-    current_user.password_hash = new_password_hash
-    current_user.updated_at = datetime.now(timezone.utc)
-
-    # In a real application, you would save to database here
-    fake_users_db[current_user.id] = current_user
+    user_repo.update_password(current_user.id, new_password_hash)
 
 
 @router.post("/regenerate-keys", response_model=KeyRegenerationResponse)
 async def regenerate_user_keys(
     current_user: Annotated[User, Depends(get_current_active_user)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> KeyRegenerationResponse:
     """Regenerate Ed25519 key pair for the current user."""
     # Generate new key pair
     key_pair = generate_ed25519_key_pair()
 
     # Update user's public key in database
-    current_user.public_key = key_pair.public_key
-    current_user.key_created_at = datetime.now(timezone.utc)
-    current_user.updated_at = datetime.now(timezone.utc)
-
-    # Save to database
-    fake_users_db[current_user.id] = current_user
+    user_repo.update_public_key(current_user.id, key_pair.public_key)
 
     # Create key pair response
     keys = Ed25519KeyPair(
@@ -267,12 +254,14 @@ async def regenerate_user_keys(
     return KeyRegenerationResponse(keys=keys)
 
 
-def authenticate_user(username: str, password: str) -> Optional[User]:
+def authenticate_user(
+    username: str, password: str, user_repo: UserRepository
+) -> Optional[User]:
     """Authenticate a user by username/email and password."""
     # Try to find user by username or email
-    user = get_user_by_username(username)
+    user = user_repo.get_by_username(username)
     if not user:
-        user = get_user_by_email(username)
+        user = user_repo.get_by_email(username)
 
     if not user:
         return None
@@ -281,8 +270,3 @@ def authenticate_user(username: str, password: str) -> Optional[User]:
         return None
 
     return user
-
-
-def get_user_by_id(user_id: int) -> Optional[User]:
-    """Get user by ID from database."""
-    return fake_users_db.get(user_id)

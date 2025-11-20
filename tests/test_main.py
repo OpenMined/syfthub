@@ -1,7 +1,7 @@
 """Test main FastAPI application."""
 
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -65,9 +65,7 @@ def test_openapi_endpoint(client: TestClient) -> None:
 class TestUtilityFunctions:
     """Test utility functions in main.py."""
 
-    @patch("syfthub.main.get_user_by_username")
-    @patch("syfthub.main.get_organization_by_slug")
-    def test_resolve_owner_user_found(self, mock_get_org, mock_get_user):
+    def test_resolve_owner_user_found(self):
         """Test resolving owner when user exists."""
         # Setup
         test_user = User(
@@ -83,20 +81,21 @@ class TestUtilityFunctions:
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
-        mock_get_user.return_value = test_user
-        mock_get_org.return_value = None
+        # Create mock repositories
+        mock_user_repo = Mock()
+        mock_org_repo = Mock()
+        mock_user_repo.get_by_username.return_value = test_user
+        mock_org_repo.get_by_slug.return_value = None
 
         # Test
-        owner, owner_type = resolve_owner("testuser")
+        owner, owner_type = resolve_owner("testuser", mock_user_repo, mock_org_repo)
 
         # Verify
         assert owner == test_user
         assert owner_type == "user"
-        mock_get_user.assert_called_once_with("testuser")
+        mock_user_repo.get_by_username.assert_called_once_with("testuser")
 
-    @patch("syfthub.main.get_user_by_username")
-    @patch("syfthub.main.get_organization_by_slug")
-    def test_resolve_owner_organization_found(self, mock_get_org, mock_get_user):
+    def test_resolve_owner_organization_found(self):
         """Test resolving owner when organization exists."""
         # Setup
         test_org = Organization(
@@ -109,21 +108,23 @@ class TestUtilityFunctions:
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
-        mock_get_user.return_value = None
-        mock_get_org.return_value = test_org
+
+        # Create mock repositories
+        mock_user_repo = Mock()
+        mock_org_repo = Mock()
+        mock_user_repo.get_by_username.return_value = None
+        mock_org_repo.get_by_slug.return_value = test_org
 
         # Test
-        owner, owner_type = resolve_owner("test-org")
+        owner, owner_type = resolve_owner("test-org", mock_user_repo, mock_org_repo)
 
         # Verify
         assert owner == test_org
         assert owner_type == "organization"
-        mock_get_user.assert_called_once_with("test-org")
-        mock_get_org.assert_called_once_with("test-org")
+        mock_user_repo.get_by_username.assert_called_once_with("test-org")
+        mock_org_repo.get_by_slug.assert_called_once_with("test-org")
 
-    @patch("syfthub.main.get_user_by_username")
-    @patch("syfthub.main.get_organization_by_slug")
-    def test_resolve_owner_organization_inactive(self, mock_get_org, mock_get_user):
+    def test_resolve_owner_organization_inactive(self):
         """Test resolving owner when organization exists but is inactive."""
         # Setup
         test_org = Organization(
@@ -136,34 +137,35 @@ class TestUtilityFunctions:
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
-        mock_get_user.return_value = None
-        mock_get_org.return_value = test_org
+        # Create mock repositories
+        mock_user_repo = Mock()
+        mock_org_repo = Mock()
+        mock_user_repo.get_by_username.return_value = None
+        mock_org_repo.get_by_slug.return_value = test_org
 
         # Test
-        owner, owner_type = resolve_owner("test-org")
+        owner, owner_type = resolve_owner("test-org", mock_user_repo, mock_org_repo)
 
         # Verify
         assert owner is None
         assert owner_type == ""
 
-    @patch("syfthub.main.get_user_by_username")
-    @patch("syfthub.main.get_organization_by_slug")
-    def test_resolve_owner_not_found(self, mock_get_org, mock_get_user):
+    def test_resolve_owner_not_found(self):
         """Test resolving owner when neither user nor org exists."""
         # Setup
-        mock_get_user.return_value = None
-        mock_get_org.return_value = None
+        mock_user_repo = Mock()
+        mock_org_repo = Mock()
+        mock_user_repo.get_by_username.return_value = None
+        mock_org_repo.get_by_slug.return_value = None
 
         # Test
-        owner, owner_type = resolve_owner("nonexistent")
+        owner, owner_type = resolve_owner("nonexistent", mock_user_repo, mock_org_repo)
 
         # Verify
         assert owner is None
         assert owner_type == ""
 
-    @patch("syfthub.main.user_datasites_lookup", {1: {101, 102}})
-    @patch("syfthub.main.fake_datasites_db")
-    def test_get_owner_datasites_user(self, mock_db):
+    def test_get_owner_datasites_user(self):
         """Test getting datasites for a user owner."""
         # Setup user
         test_user = User(
@@ -199,19 +201,19 @@ class TestUtilityFunctions:
             updated_at=datetime.now(timezone.utc),
         )
 
-        mock_db.__getitem__.side_effect = lambda x: datasite1 if x == 101 else None
-        mock_db.__contains__.side_effect = lambda x: x == 101
-        mock_db.values.return_value = [datasite1]
+        # Create mock repository
+        mock_datasite_repo = Mock()
+        mock_datasite_repo.get_user_datasites.return_value = [datasite1]
 
         # Test
-        datasites = get_owner_datasites(test_user, "user")
+        datasites = get_owner_datasites(test_user, "user", mock_datasite_repo)
 
         # Verify
         assert len(datasites) == 1
         assert datasites[0].id == 101
+        mock_datasite_repo.get_user_datasites.assert_called_once_with(1)
 
-    @patch("syfthub.main.fake_datasites_db")
-    def test_get_owner_datasites_organization(self, mock_db):
+    def test_get_owner_datasites_organization(self):
         """Test getting datasites for an organization owner."""
         # Setup organization
         test_org = Organization(
@@ -245,14 +247,17 @@ class TestUtilityFunctions:
             updated_at=datetime.now(timezone.utc),
         )
 
-        mock_db.values.return_value = [datasite1]
+        # Create mock repository
+        mock_datasite_repo = Mock()
+        mock_datasite_repo.get_organization_datasites.return_value = [datasite1]
 
         # Test
-        datasites = get_owner_datasites(test_org, "organization")
+        datasites = get_owner_datasites(test_org, "organization", mock_datasite_repo)
 
         # Verify
         assert len(datasites) == 1
         assert datasites[0].id == 101
+        mock_datasite_repo.get_organization_datasites.assert_called_once_with(1)
 
     def test_get_owner_datasites_invalid_type(self):
         """Test getting datasites with invalid owner type."""
@@ -270,11 +275,13 @@ class TestUtilityFunctions:
             updated_at=datetime.now(timezone.utc),
         )
 
-        datasites = get_owner_datasites(test_user, "invalid")
+        # Create mock repository
+        mock_datasite_repo = Mock()
+
+        datasites = get_owner_datasites(test_user, "invalid", mock_datasite_repo)
         assert datasites == []
 
-    @patch("syfthub.main.get_datasite_by_slug")
-    def test_get_datasite_by_owner_and_slug_user(self, mock_get_datasite):
+    def test_get_datasite_by_owner_and_slug_user(self):
         """Test getting datasite by user owner and slug."""
         # Setup
         test_user = User(
@@ -309,17 +316,22 @@ class TestUtilityFunctions:
             updated_at=datetime.now(timezone.utc),
         )
 
-        mock_get_datasite.return_value = test_datasite
+        # Create mock repository
+        mock_datasite_repo = Mock()
+        mock_datasite_repo.get_by_user_and_slug.return_value = test_datasite
 
         # Test
-        result = get_datasite_by_owner_and_slug(test_user, "user", "test-datasite")
+        result = get_datasite_by_owner_and_slug(
+            test_user, "user", "test-datasite", mock_datasite_repo
+        )
 
         # Verify
         assert result == test_datasite
-        mock_get_datasite.assert_called_once_with(1, "test-datasite")
+        mock_datasite_repo.get_by_user_and_slug.assert_called_once_with(
+            1, "test-datasite"
+        )
 
-    @patch("syfthub.main.fake_datasites_db")
-    def test_get_datasite_by_owner_and_slug_organization(self, mock_db):
+    def test_get_datasite_by_owner_and_slug_organization(self):
         """Test getting datasite by organization owner and slug."""
         # Setup
         test_org = Organization(
@@ -352,15 +364,20 @@ class TestUtilityFunctions:
             updated_at=datetime.now(timezone.utc),
         )
 
-        mock_db.values.return_value = [test_datasite]
+        # Create mock repository
+        mock_datasite_repo = Mock()
+        mock_datasite_repo.get_by_organization_and_slug.return_value = test_datasite
 
         # Test
         result = get_datasite_by_owner_and_slug(
-            test_org, "organization", "test-datasite"
+            test_org, "organization", "test-datasite", mock_datasite_repo
         )
 
         # Verify
         assert result == test_datasite
+        mock_datasite_repo.get_by_organization_and_slug.assert_called_once_with(
+            1, "test-datasite"
+        )
 
     def test_get_datasite_by_owner_and_slug_invalid_type(self):
         """Test getting datasite with invalid owner type."""
@@ -378,7 +395,12 @@ class TestUtilityFunctions:
             updated_at=datetime.now(timezone.utc),
         )
 
-        result = get_datasite_by_owner_and_slug(test_user, "invalid", "test-datasite")
+        # Create mock repository
+        mock_datasite_repo = Mock()
+
+        result = get_datasite_by_owner_and_slug(
+            test_user, "invalid", "test-datasite", mock_datasite_repo
+        )
         assert result is None
 
     def test_can_access_datasite_with_org_public(self):
@@ -557,11 +579,14 @@ class TestUtilityFunctions:
         )
 
         mock_is_member.return_value = True
+        mock_member_repo = MagicMock()
 
-        result = can_access_datasite_with_org(datasite, test_user, "organization")
+        result = can_access_datasite_with_org(
+            datasite, test_user, "organization", mock_member_repo
+        )
 
         assert result is True
-        mock_is_member.assert_called_once_with(1, 2)
+        mock_is_member.assert_called_once_with(1, 2, mock_member_repo)
 
     @patch("syfthub.main.is_organization_member")
     def test_can_access_datasite_with_org_org_private(self, mock_is_member):
@@ -600,11 +625,14 @@ class TestUtilityFunctions:
         )
 
         mock_is_member.return_value = False
+        mock_member_repo = MagicMock()
 
-        result = can_access_datasite_with_org(datasite, test_user, "organization")
+        result = can_access_datasite_with_org(
+            datasite, test_user, "organization", mock_member_repo
+        )
 
         assert result is False
-        mock_is_member.assert_called_once_with(1, 2)
+        mock_is_member.assert_called_once_with(1, 2, mock_member_repo)
 
 
 class TestMainEntryPoint:

@@ -1,0 +1,272 @@
+"""User repository for database operations."""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Optional
+
+from sqlalchemy import select
+
+from syfthub.models.user import UserModel
+from syfthub.repositories.base import BaseRepository
+from syfthub.schemas.user import User, UserCreate, UserUpdate
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+
+class UserRepository(BaseRepository[UserModel]):
+    """Repository for user database operations."""
+
+    def __init__(self, session: Session):
+        """Initialize repository with database session."""
+        super().__init__(session, UserModel)
+
+    def get_by_username(self, username: str) -> Optional[User]:
+        """Get user by username."""
+        try:
+            stmt = select(self.model).where(self.model.username == username.lower())
+            result = self.session.execute(stmt)
+            user_model = result.scalar_one_or_none()
+
+            if user_model:
+                return User.model_validate(user_model)
+            return None
+        except Exception:
+            return None
+
+    def get_by_email(self, email: str) -> Optional[User]:
+        """Get user by email."""
+        try:
+            stmt = select(self.model).where(self.model.email == email.lower())
+            result = self.session.execute(stmt)
+            user_model = result.scalar_one_or_none()
+
+            if user_model:
+                return User.model_validate(user_model)
+            return None
+        except Exception:
+            return None
+
+    def get_by_id(self, user_id: int) -> Optional[User]:
+        """Get user by ID."""
+        try:
+            user_model = self.session.get(self.model, user_id)
+            if user_model:
+                return User.model_validate(user_model)
+            return None
+        except Exception:
+            return None
+
+    def get_by_public_key(self, public_key: str) -> Optional[User]:
+        """Get user by Ed25519 public key."""
+        try:
+            stmt = select(self.model).where(self.model.public_key == public_key)
+            result = self.session.execute(stmt)
+            user_model = result.scalar_one_or_none()
+
+            if user_model:
+                return User.model_validate(user_model)
+            return None
+        except Exception:
+            return None
+
+    def create_user(
+        self, user_data: UserCreate, password_hash: str, public_key: str
+    ) -> Optional[User]:
+        """Create a new user."""
+        try:
+            user_model = UserModel(
+                username=user_data.username.lower(),
+                email=user_data.email.lower(),
+                full_name=user_data.full_name,
+                age=user_data.age,
+                password_hash=password_hash,
+                public_key=public_key,
+                is_active=True,
+            )
+
+            self.session.add(user_model)
+            self.session.commit()
+            self.session.refresh(user_model)
+
+            return User.model_validate(user_model)
+        except Exception:
+            self.session.rollback()
+            return None
+
+    def update_user(self, user_id: int, user_data: UserUpdate) -> Optional[User]:
+        """Update user information."""
+        try:
+            user_model = self.session.get(self.model, user_id)
+            if not user_model:
+                return None
+
+            # Update fields if provided
+            if user_data.email is not None:
+                user_model.email = user_data.email.lower()
+            if user_data.full_name is not None:
+                user_model.full_name = user_data.full_name
+            if user_data.age is not None:
+                user_model.age = user_data.age
+            if user_data.is_active is not None:
+                user_model.is_active = user_data.is_active
+
+            self.session.commit()
+            self.session.refresh(user_model)
+
+            return User.model_validate(user_model)
+        except Exception:
+            self.session.rollback()
+            return None
+
+    def update_password(self, user_id: int, new_password_hash: str) -> bool:
+        """Update user password hash."""
+        try:
+            user_model = self.session.get(self.model, user_id)
+            if not user_model:
+                return False
+
+            user_model.password_hash = new_password_hash
+            self.session.commit()
+            return True
+        except Exception:
+            self.session.rollback()
+            return False
+
+    def update_public_key(self, user_id: int, public_key: str) -> bool:
+        """Update user public key."""
+        try:
+            user_model = self.session.get(self.model, user_id)
+            if not user_model:
+                return False
+
+            user_model.public_key = public_key
+            self.session.commit()
+            return True
+        except Exception:
+            self.session.rollback()
+            return False
+
+    def update_user_role(self, user_id: int, role: str) -> bool:
+        """Update user role."""
+        try:
+            user_model = self.session.get(self.model, user_id)
+            if not user_model:
+                return False
+
+            user_model.role = role
+            self.session.commit()
+            return True
+        except Exception:
+            self.session.rollback()
+            return False
+
+    def deactivate_user(self, user_id: int) -> bool:
+        """Deactivate a user account."""
+        try:
+            user_model = self.session.get(self.model, user_id)
+            if not user_model:
+                return False
+
+            user_model.is_active = False
+            self.session.commit()
+            return True
+        except Exception:
+            self.session.rollback()
+            return False
+
+    def activate_user(self, user_id: int) -> bool:
+        """Activate a user account."""
+        try:
+            user_model = self.session.get(self.model, user_id)
+            if not user_model:
+                return False
+
+            user_model.is_active = True
+            self.session.commit()
+            return True
+        except Exception:
+            self.session.rollback()
+            return False
+
+    def username_exists(self, username: str) -> bool:
+        """Check if username already exists."""
+        return self.exists(username=username.lower())
+
+    def email_exists(self, email: str) -> bool:
+        """Check if email already exists."""
+        return self.exists(email=email.lower())
+
+    def public_key_exists(self, public_key: str) -> bool:
+        """Check if public key already exists."""
+        return self.exists(public_key=public_key)
+
+    def delete(self, user_id: int) -> bool:
+        """Delete a user by ID."""
+        try:
+            user_model = self.session.get(self.model, user_id)
+            if not user_model:
+                return False
+
+            self.session.delete(user_model)
+            self.session.commit()
+            return True
+        except Exception:
+            self.session.rollback()
+            return False
+
+    def create(self, data=None, **kwargs) -> Optional[User]:
+        """Create a new user with data dict or kwargs (for test compatibility)."""
+        try:
+            if data is not None:
+                kwargs.update(data)
+            user_model = self.model(**kwargs)
+            self.session.add(user_model)
+            self.session.commit()
+            self.session.refresh(user_model)
+            return User.model_validate(user_model)
+        except Exception:
+            self.session.rollback()
+            return None
+
+    def get_all(
+        self, skip: int = 0, limit: int = 100, filters: Optional[dict] = None
+    ) -> list[User]:
+        """Get all users with pagination and filtering."""
+        try:
+            user_models = super().get_all(skip=skip, limit=limit, filters=filters)
+            return [User.model_validate(user_model) for user_model in user_models]
+        except Exception:
+            return []
+
+    def update(self, user_id: int, data=None, **kwargs) -> Optional[User]:
+        """Update a user with data dict or kwargs (for test compatibility)."""
+        try:
+            if data is not None:
+                kwargs.update(data)
+            user_model = self.session.get(self.model, user_id)
+            if not user_model:
+                return None
+
+            for field, value in kwargs.items():
+                if hasattr(user_model, field):
+                    setattr(user_model, field, value)
+
+            self.session.commit()
+            self.session.refresh(user_model)
+            return User.model_validate(user_model)
+        except Exception:
+            self.session.rollback()
+            return None
+
+    def count(self, filters: Optional[dict] = None) -> int:
+        """Count users with optional filtering."""
+        return super().count(filters)
+
+    def exists_username(self, username: str) -> bool:
+        """Check if username exists (alias for test compatibility)."""
+        return self.username_exists(username)
+
+    def exists_email(self, email: str) -> bool:
+        """Check if email exists (alias for test compatibility)."""
+        return self.email_exists(email)

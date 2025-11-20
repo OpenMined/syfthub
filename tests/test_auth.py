@@ -5,28 +5,33 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from syfthub.auth.dependencies import fake_users_db, username_to_id
 from syfthub.auth.security import token_blacklist
 from syfthub.main import app
+
+# Import database test fixtures
 
 
 @pytest.fixture
 def client() -> TestClient:
     """Create test client."""
-    return TestClient(app)
+    from syfthub.database.connection import create_tables, drop_tables
+
+    # Ensure clean database
+    drop_tables()
+    create_tables()
+
+    client = TestClient(app)
+
+    yield client
+
+    # Clean up
+    drop_tables()
 
 
 @pytest.fixture(autouse=True)
-def reset_auth_db() -> None:
-    """Reset the authentication database before each test."""
-    fake_users_db.clear()
-    username_to_id.clear()
+def reset_auth_data() -> None:
+    """Reset authentication data before each test."""
     token_blacklist.clear()
-
-    # Reset counters
-    import syfthub.auth.router as auth_module
-
-    auth_module.user_id_counter = 1
 
 
 def test_register_user(client: TestClient) -> None:
@@ -40,6 +45,8 @@ def test_register_user(client: TestClient) -> None:
     }
 
     response = client.post("/api/v1/auth/register", json=user_data)
+    print(f"Response status: {response.status_code}")
+    print(f"Response text: {response.text}")
     assert response.status_code == 201
 
     data = response.json()

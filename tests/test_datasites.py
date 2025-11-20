@@ -5,12 +5,6 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from syfthub.api.endpoints.datasites import (
-    fake_datasites_db,
-    slug_to_datasite_lookup,
-    user_datasites_lookup,
-)
-from syfthub.auth.dependencies import fake_users_db, username_to_id
 from syfthub.auth.security import token_blacklist
 from syfthub.main import app
 
@@ -18,25 +12,24 @@ from syfthub.main import app
 @pytest.fixture
 def client() -> TestClient:
     """Create test client."""
-    return TestClient(app)
+    from syfthub.database.connection import create_tables, drop_tables
+
+    # Ensure clean database
+    drop_tables()
+    create_tables()
+
+    client = TestClient(app)
+
+    yield client
+
+    # Clean up
+    drop_tables()
 
 
 @pytest.fixture(autouse=True)
-def reset_databases() -> None:
-    """Reset all databases before each test."""
-    fake_users_db.clear()
-    username_to_id.clear()
+def reset_auth_data() -> None:
+    """Reset authentication data before each test."""
     token_blacklist.clear()
-    fake_datasites_db.clear()
-    user_datasites_lookup.clear()
-    slug_to_datasite_lookup.clear()
-
-    # Reset counters
-    import syfthub.api.endpoints.datasites as datasites_module
-    import syfthub.auth.router as auth_module
-
-    auth_module.user_id_counter = 1
-    datasites_module.datasite_id_counter = 1
 
 
 @pytest.fixture
@@ -80,10 +73,19 @@ def admin_token(client: TestClient) -> str:
     response = client.post("/api/v1/auth/register", json=user_data)
 
     # Manually promote to admin
+    from syfthub.database.connection import get_db_session
+    from syfthub.repositories.user import UserRepository
     from syfthub.schemas.auth import UserRole
 
     user_id = response.json()["user"]["id"]
-    fake_users_db[user_id].role = UserRole.ADMIN
+
+    # Update user role to admin using repository
+    session = next(get_db_session())
+    try:
+        user_repo = UserRepository(session)
+        user_repo.update_user_role(user_id, UserRole.ADMIN)
+    finally:
+        session.close()
 
     return response.json()["access_token"]
 
@@ -773,14 +775,19 @@ def test_trending_datasites_endpoint(client: TestClient, user1_token: str) -> No
         assert response.status_code == 201
         created_ids.append(response.json()["id"])
 
-    # Simulate different star counts by manually updating the fake database
-    from syfthub.api.endpoints.datasites import fake_datasites_db
+    # Simulate different star counts by directly updating the database
+    from syfthub.database.connection import get_db_session
+    from syfthub.repositories.datasite import DatasiteRepository
 
-    if created_ids[0] in fake_datasites_db:
-        fake_datasites_db[created_ids[0]].stars_count = 10  # Most popular
-    if created_ids[1] in fake_datasites_db:
-        fake_datasites_db[created_ids[1]].stars_count = 5  # Moderate
-    # Leave created_ids[2] with 0 stars
+    session = next(get_db_session())
+    try:
+        datasite_repo = DatasiteRepository(session)
+        # Update star counts directly
+        datasite_repo.update(created_ids[0], stars_count=10)  # Most popular
+        datasite_repo.update(created_ids[1], stars_count=5)  # Moderate
+        # Leave created_ids[2] with 0 stars
+    finally:
+        session.close()
 
     # Test trending endpoint
     response = client.get("/api/v1/datasites/trending")
@@ -818,13 +825,18 @@ def test_trending_datasites_with_min_stars_filter(
         assert response.status_code == 201
         created_ids.append(response.json()["id"])
 
-    # Simulate star counts
-    from syfthub.api.endpoints.datasites import fake_datasites_db
+    # Simulate star counts by directly updating the database
+    from syfthub.database.connection import get_db_session
+    from syfthub.repositories.datasite import DatasiteRepository
 
-    if created_ids[0] in fake_datasites_db:
-        fake_datasites_db[created_ids[0]].stars_count = 15
-    if created_ids[1] in fake_datasites_db:
-        fake_datasites_db[created_ids[1]].stars_count = 2
+    session = next(get_db_session())
+    try:
+        datasite_repo = DatasiteRepository(session)
+        # Update star counts directly
+        datasite_repo.update(created_ids[0], stars_count=15)
+        datasite_repo.update(created_ids[1], stars_count=2)
+    finally:
+        session.close()
 
     # Test with min_stars filter
     response = client.get("/api/v1/datasites/trending?min_stars=10")
@@ -853,11 +865,16 @@ def test_public_datasite_response_includes_stars(
     assert response.status_code == 201
     datasite_id = response.json()["id"]
 
-    # Simulate some stars
-    from syfthub.api.endpoints.datasites import fake_datasites_db
+    # Simulate some stars by updating the database directly
+    from syfthub.database.connection import get_db_session
+    from syfthub.repositories.datasite import DatasiteRepository
 
-    if datasite_id in fake_datasites_db:
-        fake_datasites_db[datasite_id].stars_count = 42
+    session = next(get_db_session())
+    try:
+        datasite_repo = DatasiteRepository(session)
+        datasite_repo.update(datasite_id, stars_count=42)
+    finally:
+        session.close()
 
     # Test public listing endpoint
     response = client.get("/api/v1/datasites/public")

@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from syfthub.database.models import DatasiteModel, UserModel
+from syfthub.models import DatasiteModel, UserModel
 
 
 class TestUserModel:

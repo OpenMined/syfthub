@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
-from syfthub.database.models import Base
+from syfthub.models import Base
 
 
 @pytest.fixture

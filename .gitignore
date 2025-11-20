@@ -155,3 +155,6 @@ uv.lock
 
 # ruff
 .ruff_cache/
+
+# Local data directory
+data/

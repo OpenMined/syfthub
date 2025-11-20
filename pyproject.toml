@@ -94,10 +94,15 @@ ignore = [
     "UP006", # Use `list` instead of `List` for type annotation (Python 3.9 compatibility)
     "UP007", # Use `X | Y` for type annotations (Python 3.9 compatibility)
     "UP035", # `typing.List` is deprecated (Python 3.9 compatibility)
-    "UP045", # Use `X | None` for Optional type annotations (Python 3.9 compatibility)
 ]
 fixable = ["ALL"]
 unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "ARG001",  # Unused function arguments (test helpers)
+    "ARG002",  # Unused method arguments (test fixtures)
+]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -146,12 +151,17 @@ pretty = true
 # SQLAlchemy 2.0 has complex typing, disable strict checking for database modules
 [[tool.mypy.overrides]]
 module = [
-    "syfthub.database.models",
-    "syfthub.database.connection",
-    "syfthub.database.repositories",
+    "syfthub.database.*",
+    "syfthub.models.*",
+    "syfthub.repositories.*",
     "syfthub.auth.security"
 ]
 ignore_errors = true
+
+# Handle SQLAlchemy 2.0 import issues
+[[tool.mypy.overrides]]
+module = "sqlalchemy.*"
+ignore_missing_imports = true
 
 [tool.coverage.run]
 source = ["src"]

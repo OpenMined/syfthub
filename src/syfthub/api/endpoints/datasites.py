@@ -1,9 +1,7 @@
 """Datasite endpoints with authentication and visibility controls."""
 
-from __future__ import annotations
-
 from datetime import datetime, timezone
-from typing import Annotated, Dict, Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
@@ -11,9 +9,19 @@ from syfthub.api.endpoints.organizations import (
     get_organization_by_id,
     is_organization_admin_or_owner,
 )
-from syfthub.auth.dependencies import (
+from syfthub.auth.db_dependencies import (
     get_current_active_user,
     get_optional_current_user,
+)
+from syfthub.database.dependencies import (
+    get_datasite_repository,
+    get_organization_member_repository,
+    get_organization_repository,
+)
+from syfthub.repositories.datasite import DatasiteRepository
+from syfthub.repositories.organization import (
+    OrganizationMemberRepository,
+    OrganizationRepository,
 )
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.datasite import (
@@ -26,64 +34,73 @@ from syfthub.schemas.datasite import (
     DatasiteVisibility,
     generate_slug_from_name,
 )
-from syfthub.schemas.user import User  # noqa: TC001
+from syfthub.schemas.user import User
 
 router = APIRouter()
 
-# Mock database - in production this would be a real database
-fake_datasites_db: Dict[int, Datasite] = {}
-datasite_id_counter = 1
-
-# User slug lookups for efficient queries
-user_datasites_lookup: Dict[int, set[int]] = {}  # user_id -> set of datasite_ids
-slug_to_datasite_lookup: Dict[
-    tuple[int, str], int
-] = {}  # (user_id, slug) -> datasite_id
+# Mock database and lookups removed - now using repository pattern
 
 
-def get_datasite_by_id(datasite_id: int) -> Optional[Datasite]:
+def get_datasite_by_id(
+    datasite_repo: DatasiteRepository, datasite_id: int
+) -> Optional[Datasite]:
     """Get datasite by ID."""
-    return fake_datasites_db.get(datasite_id)
+    return datasite_repo.get_by_id(datasite_id)
 
 
-def get_datasite_by_slug(user_id: int, slug: str) -> Optional[Datasite]:
+def get_datasite_by_slug(
+    datasite_repo: DatasiteRepository, user_id: int, slug: str
+) -> Optional[Datasite]:
     """Get datasite by user_id and slug."""
-    datasite_id = slug_to_datasite_lookup.get((user_id, slug))
-    if datasite_id:
-        return fake_datasites_db.get(datasite_id)
-    return None
+    return datasite_repo.get_by_user_and_slug(user_id, slug)
 
 
 def is_slug_available(
-    slug: str, user_id: int, exclude_datasite_id: Optional[int] = None
+    datasite_repo: DatasiteRepository,
+    slug: str,
+    user_id: int,
+    exclude_datasite_id: Optional[int] = None,
 ) -> bool:
     """Check if a slug is available for a user."""
     if slug in RESERVED_SLUGS:
         return False
 
-    existing_datasite_id = slug_to_datasite_lookup.get((user_id, slug))
-    if existing_datasite_id is None:
-        return True
-
-    # If we're excluding a specific datasite (for updates), check if it's the same one
-    return (
-        exclude_datasite_id is not None and existing_datasite_id == exclude_datasite_id
-    )
+    # Use repository to check if slug exists for user
+    exists = datasite_repo.slug_exists_for_user(user_id, slug, exclude_datasite_id)
+    return not exists
 
 
-def generate_unique_slug(name: str, user_id: int) -> str:
-    """Generate a unique slug for a user."""
+def generate_unique_slug(
+    datasite_repo: DatasiteRepository,
+    name: str,
+    owner_id: int,
+    is_organization: bool = False,
+) -> str:
+    """Generate a unique slug for a user or organization."""
     base_slug = generate_slug_from_name(name)
 
-    if is_slug_available(base_slug, user_id):
+    # Check if base slug is available
+    if is_organization:
+        slug_available = not datasite_repo.slug_exists_for_organization(
+            owner_id, base_slug
+        )
+    else:
+        slug_available = is_slug_available(datasite_repo, base_slug, owner_id)
+
+    if slug_available:
         return base_slug
 
     # If base slug is taken, append numbers
     counter = 1
     while counter < 1000:  # Prevent infinite loops
         new_slug = f"{base_slug}-{counter}"
-        if len(new_slug) <= 63 and is_slug_available(new_slug, user_id):
-            return new_slug
+        if len(new_slug) <= 63:
+            if is_organization:
+                if not datasite_repo.slug_exists_for_organization(owner_id, new_slug):
+                    return new_slug
+            else:
+                if is_slug_available(datasite_repo, new_slug, owner_id):
+                    return new_slug
         counter += 1
 
     # Fallback: use timestamp
@@ -115,24 +132,25 @@ def can_access_datasite(datasite: Datasite, current_user: Optional[User]) -> boo
 @router.get("/", response_model=list[DatasiteResponse])
 async def list_my_datasites(
     current_user: Annotated[User, Depends(get_current_active_user)],
+    datasite_repo: Annotated[DatasiteRepository, Depends(get_datasite_repository)],
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
     visibility: Optional[DatasiteVisibility] = None,
     search: Optional[str] = None,
 ) -> list[DatasiteResponse]:
     """List current user's datasites."""
-    # Get user's datasites
-    user_datasite_ids = user_datasites_lookup.get(current_user.id, set())
-    user_datasites = [
-        fake_datasites_db[ds_id]
-        for ds_id in user_datasite_ids
-        if ds_id in fake_datasites_db
-    ]
+    # Get user's datasites from repository
+    # Note: Repository handles pagination, but we need to handle search filtering
+    # Get more than needed to account for search filtering, then re-paginate
+    max_results = skip + limit + 100  # Get extra to handle search filtering
+    user_datasites = datasite_repo.get_user_datasites(
+        current_user.id,
+        skip=0,  # Get from start to handle search filtering
+        limit=max_results,
+        visibility=visibility,
+    )
 
-    # Apply filters
-    if visibility is not None:
-        user_datasites = [ds for ds in user_datasites if ds.visibility == visibility]
-
+    # Apply search filter if provided
     if search:
         search_lower = search.lower()
         user_datasites = [
@@ -143,10 +161,7 @@ async def list_my_datasites(
             or search_lower in ds.slug.lower()
         ]
 
-    # Sort by most recent first
-    user_datasites.sort(key=lambda ds: ds.updated_at, reverse=True)
-
-    # Apply pagination
+    # Apply pagination after search filtering
     user_datasites = user_datasites[skip : skip + limit]
 
     return [DatasiteResponse.model_validate(ds) for ds in user_datasites]
@@ -154,51 +169,54 @@ async def list_my_datasites(
 
 @router.get("/public", response_model=list[DatasitePublicResponse])
 async def list_public_datasites(
+    datasite_repo: Annotated[DatasiteRepository, Depends(get_datasite_repository)],
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
     search: Optional[str] = None,
 ) -> list[DatasitePublicResponse]:
     """List all public datasites."""
-    # Get all public datasites
-    public_datasites = [
-        ds
-        for ds in fake_datasites_db.values()
-        if ds.visibility == DatasiteVisibility.PUBLIC and ds.is_active
-    ]
-
-    # Apply search filter
+    # Get public datasites from repository
+    # Note: Repository handles pagination and sorting, but we need search filtering
     if search:
+        # Get more results to handle search filtering
+        max_results = skip + limit + 100
+        public_datasites = datasite_repo.get_public_datasites(skip=0, limit=max_results)
+
+        # Apply search filter
         search_lower = search.lower()
-        public_datasites = [
-            ds
-            for ds in public_datasites
-            if search_lower in ds.name.lower() or search_lower in ds.description.lower()
-        ]
+        filtered_datasites = []
+        for ds in public_datasites:
+            # Convert DatasitePublicResponse back to check fields
+            if (
+                search_lower in ds.name.lower()
+                or search_lower in ds.description.lower()
+            ):
+                filtered_datasites.append(ds)
 
-    # Sort by most recent first
-    public_datasites.sort(key=lambda ds: ds.updated_at, reverse=True)
+        # Apply pagination after filtering
+        public_datasites = filtered_datasites[skip : skip + limit]
+    else:
+        # No search, use repository pagination directly
+        public_datasites = datasite_repo.get_public_datasites(skip=skip, limit=limit)
 
-    # Apply pagination
-    public_datasites = public_datasites[skip : skip + limit]
-
-    return [DatasitePublicResponse.model_validate(ds) for ds in public_datasites]
+    return public_datasites
 
 
 @router.get("/trending", response_model=list[DatasitePublicResponse])
 async def list_trending_datasites(
+    datasite_repo: Annotated[DatasiteRepository, Depends(get_datasite_repository)],
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
     min_stars: int = Query(0, ge=0),
 ) -> list[DatasitePublicResponse]:
     """List datasites by popularity (stars count)."""
-    # Get all public datasites ordered by stars
-    trending_datasites = [
-        ds
-        for ds in fake_datasites_db.values()
-        if ds.visibility == DatasiteVisibility.PUBLIC
-        and ds.is_active
-        and ds.stars_count >= min_stars
-    ]
+    # Get all public datasites (need to get more than needed for filtering and sorting)
+    # Since we need to filter by min_stars and sort by stars_count, get a large set
+    max_results = 1000  # Get a large set to ensure we have enough after filtering
+    public_datasites = datasite_repo.get_public_datasites(skip=0, limit=max_results)
+
+    # Filter by minimum stars
+    trending_datasites = [ds for ds in public_datasites if ds.stars_count >= min_stars]
 
     # Sort by stars count (desc) then by created_at (desc) for ties
     trending_datasites.sort(
@@ -208,16 +226,17 @@ async def list_trending_datasites(
     # Apply pagination
     trending_datasites = trending_datasites[skip : skip + limit]
 
-    return [DatasitePublicResponse.model_validate(ds) for ds in trending_datasites]
+    return trending_datasites
 
 
 @router.get("/{datasite_id}", response_model=DatasiteResponse)
 async def get_datasite(
     datasite_id: int,
     current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
+    datasite_repo: Annotated[DatasiteRepository, Depends(get_datasite_repository)],
 ) -> DatasiteResponse:
     """Get a datasite by ID (respects visibility rules)."""
-    datasite = get_datasite_by_id(datasite_id)
+    datasite = get_datasite_by_id(datasite_repo, datasite_id)
     if not datasite:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Datasite not found"
@@ -244,17 +263,19 @@ async def get_datasite(
 async def create_datasite(
     datasite_data: DatasiteCreate,
     current_user: Annotated[User, Depends(get_current_active_user)],
+    datasite_repo: Annotated[DatasiteRepository, Depends(get_datasite_repository)],
+    org_repo: Annotated[OrganizationRepository, Depends(get_organization_repository)],
+    member_repo: Annotated[
+        OrganizationMemberRepository, Depends(get_organization_member_repository)
+    ],
 ) -> DatasiteResponse:
     """Create a new datasite for user or organization."""
-    global datasite_id_counter
-
     # Determine ownership type and validate permissions
     organization_id = datasite_data.organization_id
-    user_id = None if organization_id else current_user.id
 
     if organization_id:
         # Creating for organization - check if user can create org datasites
-        organization = get_organization_by_id(organization_id)
+        organization = get_organization_by_id(organization_id, org_repo)
         if not organization or not organization.is_active:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found"
@@ -262,7 +283,7 @@ async def create_datasite(
 
         # Check if user is admin/owner of organization
         if current_user.role != "admin" and not is_organization_admin_or_owner(
-            organization_id, current_user.id
+            organization_id, current_user.id, member_repo
         ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -273,62 +294,57 @@ async def create_datasite(
     if datasite_data.slug is None:
         # Use organization_id or user_id for slug generation
         owner_id = organization_id or current_user.id
-        slug = generate_unique_slug(datasite_data.name, owner_id)
+        is_org_slug_gen = organization_id is not None
+        slug = generate_unique_slug(
+            datasite_repo, datasite_data.name, owner_id, is_org_slug_gen
+        )
     else:
         slug = datasite_data.slug.lower()
 
         # Check if slug is available for the owner
         if organization_id:
-            # Check org datasite slug availability
-            for existing_ds in fake_datasites_db.values():
-                if (
-                    existing_ds.organization_id == organization_id
-                    and existing_ds.slug == slug
-                ):
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail=f"Slug '{slug}' is already taken in this organization.",
-                    )
+            # Check org datasite slug availability using repository
+            if datasite_repo.slug_exists_for_organization(organization_id, slug):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Slug '{slug}' is already taken in this organization.",
+                )
         else:
-            # Check user datasite slug availability
-            if not is_slug_available(slug, current_user.id):
+            # Check user datasite slug availability using repository
+            if not is_slug_available(datasite_repo, slug, current_user.id):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Slug '{slug}' is already taken. Please choose a different slug.",
                 )
 
     # Prepare datasite data
-    datasite_dict = datasite_data.model_dump(exclude={"slug", "organization_id"})
-
-    # Ensure creator is in contributors list
-    if not datasite_dict.get("contributors"):
-        datasite_dict["contributors"] = [current_user.id]
-    elif current_user.id not in datasite_dict["contributors"]:
-        datasite_dict["contributors"].append(current_user.id)
-
-    # Create datasite
-    datasite = Datasite(
-        id=datasite_id_counter,
-        user_id=user_id,
-        organization_id=organization_id,
+    datasite_create = DatasiteCreate(
+        name=datasite_data.name,
         slug=slug,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
-        **datasite_dict,
+        description=datasite_data.description,
+        visibility=datasite_data.visibility,
+        version=datasite_data.version,
+        readme=datasite_data.readme,
+        contributors=datasite_data.contributors or [current_user.id],
+        policies=datasite_data.policies,
+        connect=datasite_data.connect,
+        organization_id=organization_id,
     )
 
-    # Store in database
-    fake_datasites_db[datasite_id_counter] = datasite
+    # Ensure creator is in contributors list
+    if current_user.id not in datasite_create.contributors:
+        datasite_create.contributors.append(current_user.id)
 
-    # Update lookups
-    if not organization_id:
-        # User-owned datasite
-        if current_user.id not in user_datasites_lookup:
-            user_datasites_lookup[current_user.id] = set()
-        user_datasites_lookup[current_user.id].add(datasite_id_counter)
-        slug_to_datasite_lookup[(current_user.id, slug)] = datasite_id_counter
+    # Create datasite using repository
+    owner_id = organization_id or current_user.id
+    is_organization = organization_id is not None
 
-    datasite_id_counter += 1
+    datasite = datasite_repo.create_datasite(datasite_create, owner_id, is_organization)
+    if not datasite:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create datasite",
+        )
 
     return DatasiteResponse.model_validate(datasite)
 
@@ -338,9 +354,10 @@ async def update_datasite(
     datasite_id: int,
     datasite_data: DatasiteUpdate,
     current_user: Annotated[User, Depends(get_current_active_user)],
+    datasite_repo: Annotated[DatasiteRepository, Depends(get_datasite_repository)],
 ) -> DatasiteResponse:
     """Update a datasite (owner or admin only)."""
-    datasite = get_datasite_by_id(datasite_id)
+    datasite = get_datasite_by_id(datasite_repo, datasite_id)
     if not datasite:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Datasite not found"
@@ -353,23 +370,25 @@ async def update_datasite(
             detail="Access denied: you can only update your own datasites",
         )
 
-    # Update only provided fields
-    update_data = datasite_data.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(datasite, field, value)
+    # Update datasite using repository
+    updated_datasite = datasite_repo.update_datasite(datasite_id, datasite_data)
+    if not updated_datasite:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update datasite",
+        )
 
-    datasite.updated_at = datetime.now(timezone.utc)
-
-    return DatasiteResponse.model_validate(datasite)
+    return DatasiteResponse.model_validate(updated_datasite)
 
 
 @router.delete("/{datasite_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_datasite(
     datasite_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
+    datasite_repo: Annotated[DatasiteRepository, Depends(get_datasite_repository)],
 ) -> None:
     """Delete a datasite (owner or admin only)."""
-    datasite = get_datasite_by_id(datasite_id)
+    datasite = get_datasite_by_id(datasite_repo, datasite_id)
     if not datasite:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Datasite not found"
@@ -382,13 +401,10 @@ async def delete_datasite(
             detail="Access denied: you can only delete your own datasites",
         )
 
-    # Remove from database
-    del fake_datasites_db[datasite_id]
-
-    # Clean up lookups
-    if datasite.user_id and datasite.user_id in user_datasites_lookup:
-        user_datasites_lookup[datasite.user_id].discard(datasite_id)
-
-    if datasite.user_id is not None:
-        lookup_key = (datasite.user_id, datasite.slug)
-        slug_to_datasite_lookup.pop(lookup_key, None)
+    # Delete datasite using repository (soft delete)
+    success = datasite_repo.delete_datasite(datasite_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete datasite",
+        )

@@ -1,19 +1,15 @@
 """Database-based authentication dependencies for FastAPI."""
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING, Annotated, List, Optional
+from typing import Annotated, List, Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from syfthub.auth.security import verify_token
 from syfthub.database.dependencies import get_user_repository
+from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import UserRole
-
-if TYPE_CHECKING:
-    from syfthub.database.repositories import UserRepository
-    from syfthub.schemas.user import User
+from syfthub.schemas.user import User
 
 # OAuth2 bearer token scheme
 security = HTTPBearer(auto_error=False)
@@ -99,8 +95,8 @@ async def get_current_active_user(
 
 
 async def get_optional_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
-    user_repo: UserRepository = Depends(get_user_repository),
+    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> Optional[User]:
     """Get the current user if authenticated, otherwise return None."""
     if credentials is None:

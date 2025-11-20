@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 from syfthub.core.config import settings
-from syfthub.database.models import Base
+from syfthub.models import Base
 
 
 # Create SQLAlchemy engine

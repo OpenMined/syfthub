@@ -1,18 +1,16 @@
 """User management endpoints."""
 
-from __future__ import annotations
-
-from datetime import datetime, timezone
-from typing import Annotated, Dict, Optional
+from typing import Annotated, Dict, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from syfthub.auth.dependencies import (
-    OwnershipChecker,
-    fake_users_db,
+from syfthub.auth.db_dependencies import (
     get_current_active_user,
 )
+from syfthub.auth.dependencies import OwnershipChecker
 from syfthub.auth.security import verify_ed25519_signature
+from syfthub.database.dependencies import get_user_repository
+from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import (
     SignatureVerificationRequest,
     SignatureVerificationResponse,
@@ -38,9 +36,13 @@ def require_admin(
 
 
 @router.get("/", response_model=list[UserResponse])
-async def list_users(_: Annotated[bool, Depends(require_admin)]) -> list[UserResponse]:
+async def list_users(
+    _: Annotated[bool, Depends(require_admin)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+) -> list[UserResponse]:
     """List all users (admin only)."""
-    return [UserResponse.model_validate(user) for user in fake_users_db.values()]
+    users = user_repo.get_all()
+    return [UserResponse.model_validate(user) for user in users]
 
 
 @router.get("/me", response_model=UserResponse)
@@ -55,16 +57,17 @@ async def get_current_user_profile(
 async def get_user(
     user_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> UserResponse:
     """Get a user by ID (admin or self only)."""
     # Check if user exists
-    if user_id not in fake_users_db:
+    target_user = user_repo.get_by_id(user_id)
+    if not target_user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
 
     # Check ownership or admin permissions
-    target_user = fake_users_db[user_id]
     check_user_ownership(current_user, target_user.id)
 
     return UserResponse.model_validate(target_user)
@@ -74,20 +77,19 @@ async def get_user(
 async def update_current_user_profile(
     user_data: UserUpdate,
     current_user: Annotated[User, Depends(get_current_active_user)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> UserResponse:
     """Update current user's profile."""
-    # Update user data
-    update_data = user_data.model_dump(exclude_unset=True)
+    # Update user using repository
+    updated_user = user_repo.update_user(current_user.id, user_data)
 
-    for field, value in update_data.items():
-        setattr(current_user, field, value)
+    if not updated_user:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update user",
+        )
 
-    current_user.updated_at = datetime.now(timezone.utc)
-
-    # Save to database
-    fake_users_db[current_user.id] = current_user
-
-    return UserResponse.model_validate(current_user)
+    return UserResponse.model_validate(updated_user)
 
 
 @router.put("/{user_id}", response_model=UserResponse)
@@ -95,91 +97,127 @@ async def update_user(
     user_id: int,
     user_data: UserUpdate,
     current_user: Annotated[User, Depends(get_current_active_user)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> UserResponse:
     """Update a user by ID (admin or self only)."""
     # Check if user exists
-    if user_id not in fake_users_db:
+    target_user = user_repo.get_by_id(user_id)
+    if not target_user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
 
     # Check ownership or admin permissions
-    target_user = fake_users_db[user_id]
     check_user_ownership(current_user, target_user.id)
 
-    # Update user data
-    update_data = user_data.model_dump(exclude_unset=True)
+    # Update user using repository
+    updated_user = user_repo.update_user(user_id, user_data)
 
-    for field, value in update_data.items():
-        setattr(target_user, field, value)
+    if not updated_user:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update user",
+        )
 
-    target_user.updated_at = datetime.now(timezone.utc)
-
-    # Save to database
-    fake_users_db[user_id] = target_user
-
-    return UserResponse.model_validate(target_user)
+    return UserResponse.model_validate(updated_user)
 
 
 @router.patch("/{user_id}/deactivate", response_model=UserResponse)
 async def deactivate_user(
-    user_id: int, _: Annotated[bool, Depends(require_admin)]
+    user_id: int,
+    _: Annotated[bool, Depends(require_admin)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> UserResponse:
     """Deactivate a user (admin only)."""
     # Check if user exists
-    if user_id not in fake_users_db:
+    target_user = user_repo.get_by_id(user_id)
+    if not target_user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
 
-    user = fake_users_db[user_id]
-    user.is_active = False
-    user.updated_at = datetime.now(timezone.utc)
+    # Deactivate user using repository
+    success = user_repo.deactivate_user(user_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to deactivate user",
+        )
 
-    return UserResponse.model_validate(user)
+    # Get updated user to return
+    updated_user = user_repo.get_by_id(user_id)
+    if not updated_user:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve updated user",
+        )
+
+    return UserResponse.model_validate(updated_user)
 
 
 @router.patch("/{user_id}/activate", response_model=UserResponse)
 async def activate_user(
-    user_id: int, _: Annotated[bool, Depends(require_admin)]
+    user_id: int,
+    _: Annotated[bool, Depends(require_admin)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> UserResponse:
     """Activate a user (admin only)."""
     # Check if user exists
-    if user_id not in fake_users_db:
+    target_user = user_repo.get_by_id(user_id)
+    if not target_user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
 
-    user = fake_users_db[user_id]
-    user.is_active = True
-    user.updated_at = datetime.now(timezone.utc)
+    # Activate user using repository
+    success = user_repo.activate_user(user_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to activate user",
+        )
 
-    return UserResponse.model_validate(user)
+    # Get updated user to return
+    updated_user = user_repo.get_by_id(user_id)
+    if not updated_user:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve updated user",
+        )
+
+    return UserResponse.model_validate(updated_user)
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
     user_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> None:
     """Delete a user (admin or self only)."""
     # Check if user exists
-    if user_id not in fake_users_db:
+    target_user = user_repo.get_by_id(user_id)
+    if not target_user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
 
     # Check ownership or admin permissions
-    target_user = fake_users_db[user_id]
     check_user_ownership(current_user, target_user.id)
 
-    # Delete user
-    del fake_users_db[user_id]
+    # Delete user using repository
+    success = user_repo.delete(user_id)
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete user",
+        )
 
 
 @router.post("/verify-signature", response_model=SignatureVerificationResponse)
 async def verify_signature(
     request: SignatureVerificationRequest,
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> SignatureVerificationResponse:
     """Verify an Ed25519 signature and return user information if valid.
 
@@ -190,13 +228,9 @@ async def verify_signature(
     message_bytes = request.message.encode("utf-8")
 
     # Find user by public key
-    user_owner = None
-    for user in fake_users_db.values():
-        if user.public_key == request.public_key and user.is_active:
-            user_owner = user
-            break
+    user_owner = user_repo.get_by_public_key(request.public_key)
 
-    if not user_owner:
+    if not user_owner or not user_owner.is_active:
         return SignatureVerificationResponse(
             verified=False,
             user_info=None,
@@ -214,7 +248,7 @@ async def verify_signature(
         )
 
     # Return user information (minimal data for privacy)
-    user_info: Dict[str, str | Optional[int]] = {
+    user_info: Dict[str, Union[str, Optional[int]]] = {
         "id": user_owner.id,
         "username": user_owner.username,
         "full_name": user_owner.full_name,

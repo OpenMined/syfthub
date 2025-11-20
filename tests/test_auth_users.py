@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from syfthub.auth.dependencies import fake_users_db, username_to_id
 from syfthub.auth.security import token_blacklist
 from syfthub.main import app
 
@@ -13,14 +12,23 @@ from syfthub.main import app
 @pytest.fixture
 def client() -> TestClient:
     """Create test client."""
-    return TestClient(app)
+    from syfthub.database.connection import create_tables, drop_tables
+
+    # Ensure clean database
+    drop_tables()
+    create_tables()
+
+    client = TestClient(app)
+
+    yield client
+
+    # Clean up
+    drop_tables()
 
 
 @pytest.fixture(autouse=True)
-def reset_auth_db() -> None:
-    """Reset the authentication database before each test."""
-    fake_users_db.clear()
-    username_to_id.clear()
+def reset_auth_data() -> None:
+    """Reset authentication data before each test."""
     token_blacklist.clear()
 
     # Reset counters
@@ -58,10 +66,19 @@ def admin_user_token(client: TestClient) -> str:
     response = client.post("/api/v1/auth/register", json=user_data)
 
     # Manually promote to admin (in production this would be done differently)
+    from syfthub.database.connection import get_db_session
+    from syfthub.repositories.user import UserRepository
     from syfthub.schemas.auth import UserRole
 
     user_id = response.json()["user"]["id"]
-    fake_users_db[user_id].role = UserRole.ADMIN
+
+    # Update user role to admin using repository
+    session = next(get_db_session())
+    try:
+        user_repo = UserRepository(session)
+        user_repo.update_user_role(user_id, UserRole.ADMIN)
+    finally:
+        session.close()
 
     return response.json()["access_token"]
 
@@ -267,6 +284,8 @@ def test_delete_user_self(client: TestClient, regular_user_token: str) -> None:
 
     # Delete own account
     response = client.delete(f"/api/v1/users/{user_id}", headers=headers)
+    if response.status_code != 204:
+        print(f"Delete response: {response.text}")
     assert response.status_code == 204
 
     # Verify user is deleted
