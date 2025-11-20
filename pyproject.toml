@@ -94,7 +94,6 @@ ignore = [
     "UP006", # Use `list` instead of `List` for type annotation (Python 3.9 compatibility)
     "UP007", # Use `X | Y` for type annotations (Python 3.9 compatibility)
     "UP035", # `typing.List` is deprecated (Python 3.9 compatibility)
-    "UP045", # Use `X | None` for Optional type annotations (Python 3.9 compatibility)
 ]
 fixable = ["ALL"]
 unfixable = []
