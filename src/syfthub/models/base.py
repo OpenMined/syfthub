@@ -1,7 +1,5 @@
 """Base model class for all database models."""
 
-from __future__ import annotations
-
 from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, Integer

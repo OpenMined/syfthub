@@ -1,7 +1,5 @@
 """Organization and OrganizationMember database models."""
 
-from __future__ import annotations
-
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List, Optional
 
@@ -36,12 +34,12 @@ class OrganizationModel(BaseModel, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     # Relationships
-    members: Mapped[List[OrganizationMemberModel]] = relationship(
+    members: Mapped[List["OrganizationMemberModel"]] = relationship(
         "OrganizationMemberModel",
         back_populates="organization",
         cascade="all, delete-orphan",
     )
-    datasites: Mapped[List[DatasiteModel]] = relationship(
+    datasites: Mapped[List["DatasiteModel"]] = relationship(
         "DatasiteModel", back_populates="organization", cascade="all, delete-orphan"
     )
 
@@ -78,10 +76,10 @@ class OrganizationMemberModel(BaseModel):
     )
 
     # Relationships
-    organization: Mapped[OrganizationModel] = relationship(
+    organization: Mapped["OrganizationModel"] = relationship(
         "OrganizationModel", back_populates="members"
     )
-    user: Mapped[UserModel] = relationship(
+    user: Mapped["UserModel"] = relationship(
         "UserModel", back_populates="organization_memberships"
     )
 

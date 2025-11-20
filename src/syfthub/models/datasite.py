@@ -1,7 +1,5 @@
 """Datasite and DatasiteStar database models."""
 
-from __future__ import annotations
-
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List, Optional
 
@@ -62,10 +60,10 @@ class DatasiteModel(BaseModel, TimestampMixin):
     )
 
     # Relationships
-    user: Mapped[Optional[UserModel]] = relationship(
+    user: Mapped[Optional["UserModel"]] = relationship(
         "UserModel", back_populates="datasites"
     )
-    organization: Mapped[Optional[OrganizationModel]] = relationship(
+    organization: Mapped[Optional["OrganizationModel"]] = relationship(
         "OrganizationModel", back_populates="datasites"
     )
 

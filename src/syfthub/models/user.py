@@ -1,7 +1,5 @@
 """User database model."""
 
-from __future__ import annotations
-
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List, Optional
 
@@ -38,10 +36,10 @@ class UserModel(BaseModel, TimestampMixin):
     )
 
     # Relationships
-    datasites: Mapped[List[DatasiteModel]] = relationship(
+    datasites: Mapped[List["DatasiteModel"]] = relationship(
         "DatasiteModel", back_populates="user", cascade="all, delete-orphan"
     )
-    organization_memberships: Mapped[List[OrganizationMemberModel]] = relationship(
+    organization_memberships: Mapped[List["OrganizationMemberModel"]] = relationship(
         "OrganizationMemberModel", back_populates="user", cascade="all, delete-orphan"
     )
 
