@@ -11,6 +11,7 @@ from syfthub.repositories.organization import (
     OrganizationRepository,
 )
 from syfthub.schemas.organization import (
+    Organization,
     OrganizationCreate,
     OrganizationMemberCreate,
     OrganizationMemberResponse,
@@ -39,6 +40,13 @@ class OrganizationService(BaseService):
         self, org_data: OrganizationCreate, current_user: User
     ) -> OrganizationResponse:
         """Create a new organization with current user as owner."""
+        # Check for duplicate slug if provided
+        if org_data.slug and self.org_repository.slug_exists(org_data.slug):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Organization slug already exists",
+            )
+
         # Create organization
         organization = self.org_repository.create_organization(org_data)
         if not organization:
@@ -58,8 +66,26 @@ class OrganizationService(BaseService):
 
         return OrganizationResponse.model_validate(organization)
 
-    def get_organization(self, slug: str) -> Optional[OrganizationResponse]:
-        """Get organization by slug."""
+    def get_organization(self, org_id: int, current_user: User) -> OrganizationResponse:
+        """Get organization by ID with access control."""
+        organization = self.org_repository.get_by_id(org_id)
+        if not organization or not organization.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Organization not found",
+            )
+
+        # Check if user has access to view organization
+        if not self._can_view_organization(org_id, current_user):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Organization not found",
+            )
+
+        return OrganizationResponse.model_validate(organization)
+
+    def get_organization_by_slug(self, slug: str) -> Optional[OrganizationResponse]:
+        """Get organization by slug (for backward compatibility)."""
         organization = self.org_repository.get_by_slug(slug)
         if organization:
             return OrganizationResponse.model_validate(organization)
@@ -160,3 +186,16 @@ class OrganizationService(BaseService):
             return True
 
         return self.member_repository.is_member(org_id, user.id)
+
+    def is_organization_admin_or_owner(self, org_id: int, user_id: int) -> bool:
+        """Check if user is admin or owner of organization."""
+        role = self.member_repository.get_member_role(org_id, user_id)
+        return role in (OrganizationRole.ADMIN, OrganizationRole.OWNER)
+
+    def is_organization_member(self, org_id: int, user_id: int) -> bool:
+        """Check if user is member of organization."""
+        return self.member_repository.is_member(org_id, user_id)
+
+    def get_organization_by_id(self, org_id: int) -> Optional[Organization]:
+        """Get organization by ID."""
+        return self.org_repository.get_by_id(org_id)

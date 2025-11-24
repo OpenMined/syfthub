@@ -138,7 +138,7 @@ class TestOrganizationServiceGet:
         with patch.object(
             org_service.org_repository, "get_by_slug", return_value=sample_organization
         ):
-            result = org_service.get_organization("test-org")
+            result = org_service.get_organization_by_slug("test-org")
 
             assert result is not None
             assert isinstance(result, OrganizationResponse)
@@ -147,7 +147,7 @@ class TestOrganizationServiceGet:
     def test_get_organization_not_found(self, org_service):
         """Test organization not found."""
         with patch.object(org_service.org_repository, "get_by_slug", return_value=None):
-            result = org_service.get_organization("nonexistent")
+            result = org_service.get_organization_by_slug("nonexistent")
 
             assert result is None
 

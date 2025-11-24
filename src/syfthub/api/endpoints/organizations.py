@@ -8,6 +8,7 @@ from syfthub.auth.db_dependencies import get_current_active_user
 from syfthub.database.dependencies import (
     get_organization_member_repository,
     get_organization_repository,
+    get_organization_service,
 )
 from syfthub.repositories.organization import (
     OrganizationMemberRepository,
@@ -15,7 +16,6 @@ from syfthub.repositories.organization import (
 )
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.organization import (
-    RESERVED_ORG_SLUGS,
     Organization,
     OrganizationCreate,
     OrganizationMemberCreate,
@@ -24,9 +24,9 @@ from syfthub.schemas.organization import (
     OrganizationResponse,
     OrganizationRole,
     OrganizationUpdate,
-    generate_slug_from_name,
 )
 from syfthub.schemas.user import User
+from syfthub.services.organization_service import OrganizationService
 
 router = APIRouter()
 
@@ -146,78 +146,20 @@ async def list_my_organizations(
 async def create_organization(
     org_data: OrganizationCreate,
     current_user: Annotated[User, Depends(get_current_active_user)],
-    org_repo: Annotated[OrganizationRepository, Depends(get_organization_repository)],
-    member_repo: Annotated[
-        OrganizationMemberRepository, Depends(get_organization_member_repository)
-    ],
+    org_service: Annotated[OrganizationService, Depends(get_organization_service)],
 ) -> OrganizationResponse:
     """Create a new organization."""
-    # Generate slug if not provided
-    slug = org_data.slug or generate_slug_from_name(org_data.name)
-
-    # Check if slug is available
-    if org_repo.slug_exists(slug):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Organization with slug '{slug}' already exists",
-        )
-
-    # Check reserved slugs
-    if slug in RESERVED_ORG_SLUGS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"'{slug}' is a reserved slug and cannot be used",
-        )
-
-    # Update the org_data with the slug
-    org_data.slug = slug
-
-    # Create organization
-    organization = org_repo.create_organization(org_data)
-    if not organization:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create organization",
-        )
-
-    # Add creator as owner
-    member_data = OrganizationMemberCreate(
-        user_id=current_user.id,
-        role=OrganizationRole.OWNER,
-        is_active=True,
-    )
-
-    member = member_repo.add_member(member_data, organization.id)
-    if not member:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to add organization owner",
-        )
-
-    return OrganizationResponse.model_validate(organization)
+    return org_service.create_organization(org_data, current_user)
 
 
 @router.get("/{org_id}", response_model=OrganizationResponse)
 async def get_organization(
     org_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
-    org_repo: Annotated[OrganizationRepository, Depends(get_organization_repository)],
-    member_repo: Annotated[
-        OrganizationMemberRepository, Depends(get_organization_member_repository)
-    ],
+    org_service: Annotated[OrganizationService, Depends(get_organization_service)],
 ) -> OrganizationResponse:
     """Get organization details."""
-    organization = get_organization_by_id(org_id, org_repo)
-    if not organization or not organization.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found"
-        )
-
-    # Check if user has access (member or admin)
-    if current_user.role != UserRole.ADMIN:
-        require_organization_member(org_id, current_user.id, member_repo)
-
-    return OrganizationResponse.model_validate(organization)
+    return org_service.get_organization(org_id, current_user)
 
 
 @router.put("/{org_id}", response_model=OrganizationResponse)

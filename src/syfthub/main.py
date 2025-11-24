@@ -12,12 +12,6 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from syfthub import __version__
-from syfthub.api.endpoints.datasites import (
-    can_access_datasite,
-)
-from syfthub.api.endpoints.organizations import (
-    is_organization_member,
-)
 from syfthub.api.router import api_router
 from syfthub.auth.db_dependencies import get_optional_current_user
 from syfthub.core.config import settings
@@ -46,6 +40,33 @@ from syfthub.schemas.user import User
 # Setup Jinja2 templates
 templates_dir = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
+
+
+# Local helper functions to avoid circular imports
+def can_access_datasite(datasite: Datasite, current_user: Optional[User]) -> bool:
+    """Check if user can access a datasite based on visibility."""
+    if datasite.visibility == DatasiteVisibility.PUBLIC:
+        return True
+
+    if current_user is None:
+        return False
+
+    # Owner can always access
+    if current_user.id == datasite.user_id:
+        return True
+
+    # Admin can access everything
+    if current_user.role == "admin":
+        return True
+
+    return False
+
+
+def is_organization_member(
+    org_id: int, user_id: int, member_repo: OrganizationMemberRepository
+) -> bool:
+    """Check if user is member of organization."""
+    return member_repo.is_member(org_id, user_id)
 
 
 def resolve_owner(

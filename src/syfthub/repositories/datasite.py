@@ -88,8 +88,9 @@ class DatasiteRepository(BaseRepository[DatasiteModel]):
         skip: int = 0,
         limit: int = 10,
         visibility: Optional[DatasiteVisibility] = None,
+        search: Optional[str] = None,
     ) -> List[Datasite]:
-        """Get all datasites for a user."""
+        """Get all datasites for a user with optional search."""
         try:
             stmt = select(self.model).where(
                 and_(self.model.user_id == user_id, self.model.is_active)
@@ -97,6 +98,13 @@ class DatasiteRepository(BaseRepository[DatasiteModel]):
 
             if visibility:
                 stmt = stmt.where(self.model.visibility == visibility.value)
+
+            if search:
+                search_pattern = f"%{search}%"
+                stmt = stmt.where(
+                    self.model.name.ilike(search_pattern)
+                    | self.model.description.ilike(search_pattern)
+                )
 
             stmt = stmt.order_by(self.model.updated_at.desc()).offset(skip).limit(limit)
 
@@ -153,6 +161,34 @@ class DatasiteRepository(BaseRepository[DatasiteModel]):
             result = self.session.execute(stmt)
             datasite_models = result.scalars().all()
 
+            return [
+                DatasitePublicResponse.model_validate(datasite)
+                for datasite in datasite_models
+            ]
+        except SQLAlchemyError:
+            return []
+
+    def get_trending_datasites(
+        self, skip: int = 0, limit: int = 10, min_stars: Optional[int] = None
+    ) -> List[DatasitePublicResponse]:
+        """Get trending public datasites sorted by stars count with optional min_stars filter."""
+        try:
+            stmt = select(self.model).where(
+                and_(
+                    self.model.visibility == DatasiteVisibility.PUBLIC.value,
+                    self.model.is_active,
+                )
+            )
+
+            if min_stars is not None:
+                stmt = stmt.where(self.model.stars_count >= min_stars)
+
+            stmt = (
+                stmt.order_by(self.model.stars_count.desc()).offset(skip).limit(limit)
+            )
+
+            result = self.session.execute(stmt)
+            datasite_models = result.scalars().all()
             return [
                 DatasitePublicResponse.model_validate(datasite)
                 for datasite in datasite_models

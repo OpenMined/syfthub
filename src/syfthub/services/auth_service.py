@@ -17,8 +17,10 @@ from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import (
     AuthResponse,
     Ed25519KeyPair,
+    KeyRegenerationResponse,
     RefreshTokenRequest,
     RegistrationResponse,
+    Token,
     UserLogin,
     UserRegister,
 )
@@ -255,3 +257,65 @@ class AuthService(BaseService):
     def get_user_by_id(self, user_id: int) -> Optional[User]:
         """Get user by ID."""
         return self.user_repository.get_by_id(user_id)
+
+    # Router-compatible methods
+    def register(self, user_data: UserRegister) -> RegistrationResponse:
+        """Register a new user - router-compatible wrapper."""
+        return self.register_user(user_data)
+
+    def login(self, username: str, password: str) -> Token:
+        """Login user and return tokens - router-compatible wrapper."""
+        login_data = UserLogin(username=username, password=password)
+        auth_response = self.login_user(login_data)
+        return Token(
+            access_token=auth_response.access_token,
+            refresh_token=auth_response.refresh_token,
+            token_type=auth_response.token_type,
+        )
+
+    def refresh_token(self, refresh_token: str) -> Token:
+        """Refresh access token - router-compatible wrapper."""
+        refresh_request = RefreshTokenRequest(refresh_token=refresh_token)
+        auth_response = self.refresh_tokens(refresh_request)
+        return Token(
+            access_token=auth_response.access_token,
+            refresh_token=auth_response.refresh_token,
+            token_type=auth_response.token_type,
+        )
+
+    def change_password(
+        self, current_user: User, current_password: str, new_password: str
+    ) -> None:
+        """Change user's password."""
+        # Verify current password
+        if not verify_password(current_password, current_user.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Current password is incorrect",
+            )
+
+        # Validate new password
+        if len(new_password) < 8:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="New password must be at least 8 characters long",
+            )
+
+        # Hash new password and update
+        new_password_hash = hash_password(new_password)
+        self.user_repository.update_password(current_user.id, new_password_hash)
+
+    def regenerate_keys(self, current_user: User) -> KeyRegenerationResponse:
+        """Regenerate Ed25519 key pair for user."""
+        # Generate new key pair
+        key_pair = generate_ed25519_key_pair()
+
+        # Update user's public key in database
+        self.user_repository.update_public_key(current_user.id, key_pair.public_key)
+
+        return KeyRegenerationResponse(
+            keys=Ed25519KeyPair(
+                private_key=key_pair.private_key,
+                public_key=key_pair.public_key,
+            )
+        )

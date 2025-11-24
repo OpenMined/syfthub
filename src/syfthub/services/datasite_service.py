@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List, Optional
 
 from fastapi import HTTPException, status
@@ -9,12 +10,14 @@ from fastapi import HTTPException, status
 from syfthub.repositories.datasite import DatasiteRepository, DatasiteStarRepository
 from syfthub.repositories.organization import OrganizationMemberRepository
 from syfthub.schemas.datasite import (
+    RESERVED_SLUGS,
     Datasite,
     DatasiteCreate,
     DatasitePublicResponse,
     DatasiteResponse,
     DatasiteUpdate,
     DatasiteVisibility,
+    generate_slug_from_name,
 )
 from syfthub.services.base import BaseService
 
@@ -33,6 +36,61 @@ class DatasiteService(BaseService):
         self.datasite_repository = DatasiteRepository(session)
         self.star_repository = DatasiteStarRepository(session)
         self.org_member_repository = OrganizationMemberRepository(session)
+
+    def _is_slug_available(
+        self,
+        slug: str,
+        user_id: int,
+        exclude_datasite_id: Optional[int] = None,
+    ) -> bool:
+        """Check if a slug is available for a user."""
+        if slug in RESERVED_SLUGS:
+            return False
+
+        # Use repository to check if slug exists for user
+        exists = self.datasite_repository.slug_exists_for_user(
+            user_id, slug, exclude_datasite_id
+        )
+        return not exists
+
+    def _generate_unique_slug(
+        self,
+        name: str,
+        owner_id: int,
+        is_organization: bool = False,
+    ) -> str:
+        """Generate a unique slug for a user or organization."""
+        base_slug = generate_slug_from_name(name)
+
+        # Check if base slug is available
+        if is_organization:
+            slug_available = not self.datasite_repository.slug_exists_for_organization(
+                owner_id, base_slug
+            )
+        else:
+            slug_available = self._is_slug_available(base_slug, owner_id)
+
+        if slug_available:
+            return base_slug
+
+        # If base slug is taken, append numbers
+        counter = 1
+        while counter < 1000:  # Prevent infinite loops
+            new_slug = f"{base_slug}-{counter}"
+            if len(new_slug) <= 63:
+                if is_organization:
+                    if not self.datasite_repository.slug_exists_for_organization(
+                        owner_id, new_slug
+                    ):
+                        return new_slug
+                else:
+                    if self._is_slug_available(new_slug, owner_id):
+                        return new_slug
+            counter += 1
+
+        # Fallback: use timestamp
+        timestamp = str(int(datetime.now(timezone.utc).timestamp()))[-6:]
+        return f"{base_slug[:50]}-{timestamp}"
 
     def create_datasite(
         self,
@@ -53,11 +111,10 @@ class DatasiteService(BaseService):
                 detail="Permission denied: not a member of organization",
             )
 
-        # Check slug uniqueness
+        # Auto-generate slug if not provided
         if datasite_data.slug is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Slug is required for datasite creation",
+            datasite_data.slug = self._generate_unique_slug(
+                datasite_data.name, owner_id, is_organization
             )
 
         if is_organization:
@@ -74,8 +131,12 @@ class DatasiteService(BaseService):
             ):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Datasite slug already exists for this user",
+                    detail="slug already exists - already taken",
                 )
+
+        # Auto-add owner as contributor
+        if not is_organization and owner_id not in datasite_data.contributors:
+            datasite_data.contributors.append(owner_id)
 
         # Create datasite
         datasite = self.datasite_repository.create_datasite(
@@ -108,11 +169,12 @@ class DatasiteService(BaseService):
         skip: int = 0,
         limit: int = 10,
         visibility: Optional[DatasiteVisibility] = None,
+        search: Optional[str] = None,
         current_user: Optional[User] = None,
     ) -> List[DatasiteResponse]:
-        """Get user's datasites with proper access control."""
+        """Get user's datasites with proper access control and search."""
         datasites = self.datasite_repository.get_user_datasites(
-            user_id, skip, limit, visibility
+            user_id, skip, limit, visibility, search
         )
 
         accessible_datasites = []
@@ -191,6 +253,55 @@ class DatasiteService(BaseService):
 
         return DatasiteResponse.model_validate(updated_datasite)
 
+    # Router-compatible methods
+    def list_user_datasites(
+        self,
+        current_user: User,
+        skip: int = 0,
+        limit: int = 10,
+        visibility: Optional[DatasiteVisibility] = None,
+        search: Optional[str] = None,
+    ) -> List[DatasiteResponse]:
+        """List current user's datasites - router-compatible wrapper."""
+        return self.get_user_datasites(
+            user_id=current_user.id,
+            skip=skip,
+            limit=limit,
+            visibility=visibility,
+            search=search,
+            current_user=current_user,
+        )
+
+    def list_public_datasites(
+        self, skip: int = 0, limit: int = 10
+    ) -> List[DatasitePublicResponse]:
+        """List public datasites - router-compatible wrapper."""
+        return self.get_public_datasites(skip=skip, limit=limit)
+
+    def list_trending_datasites(
+        self, skip: int = 0, limit: int = 10, min_stars: Optional[int] = None
+    ) -> List[DatasitePublicResponse]:
+        """List trending public datasites sorted by stars count with optional min_stars filter."""
+        return self.datasite_repository.get_trending_datasites(skip, limit, min_stars)
+
+    def get_datasite(self, datasite_id: int, current_user: User) -> DatasiteResponse:
+        """Get datasite by ID with access control."""
+        datasite = self.datasite_repository.get_by_id(datasite_id)
+        if not datasite:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Datasite not found",
+            )
+
+        # Check permissions
+        if not self._can_access_datasite(datasite, current_user, "user"):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,  # Hide existence for security
+                detail="Datasite not found",
+            )
+
+        return DatasiteResponse.model_validate(datasite)
+
     def delete_datasite(self, datasite_id: int, current_user: User) -> bool:
         """Delete datasite."""
         datasite = self.datasite_repository.get_by_id(datasite_id)
@@ -214,7 +325,7 @@ class DatasiteService(BaseService):
                 detail="Failed to delete datasite",
             )
 
-        return success
+        return True
 
     def star_datasite(self, datasite_id: int, current_user: User) -> bool:
         """Star a datasite."""
@@ -270,7 +381,14 @@ class DatasiteService(BaseService):
 
         # For user-owned datasites
         if owner_type == "user" and datasite.user_id:
-            return datasite.user_id == current_user.id
+            # Owner can always access
+            if datasite.user_id == current_user.id:
+                return True
+            # Internal datasites are accessible to any authenticated user
+            if datasite.visibility == DatasiteVisibility.INTERNAL:
+                return True
+            # Private datasites are only accessible to owner
+            return False
 
         # For organization-owned datasites
         if owner_type == "organization" and datasite.organization_id:
