@@ -716,7 +716,8 @@ def test_datasite_public_response_includes_new_fields(
     assert (
         public_datasite["readme"] == "# Public Project\n\nThis is publicly accessible."
     )
-    assert "contributors" in public_datasite
+    # Note: contributors field is NOT in DatasitePublicResponse for privacy reasons
+    assert "contributors" not in public_datasite
 
 
 def test_datasite_version_filter_capability(

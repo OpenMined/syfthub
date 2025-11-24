@@ -55,6 +55,10 @@ class UserRegister(BaseModel):
     )
     password: str = Field(..., description="User password")
     age: Optional[int] = Field(None, ge=0, le=150, description="User's age")
+    public_key: Optional[str] = Field(
+        None,
+        description="Optional: Base64 encoded Ed25519 public key. If provided, the server won't generate a key pair.",
+    )
 
     @field_validator("password")
     @classmethod
@@ -83,6 +87,28 @@ class UserRegister(BaseModel):
             msg = "Username can only contain letters, numbers, underscores, and hyphens"
             raise ValueError(msg)
         return v.lower()
+
+    @field_validator("public_key")
+    @classmethod
+    def validate_public_key(cls, v: Optional[str]) -> Optional[str]:
+        """Validate public key format if provided."""
+        if v is None:
+            return v
+
+        import base64
+
+        try:
+            # Check if it's valid base64
+            decoded = base64.b64decode(v)
+            # Ed25519 public keys are 32 bytes
+            if len(decoded) != 32:
+                msg = "Invalid Ed25519 public key: must be 32 bytes"
+                raise ValueError(msg)
+        except Exception as e:
+            msg = f"Invalid public key format: {e!s}"
+            raise ValueError(msg) from e
+
+        return v
 
 
 class RefreshTokenRequest(BaseModel):
@@ -140,7 +166,7 @@ class AuthResponse(BaseModel):
 
 
 class RegistrationResponse(BaseModel):
-    """Registration response with user info, tokens, and generated keys."""
+    """Registration response with user info, tokens, and optionally generated keys."""
 
     user: Dict[str, Union[str, int, bool, None]] = Field(
         ..., description="User information"
@@ -148,13 +174,50 @@ class RegistrationResponse(BaseModel):
     access_token: str = Field(..., description="JWT access token")
     refresh_token: str = Field(..., description="JWT refresh token")
     token_type: str = Field(default="bearer", description="Token type")
-    keys: Ed25519KeyPair = Field(..., description="Generated Ed25519 key pair")
+    keys: Optional[Ed25519KeyPair] = Field(
+        None,
+        description="Generated Ed25519 key pair (only provided if public_key wasn't supplied during registration)",
+    )
+
+
+class KeyRegenerationRequest(BaseModel):
+    """Key regeneration request schema."""
+
+    public_key: Optional[str] = Field(
+        None,
+        description="Optional: Base64 encoded Ed25519 public key. If provided, the server won't generate a new key pair.",
+    )
+
+    @field_validator("public_key")
+    @classmethod
+    def validate_public_key(cls, v: Optional[str]) -> Optional[str]:
+        """Validate public key format if provided."""
+        if v is None:
+            return v
+
+        import base64
+
+        try:
+            # Check if it's valid base64
+            decoded = base64.b64decode(v)
+            # Ed25519 public keys are 32 bytes
+            if len(decoded) != 32:
+                msg = "Invalid Ed25519 public key: must be 32 bytes"
+                raise ValueError(msg)
+        except Exception as e:
+            msg = f"Invalid public key format: {e!s}"
+            raise ValueError(msg) from e
+
+        return v
 
 
 class KeyRegenerationResponse(BaseModel):
-    """Key regeneration response with new key pair."""
+    """Key regeneration response with optionally new key pair."""
 
-    keys: Ed25519KeyPair = Field(..., description="New Ed25519 key pair")
+    keys: Optional[Ed25519KeyPair] = Field(
+        None,
+        description="New Ed25519 key pair (only provided if public_key wasn't supplied in request)",
+    )
     message: str = Field(
         default="New key pair generated successfully. Your previous public key has been replaced.",
         description="Success message",

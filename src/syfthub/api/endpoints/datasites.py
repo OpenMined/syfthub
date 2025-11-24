@@ -16,6 +16,7 @@ from syfthub.schemas.auth import UserRole
 from syfthub.schemas.datasite import (
     RESERVED_SLUGS,
     Datasite,
+    DatasiteAdminUpdate,
     DatasiteCreate,
     DatasitePublicResponse,
     DatasiteResponse,
@@ -119,19 +120,40 @@ def can_access_datasite(datasite: Datasite, current_user: Optional[User]) -> boo
     return datasite.visibility == DatasiteVisibility.INTERNAL
 
 
+def check_admin_role(current_user: User) -> None:
+    """Check if user has admin role, raise 403 if not."""
+    if current_user.role != UserRole.ADMIN:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required"
+        )
+
+
 @router.post("/", response_model=DatasiteResponse, status_code=status.HTTP_201_CREATED)
 async def create_datasite(
     datasite_data: DatasiteCreate,
     current_user: Annotated[User, Depends(get_current_active_user)],
     datasite_service: Annotated[DatasiteService, Depends(get_datasite_service)],
+    organization_id: Optional[int] = Query(
+        None, description="Organization ID if creating datasite for organization"
+    ),
 ) -> DatasiteResponse:
-    """Create a new datasite."""
-    return datasite_service.create_datasite(
-        datasite_data=datasite_data,
-        owner_id=current_user.id,
-        is_organization=False,
-        current_user=current_user,
-    )
+    """Create a new datasite for the current user or an organization they belong to."""
+    if organization_id:
+        return datasite_service.create_datasite(
+            datasite_data=datasite_data,
+            owner_id=organization_id,
+            is_organization=True,
+            current_user=current_user,
+        )
+    else:
+        return datasite_service.create_datasite(
+            datasite_data=datasite_data,
+            owner_id=current_user.id,
+            is_organization=False,
+            current_user=current_user,
+        )
 
 
 @router.get("/", response_model=list[DatasiteResponse])
@@ -201,3 +223,49 @@ async def delete_datasite(
 ) -> None:
     """Delete a datasite."""
     datasite_service.delete_datasite(datasite_id, current_user)
+
+
+# Admin-only endpoints
+@router.patch("/{datasite_id}/admin", response_model=DatasiteResponse)
+async def admin_update_datasite(
+    datasite_id: int,
+    admin_data: DatasiteAdminUpdate,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    datasite_service: Annotated[DatasiteService, Depends(get_datasite_service)],
+) -> DatasiteResponse:
+    """Admin-only datasite updates (is_active, stars_count override)."""
+    check_admin_role(current_user)
+    return datasite_service.admin_update_datasite(datasite_id, admin_data, current_user)
+
+
+# Star management endpoints
+@router.post("/{datasite_id}/star", status_code=status.HTTP_201_CREATED)
+async def star_datasite(
+    datasite_id: int,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    datasite_service: Annotated[DatasiteService, Depends(get_datasite_service)],
+) -> dict[str, bool]:
+    """Star a datasite."""
+    success = datasite_service.star_datasite(datasite_id, current_user)
+    return {"starred": success}
+
+
+@router.delete("/{datasite_id}/star", status_code=status.HTTP_204_NO_CONTENT)
+async def unstar_datasite(
+    datasite_id: int,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    datasite_service: Annotated[DatasiteService, Depends(get_datasite_service)],
+) -> None:
+    """Unstar a datasite."""
+    datasite_service.unstar_datasite(datasite_id, current_user)
+
+
+@router.get("/{datasite_id}/starred")
+async def check_datasite_starred(
+    datasite_id: int,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    datasite_service: Annotated[DatasiteService, Depends(get_datasite_service)],
+) -> dict[str, bool]:
+    """Check if current user has starred a datasite."""
+    starred = datasite_service.is_datasite_starred(datasite_id, current_user)
+    return {"starred": starred}

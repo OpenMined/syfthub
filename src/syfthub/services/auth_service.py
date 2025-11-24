@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from fastapi import HTTPException, status
 
@@ -17,6 +17,7 @@ from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import (
     AuthResponse,
     Ed25519KeyPair,
+    KeyRegenerationRequest,
     KeyRegenerationResponse,
     RefreshTokenRequest,
     RegistrationResponse,
@@ -67,9 +68,18 @@ class AuthService(BaseService):
                 detail="Email already exists",
             )
 
-        # Generate password hash and Ed25519 key pair
+        # Generate password hash
         password_hash = hash_password(register_data.password)
-        key_pair = generate_ed25519_key_pair()
+
+        # Handle public key: use provided one or generate new key pair
+        key_pair = None
+        if register_data.public_key:
+            # User provided their own public key
+            public_key_to_store = register_data.public_key
+        else:
+            # Generate Ed25519 key pair for the user
+            key_pair = generate_ed25519_key_pair()
+            public_key_to_store = key_pair.public_key
 
         # Create user data
         user_data = UserCreate(
@@ -84,7 +94,7 @@ class AuthService(BaseService):
         user = self.user_repository.create_user(
             user_data=user_data,
             password_hash=password_hash,
-            public_key=key_pair.public_key,
+            public_key=public_key_to_store,
         )
 
         if not user:
@@ -101,8 +111,9 @@ class AuthService(BaseService):
             data={"sub": str(user.id), "username": user.username}
         )
 
-        return RegistrationResponse(
-            user={
+        # Build response
+        response_data: dict[str, Any] = {
+            "user": {
                 "id": user.id,
                 "username": user.username,
                 "email": user.email,
@@ -111,14 +122,19 @@ class AuthService(BaseService):
                 "is_active": user.is_active,
                 "created_at": user.created_at.isoformat(),
             },
-            access_token=access_token,
-            refresh_token=refresh_token,
-            token_type="bearer",
-            keys=Ed25519KeyPair(
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+        }
+
+        # Only include keys if we generated them
+        if key_pair:
+            response_data["keys"] = Ed25519KeyPair(
                 private_key=key_pair.private_key,
                 public_key=key_pair.public_key,
-            ),
-        )
+            )
+
+        return RegistrationResponse(**response_data)
 
     def login_user(self, login_data: UserLogin) -> AuthResponse:
         """Authenticate user and return tokens."""
@@ -305,17 +321,37 @@ class AuthService(BaseService):
         new_password_hash = hash_password(new_password)
         self.user_repository.update_password(current_user.id, new_password_hash)
 
-    def regenerate_keys(self, current_user: User) -> KeyRegenerationResponse:
-        """Regenerate Ed25519 key pair for user."""
-        # Generate new key pair
-        key_pair = generate_ed25519_key_pair()
+    def regenerate_keys(
+        self, current_user: User, request: Optional[KeyRegenerationRequest] = None
+    ) -> KeyRegenerationResponse:
+        """Regenerate or update Ed25519 key for user.
+
+        If a public_key is provided in the request, it will be used.
+        Otherwise, a new key pair will be generated.
+        """
+        key_pair = None
+
+        if request and request.public_key:
+            # User provided their own public key
+            public_key_to_store = request.public_key
+            message = "Public key updated successfully. Your previous public key has been replaced."
+        else:
+            # Generate new key pair
+            key_pair = generate_ed25519_key_pair()
+            public_key_to_store = key_pair.public_key
+            message = "New key pair generated successfully. Your previous public key has been replaced."
 
         # Update user's public key in database
-        self.user_repository.update_public_key(current_user.id, key_pair.public_key)
+        self.user_repository.update_public_key(current_user.id, public_key_to_store)
 
-        return KeyRegenerationResponse(
-            keys=Ed25519KeyPair(
+        # Build response
+        response_data: dict[str, Any] = {"message": message}
+
+        # Only include keys if we generated them
+        if key_pair:
+            response_data["keys"] = Ed25519KeyPair(
                 private_key=key_pair.private_key,
                 public_key=key_pair.public_key,
             )
-        )
+
+        return KeyRegenerationResponse(**response_data)

@@ -9,9 +9,11 @@ from fastapi import HTTPException, status
 
 from syfthub.repositories.datasite import DatasiteRepository, DatasiteStarRepository
 from syfthub.repositories.organization import OrganizationMemberRepository
+from syfthub.repositories.user import UserRepository
 from syfthub.schemas.datasite import (
     RESERVED_SLUGS,
     Datasite,
+    DatasiteAdminUpdate,
     DatasiteCreate,
     DatasitePublicResponse,
     DatasiteResponse,
@@ -36,6 +38,7 @@ class DatasiteService(BaseService):
         self.datasite_repository = DatasiteRepository(session)
         self.star_repository = DatasiteStarRepository(session)
         self.org_member_repository = OrganizationMemberRepository(session)
+        self.user_repository = UserRepository(session)
 
     def _is_slug_available(
         self,
@@ -92,6 +95,31 @@ class DatasiteService(BaseService):
         timestamp = str(int(datetime.now(timezone.utc).timestamp()))[-6:]
         return f"{base_slug[:50]}-{timestamp}"
 
+    def _validate_contributors(self, contributor_ids: List[int]) -> List[int]:
+        """Validate that contributor user IDs exist and are active."""
+        if not contributor_ids:
+            return []
+
+        # Remove duplicates while preserving order
+        unique_ids = []
+        seen = set()
+        for user_id in contributor_ids:
+            if user_id not in seen:
+                unique_ids.append(user_id)
+                seen.add(user_id)
+
+        # Validate each user ID exists and is active
+        valid_contributors = []
+        for user_id in unique_ids:
+            user = self.user_repository.get_by_id(user_id)
+            if user and user.is_active:
+                valid_contributors.append(user_id)
+            else:
+                # Log warning but don't fail - just skip invalid contributors
+                continue
+
+        return valid_contributors
+
     def create_datasite(
         self,
         datasite_data: DatasiteCreate,
@@ -111,36 +139,51 @@ class DatasiteService(BaseService):
                 detail="Permission denied: not a member of organization",
             )
 
+        # Validate and sanitize contributors
+        valid_contributors = self._validate_contributors(datasite_data.contributors)
+
+        # Auto-add owner as contributor if not already included
+        if not is_organization and owner_id not in valid_contributors:
+            valid_contributors.append(owner_id)
+
         # Auto-generate slug if not provided
-        if datasite_data.slug is None:
-            datasite_data.slug = self._generate_unique_slug(
+        final_slug = datasite_data.slug
+        if final_slug is None:
+            final_slug = self._generate_unique_slug(
                 datasite_data.name, owner_id, is_organization
             )
 
         if is_organization:
             if self.datasite_repository.slug_exists_for_organization(
-                owner_id, datasite_data.slug
+                owner_id, final_slug
             ):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Datasite slug already exists for this organization",
                 )
         else:
-            if self.datasite_repository.slug_exists_for_user(
-                owner_id, datasite_data.slug
-            ):
+            if self.datasite_repository.slug_exists_for_user(owner_id, final_slug):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="slug already exists - already taken",
                 )
 
-        # Auto-add owner as contributor
-        if not is_organization and owner_id not in datasite_data.contributors:
-            datasite_data.contributors.append(owner_id)
+        # Create a validated datasite creation object that includes server-managed fields
+        validated_data = DatasiteCreate(
+            name=datasite_data.name,
+            description=datasite_data.description,
+            visibility=datasite_data.visibility,
+            version=datasite_data.version,
+            readme=datasite_data.readme,
+            policies=datasite_data.policies,
+            connect=datasite_data.connect,
+            slug=final_slug,
+            contributors=valid_contributors,
+        )
 
-        # Create datasite
+        # Create datasite with validated data
         datasite = self.datasite_repository.create_datasite(
-            datasite_data, owner_id, is_organization
+            validated_data, owner_id, is_organization
         )
 
         if not datasite:
@@ -242,8 +285,46 @@ class DatasiteService(BaseService):
                 detail="Permission denied: insufficient permissions",
             )
 
+        # Validate contributors if they are being updated
+        if datasite_data.contributors is not None:
+            valid_contributors = self._validate_contributors(datasite_data.contributors)
+            # Ensure the owner is always included as a contributor
+            if datasite.user_id and datasite.user_id not in valid_contributors:
+                valid_contributors.append(datasite.user_id)
+            datasite_data.contributors = valid_contributors
+
         updated_datasite = self.datasite_repository.update_datasite(
             datasite_id, datasite_data
+        )
+        if not updated_datasite:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update datasite",
+            )
+
+        return DatasiteResponse.model_validate(updated_datasite)
+
+    def admin_update_datasite(
+        self, datasite_id: int, admin_data: DatasiteAdminUpdate, current_user: User
+    ) -> DatasiteResponse:
+        """Admin-only datasite updates for server-managed fields."""
+        # Verify admin role (redundant with endpoint check, but defensive)
+        if current_user.role != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin access required",
+            )
+
+        datasite = self.datasite_repository.get_by_id(datasite_id)
+        if not datasite:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Datasite not found",
+            )
+
+        # Use repository's admin update method (need to add this)
+        updated_datasite = self.datasite_repository.admin_update_datasite(
+            datasite_id, admin_data
         )
         if not updated_datasite:
             raise HTTPException(

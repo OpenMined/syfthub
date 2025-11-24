@@ -116,10 +116,8 @@ class DatasiteBase(BaseModel):
     visibility: DatasiteVisibility = Field(
         default=DatasiteVisibility.PUBLIC, description="Who can access this datasite"
     )
-    is_active: bool = Field(default=True, description="Whether the datasite is active")
-    contributors: List[int] = Field(
-        default_factory=list, description="List of contributor user IDs"
-    )
+    # REMOVED is_active - server-managed field
+    # REMOVED contributors - will be validated separately
     version: str = Field(
         default="0.1.0",
         pattern=r"^\d+\.\d+\.\d+$",
@@ -128,9 +126,7 @@ class DatasiteBase(BaseModel):
     readme: str = Field(
         default="", max_length=50000, description="Markdown content for the README"
     )
-    stars_count: int = Field(
-        default=0, ge=0, description="Number of stars this datasite has received"
-    )
+    # REMOVED stars_count - CRITICAL: server-managed field only
     policies: List[Policy] = Field(
         default_factory=list, description="List of policies applied to this datasite"
     )
@@ -141,7 +137,7 @@ class DatasiteBase(BaseModel):
 
 
 class DatasiteCreate(DatasiteBase):
-    """Schema for creating a new datasite."""
+    """Schema for creating a new datasite - user input only."""
 
     slug: Optional[str] = Field(
         None,
@@ -149,10 +145,12 @@ class DatasiteCreate(DatasiteBase):
         max_length=63,
         description="URL-safe identifier (auto-generated from name if not provided)",
     )
-    organization_id: Optional[int] = Field(
-        None,
-        description="Organization ID if creating datasite for organization (optional)",
+    # Optional contributors list - will be validated by server
+    contributors: List[int] = Field(
+        default_factory=list,
+        description="List of contributor user IDs (will be validated)",
     )
+    # organization_id removed - should be passed separately to the service method
 
     @field_validator("slug")
     @classmethod
@@ -185,7 +183,7 @@ class DatasiteCreate(DatasiteBase):
 
 
 class DatasiteUpdate(BaseModel):
-    """Schema for updating a datasite."""
+    """Schema for updating a datasite - user-modifiable fields only."""
 
     name: Optional[str] = Field(
         None, min_length=1, max_length=100, description="Display name of the datasite"
@@ -196,11 +194,9 @@ class DatasiteUpdate(BaseModel):
     visibility: Optional[DatasiteVisibility] = Field(
         None, description="Who can access this datasite"
     )
-    is_active: Optional[bool] = Field(
-        None, description="Whether the datasite is active"
-    )
+    # REMOVED is_active - only admin can change this
     contributors: Optional[List[int]] = Field(
-        None, description="List of contributor user IDs"
+        None, description="List of contributor user IDs (will be validated)"
     )
     version: Optional[str] = Field(
         None,
@@ -218,9 +214,32 @@ class DatasiteUpdate(BaseModel):
     )
 
 
-class Datasite(DatasiteBase):
-    """Datasite model."""
+class DatasiteAdminUpdate(BaseModel):
+    """Schema for admin-only datasite updates."""
 
+    is_active: Optional[bool] = Field(
+        None, description="Whether the datasite is active (admin only)"
+    )
+    stars_count: Optional[int] = Field(
+        None, ge=0, description="Override star count (admin only, use with caution)"
+    )
+
+
+class Datasite(BaseModel):
+    """Complete datasite model with all fields."""
+
+    # User-provided fields
+    name: str = Field(..., description="Display name of the datasite")
+    description: str = Field(..., description="Description of the datasite")
+    visibility: DatasiteVisibility = Field(
+        ..., description="Who can access this datasite"
+    )
+    version: str = Field(..., description="Semantic version of the datasite")
+    readme: str = Field(..., description="Markdown content for the README")
+    policies: List[Policy] = Field(..., description="List of policies")
+    connect: List[Connection] = Field(..., description="List of connection methods")
+
+    # Server-managed fields
     id: int = Field(..., description="Datasite's unique identifier")
     user_id: Optional[int] = Field(
         None, description="ID of the user who owns this datasite"
@@ -231,6 +250,11 @@ class Datasite(DatasiteBase):
     slug: str = Field(
         ..., min_length=3, max_length=63, description="URL-safe identifier"
     )
+    is_active: bool = Field(..., description="Whether the datasite is active")
+    contributors: List[int] = Field(..., description="List of contributor user IDs")
+    stars_count: int = Field(
+        ..., description="Number of stars this datasite has received"
+    )
     created_at: datetime = Field(..., description="When the datasite was created")
     updated_at: datetime = Field(..., description="When the datasite was last updated")
 
@@ -238,7 +262,7 @@ class Datasite(DatasiteBase):
 
 
 class DatasiteResponse(BaseModel):
-    """Schema for datasite response."""
+    """Schema for datasite response - includes all fields."""
 
     id: int = Field(..., description="Datasite's unique identifier")
     user_id: Optional[int] = Field(
@@ -273,12 +297,12 @@ class DatasiteResponse(BaseModel):
 
 
 class DatasitePublicResponse(BaseModel):
-    """Schema for public datasite response (limited fields)."""
+    """Schema for public datasite response (limited fields only)."""
 
     name: str = Field(..., description="Display name of the datasite")
     slug: str = Field(..., description="URL-safe identifier")
     description: str = Field(..., description="Description of the datasite")
-    contributors: List[int] = Field(..., description="List of contributor user IDs")
+    # REMOVED contributors - privacy issue, only owner should see this
     version: str = Field(..., description="Semantic version of the datasite")
     readme: str = Field(..., description="Markdown content for the README")
     stars_count: int = Field(
@@ -293,7 +317,7 @@ class DatasitePublicResponse(BaseModel):
     created_at: datetime = Field(..., description="When the datasite was created")
     updated_at: datetime = Field(..., description="When the datasite was last updated")
 
-    # Note: Excludes user_id, id, visibility, and is_active for security
+    # Note: Excludes user_id, id, visibility, is_active, contributors for security/privacy
 
     model_config = {"from_attributes": True}
 

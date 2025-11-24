@@ -11,6 +11,7 @@ from syfthub.models.datasite import DatasiteModel, DatasiteStarModel
 from syfthub.repositories.base import BaseRepository
 from syfthub.schemas.datasite import (
     Datasite,
+    DatasiteAdminUpdate,
     DatasiteCreate,
     DatasitePublicResponse,
     DatasiteUpdate,
@@ -258,8 +259,30 @@ class DatasiteRepository(BaseRepository[DatasiteModel]):
                 datasite_model.connect = [
                     conn.model_dump() for conn in datasite_data.connect
                 ]
-            if datasite_data.is_active is not None:
-                datasite_model.is_active = datasite_data.is_active
+            # REMOVED is_active update - this should only be done by admin_update_datasite
+
+            self.session.commit()
+            self.session.refresh(datasite_model)
+
+            return Datasite.model_validate(datasite_model)
+        except SQLAlchemyError:
+            self.session.rollback()
+            return None
+
+    def admin_update_datasite(
+        self, datasite_id: int, admin_data: DatasiteAdminUpdate
+    ) -> Optional[Datasite]:
+        """Admin-only update for server-managed fields like is_active and stars_count."""
+        try:
+            datasite_model = self.session.get(self.model, datasite_id)
+            if not datasite_model:
+                return None
+
+            # Admin can update server-managed fields
+            if admin_data.is_active is not None:
+                datasite_model.is_active = admin_data.is_active
+            if admin_data.stars_count is not None:
+                datasite_model.stars_count = admin_data.stars_count
 
             self.session.commit()
             self.session.refresh(datasite_model)
