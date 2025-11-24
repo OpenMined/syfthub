@@ -56,10 +56,7 @@ def can_access_datasite(datasite: Datasite, current_user: Optional[User]) -> boo
         return True
 
     # Admin can access everything
-    if current_user.role == "admin":
-        return True
-
-    return False
+    return current_user.role == "admin"
 
 
 def is_organization_member(

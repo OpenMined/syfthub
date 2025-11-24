@@ -385,10 +385,8 @@ class DatasiteService(BaseService):
             if datasite.user_id == current_user.id:
                 return True
             # Internal datasites are accessible to any authenticated user
-            if datasite.visibility == DatasiteVisibility.INTERNAL:
-                return True
             # Private datasites are only accessible to owner
-            return False
+            return datasite.visibility == DatasiteVisibility.INTERNAL
 
         # For organization-owned datasites
         if owner_type == "organization" and datasite.organization_id:
