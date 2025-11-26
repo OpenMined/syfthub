@@ -14,16 +14,22 @@ from syfthub.repositories import (
 
 def initialize_database() -> None:
     """Initialize database by creating all tables."""
-    print("Initializing database...")
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info("Initializing database...")
     db_manager.create_all_tables()
-    print("Database initialized successfully.")
+    logger.info("Database initialized successfully.")
 
 
 def reset_database() -> None:
     """Reset database by dropping and recreating all tables."""
-    print("Resetting database...")
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info("Resetting database...")
     db_manager.reset_database()
-    print("Database reset successfully.")
+    logger.info("Database reset successfully.")
 
 
 def migrate_mock_data_to_database(
@@ -37,6 +43,8 @@ def migrate_mock_data_to_database(
         mock_items: Mock items database dict
         mock_datasites: Mock datasites database dict
     """
+    import logging
+    logger = logging.getLogger(__name__)
     session = db_manager.get_session()
 
     try:
@@ -45,7 +53,7 @@ def migrate_mock_data_to_database(
 
         # Migrate users first (they're referenced by items and datasites)
         if mock_users:
-            print(f"Migrating {len(mock_users)} users...")
+            logger.info(f"Migrating {len(mock_users)} users...")
             for user in mock_users.values():
                 # Convert User schema to dict for repository
                 user_data = {
@@ -61,11 +69,11 @@ def migrate_mock_data_to_database(
                     "updated_at": user.updated_at,
                 }
                 user_repo.create(user_data)
-            print("Users migrated successfully.")
+            logger.info("Users migrated successfully.")
 
         # Migrate datasites
         if mock_datasites:
-            print(f"Migrating {len(mock_datasites)} datasites...")
+            logger.info(f"Migrating {len(mock_datasites)} datasites...")
             for datasite in mock_datasites.values():
                 datasite_data = {
                     "id": datasite.id,
@@ -79,7 +87,7 @@ def migrate_mock_data_to_database(
                     "updated_at": datasite.updated_at,
                 }
                 datasite_repo.create(datasite_data)
-            print("Datasites migrated successfully.")
+            logger.info("Datasites migrated successfully.")
 
     finally:
         session.close()
@@ -96,8 +104,8 @@ async def main() -> None:
         elif command == "reset":
             reset_database()
         else:
-            print(f"Unknown command: {command}")
-            print("Available commands: init, reset")
+            logger.error(f"Unknown command: {command}")
+            logger.info("Available commands: init, reset")
     else:
         initialize_database()
 
