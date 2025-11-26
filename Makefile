@@ -14,10 +14,10 @@ install-dev:  ## Install development dependencies
 	cd backend && uv run pre-commit install
 
 test:  ## Run tests
-	cd backend && uv run pytest
+	cd backend && uv run python -m pytest
 
 test-cov:  ## Run tests with coverage report
-	cd backend && uv run pytest --cov-report=term-missing --cov-report=html
+	cd backend && uv run python -m pytest --cov-report=term-missing --cov-report=html
 
 test-watch:  ## Run tests in watch mode (requires pytest-watch)
 	cd backend && uv run ptw -- --testmon
