@@ -151,10 +151,32 @@ Thumbs.db
 ehthumbs.db
 
 # uv
-uv.lock
+backend/uv.lock
 
 # ruff
 .ruff_cache/
 
 # Local data directory
 data/
+backend/data/
+
+# Backend-specific ignores
+backend/.coverage
+backend/coverage.xml
+backend/htmlcov/
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/.ruff_cache/
+backend/.venv/
+backend/.env
+backend/*.db
+backend/syfthub.db
+
+# Frontend (when added)
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
