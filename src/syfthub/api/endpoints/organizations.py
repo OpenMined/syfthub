@@ -17,7 +17,9 @@ from syfthub.repositories.organization import (
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.organization import (
     Organization,
+    OrganizationAdminUpdate,
     OrganizationCreate,
+    OrganizationMemberAdminUpdate,
     OrganizationMemberCreate,
     OrganizationMemberResponse,
     OrganizationMemberUpdate,
@@ -105,6 +107,14 @@ def require_organization_owner(
     if not is_organization_owner(org_id, user_id, member_repo):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Owner privileges required"
+        )
+
+
+def check_admin_role(current_user: User) -> None:
+    """Check if user has admin role, raise 403 if not."""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required"
         )
 
 
@@ -214,11 +224,9 @@ async def delete_organization(
     if current_user.role != UserRole.ADMIN:
         require_organization_owner(org_id, current_user.id, member_repo)
 
-    # Soft delete organization
-    org_update = OrganizationUpdate(
-        name=None, description=None, avatar_url=None, is_active=False
-    )
-    updated_organization = org_repo.update_organization(org_id, org_update)
+    # Soft delete organization using admin method
+    admin_data = OrganizationAdminUpdate(is_active=False)
+    updated_organization = org_repo.admin_update_organization(org_id, admin_data)
     if not updated_organization:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -407,3 +415,69 @@ async def remove_organization_member(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to remove member from organization",
         )
+
+
+# Admin-only endpoints
+@router.patch("/{org_id}/admin", response_model=OrganizationResponse)
+async def admin_update_organization(
+    org_id: int,
+    admin_data: OrganizationAdminUpdate,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    org_repo: Annotated[OrganizationRepository, Depends(get_organization_repository)],
+) -> OrganizationResponse:
+    """Admin-only organization updates (is_active override)."""
+    check_admin_role(current_user)
+
+    organization = get_organization_by_id(org_id, org_repo)
+    if not organization:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found"
+        )
+
+    updated_organization = org_repo.admin_update_organization(org_id, admin_data)
+    if not updated_organization:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update organization",
+        )
+
+    return OrganizationResponse.model_validate(updated_organization)
+
+
+@router.patch(
+    "/{org_id}/members/{user_id}/admin", response_model=OrganizationMemberResponse
+)
+async def admin_update_organization_member(
+    org_id: int,
+    user_id: int,
+    admin_data: OrganizationMemberAdminUpdate,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    org_repo: Annotated[OrganizationRepository, Depends(get_organization_repository)],
+    member_repo: Annotated[
+        OrganizationMemberRepository, Depends(get_organization_member_repository)
+    ],
+) -> OrganizationMemberResponse:
+    """Admin-only member updates (is_active override)."""
+    check_admin_role(current_user)
+
+    organization = get_organization_by_id(org_id, org_repo)
+    if not organization:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found"
+        )
+
+    # Check if member exists
+    current_member_role = member_repo.get_member_role(org_id, user_id)
+    if not current_member_role:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Member not found"
+        )
+
+    updated_member = member_repo.admin_update_member(org_id, user_id, admin_data)
+    if not updated_member:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update organization member",
+        )
+
+    return updated_member

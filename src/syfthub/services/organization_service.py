@@ -59,7 +59,6 @@ class OrganizationService(BaseService):
         member_data = OrganizationMemberCreate(
             user_id=current_user.id,
             role=OrganizationRole.OWNER,
-            is_active=True,
         )
 
         self.member_repository.add_member(member_data, organization.id)

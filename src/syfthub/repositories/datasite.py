@@ -8,6 +8,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from syfthub.models.datasite import DatasiteModel, DatasiteStarModel
+from syfthub.models.user import UserModel
 from syfthub.repositories.base import BaseRepository
 from syfthub.schemas.datasite import (
     Datasite,
@@ -144,10 +145,11 @@ class DatasiteRepository(BaseRepository[DatasiteModel]):
     def get_public_datasites(
         self, skip: int = 0, limit: int = 10
     ) -> List[DatasitePublicResponse]:
-        """Get all public datasites."""
+        """Get all public datasites with owner usernames."""
         try:
             stmt = (
-                select(self.model)
+                select(self.model, UserModel.username)
+                .join(UserModel, self.model.user_id == UserModel.id)
                 .where(
                     and_(
                         self.model.visibility == DatasiteVisibility.PUBLIC.value,
@@ -160,24 +162,42 @@ class DatasiteRepository(BaseRepository[DatasiteModel]):
             )
 
             result = self.session.execute(stmt)
-            datasite_models = result.scalars().all()
+            rows = result.all()
 
-            return [
-                DatasitePublicResponse.model_validate(datasite)
-                for datasite in datasite_models
-            ]
+            datasites = []
+            for datasite_model, username in rows:
+                datasite_dict = {
+                    "name": datasite_model.name,
+                    "slug": datasite_model.slug,
+                    "description": datasite_model.description,
+                    "owner_username": username,
+                    "version": datasite_model.version,
+                    "readme": datasite_model.readme,
+                    "stars_count": datasite_model.stars_count,
+                    "policies": datasite_model.policies,
+                    "connect": datasite_model.connect,
+                    "created_at": datasite_model.created_at,
+                    "updated_at": datasite_model.updated_at,
+                }
+                datasites.append(DatasitePublicResponse(**datasite_dict))
+
+            return datasites
         except SQLAlchemyError:
             return []
 
     def get_trending_datasites(
         self, skip: int = 0, limit: int = 10, min_stars: Optional[int] = None
     ) -> List[DatasitePublicResponse]:
-        """Get trending public datasites sorted by stars count with optional min_stars filter."""
+        """Get trending public datasites with owner usernames sorted by stars count with optional min_stars filter."""
         try:
-            stmt = select(self.model).where(
-                and_(
-                    self.model.visibility == DatasiteVisibility.PUBLIC.value,
-                    self.model.is_active,
+            stmt = (
+                select(self.model, UserModel.username)
+                .join(UserModel, self.model.user_id == UserModel.id)
+                .where(
+                    and_(
+                        self.model.visibility == DatasiteVisibility.PUBLIC.value,
+                        self.model.is_active,
+                    )
                 )
             )
 
@@ -189,11 +209,26 @@ class DatasiteRepository(BaseRepository[DatasiteModel]):
             )
 
             result = self.session.execute(stmt)
-            datasite_models = result.scalars().all()
-            return [
-                DatasitePublicResponse.model_validate(datasite)
-                for datasite in datasite_models
-            ]
+            rows = result.all()
+
+            datasites = []
+            for datasite_model, username in rows:
+                datasite_dict = {
+                    "name": datasite_model.name,
+                    "slug": datasite_model.slug,
+                    "description": datasite_model.description,
+                    "owner_username": username,
+                    "version": datasite_model.version,
+                    "readme": datasite_model.readme,
+                    "stars_count": datasite_model.stars_count,
+                    "policies": datasite_model.policies,
+                    "connect": datasite_model.connect,
+                    "created_at": datasite_model.created_at,
+                    "updated_at": datasite_model.updated_at,
+                }
+                datasites.append(DatasitePublicResponse(**datasite_dict))
+
+            return datasites
         except SQLAlchemyError:
             return []
 

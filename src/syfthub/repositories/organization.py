@@ -63,7 +63,7 @@ class OrganizationRepository(BaseRepository[OrganizationModel]):
                 slug=org_data.slug or self._generate_slug_from_name(org_data.name),
                 description=org_data.description,
                 avatar_url=org_data.avatar_url,
-                is_active=org_data.is_active,
+                is_active=True,  # Server-managed: new organizations are active by default
             )
 
             self.session.add(org_model)
@@ -84,15 +84,35 @@ class OrganizationRepository(BaseRepository[OrganizationModel]):
             if not org_model:
                 return None
 
-            # Update fields if provided
+            # Update only user-controlled fields
             if org_data.name is not None:
                 org_model.name = org_data.name
             if org_data.description is not None:
                 org_model.description = org_data.description
             if org_data.avatar_url is not None:
                 org_model.avatar_url = org_data.avatar_url
-            if org_data.is_active is not None:
-                org_model.is_active = org_data.is_active
+            # REMOVED is_active update - server-managed field only
+
+            self.session.commit()
+            self.session.refresh(org_model)
+
+            return Organization.model_validate(org_model)
+        except SQLAlchemyError:
+            self.session.rollback()
+            return None
+
+    def admin_update_organization(
+        self, org_id: int, admin_data
+    ) -> Optional[Organization]:
+        """Admin-only update for server-managed fields like is_active."""
+        try:
+            org_model = self.session.get(self.model, org_id)
+            if not org_model:
+                return None
+
+            # Admin can update server-managed fields
+            if admin_data.is_active is not None:
+                org_model.is_active = admin_data.is_active
 
             self.session.commit()
             self.session.refresh(org_model)
@@ -162,7 +182,7 @@ class OrganizationMemberRepository(BaseRepository[OrganizationMemberModel]):
                 organization_id=org_id,
                 user_id=member_data.user_id,
                 role=member_data.role.value,
-                is_active=member_data.is_active,
+                is_active=True,  # Server-managed: new members are active by default
             )
 
             self.session.add(member_model)
@@ -280,6 +300,35 @@ class OrganizationMemberRepository(BaseRepository[OrganizationMemberModel]):
         except SQLAlchemyError:
             return []
 
+    def admin_update_member(
+        self, org_id: int, user_id: int, admin_data
+    ) -> Optional[OrganizationMemberResponse]:
+        """Admin-only update for server-managed member fields like is_active."""
+        try:
+            stmt = select(self.model).where(
+                and_(
+                    self.model.organization_id == org_id,
+                    self.model.user_id == user_id,
+                )
+            )
+            result = self.session.execute(stmt)
+            member = result.scalar_one_or_none()
+
+            if not member:
+                return None
+
+            # Admin can update server-managed fields
+            if admin_data.is_active is not None:
+                member.is_active = admin_data.is_active
+
+            self.session.commit()
+            self.session.refresh(member)
+
+            return OrganizationMemberResponse.model_validate(member)
+        except SQLAlchemyError:
+            self.session.rollback()
+            return None
+
     def count_owners(self, org_id: int) -> int:
         """Count the number of active owners in an organization."""
         try:
@@ -316,15 +365,14 @@ class OrganizationMemberRepository(BaseRepository[OrganizationMemberModel]):
             if not member:
                 return None
 
-            # Update fields if provided
+            # Update only user-controlled fields
             if "role" in member_update:
                 member.role = (
                     member_update["role"].value
                     if hasattr(member_update["role"], "value")
                     else member_update["role"]
                 )
-            if "is_active" in member_update:
-                member.is_active = member_update["is_active"]
+            # REMOVED is_active update - server-managed field only
 
             self.session.commit()
             self.session.refresh(member)

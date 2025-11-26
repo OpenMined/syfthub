@@ -302,6 +302,7 @@ class DatasitePublicResponse(BaseModel):
     name: str = Field(..., description="Display name of the datasite")
     slug: str = Field(..., description="URL-safe identifier")
     description: str = Field(..., description="Description of the datasite")
+    owner_username: str = Field(..., description="Username of the datasite owner")
     # REMOVED contributors - privacy issue, only owner should see this
     version: str = Field(..., description="Semantic version of the datasite")
     readme: str = Field(..., description="Markdown content for the README")

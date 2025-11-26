@@ -70,9 +70,7 @@ class OrganizationBase(BaseModel):
     avatar_url: Optional[str] = Field(
         None, max_length=255, description="URL to organization avatar/logo"
     )
-    is_active: bool = Field(
-        default=True, description="Whether the organization is active"
-    )
+    # REMOVED is_active - server-managed field
 
 
 class OrganizationCreate(OrganizationBase):
@@ -116,7 +114,7 @@ class OrganizationCreate(OrganizationBase):
 
 
 class OrganizationUpdate(BaseModel):
-    """Schema for updating an organization."""
+    """Schema for updating an organization - user-modifiable fields only."""
 
     name: Optional[str] = Field(
         None,
@@ -130,18 +128,25 @@ class OrganizationUpdate(BaseModel):
     avatar_url: Optional[str] = Field(
         None, max_length=255, description="URL to organization avatar/logo"
     )
-    is_active: Optional[bool] = Field(
-        None, description="Whether the organization is active"
+    # REMOVED is_active - only admin can change this
+
+
+class Organization(BaseModel):
+    """Complete organization model with all fields."""
+
+    # User-provided fields
+    name: str = Field(..., description="Display name of the organization")
+    description: str = Field(..., description="Description of the organization")
+    avatar_url: Optional[str] = Field(
+        ..., description="URL to organization avatar/logo"
     )
 
-
-class Organization(OrganizationBase):
-    """Organization model."""
-
+    # Server-managed fields
     id: int = Field(..., description="Organization's unique identifier")
     slug: str = Field(
         ..., min_length=3, max_length=63, description="URL-safe identifier"
     )
+    is_active: bool = Field(..., description="Whether the organization is active")
     created_at: datetime = Field(..., description="When the organization was created")
     updated_at: datetime = Field(
         ..., description="When the organization was last updated"
@@ -175,9 +180,7 @@ class OrganizationMemberBase(BaseModel):
     role: OrganizationRole = Field(
         default=OrganizationRole.MEMBER, description="Member's role in the organization"
     )
-    is_active: bool = Field(
-        default=True, description="Whether the membership is active"
-    )
+    # REMOVED is_active - server-managed field
 
 
 class OrganizationMemberCreate(OrganizationMemberBase):
@@ -187,13 +190,27 @@ class OrganizationMemberCreate(OrganizationMemberBase):
 
 
 class OrganizationMemberUpdate(BaseModel):
-    """Schema for updating organization membership."""
+    """Schema for updating organization membership - user-modifiable fields only."""
 
     role: Optional[OrganizationRole] = Field(
         None, description="Member's role in the organization"
     )
+    # REMOVED is_active - only admin can change this
+
+
+class OrganizationAdminUpdate(BaseModel):
+    """Schema for admin-only organization updates."""
+
     is_active: Optional[bool] = Field(
-        None, description="Whether the membership is active"
+        None, description="Whether the organization is active (admin only)"
+    )
+
+
+class OrganizationMemberAdminUpdate(BaseModel):
+    """Schema for admin-only member updates."""
+
+    is_active: Optional[bool] = Field(
+        None, description="Whether the membership is active (admin only)"
     )
 
 

@@ -256,7 +256,7 @@ class TestDatasiteServiceGet:
                 name="Public Datasite",
                 slug="public-datasite",
                 description="A public datasite",
-                contributors=[1],
+                owner_username="testuser",
                 version="1.0.0",
                 readme="# Public Datasite",
                 stars_count=5,

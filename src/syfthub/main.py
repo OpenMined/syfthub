@@ -283,7 +283,26 @@ async def list_owner_public_datasites(
     # Apply pagination
     accessible_datasites = accessible_datasites[skip : skip + limit]
 
-    return [DatasitePublicResponse.model_validate(ds) for ds in accessible_datasites]
+    # Build response with owner_username
+    response_list = []
+    for ds in accessible_datasites:
+        ds_dict = ds.model_dump()
+        # Get the appropriate username/slug based on owner type
+        if owner_type == "user":
+            from syfthub.schemas.user import User
+
+            ds_dict["owner_username"] = (
+                owner.username if isinstance(owner, User) else ""
+            )
+        else:
+            from syfthub.schemas.organization import Organization
+
+            ds_dict["owner_username"] = (
+                owner.slug if isinstance(owner, Organization) else ""
+            )
+        response_list.append(DatasitePublicResponse.model_validate(ds_dict))
+
+    return response_list
 
 
 @app.get("/{owner_slug}/{datasite_slug}", response_model=None)
@@ -380,7 +399,22 @@ async def get_owner_datasite(
         if can_see_full_details:
             return DatasiteResponse.model_validate(datasite)
         else:
-            return DatasitePublicResponse.model_validate(datasite)
+            # Build public response with owner_username
+            datasite_dict = datasite.model_dump()
+            # Get the appropriate username/slug based on owner type
+            if owner_type == "user":
+                from syfthub.schemas.user import User
+
+                datasite_dict["owner_username"] = (
+                    owner.username if isinstance(owner, User) else ""
+                )
+            else:
+                from syfthub.schemas.organization import Organization
+
+                datasite_dict["owner_username"] = (
+                    owner.slug if isinstance(owner, Organization) else ""
+                )
+            return DatasitePublicResponse.model_validate(datasite_dict)
 
 
 def main() -> None:
