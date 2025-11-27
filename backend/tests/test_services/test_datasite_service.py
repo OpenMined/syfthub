@@ -81,7 +81,7 @@ class TestDatasiteServiceCreate:
     def test_create_user_datasite_success(
         self,
         datasite_service,
-        sample_user,  # noqa: ARG002
+        _sample_user,
         sample_datasite,
     ):
         """Test successful user datasite creation."""
@@ -115,7 +115,7 @@ class TestDatasiteServiceCreate:
     def test_create_user_datasite_slug_exists(
         self,
         datasite_service,
-        sample_user,  # noqa: ARG002
+        _sample_user,
     ):
         """Test user datasite creation with existing slug."""
         datasite_data = DatasiteCreate(
@@ -185,7 +185,7 @@ class TestDatasiteServiceCreate:
     def test_create_datasite_failure(
         self,
         datasite_service,
-        sample_user,  # noqa: ARG002
+        _sample_user,
     ):
         """Test datasite creation failure."""
         datasite_data = DatasiteCreate(
