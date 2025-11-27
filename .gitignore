@@ -172,11 +172,19 @@ backend/.env
 backend/*.db
 backend/syfthub.db
 
-# Frontend (when added)
+# Frontend
 frontend/node_modules/
 frontend/dist/
 frontend/build/
-frontend/.env.local
-frontend/.env.development.local
-frontend/.env.test.local
-frontend/.env.production.local
+frontend/.env*.local
+frontend/.vite/
+frontend/playwright-report/
+frontend/test-results/
+frontend/coverage/
+frontend/.nyc_output/
+frontend/.eslintcache
+frontend/.next/
+frontend/.nuxt/
+frontend/out/
+frontend/storybook-static/
+frontend/tsconfig.tsbuildinfo

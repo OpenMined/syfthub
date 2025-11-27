@@ -1,0 +1,22 @@
+# Development Dockerfile for SyftHub Frontend
+FROM node:20-alpine
+
+# Set working directory
+WORKDIR /app
+
+# Install dependencies
+COPY package*.json ./
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# Expose development server port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/ || exit 1
+
+# Start development server
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

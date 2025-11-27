@@ -102,6 +102,3 @@ async def regenerate_user_keys(
     Otherwise, a new key pair will be generated.
     """
     return auth_service.regenerate_keys(current_user, request)
-
-
-# authenticate_user function moved to AuthService

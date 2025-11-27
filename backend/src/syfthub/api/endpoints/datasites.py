@@ -1,133 +1,28 @@
 """Datasite endpoints with authentication and visibility controls."""
 
-from datetime import datetime, timezone
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, Query, status
 
 from syfthub.auth.db_dependencies import (
     get_current_active_user,
+    require_admin,
 )
 from syfthub.database.dependencies import (
     get_datasite_service,
 )
-from syfthub.repositories.datasite import DatasiteRepository
-from syfthub.schemas.auth import UserRole
 from syfthub.schemas.datasite import (
-    RESERVED_SLUGS,
-    Datasite,
     DatasiteAdminUpdate,
     DatasiteCreate,
     DatasitePublicResponse,
     DatasiteResponse,
     DatasiteUpdate,
     DatasiteVisibility,
-    generate_slug_from_name,
 )
 from syfthub.schemas.user import User
 from syfthub.services.datasite_service import DatasiteService
 
 router = APIRouter()
-
-# Mock database and lookups removed - now using repository pattern
-
-
-def get_datasite_by_id(
-    datasite_repo: DatasiteRepository, datasite_id: int
-) -> Optional[Datasite]:
-    """Get datasite by ID."""
-    return datasite_repo.get_by_id(datasite_id)
-
-
-def get_datasite_by_slug(
-    datasite_repo: DatasiteRepository, user_id: int, slug: str
-) -> Optional[Datasite]:
-    """Get datasite by user_id and slug."""
-    return datasite_repo.get_by_user_and_slug(user_id, slug)
-
-
-def is_slug_available(
-    datasite_repo: DatasiteRepository,
-    slug: str,
-    user_id: int,
-    exclude_datasite_id: Optional[int] = None,
-) -> bool:
-    """Check if a slug is available for a user."""
-    if slug in RESERVED_SLUGS:
-        return False
-
-    # Use repository to check if slug exists for user
-    exists = datasite_repo.slug_exists_for_user(user_id, slug, exclude_datasite_id)
-    return not exists
-
-
-def generate_unique_slug(
-    datasite_repo: DatasiteRepository,
-    name: str,
-    owner_id: int,
-    is_organization: bool = False,
-) -> str:
-    """Generate a unique slug for a user or organization."""
-    base_slug = generate_slug_from_name(name)
-
-    # Check if base slug is available
-    if is_organization:
-        slug_available = not datasite_repo.slug_exists_for_organization(
-            owner_id, base_slug
-        )
-    else:
-        slug_available = is_slug_available(datasite_repo, base_slug, owner_id)
-
-    if slug_available:
-        return base_slug
-
-    # If base slug is taken, append numbers
-    counter = 1
-    while counter < 1000:  # Prevent infinite loops
-        new_slug = f"{base_slug}-{counter}"
-        if len(new_slug) <= 63:
-            if is_organization:
-                if not datasite_repo.slug_exists_for_organization(owner_id, new_slug):
-                    return new_slug
-            else:
-                if is_slug_available(datasite_repo, new_slug, owner_id):
-                    return new_slug
-        counter += 1
-
-    # Fallback: use timestamp
-    timestamp = str(int(datetime.now(timezone.utc).timestamp()))[-6:]
-    return f"{base_slug[:50]}-{timestamp}"
-
-
-def can_access_datasite(datasite: Datasite, current_user: Optional[User]) -> bool:
-    """Check if user can access a datasite based on visibility."""
-    if datasite.visibility == DatasiteVisibility.PUBLIC:
-        return True
-
-    if current_user is None:
-        return False
-
-    # Owner can always access
-    if current_user.id == datasite.user_id:
-        return True
-
-    # Admin can access everything
-    if current_user.role == UserRole.ADMIN:
-        return True
-
-    # Internal datasites are accessible to any authenticated user
-    # Private datasites are only accessible to owner and admin
-    return datasite.visibility == DatasiteVisibility.INTERNAL
-
-
-def check_admin_role(current_user: User) -> None:
-    """Check if user has admin role, raise 403 if not."""
-    if current_user.role != UserRole.ADMIN:
-        from fastapi import HTTPException
-
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required"
-        )
 
 
 @router.post("/", response_model=DatasiteResponse, status_code=status.HTTP_201_CREATED)
@@ -232,9 +127,9 @@ async def admin_update_datasite(
     admin_data: DatasiteAdminUpdate,
     current_user: Annotated[User, Depends(get_current_active_user)],
     datasite_service: Annotated[DatasiteService, Depends(get_datasite_service)],
+    _: Annotated[bool, Depends(require_admin)],
 ) -> DatasiteResponse:
     """Admin-only datasite updates (is_active, stars_count override)."""
-    check_admin_role(current_user)
     return datasite_service.admin_update_datasite(datasite_id, admin_data, current_user)
 
 

@@ -42,3 +42,27 @@ repos:
           types-sqlalchemy,
           types-markdown,
         ]
+
+  # Frontend hooks
+  - repo: local
+    hooks:
+      - id: frontend-eslint
+        name: ESLint (frontend)
+        entry: sh -c 'cd frontend && npm run lint'
+        language: system
+        files: ^frontend/.*\.(js|jsx|ts|tsx)$
+        pass_filenames: false
+
+      - id: frontend-prettier
+        name: Prettier (frontend)
+        entry: sh -c 'cd frontend && npx prettier --check src/'
+        language: system
+        files: ^frontend/.*\.(js|jsx|ts|tsx|json|css|scss|md)$
+        pass_filenames: false
+
+      - id: frontend-typecheck
+        name: TypeScript check (frontend)
+        entry: sh -c 'cd frontend && npm run typecheck'
+        language: system
+        files: ^frontend/.*\.(ts|tsx)$
+        pass_filenames: false

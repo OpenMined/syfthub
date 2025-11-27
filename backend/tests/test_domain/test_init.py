@@ -3,13 +3,12 @@
 
 def test_domain_package_imports():
     """Test that domain package imports work correctly."""
-    from syfthub.domain import DomainException, Email, Slug, Username
+    from syfthub.domain import DomainException, ValidationError, ValueObject
 
     # Test that imports are available
     assert DomainException is not None
-    assert Email is not None
-    assert Username is not None
-    assert Slug is not None
+    assert ValidationError is not None
+    assert ValueObject is not None
 
 
 def test_domain_package_all():
@@ -17,7 +16,7 @@ def test_domain_package_all():
     import syfthub.domain as domain
 
     # Test __all__ contents
-    expected_exports = ["DomainException", "Email", "Username", "Slug"]
+    expected_exports = ["DomainException", "ValidationError", "ValueObject"]
 
     for export in expected_exports:
         assert hasattr(domain, export)
@@ -26,17 +25,18 @@ def test_domain_package_all():
 
 def test_domain_imports_functional():
     """Test that imported classes work functionally."""
-    from syfthub.domain import DomainException, Email, Slug, Username
+    from syfthub.domain import DomainException, ValidationError, ValueObject
 
     # Test that we can actually use the imported classes
     exception = DomainException("test")
     assert str(exception) == "test"
 
-    email = Email("test@example.com")
-    assert email.value == "test@example.com"
+    validation_error = ValidationError("validation test")
+    assert validation_error.error_code == "VALIDATION_ERROR"
 
-    username = Username("testuser")
-    assert username.value == "testuser"
+    # Test ValueObject can be subclassed
+    class TestVO(ValueObject):
+        pass
 
-    slug = Slug("test-slug")
-    assert slug.value == "test-slug"
+    vo = TestVO("test_value")
+    assert vo.value == "test_value"

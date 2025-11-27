@@ -1,9 +1,7 @@
 """Tests for domain exceptions."""
 
 from syfthub.domain.exceptions import (
-    BusinessRuleViolation,
     DomainException,
-    InvariantViolation,
     ValidationError,
 )
 
@@ -52,47 +50,5 @@ class TestValidationError:
         error = ValidationError("Test")
 
         assert isinstance(error, ValidationError)
-        assert isinstance(error, DomainException)
-        assert isinstance(error, Exception)
-
-
-class TestBusinessRuleViolation:
-    """Test BusinessRuleViolation exception."""
-
-    def test_business_rule_violation_creation(self):
-        """Test creating business rule violation."""
-        error = BusinessRuleViolation("Business rule violated")
-
-        assert str(error) == "Business rule violated"
-        assert error.message == "Business rule violated"
-        assert error.error_code == "BUSINESS_RULE_VIOLATION"
-        assert isinstance(error, DomainException)
-
-    def test_business_rule_violation_inheritance(self):
-        """Test BusinessRuleViolation inheritance chain."""
-        error = BusinessRuleViolation("Test")
-
-        assert isinstance(error, BusinessRuleViolation)
-        assert isinstance(error, DomainException)
-        assert isinstance(error, Exception)
-
-
-class TestInvariantViolation:
-    """Test InvariantViolation exception."""
-
-    def test_invariant_violation_creation(self):
-        """Test creating invariant violation."""
-        error = InvariantViolation("Invariant violated")
-
-        assert str(error) == "Invariant violated"
-        assert error.message == "Invariant violated"
-        assert error.error_code == "INVARIANT_VIOLATION"
-        assert isinstance(error, DomainException)
-
-    def test_invariant_violation_inheritance(self):
-        """Test InvariantViolation inheritance chain."""
-        error = InvariantViolation("Test")
-
-        assert isinstance(error, InvariantViolation)
         assert isinstance(error, DomainException)
         assert isinstance(error, Exception)

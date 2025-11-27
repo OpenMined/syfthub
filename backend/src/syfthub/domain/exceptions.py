@@ -19,19 +19,3 @@ class ValidationError(DomainException):
     def __init__(self, message: str):
         """Initialize validation error."""
         super().__init__(message, "VALIDATION_ERROR")
-
-
-class BusinessRuleViolation(DomainException):
-    """Exception raised when business rule is violated."""
-
-    def __init__(self, message: str):
-        """Initialize business rule violation."""
-        super().__init__(message, "BUSINESS_RULE_VIOLATION")
-
-
-class InvariantViolation(DomainException):
-    """Exception raised when domain invariant is violated."""
-
-    def __init__(self, message: str):
-        """Initialize invariant violation."""
-        super().__init__(message, "INVARIANT_VIOLATION")

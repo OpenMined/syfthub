@@ -1,0 +1,142 @@
+# SyftHub Development Docker Compose
+# Single entry point via nginx reverse proxy
+
+services:
+  # Nginx reverse proxy - SINGLE ENTRY POINT
+  proxy:
+    image: nginx:1.25-alpine
+    container_name: syfthub-proxy-dev
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - syfthub-network
+    depends_on:
+      - backend
+      - frontend
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Backend API service (internal only)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: syfthub-backend-dev
+    # Internal only - not exposed to host
+    expose:
+      - "8000"
+    volumes:
+      # Mount source code for hot reload
+      - ./backend/src:/app/src:cached
+      - ./backend/tests:/app/tests:cached
+      - ./backend/pyproject.toml:/app/pyproject.toml:cached
+      # Database volume
+      - ./backend/data:/app/data
+    environment:
+      - ENVIRONMENT=development
+      - DATABASE_URL=postgresql://syfthub:syfthub_dev_password@db:5432/syfthub_dev
+      - SECRET_KEY=dev-secret-key-change-in-production
+      - DEBUG=true
+      - RELOAD=true
+      - LOG_LEVEL=debug
+      # Single origin since everything goes through proxy
+      - CORS_ORIGINS=http://localhost
+    networks:
+      - syfthub-network
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend service (internal only)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: syfthub-frontend-dev
+    # Internal only - not exposed to host
+    expose:
+      - "3000"
+    volumes:
+      # Mount source code for hot reload
+      - ./frontend/src:/app/src:cached
+      - ./frontend/public:/app/public:cached
+      - ./frontend/package.json:/app/package.json:cached
+      - ./frontend/package-lock.json:/app/package-lock.json:cached
+      - ./frontend/vite.config.ts:/app/vite.config.ts:cached
+      - ./frontend/tsconfig.json:/app/tsconfig.json:cached
+      - ./frontend/tailwind.config.js:/app/tailwind.config.js:cached
+      - ./frontend/index.html:/app/index.html:cached
+      - ./frontend/_config.ts:/app/_config.ts:cached
+      # Exclude node_modules to avoid conflicts
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      # Empty - API calls use relative paths (same origin via proxy)
+      - VITE_API_URL=
+    networks:
+      - syfthub-network
+    depends_on:
+      - backend
+
+  # PostgreSQL database for development
+  db:
+    image: postgres:16-alpine
+    container_name: syfthub-db-dev
+    environment:
+      - POSTGRES_USER=syfthub
+      - POSTGRES_PASSWORD=syfthub_dev_password
+      - POSTGRES_DB=syfthub_dev
+      - POSTGRES_HOST_AUTH_METHOD=md5
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Exposed for direct DB access (debugging with tools like DBeaver)
+    ports:
+      - "5432:5432"
+    networks:
+      - syfthub-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U syfthub -d syfthub_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for caching and sessions
+  redis:
+    image: redis:7-alpine
+    container_name: syfthub-redis-dev
+    # Internal only
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - syfthub-network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  syfthub-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    name: syfthub_postgres_data_dev
+  redis_data:
+    name: syfthub_redis_data_dev

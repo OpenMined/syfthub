@@ -107,55 +107,6 @@ class UserService(BaseService):
 
         return success
 
-    def change_password(
-        self, user_id: int, old_password: str, new_password: str, current_user: User
-    ) -> bool:
-        """Change user password."""
-        from syfthub.auth.security import hash_password, verify_password
-
-        # Check permissions - users can only change their own password, admins can change any
-        if current_user.id != user_id and current_user.role != "admin":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Permission denied: can only change your own password",
-            )
-
-        # Get current user data
-        user = self.user_repository.get_by_id(user_id)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found",
-            )
-
-        # Verify old password (except for admins changing other users' passwords)
-        if current_user.id == user_id and not verify_password(
-            old_password, user.password_hash
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Current password is incorrect",
-            )
-
-        # Validate new password
-        if len(new_password) < 8:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="New password must be at least 8 characters long",
-            )
-
-        # Update password
-        new_password_hash = hash_password(new_password)
-        success = self.user_repository.update_password(user_id, new_password_hash)
-
-        if not success:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to update password",
-            )
-
-        return success
-
     def search_users(self, query: str, limit: int = 10) -> List[UserResponse]:
         """Search users by username or full name."""
         # For now, get all users and filter manually

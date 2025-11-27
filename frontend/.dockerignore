@@ -1,0 +1,94 @@
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs (commented out dist for simple build)
+# dist/
+build/
+.next/
+out/
+
+# Development
+.vite/
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Testing
+coverage/
+.nyc_output/
+__tests__/
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+test-results/
+
+# IDE and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Logs
+logs/
+*.log
+
+# Docker
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+
+# Documentation
+README.md
+LICENSE
+CHANGELOG.md
+docs/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+
+# Husky and Git hooks
+.husky/
+
+# Playwright
+playwright-report/
+test-results/
+
+# ESLint cache
+.eslintcache
+
+# Prettier
+.prettierignore
+
+# TypeScript incremental compilation
+*.tsbuildinfo
+
+# Cache
+.cache/
+.parcel-cache/
+
+# Temporary files
+tmp/
+temp/
+*.tmp

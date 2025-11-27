@@ -4,7 +4,7 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from syfthub.auth.db_dependencies import get_current_active_user
+from syfthub.auth.db_dependencies import get_current_active_user, require_admin
 from syfthub.database.dependencies import (
     get_organization_member_repository,
     get_organization_repository,
@@ -107,14 +107,6 @@ def require_organization_owner(
     if not is_organization_owner(org_id, user_id, member_repo):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Owner privileges required"
-        )
-
-
-def check_admin_role(current_user: User) -> None:
-    """Check if user has admin role, raise 403 if not."""
-    if current_user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required"
         )
 
 
@@ -422,11 +414,11 @@ async def remove_organization_member(
 async def admin_update_organization(
     org_id: int,
     admin_data: OrganizationAdminUpdate,
-    current_user: Annotated[User, Depends(get_current_active_user)],
+    _current_user: Annotated[User, Depends(get_current_active_user)],
     org_repo: Annotated[OrganizationRepository, Depends(get_organization_repository)],
+    _: Annotated[bool, Depends(require_admin)],
 ) -> OrganizationResponse:
     """Admin-only organization updates (is_active override)."""
-    check_admin_role(current_user)
 
     organization = get_organization_by_id(org_id, org_repo)
     if not organization:
@@ -451,14 +443,14 @@ async def admin_update_organization_member(
     org_id: int,
     user_id: int,
     admin_data: OrganizationMemberAdminUpdate,
-    current_user: Annotated[User, Depends(get_current_active_user)],
+    _current_user: Annotated[User, Depends(get_current_active_user)],
     org_repo: Annotated[OrganizationRepository, Depends(get_organization_repository)],
     member_repo: Annotated[
         OrganizationMemberRepository, Depends(get_organization_member_repository)
     ],
+    _: Annotated[bool, Depends(require_admin)],
 ) -> OrganizationMemberResponse:
     """Admin-only member updates (is_active override)."""
-    check_admin_role(current_user)
 
     organization = get_organization_by_id(org_id, org_repo)
     if not organization:

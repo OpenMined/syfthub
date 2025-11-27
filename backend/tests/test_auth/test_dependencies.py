@@ -218,7 +218,7 @@ class TestAsyncAuthFunctions:
             assert user == sample_user
 
     @pytest.mark.asyncio
-    async def test_get_current_active_user_inactive(self, mock_user_repo):
+    async def test_get_current_active_user_inactive(self, mock_user_repo):  # noqa: ARG002
         """Test get_current_active_user with inactive user."""
         inactive_user = User(
             id=2,
@@ -241,7 +241,11 @@ class TestAsyncAuthFunctions:
         assert "Inactive user" in str(exc_info.value.detail)
 
     @pytest.mark.asyncio
-    async def test_get_current_active_user_success(self, mock_user_repo, sample_user):
+    async def test_get_current_active_user_success(
+        self,
+        mock_user_repo,  # noqa: ARG002
+        sample_user,
+    ):
         """Test get_current_active_user success case."""
         user = await get_current_active_user(sample_user)
         assert user == sample_user

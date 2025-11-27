@@ -65,8 +65,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     vim \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy all source code
-COPY --chown=syfthub:syfthub . .
+# Copy source code (excluding .venv which is already created)
+COPY --chown=syfthub:syfthub src src
+COPY --chown=syfthub:syfthub tests tests
+COPY --chown=syfthub:syfthub requirements.txt .
+COPY --chown=syfthub:syfthub uv.lock .
+COPY --chown=syfthub:syfthub *.env* .
+COPY --chown=syfthub:syfthub README.md .
 
 # Switch to non-root user
 USER syfthub
@@ -80,7 +85,7 @@ ENV ENVIRONMENT=development \
     LOG_LEVEL=debug
 
 # Development entrypoint - hot reload enabled
-CMD [".venv/bin/uvicorn", "syfthub.main:app", \
+CMD ["/app/.venv/bin/uvicorn", "syfthub.main:app", \
      "--host", "0.0.0.0", \
      "--port", "8000", \
      "--reload", \
@@ -94,14 +99,19 @@ FROM dependencies as testing
 USER root
 RUN uv pip install -e ".[test]" --python .venv/bin/python
 
-# Copy all source code
-COPY --chown=syfthub:syfthub . .
+# Copy source code (excluding .venv which is already created)
+COPY --chown=syfthub:syfthub src src
+COPY --chown=syfthub:syfthub tests tests
+COPY --chown=syfthub:syfthub requirements.txt .
+COPY --chown=syfthub:syfthub uv.lock .
+COPY --chown=syfthub:syfthub *.env* .
+COPY --chown=syfthub:syfthub README.md .
 
 # Switch to non-root user
 USER syfthub
 
 # Run tests by default
-CMD [".venv/bin/pytest", "--cov=syfthub", "--cov-report=term-missing"]
+CMD ["/app/.venv/bin/pytest", "--cov=syfthub", "--cov-report=term-missing"]
 
 # ==============================================================================
 # Production build stage
