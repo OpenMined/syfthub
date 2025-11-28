@@ -25,7 +25,7 @@ A modern full-stack application with Python backend and React frontend.
 - JWT authentication with token blacklist
 - Code formatting and linting with [Ruff](https://github.com/astral-sh/ruff)
 - Static type checking with mypy
-- Comprehensive test coverage with pytest
+- Comprehensive test coverage with pytest (80% threshold)
 
 ### Frontend
 - React 19 with modern features
@@ -39,10 +39,11 @@ A modern full-stack application with Python backend and React frontend.
 
 ### Prerequisites
 
-- **Backend**: Python 3.9+ and [uv](https://github.com/astral-sh/uv)
-- **Frontend**: Node.js 18+ and npm
+- **Docker** (recommended) or:
+  - **Backend**: Python 3.9+ and [uv](https://github.com/astral-sh/uv)
+  - **Frontend**: Node.js 18+ and npm
 
-Install uv:
+Install uv (for local development):
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
@@ -55,166 +56,156 @@ git clone https://github.com/IonesioJunior/syfthub.git
 cd syfthub
 ```
 
-2. Install all dependencies:
+2. Start the development environment:
 ```bash
-# Backend dependencies
-make install-dev
-
-# Frontend dependencies
-make frontend-install
+make dev
 ```
 
-3. Install pre-commit hooks:
-```bash
-make install-dev  # This includes pre-commit setup
-```
+This starts all services (backend, frontend, PostgreSQL, Redis) via Docker.
 
 ## Usage
 
-### Development Mode
+### Development Mode (Docker - Recommended)
 
-**Option 1: Full-Stack Docker Development (Recommended)**
-
-Start everything with one command using Docker:
+Start the full-stack environment with one command:
 
 ```bash
-# Start backend + frontend + database + redis
-make docker-dev-fullstack
-
-# View logs
-make docker-logs-fullstack
-
-# Stop everything
-make docker-down-fullstack
-```
-
-**Option 2: Local Development**
-
-Start both backend and frontend locally:
-
-```bash
-# Terminal 1: Start backend server (port 8000)
-make dev
-
-# Terminal 2: Start frontend dev server (port 3000)
-make frontend-dev
+make dev      # Start all services
+make logs     # View container logs
+make stop     # Stop all services
 ```
 
 The application will be available at:
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:8000
-- **API Documentation**: http://localhost:8000/docs
-- **Database**: PostgreSQL on localhost:5432 (Docker only)
-- **Redis**: localhost:6379 (Docker only)
+- **App**: http://localhost
+- **API Documentation**: http://localhost/docs
+- **Database**: PostgreSQL on localhost:5432 (user: `syfthub`, password: `syfthub_dev_password`)
+
+### Local Development (Without Docker)
+
+For backend-only local development:
+
+```bash
+cd backend
+uv sync --all-extras --dev
+uv run uvicorn syfthub.main:app --reload --port 8000
+```
+
+For frontend-only local development:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
 ### Production Mode
 
 ```bash
-# Build frontend
-make frontend-build
-
-# Run backend in production mode
-make run
+docker compose -f docker-compose.prod.yml up -d
 ```
 
 ## Development
 
 ### Running Tests
 
-**Backend Tests:**
 ```bash
-make test              # Run backend tests
-make test-cov          # Run backend tests with coverage
+make test     # Run all tests (backend + frontend)
 ```
 
-**Frontend Tests:**
+Or run separately:
+
 ```bash
-make frontend-test     # Run Playwright E2E tests
+# Backend tests
+cd backend && uv run python -m pytest
+
+# Frontend tests (Playwright E2E)
+cd frontend && npm test
 ```
 
 ### Code Quality
 
+```bash
+make check    # Run all code quality checks
+```
+
+This runs:
+- **Backend**: Ruff linting, Ruff formatting, mypy type checking
+- **Frontend**: ESLint, TypeScript type checking
+
+### Manual Quality Commands
+
 **Backend:**
 ```bash
-make lint              # Run Ruff linting
-make format            # Format code with Ruff
-make type-check        # Run mypy type checking
-make check             # Run all backend checks
+cd backend
+uv run ruff check src/ tests/       # Linting
+uv run ruff format src/ tests/      # Formatting
+uv run mypy src/                    # Type checking
 ```
 
 **Frontend:**
 ```bash
-make frontend-lint     # Run ESLint
-make frontend-format   # Format with Prettier
-make frontend-typecheck # TypeScript type checking
-```
-
-**Both:**
-```bash
-make pre-commit        # Run all pre-commit hooks
-```
-
-### Building
-
-```bash
-make build             # Build backend package
-make frontend-build    # Build frontend for production
-```
-
-### Docker Development Commands
-
-```bash
-# Full-stack development
-make docker-dev-fullstack     # Start all services (recommended)
-make docker-down-fullstack    # Stop all services
-make docker-logs-fullstack    # View logs for all services
-make docker-ps-fullstack      # Show container status
-
-# Backend-only development
-make docker-dev               # Start only backend services
-make docker-down              # Stop backend services
-make docker-logs              # View backend logs
+cd frontend
+npm run lint                        # ESLint
+npm run format                      # Prettier
+npm run typecheck                   # TypeScript
 ```
 
 ### Available Make Commands
 
-Run `make help` to see all available commands for both backend and frontend.
+```bash
+make help     # Show available commands
+make dev      # Start development environment
+make stop     # Stop all services
+make test     # Run all tests
+make check    # Run code quality checks
+make logs     # View container logs
+```
 
 ## Project Structure
 
 ```
 syfthub/
-├── backend/                # Python FastAPI backend
+├── backend/                  # Python FastAPI backend
+│   ├── src/syfthub/          # Main Python package
+│   │   ├── api/              # FastAPI routes & endpoints
+│   │   ├── auth/             # JWT authentication & security
+│   │   ├── core/             # Configuration
+│   │   ├── database/         # Database connection & dependencies
+│   │   ├── domain/           # Value objects & exceptions
+│   │   ├── models/           # SQLAlchemy ORM models
+│   │   ├── repositories/     # Data access layer
+│   │   ├── schemas/          # Pydantic DTOs
+│   │   ├── services/         # Business logic
+│   │   ├── templates/        # Jinja2 templates
+│   │   └── main.py           # FastAPI app entry point
+│   ├── tests/                # Backend test suite
+│   ├── scripts/              # Utility scripts
+│   ├── pyproject.toml        # Dependencies & tool config
+│   └── uv.lock               # Locked Python dependencies
+├── frontend/                 # React TypeScript frontend
 │   ├── src/
-│   │   └── syfthub/       # Main Python package
-│   │       ├── api/       # FastAPI routes
-│   │       ├── database/  # Database models & connection
-│   │       ├── repositories/ # Data access layer
-│   │       ├── schemas/   # Pydantic models
-│   │       ├── services/  # Business logic
-│   │       └── main.py    # FastAPI app entry point
-│   ├── tests/             # Backend test suite
-│   ├── scripts/           # Utility scripts
-│   ├── pyproject.toml     # Backend dependencies & config
-│   └── uv.lock           # Locked Python dependencies
-├── frontend/              # React TypeScript frontend
-│   ├── src/
-│   │   ├── components/    # React components
-│   │   │   ├── ui/       # shadcn/ui components
-│   │   │   └── auth/     # Authentication components
-│   │   ├── lib/          # Utilities & API clients
-│   │   ├── pages/        # Route pages
-│   │   ├── styles/       # Global styles
-│   │   └── main.tsx      # React app entry point
-│   ├── public/           # Static assets
-│   ├── __tests__/        # Frontend tests
-│   ├── package.json      # Frontend dependencies
-│   └── package-lock.json # Locked npm dependencies
-├── .github/
-│   └── workflows/        # CI/CD pipelines
-├── Makefile              # Development commands
-├── .pre-commit-config.yaml # Code quality hooks
-└── README.md             # This file
+│   │   ├── components/       # React components
+│   │   │   ├── ui/           # shadcn/ui components
+│   │   │   ├── auth/         # Authentication components
+│   │   │   └── providers/    # Context providers
+│   │   ├── context/          # React context (auth)
+│   │   ├── lib/              # Utilities & API clients
+│   │   ├── pages/            # Route pages
+│   │   ├── assets/           # Static assets (images, etc.)
+│   │   ├── styles/           # Global styles
+│   │   ├── app.tsx           # App root component
+│   │   └── main.tsx          # React entry point
+│   ├── __tests__/            # Playwright E2E tests
+│   ├── package.json          # Frontend dependencies
+│   └── package-lock.json     # Locked npm dependencies
+├── nginx/                    # Nginx reverse proxy config
+├── docs/                     # Documentation
+├── docker-compose.dev.yml    # Development environment
+├── docker-compose.prod.yml   # Production environment
+├── .github/workflows/        # CI/CD pipelines
+├── Makefile                  # Development commands
+├── .pre-commit-config.yaml   # Code quality hooks
+└── README.md                 # This file
 ```
 
 ## Contributing
