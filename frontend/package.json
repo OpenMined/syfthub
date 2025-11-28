@@ -6,7 +6,7 @@
   "type": "module",
   "description": "SyftHub UI - Modern React application with TypeScript and Shadcn/ui",
   "scripts": {
-    "postinstall": "husky & playwright install",
+    "postinstall": "husky && playwright install",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
