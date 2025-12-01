@@ -339,7 +339,7 @@ class TestUserServiceStats:
             assert result["user_id"] == 1
             assert result["username"] == "testuser"
             assert result["is_active"] is True
-            assert "datasites_count" in result
+            assert "endpoints_count" in result
             assert "organizations_count" in result
 
     def test_get_user_stats_not_found(self, user_service):

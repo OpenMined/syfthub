@@ -7,14 +7,14 @@ from sqlalchemy.orm import Session
 
 from syfthub.database.connection import get_db_session
 from syfthub.repositories import (
-    DatasiteRepository,
+    EndpointRepository,
     OrganizationRepository,
     UserRepository,
 )
-from syfthub.repositories.datasite import DatasiteStarRepository
+from syfthub.repositories.endpoint import EndpointStarRepository
 from syfthub.repositories.organization import OrganizationMemberRepository
 from syfthub.services.auth_service import AuthService
-from syfthub.services.datasite_service import DatasiteService
+from syfthub.services.endpoint_service import EndpointService
 from syfthub.services.organization_service import OrganizationService
 from syfthub.services.user_service import UserService
 
@@ -26,11 +26,11 @@ def get_user_repository(
     return UserRepository(session)
 
 
-def get_datasite_repository(
+def get_endpoint_repository(
     session: Annotated[Session, Depends(get_db_session)],
-) -> DatasiteRepository:
-    """Get DatasiteRepository dependency."""
-    return DatasiteRepository(session)
+) -> EndpointRepository:
+    """Get EndpointRepository dependency."""
+    return EndpointRepository(session)
 
 
 def get_organization_repository(
@@ -47,11 +47,11 @@ def get_organization_member_repository(
     return OrganizationMemberRepository(session)
 
 
-def get_datasite_star_repository(
+def get_endpoint_star_repository(
     session: Annotated[Session, Depends(get_db_session)],
-) -> DatasiteStarRepository:
-    """Get DatasiteStarRepository dependency."""
-    return DatasiteStarRepository(session)
+) -> EndpointStarRepository:
+    """Get EndpointStarRepository dependency."""
+    return EndpointStarRepository(session)
 
 
 # Service dependencies
@@ -69,11 +69,11 @@ def get_auth_service(
     return AuthService(session)
 
 
-def get_datasite_service(
+def get_endpoint_service(
     session: Annotated[Session, Depends(get_db_session)],
-) -> DatasiteService:
-    """Get DatasiteService dependency."""
-    return DatasiteService(session)
+) -> EndpointService:
+    """Get EndpointService dependency."""
+    return EndpointService(session)
 
 
 def get_organization_service(

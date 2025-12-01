@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 
 import type {
-  DatasiteCreate,
-  DatasiteResponse,
-  DatasiteUpdate,
-  DatasiteVisibility
+  EndpointCreate,
+  EndpointResponse,
+  EndpointUpdate,
+  EndpointVisibility
 } from '@/lib/types';
 
 import { AnimatePresence, motion } from 'framer-motion';
@@ -29,11 +29,11 @@ import {
 
 import { useAuth } from '@/context/auth-context';
 import {
-  createDatasite,
-  deleteDatasite,
-  getUserDatasites,
-  updateDatasite
-} from '@/lib/datasite-api';
+  createEndpoint,
+  deleteEndpoint,
+  getUserEndpoints,
+  updateEndpoint
+} from '@/lib/endpoint-api';
 
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -41,25 +41,25 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
-interface CreateDatasiteData {
+interface CreateEndpointData {
   name: string;
   description: string;
-  visibility: DatasiteVisibility;
+  visibility: EndpointVisibility;
   version: string;
   readme: string;
 }
 
-export function DatasiteManagement() {
+export function EndpointManagement() {
   const { user } = useAuth();
-  const [datasites, setDatasites] = useState<DatasiteResponse[]>([]);
+  const [endpoints, setEndpoints] = useState<EndpointResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
 
-  // Create datasite form state
-  const [createData, setCreateData] = useState<CreateDatasiteData>({
+  // Create endpoint form state
+  const [createData, setCreateData] = useState<CreateEndpointData>({
     name: '',
     description: '',
     visibility: 'public',
@@ -67,40 +67,40 @@ export function DatasiteManagement() {
     readme: ''
   });
 
-  // Edit datasite form state
-  const [editData, setEditData] = useState<Partial<DatasiteUpdate>>({});
+  // Edit endpoint form state
+  const [editData, setEditData] = useState<Partial<EndpointUpdate>>({});
 
-  // Load user's datasites
+  // Load user's endpoints
   useEffect(() => {
-    const loadDatasites = async () => {
+    const loadEndpoints = async () => {
       if (!user) return;
 
       try {
         setIsLoading(true);
-        const userDatasites = await getUserDatasites({ limit: 50 });
-        setDatasites(userDatasites);
+        const userEndpoints = await getUserEndpoints({ limit: 50 });
+        setEndpoints(userEndpoints);
       } catch (error_) {
-        setError(error_ instanceof Error ? error_.message : 'Failed to load datasites');
+        setError(error_ instanceof Error ? error_.message : 'Failed to load endpoints');
       } finally {
         setIsLoading(false);
       }
     };
 
-    loadDatasites();
+    loadEndpoints();
   }, [user]);
 
-  const handleCreateDatasite = async () => {
+  const handleCreateEndpoint = async () => {
     try {
       setError(null);
       setSuccess(null);
       setIsLoading(true);
 
       if (!createData.name.trim()) {
-        setError('Datasite name is required');
+        setError('Endpoint name is required');
         return;
       }
 
-      const newDatasite = await createDatasite({
+      const newEndpoint = await createEndpoint({
         name: createData.name,
         description: createData.description,
         visibility: createData.visibility,
@@ -111,8 +111,8 @@ export function DatasiteManagement() {
         contributors: []
       });
 
-      setDatasites((previous) => [newDatasite, ...previous]);
-      setSuccess('Datasite created successfully!');
+      setEndpoints((previous) => [newEndpoint, ...previous]);
+      setSuccess('Endpoint created successfully!');
       setIsCreating(false);
       setCreateData({
         name: '',
@@ -126,23 +126,23 @@ export function DatasiteManagement() {
         setSuccess(null);
       }, 3000);
     } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : 'Failed to create datasite');
+      setError(error_ instanceof Error ? error_.message : 'Failed to create endpoint');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleEditDatasite = async (id: number) => {
+  const handleEditEndpoint = async (id: number) => {
     try {
       setError(null);
       setSuccess(null);
       setIsLoading(true);
 
-      const updatedDatasite = await updateDatasite(id, editData);
+      const updatedEndpoint = await updateEndpoint(id, editData);
 
-      setDatasites((previous) => previous.map((ds) => (ds.id === id ? updatedDatasite : ds)));
+      setEndpoints((previous) => previous.map((ds) => (ds.id === id ? updatedEndpoint : ds)));
 
-      setSuccess('Datasite updated successfully!');
+      setSuccess('Endpoint updated successfully!');
       setEditingId(null);
       setEditData({});
 
@@ -150,16 +150,16 @@ export function DatasiteManagement() {
         setSuccess(null);
       }, 3000);
     } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : 'Failed to update datasite');
+      setError(error_ instanceof Error ? error_.message : 'Failed to update endpoint');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleDeleteDatasite = async (id: number) => {
+  const handleDeleteEndpoint = async (id: number) => {
     if (
       !globalThis.confirm(
-        'Are you sure you want to delete this datasite? This action cannot be undone.'
+        'Are you sure you want to delete this endpoint? This action cannot be undone.'
       )
     ) {
       return;
@@ -169,21 +169,21 @@ export function DatasiteManagement() {
       setError(null);
       setIsLoading(true);
 
-      await deleteDatasite(id);
-      setDatasites((previous) => previous.filter((ds) => ds.id !== id));
-      setSuccess('Datasite deleted successfully!');
+      await deleteEndpoint(id);
+      setEndpoints((previous) => previous.filter((ds) => ds.id !== id));
+      setSuccess('Endpoint deleted successfully!');
 
       setTimeout(() => {
         setSuccess(null);
       }, 3000);
     } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : 'Failed to delete datasite');
+      setError(error_ instanceof Error ? error_.message : 'Failed to delete endpoint');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const getVisibilityIcon = (visibility: DatasiteVisibility) => {
+  const getVisibilityIcon = (visibility: EndpointVisibility) => {
     switch (visibility) {
       case 'public': {
         return <Globe className='h-4 w-4' />;
@@ -200,7 +200,7 @@ export function DatasiteManagement() {
     }
   };
 
-  const getVisibilityColor = (visibility: DatasiteVisibility) => {
+  const getVisibilityColor = (visibility: EndpointVisibility) => {
     switch (visibility) {
       case 'public': {
         return 'bg-green-100 text-green-800 border-green-200';
@@ -231,7 +231,7 @@ export function DatasiteManagement() {
         <div className='text-center'>
           <AlertCircle className='mx-auto mb-4 h-12 w-12 text-red-500' />
           <h2 className='mb-2 text-xl font-semibold text-gray-900'>Access Denied</h2>
-          <p className='text-gray-600'>You need to be logged in to manage datasites.</p>
+          <p className='text-gray-600'>You need to be logged in to manage endpoints.</p>
         </div>
       </div>
     );
@@ -243,7 +243,7 @@ export function DatasiteManagement() {
         {/* Header */}
         <div className='mb-8 flex items-center justify-between'>
           <div>
-            <h1 className='text-3xl font-bold text-gray-900'>My Datasites</h1>
+            <h1 className='text-3xl font-bold text-gray-900'>My Endpoints</h1>
             <p className='mt-2 text-gray-600'>Create and manage your data sources.</p>
           </div>
           <Button
@@ -253,7 +253,7 @@ export function DatasiteManagement() {
             className='flex items-center gap-2'
           >
             <Plus className='h-4 w-4' />
-            Create Datasite
+            Create Endpoint
           </Button>
         </div>
 
@@ -284,7 +284,7 @@ export function DatasiteManagement() {
           )}
         </AnimatePresence>
 
-        {/* Create Datasite Modal */}
+        {/* Create Endpoint Modal */}
         <AnimatePresence>
           {isCreating && (
             <>
@@ -305,7 +305,7 @@ export function DatasiteManagement() {
               >
                 <div className='w-full max-w-2xl rounded-lg border border-gray-200 bg-white shadow-xl'>
                   <div className='border-b border-gray-200 px-6 py-4'>
-                    <h2 className='text-lg font-semibold text-gray-900'>Create New Datasite</h2>
+                    <h2 className='text-lg font-semibold text-gray-900'>Create New Endpoint</h2>
                   </div>
 
                   <div className='space-y-4 p-6'>
@@ -330,7 +330,7 @@ export function DatasiteManagement() {
                         onChange={(e) => {
                           setCreateData({ ...createData, description: e.target.value });
                         }}
-                        placeholder='Brief description of your datasite'
+                        placeholder='Brief description of your endpoint'
                       />
                     </div>
 
@@ -339,7 +339,7 @@ export function DatasiteManagement() {
                         <Label htmlFor='create-visibility'>Visibility</Label>
                         <Select
                           value={createData.visibility}
-                          onValueChange={(value: DatasiteVisibility) => {
+                          onValueChange={(value: EndpointVisibility) => {
                             setCreateData({ ...createData, visibility: value });
                           }}
                         >
@@ -375,7 +375,7 @@ export function DatasiteManagement() {
                         onChange={(e) => {
                           setCreateData({ ...createData, readme: e.target.value });
                         }}
-                        placeholder='Markdown documentation for your datasite...'
+                        placeholder='Markdown documentation for your endpoint...'
                         className='w-full resize-none rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none'
                         rows={4}
                       />
@@ -392,10 +392,10 @@ export function DatasiteManagement() {
                       Cancel
                     </Button>
                     <Button
-                      onClick={handleCreateDatasite}
+                      onClick={handleCreateEndpoint}
                       disabled={isLoading || !createData.name.trim()}
                     >
-                      {isLoading ? 'Creating...' : 'Create Datasite'}
+                      {isLoading ? 'Creating...' : 'Create Endpoint'}
                     </Button>
                   </div>
                 </div>
@@ -404,19 +404,19 @@ export function DatasiteManagement() {
           )}
         </AnimatePresence>
 
-        {/* Datasites List */}
+        {/* Endpoints List */}
         {isLoading && !isCreating ? (
           <div className='flex items-center justify-center py-12'>
             <div className='flex items-center gap-3 text-gray-600'>
               <div className='h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600'></div>
-              <span>Loading datasites...</span>
+              <span>Loading endpoints...</span>
             </div>
           </div>
-        ) : datasites.length === 0 ? (
+        ) : endpoints.length === 0 ? (
           <div className='py-12 text-center'>
             <Database className='mx-auto mb-4 h-12 w-12 text-gray-400' />
-            <h3 className='mb-2 text-lg font-medium text-gray-900'>No Datasites Yet</h3>
-            <p className='mb-4 text-gray-600'>Create your first datasite to get started.</p>
+            <h3 className='mb-2 text-lg font-medium text-gray-900'>No Endpoints Yet</h3>
+            <p className='mb-4 text-gray-600'>Create your first endpoint to get started.</p>
             <Button
               onClick={() => {
                 setIsCreating(true);
@@ -424,22 +424,22 @@ export function DatasiteManagement() {
               className='flex items-center gap-2'
             >
               <Plus className='h-4 w-4' />
-              Create Datasite
+              Create Endpoint
             </Button>
           </div>
         ) : (
           <div className='grid gap-6 md:grid-cols-2 lg:grid-cols-3'>
-            {datasites.map((datasite) => (
+            {endpoints.map((endpoint) => (
               <div
-                key={datasite.id}
+                key={endpoint.id}
                 className='rounded-lg border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md'
               >
                 <div className='p-6'>
                   <div className='mb-4 flex items-start justify-between'>
                     <div>
-                      <h3 className='mb-1 text-lg font-semibold text-gray-900'>{datasite.name}</h3>
+                      <h3 className='mb-1 text-lg font-semibold text-gray-900'>{endpoint.name}</h3>
                       <p className='line-clamp-2 text-sm text-gray-600'>
-                        {datasite.description || 'No description provided'}
+                        {endpoint.description || 'No description provided'}
                       </p>
                     </div>
                     <div className='flex items-center gap-1'>
@@ -447,13 +447,13 @@ export function DatasiteManagement() {
                         variant='ghost'
                         size='sm'
                         onClick={() => {
-                          setEditingId(datasite.id);
+                          setEditingId(endpoint.id);
                           setEditData({
-                            name: datasite.name,
-                            description: datasite.description,
-                            visibility: datasite.visibility,
-                            version: datasite.version,
-                            readme: datasite.readme
+                            name: endpoint.name,
+                            description: endpoint.description,
+                            visibility: endpoint.visibility,
+                            version: endpoint.version,
+                            readme: endpoint.readme
                           });
                         }}
                       >
@@ -462,7 +462,7 @@ export function DatasiteManagement() {
                       <Button
                         variant='ghost'
                         size='sm'
-                        onClick={() => handleDeleteDatasite(datasite.id)}
+                        onClick={() => handleDeleteEndpoint(endpoint.id)}
                         className='text-red-600 hover:bg-red-50 hover:text-red-700'
                       >
                         <Trash2 className='h-4 w-4' />
@@ -471,34 +471,34 @@ export function DatasiteManagement() {
                   </div>
 
                   <div className='mb-4 flex flex-wrap gap-2'>
-                    <Badge className={getVisibilityColor(datasite.visibility)}>
+                    <Badge className={getVisibilityColor(endpoint.visibility)}>
                       <div className='flex items-center gap-1'>
-                        {getVisibilityIcon(datasite.visibility)}
-                        <span className='capitalize'>{datasite.visibility}</span>
+                        {getVisibilityIcon(endpoint.visibility)}
+                        <span className='capitalize'>{endpoint.visibility}</span>
                       </div>
                     </Badge>
-                    <Badge variant='outline'>v{datasite.version}</Badge>
-                    {datasite.stars_count > 0 && (
+                    <Badge variant='outline'>v{endpoint.version}</Badge>
+                    {endpoint.stars_count > 0 && (
                       <Badge variant='outline' className='border-yellow-200 text-yellow-600'>
                         <Star className='mr-1 h-3 w-3' />
-                        {datasite.stars_count}
+                        {endpoint.stars_count}
                       </Badge>
                     )}
                   </div>
 
                   <div className='text-xs text-gray-500'>
-                    <p>Created: {formatDate(datasite.created_at)}</p>
-                    <p>Updated: {formatDate(datasite.updated_at)}</p>
+                    <p>Created: {formatDate(endpoint.created_at)}</p>
+                    <p>Updated: {formatDate(endpoint.updated_at)}</p>
                   </div>
                 </div>
 
                 {/* Edit Form */}
-                {editingId === datasite.id && (
+                {editingId === endpoint.id && (
                   <div className='space-y-3 border-t border-gray-200 bg-gray-50 p-4'>
                     <div>
-                      <Label htmlFor={`edit-name-${datasite.id}`}>Name</Label>
+                      <Label htmlFor={`edit-name-${endpoint.id}`}>Name</Label>
                       <Input
-                        id={`edit-name-${datasite.id}`}
+                        id={`edit-name-${endpoint.id}`}
                         value={editData.name || ''}
                         onChange={(e) => {
                           setEditData({ ...editData, name: e.target.value });
@@ -507,9 +507,9 @@ export function DatasiteManagement() {
                       />
                     </div>
                     <div>
-                      <Label htmlFor={`edit-description-${datasite.id}`}>Description</Label>
+                      <Label htmlFor={`edit-description-${endpoint.id}`}>Description</Label>
                       <Input
-                        id={`edit-description-${datasite.id}`}
+                        id={`edit-description-${endpoint.id}`}
                         value={editData.description || ''}
                         onChange={(e) => {
                           setEditData({ ...editData, description: e.target.value });
@@ -520,7 +520,7 @@ export function DatasiteManagement() {
                     <div className='flex gap-2'>
                       <Button
                         size='sm'
-                        onClick={() => handleEditDatasite(datasite.id)}
+                        onClick={() => handleEditEndpoint(endpoint.id)}
                         disabled={isLoading}
                         className='flex-1'
                       >

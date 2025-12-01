@@ -3,8 +3,8 @@ import React from 'react';
 import { Database, FileText, Globe, MessageSquare, Sparkles, Users } from 'lucide-react';
 
 interface SidebarProperties {
-  activeView: 'home' | 'browse' | 'participate' | 'build' | 'datasites';
-  onNavigate: (view: 'home' | 'browse' | 'participate' | 'build' | 'datasites') => void;
+  activeView: 'home' | 'browse' | 'participate' | 'build' | 'endpoints';
+  onNavigate: (view: 'home' | 'browse' | 'participate' | 'build' | 'endpoints') => void;
   onAuthRequired?: () => void;
 }
 
@@ -47,14 +47,14 @@ export function Sidebar({ activeView, onNavigate, onAuthRequired }: Readonly<Sid
       }
     },
     {
-      id: 'datasites',
+      id: 'endpoints',
       label: 'My Data',
       icon: Database,
       action: () => {
         if (onAuthRequired) {
           onAuthRequired();
         } else {
-          onNavigate('datasites');
+          onNavigate('endpoints');
         }
       }
     }

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from syfthub.models.base import BaseModel, TimestampMixin
 
 if TYPE_CHECKING:
-    from syfthub.models.datasite import DatasiteModel
+    from syfthub.models.endpoint import EndpointModel
     from syfthub.models.organization import OrganizationMemberModel
 
 
@@ -36,8 +36,8 @@ class UserModel(BaseModel, TimestampMixin):
     )
 
     # Relationships
-    datasites: Mapped[List["DatasiteModel"]] = relationship(
-        "DatasiteModel", back_populates="user", cascade="all, delete-orphan"
+    endpoints: Mapped[List["EndpointModel"]] = relationship(
+        "EndpointModel", back_populates="user", cascade="all, delete-orphan"
     )
     organization_memberships: Mapped[List["OrganizationMemberModel"]] = relationship(
         "OrganizationMemberModel", back_populates="user", cascade="all, delete-orphan"

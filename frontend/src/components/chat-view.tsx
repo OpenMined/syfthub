@@ -5,7 +5,7 @@ import type { ChatSource } from '@/lib/types';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowDown, Brain, Check, Clock, Cpu, Database, Info, Settings2, X } from 'lucide-react';
 
-import { getChatDataSources } from '@/lib/datasite-api';
+import { getChatDataSources } from '@/lib/endpoint-api';
 
 import { Badge } from './ui/badge';
 import { Label } from './ui/label';
@@ -386,7 +386,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
     const loadDataSources = async () => {
       try {
         setIsLoadingSources(true);
-        const sources = await getChatDataSources(10); // Load 10 datasites
+        const sources = await getChatDataSources(10); // Load 10 endpoints
         setAvailableSources(sources);
 
         // Add assistant message with real sources

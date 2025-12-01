@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from syfthub.models import DatasiteModel, UserModel
+from syfthub.models import EndpointModel, UserModel
 
 
 class TestUserModel:
@@ -67,88 +67,88 @@ class TestUserModel:
             test_session.commit()
 
     def test_user_relationships(self, test_session: Session, sample_user_data: dict):
-        """Test user relationships with datasites."""
+        """Test user relationships with endpoints."""
         # Create user
         user = UserModel(**sample_user_data)
         test_session.add(user)
         test_session.commit()
         test_session.refresh(user)
 
-        # Create datasite for user
-        datasite = DatasiteModel(
+        # Create endpoint for user
+        endpoint = EndpointModel(
             user_id=user.id,
-            name="Test Datasite",
-            slug="test-datasite",
+            name="Test Endpoint",
+            slug="test-endpoint",
             description="Test description",
             visibility="public",
             is_active=True,
         )
-        test_session.add(datasite)
+        test_session.add(endpoint)
         test_session.commit()
 
         # Test relationships
         test_session.refresh(user)
-        assert len(user.datasites) == 1
-        assert user.datasites[0].name == "Test Datasite"
+        assert len(user.endpoints) == 1
+        assert user.endpoints[0].name == "Test Endpoint"
 
 
-class TestDatasiteModel:
-    """Tests for DatasiteModel."""
+class TestEndpointModel:
+    """Tests for EndpointModel."""
 
-    def test_create_datasite(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_create_endpoint(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test creating a datasite."""
+        """Test creating a endpoint."""
         # Create user first
         user = UserModel(**sample_user_data)
         test_session.add(user)
         test_session.commit()
         test_session.refresh(user)
 
-        # Update datasite data with user ID
-        datasite_data = sample_datasite_data.copy()
-        datasite_data["user_id"] = user.id
+        # Update endpoint data with user ID
+        endpoint_data = sample_endpoint_data.copy()
+        endpoint_data["user_id"] = user.id
 
-        # Create datasite
-        datasite = DatasiteModel(**datasite_data)
-        test_session.add(datasite)
+        # Create endpoint
+        endpoint = EndpointModel(**endpoint_data)
+        test_session.add(endpoint)
         test_session.commit()
-        test_session.refresh(datasite)
+        test_session.refresh(endpoint)
 
-        assert datasite.id is not None
-        assert datasite.user_id == user.id
-        assert datasite.name == "Test Datasite"
-        assert datasite.slug == "test-datasite"
-        assert datasite.description == "A test datasite"
-        assert datasite.visibility == "public"
-        assert datasite.is_active is True
-        assert isinstance(datasite.created_at, datetime)
-        assert isinstance(datasite.updated_at, datetime)
+        assert endpoint.id is not None
+        assert endpoint.user_id == user.id
+        assert endpoint.name == "Test Endpoint"
+        assert endpoint.slug == "test-endpoint"
+        assert endpoint.description == "A test endpoint"
+        assert endpoint.visibility == "public"
+        assert endpoint.is_active is True
+        assert isinstance(endpoint.created_at, datetime)
+        assert isinstance(endpoint.updated_at, datetime)
 
-    def test_datasite_user_relationship(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_endpoint_user_relationship(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test datasite-user relationship."""
+        """Test endpoint-user relationship."""
         # Create user
         user = UserModel(**sample_user_data)
         test_session.add(user)
         test_session.commit()
         test_session.refresh(user)
 
-        # Create datasite
-        datasite_data = sample_datasite_data.copy()
-        datasite_data["user_id"] = user.id
-        datasite = DatasiteModel(**datasite_data)
-        test_session.add(datasite)
+        # Create endpoint
+        endpoint_data = sample_endpoint_data.copy()
+        endpoint_data["user_id"] = user.id
+        endpoint = EndpointModel(**endpoint_data)
+        test_session.add(endpoint)
         test_session.commit()
-        test_session.refresh(datasite)
+        test_session.refresh(endpoint)
 
         # Test relationship
-        assert datasite.user.username == "testuser"
-        assert datasite.user.id == user.id
+        assert endpoint.user.username == "testuser"
+        assert endpoint.user.id == user.id
 
-    def test_datasite_unique_slug_per_user(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_endpoint_unique_slug_per_user(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
         """Test that slug is unique per user (not globally unique)."""
         # Create two users
@@ -169,39 +169,39 @@ class TestDatasiteModel:
         test_session.refresh(user1)
         test_session.refresh(user2)
 
-        # Create datasite for user1
-        datasite1_data = sample_datasite_data.copy()
-        datasite1_data["user_id"] = user1.id
-        datasite1 = DatasiteModel(**datasite1_data)
-        test_session.add(datasite1)
+        # Create endpoint for user1
+        endpoint1_data = sample_endpoint_data.copy()
+        endpoint1_data["user_id"] = user1.id
+        endpoint1 = EndpointModel(**endpoint1_data)
+        test_session.add(endpoint1)
         test_session.commit()
 
-        # Create datasite for user2 with same slug (should work)
-        datasite2_data = sample_datasite_data.copy()
-        datasite2_data["user_id"] = user2.id
-        datasite2 = DatasiteModel(**datasite2_data)
-        test_session.add(datasite2)
+        # Create endpoint for user2 with same slug (should work)
+        endpoint2_data = sample_endpoint_data.copy()
+        endpoint2_data["user_id"] = user2.id
+        endpoint2 = EndpointModel(**endpoint2_data)
+        test_session.add(endpoint2)
         test_session.commit()  # Should not raise error
 
-        # Try to create another datasite for user1 with same slug (should fail)
-        datasite3_data = sample_datasite_data.copy()
-        datasite3_data["user_id"] = user1.id
-        datasite3_data["name"] = "Different Name"
-        datasite3 = DatasiteModel(**datasite3_data)
-        test_session.add(datasite3)
+        # Try to create another endpoint for user1 with same slug (should fail)
+        endpoint3_data = sample_endpoint_data.copy()
+        endpoint3_data["user_id"] = user1.id
+        endpoint3_data["name"] = "Different Name"
+        endpoint3 = EndpointModel(**endpoint3_data)
+        test_session.add(endpoint3)
 
         with pytest.raises(IntegrityError):
             test_session.commit()
 
-    def test_datasite_foreign_key_constraint(
-        self, test_session: Session, sample_datasite_data: dict
+    def test_endpoint_foreign_key_constraint(
+        self, test_session: Session, sample_endpoint_data: dict
     ):
-        """Test that datasite requires a valid user_id."""
-        # Try to create datasite with non-existent user_id
-        datasite_data = sample_datasite_data.copy()
-        datasite_data["user_id"] = 999  # Non-existent user
-        datasite = DatasiteModel(**datasite_data)
-        test_session.add(datasite)
+        """Test that endpoint requires a valid user_id."""
+        # Try to create endpoint with non-existent user_id
+        endpoint_data = sample_endpoint_data.copy()
+        endpoint_data["user_id"] = 999  # Non-existent user
+        endpoint = EndpointModel(**endpoint_data)
+        test_session.add(endpoint)
 
         with pytest.raises(IntegrityError):
             test_session.commit()

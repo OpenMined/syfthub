@@ -14,61 +14,61 @@ import {
   Star
 } from 'lucide-react';
 
-import { getPublicDatasites } from '@/lib/datasite-api';
+import { getPublicEndpoints } from '@/lib/endpoint-api';
 
 import { Badge } from './ui/badge';
 
 interface BrowseViewProperties {
   initialQuery?: string;
-  onViewDatasite?: (slug: string, owner?: string) => void;
+  onViewEndpoint?: (slug: string, owner?: string) => void;
   onAuthRequired?: () => void;
 }
 
 export function BrowseView({
   initialQuery = '',
-  onViewDatasite,
+  onViewEndpoint,
   onAuthRequired: _onAuthRequired
 }: Readonly<BrowseViewProperties>) {
-  const [datasites, setDatasites] = useState<ChatSource[]>([]);
-  const [filteredDatasites, setFilteredDatasites] = useState<ChatSource[]>([]);
+  const [endpoints, setEndpoints] = useState<ChatSource[]>([]);
+  const [filteredEndpoints, setFilteredEndpoints] = useState<ChatSource[]>([]);
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Load datasites on mount
+  // Load endpoints on mount
   useEffect(() => {
-    const loadDatasites = async () => {
+    const loadEndpoints = async () => {
       try {
         setIsLoading(true);
         setError(null);
-        const sources = await getPublicDatasites({ limit: 50 });
-        setDatasites(sources);
-        setFilteredDatasites(sources);
+        const sources = await getPublicEndpoints({ limit: 50 });
+        setEndpoints(sources);
+        setFilteredEndpoints(sources);
       } catch (error_) {
-        setError(error_ instanceof Error ? error_.message : 'Failed to load datasites');
+        setError(error_ instanceof Error ? error_.message : 'Failed to load endpoints');
       } finally {
         setIsLoading(false);
       }
     };
 
-    loadDatasites();
+    loadEndpoints();
   }, []);
 
-  // Filter datasites based on search query
+  // Filter endpoints based on search query
   useEffect(() => {
     if (searchQuery.trim() === '') {
-      setFilteredDatasites(datasites);
+      setFilteredEndpoints(endpoints);
     } else {
       const query = searchQuery.toLowerCase();
-      const filtered = datasites.filter(
+      const filtered = endpoints.filter(
         (ds) =>
           ds.name.toLowerCase().includes(query) ||
           ds.description.toLowerCase().includes(query) ||
           ds.tag.toLowerCase().includes(query)
       );
-      setFilteredDatasites(filtered);
+      setFilteredEndpoints(filtered);
     }
-  }, [searchQuery, datasites]);
+  }, [searchQuery, endpoints]);
 
   const getStatusColor = (status: 'active' | 'warning' | 'inactive') => {
     switch (status) {
@@ -87,12 +87,12 @@ export function BrowseView({
     }
   };
 
-  const getVisibilityIcon = (datasite: ChatSource) => {
-    // Since we're showing public datasites, they're all public
+  const getVisibilityIcon = (endpoint: ChatSource) => {
+    // Since we're showing public endpoints, they're all public
     // But we can infer from the name/tag for demonstration
-    if (datasite.name.toLowerCase().includes('private')) {
+    if (endpoint.name.toLowerCase().includes('private')) {
       return <Lock className='h-3 w-3' />;
-    } else if (datasite.name.toLowerCase().includes('internal')) {
+    } else if (endpoint.name.toLowerCase().includes('internal')) {
       return <Building className='h-3 w-3' />;
     }
     return <Globe className='h-3 w-3' />;
@@ -136,7 +136,7 @@ export function BrowseView({
           <div className='py-16 text-center'>
             <div className='flex items-center justify-center gap-3 text-gray-600'>
               <div className='h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600'></div>
-              <span>Loading datasites...</span>
+              <span>Loading endpoints...</span>
             </div>
           </div>
         ) : error ? (
@@ -145,41 +145,41 @@ export function BrowseView({
               <Search className='h-8 w-8 text-red-500' />
             </div>
             <h3 className='font-inter mb-2 text-lg font-medium text-gray-900'>
-              Error Loading Datasites
+              Error Loading Endpoints
             </h3>
             <p className='font-inter text-[#5e5a72]'>{error}</p>
           </div>
-        ) : filteredDatasites.length === 0 ? (
+        ) : filteredEndpoints.length === 0 ? (
           <div className='py-16 text-center'>
             <div className='mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#f1f0f4]'>
               <Search className='h-8 w-8 text-[#5e5a72]' />
             </div>
             <h3 className='font-inter mb-2 text-lg font-medium text-[#272532]'>No Results Found</h3>
             <p className='font-inter text-[#5e5a72]'>
-              {searchQuery ? `No datasites match "${searchQuery}"` : 'No datasites available'}
+              {searchQuery ? `No endpoints match "${searchQuery}"` : 'No endpoints available'}
             </p>
           </div>
         ) : (
           <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-3'>
-            {filteredDatasites.map((datasite) => (
+            {filteredEndpoints.map((endpoint) => (
               <div
-                key={datasite.id}
-                onClick={() => onViewDatasite?.(datasite.slug, datasite.owner_username)}
+                key={endpoint.id}
+                onClick={() => onViewEndpoint?.(endpoint.slug, endpoint.owner_username)}
                 className='group cursor-pointer rounded-xl border border-[#ecebef] bg-white p-5 transition-all hover:border-[#6976ae] hover:shadow-md'
               >
                 {/* Header */}
                 <div className='mb-3 flex items-start justify-between'>
                   <div className='min-w-0 flex-1'>
                     <h3 className='font-inter mb-1 truncate text-base font-semibold text-[#272532] group-hover:text-[#6976ae]'>
-                      {datasite.name}
+                      {endpoint.name}
                     </h3>
-                    {datasite.owner_username && (
+                    {endpoint.owner_username && (
                       <p className='font-inter truncate text-xs text-[#b4b0bf]'>
-                        by @{datasite.owner_username}
+                        by @{endpoint.owner_username}
                       </p>
                     )}
                     <p className='font-inter line-clamp-2 text-sm text-[#5e5a72]'>
-                      {datasite.description}
+                      {endpoint.description}
                     </p>
                   </div>
                   <ChevronRight className='ml-2 h-5 w-5 shrink-0 text-[#b4b0bf] transition-transform group-hover:translate-x-1 group-hover:text-[#6976ae]' />
@@ -188,12 +188,12 @@ export function BrowseView({
                 {/* Tags and Status */}
                 <div className='mb-3 flex flex-wrap items-center gap-2'>
                   <Badge variant='secondary' className='font-inter text-xs'>
-                    {datasite.tag}
+                    {endpoint.tag}
                   </Badge>
                   <div className='flex items-center gap-1'>
-                    <div className={`h-2 w-2 rounded-full ${getStatusColor(datasite.status)}`} />
+                    <div className={`h-2 w-2 rounded-full ${getStatusColor(endpoint.status)}`} />
                     <span className='font-inter text-xs text-[#5e5a72] capitalize'>
-                      {datasite.status}
+                      {endpoint.status}
                     </span>
                   </div>
                 </div>
@@ -202,24 +202,24 @@ export function BrowseView({
                 <div className='flex items-center justify-between border-t border-[#f1f0f4] pt-3'>
                   <div className='flex items-center gap-3 text-xs text-[#b4b0bf]'>
                     <div className='flex items-center gap-1'>
-                      {getVisibilityIcon(datasite)}
+                      {getVisibilityIcon(endpoint)}
                       <span>Public</span>
                     </div>
                     <div className='flex items-center gap-1'>
                       <Package className='h-3 w-3' />
-                      <span>v{datasite.version}</span>
+                      <span>v{endpoint.version}</span>
                     </div>
                   </div>
                   <div className='flex items-center gap-3 text-xs text-[#b4b0bf]'>
-                    {datasite.stars_count > 0 && (
+                    {endpoint.stars_count > 0 && (
                       <div className='flex items-center gap-1'>
                         <Star className='h-3 w-3' />
-                        <span>{datasite.stars_count}</span>
+                        <span>{endpoint.stars_count}</span>
                       </div>
                     )}
                     <div className='flex items-center gap-1'>
                       <Calendar className='h-3 w-3' />
-                      <span>{datasite.updated}</span>
+                      <span>{endpoint.updated}</span>
                     </div>
                   </div>
                 </div>

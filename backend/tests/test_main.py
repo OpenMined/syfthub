@@ -8,14 +8,14 @@ from fastapi.testclient import TestClient
 
 from syfthub.main import (
     app,
-    can_access_datasite_with_org,
-    get_datasite_by_owner_and_slug,
-    get_owner_datasites,
+    can_access_endpoint_with_org,
+    get_endpoint_by_owner_and_slug,
+    get_owner_endpoints,
     main,
     resolve_owner,
 )
 from syfthub.schemas.auth import UserRole
-from syfthub.schemas.datasite import Datasite, DatasiteVisibility
+from syfthub.schemas.endpoint import Endpoint, EndpointVisibility
 from syfthub.schemas.organization import Organization
 from syfthub.schemas.user import User
 
@@ -165,8 +165,8 @@ class TestUtilityFunctions:
         assert owner is None
         assert owner_type == ""
 
-    def test_get_owner_datasites_user(self):
-        """Test getting datasites for a user owner."""
+    def test_get_owner_endpoints_user(self):
+        """Test getting endpoints for a user owner."""
         # Setup user
         test_user = User(
             id=1,
@@ -182,14 +182,14 @@ class TestUtilityFunctions:
             updated_at=datetime.now(timezone.utc),
         )
 
-        # Setup datasites
-        datasite1 = Datasite(
+        # Setup endpoints
+        endpoint1 = Endpoint(
             id=101,
             user_id=1,
-            name="Datasite 1",
-            slug="datasite1",
-            description="Test datasite 1",
-            visibility=DatasiteVisibility.PUBLIC,
+            name="Endpoint 1",
+            slug="endpoint1",
+            description="Test endpoint 1",
+            visibility=EndpointVisibility.PUBLIC,
             is_active=True,
             contributors=[],
             version="1.0.0",
@@ -202,19 +202,19 @@ class TestUtilityFunctions:
         )
 
         # Create mock repository
-        mock_datasite_repo = Mock()
-        mock_datasite_repo.get_user_datasites.return_value = [datasite1]
+        mock_endpoint_repo = Mock()
+        mock_endpoint_repo.get_user_endpoints.return_value = [endpoint1]
 
         # Test
-        datasites = get_owner_datasites(test_user, "user", mock_datasite_repo)
+        endpoints = get_owner_endpoints(test_user, "user", mock_endpoint_repo)
 
         # Verify
-        assert len(datasites) == 1
-        assert datasites[0].id == 101
-        mock_datasite_repo.get_user_datasites.assert_called_once_with(1)
+        assert len(endpoints) == 1
+        assert endpoints[0].id == 101
+        mock_endpoint_repo.get_user_endpoints.assert_called_once_with(1)
 
-    def test_get_owner_datasites_organization(self):
-        """Test getting datasites for an organization owner."""
+    def test_get_owner_endpoints_organization(self):
+        """Test getting endpoints for an organization owner."""
         # Setup organization
         test_org = Organization(
             id=1,
@@ -227,15 +227,15 @@ class TestUtilityFunctions:
             updated_at=datetime.now(timezone.utc),
         )
 
-        # Setup datasite
-        datasite1 = Datasite(
+        # Setup endpoint
+        endpoint1 = Endpoint(
             id=101,
             user_id=None,
             organization_id=1,
-            name="Org Datasite",
-            slug="org-datasite",
-            description="Test org datasite",
-            visibility=DatasiteVisibility.PUBLIC,
+            name="Org Endpoint",
+            slug="org-endpoint",
+            description="Test org endpoint",
+            visibility=EndpointVisibility.PUBLIC,
             is_active=True,
             contributors=[],
             version="1.0.0",
@@ -248,19 +248,19 @@ class TestUtilityFunctions:
         )
 
         # Create mock repository
-        mock_datasite_repo = Mock()
-        mock_datasite_repo.get_organization_datasites.return_value = [datasite1]
+        mock_endpoint_repo = Mock()
+        mock_endpoint_repo.get_organization_endpoints.return_value = [endpoint1]
 
         # Test
-        datasites = get_owner_datasites(test_org, "organization", mock_datasite_repo)
+        endpoints = get_owner_endpoints(test_org, "organization", mock_endpoint_repo)
 
         # Verify
-        assert len(datasites) == 1
-        assert datasites[0].id == 101
-        mock_datasite_repo.get_organization_datasites.assert_called_once_with(1)
+        assert len(endpoints) == 1
+        assert endpoints[0].id == 101
+        mock_endpoint_repo.get_organization_endpoints.assert_called_once_with(1)
 
-    def test_get_owner_datasites_invalid_type(self):
-        """Test getting datasites with invalid owner type."""
+    def test_get_owner_endpoints_invalid_type(self):
+        """Test getting endpoints with invalid owner type."""
         test_user = User(
             id=1,
             username="testuser",
@@ -276,13 +276,13 @@ class TestUtilityFunctions:
         )
 
         # Create mock repository
-        mock_datasite_repo = Mock()
+        mock_endpoint_repo = Mock()
 
-        datasites = get_owner_datasites(test_user, "invalid", mock_datasite_repo)
-        assert datasites == []
+        endpoints = get_owner_endpoints(test_user, "invalid", mock_endpoint_repo)
+        assert endpoints == []
 
-    def test_get_datasite_by_owner_and_slug_user(self):
-        """Test getting datasite by user owner and slug."""
+    def test_get_endpoint_by_owner_and_slug_user(self):
+        """Test getting endpoint by user owner and slug."""
         # Setup
         test_user = User(
             id=1,
@@ -298,13 +298,13 @@ class TestUtilityFunctions:
             updated_at=datetime.now(timezone.utc),
         )
 
-        test_datasite = Datasite(
+        test_endpoint = Endpoint(
             id=101,
             user_id=1,
-            name="Test Datasite",
-            slug="test-datasite",
-            description="A test datasite",
-            visibility=DatasiteVisibility.PUBLIC,
+            name="Test Endpoint",
+            slug="test-endpoint",
+            description="A test endpoint",
+            visibility=EndpointVisibility.PUBLIC,
             is_active=True,
             contributors=[],
             version="1.0.0",
@@ -317,22 +317,22 @@ class TestUtilityFunctions:
         )
 
         # Create mock repository
-        mock_datasite_repo = Mock()
-        mock_datasite_repo.get_by_user_and_slug.return_value = test_datasite
+        mock_endpoint_repo = Mock()
+        mock_endpoint_repo.get_by_user_and_slug.return_value = test_endpoint
 
         # Test
-        result = get_datasite_by_owner_and_slug(
-            test_user, "user", "test-datasite", mock_datasite_repo
+        result = get_endpoint_by_owner_and_slug(
+            test_user, "user", "test-endpoint", mock_endpoint_repo
         )
 
         # Verify
-        assert result == test_datasite
-        mock_datasite_repo.get_by_user_and_slug.assert_called_once_with(
-            1, "test-datasite"
+        assert result == test_endpoint
+        mock_endpoint_repo.get_by_user_and_slug.assert_called_once_with(
+            1, "test-endpoint"
         )
 
-    def test_get_datasite_by_owner_and_slug_organization(self):
-        """Test getting datasite by organization owner and slug."""
+    def test_get_endpoint_by_owner_and_slug_organization(self):
+        """Test getting endpoint by organization owner and slug."""
         # Setup
         test_org = Organization(
             id=1,
@@ -345,14 +345,14 @@ class TestUtilityFunctions:
             updated_at=datetime.now(timezone.utc),
         )
 
-        test_datasite = Datasite(
+        test_endpoint = Endpoint(
             id=101,
             user_id=None,
             organization_id=1,
-            name="Org Datasite",
-            slug="test-datasite",
-            description="Test org datasite",
-            visibility=DatasiteVisibility.PUBLIC,
+            name="Org Endpoint",
+            slug="test-endpoint",
+            description="Test org endpoint",
+            visibility=EndpointVisibility.PUBLIC,
             is_active=True,
             contributors=[],
             version="1.0.0",
@@ -365,22 +365,22 @@ class TestUtilityFunctions:
         )
 
         # Create mock repository
-        mock_datasite_repo = Mock()
-        mock_datasite_repo.get_by_organization_and_slug.return_value = test_datasite
+        mock_endpoint_repo = Mock()
+        mock_endpoint_repo.get_by_organization_and_slug.return_value = test_endpoint
 
         # Test
-        result = get_datasite_by_owner_and_slug(
-            test_org, "organization", "test-datasite", mock_datasite_repo
+        result = get_endpoint_by_owner_and_slug(
+            test_org, "organization", "test-endpoint", mock_endpoint_repo
         )
 
         # Verify
-        assert result == test_datasite
-        mock_datasite_repo.get_by_organization_and_slug.assert_called_once_with(
-            1, "test-datasite"
+        assert result == test_endpoint
+        mock_endpoint_repo.get_by_organization_and_slug.assert_called_once_with(
+            1, "test-endpoint"
         )
 
-    def test_get_datasite_by_owner_and_slug_invalid_type(self):
-        """Test getting datasite with invalid owner type."""
+    def test_get_endpoint_by_owner_and_slug_invalid_type(self):
+        """Test getting endpoint with invalid owner type."""
         test_user = User(
             id=1,
             username="testuser",
@@ -396,22 +396,22 @@ class TestUtilityFunctions:
         )
 
         # Create mock repository
-        mock_datasite_repo = Mock()
+        mock_endpoint_repo = Mock()
 
-        result = get_datasite_by_owner_and_slug(
-            test_user, "invalid", "test-datasite", mock_datasite_repo
+        result = get_endpoint_by_owner_and_slug(
+            test_user, "invalid", "test-endpoint", mock_endpoint_repo
         )
         assert result is None
 
-    def test_can_access_datasite_with_org_public(self):
-        """Test access to public datasite."""
-        datasite = Datasite(
+    def test_can_access_endpoint_with_org_public(self):
+        """Test access to public endpoint."""
+        endpoint = Endpoint(
             id=101,
             user_id=1,
-            name="Public Datasite",
-            slug="public-datasite",
-            description="A public datasite",
-            visibility=DatasiteVisibility.PUBLIC,
+            name="Public Endpoint",
+            slug="public-endpoint",
+            description="A public endpoint",
+            visibility=EndpointVisibility.PUBLIC,
             is_active=True,
             contributors=[],
             version="1.0.0",
@@ -424,7 +424,7 @@ class TestUtilityFunctions:
         )
 
         # Test with no user
-        assert can_access_datasite_with_org(datasite, None, "user") is True
+        assert can_access_endpoint_with_org(endpoint, None, "user") is True
 
         # Test with user
         test_user = User(
@@ -440,17 +440,17 @@ class TestUtilityFunctions:
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
-        assert can_access_datasite_with_org(datasite, test_user, "user") is True
+        assert can_access_endpoint_with_org(endpoint, test_user, "user") is True
 
-    def test_can_access_datasite_with_org_unauthenticated_private(self):
-        """Test unauthenticated access to private datasite."""
-        datasite = Datasite(
+    def test_can_access_endpoint_with_org_unauthenticated_private(self):
+        """Test unauthenticated access to private endpoint."""
+        endpoint = Endpoint(
             id=101,
             user_id=1,
-            name="Private Datasite",
-            slug="private-datasite",
-            description="A private datasite",
-            visibility=DatasiteVisibility.PRIVATE,
+            name="Private Endpoint",
+            slug="private-endpoint",
+            description="A private endpoint",
+            visibility=EndpointVisibility.PRIVATE,
             is_active=True,
             contributors=[],
             version="1.0.0",
@@ -462,17 +462,17 @@ class TestUtilityFunctions:
             updated_at=datetime.now(timezone.utc),
         )
 
-        assert can_access_datasite_with_org(datasite, None, "user") is False
+        assert can_access_endpoint_with_org(endpoint, None, "user") is False
 
-    def test_can_access_datasite_with_org_admin_access(self):
-        """Test admin access to any datasite."""
-        datasite = Datasite(
+    def test_can_access_endpoint_with_org_admin_access(self):
+        """Test admin access to any endpoint."""
+        endpoint = Endpoint(
             id=101,
             user_id=1,
-            name="Private Datasite",
-            slug="private-datasite",
-            description="A private datasite",
-            visibility=DatasiteVisibility.PRIVATE,
+            name="Private Endpoint",
+            slug="private-endpoint",
+            description="A private endpoint",
+            visibility=EndpointVisibility.PRIVATE,
             is_active=True,
             contributors=[],
             version="1.0.0",
@@ -498,18 +498,18 @@ class TestUtilityFunctions:
             updated_at=datetime.now(timezone.utc),
         )
 
-        assert can_access_datasite_with_org(datasite, admin_user, "user") is True
+        assert can_access_endpoint_with_org(endpoint, admin_user, "user") is True
 
-    @patch("syfthub.main.can_access_datasite")
-    def test_can_access_datasite_with_org_user_owned(self, mock_can_access):
-        """Test access to user-owned datasite."""
-        datasite = Datasite(
+    @patch("syfthub.main.can_access_endpoint")
+    def test_can_access_endpoint_with_org_user_owned(self, mock_can_access):
+        """Test access to user-owned endpoint."""
+        endpoint = Endpoint(
             id=101,
             user_id=1,
-            name="User Datasite",
-            slug="user-datasite",
-            description="A user datasite",
-            visibility=DatasiteVisibility.PRIVATE,
+            name="User Endpoint",
+            slug="user-endpoint",
+            description="A user endpoint",
+            visibility=EndpointVisibility.PRIVATE,
             is_active=True,
             contributors=[],
             version="1.0.0",
@@ -537,22 +537,22 @@ class TestUtilityFunctions:
 
         mock_can_access.return_value = True
 
-        result = can_access_datasite_with_org(datasite, test_user, "user")
+        result = can_access_endpoint_with_org(endpoint, test_user, "user")
 
         assert result is True
-        mock_can_access.assert_called_once_with(datasite, test_user)
+        mock_can_access.assert_called_once_with(endpoint, test_user)
 
     @patch("syfthub.main.is_organization_member")
-    def test_can_access_datasite_with_org_org_internal(self, mock_is_member):
-        """Test access to organization internal datasite."""
-        datasite = Datasite(
+    def test_can_access_endpoint_with_org_org_internal(self, mock_is_member):
+        """Test access to organization internal endpoint."""
+        endpoint = Endpoint(
             id=101,
             user_id=None,
             organization_id=1,
-            name="Org Datasite",
-            slug="org-datasite",
-            description="An org datasite",
-            visibility=DatasiteVisibility.INTERNAL,
+            name="Org Endpoint",
+            slug="org-endpoint",
+            description="An org endpoint",
+            visibility=EndpointVisibility.INTERNAL,
             is_active=True,
             contributors=[],
             version="1.0.0",
@@ -581,24 +581,24 @@ class TestUtilityFunctions:
         mock_is_member.return_value = True
         mock_member_repo = MagicMock()
 
-        result = can_access_datasite_with_org(
-            datasite, test_user, "organization", mock_member_repo
+        result = can_access_endpoint_with_org(
+            endpoint, test_user, "organization", mock_member_repo
         )
 
         assert result is True
         mock_is_member.assert_called_once_with(1, 2, mock_member_repo)
 
     @patch("syfthub.main.is_organization_member")
-    def test_can_access_datasite_with_org_org_private(self, mock_is_member):
-        """Test access to organization private datasite."""
-        datasite = Datasite(
+    def test_can_access_endpoint_with_org_org_private(self, mock_is_member):
+        """Test access to organization private endpoint."""
+        endpoint = Endpoint(
             id=101,
             user_id=None,
             organization_id=1,
-            name="Org Datasite",
-            slug="org-datasite",
-            description="An org datasite",
-            visibility=DatasiteVisibility.PRIVATE,
+            name="Org Endpoint",
+            slug="org-endpoint",
+            description="An org endpoint",
+            visibility=EndpointVisibility.PRIVATE,
             is_active=True,
             contributors=[],
             version="1.0.0",
@@ -627,8 +627,8 @@ class TestUtilityFunctions:
         mock_is_member.return_value = False
         mock_member_repo = MagicMock()
 
-        result = can_access_datasite_with_org(
-            datasite, test_user, "organization", mock_member_repo
+        result = can_access_endpoint_with_org(
+            endpoint, test_user, "organization", mock_member_repo
         )
 
         assert result is False
