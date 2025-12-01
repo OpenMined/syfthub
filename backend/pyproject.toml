@@ -193,6 +193,5 @@ dev = [
     "ruff>=0.14.4",
     "types-markdown>=3.10.0.20251106",
     "types-passlib>=1.7.7.20250602",
-    "types-pyjwt>=1.7.1",
     "types-sqlalchemy>=1.4.0",
 ]

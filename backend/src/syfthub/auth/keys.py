@@ -11,18 +11,14 @@ import base64
 import logging
 from typing import TYPE_CHECKING, Dict, List, Optional, cast
 
-from cryptography.hazmat.primitives import (  # type: ignore[import-not-found]
-    serialization,
-)
-from cryptography.hazmat.primitives.asymmetric import (  # type: ignore[import-not-found]
-    rsa,
-)
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from syfthub.core.config import settings
 from syfthub.domain.exceptions import KeyLoadError, KeyNotConfiguredError
 
 if TYPE_CHECKING:
-    from cryptography.hazmat.primitives.asymmetric.rsa import (  # type: ignore[import-not-found]
+    from cryptography.hazmat.primitives.asymmetric.rsa import (
         RSAPrivateKey,
         RSAPublicKey,
     )
@@ -178,13 +174,17 @@ class RSAKeyManager:
             private_pem = base64.b64decode(private_pem_b64)
             public_pem = base64.b64decode(public_pem_b64)
 
-            # Load private key
-            self._private_key = serialization.load_pem_private_key(
-                private_pem, password=None
+            # Load private key (cast to RSAPrivateKey - we know it's RSA)
+            self._private_key = cast(
+                "RSAPrivateKey",
+                serialization.load_pem_private_key(private_pem, password=None),
             )
 
-            # Load public key
-            public_key = serialization.load_pem_public_key(public_pem)
+            # Load public key (cast to RSAPublicKey - we know it's RSA)
+            public_key = cast(
+                "RSAPublicKey",
+                serialization.load_pem_public_key(public_pem),
+            )
 
             # Store public key with key ID
             self._public_keys[key_id] = public_key
@@ -215,13 +215,17 @@ class RSAKeyManager:
             with open(public_path, "rb") as f:
                 public_pem = f.read()
 
-            # Load private key
-            self._private_key = serialization.load_pem_private_key(
-                private_pem, password=None
+            # Load private key (cast to RSAPrivateKey - we know it's RSA)
+            self._private_key = cast(
+                "RSAPrivateKey",
+                serialization.load_pem_private_key(private_pem, password=None),
             )
 
-            # Load public key
-            public_key = serialization.load_pem_public_key(public_pem)
+            # Load public key (cast to RSAPublicKey - we know it's RSA)
+            public_key = cast(
+                "RSAPublicKey",
+                serialization.load_pem_public_key(public_pem),
+            )
 
             # Store public key with key ID
             self._public_keys[key_id] = public_key
@@ -364,13 +368,10 @@ class RSAKeyManager:
         if self._private_key is None:
             raise KeyNotConfiguredError()
 
-        return cast(
-            "bytes",
-            self._private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption(),
-            ),
+        return self._private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
         )
 
     def get_public_key_pem(self, kid: Optional[str] = None) -> bytes:
@@ -391,12 +392,9 @@ class RSAKeyManager:
         if public_key is None:
             raise KeyNotConfiguredError()
 
-        return cast(
-            "bytes",
-            public_key.public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo,
-            ),
+        return public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
         )
 
 

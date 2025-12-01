@@ -39,8 +39,11 @@ repos:
           httpx,
           sqlalchemy,
           alembic,
+          cryptography,
+          pyjwt,
           types-sqlalchemy,
           types-markdown,
+          types-passlib,
         ]
 
   # Frontend hooks

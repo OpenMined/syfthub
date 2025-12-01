@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
-import jwt  # type: ignore[import-not-found]
+import jwt
 
 from syfthub.core.config import settings
 from syfthub.domain.exceptions import InvalidAudienceError, KeyNotConfiguredError
@@ -234,7 +234,7 @@ def verify_satellite_token_for_service(
     # Get the key ID from the token header
     try:
         unverified_header = jwt.get_unverified_header(token)
-    except jwt.exceptions.DecodeError as e:
+    except jwt.DecodeError as e:
         return TokenVerificationResult(
             valid=False,
             error="invalid_token_format",
