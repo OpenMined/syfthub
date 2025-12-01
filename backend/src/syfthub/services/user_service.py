@@ -129,7 +129,7 @@ class UserService(BaseService):
         return matching_users
 
     def get_user_stats(self, user_id: int) -> dict[str, Any]:
-        """Get user statistics (datasites count, etc.)."""
+        """Get user statistics (endpoints count, etc.)."""
         # This would typically involve calling other services/repositories
         # For now, return basic stats
         user = self.user_repository.get_by_id(user_id)
@@ -146,7 +146,7 @@ class UserService(BaseService):
             "last_updated": user.updated_at,
             "is_active": user.is_active,
             # These would be calculated by querying related tables
-            "datasites_count": 0,
+            "endpoints_count": 0,
             "organizations_count": 0,
             "stars_given": 0,
         }

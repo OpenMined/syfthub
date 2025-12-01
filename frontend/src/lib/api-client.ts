@@ -10,7 +10,7 @@
 
 // API Configuration
 // Uses VITE_API_URL env var if set, otherwise defaults to same-origin (via proxy)
-const API_BASE_URL: string = (import.meta.env.VITE_API_URL as string | undefined) ?? '/api/v1';
+const API_BASE_URL: string = (import.meta.env.VITE_API_URL as string | undefined) || '/api/v1';
 
 // Storage keys for tokens
 const ACCESS_TOKEN_KEY = 'syft_access_token';
@@ -280,12 +280,12 @@ export const API_CONFIG = {
       ACTIVATE: (id: number) => `/users/${String(id)}/activate`,
       VERIFY_SIGNATURE: '/users/verify-signature'
     },
-    DATASITES: {
-      LIST: '/datasites',
-      CREATE: '/datasites',
-      PUBLIC: '/datasites/public',
-      TRENDING: '/datasites/trending',
-      BY_ID: (id: number) => `/datasites/${String(id)}`
+    ENDPOINTS: {
+      LIST: '/endpoints',
+      CREATE: '/endpoints',
+      PUBLIC: '/endpoints/public',
+      TRENDING: '/endpoints/trending',
+      BY_ID: (id: number) => `/endpoints/${String(id)}`
     },
     ORGANIZATIONS: {
       LIST: '/organizations',

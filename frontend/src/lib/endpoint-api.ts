@@ -1,14 +1,14 @@
 /**
- * Datasite API Client - Connects to SyftHub backend datasite endpoints
+ * Endpoint API Client - Connects to SyftHub backend endpoint endpoints
  */
 
 import type {
   ChatSource,
-  DatasiteCreate,
-  DatasiteFilters,
-  DatasitePublicResponse,
-  DatasiteResponse,
-  DatasiteUpdate,
+  EndpointCreate,
+  EndpointFilters,
+  EndpointPublicResponse,
+  EndpointResponse,
+  EndpointUpdate,
   PaginationParams
 } from './types';
 
@@ -32,17 +32,17 @@ function formatRelativeTime(date: Date): string {
   return `${String(diffInMonths)} month${diffInMonths === 1 ? '' : 's'} ago`;
 }
 
-// Utility function to convert backend DatasitePublicResponse to frontend ChatSource
-export function mapDatasiteToSource(datasite: DatasitePublicResponse): ChatSource {
+// Utility function to convert backend EndpointPublicResponse to frontend ChatSource
+export function mapEndpointToSource(endpoint: EndpointPublicResponse): ChatSource {
   // Determine tag from policies (first policy type or fallback to "General")
-  const policies = datasite.policies ?? [];
+  const policies = endpoint.policies ?? [];
   const firstPolicy = policies[0];
   const tag = firstPolicy
     ? firstPolicy.type.charAt(0).toUpperCase() + firstPolicy.type.slice(1)
     : 'General';
 
   // Determine status based on updated time and policies
-  const updatedDate = new Date(datasite.updated_at);
+  const updatedDate = new Date(endpoint.updated_at);
   const daysSinceUpdate = Math.floor((Date.now() - updatedDate.getTime()) / (1000 * 60 * 60 * 24));
 
   let status: 'active' | 'warning' | 'inactive' = 'active';
@@ -50,27 +50,27 @@ export function mapDatasiteToSource(datasite: DatasitePublicResponse): ChatSourc
   if (daysSinceUpdate > 30) status = 'inactive';
 
   // Use provided owner_username or default
-  const ownerUsername = datasite.owner_username ?? 'anonymous';
-  const fullPath = `${ownerUsername}/${datasite.slug}`;
+  const ownerUsername = endpoint.owner_username ?? 'anonymous';
+  const fullPath = `${ownerUsername}/${endpoint.slug}`;
 
   return {
-    id: datasite.slug, // Use slug as unique identifier
-    name: datasite.name,
+    id: endpoint.slug, // Use slug as unique identifier
+    name: endpoint.name,
     tag: tag,
-    description: datasite.description,
+    description: endpoint.description,
     updated: formatRelativeTime(updatedDate),
     status: status,
-    slug: datasite.slug,
-    stars_count: datasite.stars_count,
-    version: datasite.version,
+    slug: endpoint.slug,
+    stars_count: endpoint.stars_count,
+    version: endpoint.version,
     contributors: [], // Contributors not exposed in public response for privacy
     owner_username: ownerUsername,
     full_path: fullPath
   };
 }
 
-// Get public datasites (no authentication required)
-export async function getPublicDatasites(params: PaginationParams = {}): Promise<ChatSource[]> {
+// Get public endpoints (no authentication required)
+export async function getPublicEndpoints(params: PaginationParams = {}): Promise<ChatSource[]> {
   const { skip = 0, limit = 10 } = params;
 
   const queryParams = new URLSearchParams();
@@ -78,15 +78,15 @@ export async function getPublicDatasites(params: PaginationParams = {}): Promise
   if (limit !== 10) queryParams.set('limit', String(limit));
 
   const queryString = queryParams.toString();
-  const baseUrl = API_CONFIG.ENDPOINTS.DATASITES.PUBLIC;
+  const baseUrl = API_CONFIG.ENDPOINTS.ENDPOINTS.PUBLIC;
   const url = queryString ? `${baseUrl}?${queryString}` : baseUrl;
 
-  const datasites = await apiClient.get<DatasitePublicResponse[]>(url, false); // No auth required
-  return datasites.map((ds) => mapDatasiteToSource(ds));
+  const endpoints = await apiClient.get<EndpointPublicResponse[]>(url, false); // No auth required
+  return endpoints.map((ds) => mapEndpointToSource(ds));
 }
 
-// Get trending datasites (no authentication required)
-export async function getTrendingDatasites(
+// Get trending endpoints (no authentication required)
+export async function getTrendingEndpoints(
   params: PaginationParams & { min_stars?: number } = {}
 ): Promise<ChatSource[]> {
   const { skip = 0, limit = 10, min_stars } = params;
@@ -97,15 +97,15 @@ export async function getTrendingDatasites(
   if (min_stars !== undefined) queryParams.set('min_stars', String(min_stars));
 
   const queryString = queryParams.toString();
-  const baseUrl = API_CONFIG.ENDPOINTS.DATASITES.TRENDING;
+  const baseUrl = API_CONFIG.ENDPOINTS.ENDPOINTS.TRENDING;
   const url = queryString ? `${baseUrl}?${queryString}` : baseUrl;
 
-  const datasites = await apiClient.get<DatasitePublicResponse[]>(url, false); // No auth required
-  return datasites.map((ds) => mapDatasiteToSource(ds));
+  const endpoints = await apiClient.get<EndpointPublicResponse[]>(url, false); // No auth required
+  return endpoints.map((ds) => mapEndpointToSource(ds));
 }
 
-// Get user's datasites (authentication required)
-export async function getUserDatasites(filters: DatasiteFilters = {}): Promise<DatasiteResponse[]> {
+// Get user's endpoints (authentication required)
+export async function getUserEndpoints(filters: EndpointFilters = {}): Promise<EndpointResponse[]> {
   const { skip = 0, limit = 10, search, visibility } = filters;
 
   const queryParams = new URLSearchParams();
@@ -115,55 +115,55 @@ export async function getUserDatasites(filters: DatasiteFilters = {}): Promise<D
   if (visibility) queryParams.set('visibility', visibility);
 
   const queryString = queryParams.toString();
-  const baseUrl = API_CONFIG.ENDPOINTS.DATASITES.LIST;
+  const baseUrl = API_CONFIG.ENDPOINTS.ENDPOINTS.LIST;
   const url = queryString ? `${baseUrl}?${queryString}` : baseUrl;
 
-  return await apiClient.get<DatasiteResponse[]>(url);
+  return await apiClient.get<EndpointResponse[]>(url);
 }
 
-// Get specific datasite by ID (authentication required)
-export async function getDatasite(id: number): Promise<DatasiteResponse> {
-  return await apiClient.get<DatasiteResponse>(API_CONFIG.ENDPOINTS.DATASITES.BY_ID(id));
+// Get specific endpoint by ID (authentication required)
+export async function getEndpoint(id: number): Promise<EndpointResponse> {
+  return await apiClient.get<EndpointResponse>(API_CONFIG.ENDPOINTS.ENDPOINTS.BY_ID(id));
 }
 
-// Create new datasite (authentication required)
-export async function createDatasite(
-  datasiteData: DatasiteCreate,
+// Create new endpoint (authentication required)
+export async function createEndpoint(
+  endpointData: EndpointCreate,
   organizationId?: number
-): Promise<DatasiteResponse> {
+): Promise<EndpointResponse> {
   const url = organizationId
-    ? `${API_CONFIG.ENDPOINTS.DATASITES.CREATE}?organization_id=${String(organizationId)}`
-    : API_CONFIG.ENDPOINTS.DATASITES.CREATE;
+    ? `${API_CONFIG.ENDPOINTS.ENDPOINTS.CREATE}?organization_id=${String(organizationId)}`
+    : API_CONFIG.ENDPOINTS.ENDPOINTS.CREATE;
 
-  return await apiClient.post<DatasiteResponse>(url, datasiteData);
+  return await apiClient.post<EndpointResponse>(url, endpointData);
 }
 
-// Update datasite (authentication required)
-export async function updateDatasite(
+// Update endpoint (authentication required)
+export async function updateEndpoint(
   id: number,
-  updateData: DatasiteUpdate
-): Promise<DatasiteResponse> {
-  return await apiClient.patch<DatasiteResponse>(
-    API_CONFIG.ENDPOINTS.DATASITES.BY_ID(id),
+  updateData: EndpointUpdate
+): Promise<EndpointResponse> {
+  return await apiClient.patch<EndpointResponse>(
+    API_CONFIG.ENDPOINTS.ENDPOINTS.BY_ID(id),
     updateData
   );
 }
 
-// Delete datasite (authentication required)
-export async function deleteDatasite(id: number): Promise<void> {
-  await apiClient.delete<null>(API_CONFIG.ENDPOINTS.DATASITES.BY_ID(id));
+// Delete endpoint (authentication required)
+export async function deleteEndpoint(id: number): Promise<void> {
+  await apiClient.delete<null>(API_CONFIG.ENDPOINTS.ENDPOINTS.BY_ID(id));
 }
 
 // Utility function to get mixed data sources for chat (combines public and trending)
 export async function getChatDataSources(limit = 20): Promise<ChatSource[]> {
   try {
-    // Get half trending and half public datasites
+    // Get half trending and half public endpoints
     const trendingLimit = Math.floor(limit / 2);
     const publicLimit = limit - trendingLimit;
 
-    const [trending, publicDatasites] = await Promise.all([
-      getTrendingDatasites({ limit: trendingLimit }),
-      getPublicDatasites({ limit: publicLimit })
+    const [trending, publicEndpoints] = await Promise.all([
+      getTrendingEndpoints({ limit: trendingLimit }),
+      getPublicEndpoints({ limit: publicLimit })
     ]);
 
     // Combine and deduplicate by slug
@@ -178,8 +178,8 @@ export async function getChatDataSources(limit = 20): Promise<ChatSource[]> {
       }
     }
 
-    // Add public datasites that aren't already included
-    for (const source of publicDatasites) {
+    // Add public endpoints that aren't already included
+    for (const source of publicEndpoints) {
       if (!seenSlugs.has(source.slug)) {
         seenSlugs.add(source.slug);
         combinedSources.push(source);

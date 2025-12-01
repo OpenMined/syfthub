@@ -5,8 +5,8 @@ Seed script to populate Syfthub with sample data.
 This script creates:
 - 15 diverse users with realistic profiles
 - 8 organizations across different domains
-- 35+ datasites with various configurations
-- Organization memberships and datasite ownership
+- 35+ endpoints with various configurations
+- Organization memberships and endpoint ownership
 
 Run this script after starting the Syfthub server to populate it with test data.
 """
@@ -35,7 +35,7 @@ class SyfthubSeeder:
             await self._check_server_health(client)
             await self._seed_users(client)
             await self._seed_organizations(client)
-            await self._seed_datasites(client)
+            await self._seed_endpoints(client)
 
         print("✅ Data seeding completed successfully!")
         print(
@@ -326,11 +326,11 @@ class SyfthubSeeder:
         except httpx.HTTPStatusError as e:
             print(f"    ❌ Failed to add member {username}: {e.response.text}")
 
-    async def _seed_datasites(self, client: httpx.AsyncClient) -> None:
-        """Create diverse datasites for users and organizations."""
-        print("📊 Creating datasites...")
+    async def _seed_endpoints(self, client: httpx.AsyncClient) -> None:
+        """Create diverse endpoints for users and organizations."""
+        print("📊 Creating endpoints...")
 
-        # User-owned datasites
+        # User-owned endpoints
         user_datasets = [
             # Alice Chen - Data Science
             {
@@ -359,7 +359,7 @@ class SyfthubSeeder:
                         "enabled": True,
                         "description": "RESTful API endpoint",
                         "config": {
-                            "url": "https://api.syfthub.io/v1/datasites/customer-segmentation",
+                            "url": "https://api.syfthub.io/v1/endpoints/customer-segmentation",
                             "auth_required": True,
                             "rate_limit": "1000 req/min",
                         },
@@ -370,7 +370,7 @@ class SyfthubSeeder:
                         "description": "Peer-to-peer data streaming",
                         "config": {
                             "signaling_server": "wss://signal.syfthub.io",
-                            "datasite_id": "alice_chen/customer-segmentation",
+                            "endpoint_id": "alice_chen/customer-segmentation",
                             "ice_servers": ["stun:stun.l.google.com:19302"],
                         },
                     },
@@ -391,7 +391,7 @@ class SyfthubSeeder:
                         "enabled": True,
                         "description": "Real-time benchmark updates",
                         "config": {
-                            "url": "wss://stream.syfthub.io/datasites/ml-benchmarks",
+                            "url": "wss://stream.syfthub.io/endpoints/ml-benchmarks",
                             "protocols": ["benchmark-stream-v1"],
                             "reconnect": True,
                         },
@@ -512,7 +512,7 @@ class SyfthubSeeder:
                         "description": "Live climate data feed",
                         "config": {
                             "signaling_server": "wss://climate-signal.syfthub.io",
-                            "datasite_id": "emma_jones/climate-models-2024",
+                            "endpoint_id": "emma_jones/climate-models-2024",
                             "stream_type": "netcdf-stream",
                         },
                     },
@@ -567,7 +567,7 @@ class SyfthubSeeder:
                         "config": {
                             "broker": "mqtt.syfthub.io",
                             "port": 8883,
-                            "topic": "datasites/grace_wang/multilingual-corpus/updates",
+                            "topic": "endpoints/grace_wang/multilingual-corpus/updates",
                             "tls": True,
                         },
                     },
@@ -584,7 +584,7 @@ class SyfthubSeeder:
                 "version": "1.2.0",
                 "stars": 76,
             },
-            # Additional user datasites
+            # Additional user endpoints
             {
                 "owner": "iris_zhang",
                 "type": "user",
@@ -708,7 +708,7 @@ class SyfthubSeeder:
             },
         ]
 
-        # Organization-owned datasites
+        # Organization-owned endpoints
         org_datasets = [
             # Tech Innovation Lab
             {
@@ -865,7 +865,7 @@ class SyfthubSeeder:
                         "description": "Live benchmark execution",
                         "config": {
                             "signaling_server": "wss://benchmarks-signal.syfthub.io",
-                            "datasite_id": "ai-research-collective/foundation-benchmarks",
+                            "endpoint_id": "ai-research-collective/foundation-benchmarks",
                             "execution_mode": "distributed",
                         },
                     },
@@ -985,38 +985,38 @@ class SyfthubSeeder:
             },
         ]
 
-        # Create user datasites
+        # Create user endpoints
         for dataset in user_datasets:
-            await self._create_datasite(client, dataset)
+            await self._create_endpoint(client, dataset)
 
-        # Create organization datasites
+        # Create organization endpoints
         for dataset in org_datasets:
-            await self._create_datasite(client, dataset)
+            await self._create_endpoint(client, dataset)
 
-        print(f"✅ Created {len(user_datasets) + len(org_datasets)} datasites")
+        print(f"✅ Created {len(user_datasets) + len(org_datasets)} endpoints")
 
-    async def _create_datasite(self, client: httpx.AsyncClient, config: dict) -> None:
-        """Create a single datasite."""
+    async def _create_endpoint(self, client: httpx.AsyncClient, config: dict) -> None:
+        """Create a single endpoint."""
         try:
             if config["type"] == "user":
-                # User-owned datasite
+                # User-owned endpoint
                 owner = config["owner"]
                 headers = {"Authorization": f"Bearer {self.auth_tokens[owner]}"}
-                url = f"{self.api_url}/datasites/"
+                url = f"{self.api_url}/endpoints/"
 
             else:
-                # Organization-owned datasite
+                # Organization-owned endpoint
                 creator = config["created_by"]
                 headers = {"Authorization": f"Bearer {self.auth_tokens[creator]}"}
-                url = f"{self.api_url}/datasites/"
+                url = f"{self.api_url}/endpoints/"
 
                 # Add organization_id to the payload
                 org_slug = config["owner"]
                 org_id = self.organizations[org_slug]["id"]
                 config["organization_id"] = org_id
 
-            # Prepare datasite payload
-            datasite_data = {
+            # Prepare endpoint payload
+            endpoint_data = {
                 "name": config["name"],
                 "slug": config["slug"],
                 "description": config["description"],
@@ -1029,17 +1029,17 @@ class SyfthubSeeder:
 
             # Add organization_id if present
             if "organization_id" in config:
-                datasite_data["organization_id"] = config["organization_id"]
+                endpoint_data["organization_id"] = config["organization_id"]
 
-            response = await client.post(url, json=datasite_data, headers=headers)
+            response = await client.post(url, json=endpoint_data, headers=headers)
             response.raise_for_status()
 
-            datasite = response.json()
+            endpoint = response.json()
 
             # Simulate stars by updating the count
             if "stars" in config and config["stars"] > 0:
                 await self._update_stars(
-                    client, datasite["id"], config["stars"], headers
+                    client, endpoint["id"], config["stars"], headers
                 )
 
             owner_display = (
@@ -1047,26 +1047,26 @@ class SyfthubSeeder:
                 if config["type"] == "user"
                 else f"{config['owner']} (org)"
             )
-            print(f"  ✅ Created datasite: {config['name']} ({owner_display})")
+            print(f"  ✅ Created endpoint: {config['name']} ({owner_display})")
 
         except httpx.HTTPStatusError as e:
             print(f"  ❌ Failed to create {config['name']}: {e.response.text}")
-            # Don't raise to continue with other datasites
+            # Don't raise to continue with other endpoints
 
     async def _update_stars(
         self,
         client: httpx.AsyncClient,
-        datasite_id: int,
+        endpoint_id: int,
         star_count: int,
         headers: dict,
     ) -> None:
-        """Simulate star count by updating datasite manually."""
+        """Simulate star count by updating endpoint manually."""
         # Note: This is a simulation since the actual starring endpoint
         # would require individual user actions
         try:
             update_data = {"stars_count": star_count}
             await client.patch(
-                f"{self.api_url}/datasites/{datasite_id}",
+                f"{self.api_url}/endpoints/{endpoint_id}",
                 json=update_data,
                 headers=headers,
             )

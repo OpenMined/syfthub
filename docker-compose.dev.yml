@@ -7,7 +7,7 @@ services:
     image: nginx:1.25-alpine
     container_name: syfthub-proxy-dev
     ports:
-      - "80:80"
+      - "8080:80"
     volumes:
       - ./nginx/nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
@@ -47,7 +47,7 @@ services:
       - RELOAD=true
       - LOG_LEVEL=debug
       # Single origin since everything goes through proxy
-      - CORS_ORIGINS=http://localhost
+      - CORS_ORIGINS=http://localhost:8080
     networks:
       - syfthub-network
     depends_on:

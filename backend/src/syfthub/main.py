@@ -17,22 +17,22 @@ from syfthub.auth.db_dependencies import get_optional_current_user
 from syfthub.core.config import settings
 from syfthub.database.connection import create_tables
 from syfthub.database.dependencies import (
-    get_datasite_repository,
+    get_endpoint_repository,
     get_organization_member_repository,
     get_organization_repository,
     get_user_repository,
 )
-from syfthub.repositories.datasite import DatasiteRepository
+from syfthub.repositories.endpoint import EndpointRepository
 from syfthub.repositories.organization import (
     OrganizationMemberRepository,
     OrganizationRepository,
 )
 from syfthub.repositories.user import UserRepository
-from syfthub.schemas.datasite import (
-    Datasite,
-    DatasitePublicResponse,
-    DatasiteResponse,
-    DatasiteVisibility,
+from syfthub.schemas.endpoint import (
+    Endpoint,
+    EndpointPublicResponse,
+    EndpointResponse,
+    EndpointVisibility,
 )
 from syfthub.schemas.organization import Organization
 from syfthub.schemas.user import User
@@ -43,16 +43,16 @@ templates = Jinja2Templates(directory=str(templates_dir))
 
 
 # Local helper functions to avoid circular imports
-def can_access_datasite(datasite: Datasite, current_user: Optional[User]) -> bool:
-    """Check if user can access a datasite based on visibility."""
-    if datasite.visibility == DatasiteVisibility.PUBLIC:
+def can_access_endpoint(endpoint: Endpoint, current_user: Optional[User]) -> bool:
+    """Check if user can access a endpoint based on visibility."""
+    if endpoint.visibility == EndpointVisibility.PUBLIC:
         return True
 
     if current_user is None:
         return False
 
     # Owner can always access
-    if current_user.id == datasite.user_id:
+    if current_user.id == endpoint.user_id:
         return True
 
     # Admin can access everything
@@ -87,30 +87,30 @@ def resolve_owner(
     return None, ""
 
 
-def get_owner_datasites(
-    owner: Union[User, Organization], owner_type: str, datasite_repo: DatasiteRepository
-) -> list[Datasite]:
-    """Get datasites for an owner (user or organization)."""
+def get_owner_endpoints(
+    owner: Union[User, Organization], owner_type: str, endpoint_repo: EndpointRepository
+) -> list[Endpoint]:
+    """Get endpoints for an owner (user or organization)."""
     if owner_type == "user":
-        # Get user's datasites
-        return datasite_repo.get_user_datasites(owner.id)
+        # Get user's endpoints
+        return endpoint_repo.get_user_endpoints(owner.id)
     elif owner_type == "organization":
-        # Get organization's datasites
-        return datasite_repo.get_organization_datasites(owner.id)
+        # Get organization's endpoints
+        return endpoint_repo.get_organization_endpoints(owner.id)
     return []
 
 
-def get_datasite_by_owner_and_slug(
+def get_endpoint_by_owner_and_slug(
     owner: Union[User, Organization],
     owner_type: str,
     slug: str,
-    datasite_repo: DatasiteRepository,
-) -> Optional[Datasite]:
-    """Get datasite by owner and slug."""
+    endpoint_repo: EndpointRepository,
+) -> Optional[Endpoint]:
+    """Get endpoint by owner and slug."""
     if owner_type == "user":
-        return datasite_repo.get_by_user_and_slug(owner.id, slug)
+        return endpoint_repo.get_by_user_and_slug(owner.id, slug)
     elif owner_type == "organization":
-        return datasite_repo.get_by_organization_and_slug(owner.id, slug)
+        return endpoint_repo.get_by_organization_and_slug(owner.id, slug)
     return None
 
 
@@ -128,18 +128,18 @@ def is_browser_request(request: Request) -> bool:
     return any(indicator in user_agent for indicator in browser_indicators)
 
 
-def can_access_datasite_with_org(
-    datasite: Datasite,
+def can_access_endpoint_with_org(
+    endpoint: Endpoint,
     current_user: Optional[User],
     owner_type: str,
     member_repo: Optional[OrganizationMemberRepository] = None,
 ) -> bool:
-    """Check if user can access datasite, considering organization membership."""
-    # Public datasites are always accessible
-    if datasite.visibility == DatasiteVisibility.PUBLIC:
+    """Check if user can access endpoint, considering organization membership."""
+    # Public endpoints are always accessible
+    if endpoint.visibility == EndpointVisibility.PUBLIC:
         return True
 
-    # Unauthenticated users can only see public datasites
+    # Unauthenticated users can only see public endpoints
     if current_user is None:
         return False
 
@@ -147,26 +147,26 @@ def can_access_datasite_with_org(
     if current_user.role == "admin":
         return True
 
-    # For user-owned datasites, use existing logic
-    if owner_type == "user" and datasite.user_id:
-        return can_access_datasite(datasite, current_user)
+    # For user-owned endpoints, use existing logic
+    if owner_type == "user" and endpoint.user_id:
+        return can_access_endpoint(endpoint, current_user)
 
-    # For organization-owned datasites
-    if owner_type == "organization" and datasite.organization_id:
+    # For organization-owned endpoints
+    if owner_type == "organization" and endpoint.organization_id:
         # If no member_repo provided, cannot check organization membership
         if member_repo is None:
             return False
 
-        # Owner/members can access internal datasites
-        if datasite.visibility == DatasiteVisibility.INTERNAL:
+        # Owner/members can access internal endpoints
+        if endpoint.visibility == EndpointVisibility.INTERNAL:
             return is_organization_member(
-                datasite.organization_id, current_user.id, member_repo
+                endpoint.organization_id, current_user.id, member_repo
             )
 
-        # Private datasites only for organization members
-        if datasite.visibility == DatasiteVisibility.PRIVATE:
+        # Private endpoints only for organization members
+        if endpoint.visibility == EndpointVisibility.PRIVATE:
             return is_organization_member(
-                datasite.organization_id, current_user.id, member_repo
+                endpoint.organization_id, current_user.id, member_repo
             )
 
     return False
@@ -227,11 +227,11 @@ async def health_check() -> dict[str, str]:
 
 
 # Special routes for GitHub-like URLs (must be last to avoid conflicts)
-@app.get("/{owner_slug}", response_model=list[DatasitePublicResponse])
-async def list_owner_public_datasites(
+@app.get("/{owner_slug}", response_model=list[EndpointPublicResponse])
+async def list_owner_public_endpoints(
     owner_slug: str,
     current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
-    datasite_repo: Annotated[DatasiteRepository, Depends(get_datasite_repository)],
+    endpoint_repo: Annotated[EndpointRepository, Depends(get_endpoint_repository)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
     org_repo: Annotated[OrganizationRepository, Depends(get_organization_repository)],
     member_repo: Annotated[
@@ -239,8 +239,8 @@ async def list_owner_public_datasites(
     ],
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
-) -> list[DatasitePublicResponse]:
-    """List an owner's (user or organization) public datasites."""
+) -> list[EndpointPublicResponse]:
+    """List an owner's (user or organization) public endpoints."""
     # Resolve owner (user or organization)
     owner, owner_type = resolve_owner(owner_slug, user_repo, org_repo)
     if not owner:
@@ -248,44 +248,44 @@ async def list_owner_public_datasites(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"'{owner_slug}' not found"
         )
 
-    # Get owner's datasites
-    owner_datasites = get_owner_datasites(owner, owner_type, datasite_repo)
+    # Get owner's endpoints
+    owner_endpoints = get_owner_endpoints(owner, owner_type, endpoint_repo)
 
-    # Filter to only show datasites the current user can access
-    accessible_datasites = []
-    for datasite in owner_datasites:
-        if not datasite.is_active:
+    # Filter to only show endpoints the current user can access
+    accessible_endpoints = []
+    for endpoint in owner_endpoints:
+        if not endpoint.is_active:
             continue
 
         # Check access permissions
-        if can_access_datasite_with_org(
-            datasite, current_user, owner_type, member_repo
+        if can_access_endpoint_with_org(
+            endpoint, current_user, owner_type, member_repo
         ):
             # For public listing, show different levels based on access
-            if datasite.visibility == DatasiteVisibility.PUBLIC:
-                accessible_datasites.append(datasite)
+            if endpoint.visibility == EndpointVisibility.PUBLIC:
+                accessible_endpoints.append(endpoint)
             elif current_user and (
-                (owner_type == "user" and current_user.id == datasite.user_id)
+                (owner_type == "user" and current_user.id == endpoint.user_id)
                 or (
                     owner_type == "organization"
-                    and datasite.organization_id is not None
+                    and endpoint.organization_id is not None
                     and is_organization_member(
-                        datasite.organization_id, current_user.id, member_repo
+                        endpoint.organization_id, current_user.id, member_repo
                     )
                 )
             ):
-                # Allow owner/members to see their own datasites in public listing
-                accessible_datasites.append(datasite)
+                # Allow owner/members to see their own endpoints in public listing
+                accessible_endpoints.append(endpoint)
 
     # Sort by most recent first
-    accessible_datasites.sort(key=lambda ds: ds.updated_at, reverse=True)
+    accessible_endpoints.sort(key=lambda ds: ds.updated_at, reverse=True)
 
     # Apply pagination
-    accessible_datasites = accessible_datasites[skip : skip + limit]
+    accessible_endpoints = accessible_endpoints[skip : skip + limit]
 
     # Build response with owner_username
     response_list = []
-    for ds in accessible_datasites:
+    for ds in accessible_endpoints:
         ds_dict = ds.model_dump()
         # Get the appropriate username/slug based on owner type
         if owner_type == "user":
@@ -300,68 +300,68 @@ async def list_owner_public_datasites(
             ds_dict["owner_username"] = (
                 owner.slug if isinstance(owner, Organization) else ""
             )
-        response_list.append(DatasitePublicResponse.model_validate(ds_dict))
+        response_list.append(EndpointPublicResponse.model_validate(ds_dict))
 
     return response_list
 
 
-@app.get("/{owner_slug}/{datasite_slug}", response_model=None)
-async def get_owner_datasite(
+@app.get("/{owner_slug}/{endpoint_slug}", response_model=None)
+async def get_owner_endpoint(
     request: Request,
     owner_slug: str,
-    datasite_slug: str,
+    endpoint_slug: str,
     current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
-    datasite_repo: Annotated[DatasiteRepository, Depends(get_datasite_repository)],
+    endpoint_repo: Annotated[EndpointRepository, Depends(get_endpoint_repository)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
     org_repo: Annotated[OrganizationRepository, Depends(get_organization_repository)],
     member_repo: Annotated[
         OrganizationMemberRepository, Depends(get_organization_member_repository)
     ],
-) -> Union[HTMLResponse, DatasiteResponse, DatasitePublicResponse]:
-    """Get a specific datasite by owner and slug."""
+) -> Union[HTMLResponse, EndpointResponse, EndpointPublicResponse]:
+    """Get a specific endpoint by owner and slug."""
     # Resolve owner (user or organization)
     owner, owner_type = resolve_owner(owner_slug, user_repo, org_repo)
     if not owner:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Owner or datasite not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Owner or endpoint not found"
         )
 
-    # Get datasite by owner and slug
-    datasite = get_datasite_by_owner_and_slug(
-        owner, owner_type, datasite_slug.lower(), datasite_repo
+    # Get endpoint by owner and slug
+    endpoint = get_endpoint_by_owner_and_slug(
+        owner, owner_type, endpoint_slug.lower(), endpoint_repo
     )
-    if not datasite or not datasite.is_active:
+    if not endpoint or not endpoint.is_active:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Owner or datasite not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Owner or endpoint not found"
         )
 
     # Check access permissions
-    if not can_access_datasite_with_org(
-        datasite, current_user, owner_type, member_repo
+    if not can_access_endpoint_with_org(
+        endpoint, current_user, owner_type, member_repo
     ):
         if current_user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required to access this datasite",
+                detail="Authentication required to access this endpoint",
                 headers={"WWW-Authenticate": "Bearer"},
             )
         else:
-            # Return 404 for private datasites to hide existence (like GitHub)
+            # Return 404 for private endpoints to hide existence (like GitHub)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Owner or datasite not found",
+                detail="Owner or endpoint not found",
             )
 
     # Return full details if user is owner/admin/org member, public details otherwise
     can_see_full_details = False
     if current_user:
         if current_user.role == "admin" or (
-            owner_type == "user" and current_user.id == datasite.user_id
+            owner_type == "user" and current_user.id == endpoint.user_id
         ):
             can_see_full_details = True
-        elif owner_type == "organization" and datasite.organization_id:
+        elif owner_type == "organization" and endpoint.organization_id:
             can_see_full_details = is_organization_member(
-                datasite.organization_id, current_user.id, member_repo
+                endpoint.organization_id, current_user.id, member_repo
             )
 
     # Check if this is a browser request (wants HTML) or API request (wants JSON)
@@ -378,16 +378,16 @@ async def get_owner_datasite(
 
         # Convert README markdown to HTML
         readme_html = ""
-        if datasite.readme and datasite.readme.strip():
+        if endpoint.readme and endpoint.readme.strip():
             readme_html = markdown.markdown(
-                datasite.readme, extensions=["codehilite", "fenced_code"]
+                endpoint.readme, extensions=["codehilite", "fenced_code"]
             )
 
         return templates.TemplateResponse(
-            "datasite.html",
+            "endpoint.html",
             {
                 "request": request,
-                "datasite": datasite,
+                "endpoint": endpoint,
                 "owner_name": owner_name,
                 "owner_slug": owner_slug,
                 "readme_html": readme_html,
@@ -397,24 +397,24 @@ async def get_owner_datasite(
     else:
         # Return JSON for API clients
         if can_see_full_details:
-            return DatasiteResponse.model_validate(datasite)
+            return EndpointResponse.model_validate(endpoint)
         else:
             # Build public response with owner_username
-            datasite_dict = datasite.model_dump()
+            endpoint_dict = endpoint.model_dump()
             # Get the appropriate username/slug based on owner type
             if owner_type == "user":
                 from syfthub.schemas.user import User
 
-                datasite_dict["owner_username"] = (
+                endpoint_dict["owner_username"] = (
                     owner.username if isinstance(owner, User) else ""
                 )
             else:
                 from syfthub.schemas.organization import Organization
 
-                datasite_dict["owner_username"] = (
+                endpoint_dict["owner_username"] = (
                     owner.slug if isinstance(owner, Organization) else ""
                 )
-            return DatasitePublicResponse.model_validate(datasite_dict)
+            return EndpointPublicResponse.model_validate(endpoint_dict)
 
 
 def main() -> None:

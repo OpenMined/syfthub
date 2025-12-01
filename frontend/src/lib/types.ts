@@ -96,10 +96,10 @@ export interface PasswordChange {
   new_password: string;
 }
 
-// Datasite visibility levels
-export type DatasiteVisibility = 'public' | 'private' | 'internal';
+// Endpoint visibility levels
+export type EndpointVisibility = 'public' | 'private' | 'internal';
 
-// Policy and Connection types for datasites
+// Policy and Connection types for endpoints
 export interface Policy {
   type: string;
   version: string;
@@ -115,26 +115,26 @@ export interface Connection {
   config: Record<string, unknown>;
 }
 
-// Datasite schemas
-export interface DatasiteBase {
+// Endpoint schemas
+export interface EndpointBase {
   name: string;
   description: string;
-  visibility: DatasiteVisibility;
+  visibility: EndpointVisibility;
   version: string;
   readme: string;
   policies: Policy[];
   connect: Connection[];
 }
 
-export interface DatasiteCreate extends DatasiteBase {
+export interface EndpointCreate extends EndpointBase {
   slug?: string; // Optional, auto-generated if not provided
   contributors: number[]; // User IDs
 }
 
-export interface DatasiteUpdate {
+export interface EndpointUpdate {
   name?: string;
   description?: string;
-  visibility?: DatasiteVisibility;
+  visibility?: EndpointVisibility;
   contributors?: number[];
   version?: string;
   readme?: string;
@@ -142,7 +142,7 @@ export interface DatasiteUpdate {
   connect?: Connection[];
 }
 
-export interface Datasite extends DatasiteBase {
+export interface Endpoint extends EndpointBase {
   id: number;
   user_id?: number;
   organization_id?: number;
@@ -154,9 +154,9 @@ export interface Datasite extends DatasiteBase {
   updated_at: string;
 }
 
-export type DatasiteResponse = Datasite;
+export type EndpointResponse = Endpoint;
 
-export interface DatasitePublicResponse {
+export interface EndpointPublicResponse {
   name: string;
   slug: string;
   description: string;
@@ -168,10 +168,10 @@ export interface DatasitePublicResponse {
   connect: Connection[];
   created_at: string;
   updated_at: string;
-  owner_username?: string; // Username of the datasite owner (if exposed by backend)
+  owner_username?: string; // Username of the endpoint owner (if exposed by backend)
 }
 
-// Frontend ChatSource interface (mapped from DatasitePublicResponse)
+// Frontend ChatSource interface (mapped from EndpointPublicResponse)
 export interface ChatSource {
   id: string; // Use slug as ID for frontend
   name: string;
@@ -183,8 +183,8 @@ export interface ChatSource {
   stars_count: number;
   version: string;
   contributors: number[];
-  owner_username?: string; // Username of the datasite owner
-  full_path?: string; // Full path: username/datasite-name
+  owner_username?: string; // Username of the endpoint owner
+  full_path?: string; // Full path: username/endpoint-name
 }
 
 // Organization types
@@ -253,9 +253,9 @@ export interface SearchParams extends PaginationParams {
   search?: string;
 }
 
-// Datasite filters
-export interface DatasiteFilters extends SearchParams {
-  visibility?: DatasiteVisibility;
+// Endpoint filters
+export interface EndpointFilters extends SearchParams {
+  visibility?: EndpointVisibility;
   min_stars?: number;
 }
 

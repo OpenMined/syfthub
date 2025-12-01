@@ -1,4 +1,4 @@
-"""Test datasite endpoints."""
+"""Test endpoint endpoints."""
 
 from __future__ import annotations
 
@@ -90,35 +90,35 @@ def admin_token(client: TestClient) -> str:
     return response.json()["access_token"]
 
 
-def test_create_datasite_requires_auth(client: TestClient) -> None:
-    """Test that creating datasites requires authentication."""
-    datasite_data = {
-        "name": "Test Datasite",
+def test_create_endpoint_requires_auth(client: TestClient) -> None:
+    """Test that creating endpoints requires authentication."""
+    endpoint_data = {
+        "name": "Test Endpoint",
         "description": "Test description",
         "visibility": "public",
     }
 
     # Try without authentication
-    response = client.post("/api/v1/datasites/", json=datasite_data)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data)
     assert response.status_code == 401
 
 
-def test_create_datasite_with_auth(client: TestClient, user1_token: str) -> None:
-    """Test creating a datasite with authentication."""
+def test_create_endpoint_with_auth(client: TestClient, user1_token: str) -> None:
+    """Test creating a endpoint with authentication."""
     headers = {"Authorization": f"Bearer {user1_token}"}
-    datasite_data = {
-        "name": "My First Datasite",
-        "description": "This is my first datasite",
+    endpoint_data = {
+        "name": "My First Endpoint",
+        "description": "This is my first endpoint",
         "visibility": "public",
     }
 
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
-    assert data["name"] == "My First Datasite"
-    assert data["slug"] == "my-first-datasite"
-    assert data["description"] == "This is my first datasite"
+    assert data["name"] == "My First Endpoint"
+    assert data["slug"] == "my-first-endpoint"
+    assert data["description"] == "This is my first endpoint"
     assert data["visibility"] == "public"
     assert data["version"] == "0.1.0"  # Default version
     assert data["readme"] == ""  # Default empty readme
@@ -132,25 +132,25 @@ def test_create_datasite_with_auth(client: TestClient, user1_token: str) -> None
     assert "updated_at" in data
 
 
-def test_create_datasite_with_custom_slug(client: TestClient, user1_token: str) -> None:
-    """Test creating a datasite with custom slug."""
+def test_create_endpoint_with_custom_slug(client: TestClient, user1_token: str) -> None:
+    """Test creating a endpoint with custom slug."""
     headers = {"Authorization": f"Bearer {user1_token}"}
-    datasite_data = {
+    endpoint_data = {
         "name": "Custom Slug Test",
         "slug": "my-custom-slug",
         "description": "Testing custom slug",
         "visibility": "public",
     }
 
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
     assert data["slug"] == "my-custom-slug"
 
 
-def test_create_datasite_invalid_slug(client: TestClient, user1_token: str) -> None:
-    """Test creating a datasite with invalid slug."""
+def test_create_endpoint_invalid_slug(client: TestClient, user1_token: str) -> None:
+    """Test creating a endpoint with invalid slug."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     # Test various invalid slugs
@@ -167,15 +167,15 @@ def test_create_datasite_invalid_slug(client: TestClient, user1_token: str) -> N
     ]
 
     for invalid_slug in invalid_slugs:
-        datasite_data = {
-            "name": "Test Datasite",
+        endpoint_data = {
+            "name": "Test Endpoint",
             "slug": invalid_slug,
             "description": "Test",
             "visibility": "public",
         }
 
         response = client.post(
-            "/api/v1/datasites/", json=datasite_data, headers=headers
+            "/api/v1/endpoints/", json=endpoint_data, headers=headers
         )
         assert response.status_code == 422 or response.status_code == 400
 
@@ -183,19 +183,19 @@ def test_create_datasite_invalid_slug(client: TestClient, user1_token: str) -> N
 def test_create_duplicate_slug_same_user(client: TestClient, user1_token: str) -> None:
     """Test that duplicate slugs for same user are rejected."""
     headers = {"Authorization": f"Bearer {user1_token}"}
-    datasite_data = {
-        "name": "Test Datasite",
-        "slug": "test-datasite",
+    endpoint_data = {
+        "name": "Test Endpoint",
+        "slug": "test-endpoint",
         "description": "Test",
         "visibility": "public",
     }
 
-    # Create first datasite
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    # Create first endpoint
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     # Try to create second with same slug
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 400
     assert "already taken" in response.json()["detail"]
 
@@ -203,53 +203,53 @@ def test_create_duplicate_slug_same_user(client: TestClient, user1_token: str) -
 def test_create_same_slug_different_users(
     client: TestClient, user1_token: str, user2_token: str
 ) -> None:
-    """Test that different users can have same datasite slug."""
-    datasite_data = {
-        "name": "Test Datasite",
-        "slug": "test-datasite",
+    """Test that different users can have same endpoint slug."""
+    endpoint_data = {
+        "name": "Test Endpoint",
+        "slug": "test-endpoint",
         "description": "Test",
         "visibility": "public",
     }
 
-    # User1 creates datasite
+    # User1 creates endpoint
     headers1 = {"Authorization": f"Bearer {user1_token}"}
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers1)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers1)
     assert response.status_code == 201
 
-    # User2 creates datasite with same slug
+    # User2 creates endpoint with same slug
     headers2 = {"Authorization": f"Bearer {user2_token}"}
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers2)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers2)
     assert response.status_code == 201
 
 
-def test_list_my_datasites(client: TestClient, user1_token: str) -> None:
-    """Test listing current user's datasites."""
+def test_list_my_endpoints(client: TestClient, user1_token: str) -> None:
+    """Test listing current user's endpoints."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create multiple datasites
-    datasites_data = [
-        {"name": "Public Datasite", "visibility": "public"},
-        {"name": "Private Datasite", "visibility": "private"},
-        {"name": "Internal Datasite", "visibility": "internal"},
+    # Create multiple endpoints
+    endpoints_data = [
+        {"name": "Public Endpoint", "visibility": "public"},
+        {"name": "Private Endpoint", "visibility": "private"},
+        {"name": "Internal Endpoint", "visibility": "internal"},
     ]
 
-    for datasite_data in datasites_data:
-        client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    for endpoint_data in endpoints_data:
+        client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
 
-    # List datasites
-    response = client.get("/api/v1/datasites/", headers=headers)
+    # List endpoints
+    response = client.get("/api/v1/endpoints/", headers=headers)
     assert response.status_code == 200
 
     data = response.json()
     assert len(data) == 3
 
 
-def test_list_my_datasites_with_filters(client: TestClient, user1_token: str) -> None:
-    """Test listing datasites with filters."""
+def test_list_my_endpoints_with_filters(client: TestClient, user1_token: str) -> None:
+    """Test listing endpoints with filters."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create datasites
-    datasites_data = [
+    # Create endpoints
+    endpoints_data = [
         {"name": "Widget Alpha", "description": "A widget", "visibility": "public"},
         {
             "name": "Widget Beta",
@@ -259,123 +259,123 @@ def test_list_my_datasites_with_filters(client: TestClient, user1_token: str) ->
         {"name": "Tool Gamma", "description": "A tool", "visibility": "public"},
     ]
 
-    for datasite_data in datasites_data:
-        client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    for endpoint_data in endpoints_data:
+        client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
 
     # Test search filter
-    response = client.get("/api/v1/datasites/?search=widget", headers=headers)
+    response = client.get("/api/v1/endpoints/?search=widget", headers=headers)
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 2
 
     # Test visibility filter
-    response = client.get("/api/v1/datasites/?visibility=public", headers=headers)
+    response = client.get("/api/v1/endpoints/?visibility=public", headers=headers)
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 2
 
 
-def test_list_public_datasites(client: TestClient, user1_token: str) -> None:
-    """Test listing public datasites."""
+def test_list_public_endpoints(client: TestClient, user1_token: str) -> None:
+    """Test listing public endpoints."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create datasites with different visibility
-    datasites_data = [
-        {"name": "Public Datasite", "visibility": "public"},
-        {"name": "Private Datasite", "visibility": "private"},
-        {"name": "Internal Datasite", "visibility": "internal"},
+    # Create endpoints with different visibility
+    endpoints_data = [
+        {"name": "Public Endpoint", "visibility": "public"},
+        {"name": "Private Endpoint", "visibility": "private"},
+        {"name": "Internal Endpoint", "visibility": "internal"},
     ]
 
-    for datasite_data in datasites_data:
-        client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    for endpoint_data in endpoints_data:
+        client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
 
-    # List public datasites (no auth required)
-    response = client.get("/api/v1/datasites/public")
+    # List public endpoints (no auth required)
+    response = client.get("/api/v1/endpoints/public")
     assert response.status_code == 200
 
     data = response.json()
     assert len(data) == 1
-    assert data[0]["name"] == "Public Datasite"
+    assert data[0]["name"] == "Public Endpoint"
 
 
-def test_get_datasite_by_id(client: TestClient, user1_token: str) -> None:
-    """Test getting a datasite by ID."""
+def test_get_endpoint_by_id(client: TestClient, user1_token: str) -> None:
+    """Test getting a endpoint by ID."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create datasite
-    datasite_data = {"name": "Test Datasite", "visibility": "public"}
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
-    datasite_id = response.json()["id"]
+    # Create endpoint
+    endpoint_data = {"name": "Test Endpoint", "visibility": "public"}
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    endpoint_id = response.json()["id"]
 
-    # Get datasite by ID
-    response = client.get(f"/api/v1/datasites/{datasite_id}", headers=headers)
+    # Get endpoint by ID
+    response = client.get(f"/api/v1/endpoints/{endpoint_id}", headers=headers)
     assert response.status_code == 200
-    assert response.json()["name"] == "Test Datasite"
+    assert response.json()["name"] == "Test Endpoint"
 
 
-def test_get_datasite_visibility_controls(
+def test_get_endpoint_visibility_controls(
     client: TestClient, user1_token: str, user2_token: str
 ) -> None:
-    """Test datasite visibility controls."""
+    """Test endpoint visibility controls."""
     headers1 = {"Authorization": f"Bearer {user1_token}"}
     headers2 = {"Authorization": f"Bearer {user2_token}"}
 
-    # User1 creates private datasite
-    datasite_data = {"name": "Private Datasite", "visibility": "private"}
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers1)
-    datasite_id = response.json()["id"]
+    # User1 creates private endpoint
+    endpoint_data = {"name": "Private Endpoint", "visibility": "private"}
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers1)
+    endpoint_id = response.json()["id"]
 
     # User1 (owner) can access
-    response = client.get(f"/api/v1/datasites/{datasite_id}", headers=headers1)
+    response = client.get(f"/api/v1/endpoints/{endpoint_id}", headers=headers1)
     assert response.status_code == 200
 
     # User2 cannot access (returns 404 to hide existence)
-    response = client.get(f"/api/v1/datasites/{datasite_id}", headers=headers2)
+    response = client.get(f"/api/v1/endpoints/{endpoint_id}", headers=headers2)
     assert response.status_code == 404
 
     # Unauthenticated user cannot access
-    response = client.get(f"/api/v1/datasites/{datasite_id}")
+    response = client.get(f"/api/v1/endpoints/{endpoint_id}")
     assert response.status_code == 401
 
 
-def test_get_datasite_internal_visibility(
+def test_get_endpoint_internal_visibility(
     client: TestClient, user1_token: str, user2_token: str
 ) -> None:
-    """Test internal datasite visibility."""
+    """Test internal endpoint visibility."""
     headers1 = {"Authorization": f"Bearer {user1_token}"}
     headers2 = {"Authorization": f"Bearer {user2_token}"}
 
-    # User1 creates internal datasite
-    datasite_data = {"name": "Internal Datasite", "visibility": "internal"}
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers1)
-    datasite_id = response.json()["id"]
+    # User1 creates internal endpoint
+    endpoint_data = {"name": "Internal Endpoint", "visibility": "internal"}
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers1)
+    endpoint_id = response.json()["id"]
 
     # Owner can access
-    response = client.get(f"/api/v1/datasites/{datasite_id}", headers=headers1)
+    response = client.get(f"/api/v1/endpoints/{endpoint_id}", headers=headers1)
     assert response.status_code == 200
 
     # Other authenticated user can access
-    response = client.get(f"/api/v1/datasites/{datasite_id}", headers=headers2)
+    response = client.get(f"/api/v1/endpoints/{endpoint_id}", headers=headers2)
     assert response.status_code == 200
 
     # Unauthenticated user cannot access
-    response = client.get(f"/api/v1/datasites/{datasite_id}")
+    response = client.get(f"/api/v1/endpoints/{endpoint_id}")
     assert response.status_code == 401
 
 
-def test_update_datasite(client: TestClient, user1_token: str) -> None:
-    """Test updating a datasite."""
+def test_update_endpoint(client: TestClient, user1_token: str) -> None:
+    """Test updating a endpoint."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create datasite
-    datasite_data = {"name": "Original Name", "visibility": "public"}
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
-    datasite_id = response.json()["id"]
+    # Create endpoint
+    endpoint_data = {"name": "Original Name", "visibility": "public"}
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    endpoint_id = response.json()["id"]
 
-    # Update datasite
+    # Update endpoint
     update_data = {"name": "Updated Name", "description": "Updated description"}
     response = client.patch(
-        f"/api/v1/datasites/{datasite_id}", json=update_data, headers=headers
+        f"/api/v1/endpoints/{endpoint_id}", json=update_data, headers=headers
     )
     assert response.status_code == 200
 
@@ -385,157 +385,157 @@ def test_update_datasite(client: TestClient, user1_token: str) -> None:
     assert data["visibility"] == "public"  # Unchanged
 
 
-def test_update_datasite_ownership(
+def test_update_endpoint_ownership(
     client: TestClient, user1_token: str, user2_token: str
 ) -> None:
-    """Test that users can only update their own datasites."""
+    """Test that users can only update their own endpoints."""
     headers1 = {"Authorization": f"Bearer {user1_token}"}
     headers2 = {"Authorization": f"Bearer {user2_token}"}
 
-    # User1 creates datasite
-    datasite_data = {"name": "User1 Datasite", "visibility": "public"}
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers1)
-    datasite_id = response.json()["id"]
+    # User1 creates endpoint
+    endpoint_data = {"name": "User1 Endpoint", "visibility": "public"}
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers1)
+    endpoint_id = response.json()["id"]
 
-    # User2 tries to update User1's datasite
+    # User2 tries to update User1's endpoint
     update_data = {"name": "Hacked Name"}
     response = client.patch(
-        f"/api/v1/datasites/{datasite_id}", json=update_data, headers=headers2
+        f"/api/v1/endpoints/{endpoint_id}", json=update_data, headers=headers2
     )
     assert response.status_code == 403
 
-    # User1 can update their own datasite
+    # User1 can update their own endpoint
     response = client.patch(
-        f"/api/v1/datasites/{datasite_id}", json=update_data, headers=headers1
+        f"/api/v1/endpoints/{endpoint_id}", json=update_data, headers=headers1
     )
     assert response.status_code == 200
 
 
-def test_delete_datasite(client: TestClient, user1_token: str) -> None:
-    """Test deleting a datasite."""
+def test_delete_endpoint(client: TestClient, user1_token: str) -> None:
+    """Test deleting a endpoint."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create datasite
-    datasite_data = {"name": "To Delete", "visibility": "public"}
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
-    datasite_id = response.json()["id"]
+    # Create endpoint
+    endpoint_data = {"name": "To Delete", "visibility": "public"}
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    endpoint_id = response.json()["id"]
 
-    # Delete datasite
-    response = client.delete(f"/api/v1/datasites/{datasite_id}", headers=headers)
+    # Delete endpoint
+    response = client.delete(f"/api/v1/endpoints/{endpoint_id}", headers=headers)
     assert response.status_code == 204
 
     # Verify deletion
-    response = client.get(f"/api/v1/datasites/{datasite_id}", headers=headers)
+    response = client.get(f"/api/v1/endpoints/{endpoint_id}", headers=headers)
     assert response.status_code == 404
 
 
-def test_delete_datasite_ownership(
+def test_delete_endpoint_ownership(
     client: TestClient, user1_token: str, user2_token: str
 ) -> None:
-    """Test that users can only delete their own datasites."""
+    """Test that users can only delete their own endpoints."""
     headers1 = {"Authorization": f"Bearer {user1_token}"}
     headers2 = {"Authorization": f"Bearer {user2_token}"}
 
-    # User1 creates datasite
-    datasite_data = {"name": "User1 Datasite", "visibility": "public"}
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers1)
-    datasite_id = response.json()["id"]
+    # User1 creates endpoint
+    endpoint_data = {"name": "User1 Endpoint", "visibility": "public"}
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers1)
+    endpoint_id = response.json()["id"]
 
-    # User2 tries to delete User1's datasite
-    response = client.delete(f"/api/v1/datasites/{datasite_id}", headers=headers2)
+    # User2 tries to delete User1's endpoint
+    response = client.delete(f"/api/v1/endpoints/{endpoint_id}", headers=headers2)
     assert response.status_code == 403
 
-    # User1 can delete their own datasite
-    response = client.delete(f"/api/v1/datasites/{datasite_id}", headers=headers1)
+    # User1 can delete their own endpoint
+    response = client.delete(f"/api/v1/endpoints/{endpoint_id}", headers=headers1)
     assert response.status_code == 204
 
 
-def test_admin_can_access_any_datasite(
+def test_admin_can_access_any_endpoint(
     client: TestClient, user1_token: str, admin_token: str
 ) -> None:
-    """Test that admin can access any datasite."""
+    """Test that admin can access any endpoint."""
     headers1 = {"Authorization": f"Bearer {user1_token}"}
     headers_admin = {"Authorization": f"Bearer {admin_token}"}
 
-    # User1 creates private datasite
-    datasite_data = {"name": "Private Datasite", "visibility": "private"}
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers1)
-    datasite_id = response.json()["id"]
+    # User1 creates private endpoint
+    endpoint_data = {"name": "Private Endpoint", "visibility": "private"}
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers1)
+    endpoint_id = response.json()["id"]
 
-    # Admin can access private datasite
-    response = client.get(f"/api/v1/datasites/{datasite_id}", headers=headers_admin)
+    # Admin can access private endpoint
+    response = client.get(f"/api/v1/endpoints/{endpoint_id}", headers=headers_admin)
     assert response.status_code == 200
 
-    # Admin can update any datasite
+    # Admin can update any endpoint
     update_data = {"name": "Admin Updated"}
     response = client.patch(
-        f"/api/v1/datasites/{datasite_id}", json=update_data, headers=headers_admin
+        f"/api/v1/endpoints/{endpoint_id}", json=update_data, headers=headers_admin
     )
     assert response.status_code == 200
 
-    # Admin can delete any datasite
-    response = client.delete(f"/api/v1/datasites/{datasite_id}", headers=headers_admin)
+    # Admin can delete any endpoint
+    response = client.delete(f"/api/v1/endpoints/{endpoint_id}", headers=headers_admin)
     assert response.status_code == 204
 
 
 # Test GitHub-like URL routing
-def test_list_user_datasites_by_username(client: TestClient, user1_token: str) -> None:
-    """Test listing user's datasites by username."""
+def test_list_user_endpoints_by_username(client: TestClient, user1_token: str) -> None:
+    """Test listing user's endpoints by username."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create public datasite
-    datasite_data = {"name": "Public Datasite", "visibility": "public"}
-    client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    # Create public endpoint
+    endpoint_data = {"name": "Public Endpoint", "visibility": "public"}
+    client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
 
-    # Create private datasite
-    datasite_data = {"name": "Private Datasite", "visibility": "private"}
-    client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    # Create private endpoint
+    endpoint_data = {"name": "Private Endpoint", "visibility": "private"}
+    client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
 
-    # List user's public datasites by username (no auth)
+    # List user's public endpoints by username (no auth)
     response = client.get("/user1")
     assert response.status_code == 200
 
     data = response.json()
-    assert len(data) == 1  # Only public datasite should be visible
-    assert data[0]["name"] == "Public Datasite"
+    assert len(data) == 1  # Only public endpoint should be visible
+    assert data[0]["name"] == "Public Endpoint"
 
 
-def test_get_datasite_by_username_and_slug(
+def test_get_endpoint_by_username_and_slug(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test getting datasite by username and slug."""
+    """Test getting endpoint by username and slug."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create public datasite
-    datasite_data = {
-        "name": "My Datasite",
-        "slug": "my-datasite",
+    # Create public endpoint
+    endpoint_data = {
+        "name": "My Endpoint",
+        "slug": "my-endpoint",
         "visibility": "public",
     }
-    client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
 
     # Access by username/slug
-    response = client.get("/user1/my-datasite")
+    response = client.get("/user1/my-endpoint")
     assert response.status_code == 200
 
     data = response.json()
-    assert data["name"] == "My Datasite"
-    assert data["slug"] == "my-datasite"
+    assert data["name"] == "My Endpoint"
+    assert data["slug"] == "my-endpoint"
 
 
-def test_get_private_datasite_by_url_requires_auth(
+def test_get_private_endpoint_by_url_requires_auth(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test that private datasites via URL require authentication."""
+    """Test that private endpoints via URL require authentication."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create private datasite
-    datasite_data = {
-        "name": "Private Datasite",
+    # Create private endpoint
+    endpoint_data = {
+        "name": "Private Endpoint",
         "slug": "private-ds",
         "visibility": "private",
     }
-    client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
 
     # Unauthenticated access should fail
     response = client.get("/user1/private-ds")
@@ -546,14 +546,14 @@ def test_get_private_datasite_by_url_requires_auth(
     assert response.status_code == 200
 
 
-def test_nonexistent_user_or_datasite(client: TestClient) -> None:
-    """Test accessing non-existent user or datasite."""
+def test_nonexistent_user_or_endpoint(client: TestClient) -> None:
+    """Test accessing non-existent user or endpoint."""
     # Non-existent user
     response = client.get("/nonexistentuser")
     assert response.status_code == 404
 
-    # Non-existent datasite
-    response = client.get("/nonexistentuser/nonexistentdatasite")
+    # Non-existent endpoint
+    response = client.get("/nonexistentuser/nonexistentendpoint")
     assert response.status_code == 404
 
 
@@ -561,9 +561,9 @@ def test_case_insensitive_username_lookup(client: TestClient, user1_token: str) 
     """Test that username lookup is case insensitive."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create datasite
-    datasite_data = {"name": "Test Datasite", "visibility": "public"}
-    client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    # Create endpoint
+    endpoint_data = {"name": "Test Endpoint", "visibility": "public"}
+    client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
 
     # Test different cases
     for username in ["user1", "User1", "USER1", "uSeR1"]:
@@ -579,44 +579,44 @@ def test_slug_generation_from_name(client: TestClient, user1_token: str) -> None
         ("Simple Name", "simple-name"),
         ("Complex Name With Spaces!", "complex-name-with-spaces"),
         ("Special-Characters#@$%", "special-characters"),
-        ("A", "datasite-a"),  # Too short, gets prefix
+        ("A", "endpoint-a"),  # Too short, gets prefix
         ("Multiple    Spaces", "multiple-spaces"),
     ]
 
     for name, expected_slug in test_cases:
-        datasite_data = {"name": name, "visibility": "public"}
+        endpoint_data = {"name": name, "visibility": "public"}
         response = client.post(
-            "/api/v1/datasites/", json=datasite_data, headers=headers
+            "/api/v1/endpoints/", json=endpoint_data, headers=headers
         )
         assert response.status_code == 201
         assert response.json()["slug"] == expected_slug
 
 
-def test_create_datasite_with_custom_attributes(
+def test_create_endpoint_with_custom_attributes(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test creating a datasite with custom version and readme."""
+    """Test creating a endpoint with custom version and readme."""
     headers = {"Authorization": f"Bearer {user1_token}"}
-    datasite_data = {
-        "name": "Advanced Datasite",
-        "description": "A datasite with custom attributes",
+    endpoint_data = {
+        "name": "Advanced Endpoint",
+        "description": "A endpoint with custom attributes",
         "visibility": "public",
         "version": "1.2.3",
         "readme": "# My Project\n\nThis is a sample README with markdown.",
     }
 
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
-    assert data["name"] == "Advanced Datasite"
+    assert data["name"] == "Advanced Endpoint"
     assert data["version"] == "1.2.3"
     assert data["readme"] == "# My Project\n\nThis is a sample README with markdown."
     assert len(data["contributors"]) == 1
 
 
-def test_create_datasite_invalid_version(client: TestClient, user1_token: str) -> None:
-    """Test creating a datasite with invalid version format."""
+def test_create_endpoint_invalid_version(client: TestClient, user1_token: str) -> None:
+    """Test creating a endpoint with invalid version format."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     invalid_versions = [
@@ -627,56 +627,56 @@ def test_create_datasite_invalid_version(client: TestClient, user1_token: str) -
     ]
 
     for invalid_version in invalid_versions:
-        datasite_data = {
-            "name": "Test Datasite",
+        endpoint_data = {
+            "name": "Test Endpoint",
             "version": invalid_version,
             "visibility": "public",
         }
 
         response = client.post(
-            "/api/v1/datasites/", json=datasite_data, headers=headers
+            "/api/v1/endpoints/", json=endpoint_data, headers=headers
         )
         assert response.status_code == 422  # Validation error
 
 
-def test_update_datasite_new_attributes(client: TestClient, user1_token: str) -> None:
-    """Test updating datasite with new attributes."""
+def test_update_endpoint_new_attributes(client: TestClient, user1_token: str) -> None:
+    """Test updating endpoint with new attributes."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create datasite
-    datasite_data = {"name": "Original Datasite", "visibility": "public"}
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
-    datasite_id = response.json()["id"]
+    # Create endpoint
+    endpoint_data = {"name": "Original Endpoint", "visibility": "public"}
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    endpoint_id = response.json()["id"]
 
     # Update with new attributes
     update_data = {
         "version": "2.0.0",
-        "readme": "# Updated README\n\nThis datasite has been updated.",
+        "readme": "# Updated README\n\nThis endpoint has been updated.",
     }
     response = client.patch(
-        f"/api/v1/datasites/{datasite_id}", json=update_data, headers=headers
+        f"/api/v1/endpoints/{endpoint_id}", json=update_data, headers=headers
     )
     assert response.status_code == 200
 
     data = response.json()
     assert data["version"] == "2.0.0"
-    assert data["readme"] == "# Updated README\n\nThis datasite has been updated."
+    assert data["readme"] == "# Updated README\n\nThis endpoint has been updated."
 
 
-def test_create_datasite_with_contributors(
+def test_create_endpoint_with_contributors(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test creating a datasite with explicit contributors list."""
+    """Test creating a endpoint with explicit contributors list."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     # Simulate adding additional contributor IDs
-    datasite_data = {
-        "name": "Collaborative Datasite",
+    endpoint_data = {
+        "name": "Collaborative Endpoint",
         "visibility": "public",
         "contributors": [1, 2, 3],  # Mock user IDs
     }
 
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
@@ -685,200 +685,200 @@ def test_create_datasite_with_contributors(
     assert len(data["contributors"]) >= 1
 
 
-def test_datasite_public_response_includes_new_fields(
+def test_endpoint_public_response_includes_new_fields(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test that public datasite response includes new fields."""
+    """Test that public endpoint response includes new fields."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create datasite with all new fields
-    datasite_data = {
-        "name": "Public Datasite",
-        "description": "A public datasite for testing",
+    # Create endpoint with all new fields
+    endpoint_data = {
+        "name": "Public Endpoint",
+        "description": "A public endpoint for testing",
         "visibility": "public",
         "version": "3.1.4",
         "readme": "# Public Project\n\nThis is publicly accessible.",
     }
 
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     # Test public listing endpoint
-    response = client.get("/api/v1/datasites/public")
+    response = client.get("/api/v1/endpoints/public")
     assert response.status_code == 200
 
     data = response.json()
     assert len(data) == 1
-    public_datasite = data[0]
+    public_endpoint = data[0]
 
     # Verify new fields are included in public response
-    assert public_datasite["version"] == "3.1.4"
+    assert public_endpoint["version"] == "3.1.4"
     assert (
-        public_datasite["readme"] == "# Public Project\n\nThis is publicly accessible."
+        public_endpoint["readme"] == "# Public Project\n\nThis is publicly accessible."
     )
-    # Note: contributors field is NOT in DatasitePublicResponse for privacy reasons
-    assert "contributors" not in public_datasite
+    # Note: contributors field is NOT in EndpointPublicResponse for privacy reasons
+    assert "contributors" not in public_endpoint
 
 
-def test_datasite_version_filter_capability(
+def test_endpoint_version_filter_capability(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test creating datasites with different versions for future filtering."""
+    """Test creating endpoints with different versions for future filtering."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create datasites with different versions
+    # Create endpoints with different versions
     versions = ["1.0.0", "1.1.0", "2.0.0"]
     for version in versions:
-        datasite_data = {
-            "name": f"Datasite v{version}",
+        endpoint_data = {
+            "name": f"Endpoint v{version}",
             "visibility": "public",
             "version": version,
         }
         response = client.post(
-            "/api/v1/datasites/", json=datasite_data, headers=headers
+            "/api/v1/endpoints/", json=endpoint_data, headers=headers
         )
         assert response.status_code == 201
         assert response.json()["version"] == version
 
 
-def test_datasite_stars_count_default(client: TestClient, user1_token: str) -> None:
-    """Test that new datasites start with 0 stars."""
+def test_endpoint_stars_count_default(client: TestClient, user1_token: str) -> None:
+    """Test that new endpoints start with 0 stars."""
     headers = {"Authorization": f"Bearer {user1_token}"}
-    datasite_data = {
-        "name": "New Datasite",
+    endpoint_data = {
+        "name": "New Endpoint",
         "description": "Testing stars functionality",
         "visibility": "public",
     }
 
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
     assert data["stars_count"] == 0
 
 
-def test_trending_datasites_endpoint(client: TestClient, user1_token: str) -> None:
-    """Test the trending datasites endpoint (sorted by stars)."""
+def test_trending_endpoints_endpoint(client: TestClient, user1_token: str) -> None:
+    """Test the trending endpoints endpoint (sorted by stars)."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create datasites with different star counts (simulated)
-    datasites_data = [
-        {"name": "Popular Datasite", "visibility": "public"},
-        {"name": "Average Datasite", "visibility": "public"},
-        {"name": "New Datasite", "visibility": "public"},
+    # Create endpoints with different star counts (simulated)
+    endpoints_data = [
+        {"name": "Popular Endpoint", "visibility": "public"},
+        {"name": "Average Endpoint", "visibility": "public"},
+        {"name": "New Endpoint", "visibility": "public"},
     ]
 
     created_ids = []
-    for datasite_data in datasites_data:
+    for endpoint_data in endpoints_data:
         response = client.post(
-            "/api/v1/datasites/", json=datasite_data, headers=headers
+            "/api/v1/endpoints/", json=endpoint_data, headers=headers
         )
         assert response.status_code == 201
         created_ids.append(response.json()["id"])
 
     # Simulate different star counts by directly updating the database
     from syfthub.database.connection import get_db_session
-    from syfthub.repositories.datasite import DatasiteRepository
+    from syfthub.repositories.endpoint import EndpointRepository
 
     session = next(get_db_session())
     try:
-        datasite_repo = DatasiteRepository(session)
+        endpoint_repo = EndpointRepository(session)
         # Update star counts directly
-        datasite_repo.update(created_ids[0], stars_count=10)  # Most popular
-        datasite_repo.update(created_ids[1], stars_count=5)  # Moderate
+        endpoint_repo.update(created_ids[0], stars_count=10)  # Most popular
+        endpoint_repo.update(created_ids[1], stars_count=5)  # Moderate
         # Leave created_ids[2] with 0 stars
     finally:
         session.close()
 
     # Test trending endpoint
-    response = client.get("/api/v1/datasites/trending")
+    response = client.get("/api/v1/endpoints/trending")
     assert response.status_code == 200
 
     data = response.json()
     assert len(data) == 3
 
     # Should be sorted by stars count (descending)
-    assert data[0]["name"] == "Popular Datasite"
+    assert data[0]["name"] == "Popular Endpoint"
     assert data[0]["stars_count"] == 10
-    assert data[1]["name"] == "Average Datasite"
+    assert data[1]["name"] == "Average Endpoint"
     assert data[1]["stars_count"] == 5
-    assert data[2]["name"] == "New Datasite"
+    assert data[2]["name"] == "New Endpoint"
     assert data[2]["stars_count"] == 0
 
 
-def test_trending_datasites_with_min_stars_filter(
+def test_trending_endpoints_with_min_stars_filter(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test trending datasites with minimum stars filter."""
+    """Test trending endpoints with minimum stars filter."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create datasites
-    datasites_data = [
-        {"name": "High Stars Datasite", "visibility": "public"},
-        {"name": "Low Stars Datasite", "visibility": "public"},
+    # Create endpoints
+    endpoints_data = [
+        {"name": "High Stars Endpoint", "visibility": "public"},
+        {"name": "Low Stars Endpoint", "visibility": "public"},
     ]
 
     created_ids = []
-    for datasite_data in datasites_data:
+    for endpoint_data in endpoints_data:
         response = client.post(
-            "/api/v1/datasites/", json=datasite_data, headers=headers
+            "/api/v1/endpoints/", json=endpoint_data, headers=headers
         )
         assert response.status_code == 201
         created_ids.append(response.json()["id"])
 
     # Simulate star counts by directly updating the database
     from syfthub.database.connection import get_db_session
-    from syfthub.repositories.datasite import DatasiteRepository
+    from syfthub.repositories.endpoint import EndpointRepository
 
     session = next(get_db_session())
     try:
-        datasite_repo = DatasiteRepository(session)
+        endpoint_repo = EndpointRepository(session)
         # Update star counts directly
-        datasite_repo.update(created_ids[0], stars_count=15)
-        datasite_repo.update(created_ids[1], stars_count=2)
+        endpoint_repo.update(created_ids[0], stars_count=15)
+        endpoint_repo.update(created_ids[1], stars_count=2)
     finally:
         session.close()
 
     # Test with min_stars filter
-    response = client.get("/api/v1/datasites/trending?min_stars=10")
+    response = client.get("/api/v1/endpoints/trending?min_stars=10")
     assert response.status_code == 200
 
     data = response.json()
     assert len(data) == 1
-    assert data[0]["name"] == "High Stars Datasite"
+    assert data[0]["name"] == "High Stars Endpoint"
     assert data[0]["stars_count"] == 15
 
 
-def test_public_datasite_response_includes_stars(
+def test_public_endpoint_response_includes_stars(
     client: TestClient, user1_token: str
 ) -> None:
     """Test that public responses include stars count."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create a datasite
-    datasite_data = {
-        "name": "Public Datasite with Stars",
+    # Create a endpoint
+    endpoint_data = {
+        "name": "Public Endpoint with Stars",
         "description": "Testing public response",
         "visibility": "public",
     }
 
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 201
-    datasite_id = response.json()["id"]
+    endpoint_id = response.json()["id"]
 
     # Simulate some stars by updating the database directly
     from syfthub.database.connection import get_db_session
-    from syfthub.repositories.datasite import DatasiteRepository
+    from syfthub.repositories.endpoint import EndpointRepository
 
     session = next(get_db_session())
     try:
-        datasite_repo = DatasiteRepository(session)
-        datasite_repo.update(datasite_id, stars_count=42)
+        endpoint_repo = EndpointRepository(session)
+        endpoint_repo.update(endpoint_id, stars_count=42)
     finally:
         session.close()
 
     # Test public listing endpoint
-    response = client.get("/api/v1/datasites/public")
+    response = client.get("/api/v1/endpoints/public")
     assert response.status_code == 200
 
     data = response.json()
@@ -887,7 +887,7 @@ def test_public_datasite_response_includes_stars(
     assert data[0]["stars_count"] == 42
 
     # Test GitHub-style URL access
-    response = client.get("/user1/public-datasite-with-stars")
+    response = client.get("/user1/public-endpoint-with-stars")
     assert response.status_code == 200
 
     data = response.json()
@@ -895,42 +895,42 @@ def test_public_datasite_response_includes_stars(
     assert data["stars_count"] == 42
 
 
-def test_trending_datasites_pagination(client: TestClient, user1_token: str) -> None:
-    """Test pagination in trending datasites endpoint."""
+def test_trending_endpoints_pagination(client: TestClient, user1_token: str) -> None:
+    """Test pagination in trending endpoints endpoint."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create multiple datasites
+    # Create multiple endpoints
     for i in range(5):
-        datasite_data = {
-            "name": f"Datasite {i}",
+        endpoint_data = {
+            "name": f"Endpoint {i}",
             "visibility": "public",
         }
         response = client.post(
-            "/api/v1/datasites/", json=datasite_data, headers=headers
+            "/api/v1/endpoints/", json=endpoint_data, headers=headers
         )
         assert response.status_code == 201
 
     # Test pagination
-    response = client.get("/api/v1/datasites/trending?skip=0&limit=3")
+    response = client.get("/api/v1/endpoints/trending?skip=0&limit=3")
     assert response.status_code == 200
 
     data = response.json()
     assert len(data) == 3
 
-    response = client.get("/api/v1/datasites/trending?skip=3&limit=3")
+    response = client.get("/api/v1/endpoints/trending?skip=3&limit=3")
     assert response.status_code == 200
 
     data = response.json()
-    assert len(data) == 2  # Remaining datasites
+    assert len(data) == 2  # Remaining endpoints
 
 
-def test_create_datasite_with_policies(client: TestClient, user1_token: str) -> None:
-    """Test creating a datasite with policies."""
+def test_create_endpoint_with_policies(client: TestClient, user1_token: str) -> None:
+    """Test creating a endpoint with policies."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    datasite_data = {
-        "name": "Policy-Enabled Datasite",
-        "description": "A datasite with custom policies",
+    endpoint_data = {
+        "name": "Policy-Enabled Endpoint",
+        "description": "A endpoint with custom policies",
         "visibility": "public",
         "policies": [
             {
@@ -958,11 +958,11 @@ def test_create_datasite_with_policies(client: TestClient, user1_token: str) -> 
         ],
     }
 
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
-    assert data["name"] == "Policy-Enabled Datasite"
+    assert data["name"] == "Policy-Enabled Endpoint"
     assert len(data["policies"]) == 2
 
     # Check first policy
@@ -980,36 +980,36 @@ def test_create_datasite_with_policies(client: TestClient, user1_token: str) -> 
     assert access_policy["config"]["max_concurrent_users"] == 5
 
 
-def test_create_datasite_default_empty_policies(
+def test_create_endpoint_default_empty_policies(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test that datasites default to empty policies list."""
+    """Test that endpoints default to empty policies list."""
     headers = {"Authorization": f"Bearer {user1_token}"}
-    datasite_data = {
-        "name": "No Policies Datasite",
+    endpoint_data = {
+        "name": "No Policies Endpoint",
         "visibility": "public",
     }
 
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
     assert data["policies"] == []
 
 
-def test_create_datasite_with_minimal_policy(
+def test_create_endpoint_with_minimal_policy(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test creating datasite with minimal policy (only type required)."""
+    """Test creating endpoint with minimal policy (only type required)."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    datasite_data = {
-        "name": "Minimal Policy Datasite",
+    endpoint_data = {
+        "name": "Minimal Policy Endpoint",
         "visibility": "public",
         "policies": [{"type": "simple_policy"}],
     }
 
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
@@ -1021,14 +1021,14 @@ def test_create_datasite_with_minimal_policy(
     assert policy["config"] == {}  # Default empty config
 
 
-def test_create_datasite_invalid_policy_type(
+def test_create_endpoint_invalid_policy_type(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test creating datasite with invalid policy type."""
+    """Test creating endpoint with invalid policy type."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    datasite_data = {
-        "name": "Invalid Policy Datasite",
+    endpoint_data = {
+        "name": "Invalid Policy Endpoint",
         "visibility": "public",
         "policies": [
             {
@@ -1038,24 +1038,24 @@ def test_create_datasite_invalid_policy_type(
         ],
     }
 
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 422  # Validation error
 
 
-def test_update_datasite_policies(client: TestClient, user1_token: str) -> None:
-    """Test updating datasite policies."""
+def test_update_endpoint_policies(client: TestClient, user1_token: str) -> None:
+    """Test updating endpoint policies."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create datasite with initial policy
-    datasite_data = {
-        "name": "Updateable Policies Datasite",
+    # Create endpoint with initial policy
+    endpoint_data = {
+        "name": "Updateable Policies Endpoint",
         "visibility": "public",
         "policies": [
             {"type": "initial_policy", "description": "Initial policy configuration"}
         ],
     }
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
-    datasite_id = response.json()["id"]
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    endpoint_id = response.json()["id"]
 
     # Update with new policies
     update_data = {
@@ -1073,7 +1073,7 @@ def test_update_datasite_policies(client: TestClient, user1_token: str) -> None:
         ]
     }
     response = client.patch(
-        f"/api/v1/datasites/{datasite_id}", json=update_data, headers=headers
+        f"/api/v1/endpoints/{endpoint_id}", json=update_data, headers=headers
     )
     assert response.status_code == 200
 
@@ -1087,14 +1087,14 @@ def test_update_datasite_policies(client: TestClient, user1_token: str) -> None:
     assert policy["config"]["complex_config"]["nested"] is True
 
 
-def test_public_datasite_response_includes_policies(
+def test_public_endpoint_response_includes_policies(
     client: TestClient, user1_token: str
 ) -> None:
     """Test that public responses include policies."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    datasite_data = {
-        "name": "Public Policies Datasite",
+    endpoint_data = {
+        "name": "Public Policies Endpoint",
         "visibility": "public",
         "policies": [
             {
@@ -1105,11 +1105,11 @@ def test_public_datasite_response_includes_policies(
         ],
     }
 
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     # Test public listing endpoint
-    response = client.get("/api/v1/datasites/public")
+    response = client.get("/api/v1/endpoints/public")
     assert response.status_code == 200
 
     data = response.json()
@@ -1126,13 +1126,13 @@ def test_policy_version_validation(client: TestClient, user1_token: str) -> None
     # Valid versions
     valid_versions = ["1.0", "2.5", "10.15"]
     for version in valid_versions:
-        datasite_data = {
+        endpoint_data = {
             "name": f"Version Test {version}",
             "visibility": "public",
             "policies": [{"type": "test_policy", "version": version}],
         }
         response = client.post(
-            "/api/v1/datasites/", json=datasite_data, headers=headers
+            "/api/v1/endpoints/", json=endpoint_data, headers=headers
         )
         assert response.status_code == 201
         assert response.json()["policies"][0]["version"] == version
@@ -1140,13 +1140,13 @@ def test_policy_version_validation(client: TestClient, user1_token: str) -> None
     # Invalid versions
     invalid_versions = ["1", "1.0.0", "v1.0", "1.0-alpha"]
     for version in invalid_versions:
-        datasite_data = {
+        endpoint_data = {
             "name": "Invalid Version Test",
             "visibility": "public",
             "policies": [{"type": "test_policy", "version": version}],
         }
         response = client.post(
-            "/api/v1/datasites/", json=datasite_data, headers=headers
+            "/api/v1/endpoints/", json=endpoint_data, headers=headers
         )
         assert response.status_code == 422  # Validation error
 
@@ -1155,8 +1155,8 @@ def test_complex_policy_configurations(client: TestClient, user1_token: str) -> 
     """Test policies with complex nested configurations."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    datasite_data = {
-        "name": "Complex Config Datasite",
+    endpoint_data = {
+        "name": "Complex Config Endpoint",
         "visibility": "public",
         "policies": [
             {
@@ -1181,7 +1181,7 @@ def test_complex_policy_configurations(client: TestClient, user1_token: str) -> 
         ],
     }
 
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
@@ -1194,13 +1194,13 @@ def test_complex_policy_configurations(client: TestClient, user1_token: str) -> 
     assert config["null_value"] is None
 
 
-def test_create_datasite_with_connections(client: TestClient, user1_token: str) -> None:
-    """Test creating a datasite with connection configurations."""
+def test_create_endpoint_with_connections(client: TestClient, user1_token: str) -> None:
+    """Test creating a endpoint with connection configurations."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    datasite_data = {
-        "name": "Connection-Enabled Datasite",
-        "description": "A datasite with connection methods",
+    endpoint_data = {
+        "name": "Connection-Enabled Endpoint",
+        "description": "A endpoint with connection methods",
         "visibility": "public",
         "connect": [
             {
@@ -1226,11 +1226,11 @@ def test_create_datasite_with_connections(client: TestClient, user1_token: str) 
         ],
     }
 
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
-    assert data["name"] == "Connection-Enabled Datasite"
+    assert data["name"] == "Connection-Enabled Endpoint"
     assert len(data["connect"]) == 2
 
     # Check first connection
@@ -1248,36 +1248,36 @@ def test_create_datasite_with_connections(client: TestClient, user1_token: str) 
     assert webrtc_connection["config"]["requires_negotiation"] is True
 
 
-def test_create_datasite_default_empty_connections(
+def test_create_endpoint_default_empty_connections(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test that datasites default to empty connections list."""
+    """Test that endpoints default to empty connections list."""
     headers = {"Authorization": f"Bearer {user1_token}"}
-    datasite_data = {
-        "name": "No Connections Datasite",
+    endpoint_data = {
+        "name": "No Connections Endpoint",
         "visibility": "public",
     }
 
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
     assert data["connect"] == []
 
 
-def test_create_datasite_with_minimal_connection(
+def test_create_endpoint_with_minimal_connection(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test creating datasite with minimal connection (only type required)."""
+    """Test creating endpoint with minimal connection (only type required)."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    datasite_data = {
-        "name": "Minimal Connection Datasite",
+    endpoint_data = {
+        "name": "Minimal Connection Endpoint",
         "visibility": "public",
         "connect": [{"type": "simple_connection"}],
     }
 
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
@@ -1288,14 +1288,14 @@ def test_create_datasite_with_minimal_connection(
     assert connection["config"] == {}  # Default empty config
 
 
-def test_create_datasite_invalid_connection_type(
+def test_create_endpoint_invalid_connection_type(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test creating datasite with invalid connection type."""
+    """Test creating endpoint with invalid connection type."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    datasite_data = {
-        "name": "Invalid Connection Datasite",
+    endpoint_data = {
+        "name": "Invalid Connection Endpoint",
         "visibility": "public",
         "connect": [
             {
@@ -1305,24 +1305,24 @@ def test_create_datasite_invalid_connection_type(
         ],
     }
 
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 422  # Validation error
 
 
-def test_update_datasite_connections(client: TestClient, user1_token: str) -> None:
-    """Test updating datasite connections."""
+def test_update_endpoint_connections(client: TestClient, user1_token: str) -> None:
+    """Test updating endpoint connections."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create datasite with initial connection
-    datasite_data = {
-        "name": "Updateable Connections Datasite",
+    # Create endpoint with initial connection
+    endpoint_data = {
+        "name": "Updateable Connections Endpoint",
         "visibility": "public",
         "connect": [
             {"type": "initial_connection", "description": "Initial connection setup"}
         ],
     }
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
-    datasite_id = response.json()["id"]
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    endpoint_id = response.json()["id"]
 
     # Update with new connections
     update_data = {
@@ -1340,7 +1340,7 @@ def test_update_datasite_connections(client: TestClient, user1_token: str) -> No
         ]
     }
     response = client.patch(
-        f"/api/v1/datasites/{datasite_id}", json=update_data, headers=headers
+        f"/api/v1/endpoints/{endpoint_id}", json=update_data, headers=headers
     )
     assert response.status_code == 200
 
@@ -1352,14 +1352,14 @@ def test_update_datasite_connections(client: TestClient, user1_token: str) -> No
     assert connection["config"]["tunnel_url"] == "https://abc123.ngrok.io"
 
 
-def test_public_datasite_response_includes_connections(
+def test_public_endpoint_response_includes_connections(
     client: TestClient, user1_token: str
 ) -> None:
     """Test that public responses include connections."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    datasite_data = {
-        "name": "Public Connections Datasite",
+    endpoint_data = {
+        "name": "Public Connections Endpoint",
         "visibility": "public",
         "connect": [
             {
@@ -1370,11 +1370,11 @@ def test_public_datasite_response_includes_connections(
         ],
     }
 
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     # Test public listing endpoint
-    response = client.get("/api/v1/datasites/public")
+    response = client.get("/api/v1/endpoints/public")
     assert response.status_code == 200
 
     data = response.json()
@@ -1390,8 +1390,8 @@ def test_complex_connection_configurations(
     """Test connections with complex nested configurations."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    datasite_data = {
-        "name": "Complex Connection Config Datasite",
+    endpoint_data = {
+        "name": "Complex Connection Config Endpoint",
         "visibility": "public",
         "connect": [
             {
@@ -1418,7 +1418,7 @@ def test_complex_connection_configurations(
         ],
     }
 
-    response = client.post("/api/v1/datasites/", json=datasite_data, headers=headers)
+    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()

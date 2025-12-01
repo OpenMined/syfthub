@@ -82,18 +82,18 @@ def sample_user_data() -> dict:
 
 
 @pytest.fixture
-def sample_datasite_data() -> dict:
-    """Sample datasite data for testing."""
+def sample_endpoint_data() -> dict:
+    """Sample endpoint data for testing."""
     return {
         "user_id": 1,
-        "name": "Test Datasite",
-        "slug": "test-datasite",
-        "description": "A test datasite",
+        "name": "Test Endpoint",
+        "slug": "test-endpoint",
+        "description": "A test endpoint",
         "visibility": "public",
         "is_active": True,
         "contributors": [1],
         "version": "0.1.0",
-        "readme": "# Test Datasite\n\nThis is a test datasite.",
+        "readme": "# Test Endpoint\n\nThis is a test endpoint.",
         "stars_count": 0,
         "policies": [],
     }

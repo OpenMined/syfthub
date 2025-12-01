@@ -18,7 +18,7 @@ class OrganizationRole(str, Enum):
     MEMBER = "member"  # Basic access to organization resources
 
 
-# Reserved organization slugs (in addition to datasite reserved slugs)
+# Reserved organization slugs (in addition to endpoint reserved slugs)
 RESERVED_ORG_SLUGS = {
     "api",
     "auth",

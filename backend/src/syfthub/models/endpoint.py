@@ -1,4 +1,4 @@
-"""Datasite and DatasiteStar database models."""
+"""Endpoint and EndpointStar database models."""
 
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List, Optional
@@ -23,10 +23,10 @@ if TYPE_CHECKING:
     from syfthub.models.user import UserModel
 
 
-class DatasiteModel(BaseModel, TimestampMixin):
-    """Datasite database model."""
+class EndpointModel(BaseModel, TimestampMixin):
+    """Endpoint database model."""
 
-    __tablename__ = "datasites"
+    __tablename__ = "endpoints"
 
     # Owner fields (exactly one of user_id or organization_id must be set)
     user_id: Mapped[Optional[int]] = mapped_column(
@@ -36,7 +36,7 @@ class DatasiteModel(BaseModel, TimestampMixin):
         Integer, ForeignKey("organizations.id"), nullable=True
     )
 
-    # Datasite fields
+    # Endpoint fields
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     slug: Mapped[str] = mapped_column(String(63), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -61,10 +61,10 @@ class DatasiteModel(BaseModel, TimestampMixin):
 
     # Relationships
     user: Mapped[Optional["UserModel"]] = relationship(
-        "UserModel", back_populates="datasites"
+        "UserModel", back_populates="endpoints"
     )
     organization: Mapped[Optional["OrganizationModel"]] = relationship(
-        "OrganizationModel", back_populates="datasites"
+        "OrganizationModel", back_populates="endpoints"
     )
 
     # Indexes for performance - slug uniqueness is per-owner (user or organization)
@@ -72,40 +72,40 @@ class DatasiteModel(BaseModel, TimestampMixin):
         # Ensure exactly one owner (user_id XOR organization_id)
         CheckConstraint(
             "(user_id IS NULL) != (organization_id IS NULL)",
-            name="ck_datasites_single_owner",
+            name="ck_endpoints_single_owner",
         ),
-        Index("idx_datasites_user_id", "user_id"),
-        Index("idx_datasites_organization_id", "organization_id"),
-        Index("idx_datasites_slug", "slug"),
+        Index("idx_endpoints_user_id", "user_id"),
+        Index("idx_endpoints_organization_id", "organization_id"),
+        Index("idx_endpoints_slug", "slug"),
         # Unique slug per user (nulls ignored in unique constraints)
-        Index("idx_datasites_user_slug", "user_id", "slug", unique=True),
+        Index("idx_endpoints_user_slug", "user_id", "slug", unique=True),
         # Unique slug per organization (nulls ignored in unique constraints)
-        Index("idx_datasites_org_slug", "organization_id", "slug", unique=True),
-        Index("idx_datasites_visibility", "visibility"),
-        Index("idx_datasites_is_active", "is_active"),
-        Index("idx_datasites_version", "version"),
-        Index("idx_datasites_stars_count", "stars_count"),
+        Index("idx_endpoints_org_slug", "organization_id", "slug", unique=True),
+        Index("idx_endpoints_visibility", "visibility"),
+        Index("idx_endpoints_is_active", "is_active"),
+        Index("idx_endpoints_version", "version"),
+        Index("idx_endpoints_stars_count", "stars_count"),
     )
 
     def __repr__(self) -> str:
-        """String representation of Datasite."""
+        """String representation of Endpoint."""
         owner = (
             f"user={self.user_id}" if self.user_id else f"org={self.organization_id}"
         )
-        return f"<Datasite(id={self.id}, slug='{self.slug}', {owner})>"
+        return f"<Endpoint(id={self.id}, slug='{self.slug}', {owner})>"
 
 
-class DatasiteStarModel(BaseModel):
-    """Datasite star relationship model for tracking user stars."""
+class EndpointStarModel(BaseModel):
+    """Endpoint star relationship model for tracking user stars."""
 
-    __tablename__ = "datasite_stars"
+    __tablename__ = "endpoint_stars"
 
     # Star relationship fields
     user_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    datasite_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("datasites.id", ondelete="CASCADE"), nullable=False
+    endpoint_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("endpoints.id", ondelete="CASCADE"), nullable=False
     )
     starred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -115,14 +115,14 @@ class DatasiteStarModel(BaseModel):
 
     # Indexes for performance and uniqueness
     __table_args__ = (
-        Index("idx_datasite_stars_user_id", "user_id"),
-        Index("idx_datasite_stars_datasite_id", "datasite_id"),
+        Index("idx_endpoint_stars_user_id", "user_id"),
+        Index("idx_endpoint_stars_endpoint_id", "endpoint_id"),
         Index(
-            "idx_datasite_stars_unique", "user_id", "datasite_id", unique=True
+            "idx_endpoint_stars_unique", "user_id", "endpoint_id", unique=True
         ),  # Prevent duplicate stars
-        Index("idx_datasite_stars_starred_at", "starred_at"),
+        Index("idx_endpoint_stars_starred_at", "starred_at"),
     )
 
     def __repr__(self) -> str:
-        """String representation of DatasiteStar."""
-        return f"<DatasiteStar(id={self.id}, user_id={self.user_id}, datasite_id={self.datasite_id})>"
+        """String representation of EndpointStar."""
+        return f"<EndpointStar(id={self.id}, user_id={self.user_id}, endpoint_id={self.endpoint_id})>"

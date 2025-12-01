@@ -3,16 +3,16 @@
 from sqlalchemy.orm import Session
 
 from syfthub.repositories import (
-    DatasiteRepository,
+    EndpointRepository,
     UserRepository,
 )
-from syfthub.repositories.datasite import DatasiteStarRepository
+from syfthub.repositories.endpoint import EndpointStarRepository
 from syfthub.repositories.organization import (
     OrganizationMemberRepository,
     OrganizationRepository,
 )
 from syfthub.schemas.auth import UserRole
-from syfthub.schemas.datasite import DatasiteVisibility
+from syfthub.schemas.endpoint import EndpointVisibility
 from syfthub.schemas.organization import (
     OrganizationCreate,
     OrganizationMemberCreate,
@@ -159,56 +159,56 @@ class TestUserRepository:
         assert user_repo.exists_email("nonexistent@example.com") is False
 
 
-class TestDatasiteRepository:
-    """Tests for DatasiteRepository."""
+class TestEndpointRepository:
+    """Tests for EndpointRepository."""
 
-    def test_create_datasite(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_create_endpoint(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test creating a datasite through repository."""
+        """Test creating a endpoint through repository."""
         # Create user first
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        # Create datasite
-        datasite_data = sample_datasite_data.copy()
-        datasite_data["user_id"] = user.id
-        datasite_repo = DatasiteRepository(test_session)
-        datasite = datasite_repo.create(datasite_data)
+        # Create endpoint
+        endpoint_data = sample_endpoint_data.copy()
+        endpoint_data["user_id"] = user.id
+        endpoint_repo = EndpointRepository(test_session)
+        endpoint = endpoint_repo.create(endpoint_data)
 
-        assert datasite.id is not None
-        assert datasite.user_id == user.id
-        assert datasite.name == "Test Datasite"
-        assert datasite.slug == "test-datasite"
-        assert datasite.description == "A test datasite"
-        assert datasite.visibility == DatasiteVisibility.PUBLIC
-        assert datasite.is_active is True
+        assert endpoint.id is not None
+        assert endpoint.user_id == user.id
+        assert endpoint.name == "Test Endpoint"
+        assert endpoint.slug == "test-endpoint"
+        assert endpoint.description == "A test endpoint"
+        assert endpoint.visibility == EndpointVisibility.PUBLIC
+        assert endpoint.is_active is True
 
-    def test_get_datasite_by_user_and_slug(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_get_endpoint_by_user_and_slug(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test getting datasite by user ID and slug."""
+        """Test getting endpoint by user ID and slug."""
         # Setup
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
-        datasite_data = sample_datasite_data.copy()
-        datasite_data["user_id"] = user.id
+        endpoint_data = sample_endpoint_data.copy()
+        endpoint_data["user_id"] = user.id
 
-        datasite_repo = DatasiteRepository(test_session)
-        created_datasite = datasite_repo.create(datasite_data)
+        endpoint_repo = EndpointRepository(test_session)
+        created_endpoint = endpoint_repo.create(endpoint_data)
 
         # Test
-        retrieved_datasite = datasite_repo.get_by_user_and_slug(
-            user.id, "test-datasite"
+        retrieved_endpoint = endpoint_repo.get_by_user_and_slug(
+            user.id, "test-endpoint"
         )
-        assert retrieved_datasite is not None
-        assert retrieved_datasite.id == created_datasite.id
-        assert retrieved_datasite.slug == "test-datasite"
+        assert retrieved_endpoint is not None
+        assert retrieved_endpoint.id == created_endpoint.id
+        assert retrieved_endpoint.slug == "test-endpoint"
 
-    def test_get_datasites_by_user_id(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_get_endpoints_by_user_id(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test getting datasites by user ID."""
+        """Test getting endpoints by user ID."""
         # Create two users
         user_repo = UserRepository(test_session)
         user1 = user_repo.create(sample_user_data)
@@ -222,75 +222,75 @@ class TestDatasiteRepository:
         user2_data["public_key"] = unique_keys_2["public_key"]
         user2 = user_repo.create(user2_data)
 
-        # Create datasites for both users
-        datasite_repo = DatasiteRepository(test_session)
+        # Create endpoints for both users
+        endpoint_repo = EndpointRepository(test_session)
 
-        # Datasites for user1
+        # Endpoints for user1
         for i in range(3):
-            datasite_data = sample_datasite_data.copy()
-            datasite_data["user_id"] = user1.id
-            datasite_data["name"] = f"User1 Datasite {i}"
-            datasite_data["slug"] = f"user1-datasite-{i}"
-            datasite_repo.create(datasite_data)
+            endpoint_data = sample_endpoint_data.copy()
+            endpoint_data["user_id"] = user1.id
+            endpoint_data["name"] = f"User1 Endpoint {i}"
+            endpoint_data["slug"] = f"user1-endpoint-{i}"
+            endpoint_repo.create(endpoint_data)
 
-        # Datasites for user2
+        # Endpoints for user2
         for i in range(2):
-            datasite_data = sample_datasite_data.copy()
-            datasite_data["user_id"] = user2.id
-            datasite_data["name"] = f"User2 Datasite {i}"
-            datasite_data["slug"] = f"user2-datasite-{i}"
-            datasite_repo.create(datasite_data)
+            endpoint_data = sample_endpoint_data.copy()
+            endpoint_data["user_id"] = user2.id
+            endpoint_data["name"] = f"User2 Endpoint {i}"
+            endpoint_data["slug"] = f"user2-endpoint-{i}"
+            endpoint_repo.create(endpoint_data)
 
-        # Test getting datasites by user
-        user1_datasites = datasite_repo.get_by_user_id(user1.id)
-        user2_datasites = datasite_repo.get_by_user_id(user2.id)
+        # Test getting endpoints by user
+        user1_endpoints = endpoint_repo.get_by_user_id(user1.id)
+        user2_endpoints = endpoint_repo.get_by_user_id(user2.id)
 
-        assert len(user1_datasites) == 3
-        assert len(user2_datasites) == 2
-        assert all("User1" in ds.name for ds in user1_datasites)
-        assert all("User2" in ds.name for ds in user2_datasites)
+        assert len(user1_endpoints) == 3
+        assert len(user2_endpoints) == 2
+        assert all("User1" in ds.name for ds in user1_endpoints)
+        assert all("User2" in ds.name for ds in user2_endpoints)
 
-    def test_get_public_datasites_by_user_id(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_get_public_endpoints_by_user_id(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test getting only public datasites by user ID."""
+        """Test getting only public endpoints by user ID."""
         # Setup
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_repo = DatasiteRepository(test_session)
+        endpoint_repo = EndpointRepository(test_session)
 
-        # Create public datasite
-        public_data = sample_datasite_data.copy()
+        # Create public endpoint
+        public_data = sample_endpoint_data.copy()
         public_data["user_id"] = user.id
-        public_data["visibility"] = DatasiteVisibility.PUBLIC.value
-        public_data["slug"] = "public-datasite"
-        datasite_repo.create(public_data)
+        public_data["visibility"] = EndpointVisibility.PUBLIC.value
+        public_data["slug"] = "public-endpoint"
+        endpoint_repo.create(public_data)
 
-        # Create private datasite
-        private_data = sample_datasite_data.copy()
+        # Create private endpoint
+        private_data = sample_endpoint_data.copy()
         private_data["user_id"] = user.id
-        private_data["visibility"] = DatasiteVisibility.PRIVATE.value
-        private_data["slug"] = "private-datasite"
-        datasite_repo.create(private_data)
+        private_data["visibility"] = EndpointVisibility.PRIVATE.value
+        private_data["slug"] = "private-endpoint"
+        endpoint_repo.create(private_data)
 
-        # Create inactive public datasite
-        inactive_data = sample_datasite_data.copy()
+        # Create inactive public endpoint
+        inactive_data = sample_endpoint_data.copy()
         inactive_data["user_id"] = user.id
-        inactive_data["visibility"] = DatasiteVisibility.PUBLIC.value
+        inactive_data["visibility"] = EndpointVisibility.PUBLIC.value
         inactive_data["is_active"] = False
-        inactive_data["slug"] = "inactive-datasite"
-        datasite_repo.create(inactive_data)
+        inactive_data["slug"] = "inactive-endpoint"
+        endpoint_repo.create(inactive_data)
 
-        # Test getting only public active datasites
-        public_datasites = datasite_repo.get_public_by_user_id(user.id)
+        # Test getting only public active endpoints
+        public_endpoints = endpoint_repo.get_public_by_user_id(user.id)
 
-        assert len(public_datasites) == 1
-        assert public_datasites[0].slug == "public-datasite"
-        assert public_datasites[0].visibility == DatasiteVisibility.PUBLIC
+        assert len(public_endpoints) == 1
+        assert public_endpoints[0].slug == "public-endpoint"
+        assert public_endpoints[0].visibility == EndpointVisibility.PUBLIC
 
     def test_slug_exists_for_user(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
         """Test checking if slug exists for user."""
         # Create two users
@@ -306,54 +306,54 @@ class TestDatasiteRepository:
         user2_data["public_key"] = unique_keys_2["public_key"]
         user2 = user_repo.create(user2_data)
 
-        # Create datasite for user1
-        datasite_data = sample_datasite_data.copy()
-        datasite_data["user_id"] = user1.id
-        datasite_repo = DatasiteRepository(test_session)
-        datasite_repo.create(datasite_data)
+        # Create endpoint for user1
+        endpoint_data = sample_endpoint_data.copy()
+        endpoint_data["user_id"] = user1.id
+        endpoint_repo = EndpointRepository(test_session)
+        endpoint_repo.create(endpoint_data)
 
         # Test slug existence
-        assert datasite_repo.slug_exists_for_user(user1.id, "test-datasite") is True
-        assert datasite_repo.slug_exists_for_user(user1.id, "nonexistent-slug") is False
-        assert datasite_repo.slug_exists_for_user(user2.id, "test-datasite") is False
+        assert endpoint_repo.slug_exists_for_user(user1.id, "test-endpoint") is True
+        assert endpoint_repo.slug_exists_for_user(user1.id, "nonexistent-slug") is False
+        assert endpoint_repo.slug_exists_for_user(user2.id, "test-endpoint") is False
 
-    def test_update_datasite(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_update_endpoint(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test updating a datasite."""
+        """Test updating a endpoint."""
         # Setup
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
-        datasite_data = sample_datasite_data.copy()
-        datasite_data["user_id"] = user.id
+        endpoint_data = sample_endpoint_data.copy()
+        endpoint_data["user_id"] = user.id
 
-        datasite_repo = DatasiteRepository(test_session)
-        created_datasite = datasite_repo.create(datasite_data)
+        endpoint_repo = EndpointRepository(test_session)
+        created_endpoint = endpoint_repo.create(endpoint_data)
 
         # Test update
         update_data = {
-            "name": "Updated Datasite",
-            "visibility": DatasiteVisibility.PRIVATE.value,
+            "name": "Updated Endpoint",
+            "visibility": EndpointVisibility.PRIVATE.value,
         }
-        updated_datasite = datasite_repo.update(created_datasite.id, update_data)
+        updated_endpoint = endpoint_repo.update(created_endpoint.id, update_data)
 
-        assert updated_datasite is not None
-        assert updated_datasite.name == "Updated Datasite"
-        assert updated_datasite.visibility == DatasiteVisibility.PRIVATE
-        assert updated_datasite.slug == "test-datasite"  # Unchanged
+        assert updated_endpoint is not None
+        assert updated_endpoint.name == "Updated Endpoint"
+        assert updated_endpoint.visibility == EndpointVisibility.PRIVATE
+        assert updated_endpoint.slug == "test-endpoint"  # Unchanged
 
-    def test_datasite_with_connect_field(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_endpoint_with_connect_field(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test creating and retrieving datasite with connect field."""
+        """Test creating and retrieving endpoint with connect field."""
         # Setup
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        # Create datasite with connect configurations
-        datasite_data = sample_datasite_data.copy()
-        datasite_data["user_id"] = user.id
-        datasite_data["connect"] = [
+        # Create endpoint with connect configurations
+        endpoint_data = sample_endpoint_data.copy()
+        endpoint_data["user_id"] = user.id
+        endpoint_data["connect"] = [
             {
                 "type": "http",
                 "enabled": True,
@@ -368,522 +368,522 @@ class TestDatasiteRepository:
             },
         ]
 
-        datasite_repo = DatasiteRepository(test_session)
-        created_datasite = datasite_repo.create(datasite_data)
+        endpoint_repo = EndpointRepository(test_session)
+        created_endpoint = endpoint_repo.create(endpoint_data)
 
         # Test that connect field is correctly stored and retrieved
-        assert created_datasite.connect is not None
-        assert len(created_datasite.connect) == 2
+        assert created_endpoint.connect is not None
+        assert len(created_endpoint.connect) == 2
 
         # Verify first connection
-        http_conn = created_datasite.connect[0]
+        http_conn = created_endpoint.connect[0]
         assert http_conn.type == "http"
         assert http_conn.enabled is True
         assert http_conn.description == "HTTP API connection"
         assert http_conn.config["url"] == "https://api.example.com"
 
         # Verify second connection
-        webrtc_conn = created_datasite.connect[1]
+        webrtc_conn = created_endpoint.connect[1]
         assert webrtc_conn.type == "webrtc"
         assert webrtc_conn.enabled is False
         assert webrtc_conn.config["signaling_server"] == "wss://signal.example.com"
 
         # Test retrieval by ID
-        retrieved_datasite = datasite_repo.get_by_id(created_datasite.id)
-        assert retrieved_datasite is not None
-        assert len(retrieved_datasite.connect) == 2
-        assert retrieved_datasite.connect[0].type == "http"
-        assert retrieved_datasite.connect[1].type == "webrtc"
+        retrieved_endpoint = endpoint_repo.get_by_id(created_endpoint.id)
+        assert retrieved_endpoint is not None
+        assert len(retrieved_endpoint.connect) == 2
+        assert retrieved_endpoint.connect[0].type == "http"
+        assert retrieved_endpoint.connect[1].type == "webrtc"
 
-    def test_datasite_default_empty_connect(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_endpoint_default_empty_connect(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test that datasite defaults to empty connect list when not specified."""
+        """Test that endpoint defaults to empty connect list when not specified."""
         # Setup
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_data = sample_datasite_data.copy()
-        datasite_data["user_id"] = user.id
+        endpoint_data = sample_endpoint_data.copy()
+        endpoint_data["user_id"] = user.id
         # Note: not setting connect field, should default to empty list
 
-        datasite_repo = DatasiteRepository(test_session)
-        created_datasite = datasite_repo.create(datasite_data)
+        endpoint_repo = EndpointRepository(test_session)
+        created_endpoint = endpoint_repo.create(endpoint_data)
 
         # Test that connect field defaults to empty list
-        assert created_datasite.connect is not None
-        assert len(created_datasite.connect) == 0
-        assert created_datasite.connect == []
+        assert created_endpoint.connect is not None
+        assert len(created_endpoint.connect) == 0
+        assert created_endpoint.connect == []
 
-    def test_delete_datasite(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_delete_endpoint(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test deleting a datasite."""
+        """Test deleting a endpoint."""
         # Setup
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
-        datasite_data = sample_datasite_data.copy()
-        datasite_data["user_id"] = user.id
+        endpoint_data = sample_endpoint_data.copy()
+        endpoint_data["user_id"] = user.id
 
-        datasite_repo = DatasiteRepository(test_session)
-        created_datasite = datasite_repo.create(datasite_data)
+        endpoint_repo = EndpointRepository(test_session)
+        created_endpoint = endpoint_repo.create(endpoint_data)
 
         # Test delete
-        result = datasite_repo.delete(created_datasite.id)
+        result = endpoint_repo.delete(created_endpoint.id)
         assert result is True
 
         # Verify deletion
-        retrieved_datasite = datasite_repo.get_by_id(created_datasite.id)
-        assert retrieved_datasite is None
+        retrieved_endpoint = endpoint_repo.get_by_id(created_endpoint.id)
+        assert retrieved_endpoint is None
 
-    def test_delete_datasite_not_found(self, test_session: Session):
-        """Test deleting a non-existent datasite."""
-        datasite_repo = DatasiteRepository(test_session)
-        result = datasite_repo.delete(999)
+    def test_delete_endpoint_not_found(self, test_session: Session):
+        """Test deleting a non-existent endpoint."""
+        endpoint_repo = EndpointRepository(test_session)
+        result = endpoint_repo.delete(999)
         assert result is False
 
-    def test_update_datasite_not_found(self, test_session: Session):
-        """Test updating a non-existent datasite."""
-        datasite_repo = DatasiteRepository(test_session)
-        result = datasite_repo.update(999, name="New Name")
+    def test_update_endpoint_not_found(self, test_session: Session):
+        """Test updating a non-existent endpoint."""
+        endpoint_repo = EndpointRepository(test_session)
+        result = endpoint_repo.update(999, name="New Name")
         assert result is None
 
     def test_get_by_id_not_found(self, test_session: Session):
-        """Test getting datasite by non-existent ID."""
-        datasite_repo = DatasiteRepository(test_session)
-        result = datasite_repo.get_by_id(999)
+        """Test getting endpoint by non-existent ID."""
+        endpoint_repo = EndpointRepository(test_session)
+        result = endpoint_repo.get_by_id(999)
         assert result is None
 
     def test_get_by_user_and_slug_not_found(self, test_session: Session):
-        """Test getting datasite by user and slug when not found."""
-        datasite_repo = DatasiteRepository(test_session)
-        result = datasite_repo.get_by_user_and_slug(999, "nonexistent-slug")
+        """Test getting endpoint by user and slug when not found."""
+        endpoint_repo = EndpointRepository(test_session)
+        result = endpoint_repo.get_by_user_and_slug(999, "nonexistent-slug")
         assert result is None
 
-    def test_get_user_datasites_with_visibility_filter(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_get_user_endpoints_with_visibility_filter(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test getting user datasites with visibility filter."""
+        """Test getting user endpoints with visibility filter."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_repo = DatasiteRepository(test_session)
+        endpoint_repo = EndpointRepository(test_session)
 
-        # Create public datasite
-        public_data = sample_datasite_data.copy()
+        # Create public endpoint
+        public_data = sample_endpoint_data.copy()
         public_data["user_id"] = user.id
-        public_data["visibility"] = DatasiteVisibility.PUBLIC.value
+        public_data["visibility"] = EndpointVisibility.PUBLIC.value
         public_data["slug"] = "public-ds"
-        datasite_repo.create(public_data)
+        endpoint_repo.create(public_data)
 
-        # Create private datasite
-        private_data = sample_datasite_data.copy()
+        # Create private endpoint
+        private_data = sample_endpoint_data.copy()
         private_data["user_id"] = user.id
-        private_data["visibility"] = DatasiteVisibility.PRIVATE.value
+        private_data["visibility"] = EndpointVisibility.PRIVATE.value
         private_data["slug"] = "private-ds"
-        datasite_repo.create(private_data)
+        endpoint_repo.create(private_data)
 
         # Test with visibility filter
-        public_only = datasite_repo.get_user_datasites(
-            user.id, visibility=DatasiteVisibility.PUBLIC
+        public_only = endpoint_repo.get_user_endpoints(
+            user.id, visibility=EndpointVisibility.PUBLIC
         )
         assert len(public_only) == 1
-        assert public_only[0].visibility == DatasiteVisibility.PUBLIC
+        assert public_only[0].visibility == EndpointVisibility.PUBLIC
 
-    def test_get_user_datasites_with_search(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_get_user_endpoints_with_search(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test getting user datasites with search query."""
+        """Test getting user endpoints with search query."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_repo = DatasiteRepository(test_session)
+        endpoint_repo = EndpointRepository(test_session)
 
-        # Create datasites with different names
-        ds1 = sample_datasite_data.copy()
+        # Create endpoints with different names
+        ds1 = sample_endpoint_data.copy()
         ds1["user_id"] = user.id
         ds1["name"] = "Machine Learning Project"
         ds1["slug"] = "ml-project"
-        datasite_repo.create(ds1)
+        endpoint_repo.create(ds1)
 
-        ds2 = sample_datasite_data.copy()
+        ds2 = sample_endpoint_data.copy()
         ds2["user_id"] = user.id
         ds2["name"] = "Data Analysis"
         ds2["slug"] = "data-analysis"
-        datasite_repo.create(ds2)
+        endpoint_repo.create(ds2)
 
         # Search for "Machine"
-        results = datasite_repo.get_user_datasites(user.id, search="Machine")
+        results = endpoint_repo.get_user_endpoints(user.id, search="Machine")
         assert len(results) == 1
         assert "Machine" in results[0].name
 
-    def test_get_public_datasites(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_get_public_endpoints(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test getting public datasites with owner username."""
+        """Test getting public endpoints with owner username."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_repo = DatasiteRepository(test_session)
+        endpoint_repo = EndpointRepository(test_session)
 
-        # Create public datasite
-        public_data = sample_datasite_data.copy()
+        # Create public endpoint
+        public_data = sample_endpoint_data.copy()
         public_data["user_id"] = user.id
-        public_data["visibility"] = DatasiteVisibility.PUBLIC.value
+        public_data["visibility"] = EndpointVisibility.PUBLIC.value
         public_data["slug"] = "public-ds"
-        datasite_repo.create(public_data)
+        endpoint_repo.create(public_data)
 
-        # Get public datasites
-        public_datasites = datasite_repo.get_public_datasites()
-        assert len(public_datasites) == 1
-        assert public_datasites[0].owner_username == "testuser"
+        # Get public endpoints
+        public_endpoints = endpoint_repo.get_public_endpoints()
+        assert len(public_endpoints) == 1
+        assert public_endpoints[0].owner_username == "testuser"
 
-    def test_get_trending_datasites(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_get_trending_endpoints(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test getting trending datasites sorted by stars."""
+        """Test getting trending endpoints sorted by stars."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_repo = DatasiteRepository(test_session)
+        endpoint_repo = EndpointRepository(test_session)
 
-        # Create datasites with different star counts
-        ds1 = sample_datasite_data.copy()
+        # Create endpoints with different star counts
+        ds1 = sample_endpoint_data.copy()
         ds1["user_id"] = user.id
         ds1["name"] = "Popular Project"
         ds1["slug"] = "popular"
         ds1["stars_count"] = 100
-        datasite_repo.create(ds1)
+        endpoint_repo.create(ds1)
 
-        ds2 = sample_datasite_data.copy()
+        ds2 = sample_endpoint_data.copy()
         ds2["user_id"] = user.id
         ds2["name"] = "Less Popular"
         ds2["slug"] = "less-popular"
         ds2["stars_count"] = 10
-        datasite_repo.create(ds2)
+        endpoint_repo.create(ds2)
 
         # Get trending (sorted by stars desc)
-        trending = datasite_repo.get_trending_datasites()
+        trending = endpoint_repo.get_trending_endpoints()
         assert len(trending) == 2
         assert trending[0].stars_count >= trending[1].stars_count
 
-    def test_get_trending_datasites_with_min_stars(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_get_trending_endpoints_with_min_stars(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test getting trending datasites with minimum stars filter."""
+        """Test getting trending endpoints with minimum stars filter."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_repo = DatasiteRepository(test_session)
+        endpoint_repo = EndpointRepository(test_session)
 
-        # Create datasites with different star counts
-        ds1 = sample_datasite_data.copy()
+        # Create endpoints with different star counts
+        ds1 = sample_endpoint_data.copy()
         ds1["user_id"] = user.id
         ds1["name"] = "Popular"
         ds1["slug"] = "popular"
         ds1["stars_count"] = 100
-        datasite_repo.create(ds1)
+        endpoint_repo.create(ds1)
 
-        ds2 = sample_datasite_data.copy()
+        ds2 = sample_endpoint_data.copy()
         ds2["user_id"] = user.id
         ds2["name"] = "Unpopular"
         ds2["slug"] = "unpopular"
         ds2["stars_count"] = 5
-        datasite_repo.create(ds2)
+        endpoint_repo.create(ds2)
 
         # Get trending with min_stars filter
-        trending = datasite_repo.get_trending_datasites(min_stars=50)
+        trending = endpoint_repo.get_trending_endpoints(min_stars=50)
         assert len(trending) == 1
         assert trending[0].stars_count >= 50
 
     def test_increment_stars(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
         """Test incrementing stars count."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_repo = DatasiteRepository(test_session)
-        datasite_data = sample_datasite_data.copy()
-        datasite_data["user_id"] = user.id
-        datasite_data["stars_count"] = 5
-        created = datasite_repo.create(datasite_data)
+        endpoint_repo = EndpointRepository(test_session)
+        endpoint_data = sample_endpoint_data.copy()
+        endpoint_data["user_id"] = user.id
+        endpoint_data["stars_count"] = 5
+        created = endpoint_repo.create(endpoint_data)
 
         # Increment stars
-        result = datasite_repo.increment_stars(created.id)
+        result = endpoint_repo.increment_stars(created.id)
         assert result is True
 
         # Verify increment
-        updated = datasite_repo.get_by_id(created.id)
+        updated = endpoint_repo.get_by_id(created.id)
         assert updated.stars_count == 6
 
     def test_increment_stars_not_found(self, test_session: Session):
-        """Test incrementing stars for non-existent datasite."""
-        datasite_repo = DatasiteRepository(test_session)
-        result = datasite_repo.increment_stars(999)
+        """Test incrementing stars for non-existent endpoint."""
+        endpoint_repo = EndpointRepository(test_session)
+        result = endpoint_repo.increment_stars(999)
         assert result is False
 
     def test_decrement_stars(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
         """Test decrementing stars count."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_repo = DatasiteRepository(test_session)
-        datasite_data = sample_datasite_data.copy()
-        datasite_data["user_id"] = user.id
-        datasite_data["stars_count"] = 5
-        created = datasite_repo.create(datasite_data)
+        endpoint_repo = EndpointRepository(test_session)
+        endpoint_data = sample_endpoint_data.copy()
+        endpoint_data["user_id"] = user.id
+        endpoint_data["stars_count"] = 5
+        created = endpoint_repo.create(endpoint_data)
 
         # Decrement stars
-        result = datasite_repo.decrement_stars(created.id)
+        result = endpoint_repo.decrement_stars(created.id)
         assert result is True
 
         # Verify decrement
-        updated = datasite_repo.get_by_id(created.id)
+        updated = endpoint_repo.get_by_id(created.id)
         assert updated.stars_count == 4
 
     def test_decrement_stars_not_found(self, test_session: Session):
-        """Test decrementing stars for non-existent datasite."""
-        datasite_repo = DatasiteRepository(test_session)
-        result = datasite_repo.decrement_stars(999)
+        """Test decrementing stars for non-existent endpoint."""
+        endpoint_repo = EndpointRepository(test_session)
+        result = endpoint_repo.decrement_stars(999)
         assert result is False
 
     def test_decrement_stars_at_zero(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
         """Test decrementing stars when already at zero."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_repo = DatasiteRepository(test_session)
-        datasite_data = sample_datasite_data.copy()
-        datasite_data["user_id"] = user.id
-        datasite_data["stars_count"] = 0
-        created = datasite_repo.create(datasite_data)
+        endpoint_repo = EndpointRepository(test_session)
+        endpoint_data = sample_endpoint_data.copy()
+        endpoint_data["user_id"] = user.id
+        endpoint_data["stars_count"] = 0
+        created = endpoint_repo.create(endpoint_data)
 
         # Decrement should succeed but not go below 0
-        result = datasite_repo.decrement_stars(created.id)
+        result = endpoint_repo.decrement_stars(created.id)
         assert result is True
 
-        updated = datasite_repo.get_by_id(created.id)
+        updated = endpoint_repo.get_by_id(created.id)
         assert updated.stars_count == 0
 
-    def test_soft_delete_datasite(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_soft_delete_endpoint(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test soft deleting a datasite (setting is_active=False)."""
+        """Test soft deleting a endpoint (setting is_active=False)."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_repo = DatasiteRepository(test_session)
-        datasite_data = sample_datasite_data.copy()
-        datasite_data["user_id"] = user.id
-        created = datasite_repo.create(datasite_data)
+        endpoint_repo = EndpointRepository(test_session)
+        endpoint_data = sample_endpoint_data.copy()
+        endpoint_data["user_id"] = user.id
+        created = endpoint_repo.create(endpoint_data)
 
         # Soft delete
-        result = datasite_repo.delete_datasite(created.id)
+        result = endpoint_repo.delete_endpoint(created.id)
         assert result is True
 
         # Should not be found by get_by_id (which filters is_active)
-        found = datasite_repo.get_by_id(created.id)
+        found = endpoint_repo.get_by_id(created.id)
         assert found is None
 
-    def test_soft_delete_datasite_not_found(self, test_session: Session):
-        """Test soft deleting non-existent datasite."""
-        datasite_repo = DatasiteRepository(test_session)
-        result = datasite_repo.delete_datasite(999)
+    def test_soft_delete_endpoint_not_found(self, test_session: Session):
+        """Test soft deleting non-existent endpoint."""
+        endpoint_repo = EndpointRepository(test_session)
+        result = endpoint_repo.delete_endpoint(999)
         assert result is False
 
     def test_get_all_with_filters(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
         """Test get_all with filters."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_repo = DatasiteRepository(test_session)
+        endpoint_repo = EndpointRepository(test_session)
 
-        # Create datasites with different visibilities
-        public_data = sample_datasite_data.copy()
+        # Create endpoints with different visibilities
+        public_data = sample_endpoint_data.copy()
         public_data["user_id"] = user.id
-        public_data["visibility"] = DatasiteVisibility.PUBLIC.value
+        public_data["visibility"] = EndpointVisibility.PUBLIC.value
         public_data["slug"] = "public-ds"
-        datasite_repo.create(public_data)
+        endpoint_repo.create(public_data)
 
-        private_data = sample_datasite_data.copy()
+        private_data = sample_endpoint_data.copy()
         private_data["user_id"] = user.id
-        private_data["visibility"] = DatasiteVisibility.PRIVATE.value
+        private_data["visibility"] = EndpointVisibility.PRIVATE.value
         private_data["slug"] = "private-ds"
-        datasite_repo.create(private_data)
+        endpoint_repo.create(private_data)
 
         # Get all with filter
-        public_only = datasite_repo.get_all(filters={"visibility": "public"})
+        public_only = endpoint_repo.get_all(filters={"visibility": "public"})
         assert len(public_only) == 1
 
-    def test_count_datasites(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_count_endpoints(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test counting datasites."""
+        """Test counting endpoints."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_repo = DatasiteRepository(test_session)
+        endpoint_repo = EndpointRepository(test_session)
 
-        # Create multiple datasites
+        # Create multiple endpoints
         for i in range(5):
-            ds = sample_datasite_data.copy()
+            ds = sample_endpoint_data.copy()
             ds["user_id"] = user.id
-            ds["slug"] = f"datasite-{i}"
-            datasite_repo.create(ds)
+            ds["slug"] = f"endpoint-{i}"
+            endpoint_repo.create(ds)
 
-        count = datasite_repo.count()
+        count = endpoint_repo.count()
         assert count == 5
 
-    def test_count_datasites_with_filter(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_count_endpoints_with_filter(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test counting datasites with filters."""
+        """Test counting endpoints with filters."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_repo = DatasiteRepository(test_session)
+        endpoint_repo = EndpointRepository(test_session)
 
-        # Create public and private datasites
+        # Create public and private endpoints
         for i in range(3):
-            ds = sample_datasite_data.copy()
+            ds = sample_endpoint_data.copy()
             ds["user_id"] = user.id
             ds["slug"] = f"public-{i}"
-            ds["visibility"] = DatasiteVisibility.PUBLIC.value
-            datasite_repo.create(ds)
+            ds["visibility"] = EndpointVisibility.PUBLIC.value
+            endpoint_repo.create(ds)
 
         for i in range(2):
-            ds = sample_datasite_data.copy()
+            ds = sample_endpoint_data.copy()
             ds["user_id"] = user.id
             ds["slug"] = f"private-{i}"
-            ds["visibility"] = DatasiteVisibility.PRIVATE.value
-            datasite_repo.create(ds)
+            ds["visibility"] = EndpointVisibility.PRIVATE.value
+            endpoint_repo.create(ds)
 
-        public_count = datasite_repo.count(filters={"visibility": "public"})
+        public_count = endpoint_repo.count(filters={"visibility": "public"})
         assert public_count == 3
 
 
-class TestDatasiteStarRepository:
-    """Tests for DatasiteStarRepository."""
+class TestEndpointStarRepository:
+    """Tests for EndpointStarRepository."""
 
-    def test_star_datasite(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_star_endpoint(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test starring a datasite."""
+        """Test starring a endpoint."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_repo = DatasiteRepository(test_session)
-        datasite_data = sample_datasite_data.copy()
-        datasite_data["user_id"] = user.id
-        datasite = datasite_repo.create(datasite_data)
+        endpoint_repo = EndpointRepository(test_session)
+        endpoint_data = sample_endpoint_data.copy()
+        endpoint_data["user_id"] = user.id
+        endpoint = endpoint_repo.create(endpoint_data)
 
-        star_repo = DatasiteStarRepository(test_session)
-        result = star_repo.star_datasite(user.id, datasite.id)
+        star_repo = EndpointStarRepository(test_session)
+        result = star_repo.star_endpoint(user.id, endpoint.id)
         assert result is True
 
-    def test_star_datasite_already_starred(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_star_endpoint_already_starred(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test starring a datasite that's already starred."""
+        """Test starring a endpoint that's already starred."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_repo = DatasiteRepository(test_session)
-        datasite_data = sample_datasite_data.copy()
-        datasite_data["user_id"] = user.id
-        datasite = datasite_repo.create(datasite_data)
+        endpoint_repo = EndpointRepository(test_session)
+        endpoint_data = sample_endpoint_data.copy()
+        endpoint_data["user_id"] = user.id
+        endpoint = endpoint_repo.create(endpoint_data)
 
-        star_repo = DatasiteStarRepository(test_session)
-        star_repo.star_datasite(user.id, datasite.id)
+        star_repo = EndpointStarRepository(test_session)
+        star_repo.star_endpoint(user.id, endpoint.id)
 
         # Try to star again
-        result = star_repo.star_datasite(user.id, datasite.id)
+        result = star_repo.star_endpoint(user.id, endpoint.id)
         assert result is False
 
-    def test_unstar_datasite(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_unstar_endpoint(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test unstarring a datasite."""
+        """Test unstarring a endpoint."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_repo = DatasiteRepository(test_session)
-        datasite_data = sample_datasite_data.copy()
-        datasite_data["user_id"] = user.id
-        datasite = datasite_repo.create(datasite_data)
+        endpoint_repo = EndpointRepository(test_session)
+        endpoint_data = sample_endpoint_data.copy()
+        endpoint_data["user_id"] = user.id
+        endpoint = endpoint_repo.create(endpoint_data)
 
-        star_repo = DatasiteStarRepository(test_session)
-        star_repo.star_datasite(user.id, datasite.id)
+        star_repo = EndpointStarRepository(test_session)
+        star_repo.star_endpoint(user.id, endpoint.id)
 
-        result = star_repo.unstar_datasite(user.id, datasite.id)
+        result = star_repo.unstar_endpoint(user.id, endpoint.id)
         assert result is True
 
-    def test_unstar_datasite_not_starred(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_unstar_endpoint_not_starred(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test unstarring a datasite that wasn't starred."""
+        """Test unstarring a endpoint that wasn't starred."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_repo = DatasiteRepository(test_session)
-        datasite_data = sample_datasite_data.copy()
-        datasite_data["user_id"] = user.id
-        datasite = datasite_repo.create(datasite_data)
+        endpoint_repo = EndpointRepository(test_session)
+        endpoint_data = sample_endpoint_data.copy()
+        endpoint_data["user_id"] = user.id
+        endpoint = endpoint_repo.create(endpoint_data)
 
-        star_repo = DatasiteStarRepository(test_session)
-        result = star_repo.unstar_datasite(user.id, datasite.id)
+        star_repo = EndpointStarRepository(test_session)
+        result = star_repo.unstar_endpoint(user.id, endpoint.id)
         assert result is False
 
     def test_is_starred(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test checking if a datasite is starred."""
+        """Test checking if a endpoint is starred."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_repo = DatasiteRepository(test_session)
-        datasite_data = sample_datasite_data.copy()
-        datasite_data["user_id"] = user.id
-        datasite = datasite_repo.create(datasite_data)
+        endpoint_repo = EndpointRepository(test_session)
+        endpoint_data = sample_endpoint_data.copy()
+        endpoint_data["user_id"] = user.id
+        endpoint = endpoint_repo.create(endpoint_data)
 
-        star_repo = DatasiteStarRepository(test_session)
-        assert star_repo.is_starred(user.id, datasite.id) is False
+        star_repo = EndpointStarRepository(test_session)
+        assert star_repo.is_starred(user.id, endpoint.id) is False
 
-        star_repo.star_datasite(user.id, datasite.id)
-        assert star_repo.is_starred(user.id, datasite.id) is True
+        star_repo.star_endpoint(user.id, endpoint.id)
+        assert star_repo.is_starred(user.id, endpoint.id) is True
 
-    def test_get_user_starred_datasites(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_get_user_starred_endpoints(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test getting datasites starred by a user."""
+        """Test getting endpoints starred by a user."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
-        datasite_repo = DatasiteRepository(test_session)
-        star_repo = DatasiteStarRepository(test_session)
+        endpoint_repo = EndpointRepository(test_session)
+        star_repo = EndpointStarRepository(test_session)
 
-        # Create and star multiple datasites
+        # Create and star multiple endpoints
         for i in range(3):
-            ds_data = sample_datasite_data.copy()
+            ds_data = sample_endpoint_data.copy()
             ds_data["user_id"] = user.id
-            ds_data["slug"] = f"datasite-{i}"
-            ds = datasite_repo.create(ds_data)
-            star_repo.star_datasite(user.id, ds.id)
+            ds_data["slug"] = f"endpoint-{i}"
+            ds = endpoint_repo.create(ds_data)
+            star_repo.star_endpoint(user.id, ds.id)
 
-        starred = star_repo.get_user_starred_datasites(user.id)
+        starred = star_repo.get_user_starred_endpoints(user.id)
         assert len(starred) == 3
 
-    def test_get_datasite_stargazers(
-        self, test_session: Session, sample_user_data: dict, sample_datasite_data: dict
+    def test_get_endpoint_stargazers(
+        self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test getting users who starred a datasite."""
+        """Test getting users who starred a endpoint."""
         from tests.test_utils import generate_unique_test_keys
 
         user_repo = UserRepository(test_session)
@@ -898,18 +898,18 @@ class TestDatasiteStarRepository:
         user2_data["public_key"] = generate_unique_test_keys()["public_key"]
         user2 = user_repo.create(user2_data)
 
-        # Create datasite
-        datasite_repo = DatasiteRepository(test_session)
-        ds_data = sample_datasite_data.copy()
+        # Create endpoint
+        endpoint_repo = EndpointRepository(test_session)
+        ds_data = sample_endpoint_data.copy()
         ds_data["user_id"] = user1.id
-        datasite = datasite_repo.create(ds_data)
+        endpoint = endpoint_repo.create(ds_data)
 
-        # Both users star the datasite
-        star_repo = DatasiteStarRepository(test_session)
-        star_repo.star_datasite(user1.id, datasite.id)
-        star_repo.star_datasite(user2.id, datasite.id)
+        # Both users star the endpoint
+        star_repo = EndpointStarRepository(test_session)
+        star_repo.star_endpoint(user1.id, endpoint.id)
+        star_repo.star_endpoint(user2.id, endpoint.id)
 
-        stargazers = star_repo.get_datasite_stargazers(datasite.id)
+        stargazers = star_repo.get_endpoint_stargazers(endpoint.id)
         assert len(stargazers) == 2
 
 

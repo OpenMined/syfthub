@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ datasite.name }} · {{ owner_name }}/{{ datasite.slug }}</title>
+    <title>{{ endpoint.name }} · {{ owner_name }}/{{ endpoint.slug }}</title>
     <style>
         :root {
             /* 8px Grid Spacing System */
@@ -677,18 +677,18 @@
 </head>
 <body>
     <div class="sr-only">
-        <h1>{{ datasite.name }} by {{ owner_name }} - Datasite Information</h1>
+        <h1>{{ endpoint.name }} by {{ owner_name }} - Endpoint Information</h1>
     </div>
     <div class="header">
         <div class="container">
             <div class="header-content">
                 <a href="/{{ owner_slug }}" class="owner-link">{{ owner_name }}</a>
                 <span>/</span>
-                <a href="/{{ owner_slug }}/{{ datasite.slug }}" class="repo-title">{{ datasite.slug }}</a>
-                <span class="visibility-badge {{ datasite.visibility.value }}">{{ datasite.visibility.value }}</span>
+                <a href="/{{ owner_slug }}/{{ endpoint.slug }}" class="repo-title">{{ endpoint.slug }}</a>
+                <span class="visibility-badge {{ endpoint.visibility.value }}">{{ endpoint.visibility.value }}</span>
             </div>
-            {% if datasite.description %}
-            <div class="description">{{ datasite.description }}</div>
+            {% if endpoint.description %}
+            <div class="description">{{ endpoint.description }}</div>
             {% endif %}
         </div>
     </div>
@@ -701,14 +701,14 @@
                         <svg class="stat-icon" fill="currentColor" viewBox="0 0 16 16">
                             <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"/>
                         </svg>
-                        <strong>{{ datasite.stars_count }}</strong> stars
+                        <strong>{{ endpoint.stars_count }}</strong> stars
                     </div>
                     <div class="stat-separator"></div>
                     <div class="stat-item">
                         <svg class="stat-icon" fill="currentColor" viewBox="0 0 16 16">
                             <path d="M2.5 3.5a.5.5 0 0 1 0-1h11a.5.5 0 0 1 0 1h-11ZM2 6.5a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1h-10A.5.5 0 0 1 2 6.5ZM2.5 9.5a.5.5 0 0 1 0-1h8a.5.5 0 0 1 0 1h-8Z"/>
                         </svg>
-                        Version <strong>{{ datasite.version }}</strong>
+                        Version <strong>{{ endpoint.version }}</strong>
                     </div>
                     <div class="stat-separator"></div>
                     <div class="stat-item">
@@ -716,7 +716,7 @@
                             <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16ZM8 1.5a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13Z"/>
                             <path d="M8 4a.5.5 0 0 1 .5.5V6.5h1.5a.5.5 0 0 1 0 1H8.5V9a.5.5 0 0 1-1 0V7.5H6a.5.5 0 0 1 0-1h1.5V4.5A.5.5 0 0 1 8 4Z"/>
                         </svg>
-                        <strong>{{ datasite.contributors|length }}</strong> contributor{{ 's' if datasite.contributors|length != 1 else '' }}
+                        <strong>{{ endpoint.contributors|length }}</strong> contributor{{ 's' if endpoint.contributors|length != 1 else '' }}
                     </div>
                 </div>
 
@@ -733,8 +733,8 @@
             <div class="sidebar">
                 <div class="sidebar-section">
                     <div class="sidebar-title">Connections</div>
-                    {% if datasite.connect %}
-                        {% for connection in datasite.connect %}
+                    {% if endpoint.connect %}
+                        {% for connection in endpoint.connect %}
                         <div class="connection-item">
                             <div class="accordion-header" onclick="toggleAccordion(this)" aria-expanded="false" role="button" tabindex="0"
                                  aria-label="Toggle {{ connection.type }} connection details">
@@ -794,8 +794,8 @@
 
                 <div class="sidebar-section">
                     <div class="sidebar-title">Policies</div>
-                    {% if datasite.policies %}
-                        {% for policy in datasite.policies %}
+                    {% if endpoint.policies %}
+                        {% for policy in endpoint.policies %}
                         <div class="policy-item">
                             <div class="policy-header">
                                 <div class="policy-type">
@@ -950,13 +950,13 @@
             const main = document.querySelector('.main-content');
             if (main) {
                 main.setAttribute('role', 'main');
-                main.setAttribute('aria-label', 'Datasite content');
+                main.setAttribute('aria-label', 'Endpoint content');
             }
 
             const sidebar = document.querySelector('.sidebar');
             if (sidebar) {
                 sidebar.setAttribute('role', 'complementary');
-                sidebar.setAttribute('aria-label', 'Datasite connections and policies');
+                sidebar.setAttribute('aria-label', 'Endpoint connections and policies');
             }
         });
     </script>

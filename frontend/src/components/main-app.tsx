@@ -10,8 +10,8 @@ import { RegisterModal } from './auth/register-modal';
 import { BrowseView } from './browse-view';
 import { BuildView } from './build-view';
 import { ChatView } from './chat-view';
-import { DatasiteDetail } from './datasite-detail';
-import { DatasiteManagement } from './datasite-management';
+import { EndpointDetail } from './endpoint-detail';
+import { EndpointManagement } from './endpoint-management';
 import { Hero } from './hero';
 import { ParticipateView } from './participate-view';
 import { ProfileView } from './profile-view';
@@ -33,28 +33,28 @@ export function MainApp() {
     | 'participate'
     | 'build'
     | 'profile'
-    | 'datasites'
-    | 'datasite-detail'
+    | 'endpoints'
+    | 'endpoint-detail'
   >('home');
-  const [selectedDatasiteSlug, setSelectedDatasiteSlug] = useState<string | null>(null);
-  const [selectedDatasiteOwner, setSelectedDatasiteOwner] = useState<string | null>(null);
+  const [selectedEndpointSlug, setSelectedEndpointSlug] = useState<string | null>(null);
+  const [selectedEndpointOwner, setSelectedEndpointOwner] = useState<string | null>(null);
   const [authMode, setAuthMode] = useState<'login' | 'register' | null>(null);
 
-  // Handle URL routing and GitHub-style datasite URLs
+  // Handle URL routing and GitHub-style endpoint URLs
   useEffect(() => {
     const path = location.pathname;
 
-    // Handle GitHub-style datasite URLs: /:username/:datasite-name
-    const datasiteMatch = /^\/([^/]+)\/([^/]+)$/.exec(path);
-    if (datasiteMatch) {
-      const username = datasiteMatch[1] ?? '';
-      const datasiteName = datasiteMatch[2] ?? '';
-      // Check if this looks like a username/datasite pattern (not a special route)
-      const specialRoutes = ['browse', 'chat', 'participate', 'build', 'profile', 'datasites'];
-      if (username && datasiteName && !specialRoutes.includes(username)) {
-        setSelectedDatasiteOwner(username);
-        setSelectedDatasiteSlug(datasiteName);
-        setView('datasite-detail');
+    // Handle GitHub-style endpoint URLs: /:username/:endpoint-name
+    const endpointMatch = /^\/([^/]+)\/([^/]+)$/.exec(path);
+    if (endpointMatch) {
+      const username = endpointMatch[1] ?? '';
+      const endpointName = endpointMatch[2] ?? '';
+      // Check if this looks like a username/endpoint pattern (not a special route)
+      const specialRoutes = ['browse', 'chat', 'participate', 'build', 'profile', 'endpoints'];
+      if (username && endpointName && !specialRoutes.includes(username)) {
+        setSelectedEndpointOwner(username);
+        setSelectedEndpointSlug(endpointName);
+        setView('endpoint-detail');
         return;
       }
     }
@@ -91,8 +91,8 @@ export function MainApp() {
 
         break;
       }
-      case '/datasites': {
-        setView('datasites');
+      case '/endpoints': {
+        setView('endpoints');
 
         break;
       }
@@ -121,7 +121,7 @@ export function MainApp() {
   };
 
   const handleNavigate = (
-    target: 'home' | 'browse' | 'participate' | 'build' | 'profile' | 'datasites'
+    target: 'home' | 'browse' | 'participate' | 'build' | 'profile' | 'endpoints'
   ) => {
     if (target === 'browse') {
       setSearchQuery('');
@@ -131,13 +131,13 @@ export function MainApp() {
     const targetPath = target === 'home' ? '/' : `/${target}`;
     navigate(targetPath);
 
-    // Clear datasite selections when navigating away
-    setSelectedDatasiteSlug(null);
-    setSelectedDatasiteOwner(null);
+    // Clear endpoint selections when navigating away
+    setSelectedEndpointSlug(null);
+    setSelectedEndpointOwner(null);
   };
 
-  const handleViewDatasite = (slug: string, owner = 'anonymous') => {
-    // Navigate to GitHub-style URL: /username/datasite-name
+  const handleViewEndpoint = (slug: string, owner = 'anonymous') => {
+    // Navigate to GitHub-style URL: /username/endpoint-name
     navigate(`/${owner}/${slug}`);
   };
 
@@ -166,7 +166,7 @@ export function MainApp() {
     <div className='bg-background min-h-screen'>
       <Sidebar
         activeView={
-          view === 'chat' || view === 'profile' || view === 'datasite-detail' ? 'home' : view
+          view === 'chat' || view === 'profile' || view === 'endpoint-detail' ? 'home' : view
         }
         onNavigate={handleNavigate}
         onAuthRequired={user ? undefined : openLoginModal}
@@ -231,7 +231,7 @@ export function MainApp() {
           <BrowseView
             initialQuery={searchQuery}
             onAuthRequired={user ? undefined : openLoginModal}
-            onViewDatasite={handleViewDatasite}
+            onViewEndpoint={handleViewEndpoint}
           />
         )}
 
@@ -245,12 +245,12 @@ export function MainApp() {
 
         {view === 'profile' && <ProfileView />}
 
-        {view === 'datasites' && <DatasiteManagement />}
+        {view === 'endpoints' && <EndpointManagement />}
 
-        {view === 'datasite-detail' && selectedDatasiteSlug && (
-          <DatasiteDetail
-            slug={selectedDatasiteSlug}
-            owner={selectedDatasiteOwner}
+        {view === 'endpoint-detail' && selectedEndpointSlug && (
+          <EndpointDetail
+            slug={selectedEndpointSlug}
+            owner={selectedEndpointOwner}
             onBack={() => navigate('/browse')}
           />
         )}

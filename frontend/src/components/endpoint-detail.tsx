@@ -19,34 +19,34 @@ import {
   Users
 } from 'lucide-react';
 
-import { getPublicDatasites } from '@/lib/datasite-api';
+import { getPublicEndpoints } from '@/lib/endpoint-api';
 
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 
-interface DatasiteDetailProperties {
+interface EndpointDetailProperties {
   slug: string;
   owner?: string | null;
   onBack: () => void;
 }
 
-export function DatasiteDetail({ slug, owner, onBack }: Readonly<DatasiteDetailProperties>) {
-  const [datasite, setDatasite] = useState<ChatSource | null>(null);
+export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailProperties>) {
+  const [endpoint, setEndpoint] = useState<ChatSource | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    const loadDatasite = async () => {
+    const loadEndpoint = async () => {
       try {
         setIsLoading(true);
         setError(null);
 
-        // Since we don't have a direct endpoint for getting a single public datasite by slug,
-        // we'll fetch all public datasites and find the one with the matching slug and owner
-        // In a real implementation, you'd want a dedicated endpoint like /api/v1/datasites/public/{owner}/{slug}
-        const datasites = await getPublicDatasites({ limit: 100 });
-        let foundDatasite = datasites.find((ds) => {
+        // Since we don't have a direct endpoint for getting a single public endpoint by slug,
+        // we'll fetch all public endpoints and find the one with the matching slug and owner
+        // In a real implementation, you'd want a dedicated endpoint like /api/v1/endpoints/public/{owner}/{slug}
+        const endpoints = await getPublicEndpoints({ limit: 100 });
+        let foundEndpoint = endpoints.find((ds) => {
           // Match by slug and owner if both are provided
           if (owner && ds.owner_username) {
             return ds.slug === slug && ds.owner_username === owner;
@@ -56,30 +56,30 @@ export function DatasiteDetail({ slug, owner, onBack }: Readonly<DatasiteDetailP
         });
 
         // Set the full path for display
-        if (foundDatasite) {
-          foundDatasite = {
-            ...foundDatasite,
-            full_path: `${foundDatasite.owner_username || owner || 'anonymous'}/${slug}`
+        if (foundEndpoint) {
+          foundEndpoint = {
+            ...foundEndpoint,
+            full_path: `${foundEndpoint.owner_username || owner || 'anonymous'}/${slug}`
           };
         }
 
-        if (foundDatasite) {
-          setDatasite(foundDatasite);
+        if (foundEndpoint) {
+          setEndpoint(foundEndpoint);
         } else {
-          setError('Datasite not found');
+          setError('Endpoint not found');
         }
       } catch (error_) {
-        setError(error_ instanceof Error ? error_.message : 'Failed to load datasite');
+        setError(error_ instanceof Error ? error_.message : 'Failed to load endpoint');
       } finally {
         setIsLoading(false);
       }
     };
 
-    loadDatasite();
+    loadEndpoint();
   }, [slug, owner]);
 
   const handleCopySlug = () => {
-    const fullPath = datasite?.full_path || `${datasite?.owner_username || 'anonymous'}/${slug}`;
+    const fullPath = endpoint?.full_path || `${endpoint?.owner_username || 'anonymous'}/${slug}`;
     navigator.clipboard.writeText(fullPath);
     setCopied(true);
     setTimeout(() => {
@@ -110,14 +110,14 @@ export function DatasiteDetail({ slug, owner, onBack }: Readonly<DatasiteDetailP
         <div className='flex items-center justify-center py-12'>
           <div className='flex items-center gap-3 text-gray-600'>
             <div className='h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600'></div>
-            <span>Loading datasite...</span>
+            <span>Loading endpoint...</span>
           </div>
         </div>
       </div>
     );
   }
 
-  if (error || !datasite) {
+  if (error || !endpoint) {
     return (
       <div className='min-h-screen bg-gray-50 p-8'>
         <div className='mx-auto max-w-4xl'>
@@ -127,9 +127,9 @@ export function DatasiteDetail({ slug, owner, onBack }: Readonly<DatasiteDetailP
           </Button>
           <div className='py-12 text-center'>
             <h2 className='mb-2 text-xl font-semibold text-gray-900'>
-              {error || 'Datasite not found'}
+              {error || 'Endpoint not found'}
             </h2>
-            <p className='text-gray-600'>The datasite with slug "{slug}" could not be found.</p>
+            <p className='text-gray-600'>The endpoint with slug "{slug}" could not be found.</p>
           </div>
         </div>
       </div>
@@ -147,40 +147,40 @@ export function DatasiteDetail({ slug, owner, onBack }: Readonly<DatasiteDetailP
             className='mb-4 flex items-center gap-2 text-gray-600 hover:text-gray-900'
           >
             <ArrowLeft className='h-4 w-4' />
-            Back to datasites
+            Back to endpoints
           </Button>
 
           <div className='flex items-start justify-between'>
             <div>
-              <h1 className='mb-2 text-3xl font-bold text-gray-900'>{datasite.name}</h1>
-              <p className='mb-4 text-lg text-gray-600'>{datasite.description}</p>
+              <h1 className='mb-2 text-3xl font-bold text-gray-900'>{endpoint.name}</h1>
+              <p className='mb-4 text-lg text-gray-600'>{endpoint.description}</p>
 
               {/* Badges */}
               <div className='mb-4 flex flex-wrap gap-2'>
-                <Badge className={getStatusBadgeColor(datasite.status)}>
-                  {datasite.status === 'active' && '● Active'}
-                  {datasite.status === 'warning' && '● Needs Update'}
-                  {datasite.status === 'inactive' && '● Inactive'}
+                <Badge className={getStatusBadgeColor(endpoint.status)}>
+                  {endpoint.status === 'active' && '● Active'}
+                  {endpoint.status === 'warning' && '● Needs Update'}
+                  {endpoint.status === 'inactive' && '● Inactive'}
                 </Badge>
                 <Badge variant='outline'>
-                  <Package className='mr-1 h-3 w-3' />v{datasite.version}
+                  <Package className='mr-1 h-3 w-3' />v{endpoint.version}
                 </Badge>
-                {datasite.stars_count > 0 && (
+                {endpoint.stars_count > 0 && (
                   <Badge variant='outline' className='border-yellow-200 text-yellow-600'>
                     <Star className='mr-1 h-3 w-3' />
-                    {datasite.stars_count}
+                    {endpoint.stars_count}
                   </Badge>
                 )}
                 <Badge variant='outline'>
                   <Calendar className='mr-1 h-3 w-3' />
-                  Updated {datasite.updated}
+                  Updated {endpoint.updated}
                 </Badge>
               </div>
 
               {/* Full path with copy */}
               <div className='flex items-center gap-2'>
                 <code className='rounded bg-gray-100 px-2 py-1 font-mono text-sm text-gray-700'>
-                  {datasite.full_path || `${datasite.owner_username || 'anonymous'}/${slug}`}
+                  {endpoint.full_path || `${endpoint.owner_username || 'anonymous'}/${slug}`}
                 </code>
                 <Button variant='ghost' size='sm' onClick={handleCopySlug} className='h-7 w-7 p-0'>
                   {copied ? (
@@ -204,7 +204,7 @@ export function DatasiteDetail({ slug, owner, onBack }: Readonly<DatasiteDetailP
               </Button>
               <Button className='flex items-center gap-2'>
                 <Download className='h-4 w-4' />
-                Use Datasite
+                Use Endpoint
               </Button>
             </div>
           </div>
@@ -221,13 +221,13 @@ export function DatasiteDetail({ slug, owner, onBack }: Readonly<DatasiteDetailP
               <h2 className='mb-4 text-xl font-semibold text-gray-900'>Documentation</h2>
               <div className='prose prose-sm max-w-none text-gray-600'>
                 <p>
-                  This datasite provides access to structured data that can be used for analysis,
+                  This endpoint provides access to structured data that can be used for analysis,
                   machine learning, or application development.
                 </p>
                 <h3 className='mt-4 mb-2 text-lg font-medium text-gray-900'>Usage</h3>
-                <p>To use this datasite in your project:</p>
+                <p>To use this endpoint in your project:</p>
                 <pre className='rounded bg-gray-50 p-3 text-xs'>
-                  <code>{`from syfthub import Datasite\n\nds = Datasite("${datasite?.full_path || `${datasite?.owner_username || 'anonymous'}/${slug}`}")\ndata = ds.fetch()`}</code>
+                  <code>{`from syfthub import Endpoint\n\nds = Endpoint("${endpoint?.full_path || `${endpoint?.owner_username || 'anonymous'}/${slug}`}")\ndata = ds.fetch()`}</code>
                 </pre>
                 <h3 className='mt-4 mb-2 text-lg font-medium text-gray-900'>Features</h3>
                 <ul className='list-disc space-y-1 pl-5'>
@@ -249,7 +249,7 @@ export function DatasiteDetail({ slug, owner, onBack }: Readonly<DatasiteDetailP
                     <div>
                       <h3 className='text-sm font-medium text-blue-900'>Public Access</h3>
                       <p className='mt-1 text-xs text-blue-700'>
-                        This datasite is publicly accessible. No authentication required for read
+                        This endpoint is publicly accessible. No authentication required for read
                         operations.
                       </p>
                     </div>
@@ -270,14 +270,14 @@ export function DatasiteDetail({ slug, owner, onBack }: Readonly<DatasiteDetailP
                   <div className='flex items-center gap-2'>
                     <div className='h-6 w-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600'></div>
                     <span className='text-sm font-medium text-gray-900'>
-                      @{datasite.owner_username || 'anonymous'}
+                      @{endpoint.owner_username || 'anonymous'}
                     </span>
                   </div>
                 </div>
 
                 <div>
                   <p className='mb-1 text-xs text-gray-500'>Category</p>
-                  <Badge variant='outline'>{datasite.tag}</Badge>
+                  <Badge variant='outline'>{endpoint.tag}</Badge>
                 </div>
 
                 <div>
@@ -285,8 +285,8 @@ export function DatasiteDetail({ slug, owner, onBack }: Readonly<DatasiteDetailP
                   <div className='flex items-center gap-1'>
                     <Users className='h-4 w-4 text-gray-400' />
                     <span className='text-sm text-gray-900'>
-                      {datasite.contributors?.length || 1} contributor
-                      {(datasite.contributors?.length || 1) === 1 ? '' : 's'}
+                      {endpoint.contributors?.length || 1} contributor
+                      {(endpoint.contributors?.length || 1) === 1 ? '' : 's'}
                     </span>
                   </div>
                 </div>
@@ -303,7 +303,7 @@ export function DatasiteDetail({ slug, owner, onBack }: Readonly<DatasiteDetailP
                 </Button>
                 <Button variant='outline' className='w-full justify-start' size='sm'>
                   <Share2 className='mr-2 h-4 w-4' />
-                  Share Datasite
+                  Share Endpoint
                 </Button>
                 <Button variant='outline' className='w-full justify-start' size='sm'>
                   <Download className='mr-2 h-4 w-4' />
@@ -317,7 +317,7 @@ export function DatasiteDetail({ slug, owner, onBack }: Readonly<DatasiteDetailP
               <h3 className='mb-4 text-sm font-semibold text-gray-900'>Statistics</h3>
               <div className='grid grid-cols-2 gap-4'>
                 <div>
-                  <p className='text-2xl font-bold text-gray-900'>{datasite.stars_count}</p>
+                  <p className='text-2xl font-bold text-gray-900'>{endpoint.stars_count}</p>
                   <p className='text-xs text-gray-500'>Stars</p>
                 </div>
                 <div>
