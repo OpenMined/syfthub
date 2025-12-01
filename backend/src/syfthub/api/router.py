@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from syfthub.api.endpoints import endpoints, organizations, users
+from syfthub.api.endpoints import endpoints, organizations, token, users
 from syfthub.auth import router as auth_router
 
 api_router = APIRouter()
@@ -14,3 +14,6 @@ api_router.include_router(endpoints.router, prefix="/endpoints", tags=["endpoint
 api_router.include_router(
     organizations.router, prefix="/organizations", tags=["organizations"]
 )
+
+# Identity Provider (IdP) endpoints
+api_router.include_router(token.router, tags=["identity-provider"])

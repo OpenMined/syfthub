@@ -8,12 +8,13 @@ from typing import Annotated, Optional, Union
 import markdown
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from syfthub import __version__
 from syfthub.api.router import api_router
 from syfthub.auth.db_dependencies import get_optional_current_user
+from syfthub.auth.keys import key_manager
 from syfthub.core.config import settings
 from syfthub.database.connection import create_tables
 from syfthub.database.dependencies import (
@@ -180,10 +181,30 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
 
     logger = logging.getLogger(__name__)
     logger.info(f"Starting Syfthub API v{__version__}")
+
+    # Initialize database
     logger.info("Initializing database...")
     create_tables()
     logger.info("Database initialized successfully.")
+
+    # Initialize RSA Key Manager for Identity Provider
+    logger.info("Initializing RSA Key Manager for Identity Provider...")
+    try:
+        key_manager.initialize()
+        if key_manager.is_configured:
+            logger.info(
+                f"RSA keys loaded successfully. Key ID: {key_manager.current_key_id}"
+            )
+        else:
+            logger.warning(
+                "RSA keys not configured. Satellite token endpoints will be unavailable."
+            )
+    except Exception as e:
+        logger.error(f"Failed to initialize RSA Key Manager: {e}")
+        logger.warning("Satellite token endpoints will be unavailable.")
+
     yield
+
     # Shutdown
     logger.info("Shutting down Syfthub API")
 
@@ -224,6 +245,45 @@ async def root() -> dict[str, str]:
 async def health_check() -> dict[str, str]:
     """Health check endpoint."""
     return {"status": "healthy", "version": __version__}
+
+
+# ===========================================
+# IDENTITY PROVIDER (IdP) ENDPOINTS
+# ===========================================
+
+
+@app.get("/.well-known/jwks.json")
+async def get_jwks() -> JSONResponse:
+    """Get JSON Web Key Set (JWKS) for token verification.
+
+    This endpoint exposes the Hub's public RSA keys in standard JWKS format.
+    Satellite services (like SyftAI Space) fetch and cache these keys to
+    verify tokens locally without calling the Hub for every request.
+
+    No authentication required (FR-01).
+
+    Returns:
+        JSONResponse: JWKS containing public keys with Cache-Control headers
+
+    Raises:
+        HTTPException: 503 if keys are not configured
+    """
+    if not key_manager.is_configured:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Identity Provider not configured. RSA keys are unavailable.",
+        )
+
+    jwks = key_manager.get_jwks()
+
+    # Return with cache headers for satellite services
+    return JSONResponse(
+        content=jwks,
+        headers={
+            "Cache-Control": "public, max-age=3600",  # Cache for 1 hour
+            "Content-Type": "application/json",
+        },
+    )
 
 
 # Special routes for GitHub-like URLs (must be last to avoid conflicts)

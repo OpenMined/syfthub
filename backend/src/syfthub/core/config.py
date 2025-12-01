@@ -1,7 +1,7 @@
 """Application configuration."""
 
 from functools import lru_cache
-from typing import Any
+from typing import Any, Optional, Set
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -73,6 +73,81 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
+
+    # ===========================================
+    # IDENTITY PROVIDER (IdP) SETTINGS
+    # ===========================================
+
+    # Issuer URL for JWT 'iss' claim
+    issuer_url: str = "https://hub.syft.com"
+
+    # RSA Key Configuration - Keys can be provided via:
+    # 1. Base64-encoded PEM strings (environment variables)
+    # 2. File paths to PEM files
+    # 3. Auto-generation in development mode
+    rsa_private_key_pem: Optional[str] = Field(
+        default=None,
+        description="Base64-encoded RSA private key PEM",
+    )
+    rsa_public_key_pem: Optional[str] = Field(
+        default=None,
+        description="Base64-encoded RSA public key PEM",
+    )
+    rsa_private_key_path: Optional[str] = Field(
+        default=None,
+        description="Path to RSA private key PEM file",
+    )
+    rsa_public_key_path: Optional[str] = Field(
+        default=None,
+        description="Path to RSA public key PEM file",
+    )
+    rsa_key_id: str = Field(
+        default="hub-key-1",
+        description="Key ID for JWKS (kid claim)",
+    )
+    rsa_key_size: int = Field(
+        default=2048,
+        description="RSA key size in bits for auto-generation",
+    )
+
+    # Satellite Token Settings
+    satellite_token_expire_seconds: int = Field(
+        default=60,
+        description="Satellite token lifetime in seconds (short-lived)",
+    )
+
+    # Audience Allowlist - comma-separated list of allowed service identifiers
+    allowed_audiences_str: str = Field(
+        default="syftai-space",
+        alias="allowed_audiences",
+        description="Comma-separated list of allowed audience identifiers",
+    )
+
+    @field_validator("allowed_audiences_str", mode="before")
+    @classmethod
+    def validate_allowed_audiences(cls, v: Any) -> str:
+        """Validate allowed audiences environment variable."""
+        if v is None or v == "":
+            return "syftai-space"
+        return str(v)
+
+    @property
+    def allowed_audiences(self) -> Set[str]:
+        """Get parsed allowed audiences as a set."""
+        if not self.allowed_audiences_str or self.allowed_audiences_str.strip() == "":
+            return {"syftai-space"}
+
+        return {
+            aud.strip().lower()
+            for aud in self.allowed_audiences_str.split(",")
+            if aud.strip()
+        }
+
+    # Development Mode - auto-generate RSA keys if not provided
+    auto_generate_rsa_keys: bool = Field(
+        default=True,
+        description="Auto-generate RSA keys if not provided (dev mode only)",
+    )
 
 
 @lru_cache
