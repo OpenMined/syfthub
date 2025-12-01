@@ -36,10 +36,8 @@ class User(UserBase):
     age: Optional[int] = Field(None, ge=0, le=150, description="User's age")
     role: UserRole = Field(default=UserRole.USER, description="User role")
     password_hash: str = Field(..., description="Hashed password")
-    public_key: str = Field(..., description="Base64 encoded Ed25519 public key")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    key_created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     model_config = {"from_attributes": True}
 

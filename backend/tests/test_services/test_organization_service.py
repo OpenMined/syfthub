@@ -46,9 +46,7 @@ def sample_user():
         is_active=True,
         created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
         updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
-        key_created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
         age=25,
-        public_key="public_key",
         password_hash="hashed_pass",
     )
 
@@ -65,9 +63,7 @@ def admin_user():
         is_active=True,
         created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
         updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
-        key_created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
         age=30,
-        public_key="admin_public_key",
         password_hash="admin_hashed_pass",
     )
 

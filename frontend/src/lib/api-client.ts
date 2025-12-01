@@ -269,16 +269,14 @@ export const API_CONFIG = {
       LOGOUT: '/auth/logout',
       REFRESH: '/auth/refresh',
       ME: '/auth/me',
-      CHANGE_PASSWORD: '/auth/me/password',
-      REGENERATE_KEYS: '/auth/regenerate-keys'
+      CHANGE_PASSWORD: '/auth/me/password'
     },
     USERS: {
       LIST: '/users',
       ME: '/users/me',
       BY_ID: (id: number) => `/users/${String(id)}`,
       DEACTIVATE: (id: number) => `/users/${String(id)}/deactivate`,
-      ACTIVATE: (id: number) => `/users/${String(id)}/activate`,
-      VERIFY_SIGNATURE: '/users/verify-signature'
+      ACTIVATE: (id: number) => `/users/${String(id)}/activate`
     },
     ENDPOINTS: {
       LIST: '/endpoints',

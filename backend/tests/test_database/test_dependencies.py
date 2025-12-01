@@ -111,11 +111,9 @@ class TestAuthenticationDependencies:
                 "age": mock_user.age,
                 "role": mock_user.role.value,
                 "password_hash": mock_user.password_hash,
-                "public_key": mock_user.public_key,
                 "is_active": mock_user.is_active,
                 "created_at": mock_user.created_at,
                 "updated_at": mock_user.updated_at,
-                "key_created_at": mock_user.key_created_at,
             }
             created_user = user_repo.create(user_data)
 
@@ -212,11 +210,9 @@ class TestAuthenticationDependencies:
                 "age": mock_user.age,
                 "role": mock_user.role.value,
                 "password_hash": mock_user.password_hash,
-                "public_key": mock_user.public_key,
                 "is_active": mock_user.is_active,
                 "created_at": mock_user.created_at,
                 "updated_at": mock_user.updated_at,
-                "key_created_at": mock_user.key_created_at,
             }
             created_user = user_repo.create(user_data)
 

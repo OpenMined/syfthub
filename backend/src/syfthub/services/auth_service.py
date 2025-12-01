@@ -2,23 +2,19 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 from fastapi import HTTPException, status
 
 from syfthub.auth.security import (
     create_access_token,
     create_refresh_token,
-    generate_ed25519_key_pair,
     hash_password,
     verify_password,
 )
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import (
     AuthResponse,
-    Ed25519KeyPair,
-    KeyRegenerationRequest,
-    KeyRegenerationResponse,
     RefreshTokenRequest,
     RegistrationResponse,
     Token,
@@ -71,16 +67,6 @@ class AuthService(BaseService):
         # Generate password hash
         password_hash = hash_password(register_data.password)
 
-        # Handle public key: use provided one or generate new key pair
-        key_pair = None
-        if register_data.public_key:
-            # User provided their own public key
-            public_key_to_store = register_data.public_key
-        else:
-            # Generate Ed25519 key pair for the user
-            key_pair = generate_ed25519_key_pair()
-            public_key_to_store = key_pair.public_key
-
         # Create user data
         user_data = UserCreate(
             username=register_data.username,
@@ -94,7 +80,6 @@ class AuthService(BaseService):
         user = self.user_repository.create_user(
             user_data=user_data,
             password_hash=password_hash,
-            public_key=public_key_to_store,
         )
 
         if not user:
@@ -111,9 +96,8 @@ class AuthService(BaseService):
             data={"sub": str(user.id), "username": user.username}
         )
 
-        # Build response
-        response_data: dict[str, Any] = {
-            "user": {
+        return RegistrationResponse(
+            user={
                 "id": user.id,
                 "username": user.username,
                 "email": user.email,
@@ -122,19 +106,10 @@ class AuthService(BaseService):
                 "is_active": user.is_active,
                 "created_at": user.created_at.isoformat(),
             },
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "token_type": "bearer",
-        }
-
-        # Only include keys if we generated them
-        if key_pair:
-            response_data["keys"] = Ed25519KeyPair(
-                private_key=key_pair.private_key,
-                public_key=key_pair.public_key,
-            )
-
-        return RegistrationResponse(**response_data)
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_type="bearer",
+        )
 
     def login_user(self, login_data: UserLogin) -> AuthResponse:
         """Authenticate user and return tokens."""
@@ -246,22 +221,6 @@ class AuthService(BaseService):
             token_type="bearer",
         )
 
-    def verify_ed25519_signature(
-        self, username: str, signature: str, message: str
-    ) -> Optional[User]:
-        """Verify Ed25519 signature and return user if valid."""
-        from syfthub.auth.security import verify_ed25519_signature as verify_sig
-
-        user = self.user_repository.get_by_username(username)
-        if not user or not user.is_active:
-            return None
-
-        # Verify the signature
-        if verify_sig(message.encode("utf-8"), signature, user.public_key):
-            return user
-
-        return None
-
     def get_user_by_username(self, username: str) -> Optional[User]:
         """Get user by username."""
         return self.user_repository.get_by_username(username)
@@ -320,38 +279,3 @@ class AuthService(BaseService):
         # Hash new password and update
         new_password_hash = hash_password(new_password)
         self.user_repository.update_password(current_user.id, new_password_hash)
-
-    def regenerate_keys(
-        self, current_user: User, request: Optional[KeyRegenerationRequest] = None
-    ) -> KeyRegenerationResponse:
-        """Regenerate or update Ed25519 key for user.
-
-        If a public_key is provided in the request, it will be used.
-        Otherwise, a new key pair will be generated.
-        """
-        key_pair = None
-
-        if request and request.public_key:
-            # User provided their own public key
-            public_key_to_store = request.public_key
-            message = "Public key updated successfully. Your previous public key has been replaced."
-        else:
-            # Generate new key pair
-            key_pair = generate_ed25519_key_pair()
-            public_key_to_store = key_pair.public_key
-            message = "New key pair generated successfully. Your previous public key has been replaced."
-
-        # Update user's public key in database
-        self.user_repository.update_public_key(current_user.id, public_key_to_store)
-
-        # Build response
-        response_data: dict[str, Any] = {"message": message}
-
-        # Only include keys if we generated them
-        if key_pair:
-            response_data["keys"] = Ed25519KeyPair(
-                private_key=key_pair.private_key,
-                public_key=key_pair.public_key,
-            )
-
-        return KeyRegenerationResponse(**response_data)

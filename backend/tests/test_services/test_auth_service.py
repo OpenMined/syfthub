@@ -62,9 +62,6 @@ class TestAuthServiceRegistration:
                 return_value="hashed_pass",
             ),
             patch(
-                "syfthub.services.auth_service.generate_ed25519_key_pair"
-            ) as mock_keygen,
-            patch(
                 "syfthub.services.auth_service.create_access_token",
                 return_value="access_token",
             ),
@@ -83,20 +80,10 @@ class TestAuthServiceRegistration:
                 is_active=True,
                 created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
                 updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
-                key_created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
                 age=25,
-                public_key="public_key",
                 password_hash="hashed_pass",
             )
             mock_create.return_value = mock_user
-
-            # Mock key pair - import Ed25519KeyPair at the top if needed
-            from syfthub.schemas.auth import Ed25519KeyPair
-
-            mock_key_pair = Ed25519KeyPair(
-                public_key="public_key", private_key="private_key"
-            )
-            mock_keygen.return_value = mock_key_pair
 
             result = auth_service.register_user(sample_user_register)
 
@@ -105,7 +92,6 @@ class TestAuthServiceRegistration:
             assert result.token_type == "bearer"
             assert result.user["id"] == 1
             assert result.user["username"] == "testuser"
-            assert result.keys == mock_key_pair
 
     def test_register_user_duplicate_username(self, auth_service, sample_user_register):
         """Test registration with existing username fails."""
@@ -150,7 +136,6 @@ class TestAuthServiceRegistration:
                 "syfthub.services.auth_service.hash_password",
                 return_value="hashed_pass",
             ),
-            patch("syfthub.services.auth_service.generate_ed25519_key_pair"),
         ):
             with pytest.raises(HTTPException) as exc_info:
                 auth_service.register_user(sample_user_register)
@@ -190,9 +175,7 @@ class TestAuthServiceLogin:
                 is_active=True,
                 created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
                 updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
-                key_created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
                 age=25,
-                public_key="public_key",
                 password_hash="hashed_pass",
             )
             mock_get_user.return_value = mock_user
@@ -229,9 +212,7 @@ class TestAuthServiceLogin:
                 is_active=True,
                 created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
                 updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
-                key_created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
                 age=25,
-                public_key="public_key",
                 password_hash="hashed_pass",
             )
             mock_get_user.return_value = mock_user
@@ -269,7 +250,6 @@ class TestAuthServiceLogin:
                 is_active=True,
                 created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
                 age=25,
-                public_key="public_key",
                 password_hash="hashed_pass",
             )
             mock_get_user.return_value = mock_user
@@ -297,9 +277,7 @@ class TestAuthServiceLogin:
                 is_active=False,
                 created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
                 updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
-                key_created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
                 age=25,
-                public_key="public_key",
                 password_hash="hashed_pass",
             )
             mock_get_user.return_value = mock_user
@@ -343,9 +321,7 @@ class TestAuthServiceRefreshTokens:
                 is_active=True,
                 created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
                 updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
-                key_created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
                 age=25,
-                public_key="public_key",
                 password_hash="hashed_pass",
             )
             mock_get_user.return_value = mock_user
@@ -413,108 +389,6 @@ class TestAuthServiceRefreshTokens:
             assert "User not found or inactive" in str(exc_info.value.detail)
 
 
-class TestAuthServiceSignatureVerification:
-    """Test Ed25519 signature verification."""
-
-    def test_verify_ed25519_signature_success(self, auth_service):
-        """Test successful signature verification."""
-        with (
-            patch.object(
-                auth_service.user_repository, "get_by_username"
-            ) as mock_get_user,
-            patch("syfthub.auth.security.verify_ed25519_signature", return_value=True),
-        ):
-            mock_user = User(
-                id=1,
-                username="testuser",
-                email="test@example.com",
-                full_name="Test User",
-                role="user",
-                is_active=True,
-                created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
-                updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
-                key_created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
-                age=25,
-                public_key="valid_public_key",
-                password_hash="hashed_pass",
-            )
-            mock_get_user.return_value = mock_user
-
-            result = auth_service.verify_ed25519_signature(
-                "testuser", "signature", "message"
-            )
-
-            assert result == mock_user
-
-    def test_verify_ed25519_signature_user_not_found(self, auth_service):
-        """Test signature verification with non-existent user."""
-        with patch.object(
-            auth_service.user_repository, "get_by_username", return_value=None
-        ):
-            result = auth_service.verify_ed25519_signature(
-                "nonexistent", "signature", "message"
-            )
-
-            assert result is None
-
-    def test_verify_ed25519_signature_user_inactive(self, auth_service):
-        """Test signature verification with inactive user."""
-        with patch.object(
-            auth_service.user_repository, "get_by_username"
-        ) as mock_get_user:
-            mock_user = User(
-                id=1,
-                username="testuser",
-                email="test@example.com",
-                full_name="Test User",
-                role="user",
-                is_active=False,
-                created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
-                updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
-                key_created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
-                age=25,
-                public_key="public_key",
-                password_hash="hashed_pass",
-            )
-            mock_get_user.return_value = mock_user
-
-            result = auth_service.verify_ed25519_signature(
-                "testuser", "signature", "message"
-            )
-
-            assert result is None
-
-    def test_verify_ed25519_signature_invalid_signature(self, auth_service):
-        """Test signature verification with invalid signature."""
-        with (
-            patch.object(
-                auth_service.user_repository, "get_by_username"
-            ) as mock_get_user,
-            patch("syfthub.auth.security.verify_ed25519_signature", return_value=False),
-        ):
-            mock_user = User(
-                id=1,
-                username="testuser",
-                email="test@example.com",
-                full_name="Test User",
-                role="user",
-                is_active=True,
-                created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
-                updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
-                key_created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
-                age=25,
-                public_key="valid_public_key",
-                password_hash="hashed_pass",
-            )
-            mock_get_user.return_value = mock_user
-
-            result = auth_service.verify_ed25519_signature(
-                "testuser", "bad_signature", "message"
-            )
-
-            assert result is None
-
-
 class TestAuthServiceGetters:
     """Test getter methods."""
 
@@ -530,9 +404,7 @@ class TestAuthServiceGetters:
                 is_active=True,
                 created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
                 updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
-                key_created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
                 age=25,
-                public_key="public_key",
                 password_hash="hashed_pass",
             )
             mock_get.return_value = mock_user
@@ -554,9 +426,7 @@ class TestAuthServiceGetters:
                 is_active=True,
                 created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
                 updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
-                key_created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
                 age=25,
-                public_key="public_key",
                 password_hash="hashed_pass",
             )
             mock_get.return_value = mock_user
@@ -578,9 +448,7 @@ class TestAuthServiceGetters:
                 is_active=True,
                 created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
                 updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
-                key_created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
                 age=25,
-                public_key="public_key",
                 password_hash="hashed_pass",
             )
             mock_get.return_value = mock_user

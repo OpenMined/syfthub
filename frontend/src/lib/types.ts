@@ -14,10 +14,8 @@ export interface BackendUser {
   age?: number; // New optional field
   role: UserRole;
   is_active: boolean;
-  public_key: string; // Ed25519 public key
   created_at: string; // ISO datetime string
   updated_at: string; // ISO datetime string
-  key_created_at: string; // ISO datetime string
 }
 
 // User response schema from backend
@@ -60,7 +58,6 @@ export interface RegisterRequest {
   full_name: string;
   password: string;
   age?: number;
-  public_key?: string; // Optional Ed25519 key
 }
 
 // Authentication response schemas
@@ -71,13 +68,7 @@ export interface AuthResponse {
   token_type: string;
 }
 
-export interface RegistrationResponse extends AuthResponse {
-  keys?: {
-    private_key: string;
-    public_key: string;
-    warning: string;
-  };
-}
+export type RegistrationResponse = AuthResponse;
 
 // Token management
 export interface TokenData {

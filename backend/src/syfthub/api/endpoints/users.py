@@ -1,6 +1,6 @@
 """User management endpoints."""
 
-from typing import Annotated, Dict, Optional, Union
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -8,13 +8,8 @@ from syfthub.auth.db_dependencies import (
     OwnershipChecker,
     get_current_active_user,
 )
-from syfthub.auth.security import verify_ed25519_signature
 from syfthub.database.dependencies import get_user_service
-from syfthub.schemas.auth import (
-    SignatureVerificationRequest,
-    SignatureVerificationResponse,
-    UserRole,
-)
+from syfthub.schemas.auth import UserRole
 from syfthub.schemas.user import User, UserResponse, UserUpdate
 from syfthub.services.user_service import UserService
 
@@ -161,49 +156,3 @@ async def delete_user(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
-
-
-@router.post("/verify-signature", response_model=SignatureVerificationResponse)
-async def verify_signature(
-    request: SignatureVerificationRequest,
-    user_service: Annotated[UserService, Depends(get_user_service)],
-) -> SignatureVerificationResponse:
-    """Verify an Ed25519 signature and return user information if valid.
-
-    This endpoint allows other services to verify that a signature was created
-    by a valid Syfthub user, enabling Syfthub to act as an identity provider.
-    """
-    # Convert message to bytes for verification
-    message_bytes = request.message.encode("utf-8")
-
-    # Find user by public key using repository through service
-    user_owner = user_service.user_repository.get_by_public_key(request.public_key)
-
-    if not user_owner or not user_owner.is_active:
-        return SignatureVerificationResponse(
-            verified=False,
-            user_info=None,
-            message="Public key not found or user inactive",
-        )
-
-    # Verify the signature
-    is_valid = verify_ed25519_signature(
-        message_bytes, request.signature, request.public_key
-    )
-
-    if not is_valid:
-        return SignatureVerificationResponse(
-            verified=False, user_info=None, message="Invalid signature"
-        )
-
-    # Return user information (minimal data for privacy)
-    user_info: Dict[str, Union[str, Optional[int]]] = {
-        "id": user_owner.id,
-        "username": user_owner.username,
-        "full_name": user_owner.full_name,
-        "key_created_at": user_owner.key_created_at.isoformat(),
-    }
-
-    return SignatureVerificationResponse(
-        verified=True, user_info=user_info, message="Signature verified successfully"
-    )

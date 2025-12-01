@@ -86,15 +86,11 @@ class TestUserRepository:
         """Test getting all users."""
         user_repo = UserRepository(test_session)
 
-        from tests.test_utils import generate_unique_test_keys
-
-        # Create multiple users with unique keys
+        # Create multiple users
         user1_data = sample_user_data.copy()
         user2_data = sample_user_data.copy()
         user2_data["username"] = "testuser2"
         user2_data["email"] = "test2@example.com"
-        unique_keys_2 = generate_unique_test_keys()
-        user2_data["public_key"] = unique_keys_2["public_key"]
 
         user_repo.create(user1_data)
         user_repo.create(user2_data)
@@ -213,13 +209,9 @@ class TestEndpointRepository:
         user_repo = UserRepository(test_session)
         user1 = user_repo.create(sample_user_data)
 
-        from tests.test_utils import generate_unique_test_keys
-
         user2_data = sample_user_data.copy()
         user2_data["username"] = "testuser2"
         user2_data["email"] = "test2@example.com"
-        unique_keys_2 = generate_unique_test_keys()
-        user2_data["public_key"] = unique_keys_2["public_key"]
         user2 = user_repo.create(user2_data)
 
         # Create endpoints for both users
@@ -297,13 +289,9 @@ class TestEndpointRepository:
         user_repo = UserRepository(test_session)
         user1 = user_repo.create(sample_user_data)
 
-        from tests.test_utils import generate_unique_test_keys
-
         user2_data = sample_user_data.copy()
         user2_data["username"] = "testuser2"
         user2_data["email"] = "test2@example.com"
-        unique_keys_2 = generate_unique_test_keys()
-        user2_data["public_key"] = unique_keys_2["public_key"]
         user2 = user_repo.create(user2_data)
 
         # Create endpoint for user1
@@ -883,9 +871,7 @@ class TestEndpointStarRepository:
     def test_get_endpoint_stargazers(
         self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test getting users who starred a endpoint."""
-        from tests.test_utils import generate_unique_test_keys
-
+        """Test getting users who starred an endpoint."""
         user_repo = UserRepository(test_session)
 
         # Create first user
@@ -895,7 +881,6 @@ class TestEndpointStarRepository:
         user2_data = sample_user_data.copy()
         user2_data["username"] = "user2"
         user2_data["email"] = "user2@example.com"
-        user2_data["public_key"] = generate_unique_test_keys()["public_key"]
         user2 = user_repo.create(user2_data)
 
         # Create endpoint
@@ -1188,15 +1173,12 @@ class TestOrganizationMemberRepository:
         self, test_session: Session, sample_user_data: dict
     ):
         """Test getting all members of an organization."""
-        from tests.test_utils import generate_unique_test_keys
-
         user_repo = UserRepository(test_session)
         user1 = user_repo.create(sample_user_data)
 
         user2_data = sample_user_data.copy()
         user2_data["username"] = "user2"
         user2_data["email"] = "user2@example.com"
-        user2_data["public_key"] = generate_unique_test_keys()["public_key"]
         user2 = user_repo.create(user2_data)
 
         org_repo = OrganizationRepository(test_session)
@@ -1240,15 +1222,12 @@ class TestOrganizationMemberRepository:
 
     def test_count_owners(self, test_session: Session, sample_user_data: dict):
         """Test counting owners of an organization."""
-        from tests.test_utils import generate_unique_test_keys
-
         user_repo = UserRepository(test_session)
         user1 = user_repo.create(sample_user_data)
 
         user2_data = sample_user_data.copy()
         user2_data["username"] = "user2"
         user2_data["email"] = "user2@example.com"
-        user2_data["public_key"] = generate_unique_test_keys()["public_key"]
         user2 = user_repo.create(user2_data)
 
         org_repo = OrganizationRepository(test_session)

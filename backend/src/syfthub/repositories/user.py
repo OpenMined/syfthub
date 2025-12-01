@@ -57,22 +57,7 @@ class UserRepository(BaseRepository[UserModel]):
         except Exception:
             return None
 
-    def get_by_public_key(self, public_key: str) -> Optional[User]:
-        """Get user by Ed25519 public key."""
-        try:
-            stmt = select(self.model).where(self.model.public_key == public_key)
-            result = self.session.execute(stmt)
-            user_model = result.scalar_one_or_none()
-
-            if user_model:
-                return User.model_validate(user_model)
-            return None
-        except Exception:
-            return None
-
-    def create_user(
-        self, user_data: UserCreate, password_hash: str, public_key: str
-    ) -> Optional[User]:
+    def create_user(self, user_data: UserCreate, password_hash: str) -> Optional[User]:
         """Create a new user."""
         try:
             user_model = UserModel(
@@ -81,7 +66,6 @@ class UserRepository(BaseRepository[UserModel]):
                 full_name=user_data.full_name,
                 age=user_data.age,
                 password_hash=password_hash,
-                public_key=public_key,
                 is_active=True,
             )
 
@@ -127,20 +111,6 @@ class UserRepository(BaseRepository[UserModel]):
                 return False
 
             user_model.password_hash = new_password_hash
-            self.session.commit()
-            return True
-        except Exception:
-            self.session.rollback()
-            return False
-
-    def update_public_key(self, user_id: int, public_key: str) -> bool:
-        """Update user public key."""
-        try:
-            user_model = self.session.get(self.model, user_id)
-            if not user_model:
-                return False
-
-            user_model.public_key = public_key
             self.session.commit()
             return True
         except Exception:
@@ -196,10 +166,6 @@ class UserRepository(BaseRepository[UserModel]):
     def email_exists(self, email: str) -> bool:
         """Check if email already exists."""
         return self.exists(email=email.lower())
-
-    def public_key_exists(self, public_key: str) -> bool:
-        """Check if public key already exists."""
-        return self.exists(public_key=public_key)
 
     def delete(self, user_id: int) -> bool:
         """Delete a user by ID."""

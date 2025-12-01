@@ -1,6 +1,6 @@
 """Authentication endpoints."""
 
-from typing import Annotated, Optional
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 from fastapi.security import (
@@ -15,8 +15,6 @@ from syfthub.auth.db_dependencies import (
 from syfthub.auth.security import blacklist_token
 from syfthub.database.dependencies import get_auth_service
 from syfthub.schemas.auth import (
-    KeyRegenerationRequest,
-    KeyRegenerationResponse,
     PasswordChange,
     RefreshTokenRequest,
     RegistrationResponse,
@@ -88,17 +86,3 @@ async def change_password(
     auth_service.change_password(
         current_user, password_data.current_password, password_data.new_password
     )
-
-
-@router.post("/regenerate-keys", response_model=KeyRegenerationResponse)
-async def regenerate_user_keys(
-    current_user: Annotated[User, Depends(get_current_active_user)],
-    auth_service: Annotated[AuthService, Depends(get_auth_service)],
-    request: Optional[KeyRegenerationRequest] = None,
-) -> KeyRegenerationResponse:
-    """Regenerate or update Ed25519 key for the current user.
-
-    If public_key is provided in the request, it will be used.
-    Otherwise, a new key pair will be generated.
-    """
-    return auth_service.regenerate_keys(current_user, request)
