@@ -148,9 +148,16 @@ class TestUserServiceUpdateProfile:
 
     def test_update_user_profile_own_profile(self, user_service, sample_user):
         """Test user updating their own profile."""
-        update_data = UserUpdate(full_name="Updated Name", age=26)
+        update_data = UserUpdate(
+            full_name="Updated Name", avatar_url="https://example.com/avatar.png"
+        )
         user_dict = sample_user.model_dump()
-        user_dict.update({"full_name": "Updated Name", "age": 26})
+        user_dict.update(
+            {
+                "full_name": "Updated Name",
+                "avatar_url": "https://example.com/avatar.png",
+            }
+        )
         updated_user = User(**user_dict)
 
         with (
@@ -165,7 +172,7 @@ class TestUserServiceUpdateProfile:
 
             assert isinstance(result, UserResponse)
             assert result.full_name == "Updated Name"
-            assert result.age == 26
+            assert result.avatar_url == "https://example.com/avatar.png"
 
     def test_update_user_profile_admin_updates_other(
         self, user_service, sample_user, admin_user

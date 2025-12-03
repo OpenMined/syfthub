@@ -1,8 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
 @import 'tailwindcss';
 
-@custom-variant dark (&:is(.dark *));
-
 :root {
   --radius: 0.5rem;
 
@@ -55,44 +53,6 @@
   --sidebar-accent-foreground: #272532;
   --sidebar-border: #ecebef;
   --sidebar-ring: #272532;
-}
-
-.dark {
-  --border: #353243;
-  --input: #353243;
-  --ring: #fcfcfd;
-
-  --background: #272532;
-  --foreground: #fcfcfd;
-  --primary: #fcfcfd;
-  --primary-foreground: #272532;
-  --secondary: #6976ae;
-  --secondary-foreground: #fcfcfd;
-  --muted: #353243;
-  --muted-foreground: #b4b0bf;
-  --accent: #353243;
-  --accent-foreground: #fcfcfd;
-  --destructive: #ef4444;
-
-  --card: #353243;
-  --card-foreground: #fcfcfd;
-  --popover: #353243;
-  --popover-foreground: #fcfcfd;
-
-  --syft-background: #272532;
-  --syft-surface: #353243;
-  --syft-border: #353243;
-  --syft-text: #fcfcfd;
-  --syft-text-muted: #b4b0bf;
-
-  --sidebar: #272532;
-  --sidebar-foreground: #fcfcfd;
-  --sidebar-primary: #fcfcfd;
-  --sidebar-primary-foreground: #272532;
-  --sidebar-accent: #353243;
-  --sidebar-accent-foreground: #fcfcfd;
-  --sidebar-border: #353243;
-  --sidebar-ring: #fcfcfd;
 }
 
 @theme inline {

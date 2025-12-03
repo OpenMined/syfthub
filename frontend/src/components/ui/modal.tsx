@@ -25,6 +25,10 @@ const sizeClasses = {
   xl: 'max-w-xl'
 };
 
+// Selector for focusable elements
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])';
+
 export function Modal({
   isOpen,
   onClose,
@@ -35,7 +39,36 @@ export function Modal({
   closeOnOverlayClick = true,
   showCloseButton = true
 }: Readonly<ModalProperties>) {
-  // Handle escape key
+  const modalReference = React.useRef<HTMLDivElement>(null);
+  const previousActiveElement = React.useRef<Element | null>(null);
+
+  // Handle focus management: store previous element, focus first element, restore on close
+  React.useEffect(() => {
+    if (isOpen) {
+      // Store the currently focused element
+      previousActiveElement.current = document.activeElement;
+
+      // Focus the first focusable element in modal after a short delay
+      // (allows animation to start)
+      const timeoutId = setTimeout(() => {
+        const focusableElements = modalReference.current?.querySelectorAll(FOCUSABLE_SELECTOR);
+        if (focusableElements?.length) {
+          (focusableElements[0] as HTMLElement).focus();
+        }
+      }, 50);
+
+      return () => {
+        clearTimeout(timeoutId);
+      };
+    } else {
+      // Restore focus when modal closes
+      if (previousActiveElement.current instanceof HTMLElement) {
+        previousActiveElement.current.focus();
+      }
+    }
+  }, [isOpen]);
+
+  // Handle escape key and body scroll
   React.useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && isOpen) {
@@ -55,6 +88,30 @@ export function Modal({
     };
   }, [isOpen, onClose]);
 
+  // Handle Tab key for focus trapping
+  const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key !== 'Tab') return;
+
+    const nodeList = modalReference.current?.querySelectorAll(FOCUSABLE_SELECTOR);
+    if (!nodeList?.length) return;
+
+    const focusableElements = [...nodeList] as HTMLElement[];
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements.at(-1);
+    if (!firstElement || !lastElement) return;
+
+    // Shift + Tab: if on first element, wrap to last
+    if (event.shiftKey && document.activeElement === (firstElement as Element)) {
+      event.preventDefault();
+      lastElement.focus();
+    }
+    // Tab: if on last element, wrap to first
+    else if (!event.shiftKey && document.activeElement === (lastElement as Element)) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  };
+
   const handleOverlayClick = (event: React.MouseEvent) => {
     if (event.target === event.currentTarget && closeOnOverlayClick) {
       onClose();
@@ -64,7 +121,10 @@ export function Modal({
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className='fixed inset-0 z-50 flex items-center justify-center p-4'>
+        <div
+          className='fixed inset-0 z-50 flex items-center justify-center p-4'
+          onKeyDown={handleKeyDown}
+        >
           {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }}
@@ -76,12 +136,13 @@ export function Modal({
 
           {/* Modal Content */}
           <motion.div
+            ref={modalReference}
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: 'spring', duration: 0.3 }}
             className={cn(
-              'relative w-full rounded-xl border border-[#ecebef] bg-white shadow-xl',
+              'border-syft-border relative w-full rounded-xl border bg-white shadow-xl',
               sizeClasses[size]
             )}
             role='dialog'
@@ -94,7 +155,7 @@ export function Modal({
               <Button
                 variant='ghost'
                 size='icon'
-                className='absolute top-4 right-4 z-10 h-8 w-8 text-[#5e5a72] hover:text-[#272532]'
+                className='text-syft-muted hover:text-syft-primary absolute top-4 right-4 z-10 h-8 w-8'
                 onClick={onClose}
                 aria-label='Close modal'
               >
@@ -106,12 +167,12 @@ export function Modal({
             {(title || description) && (
               <div className='px-6 pt-6 pb-2'>
                 {title && (
-                  <h2 id='modal-title' className='font-rubik text-xl font-medium text-[#272532]'>
+                  <h2 id='modal-title' className='font-rubik text-syft-primary text-xl font-medium'>
                     {title}
                   </h2>
                 )}
                 {description && (
-                  <p id='modal-description' className='font-inter mt-1 text-sm text-[#5e5a72]'>
+                  <p id='modal-description' className='font-inter text-syft-muted mt-1 text-sm'>
                     {description}
                   </p>
                 )}

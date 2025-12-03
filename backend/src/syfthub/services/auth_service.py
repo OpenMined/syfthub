@@ -72,7 +72,6 @@ class AuthService(BaseService):
             username=register_data.username,
             email=register_data.email,
             full_name=register_data.full_name,
-            age=register_data.age,
             is_active=True,
         )
 

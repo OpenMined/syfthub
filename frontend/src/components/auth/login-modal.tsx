@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect } from 'react';
 
 import { Mail } from 'lucide-react';
 
@@ -6,9 +6,21 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/context/auth-context';
+import { useForm } from '@/hooks/use-form';
 import { validateEmail, validatePassword } from '@/lib/validation';
 
 import { AuthErrorAlert, AuthLoadingOverlay } from './auth-utils';
+
+interface LoginFormValues {
+  email: string;
+  password: string;
+}
+
+// Stable reference to prevent useForm from recreating resetForm on every render
+const LOGIN_INITIAL_VALUES: LoginFormValues = {
+  email: '',
+  password: ''
+};
 
 interface LoginModalProperties {
   isOpen: boolean;
@@ -23,92 +35,59 @@ export function LoginModal({
 }: Readonly<LoginModalProperties>) {
   const { login, loginWithGoogle, loginWithGitHub, isLoading, error, clearError } = useAuth();
 
-  const [formData, setFormData] = useState({
-    email: '',
-    password: ''
-  });
-
-  const [formErrors, setFormErrors] = useState({
-    email: '',
-    password: ''
+  const { values, errors, handleChange, handleSubmit, resetForm } = useForm<LoginFormValues>({
+    initialValues: LOGIN_INITIAL_VALUES,
+    validators: {
+      email: (value) => validateEmail(value),
+      password: (value) => validatePassword(value)
+    },
+    onSubmit: async (formValues) => {
+      try {
+        await login({
+          email: formValues.email.trim(),
+          password: formValues.password
+        });
+        onClose(); // Close modal on successful login
+      } catch {
+        // Error is handled by the auth context
+        // No need to do anything here
+      }
+    }
   });
 
   // Reset form when modal closes
-  React.useEffect(() => {
+  useEffect(() => {
     if (!isOpen) {
-      setFormData({ email: '', password: '' });
-      setFormErrors({ email: '', password: '' });
+      resetForm();
       clearError();
     }
-  }, [isOpen, clearError]);
+  }, [isOpen, resetForm, clearError]);
 
-  const validateForm = (): boolean => {
-    const emailError = validateEmail(formData.email) || '';
-    const passwordError = validatePassword(formData.password) || '';
-
-    setFormErrors({
-      email: emailError,
-      password: passwordError
-    });
-
-    return !emailError && !passwordError;
-  };
-
+  // Clear auth error when user starts typing
   const handleInputChange =
-    (field: 'email' | 'password') => (event: React.ChangeEvent<HTMLInputElement>) => {
-      const value = event.target.value;
-      setFormData((previous) => ({ ...previous, [field]: value }));
-
-      // Clear field error when user starts typing
-      if (formErrors[field]) {
-        setFormErrors((previous) => ({ ...previous, [field]: '' }));
-      }
-
-      // Clear global error when user starts typing
+    (field: keyof LoginFormValues) => (e: React.ChangeEvent<HTMLInputElement>) => {
+      handleChange(field)(e);
       if (error) {
         clearError();
       }
     };
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-
-    if (!validateForm()) {
-      return;
-    }
-
-    try {
-      await login({
-        email: formData.email.trim(),
-        password: formData.password
-      });
-      onClose(); // Close modal on successful login
-    } catch (error) {
-      // Error is handled by the auth context
-      console.error('Login failed:', error);
-    }
-  };
-
   const handleGoogleLogin = async () => {
     try {
       await loginWithGoogle();
-      onClose(); // Close modal on successful login
-    } catch (error) {
-      console.error('Google login failed:', error);
+      onClose();
+    } catch {
+      // Error handled by context
     }
   };
 
   const handleGitHubLogin = async () => {
     try {
       await loginWithGitHub();
-      onClose(); // Close modal on successful login
-    } catch (error) {
-      console.error('GitHub login failed:', error);
+      onClose();
+    } catch {
+      // Error handled by context
     }
-  };
-
-  const handleSwitchToRegister = () => {
-    onSwitchToRegister();
   };
 
   return (
@@ -174,10 +153,10 @@ export function LoginModal({
         {/* Divider */}
         <div className='relative'>
           <div className='absolute inset-0 flex items-center'>
-            <span className='w-full border-t border-[#ecebef]' />
+            <span className='border-syft-border w-full border-t' />
           </div>
           <div className='relative flex justify-center text-xs uppercase'>
-            <span className='font-inter bg-white px-2 text-[#5e5a72]'>Or continue with</span>
+            <span className='font-inter text-syft-muted bg-white px-2'>Or continue with</span>
           </div>
         </div>
 
@@ -187,9 +166,9 @@ export function LoginModal({
             type='email'
             label='Email'
             placeholder='name@company.com'
-            value={formData.email}
+            value={values.email}
             onChange={handleInputChange('email')}
-            error={formErrors.email}
+            error={errors.email}
             leftIcon={<Mail className='h-4 w-4' />}
             isRequired
             disabled={isLoading}
@@ -199,9 +178,9 @@ export function LoginModal({
             type='password'
             label='Password'
             placeholder='Enter your password'
-            value={formData.password}
+            value={values.password}
             onChange={handleInputChange('password')}
-            error={formErrors.password}
+            error={errors.password}
             isRequired
             disabled={isLoading}
           />
@@ -210,11 +189,14 @@ export function LoginModal({
             <label className='flex items-center space-x-2'>
               <input
                 type='checkbox'
-                className='rounded border-[#cfcdd6] text-[#272532] focus:ring-[#272532] focus:ring-offset-0'
+                className='border-syft-border text-syft-primary focus:ring-syft-primary rounded focus:ring-offset-0'
               />
-              <span className='font-inter text-[#5e5a72]'>Remember me</span>
+              <span className='font-inter text-syft-muted'>Remember me</span>
             </label>
-            <a href='#' className='font-inter font-medium text-[#272532] hover:text-[#6976ae]'>
+            <a
+              href='#'
+              className='font-inter text-syft-primary hover:text-syft-secondary font-medium'
+            >
               Forgot password?
             </a>
           </div>
@@ -225,13 +207,13 @@ export function LoginModal({
         </form>
 
         {/* Switch to Register */}
-        <div className='border-t border-[#ecebef] pt-4 text-center text-sm'>
-          <p className='font-inter text-[#5e5a72]'>
+        <div className='border-syft-border border-t pt-4 text-center text-sm'>
+          <p className='font-inter text-syft-muted'>
             Don't have an account?{' '}
             <button
               type='button'
-              onClick={handleSwitchToRegister}
-              className='font-medium text-[#272532] underline hover:text-[#6976ae]'
+              onClick={onSwitchToRegister}
+              className='text-syft-primary hover:text-syft-secondary font-medium underline'
               disabled={isLoading}
             >
               Sign up

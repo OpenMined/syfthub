@@ -54,7 +54,6 @@ class UserRegister(BaseModel):
         ..., min_length=1, max_length=100, description="User's full name"
     )
     password: str = Field(..., description="User password")
-    age: Optional[int] = Field(None, ge=0, le=150, description="User's age")
 
     @field_validator("password")
     @classmethod

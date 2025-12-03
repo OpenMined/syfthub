@@ -23,7 +23,7 @@ class TestUserModel:
         assert user.username == "testuser"
         assert user.email == "test@example.com"
         assert user.full_name == "Test User"
-        assert user.age == 25
+        assert user.avatar_url is None
         assert user.role == "user"
         assert user.is_active is True
         assert isinstance(user.created_at, datetime)

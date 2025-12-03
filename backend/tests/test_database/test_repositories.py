@@ -33,7 +33,7 @@ class TestUserRepository:
         assert user.username == "testuser"
         assert user.email == "test@example.com"
         assert user.full_name == "Test User"
-        assert user.age == 25
+        assert user.avatar_url is None
         assert user.role == UserRole.USER
         assert user.is_active is True
 
@@ -106,12 +106,15 @@ class TestUserRepository:
         user_repo = UserRepository(test_session)
         created_user = user_repo.create(sample_user_data)
 
-        update_data = {"full_name": "Updated Name", "age": 30}
+        update_data = {
+            "full_name": "Updated Name",
+            "avatar_url": "https://example.com/avatar.png",
+        }
         updated_user = user_repo.update(created_user.id, update_data)
 
         assert updated_user is not None
         assert updated_user.full_name == "Updated Name"
-        assert updated_user.age == 30
+        assert updated_user.avatar_url == "https://example.com/avatar.png"
         assert updated_user.username == "testuser"  # Unchanged
 
     def test_update_user_not_found(self, test_session: Session):

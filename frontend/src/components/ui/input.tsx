@@ -15,7 +15,7 @@ const inputVariants = cva(
     variants: {
       variant: {
         default:
-          'border-[#cfcdd6] bg-white shadow-sm focus:border-[#272532] focus:ring-2 focus:ring-[#272532]/10',
+          'border-syft-border-light bg-white shadow-sm focus:border-syft-primary focus:ring-2 focus:ring-syft-primary/10',
         error:
           'border-red-500 bg-white shadow-sm focus:border-red-500 focus:ring-2 focus:ring-red-500/10'
       },
@@ -78,7 +78,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
     return (
       <div className='w-full space-y-1'>
         {label && (
-          <label htmlFor={inputId} className='block text-sm font-medium text-[#272532]'>
+          <label htmlFor={inputId} className='text-syft-primary block text-sm font-medium'>
             {label}
             {isRequired && <span className='ml-1 text-red-500'>*</span>}
           </label>
@@ -86,7 +86,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
 
         <div className='relative'>
           {leftIcon && (
-            <div className='absolute top-1/2 left-3 -translate-y-1/2 text-[#5e5a72]'>
+            <div className='text-syft-muted absolute top-1/2 left-3 -translate-y-1/2'>
               {leftIcon}
             </div>
           )}
@@ -111,7 +111,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
               type='button'
               variant='ghost'
               size='icon'
-              className='absolute top-1/2 right-1 h-8 w-8 -translate-y-1/2 text-[#5e5a72] hover:text-[#272532]'
+              className='text-syft-muted hover:text-syft-primary absolute top-1/2 right-1 h-8 w-8 -translate-y-1/2'
               onClick={togglePasswordVisibility}
               tabIndex={-1}
             >
@@ -120,7 +120,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
           )}
 
           {rightIcon && !isPassword && (
-            <div className='absolute top-1/2 right-3 -translate-y-1/2 text-[#5e5a72]'>
+            <div className='text-syft-muted absolute top-1/2 right-3 -translate-y-1/2'>
               {rightIcon}
             </div>
           )}
@@ -133,7 +133,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
         )}
 
         {helperText && !error && (
-          <p id={helperTextId} className='text-xs text-[#5e5a72]'>
+          <p id={helperTextId} className='text-syft-muted text-xs'>
             {helperText}
           </p>
         )}

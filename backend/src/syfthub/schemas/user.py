@@ -26,14 +26,16 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     """Schema for creating a new user."""
 
-    age: Optional[int] = Field(None, ge=0, le=150, description="User's age")
+    pass
 
 
 class User(UserBase):
     """User model."""
 
     id: int = Field(..., description="User's unique identifier")
-    age: Optional[int] = Field(None, ge=0, le=150, description="User's age")
+    avatar_url: Optional[str] = Field(
+        None, max_length=500, description="URL to user's avatar image"
+    )
     role: UserRole = Field(default=UserRole.USER, description="User role")
     password_hash: str = Field(..., description="Hashed password")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -49,7 +51,7 @@ class UserResponse(BaseModel):
     username: str = Field(..., description="Username")
     email: EmailStr = Field(..., description="User's email address")
     full_name: str = Field(..., description="User's full name")
-    age: Optional[int] = Field(None, description="User's age")
+    avatar_url: Optional[str] = Field(None, description="URL to user's avatar image")
     role: UserRole = Field(..., description="User role")
     is_active: bool = Field(..., description="Whether the user is active")
     created_at: datetime = Field(..., description="When the user was created")
@@ -61,9 +63,14 @@ class UserResponse(BaseModel):
 class UserUpdate(BaseModel):
     """Schema for updating user profile."""
 
+    username: Optional[str] = Field(
+        None, min_length=3, max_length=50, description="Unique username"
+    )
     email: Optional[EmailStr] = Field(None, description="User's email address")
     full_name: Optional[str] = Field(
         None, min_length=1, max_length=100, description="User's full name"
     )
-    age: Optional[int] = Field(None, ge=0, le=150, description="User's age")
+    avatar_url: Optional[str] = Field(
+        None, max_length=500, description="URL to user's avatar image"
+    )
     is_active: Optional[bool] = Field(None, description="Whether the user is active")

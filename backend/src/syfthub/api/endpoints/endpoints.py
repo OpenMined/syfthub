@@ -25,7 +25,7 @@ from syfthub.services.endpoint_service import EndpointService
 router = APIRouter()
 
 
-@router.post("/", response_model=EndpointResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=EndpointResponse, status_code=status.HTTP_201_CREATED)
 async def create_endpoint(
     endpoint_data: EndpointCreate,
     current_user: Annotated[User, Depends(get_current_active_user)],
@@ -51,7 +51,7 @@ async def create_endpoint(
         )
 
 
-@router.get("/", response_model=list[EndpointResponse])
+@router.get("", response_model=list[EndpointResponse])
 async def list_my_endpoints(
     current_user: Annotated[User, Depends(get_current_active_user)],
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],

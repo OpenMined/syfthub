@@ -8,10 +8,10 @@ export type UserRole = 'admin' | 'user' | 'guest';
 // User interfaces matching backend User schema
 export interface BackendUser {
   id: number; // Backend uses int, not string
-  username: string; // New field required by backend
+  username: string;
   email: string;
   full_name: string; // Backend uses full_name, not name
-  age?: number; // New optional field
+  avatar_url?: string; // URL to user's avatar image
   role: UserRole;
   is_active: boolean;
   created_at: string; // ISO datetime string
@@ -24,7 +24,7 @@ export interface UserResponse {
   username: string;
   email: string;
   full_name: string;
-  age?: number;
+  avatar_url?: string;
   role: UserRole;
   is_active: boolean;
   created_at: string;
@@ -38,9 +38,8 @@ export interface User {
   email: string;
   name: string; // Mapped from full_name
   full_name: string; // Keep original for API calls
-  age?: number;
+  avatar_url?: string; // URL to user's avatar image
   role: UserRole;
-  avatar?: string; // Generated or provided
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -57,7 +56,6 @@ export interface RegisterRequest {
   email: string;
   full_name: string;
   password: string;
-  age?: number;
 }
 
 // Authentication response schemas
@@ -85,6 +83,21 @@ export interface RefreshTokenRequest {
 export interface PasswordChange {
   current_password: string;
   new_password: string;
+}
+
+// User profile update
+export interface UserUpdate {
+  username?: string;
+  email?: string;
+  full_name?: string;
+  avatar_url?: string;
+}
+
+// Availability check responses
+export interface AvailabilityResponse {
+  available: boolean;
+  username?: string;
+  email?: string;
 }
 
 // Endpoint visibility levels
@@ -253,4 +266,56 @@ export interface EndpointFilters extends SearchParams {
 // Organization filters
 export interface OrganizationFilters extends SearchParams {
   role?: OrganizationRole;
+}
+
+// =============================================================================
+// Accounting / Payment Types
+// =============================================================================
+
+/**
+ * Credentials for connecting to an external accounting service.
+ * These are stored encrypted in the browser, never sent to SyftHub servers.
+ */
+export interface AccountingCredentials {
+  /** URL of the accounting service API */
+  url: string;
+  /** Email for authenticating with the accounting service */
+  email: string;
+  /** Password for authenticating with the accounting service */
+  password: string;
+}
+
+/**
+ * Status of the accounting vault
+ */
+export interface AccountingVaultStatus {
+  /** Whether a vault exists in localStorage */
+  isConfigured: boolean;
+  /** Whether the vault has been unlocked in this session */
+  isUnlocked: boolean;
+  /** Whether vault exists but is not unlocked (convenience: isConfigured && !isUnlocked) */
+  isLocked: boolean;
+  /** Whether no vault exists (convenience: !isConfigured) */
+  isEmpty: boolean;
+}
+
+/**
+ * Error types for accounting operations
+ */
+export type AccountingErrorType =
+  | 'INVALID_PIN'
+  | 'RATE_LIMITED'
+  | 'VAULT_CORRUPTED'
+  | 'CRYPTO_NOT_SUPPORTED'
+  | 'STORAGE_UNAVAILABLE'
+  | 'VALIDATION_ERROR';
+
+/**
+ * Structured error for accounting operations
+ */
+export interface AccountingError {
+  type: AccountingErrorType;
+  message: string;
+  field?: string;
+  waitTime?: number; // For rate limiting
 }

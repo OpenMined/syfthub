@@ -1,106 +1,97 @@
-import React from 'react';
+import type React from 'react';
 
-import { Database, FileText, Globe, MessageSquare, Sparkles, Users } from 'lucide-react';
+import { Database, FileText, Globe, MessageSquare, Sparkles } from 'lucide-react';
+import { NavLink } from 'react-router-dom';
 
-interface SidebarProperties {
-  activeView: 'home' | 'browse' | 'participate' | 'build' | 'endpoints';
-  onNavigate: (view: 'home' | 'browse' | 'participate' | 'build' | 'endpoints') => void;
-  onAuthRequired?: () => void;
+import { useAuth } from '@/context/auth-context';
+import { useModal } from '@/context/modal-context';
+import { cn } from '@/lib/utils';
+
+interface NavItem {
+  id: string;
+  path: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  protected: boolean;
 }
 
-export function Sidebar({ activeView, onNavigate, onAuthRequired }: Readonly<SidebarProperties>) {
-  const navItems = [
-    {
-      id: 'home',
-      label: 'Chat',
-      icon: MessageSquare,
-      action: () => {
-        onNavigate('home');
-      }
-    },
-    {
-      id: 'browse',
-      label: 'Browse',
-      icon: Globe,
-      action: () => {
-        onNavigate('browse');
-      }
-    },
-    {
-      id: 'participate',
-      label: 'Participate',
-      icon: Users,
-      action: () => {
-        if (onAuthRequired) {
-          onAuthRequired();
-        } else {
-          onNavigate('participate');
-        }
-      }
-    },
-    {
-      id: 'build',
-      label: 'Build',
-      icon: FileText,
-      action: () => {
-        onNavigate('build');
-      }
-    },
-    {
-      id: 'endpoints',
-      label: 'My Data',
-      icon: Database,
-      action: () => {
-        if (onAuthRequired) {
-          onAuthRequired();
-        } else {
-          onNavigate('endpoints');
-        }
-      }
+const navItems: NavItem[] = [
+  { id: 'home', path: '/', label: 'Chat', icon: MessageSquare, protected: false },
+  { id: 'browse', path: '/browse', label: 'Browse', icon: Globe, protected: false },
+  { id: 'build', path: '/build', label: 'Build', icon: FileText, protected: false },
+  { id: 'endpoints', path: '/endpoints', label: 'Endpoints', icon: Database, protected: true }
+];
+
+/**
+ * Sidebar - Main navigation component.
+ *
+ * Uses React Router's NavLink for navigation with automatic active state.
+ * Protected routes (participate, endpoints) require authentication -
+ * clicking them when not logged in opens the login modal.
+ */
+export function Sidebar() {
+  const { user } = useAuth();
+  const { openLogin } = useModal();
+
+  /**
+   * Handler for protected navigation items.
+   * If user is not authenticated, prevents navigation and opens login modal.
+   */
+  const handleProtectedClick = (e: React.MouseEvent) => {
+    if (!user) {
+      e.preventDefault();
+      openLogin();
     }
-  ];
+  };
 
   return (
-    <aside className='fixed top-0 left-0 z-50 flex h-screen w-20 flex-col items-center border-r border-[#ecebef] bg-[#fcfcfd] py-8'>
+    <aside className='border-syft-border bg-syft-background fixed top-0 left-0 z-50 flex h-screen w-20 flex-col items-center border-r py-8'>
       {/* Logo at top */}
-      <button
-        onClick={() => {
-          onNavigate('home');
-        }}
+      <NavLink
+        to='/'
         className='group mb-12 block transition-opacity hover:opacity-80'
         aria-label='SyftHub Home'
       >
         <div className='flex items-center justify-center'>
-          <Sparkles className='h-8 w-8 text-[#6976ae] transition-colors group-hover:text-[#272532]' />
+          <Sparkles className='text-syft-secondary group-hover:text-syft-primary h-8 w-8 transition-colors' />
         </div>
-      </button>
+      </NavLink>
 
       {/* Navigation items */}
-      <nav className='flex flex-1 flex-col gap-8'>
+      <nav className='flex flex-1 flex-col gap-8' aria-label='Main navigation'>
         {navItems.map((item) => {
-          const isActive = item.id === activeView;
           const Icon = item.icon;
 
           return (
-            <button
+            <NavLink
               key={item.id}
-              onClick={item.action}
-              className={`group flex w-full flex-col items-center gap-1 transition-colors ${
-                isActive ? 'text-[#272532]' : 'text-[#5e5a72] hover:text-[#272532]'
-              }`}
+              to={item.path}
+              onClick={item.protected ? handleProtectedClick : undefined}
+              className={({ isActive }) =>
+                cn(
+                  'group flex w-full flex-col items-center gap-1 transition-colors',
+                  isActive ? 'text-syft-primary' : 'text-syft-muted hover:text-syft-primary'
+                )
+              }
               title={item.label}
+              end={item.path === '/'}
             >
-              <div
-                className={`rounded-lg p-2 transition-colors ${
-                  isActive ? 'bg-[#f1f0f4]' : 'group-hover:bg-[#f1f0f4]'
-                }`}
-              >
-                <Icon className='h-5 w-5' />
-              </div>
-              <span className={`font-inter text-[10px] ${isActive ? 'font-semibold' : ''}`}>
-                {item.label}
-              </span>
-            </button>
+              {({ isActive }) => (
+                <>
+                  <div
+                    className={cn(
+                      'rounded-lg p-2 transition-colors',
+                      isActive ? 'bg-syft-surface' : 'group-hover:bg-syft-surface'
+                    )}
+                  >
+                    <Icon className='h-5 w-5' />
+                  </div>
+                  <span className={cn('font-inter text-[10px]', isActive && 'font-semibold')}>
+                    {item.label}
+                  </span>
+                </>
+              )}
+            </NavLink>
           );
         })}
       </nav>

@@ -73,7 +73,7 @@ def sample_user_data() -> dict:
             "username": "testuser",
             "email": "test@example.com",
             "full_name": "Test User",
-            "age": 25,
+            "avatar_url": None,
             "role": "user",
             "password_hash": "hashed_password_123",
             "is_active": True,

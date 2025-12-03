@@ -5,9 +5,15 @@ import { Send, Sparkles } from 'lucide-react';
 interface HeroProperties {
   onSearch?: (query: string) => void;
   onAuthRequired?: () => void;
+  /** When true, Hero takes full viewport height and centers content (use when no other content below) */
+  fullHeight?: boolean;
 }
 
-export function Hero({ onSearch, onAuthRequired: _onAuthRequired }: Readonly<HeroProperties>) {
+export function Hero({
+  onSearch,
+  onAuthRequired: _onAuthRequired,
+  fullHeight = false
+}: Readonly<HeroProperties>) {
   const [searchValue, setSearchValue] = useState('');
 
   const handleSearch = (event: React.FormEvent) => {
@@ -25,9 +31,9 @@ export function Hero({ onSearch, onAuthRequired: _onAuthRequired }: Readonly<Her
   };
 
   const features = [
-    { label: 'Secure & Private', color: 'bg-[#64bb62]' },
-    { label: 'Rare Data & Models', color: 'bg-[#6976ae]' },
-    { label: 'Permissioned Access', color: 'bg-[#937098]' }
+    { label: 'Secure & Private', color: 'bg-syft-green' },
+    { label: 'Rare Data & Models', color: 'bg-syft-secondary' },
+    { label: 'Permissioned Access', color: 'bg-syft-purple' }
   ];
 
   const searchSuggestions = [
@@ -37,19 +43,23 @@ export function Hero({ onSearch, onAuthRequired: _onAuthRequired }: Readonly<Her
   ];
 
   return (
-    <section className='flex min-h-[50vh] items-center justify-center bg-white px-6'>
+    <section
+      className={`flex items-center justify-center bg-white px-6 ${
+        fullHeight ? 'min-h-[calc(100vh-2rem)]' : 'min-h-[50vh]'
+      }`}
+    >
       <div className='mx-auto w-full max-w-2xl space-y-6'>
         {/* Logo */}
         <div className='flex items-center justify-center gap-2.5'>
-          <Sparkles className='h-7 w-7 text-[#6976ae]' />
-          <span className='font-rubik text-xl font-medium text-black'>SyftHub</span>
+          <Sparkles className='text-syft-secondary h-7 w-7' />
+          <span className='font-rubik text-syft-primary text-xl font-medium'>SyftHub</span>
         </div>
 
         {/* Tagline */}
         <div className='text-center'>
-          <p className='font-inter text-lg text-black'>
+          <p className='font-inter text-syft-primary text-lg'>
             Explore trustworthy data sources and discover insights{' '}
-            <span className='font-medium text-black'>beyond public reach</span>
+            <span className='text-syft-primary font-medium'>beyond public reach</span>
           </p>
         </div>
 
@@ -58,7 +68,7 @@ export function Hero({ onSearch, onAuthRequired: _onAuthRequired }: Readonly<Her
           {features.map((feature, index) => (
             <div key={index} className='flex items-center gap-2'>
               <div className={`h-2 w-2 rounded-full ${feature.color}`}></div>
-              <span className='font-inter text-sm text-black'>{feature.label}</span>
+              <span className='font-inter text-syft-primary text-sm'>{feature.label}</span>
             </div>
           ))}
         </div>
@@ -74,16 +84,16 @@ export function Hero({ onSearch, onAuthRequired: _onAuthRequired }: Readonly<Her
                 setSearchValue(event.target.value);
               }}
               placeholder='Ask anything from collective intelligence'
-              className='font-inter w-full rounded-xl border border-[#cfcdd6] bg-white px-6 py-4 text-[#353243] shadow-sm transition-all placeholder:text-[#b4b0bf] focus:border-transparent focus:ring-2 focus:ring-[#272532] focus:outline-none'
+              className='font-inter border-syft-border-light text-syft-primary placeholder:text-syft-placeholder focus:ring-syft-primary w-full rounded-xl border bg-white px-6 py-4 shadow-sm transition-all focus:border-transparent focus:ring-2 focus:outline-none'
             />
             <button
               type='submit'
               aria-label='Search'
-              className='absolute top-1/2 right-3 -translate-y-1/2 rounded-lg p-2 transition-colors group-focus-within:text-[#272532] hover:bg-[#f7f6f9]'
+              className='group-focus-within:text-syft-primary hover:bg-syft-surface absolute top-1/2 right-3 -translate-y-1/2 rounded-lg p-2 transition-colors'
             >
               <Send
                 className={`h-5 w-5 transition-colors ${
-                  searchValue ? 'text-[#272532]' : 'text-[#b4b0bf]'
+                  searchValue ? 'text-syft-primary' : 'text-syft-placeholder'
                 }`}
               />
             </button>
@@ -98,7 +108,7 @@ export function Hero({ onSearch, onAuthRequired: _onAuthRequired }: Readonly<Her
                 onClick={() => {
                   handleSuggestionClick(suggestion);
                 }}
-                className='font-inter rounded-full border border-[#e0dfe4] bg-white px-4 py-1.5 text-sm text-black transition-all hover:border-[#272532] hover:bg-[#f7f6f9] focus:ring-2 focus:ring-[#272532] focus:ring-offset-2 focus:outline-none'
+                className='font-inter border-syft-border text-syft-primary hover:border-syft-primary hover:bg-syft-surface focus:ring-syft-primary rounded-full border bg-white px-4 py-1.5 text-sm transition-all focus:ring-2 focus:ring-offset-2 focus:outline-none'
               >
                 {suggestion}
               </button>

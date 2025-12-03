@@ -1,41 +1,31 @@
-import React from 'react';
+import type { ChatSource } from '@/lib/types';
 
 import { ArrowRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
-interface RecentSource {
-  name: string;
-  queries: string;
-  color: string;
-  hoverBorder: string;
+// Color palette for endpoint items - defined as const tuple for type safety
+const ITEM_COLORS: readonly { bg: string; border: string }[] = [
+  { bg: 'bg-[#6976ae]', border: 'hover:border-l-[#6976ae]' },
+  { bg: 'bg-[#53bea9]', border: 'hover:border-l-[#53bea9]' },
+  { bg: 'bg-[#937098]', border: 'hover:border-l-[#937098]' },
+  { bg: 'bg-[#52a8c5]', border: 'hover:border-l-[#52a8c5]' }
+] as const;
+
+// Helper to get colors by index (safe access)
+function getItemColors(index: number): { bg: string; border: string } {
+  return ITEM_COLORS[index % ITEM_COLORS.length] as { bg: string; border: string };
 }
 
-export function RecentSources() {
-  const recentSources: RecentSource[] = [
-    {
-      name: 'WHO COVID-19 Database',
-      queries: '8.7k',
-      color: 'bg-[#6976ae]',
-      hoverBorder: 'hover:border-l-[#6976ae]'
-    },
-    {
-      name: 'Climate TRACE API',
-      queries: '4.2k',
-      color: 'bg-[#53bea9]',
-      hoverBorder: 'hover:border-l-[#53bea9]'
-    },
-    {
-      name: 'NIH Clinical Trials',
-      queries: '12.3k',
-      color: 'bg-[#937098]',
-      hoverBorder: 'hover:border-l-[#937098]'
-    },
-    {
-      name: 'GenBank Genomics',
-      queries: '6.1k',
-      color: 'bg-[#52a8c5]',
-      hoverBorder: 'hover:border-l-[#52a8c5]'
-    }
-  ];
+interface RecentSourcesProps {
+  endpoints: ChatSource[];
+  isLoading: boolean;
+}
+
+export function RecentSources({ endpoints, isLoading }: Readonly<RecentSourcesProps>) {
+  // Don't render anything if no endpoints and not loading
+  if (!isLoading && endpoints.length === 0) {
+    return null;
+  }
 
   return (
     <div>
@@ -44,34 +34,57 @@ export function RecentSources() {
           <div className='h-6 w-1 rounded-full bg-gradient-to-b from-[#6976ae] via-[#937098] to-[#52a8c5]'></div>
           <h4 className='font-rubik text-sm tracking-wide text-black uppercase'>Recent Sources</h4>
         </div>
-        <a
-          href='#'
+        <Link
+          to='/browse'
           className='group flex items-center gap-1 text-xs text-[#6976ae] transition-colors hover:text-[#272532]'
         >
           View all{' '}
           <ArrowRight className='h-3 w-3 transition-transform group-hover:translate-x-0.5' />
-        </a>
+        </Link>
       </div>
       <div className='space-y-1.5'>
-        {recentSources.map((source, index) => (
-          <a
-            key={index}
-            href='#'
-            title={`View ${source.name}`}
-            className={`group flex items-center gap-3 rounded-lg border-l-2 border-transparent px-4 py-3 transition-all hover:bg-[#f7f6f9] ${source.hoverBorder} hover:shadow-sm`}
-          >
-            <div className={`h-2 w-2 rounded-full ${source.color} flex-shrink-0`}></div>
-            <span className='font-inter flex-1 text-sm text-black transition-colors group-hover:text-black'>
-              {source.name}
-            </span>
-            <span
-              className='font-inter rounded-full bg-[#f1f0f4] px-3 py-1 text-xs text-black'
-              title={`${source.queries} queries`}
-            >
-              {source.queries}
-            </span>
-          </a>
-        ))}
+        {isLoading ? (
+          // Loading skeleton
+          <>
+            {[0, 1, 2, 3].map((index) => (
+              <div
+                key={index}
+                className='flex animate-pulse items-center gap-3 rounded-lg px-4 py-3'
+              >
+                <div className='h-2 w-2 rounded-full bg-gray-200'></div>
+                <div className='h-4 flex-1 rounded bg-gray-200'></div>
+                <div className='h-6 w-12 rounded-full bg-gray-200'></div>
+              </div>
+            ))}
+          </>
+        ) : (
+          endpoints.map((endpoint, index) => {
+            const colors = getItemColors(index);
+            const href = endpoint.owner_username
+              ? `/${endpoint.owner_username}/${endpoint.slug}`
+              : '/browse';
+
+            return (
+              <Link
+                key={endpoint.id}
+                to={href}
+                title={`View ${endpoint.name}`}
+                className={`group flex items-center gap-3 rounded-lg border-l-2 border-transparent px-4 py-3 transition-all hover:bg-[#f7f6f9] ${colors.border} hover:shadow-sm`}
+              >
+                <div className={`h-2 w-2 rounded-full ${colors.bg} flex-shrink-0`}></div>
+                <span className='font-inter flex-1 truncate text-sm text-black transition-colors group-hover:text-black'>
+                  {endpoint.name}
+                </span>
+                <span
+                  className='font-inter shrink-0 rounded-full bg-[#f1f0f4] px-3 py-1 text-xs text-black'
+                  title={`Updated ${endpoint.updated}`}
+                >
+                  {endpoint.updated}
+                </span>
+              </Link>
+            );
+          })
+        )}
       </div>
     </div>
   );

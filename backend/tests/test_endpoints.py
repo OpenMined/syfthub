@@ -99,7 +99,7 @@ def test_create_endpoint_requires_auth(client: TestClient) -> None:
     }
 
     # Try without authentication
-    response = client.post("/api/v1/endpoints/", json=endpoint_data)
+    response = client.post("/api/v1/endpoints", json=endpoint_data)
     assert response.status_code == 401
 
 
@@ -112,7 +112,7 @@ def test_create_endpoint_with_auth(client: TestClient, user1_token: str) -> None
         "visibility": "public",
     }
 
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
@@ -142,7 +142,7 @@ def test_create_endpoint_with_custom_slug(client: TestClient, user1_token: str) 
         "visibility": "public",
     }
 
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
@@ -174,9 +174,7 @@ def test_create_endpoint_invalid_slug(client: TestClient, user1_token: str) -> N
             "visibility": "public",
         }
 
-        response = client.post(
-            "/api/v1/endpoints/", json=endpoint_data, headers=headers
-        )
+        response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
         assert response.status_code == 422 or response.status_code == 400
 
 
@@ -191,11 +189,11 @@ def test_create_duplicate_slug_same_user(client: TestClient, user1_token: str) -
     }
 
     # Create first endpoint
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     # Try to create second with same slug
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 400
     assert "already taken" in response.json()["detail"]
 
@@ -213,12 +211,12 @@ def test_create_same_slug_different_users(
 
     # User1 creates endpoint
     headers1 = {"Authorization": f"Bearer {user1_token}"}
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers1)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers1)
     assert response.status_code == 201
 
     # User2 creates endpoint with same slug
     headers2 = {"Authorization": f"Bearer {user2_token}"}
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers2)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers2)
     assert response.status_code == 201
 
 
@@ -234,10 +232,10 @@ def test_list_my_endpoints(client: TestClient, user1_token: str) -> None:
     ]
 
     for endpoint_data in endpoints_data:
-        client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+        client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
 
     # List endpoints
-    response = client.get("/api/v1/endpoints/", headers=headers)
+    response = client.get("/api/v1/endpoints", headers=headers)
     assert response.status_code == 200
 
     data = response.json()
@@ -260,16 +258,16 @@ def test_list_my_endpoints_with_filters(client: TestClient, user1_token: str) ->
     ]
 
     for endpoint_data in endpoints_data:
-        client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+        client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
 
     # Test search filter
-    response = client.get("/api/v1/endpoints/?search=widget", headers=headers)
+    response = client.get("/api/v1/endpoints?search=widget", headers=headers)
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 2
 
     # Test visibility filter
-    response = client.get("/api/v1/endpoints/?visibility=public", headers=headers)
+    response = client.get("/api/v1/endpoints?visibility=public", headers=headers)
     assert response.status_code == 200
     data = response.json()
     assert len(data) == 2
@@ -287,7 +285,7 @@ def test_list_public_endpoints(client: TestClient, user1_token: str) -> None:
     ]
 
     for endpoint_data in endpoints_data:
-        client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+        client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
 
     # List public endpoints (no auth required)
     response = client.get("/api/v1/endpoints/public")
@@ -304,7 +302,7 @@ def test_get_endpoint_by_id(client: TestClient, user1_token: str) -> None:
 
     # Create endpoint
     endpoint_data = {"name": "Test Endpoint", "visibility": "public"}
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     endpoint_id = response.json()["id"]
 
     # Get endpoint by ID
@@ -322,7 +320,7 @@ def test_get_endpoint_visibility_controls(
 
     # User1 creates private endpoint
     endpoint_data = {"name": "Private Endpoint", "visibility": "private"}
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers1)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers1)
     endpoint_id = response.json()["id"]
 
     # User1 (owner) can access
@@ -347,7 +345,7 @@ def test_get_endpoint_internal_visibility(
 
     # User1 creates internal endpoint
     endpoint_data = {"name": "Internal Endpoint", "visibility": "internal"}
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers1)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers1)
     endpoint_id = response.json()["id"]
 
     # Owner can access
@@ -369,7 +367,7 @@ def test_update_endpoint(client: TestClient, user1_token: str) -> None:
 
     # Create endpoint
     endpoint_data = {"name": "Original Name", "visibility": "public"}
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     endpoint_id = response.json()["id"]
 
     # Update endpoint
@@ -394,7 +392,7 @@ def test_update_endpoint_ownership(
 
     # User1 creates endpoint
     endpoint_data = {"name": "User1 Endpoint", "visibility": "public"}
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers1)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers1)
     endpoint_id = response.json()["id"]
 
     # User2 tries to update User1's endpoint
@@ -417,7 +415,7 @@ def test_delete_endpoint(client: TestClient, user1_token: str) -> None:
 
     # Create endpoint
     endpoint_data = {"name": "To Delete", "visibility": "public"}
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     endpoint_id = response.json()["id"]
 
     # Delete endpoint
@@ -438,7 +436,7 @@ def test_delete_endpoint_ownership(
 
     # User1 creates endpoint
     endpoint_data = {"name": "User1 Endpoint", "visibility": "public"}
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers1)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers1)
     endpoint_id = response.json()["id"]
 
     # User2 tries to delete User1's endpoint
@@ -459,7 +457,7 @@ def test_admin_can_access_any_endpoint(
 
     # User1 creates private endpoint
     endpoint_data = {"name": "Private Endpoint", "visibility": "private"}
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers1)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers1)
     endpoint_id = response.json()["id"]
 
     # Admin can access private endpoint
@@ -485,11 +483,11 @@ def test_list_user_endpoints_by_username(client: TestClient, user1_token: str) -
 
     # Create public endpoint
     endpoint_data = {"name": "Public Endpoint", "visibility": "public"}
-    client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
 
     # Create private endpoint
     endpoint_data = {"name": "Private Endpoint", "visibility": "private"}
-    client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
 
     # List user's public endpoints by username (no auth)
     response = client.get("/user1")
@@ -512,7 +510,7 @@ def test_get_endpoint_by_username_and_slug(
         "slug": "my-endpoint",
         "visibility": "public",
     }
-    client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
 
     # Access by username/slug
     response = client.get("/user1/my-endpoint")
@@ -535,7 +533,7 @@ def test_get_private_endpoint_by_url_requires_auth(
         "slug": "private-ds",
         "visibility": "private",
     }
-    client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
 
     # Unauthenticated access should fail
     response = client.get("/user1/private-ds")
@@ -563,7 +561,7 @@ def test_case_insensitive_username_lookup(client: TestClient, user1_token: str) 
 
     # Create endpoint
     endpoint_data = {"name": "Test Endpoint", "visibility": "public"}
-    client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
 
     # Test different cases
     for username in ["user1", "User1", "USER1", "uSeR1"]:
@@ -585,9 +583,7 @@ def test_slug_generation_from_name(client: TestClient, user1_token: str) -> None
 
     for name, expected_slug in test_cases:
         endpoint_data = {"name": name, "visibility": "public"}
-        response = client.post(
-            "/api/v1/endpoints/", json=endpoint_data, headers=headers
-        )
+        response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
         assert response.status_code == 201
         assert response.json()["slug"] == expected_slug
 
@@ -605,7 +601,7 @@ def test_create_endpoint_with_custom_attributes(
         "readme": "# My Project\n\nThis is a sample README with markdown.",
     }
 
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
@@ -633,9 +629,7 @@ def test_create_endpoint_invalid_version(client: TestClient, user1_token: str) -
             "visibility": "public",
         }
 
-        response = client.post(
-            "/api/v1/endpoints/", json=endpoint_data, headers=headers
-        )
+        response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
         assert response.status_code == 422  # Validation error
 
 
@@ -645,7 +639,7 @@ def test_update_endpoint_new_attributes(client: TestClient, user1_token: str) ->
 
     # Create endpoint
     endpoint_data = {"name": "Original Endpoint", "visibility": "public"}
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     endpoint_id = response.json()["id"]
 
     # Update with new attributes
@@ -676,7 +670,7 @@ def test_create_endpoint_with_contributors(
         "contributors": [1, 2, 3],  # Mock user IDs
     }
 
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
@@ -700,7 +694,7 @@ def test_endpoint_public_response_includes_new_fields(
         "readme": "# Public Project\n\nThis is publicly accessible.",
     }
 
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     # Test public listing endpoint
@@ -734,9 +728,7 @@ def test_endpoint_version_filter_capability(
             "visibility": "public",
             "version": version,
         }
-        response = client.post(
-            "/api/v1/endpoints/", json=endpoint_data, headers=headers
-        )
+        response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
         assert response.status_code == 201
         assert response.json()["version"] == version
 
@@ -750,7 +742,7 @@ def test_endpoint_stars_count_default(client: TestClient, user1_token: str) -> N
         "visibility": "public",
     }
 
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
@@ -770,9 +762,7 @@ def test_trending_endpoints_endpoint(client: TestClient, user1_token: str) -> No
 
     created_ids = []
     for endpoint_data in endpoints_data:
-        response = client.post(
-            "/api/v1/endpoints/", json=endpoint_data, headers=headers
-        )
+        response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
         assert response.status_code == 201
         created_ids.append(response.json()["id"])
 
@@ -820,9 +810,7 @@ def test_trending_endpoints_with_min_stars_filter(
 
     created_ids = []
     for endpoint_data in endpoints_data:
-        response = client.post(
-            "/api/v1/endpoints/", json=endpoint_data, headers=headers
-        )
+        response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
         assert response.status_code == 201
         created_ids.append(response.json()["id"])
 
@@ -862,7 +850,7 @@ def test_public_endpoint_response_includes_stars(
         "visibility": "public",
     }
 
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 201
     endpoint_id = response.json()["id"]
 
@@ -905,9 +893,7 @@ def test_trending_endpoints_pagination(client: TestClient, user1_token: str) -> 
             "name": f"Endpoint {i}",
             "visibility": "public",
         }
-        response = client.post(
-            "/api/v1/endpoints/", json=endpoint_data, headers=headers
-        )
+        response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
         assert response.status_code == 201
 
     # Test pagination
@@ -958,7 +944,7 @@ def test_create_endpoint_with_policies(client: TestClient, user1_token: str) -> 
         ],
     }
 
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
@@ -990,7 +976,7 @@ def test_create_endpoint_default_empty_policies(
         "visibility": "public",
     }
 
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
@@ -1009,7 +995,7 @@ def test_create_endpoint_with_minimal_policy(
         "policies": [{"type": "simple_policy"}],
     }
 
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
@@ -1038,7 +1024,7 @@ def test_create_endpoint_invalid_policy_type(
         ],
     }
 
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 422  # Validation error
 
 
@@ -1054,7 +1040,7 @@ def test_update_endpoint_policies(client: TestClient, user1_token: str) -> None:
             {"type": "initial_policy", "description": "Initial policy configuration"}
         ],
     }
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     endpoint_id = response.json()["id"]
 
     # Update with new policies
@@ -1105,7 +1091,7 @@ def test_public_endpoint_response_includes_policies(
         ],
     }
 
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     # Test public listing endpoint
@@ -1131,9 +1117,7 @@ def test_policy_version_validation(client: TestClient, user1_token: str) -> None
             "visibility": "public",
             "policies": [{"type": "test_policy", "version": version}],
         }
-        response = client.post(
-            "/api/v1/endpoints/", json=endpoint_data, headers=headers
-        )
+        response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
         assert response.status_code == 201
         assert response.json()["policies"][0]["version"] == version
 
@@ -1145,9 +1129,7 @@ def test_policy_version_validation(client: TestClient, user1_token: str) -> None
             "visibility": "public",
             "policies": [{"type": "test_policy", "version": version}],
         }
-        response = client.post(
-            "/api/v1/endpoints/", json=endpoint_data, headers=headers
-        )
+        response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
         assert response.status_code == 422  # Validation error
 
 
@@ -1181,7 +1163,7 @@ def test_complex_policy_configurations(client: TestClient, user1_token: str) -> 
         ],
     }
 
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
@@ -1226,7 +1208,7 @@ def test_create_endpoint_with_connections(client: TestClient, user1_token: str) 
         ],
     }
 
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
@@ -1258,7 +1240,7 @@ def test_create_endpoint_default_empty_connections(
         "visibility": "public",
     }
 
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
@@ -1277,7 +1259,7 @@ def test_create_endpoint_with_minimal_connection(
         "connect": [{"type": "simple_connection"}],
     }
 
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()
@@ -1305,7 +1287,7 @@ def test_create_endpoint_invalid_connection_type(
         ],
     }
 
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 422  # Validation error
 
 
@@ -1321,7 +1303,7 @@ def test_update_endpoint_connections(client: TestClient, user1_token: str) -> No
             {"type": "initial_connection", "description": "Initial connection setup"}
         ],
     }
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     endpoint_id = response.json()["id"]
 
     # Update with new connections
@@ -1370,7 +1352,7 @@ def test_public_endpoint_response_includes_connections(
         ],
     }
 
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     # Test public listing endpoint
@@ -1418,7 +1400,7 @@ def test_complex_connection_configurations(
         ],
     }
 
-    response = client.post("/api/v1/endpoints/", json=endpoint_data, headers=headers)
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     assert response.status_code == 201
 
     data = response.json()

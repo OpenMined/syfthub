@@ -12,18 +12,13 @@ import {
   AlertCircle,
   Building,
   Check,
-  Database,
   Edit3,
-  Eye,
-  EyeOff,
   Globe,
   Lock,
   Plus,
   Save,
-  Settings,
   Star,
   Trash2,
-  Users,
   X
 } from 'lucide-react';
 
@@ -35,6 +30,7 @@ import {
   updateEndpoint
 } from '@/lib/endpoint-api';
 
+import { ParticipateView } from './participate-view';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -237,6 +233,149 @@ export function EndpointManagement() {
     );
   }
 
+  // Show loading state
+  if (isLoading && endpoints.length === 0 && !isCreating) {
+    return (
+      <div className='flex min-h-screen items-center justify-center bg-gray-50'>
+        <div className='flex items-center gap-3 text-gray-600'>
+          <div className='h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600'></div>
+          <span>Loading endpoints...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Show onboarding view when user has no endpoints
+  if (endpoints.length === 0 && !isLoading) {
+    return (
+      <>
+        <ParticipateView
+          title='Get Started with Endpoints'
+          onCreateEndpoint={() => {
+            setIsCreating(true);
+          }}
+        />
+        {/* Create Endpoint Modal - needs to be available even in empty state */}
+        <AnimatePresence>
+          {isCreating && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => {
+                  setIsCreating(false);
+                }}
+                className='fixed inset-0 z-50 bg-black/20 backdrop-blur-sm'
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className='fixed inset-0 z-50 flex items-center justify-center p-4'
+              >
+                <div className='w-full max-w-2xl rounded-lg border border-gray-200 bg-white shadow-xl'>
+                  <div className='border-b border-gray-200 px-6 py-4'>
+                    <h2 className='text-lg font-semibold text-gray-900'>Create New Endpoint</h2>
+                  </div>
+
+                  <div className='space-y-4 p-6'>
+                    <div>
+                      <Label htmlFor='create-name'>Name</Label>
+                      <Input
+                        id='create-name'
+                        value={createData.name}
+                        onChange={(e) => {
+                          setCreateData({ ...createData, name: e.target.value });
+                        }}
+                        placeholder='My awesome dataset'
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <Label htmlFor='create-description'>Description</Label>
+                      <Input
+                        id='create-description'
+                        value={createData.description}
+                        onChange={(e) => {
+                          setCreateData({ ...createData, description: e.target.value });
+                        }}
+                        placeholder='Brief description of your endpoint'
+                      />
+                    </div>
+
+                    <div className='grid grid-cols-2 gap-4'>
+                      <div>
+                        <Label htmlFor='create-visibility'>Visibility</Label>
+                        <Select
+                          value={createData.visibility}
+                          onValueChange={(value: EndpointVisibility) => {
+                            setCreateData({ ...createData, visibility: value });
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value='public'>Public</SelectItem>
+                            <SelectItem value='internal'>Internal</SelectItem>
+                            <SelectItem value='private'>Private</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div>
+                        <Label htmlFor='create-version'>Version</Label>
+                        <Input
+                          id='create-version'
+                          value={createData.version}
+                          onChange={(e) => {
+                            setCreateData({ ...createData, version: e.target.value });
+                          }}
+                          placeholder='0.1.0'
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label htmlFor='create-readme'>README (Optional)</Label>
+                      <textarea
+                        id='create-readme'
+                        value={createData.readme}
+                        onChange={(e) => {
+                          setCreateData({ ...createData, readme: e.target.value });
+                        }}
+                        placeholder='Markdown documentation for your endpoint...'
+                        className='w-full resize-none rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none'
+                        rows={4}
+                      />
+                    </div>
+                  </div>
+
+                  <div className='flex justify-end gap-2 border-t border-gray-200 px-6 py-4'>
+                    <Button
+                      variant='outline'
+                      onClick={() => {
+                        setIsCreating(false);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button onClick={handleCreateEndpoint} disabled={!createData.name.trim()}>
+                      Create Endpoint
+                    </Button>
+                  </div>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+      </>
+    );
+  }
+
+  // Show endpoint management grid when user has endpoints
   return (
     <div className='min-h-screen bg-gray-50 py-8'>
       <div className='mx-auto max-w-6xl px-6'>
@@ -404,148 +543,124 @@ export function EndpointManagement() {
           )}
         </AnimatePresence>
 
-        {/* Endpoints List */}
-        {isLoading && !isCreating ? (
-          <div className='flex items-center justify-center py-12'>
-            <div className='flex items-center gap-3 text-gray-600'>
-              <div className='h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600'></div>
-              <span>Loading endpoints...</span>
-            </div>
-          </div>
-        ) : endpoints.length === 0 ? (
-          <div className='py-12 text-center'>
-            <Database className='mx-auto mb-4 h-12 w-12 text-gray-400' />
-            <h3 className='mb-2 text-lg font-medium text-gray-900'>No Endpoints Yet</h3>
-            <p className='mb-4 text-gray-600'>Create your first endpoint to get started.</p>
-            <Button
-              onClick={() => {
-                setIsCreating(true);
-              }}
-              className='flex items-center gap-2'
+        {/* Endpoints Grid */}
+        <div className='grid gap-6 md:grid-cols-2 lg:grid-cols-3'>
+          {endpoints.map((endpoint) => (
+            <div
+              key={endpoint.id}
+              className='rounded-lg border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md'
             >
-              <Plus className='h-4 w-4' />
-              Create Endpoint
-            </Button>
-          </div>
-        ) : (
-          <div className='grid gap-6 md:grid-cols-2 lg:grid-cols-3'>
-            {endpoints.map((endpoint) => (
-              <div
-                key={endpoint.id}
-                className='rounded-lg border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md'
-              >
-                <div className='p-6'>
-                  <div className='mb-4 flex items-start justify-between'>
-                    <div>
-                      <h3 className='mb-1 text-lg font-semibold text-gray-900'>{endpoint.name}</h3>
-                      <p className='line-clamp-2 text-sm text-gray-600'>
-                        {endpoint.description || 'No description provided'}
-                      </p>
-                    </div>
-                    <div className='flex items-center gap-1'>
-                      <Button
-                        variant='ghost'
-                        size='sm'
-                        onClick={() => {
-                          setEditingId(endpoint.id);
-                          setEditData({
-                            name: endpoint.name,
-                            description: endpoint.description,
-                            visibility: endpoint.visibility,
-                            version: endpoint.version,
-                            readme: endpoint.readme
-                          });
-                        }}
-                      >
-                        <Edit3 className='h-4 w-4' />
-                      </Button>
-                      <Button
-                        variant='ghost'
-                        size='sm'
-                        onClick={() => handleDeleteEndpoint(endpoint.id)}
-                        className='text-red-600 hover:bg-red-50 hover:text-red-700'
-                      >
-                        <Trash2 className='h-4 w-4' />
-                      </Button>
-                    </div>
+              <div className='p-6'>
+                <div className='mb-4 flex items-start justify-between'>
+                  <div>
+                    <h3 className='mb-1 text-lg font-semibold text-gray-900'>{endpoint.name}</h3>
+                    <p className='line-clamp-2 text-sm text-gray-600'>
+                      {endpoint.description || 'No description provided'}
+                    </p>
                   </div>
-
-                  <div className='mb-4 flex flex-wrap gap-2'>
-                    <Badge className={getVisibilityColor(endpoint.visibility)}>
-                      <div className='flex items-center gap-1'>
-                        {getVisibilityIcon(endpoint.visibility)}
-                        <span className='capitalize'>{endpoint.visibility}</span>
-                      </div>
-                    </Badge>
-                    <Badge variant='outline'>v{endpoint.version}</Badge>
-                    {endpoint.stars_count > 0 && (
-                      <Badge variant='outline' className='border-yellow-200 text-yellow-600'>
-                        <Star className='mr-1 h-3 w-3' />
-                        {endpoint.stars_count}
-                      </Badge>
-                    )}
-                  </div>
-
-                  <div className='text-xs text-gray-500'>
-                    <p>Created: {formatDate(endpoint.created_at)}</p>
-                    <p>Updated: {formatDate(endpoint.updated_at)}</p>
+                  <div className='flex items-center gap-1'>
+                    <Button
+                      variant='ghost'
+                      size='sm'
+                      onClick={() => {
+                        setEditingId(endpoint.id);
+                        setEditData({
+                          name: endpoint.name,
+                          description: endpoint.description,
+                          visibility: endpoint.visibility,
+                          version: endpoint.version,
+                          readme: endpoint.readme
+                        });
+                      }}
+                    >
+                      <Edit3 className='h-4 w-4' />
+                    </Button>
+                    <Button
+                      variant='ghost'
+                      size='sm'
+                      onClick={() => handleDeleteEndpoint(endpoint.id)}
+                      className='text-red-600 hover:bg-red-50 hover:text-red-700'
+                    >
+                      <Trash2 className='h-4 w-4' />
+                    </Button>
                   </div>
                 </div>
 
-                {/* Edit Form */}
-                {editingId === endpoint.id && (
-                  <div className='space-y-3 border-t border-gray-200 bg-gray-50 p-4'>
-                    <div>
-                      <Label htmlFor={`edit-name-${endpoint.id}`}>Name</Label>
-                      <Input
-                        id={`edit-name-${endpoint.id}`}
-                        value={editData.name || ''}
-                        onChange={(e) => {
-                          setEditData({ ...editData, name: e.target.value });
-                        }}
-                        size='sm'
-                      />
+                <div className='mb-4 flex flex-wrap gap-2'>
+                  <Badge className={getVisibilityColor(endpoint.visibility)}>
+                    <div className='flex items-center gap-1'>
+                      {getVisibilityIcon(endpoint.visibility)}
+                      <span className='capitalize'>{endpoint.visibility}</span>
                     </div>
-                    <div>
-                      <Label htmlFor={`edit-description-${endpoint.id}`}>Description</Label>
-                      <Input
-                        id={`edit-description-${endpoint.id}`}
-                        value={editData.description || ''}
-                        onChange={(e) => {
-                          setEditData({ ...editData, description: e.target.value });
-                        }}
-                        size='sm'
-                      />
-                    </div>
-                    <div className='flex gap-2'>
-                      <Button
-                        size='sm'
-                        onClick={() => handleEditEndpoint(endpoint.id)}
-                        disabled={isLoading}
-                        className='flex-1'
-                      >
-                        <Save className='mr-1 h-3 w-3' />
-                        Save
-                      </Button>
-                      <Button
-                        variant='outline'
-                        size='sm'
-                        onClick={() => {
-                          setEditingId(null);
-                          setEditData({});
-                        }}
-                        className='flex-1'
-                      >
-                        <X className='mr-1 h-3 w-3' />
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                )}
+                  </Badge>
+                  <Badge variant='outline'>v{endpoint.version}</Badge>
+                  {endpoint.stars_count > 0 && (
+                    <Badge variant='outline' className='border-yellow-200 text-yellow-600'>
+                      <Star className='mr-1 h-3 w-3' />
+                      {endpoint.stars_count}
+                    </Badge>
+                  )}
+                </div>
+
+                <div className='text-xs text-gray-500'>
+                  <p>Created: {formatDate(endpoint.created_at)}</p>
+                  <p>Updated: {formatDate(endpoint.updated_at)}</p>
+                </div>
               </div>
-            ))}
-          </div>
-        )}
+
+              {/* Edit Form */}
+              {editingId === endpoint.id && (
+                <div className='space-y-3 border-t border-gray-200 bg-gray-50 p-4'>
+                  <div>
+                    <Label htmlFor={`edit-name-${endpoint.id}`}>Name</Label>
+                    <Input
+                      id={`edit-name-${endpoint.id}`}
+                      value={editData.name || ''}
+                      onChange={(e) => {
+                        setEditData({ ...editData, name: e.target.value });
+                      }}
+                      size='sm'
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor={`edit-description-${endpoint.id}`}>Description</Label>
+                    <Input
+                      id={`edit-description-${endpoint.id}`}
+                      value={editData.description || ''}
+                      onChange={(e) => {
+                        setEditData({ ...editData, description: e.target.value });
+                      }}
+                      size='sm'
+                    />
+                  </div>
+                  <div className='flex gap-2'>
+                    <Button
+                      size='sm'
+                      onClick={() => handleEditEndpoint(endpoint.id)}
+                      disabled={isLoading}
+                      className='flex-1'
+                    >
+                      <Save className='mr-1 h-3 w-3' />
+                      Save
+                    </Button>
+                    <Button
+                      variant='outline'
+                      size='sm'
+                      onClick={() => {
+                        setEditingId(null);
+                        setEditData({});
+                      }}
+                      className='flex-1'
+                    >
+                      <X className='mr-1 h-3 w-3' />
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

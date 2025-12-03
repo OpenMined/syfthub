@@ -216,6 +216,9 @@ app = FastAPI(
     redoc_url="/redoc",
     openapi_url="/openapi.json",
     lifespan=lifespan,
+    # Disable automatic trailing slash redirects to avoid redirect issues
+    # when running behind a reverse proxy (nginx) on a different port
+    redirect_slashes=False,
 )
 
 # Configure CORS

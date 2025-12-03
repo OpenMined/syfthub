@@ -64,7 +64,6 @@ class UserRepository(BaseRepository[UserModel]):
                 username=user_data.username.lower(),
                 email=user_data.email.lower(),
                 full_name=user_data.full_name,
-                age=user_data.age,
                 password_hash=password_hash,
                 is_active=True,
             )
@@ -86,12 +85,14 @@ class UserRepository(BaseRepository[UserModel]):
                 return None
 
             # Update fields if provided
+            if user_data.username is not None:
+                user_model.username = user_data.username.lower()
             if user_data.email is not None:
                 user_model.email = user_data.email.lower()
             if user_data.full_name is not None:
                 user_model.full_name = user_data.full_name
-            if user_data.age is not None:
-                user_model.age = user_data.age
+            if user_data.avatar_url is not None:
+                user_model.avatar_url = user_data.avatar_url
             if user_data.is_active is not None:
                 user_model.is_active = user_data.is_active
 

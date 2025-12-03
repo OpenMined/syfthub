@@ -1,21 +1,31 @@
 import React from 'react';
 
-import { Cpu, Database, Download, Globe, Share2, Shield } from 'lucide-react';
+import { Cpu, Database, Download, Globe, Plus, Share2, Shield } from 'lucide-react';
+
+import { Button } from './ui/button';
 
 interface ParticipateViewProperties {
-  onAuthRequired?: () => void;
+  /** Callback when user wants to create their first endpoint */
+  onCreateEndpoint?: () => void;
+  /** Custom title for the header (defaults to "Participate in the Network") */
+  title?: string;
 }
 
 export function ParticipateView({
-  onAuthRequired: _onAuthRequired
+  onCreateEndpoint,
+  title = 'Participate in the Network'
 }: Readonly<ParticipateViewProperties>) {
   return (
     <div className='mx-auto flex min-h-screen max-w-[1600px] flex-col'>
       {/* Sticky Header */}
-      <div className='sticky top-0 z-30 w-full border-b border-[#ecebef] bg-[#fcfcfd]/95 px-6 py-4 backdrop-blur-sm'>
-        <h2 className='font-rubik text-xl font-medium text-[#272532]'>
-          Participate in the Network
-        </h2>
+      <div className='sticky top-0 z-30 flex w-full items-center justify-between border-b border-[#ecebef] bg-[#fcfcfd]/95 px-6 py-4 backdrop-blur-sm'>
+        <h2 className='font-rubik text-xl font-medium text-[#272532]'>{title}</h2>
+        {onCreateEndpoint && (
+          <Button onClick={onCreateEndpoint} className='flex items-center gap-2'>
+            <Plus className='h-4 w-4' />
+            Create Endpoint
+          </Button>
+        )}
       </div>
 
       {/* Main Content */}

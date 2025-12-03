@@ -1,6 +1,6 @@
 """User management endpoints."""
 
-from typing import Annotated
+from typing import Annotated, Union
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -45,6 +45,26 @@ async def get_current_user_profile(
 ) -> UserResponse:
     """Get current user's profile."""
     return UserResponse.model_validate(current_user)
+
+
+@router.get("/check-username/{username}")
+async def check_username_availability(
+    username: str,
+    user_service: Annotated[UserService, Depends(get_user_service)],
+) -> dict[str, Union[bool, str]]:
+    """Check if a username is available (public endpoint)."""
+    available = user_service.username_available(username.lower())
+    return {"available": available, "username": username.lower()}
+
+
+@router.get("/check-email/{email}")
+async def check_email_availability(
+    email: str,
+    user_service: Annotated[UserService, Depends(get_user_service)],
+) -> dict[str, Union[bool, str]]:
+    """Check if an email is available (public endpoint)."""
+    available = user_service.email_available(email.lower())
+    return {"available": available, "email": email.lower()}
 
 
 @router.get("/{user_id}", response_model=UserResponse)

@@ -224,7 +224,6 @@ def test_get_current_user_me(client: TestClient) -> None:
         "email": "test@example.com",
         "full_name": "Test User",
         "password": "testpass123",
-        "age": 25,
     }
 
     register_response = client.post("/api/v1/auth/register", json=user_data)
@@ -239,7 +238,6 @@ def test_get_current_user_me(client: TestClient) -> None:
     assert data["username"] == "testuser"
     assert data["email"] == "test@example.com"
     assert data["full_name"] == "Test User"
-    assert data["age"] == 25
     assert data["role"] == "user"
 
 

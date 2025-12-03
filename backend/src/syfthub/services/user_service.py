@@ -63,6 +63,17 @@ class UserService(BaseService):
                 detail="Permission denied: can only update your own profile",
             )
 
+        # Validate username uniqueness if being updated
+        if user_data.username and self.user_repository.username_exists(
+            user_data.username
+        ):
+            existing_user = self.user_repository.get_by_username(user_data.username)
+            if existing_user and existing_user.id != user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Username already exists",
+                )
+
         # Validate email uniqueness if being updated
         if user_data.email and self.user_repository.email_exists(user_data.email):
             existing_user = self.user_repository.get_by_email(user_data.email)

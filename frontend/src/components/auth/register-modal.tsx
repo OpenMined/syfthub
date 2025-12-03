@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect } from 'react';
 
 import { Mail, User } from 'lucide-react';
 
@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/context/auth-context';
+import { useForm } from '@/hooks/use-form';
 import {
   getPasswordStrength,
   validateConfirmPassword,
@@ -15,6 +16,21 @@ import {
 } from '@/lib/validation';
 
 import { AuthErrorAlert, AuthLoadingOverlay } from './auth-utils';
+
+interface RegisterFormValues {
+  name: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+}
+
+// Stable reference to prevent useForm from recreating resetForm on every render
+const REGISTER_INITIAL_VALUES: RegisterFormValues = {
+  name: '',
+  email: '',
+  password: '',
+  confirmPassword: ''
+};
 
 interface RegisterModalProperties {
   isOpen: boolean;
@@ -29,105 +45,71 @@ export function RegisterModal({
 }: Readonly<RegisterModalProperties>) {
   const { register, loginWithGoogle, loginWithGitHub, isLoading, error, clearError } = useAuth();
 
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    password: '',
-    confirmPassword: ''
-  });
-
-  const [formErrors, setFormErrors] = useState({
-    name: '',
-    email: '',
-    password: '',
-    confirmPassword: ''
-  });
-
-  // Reset form when modal closes
-  React.useEffect(() => {
-    if (!isOpen) {
-      setFormData({ name: '', email: '', password: '', confirmPassword: '' });
-      setFormErrors({ name: '', email: '', password: '', confirmPassword: '' });
-      clearError();
-    }
-  }, [isOpen, clearError]);
-
-  const validateForm = (): boolean => {
-    const nameError = validateName(formData.name) || '';
-    const emailError = validateEmail(formData.email) || '';
-    const passwordError = validatePassword(formData.password) || '';
-    const confirmPasswordError =
-      validateConfirmPassword(formData.password, formData.confirmPassword) || '';
-
-    setFormErrors({
-      name: nameError,
-      email: emailError,
-      password: passwordError,
-      confirmPassword: confirmPasswordError
+  const { values, errors, handleChange, handleSubmit, resetForm, setFieldError } =
+    useForm<RegisterFormValues>({
+      initialValues: REGISTER_INITIAL_VALUES,
+      validators: {
+        name: (value) => validateName(value),
+        email: (value) => validateEmail(value),
+        password: (value) => validatePassword(value),
+        confirmPassword: (value, allValues) => validateConfirmPassword(allValues.password, value)
+      },
+      onSubmit: async (formValues) => {
+        try {
+          await register({
+            name: formValues.name.trim(),
+            email: formValues.email.trim(),
+            password: formValues.password
+          });
+          onClose(); // Close modal on successful registration
+        } catch {
+          // Error is handled by the auth context
+        }
+      }
     });
 
-    return !nameError && !emailError && !passwordError && !confirmPasswordError;
-  };
+  // Reset form when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      resetForm();
+      clearError();
+    }
+  }, [isOpen, resetForm, clearError]);
 
+  // Clear auth error when user starts typing
   const handleInputChange =
-    (field: keyof typeof formData) => (event: React.ChangeEvent<HTMLInputElement>) => {
-      const value = event.target.value;
-      setFormData((previous) => ({ ...previous, [field]: value }));
-
-      // Clear field error when user starts typing
-      if (formErrors[field]) {
-        setFormErrors((previous) => ({ ...previous, [field]: '' }));
-      }
+    (field: keyof RegisterFormValues) => (e: React.ChangeEvent<HTMLInputElement>) => {
+      handleChange(field)(e);
 
       // Clear confirm password error if user is typing in password field
-      if (field === 'password' && formErrors.confirmPassword) {
-        setFormErrors((previous) => ({ ...previous, confirmPassword: '' }));
+      if (field === 'password' && errors.confirmPassword) {
+        setFieldError('confirmPassword', null);
       }
 
-      // Clear global error when user starts typing
       if (error) {
         clearError();
       }
     };
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-
-    if (!validateForm()) {
-      return;
-    }
-
-    try {
-      await register({
-        name: formData.name.trim(),
-        email: formData.email.trim(),
-        password: formData.password
-      });
-      onClose(); // Close modal on successful registration
-    } catch (error) {
-      // Error is handled by the auth context
-      console.error('Registration failed:', error);
-    }
-  };
-
   const handleGoogleRegister = async () => {
     try {
       await loginWithGoogle();
-      onClose(); // Close modal on successful registration
-    } catch (error) {
-      console.error('Google registration failed:', error);
+      onClose();
+    } catch {
+      // Error handled by context
     }
   };
 
   const handleGitHubRegister = async () => {
     try {
       await loginWithGitHub();
-      onClose(); // Close modal on successful registration
-    } catch (error) {
-      console.error('GitHub registration failed:', error);
+      onClose();
+    } catch {
+      // Error handled by context
     }
   };
 
+  // Password strength indicator
   const passwordStrengthInfo = (password: string) => {
     const score = getPasswordStrength(password);
     if (score < 2) return { score, label: 'Weak', color: 'bg-red-500' };
@@ -135,11 +117,7 @@ export function RegisterModal({
     return { score, label: 'Strong', color: 'bg-green-500' };
   };
 
-  const passwordStrength = passwordStrengthInfo(formData.password);
-
-  const handleSwitchToLogin = () => {
-    onSwitchToLogin();
-  };
+  const passwordStrength = passwordStrengthInfo(values.password);
 
   return (
     <Modal
@@ -204,10 +182,10 @@ export function RegisterModal({
         {/* Divider */}
         <div className='relative'>
           <div className='absolute inset-0 flex items-center'>
-            <span className='w-full border-t border-[#ecebef]' />
+            <span className='border-syft-border w-full border-t' />
           </div>
           <div className='relative flex justify-center text-xs uppercase'>
-            <span className='font-inter bg-white px-2 text-[#5e5a72]'>Or create account with</span>
+            <span className='font-inter text-syft-muted bg-white px-2'>Or create account with</span>
           </div>
         </div>
 
@@ -217,9 +195,9 @@ export function RegisterModal({
             type='text'
             label='Full Name'
             placeholder='John Doe'
-            value={formData.name}
+            value={values.name}
             onChange={handleInputChange('name')}
-            error={formErrors.name}
+            error={errors.name}
             leftIcon={<User className='h-4 w-4' />}
             isRequired
             disabled={isLoading}
@@ -229,9 +207,9 @@ export function RegisterModal({
             type='email'
             label='Email'
             placeholder='name@company.com'
-            value={formData.email}
+            value={values.email}
             onChange={handleInputChange('email')}
-            error={formErrors.email}
+            error={errors.email}
             leftIcon={<Mail className='h-4 w-4' />}
             isRequired
             disabled={isLoading}
@@ -242,15 +220,15 @@ export function RegisterModal({
               type='password'
               label='Password'
               placeholder='Create a secure password'
-              value={formData.password}
+              value={values.password}
               onChange={handleInputChange('password')}
-              error={formErrors.password}
+              error={errors.password}
               isRequired
               disabled={isLoading}
             />
 
             {/* Password Strength Indicator */}
-            {formData.password && (
+            {values.password && (
               <div className='space-y-1'>
                 <div className='flex items-center gap-2'>
                   <div className='h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200'>
@@ -259,7 +237,7 @@ export function RegisterModal({
                       style={{ width: `${(passwordStrength.score / 5) * 100}%` }}
                     />
                   </div>
-                  <span className='font-inter min-w-0 text-xs text-[#5e5a72]'>
+                  <span className='font-inter text-syft-muted min-w-0 text-xs'>
                     {passwordStrength.label}
                   </span>
                 </div>
@@ -271,9 +249,9 @@ export function RegisterModal({
             type='password'
             label='Confirm Password'
             placeholder='Confirm your password'
-            value={formData.confirmPassword}
+            value={values.confirmPassword}
             onChange={handleInputChange('confirmPassword')}
-            error={formErrors.confirmPassword}
+            error={errors.confirmPassword}
             isRequired
             disabled={isLoading}
           />
@@ -283,16 +261,16 @@ export function RegisterModal({
               <input
                 type='checkbox'
                 required
-                className='mt-0.5 rounded border-[#cfcdd6] text-[#272532] focus:ring-[#272532] focus:ring-offset-0'
+                className='border-syft-border text-syft-primary focus:ring-syft-primary mt-0.5 rounded focus:ring-offset-0'
                 disabled={isLoading}
               />
-              <span className='font-inter text-xs leading-relaxed text-[#5e5a72]'>
+              <span className='font-inter text-syft-muted text-xs leading-relaxed'>
                 I agree to the{' '}
-                <a href='#' className='text-[#272532] underline hover:text-[#6976ae]'>
+                <a href='#' className='text-syft-primary hover:text-syft-secondary underline'>
                   Terms of Service
                 </a>{' '}
                 and{' '}
-                <a href='#' className='text-[#272532] underline hover:text-[#6976ae]'>
+                <a href='#' className='text-syft-primary hover:text-syft-secondary underline'>
                   Privacy Policy
                 </a>
               </span>
@@ -305,13 +283,13 @@ export function RegisterModal({
         </form>
 
         {/* Switch to Login */}
-        <div className='border-t border-[#ecebef] pt-4 text-center text-sm'>
-          <p className='font-inter text-[#5e5a72]'>
+        <div className='border-syft-border border-t pt-4 text-center text-sm'>
+          <p className='font-inter text-syft-muted'>
             Already have an account?{' '}
             <button
               type='button'
-              onClick={handleSwitchToLogin}
-              className='font-medium text-[#272532] underline hover:text-[#6976ae]'
+              onClick={onSwitchToLogin}
+              className='text-syft-primary hover:text-syft-secondary font-medium underline'
               disabled={isLoading}
             >
               Sign in

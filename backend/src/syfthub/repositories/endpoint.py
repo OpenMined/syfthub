@@ -239,6 +239,9 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         is_organization: bool = False,
     ) -> Optional[Endpoint]:
         """Create a new endpoint."""
+        import logging
+
+        logger = logging.getLogger(__name__)
         try:
             endpoint_model = EndpointModel(
                 user_id=owner_id if not is_organization else None,
@@ -260,7 +263,12 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             self.session.refresh(endpoint_model)
 
             return Endpoint.model_validate(endpoint_model)
-        except SQLAlchemyError:
+        except SQLAlchemyError as e:
+            logger.error(f"SQLAlchemy error creating endpoint: {e}")
+            self.session.rollback()
+            return None
+        except Exception as e:
+            logger.error(f"Unexpected error creating endpoint: {e}", exc_info=True)
             self.session.rollback()
             return None
 
@@ -344,13 +352,16 @@ class EndpointRepository(BaseRepository[EndpointModel]):
     def slug_exists_for_user(
         self, user_id: int, slug: str, exclude_endpoint_id: Optional[int] = None
     ) -> bool:
-        """Check if slug exists for a specific user."""
+        """Check if slug exists for a specific user.
+
+        Note: This checks ALL endpoints (active and inactive) because the unique
+        index on (user_id, slug) applies regardless of is_active status.
+        """
         try:
             stmt = select(self.model).where(
                 and_(
                     self.model.user_id == user_id,
                     self.model.slug == slug.lower(),
-                    self.model.is_active,
                 )
             )
 
@@ -365,13 +376,16 @@ class EndpointRepository(BaseRepository[EndpointModel]):
     def slug_exists_for_organization(
         self, org_id: int, slug: str, exclude_endpoint_id: Optional[int] = None
     ) -> bool:
-        """Check if slug exists for a specific organization."""
+        """Check if slug exists for a specific organization.
+
+        Note: This checks ALL endpoints (active and inactive) because the unique
+        index on (organization_id, slug) applies regardless of is_active status.
+        """
         try:
             stmt = select(self.model).where(
                 and_(
                     self.model.organization_id == org_id,
                     self.model.slug == slug.lower(),
-                    self.model.is_active,
                 )
             )
 

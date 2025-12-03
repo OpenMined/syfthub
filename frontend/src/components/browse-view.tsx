@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import type { ChatSource } from '@/lib/types';
 
@@ -14,9 +14,11 @@ import {
   Star
 } from 'lucide-react';
 
+import { useAPI } from '@/hooks/use-api';
 import { getPublicEndpoints } from '@/lib/endpoint-api';
 
 import { Badge } from './ui/badge';
+import { LoadingSpinner } from './ui/loading-spinner';
 
 interface BrowseViewProperties {
   initialQuery?: string;
@@ -29,46 +31,28 @@ export function BrowseView({
   onViewEndpoint,
   onAuthRequired: _onAuthRequired
 }: Readonly<BrowseViewProperties>) {
-  const [endpoints, setEndpoints] = useState<ChatSource[]>([]);
-  const [filteredEndpoints, setFilteredEndpoints] = useState<ChatSource[]>([]);
   const [searchQuery, setSearchQuery] = useState(initialQuery);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  // Load endpoints on mount
-  useEffect(() => {
-    const loadEndpoints = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-        const sources = await getPublicEndpoints({ limit: 50 });
-        setEndpoints(sources);
-        setFilteredEndpoints(sources);
-      } catch (error_) {
-        setError(error_ instanceof Error ? error_.message : 'Failed to load endpoints');
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  // Fetch endpoints using useAPI hook
+  const {
+    data: endpoints,
+    isLoading,
+    error
+  } = useAPI(() => getPublicEndpoints({ limit: 50 }), { immediate: true });
 
-    loadEndpoints();
-  }, []);
+  // Filter endpoints based on search query using useMemo for performance
+  const filteredEndpoints = useMemo(() => {
+    if (!endpoints) return [];
+    if (!searchQuery.trim()) return endpoints;
 
-  // Filter endpoints based on search query
-  useEffect(() => {
-    if (searchQuery.trim() === '') {
-      setFilteredEndpoints(endpoints);
-    } else {
-      const query = searchQuery.toLowerCase();
-      const filtered = endpoints.filter(
-        (ds) =>
-          ds.name.toLowerCase().includes(query) ||
-          ds.description.toLowerCase().includes(query) ||
-          ds.tag.toLowerCase().includes(query)
-      );
-      setFilteredEndpoints(filtered);
-    }
-  }, [searchQuery, endpoints]);
+    const query = searchQuery.toLowerCase();
+    return endpoints.filter(
+      (ds) =>
+        ds.name.toLowerCase().includes(query) ||
+        ds.description.toLowerCase().includes(query) ||
+        ds.tag.toLowerCase().includes(query)
+    );
+  }, [endpoints, searchQuery]);
 
   const getStatusColor = (status: 'active' | 'warning' | 'inactive') => {
     switch (status) {
@@ -103,10 +87,10 @@ export function BrowseView({
       <div className='mx-auto max-w-6xl'>
         {/* Header */}
         <div className='mb-8'>
-          <h1 className='font-rubik mb-2 text-3xl font-semibold text-[#272532]'>
+          <h1 className='font-rubik text-syft-primary mb-2 text-3xl font-semibold'>
             Browse Data Sources
           </h1>
-          <p className='font-inter text-[#5e5a72]'>
+          <p className='font-inter text-syft-muted'>
             Discover and explore trusted data sources from the community
           </p>
         </div>
@@ -114,7 +98,7 @@ export function BrowseView({
         {/* Search and Filter Bar */}
         <div className='mb-8 flex gap-4'>
           <div className='relative flex-1'>
-            <Search className='absolute top-1/2 left-3 h-5 w-5 -translate-y-1/2 text-[#b4b0bf]' />
+            <Search className='text-syft-placeholder absolute top-1/2 left-3 h-5 w-5 -translate-y-1/2' />
             <input
               type='text'
               value={searchQuery}
@@ -122,10 +106,10 @@ export function BrowseView({
                 setSearchQuery(e.target.value);
               }}
               placeholder='Search data sources...'
-              className='font-inter w-full rounded-xl border border-[#ecebef] py-3 pr-4 pl-11 transition-all focus:border-[#272532] focus:ring-2 focus:ring-[#272532]/10 focus:outline-none'
+              className='font-inter border-syft-border focus:border-syft-primary focus:ring-syft-primary/10 w-full rounded-xl border py-3 pr-4 pl-11 transition-all focus:ring-2 focus:outline-none'
             />
           </div>
-          <button className='font-inter flex items-center gap-2 rounded-xl border border-[#ecebef] px-4 py-3 text-[#5e5a72] transition-colors hover:bg-[#f7f6f9]'>
+          <button className='font-inter border-syft-border text-syft-muted hover:bg-syft-surface flex items-center gap-2 rounded-xl border px-4 py-3 transition-colors'>
             <Filter className='h-5 w-5' />
             Filter
           </button>
@@ -134,10 +118,7 @@ export function BrowseView({
         {/* Content */}
         {isLoading ? (
           <div className='py-16 text-center'>
-            <div className='flex items-center justify-center gap-3 text-gray-600'>
-              <div className='h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600'></div>
-              <span>Loading endpoints...</span>
-            </div>
+            <LoadingSpinner size='lg' message='Loading endpoints...' className='justify-center' />
           </div>
         ) : error ? (
           <div className='py-16 text-center'>
@@ -147,15 +128,17 @@ export function BrowseView({
             <h3 className='font-inter mb-2 text-lg font-medium text-gray-900'>
               Error Loading Endpoints
             </h3>
-            <p className='font-inter text-[#5e5a72]'>{error}</p>
+            <p className='font-inter text-syft-muted'>{error.message}</p>
           </div>
         ) : filteredEndpoints.length === 0 ? (
           <div className='py-16 text-center'>
-            <div className='mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-[#f1f0f4]'>
-              <Search className='h-8 w-8 text-[#5e5a72]' />
+            <div className='bg-syft-surface mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full'>
+              <Search className='text-syft-muted h-8 w-8' />
             </div>
-            <h3 className='font-inter mb-2 text-lg font-medium text-[#272532]'>No Results Found</h3>
-            <p className='font-inter text-[#5e5a72]'>
+            <h3 className='font-inter text-syft-primary mb-2 text-lg font-medium'>
+              No Results Found
+            </h3>
+            <p className='font-inter text-syft-muted'>
               {searchQuery ? `No endpoints match "${searchQuery}"` : 'No endpoints available'}
             </p>
           </div>
@@ -165,24 +148,24 @@ export function BrowseView({
               <div
                 key={endpoint.id}
                 onClick={() => onViewEndpoint?.(endpoint.slug, endpoint.owner_username)}
-                className='group cursor-pointer rounded-xl border border-[#ecebef] bg-white p-5 transition-all hover:border-[#6976ae] hover:shadow-md'
+                className='group border-syft-border hover:border-syft-secondary cursor-pointer rounded-xl border bg-white p-5 transition-all hover:shadow-md'
               >
                 {/* Header */}
                 <div className='mb-3 flex items-start justify-between'>
                   <div className='min-w-0 flex-1'>
-                    <h3 className='font-inter mb-1 truncate text-base font-semibold text-[#272532] group-hover:text-[#6976ae]'>
+                    <h3 className='font-inter text-syft-primary group-hover:text-syft-secondary mb-1 truncate text-base font-semibold'>
                       {endpoint.name}
                     </h3>
                     {endpoint.owner_username && (
-                      <p className='font-inter truncate text-xs text-[#b4b0bf]'>
+                      <p className='font-inter text-syft-placeholder truncate text-xs'>
                         by @{endpoint.owner_username}
                       </p>
                     )}
-                    <p className='font-inter line-clamp-2 text-sm text-[#5e5a72]'>
+                    <p className='font-inter text-syft-muted line-clamp-2 text-sm'>
                       {endpoint.description}
                     </p>
                   </div>
-                  <ChevronRight className='ml-2 h-5 w-5 shrink-0 text-[#b4b0bf] transition-transform group-hover:translate-x-1 group-hover:text-[#6976ae]' />
+                  <ChevronRight className='text-syft-placeholder group-hover:text-syft-secondary ml-2 h-5 w-5 shrink-0 transition-transform group-hover:translate-x-1' />
                 </div>
 
                 {/* Tags and Status */}
@@ -192,15 +175,15 @@ export function BrowseView({
                   </Badge>
                   <div className='flex items-center gap-1'>
                     <div className={`h-2 w-2 rounded-full ${getStatusColor(endpoint.status)}`} />
-                    <span className='font-inter text-xs text-[#5e5a72] capitalize'>
+                    <span className='font-inter text-syft-muted text-xs capitalize'>
                       {endpoint.status}
                     </span>
                   </div>
                 </div>
 
                 {/* Footer Info */}
-                <div className='flex items-center justify-between border-t border-[#f1f0f4] pt-3'>
-                  <div className='flex items-center gap-3 text-xs text-[#b4b0bf]'>
+                <div className='border-syft-surface flex items-center justify-between border-t pt-3'>
+                  <div className='text-syft-placeholder flex items-center gap-3 text-xs'>
                     <div className='flex items-center gap-1'>
                       {getVisibilityIcon(endpoint)}
                       <span>Public</span>
@@ -210,7 +193,7 @@ export function BrowseView({
                       <span>v{endpoint.version}</span>
                     </div>
                   </div>
-                  <div className='flex items-center gap-3 text-xs text-[#b4b0bf]'>
+                  <div className='text-syft-placeholder flex items-center gap-3 text-xs'>
                     {endpoint.stars_count > 0 && (
                       <div className='flex items-center gap-1'>
                         <Star className='h-3 w-3' />

@@ -26,7 +26,6 @@ import { Label } from './ui/label';
 interface ProfileEditData {
   full_name: string;
   email: string;
-  age?: number;
 }
 
 interface PasswordChangeData {
@@ -46,8 +45,7 @@ export function ProfileView() {
   // Profile edit form state
   const [editData, setEditData] = useState<ProfileEditData>({
     full_name: user?.full_name || '',
-    email: user?.email || '',
-    age: user?.age || undefined
+    email: user?.email || ''
   });
 
   // Password change form state
@@ -77,8 +75,7 @@ export function ProfileView() {
 
       await updateUserProfileAPI({
         full_name: editData.full_name,
-        email: editData.email,
-        age: editData.age
+        email: editData.email
       });
 
       setSuccess('Profile updated successfully!');
@@ -225,9 +222,9 @@ export function ProfileView() {
               {/* Avatar */}
               <div className='flex items-center gap-4'>
                 <div className='flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600'>
-                  {user.avatar ? (
+                  {user.avatar_url ? (
                     <img
-                      src={user.avatar}
+                      src={user.avatar_url}
                       alt={user.name}
                       className='h-16 w-16 rounded-full object-cover'
                     />
@@ -269,24 +266,6 @@ export function ProfileView() {
                     />
                   </div>
 
-                  <div>
-                    <Label htmlFor='age'>Age (optional)</Label>
-                    <Input
-                      id='age'
-                      type='number'
-                      value={editData.age || ''}
-                      onChange={(e) => {
-                        setEditData({
-                          ...editData,
-                          age: e.target.value ? Number.parseInt(e.target.value) : undefined
-                        });
-                      }}
-                      placeholder='Enter your age'
-                      min='13'
-                      max='120'
-                    />
-                  </div>
-
                   <div className='flex gap-2'>
                     <Button
                       onClick={handleProfileSave}
@@ -302,8 +281,7 @@ export function ProfileView() {
                         setIsEditing(false);
                         setEditData({
                           full_name: user.full_name,
-                          email: user.email,
-                          age: user.age
+                          email: user.email
                         });
                       }}
                     >
@@ -322,16 +300,6 @@ export function ProfileView() {
                       <p className='text-xs text-gray-500'>Email address</p>
                     </div>
                   </div>
-
-                  {user.age && (
-                    <div className='flex items-center gap-3'>
-                      <UserIcon className='h-5 w-5 text-gray-400' />
-                      <div>
-                        <p className='text-sm font-medium text-gray-900'>{user.age} years old</p>
-                        <p className='text-xs text-gray-500'>Age</p>
-                      </div>
-                    </div>
-                  )}
 
                   <div className='flex items-center gap-3'>
                     <Shield className='h-5 w-5 text-gray-400' />

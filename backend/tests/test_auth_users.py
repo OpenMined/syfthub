@@ -122,7 +122,7 @@ def test_update_current_user_profile(
     """Test updating current user's profile via /users/me."""
     update_data = {
         "full_name": "Updated User Name",
-        "age": 30,
+        "avatar_url": "https://example.com/avatar.png",
     }
 
     headers = {"Authorization": f"Bearer {regular_user_token}"}
@@ -131,7 +131,7 @@ def test_update_current_user_profile(
     assert response.status_code == 200
     data = response.json()
     assert data["full_name"] == "Updated User Name"
-    assert data["age"] == 30
+    assert data["avatar_url"] == "https://example.com/avatar.png"
     assert data["username"] == "regularuser"  # Should not change
 
 

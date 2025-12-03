@@ -5,12 +5,14 @@
 
 import type {
   AuthResponse,
+  AvailabilityResponse,
   BackendUser,
   PasswordChange,
   RegisterRequest,
   RegistrationResponse,
   User,
-  UserResponse
+  UserResponse,
+  UserUpdate
 } from './types';
 
 import { API_CONFIG, apiClient, APIError, tokenManager } from './api-client';
@@ -30,9 +32,9 @@ export function mapBackendUserToFrontend(backendUser: BackendUser): User {
     email: backendUser.email,
     name: backendUser.full_name, // Map full_name to name for frontend
     full_name: backendUser.full_name,
-    age: backendUser.age,
     role: backendUser.role,
-    avatar: generateAvatarUrl(backendUser.full_name),
+    // Use avatar_url from backend or generate fallback
+    avatar_url: backendUser.avatar_url ?? generateAvatarUrl(backendUser.full_name),
     is_active: backendUser.is_active,
     created_at: backendUser.created_at,
     updated_at: backendUser.updated_at
@@ -221,12 +223,44 @@ export async function changePasswordAPI(passwordData: PasswordChange): Promise<v
 }
 
 // Update user profile API
-export async function updateUserProfileAPI(profileData: {
-  full_name?: string;
-  email?: string;
-  age?: number;
-}): Promise<UserResponse> {
+export async function updateUserProfileAPI(profileData: UserUpdate): Promise<UserResponse> {
   return await apiClient.put<UserResponse>(API_CONFIG.ENDPOINTS.USERS.ME, profileData);
+}
+
+// Check username availability
+export async function checkUsernameAvailability(username: string): Promise<AvailabilityResponse> {
+  const response = await fetch(
+    `${API_CONFIG.BASE_URL}/users/check-username/${encodeURIComponent(username)}`,
+    { method: 'GET' }
+  );
+
+  if (!response.ok) {
+    throw new APIError('Failed to check username availability', response.status);
+  }
+
+  return (await response.json()) as AvailabilityResponse;
+}
+
+// Check email availability
+export async function checkEmailAvailability(email: string): Promise<AvailabilityResponse> {
+  const response = await fetch(
+    `${API_CONFIG.BASE_URL}/users/check-email/${encodeURIComponent(email)}`,
+    { method: 'GET' }
+  );
+
+  if (!response.ok) {
+    throw new APIError('Failed to check email availability', response.status);
+  }
+
+  return (await response.json()) as AvailabilityResponse;
+}
+
+// Delete user account
+export async function deleteUserAccountAPI(): Promise<void> {
+  // Get current user to get their ID
+  const user = await getCurrentUserAPI();
+  await apiClient.delete(`/users/${String(user.id)}`);
+  tokenManager.clearTokens();
 }
 
 // Check if user is authenticated
@@ -253,13 +287,15 @@ export async function getStoredUser(): Promise<User | null> {
 // Re-export types for use in other files
 export type {
   AuthResponse,
+  AvailabilityResponse,
   BackendUser,
   LoginRequest,
   PasswordChange,
   RegisterRequest,
   RegistrationResponse,
   User,
-  UserResponse
+  UserResponse,
+  UserUpdate
 } from './types';
 
 // Re-export token manager

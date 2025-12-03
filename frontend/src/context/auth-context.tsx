@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
-import type { AuthResponse, User } from '@/lib/types';
+import type { AuthResponse, BackendUser, User } from '@/lib/types';
 
 import {
+  getCurrentUserAPI,
   getStoredUser,
   githubOAuthAPI,
   googleOAuthAPI,
@@ -24,6 +25,7 @@ interface AuthContextType {
   loginWithGitHub: () => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -160,18 +162,34 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
 
       setUser(null);
       setError(null);
+
+      // Dispatch logout event for other contexts to clean up (e.g., accounting vault)
+      globalThis.dispatchEvent(new CustomEvent('syft:logout'));
     } catch (logoutError) {
       console.error('Logout error:', logoutError);
       // Even if logout fails, clear local state
       setUser(null);
+      // Still dispatch logout event on error
+      globalThis.dispatchEvent(new CustomEvent('syft:logout'));
     } finally {
       setIsLoading(false);
     }
   };
 
-  const clearError = () => {
+  const clearError = useCallback(() => {
     setError(null);
-  };
+  }, []);
+
+  const refreshUser = useCallback(async (): Promise<void> => {
+    try {
+      const userResponse = await getCurrentUserAPI();
+      const frontendUser = mapBackendUserToFrontend(userResponse as BackendUser);
+      setUser(frontendUser);
+    } catch (refreshError) {
+      console.error('Failed to refresh user:', refreshError);
+      // Don't clear user state on refresh failure - let them continue with stale data
+    }
+  }, []);
 
   const value: AuthContextType = {
     user,
@@ -183,7 +201,8 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
     loginWithGoogle,
     loginWithGitHub,
     logout,
-    clearError
+    clearError,
+    refreshUser
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

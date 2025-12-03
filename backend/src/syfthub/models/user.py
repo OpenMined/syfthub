@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, Index, Integer, String
+from sqlalchemy import Boolean, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from syfthub.models.base import BaseModel, TimestampMixin
@@ -21,7 +21,7 @@ class UserModel(BaseModel, TimestampMixin):
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     full_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    age: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    avatar_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="user")
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
