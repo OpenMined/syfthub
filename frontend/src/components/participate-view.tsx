@@ -1,31 +1,32 @@
 import React from 'react';
 
-import { Cpu, Database, Download, Globe, Plus, Share2, Shield } from 'lucide-react';
+import { ArrowLeft, Cpu, Database, Download, Globe, Share2, Shield } from 'lucide-react';
 
 import { Button } from './ui/button';
 
 interface ParticipateViewProperties {
-  /** Callback when user wants to create their first endpoint */
-  onCreateEndpoint?: () => void;
   /** Custom title for the header (defaults to "Participate in the Network") */
   title?: string;
+  /** Optional callback to go back */
+  onBack?: () => void;
 }
 
 export function ParticipateView({
-  onCreateEndpoint,
-  title = 'Participate in the Network'
+  title = 'Participate in the Network',
+  onBack
 }: Readonly<ParticipateViewProperties>) {
   return (
     <div className='mx-auto flex min-h-screen max-w-[1600px] flex-col'>
       {/* Sticky Header */}
       <div className='sticky top-0 z-30 flex w-full items-center justify-between border-b border-[#ecebef] bg-[#fcfcfd]/95 px-6 py-4 backdrop-blur-sm'>
-        <h2 className='font-rubik text-xl font-medium text-[#272532]'>{title}</h2>
-        {onCreateEndpoint && (
-          <Button onClick={onCreateEndpoint} className='flex items-center gap-2'>
-            <Plus className='h-4 w-4' />
-            Create Endpoint
-          </Button>
-        )}
+        <div className='flex items-center gap-3'>
+          {onBack && (
+            <Button variant='ghost' size='sm' onClick={onBack} className='p-2'>
+              <ArrowLeft className='h-5 w-5' />
+            </Button>
+          )}
+          <h2 className='font-rubik text-xl font-medium text-[#272532]'>{title}</h2>
+        </div>
       </div>
 
       {/* Main Content */}

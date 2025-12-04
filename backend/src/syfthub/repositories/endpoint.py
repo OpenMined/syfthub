@@ -15,6 +15,7 @@ from syfthub.schemas.endpoint import (
     EndpointAdminUpdate,
     EndpointCreate,
     EndpointPublicResponse,
+    EndpointType,
     EndpointUpdate,
     EndpointVisibility,
 )
@@ -143,7 +144,10 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             return []
 
     def get_public_endpoints(
-        self, skip: int = 0, limit: int = 10
+        self,
+        skip: int = 0,
+        limit: int = 10,
+        endpoint_type: Optional[EndpointType] = None,
     ) -> List[EndpointPublicResponse]:
         """Get all public endpoints with owner usernames."""
         try:
@@ -156,10 +160,12 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                         self.model.is_active,
                     )
                 )
-                .order_by(self.model.updated_at.desc())
-                .offset(skip)
-                .limit(limit)
             )
+
+            if endpoint_type:
+                stmt = stmt.where(self.model.type == endpoint_type.value)
+
+            stmt = stmt.order_by(self.model.updated_at.desc()).offset(skip).limit(limit)
 
             result = self.session.execute(stmt)
             rows = result.all()
@@ -170,6 +176,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                     "name": endpoint_model.name,
                     "slug": endpoint_model.slug,
                     "description": endpoint_model.description,
+                    "type": endpoint_model.type,
                     "owner_username": username,
                     "version": endpoint_model.version,
                     "readme": endpoint_model.readme,
@@ -186,7 +193,11 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             return []
 
     def get_trending_endpoints(
-        self, skip: int = 0, limit: int = 10, min_stars: Optional[int] = None
+        self,
+        skip: int = 0,
+        limit: int = 10,
+        min_stars: Optional[int] = None,
+        endpoint_type: Optional[EndpointType] = None,
     ) -> List[EndpointPublicResponse]:
         """Get trending public endpoints with owner usernames sorted by stars count with optional min_stars filter."""
         try:
@@ -204,6 +215,9 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             if min_stars is not None:
                 stmt = stmt.where(self.model.stars_count >= min_stars)
 
+            if endpoint_type:
+                stmt = stmt.where(self.model.type == endpoint_type.value)
+
             stmt = (
                 stmt.order_by(self.model.stars_count.desc()).offset(skip).limit(limit)
             )
@@ -217,6 +231,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                     "name": endpoint_model.name,
                     "slug": endpoint_model.slug,
                     "description": endpoint_model.description,
+                    "type": endpoint_model.type,
                     "owner_username": username,
                     "version": endpoint_model.version,
                     "readme": endpoint_model.readme,
@@ -249,6 +264,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 name=endpoint_data.name,
                 slug=endpoint_data.slug.lower(),
                 description=endpoint_data.description,
+                type=endpoint_data.type.value,
                 visibility=endpoint_data.visibility.value,
                 version=endpoint_data.version,
                 readme=endpoint_data.readme,

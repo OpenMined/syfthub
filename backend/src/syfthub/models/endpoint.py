@@ -40,6 +40,7 @@ class EndpointModel(BaseModel, TimestampMixin):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     slug: Mapped[str] = mapped_column(String(63), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    type: Mapped[str] = mapped_column(String(20), nullable=False)
     visibility: Mapped[str] = mapped_column(
         String(20), nullable=False, default="public"
     )
@@ -81,6 +82,7 @@ class EndpointModel(BaseModel, TimestampMixin):
         Index("idx_endpoints_user_slug", "user_id", "slug", unique=True),
         # Unique slug per organization (nulls ignored in unique constraints)
         Index("idx_endpoints_org_slug", "organization_id", "slug", unique=True),
+        Index("idx_endpoints_type", "type"),
         Index("idx_endpoints_visibility", "visibility"),
         Index("idx_endpoints_is_active", "is_active"),
         Index("idx_endpoints_version", "version"),

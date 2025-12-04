@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 
-import type { ChatSource } from '@/lib/types';
+import type { ChatSource, EndpointType } from '@/lib/types';
 
 import {
   Building,
@@ -80,6 +80,34 @@ export function BrowseView({
       return <Building className='h-3 w-3' />;
     }
     return <Globe className='h-3 w-3' />;
+  };
+
+  const getTypeStyles = (type: EndpointType) => {
+    switch (type) {
+      case 'model': {
+        return 'bg-purple-100 text-purple-800 border-purple-200';
+      }
+      case 'data_source': {
+        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+      }
+      default: {
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+      }
+    }
+  };
+
+  const getTypeLabel = (type: EndpointType) => {
+    switch (type) {
+      case 'model': {
+        return 'Model';
+      }
+      case 'data_source': {
+        return 'Data Source';
+      }
+      default: {
+        return type;
+      }
+    }
   };
 
   return (
@@ -170,6 +198,12 @@ export function BrowseView({
 
                 {/* Tags and Status */}
                 <div className='mb-3 flex flex-wrap items-center gap-2'>
+                  <Badge
+                    variant='outline'
+                    className={`font-inter border text-xs ${getTypeStyles(endpoint.type)}`}
+                  >
+                    {getTypeLabel(endpoint.type)}
+                  </Badge>
                   <Badge variant='secondary' className='font-inter text-xs'>
                     {endpoint.tag}
                   </Badge>

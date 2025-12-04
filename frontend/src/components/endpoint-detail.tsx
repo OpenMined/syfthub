@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
 
-import type { ChatSource } from '@/lib/types';
+import type { ChatSource, EndpointType } from '@/lib/types';
 
 import {
   ArrowLeft,
-  Building,
   Calendar,
   Check,
   Copy,
@@ -12,7 +11,6 @@ import {
   ExternalLink,
   GitFork,
   Globe,
-  Lock,
   Package,
   Share2,
   Star,
@@ -75,12 +73,12 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
       }
     };
 
-    loadEndpoint();
+    void loadEndpoint();
   }, [slug, owner]);
 
   const handleCopySlug = () => {
-    const fullPath = endpoint?.full_path || `${endpoint?.owner_username || 'anonymous'}/${slug}`;
-    navigator.clipboard.writeText(fullPath);
+    const fullPath = endpoint?.full_path ?? `${endpoint?.owner_username ?? 'anonymous'}/${slug}`;
+    void navigator.clipboard.writeText(fullPath);
     setCopied(true);
     setTimeout(() => {
       setCopied(false);
@@ -100,6 +98,34 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
       }
       default: {
         return 'bg-gray-100 text-gray-800 border-gray-200';
+      }
+    }
+  };
+
+  const getTypeStyles = (type: EndpointType) => {
+    switch (type) {
+      case 'model': {
+        return 'bg-purple-100 text-purple-800 border-purple-200';
+      }
+      case 'data_source': {
+        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+      }
+      default: {
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+      }
+    }
+  };
+
+  const getTypeLabel = (type: EndpointType) => {
+    switch (type) {
+      case 'model': {
+        return 'Model';
+      }
+      case 'data_source': {
+        return 'Data Source';
+      }
+      default: {
+        return type;
       }
     }
   };
@@ -157,6 +183,9 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
 
               {/* Badges */}
               <div className='mb-4 flex flex-wrap gap-2'>
+                <Badge className={`border ${getTypeStyles(endpoint.type)}`}>
+                  {getTypeLabel(endpoint.type)}
+                </Badge>
                 <Badge className={getStatusBadgeColor(endpoint.status)}>
                   {endpoint.status === 'active' && '● Active'}
                   {endpoint.status === 'warning' && '● Needs Update'}
@@ -273,6 +302,13 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                       @{endpoint.owner_username || 'anonymous'}
                     </span>
                   </div>
+                </div>
+
+                <div>
+                  <p className='mb-1 text-xs text-gray-500'>Endpoint Type</p>
+                  <Badge className={`border ${getTypeStyles(endpoint.type)}`}>
+                    {getTypeLabel(endpoint.type)}
+                  </Badge>
                 </div>
 
                 <div>

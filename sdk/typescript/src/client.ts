@@ -1,0 +1,252 @@
+import { HTTPClient, type AuthTokens } from './http.js';
+import { SyftHubError } from './errors.js';
+import { AuthResource } from './resources/auth.js';
+import { UsersResource } from './resources/users.js';
+import { MyEndpointsResource } from './resources/my-endpoints.js';
+import { HubResource } from './resources/hub.js';
+import { AccountingResource } from './resources/accounting.js';
+
+/**
+ * Configuration options for SyftHubClient.
+ */
+export interface SyftHubClientOptions {
+  /**
+   * Base URL for the SyftHub API.
+   * Falls back to SYFTHUB_URL environment variable.
+   * @example 'https://hub.syft.com'
+   */
+  baseUrl?: string;
+
+  /**
+   * Request timeout in milliseconds.
+   * @default 30000
+   */
+  timeout?: number;
+
+  /**
+   * Base URL for the accounting service (optional).
+   * Falls back to SYFTHUB_ACCOUNTING_URL environment variable.
+   */
+  accountingUrl?: string;
+
+  /**
+   * Email for accounting service authentication (optional).
+   * Falls back to SYFTHUB_ACCOUNTING_EMAIL environment variable.
+   */
+  accountingEmail?: string;
+
+  /**
+   * Password for accounting service authentication (optional).
+   * Falls back to SYFTHUB_ACCOUNTING_PASSWORD environment variable.
+   */
+  accountingPassword?: string;
+}
+
+/**
+ * Get environment variable, handling both Node.js and browser environments.
+ */
+function getEnv(key: string): string | undefined {
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env[key];
+  }
+  return undefined;
+}
+
+/**
+ * SyftHub SDK client for interacting with the SyftHub API.
+ *
+ * @example
+ * // Basic usage
+ * import { SyftHubClient } from '@syfthub/sdk';
+ *
+ * const client = new SyftHubClient({ baseUrl: 'https://hub.syft.com' });
+ *
+ * // Or use environment variable
+ * // Set SYFTHUB_URL=https://hub.syft.com
+ * const client = new SyftHubClient();
+ *
+ * @example
+ * // Authentication
+ * const user = await client.auth.login('alice', 'password123');
+ * console.log(`Logged in as ${user.username}`);
+ *
+ * // Get current user
+ * const me = await client.auth.me();
+ *
+ * @example
+ * // Browse endpoints
+ * for await (const endpoint of client.hub.browse()) {
+ *   console.log(endpoint.name);
+ * }
+ *
+ * @example
+ * // Manage your endpoints
+ * const endpoint = await client.myEndpoints.create({
+ *   name: 'My Model',
+ *   type: 'model',
+ *   visibility: 'public',
+ * });
+ *
+ * @example
+ * // Token persistence
+ * const tokens = client.getTokens();
+ * // Save tokens to storage...
+ *
+ * // Later, restore tokens
+ * client.setTokens(savedTokens);
+ */
+export class SyftHubClient {
+  private readonly http: HTTPClient;
+
+  // Lazy-initialized resources
+  private _auth?: AuthResource;
+  private _users?: UsersResource;
+  private _myEndpoints?: MyEndpointsResource;
+  private _hub?: HubResource;
+  private _accounting?: AccountingResource;
+
+  /**
+   * Create a new SyftHub client.
+   *
+   * @param options - Configuration options
+   * @throws {SyftHubError} If baseUrl is not provided and SYFTHUB_URL is not set
+   */
+  constructor(options: SyftHubClientOptions = {}) {
+    const baseUrl = options.baseUrl ?? getEnv('SYFTHUB_URL');
+
+    if (!baseUrl) {
+      throw new SyftHubError(
+        'baseUrl is required. Provide it in options or set the SYFTHUB_URL environment variable.'
+      );
+    }
+
+    // Remove trailing slash from base URL
+    const normalizedUrl = baseUrl.replace(/\/+$/, '');
+
+    this.http = new HTTPClient(normalizedUrl, options.timeout ?? 30000);
+  }
+
+  /**
+   * Authentication resource for login, register, and session management.
+   *
+   * @example
+   * const user = await client.auth.login('alice', 'password');
+   * await client.auth.logout();
+   */
+  get auth(): AuthResource {
+    if (!this._auth) {
+      this._auth = new AuthResource(this.http);
+    }
+    return this._auth;
+  }
+
+  /**
+   * Users resource for profile management.
+   *
+   * @example
+   * const user = await client.users.update({ fullName: 'Alice Smith' });
+   * const available = await client.users.checkUsername('newname');
+   */
+  get users(): UsersResource {
+    if (!this._users) {
+      this._users = new UsersResource(this.http);
+    }
+    return this._users;
+  }
+
+  /**
+   * My Endpoints resource for managing your own endpoints.
+   *
+   * @example
+   * const endpoints = await client.myEndpoints.list().all();
+   * const endpoint = await client.myEndpoints.create({ name: 'My API', type: 'model' });
+   */
+  get myEndpoints(): MyEndpointsResource {
+    if (!this._myEndpoints) {
+      this._myEndpoints = new MyEndpointsResource(this.http);
+    }
+    return this._myEndpoints;
+  }
+
+  /**
+   * Hub resource for browsing public endpoints.
+   *
+   * @example
+   * for await (const endpoint of client.hub.browse()) {
+   *   console.log(endpoint.name);
+   * }
+   */
+  get hub(): HubResource {
+    if (!this._hub) {
+      this._hub = new HubResource(this.http);
+    }
+    return this._hub;
+  }
+
+  /**
+   * Accounting resource for billing and credits.
+   *
+   * @example
+   * const balance = await client.accounting.balance();
+   * console.log(`Credits: ${balance.credits}`);
+   */
+  get accounting(): AccountingResource {
+    if (!this._accounting) {
+      this._accounting = new AccountingResource(this.http);
+    }
+    return this._accounting;
+  }
+
+  /**
+   * Get current authentication tokens.
+   *
+   * Use this to persist tokens for later sessions.
+   *
+   * @returns Current tokens or null if not authenticated
+   *
+   * @example
+   * const tokens = client.getTokens();
+   * if (tokens) {
+   *   localStorage.setItem('tokens', JSON.stringify(tokens));
+   * }
+   */
+  getTokens(): AuthTokens | null {
+    return this.http.getTokens();
+  }
+
+  /**
+   * Set authentication tokens.
+   *
+   * Use this to restore a session from previously saved tokens.
+   *
+   * @param tokens - Tokens to set
+   *
+   * @example
+   * const saved = JSON.parse(localStorage.getItem('tokens'));
+   * if (saved) {
+   *   client.setTokens(saved);
+   * }
+   */
+  setTokens(tokens: AuthTokens): void {
+    this.http.setTokens(tokens.accessToken, tokens.refreshToken);
+  }
+
+  /**
+   * Check if the client is currently authenticated.
+   *
+   * @returns True if tokens are present
+   */
+  get isAuthenticated(): boolean {
+    return this.http.hasTokens();
+  }
+
+  /**
+   * Close the client and clean up resources.
+   *
+   * Currently a no-op, but may be used in future for connection pooling.
+   */
+  close(): void {
+    // Currently a no-op
+    // Could be used for cleanup in future (e.g., connection pools)
+  }
+}

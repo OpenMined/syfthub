@@ -18,6 +18,13 @@ class EndpointVisibility(str, Enum):
     INTERNAL = "internal"  # Only authenticated users can view
 
 
+class EndpointType(str, Enum):
+    """Endpoint type classification."""
+
+    MODEL = "model"  # Machine learning model endpoint
+    DATA_SOURCE = "data_source"  # Data source endpoint
+
+
 class Policy(BaseModel):
     """Policy configuration for endpoints.
 
@@ -112,6 +119,9 @@ class EndpointBase(BaseModel):
     )
     description: str = Field(
         "", max_length=500, description="Description of the endpoint"
+    )
+    type: EndpointType = Field(
+        ..., description="Type of endpoint (model or data_source)"
     )
     visibility: EndpointVisibility = Field(
         default=EndpointVisibility.PUBLIC, description="Who can access this endpoint"
@@ -231,6 +241,9 @@ class Endpoint(BaseModel):
     # User-provided fields
     name: str = Field(..., description="Display name of the endpoint")
     description: str = Field(..., description="Description of the endpoint")
+    type: EndpointType = Field(
+        ..., description="Type of endpoint (model or data_source)"
+    )
     visibility: EndpointVisibility = Field(
         ..., description="Who can access this endpoint"
     )
@@ -274,6 +287,9 @@ class EndpointResponse(BaseModel):
     name: str = Field(..., description="Display name of the endpoint")
     slug: str = Field(..., description="URL-safe identifier")
     description: str = Field(..., description="Description of the endpoint")
+    type: EndpointType = Field(
+        ..., description="Type of endpoint (model or data_source)"
+    )
     visibility: EndpointVisibility = Field(
         ..., description="Who can access this endpoint"
     )
@@ -302,6 +318,9 @@ class EndpointPublicResponse(BaseModel):
     name: str = Field(..., description="Display name of the endpoint")
     slug: str = Field(..., description="URL-safe identifier")
     description: str = Field(..., description="Description of the endpoint")
+    type: EndpointType = Field(
+        ..., description="Type of endpoint (model or data_source)"
+    )
     owner_username: str = Field(..., description="Username of the endpoint owner")
     # REMOVED contributors - privacy issue, only owner should see this
     version: str = Field(..., description="Semantic version of the endpoint")

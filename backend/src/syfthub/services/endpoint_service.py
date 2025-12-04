@@ -17,6 +17,7 @@ from syfthub.schemas.endpoint import (
     EndpointCreate,
     EndpointPublicResponse,
     EndpointResponse,
+    EndpointType,
     EndpointUpdate,
     EndpointVisibility,
     generate_slug_from_name,
@@ -172,6 +173,7 @@ class EndpointService(BaseService):
         validated_data = EndpointCreate(
             name=endpoint_data.name,
             description=endpoint_data.description,
+            type=endpoint_data.type,
             visibility=endpoint_data.visibility,
             version=endpoint_data.version,
             readme=endpoint_data.readme,
@@ -262,10 +264,13 @@ class EndpointService(BaseService):
         return accessible_endpoints
 
     def get_public_endpoints(
-        self, skip: int = 0, limit: int = 10
+        self,
+        skip: int = 0,
+        limit: int = 10,
+        endpoint_type: Optional[EndpointType] = None,
     ) -> List[EndpointPublicResponse]:
         """Get public endpoints."""
-        return self.endpoint_repository.get_public_endpoints(skip, limit)
+        return self.endpoint_repository.get_public_endpoints(skip, limit, endpoint_type)
 
     def update_endpoint(
         self, endpoint_id: int, endpoint_data: EndpointUpdate, current_user: User
@@ -354,16 +359,27 @@ class EndpointService(BaseService):
         )
 
     def list_public_endpoints(
-        self, skip: int = 0, limit: int = 10
+        self,
+        skip: int = 0,
+        limit: int = 10,
+        endpoint_type: Optional[EndpointType] = None,
     ) -> List[EndpointPublicResponse]:
         """List public endpoints - router-compatible wrapper."""
-        return self.get_public_endpoints(skip=skip, limit=limit)
+        return self.get_public_endpoints(
+            skip=skip, limit=limit, endpoint_type=endpoint_type
+        )
 
     def list_trending_endpoints(
-        self, skip: int = 0, limit: int = 10, min_stars: Optional[int] = None
+        self,
+        skip: int = 0,
+        limit: int = 10,
+        min_stars: Optional[int] = None,
+        endpoint_type: Optional[EndpointType] = None,
     ) -> List[EndpointPublicResponse]:
         """List trending public endpoints sorted by stars count with optional min_stars filter."""
-        return self.endpoint_repository.get_trending_endpoints(skip, limit, min_stars)
+        return self.endpoint_repository.get_trending_endpoints(
+            skip, limit, min_stars, endpoint_type
+        )
 
     def get_endpoint(self, endpoint_id: int, current_user: User) -> EndpointResponse:
         """Get endpoint by ID with access control."""

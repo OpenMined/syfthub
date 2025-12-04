@@ -5,26 +5,27 @@ import type { ChatSource } from '@/lib/types';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowDown, Brain, Check, Clock, Cpu, Database, Info, Settings2, X } from 'lucide-react';
 
-import { getChatDataSources } from '@/lib/endpoint-api';
+import { getChatDataSources, getChatModels } from '@/lib/endpoint-api';
 
+import { ModelSelector } from './chat/model-selector';
 import { Badge } from './ui/badge';
 import { Label } from './ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Switch } from './ui/switch';
 
 function AdvancedPanel({
   isOpen,
   onClose,
   sources,
-  selectedIds
+  selectedIds,
+  selectedModel
 }: Readonly<{
   isOpen: boolean;
   onClose: () => void;
   sources: ChatSource[];
   selectedIds: string[];
+  selectedModel: ChatSource | null;
 }>) {
   const activeSources = sources.filter((s) => selectedIds.includes(s.id));
-  const [model, setModel] = useState('syft-1.5-turbo');
   const [isFactual, setIsFactual] = useState(true);
   const [customSourceInput, setCustomSourceInput] = useState('');
   const [customSources, setCustomSources] = useState<string[]>([]);
@@ -215,35 +216,43 @@ function AdvancedPanel({
                 </div>
 
                 <div className='space-y-3 rounded-lg border border-purple-100 bg-white p-3 shadow-sm'>
-                  <div className='flex items-center gap-3'>
-                    <div className='flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple-100 text-purple-700'>
-                      <Brain className='h-4 w-4' />
+                  {selectedModel ? (
+                    <>
+                      <div className='flex items-center gap-3'>
+                        <div className='flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple-100 text-purple-700'>
+                          <Brain className='h-4 w-4' />
+                        </div>
+                        <div className='min-w-0 flex-1'>
+                          <span className='font-inter block truncate text-sm font-medium text-[#272532]'>
+                            {selectedModel.name}
+                          </span>
+                          {selectedModel.version && (
+                            <span className='font-inter text-xs text-[#5e5a72]'>
+                              v{selectedModel.version}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className='flex gap-2'>
+                        <Badge
+                          variant='secondary'
+                          className='font-inter h-5 cursor-pointer border-purple-100 bg-purple-50 px-2 text-[10px] font-normal text-purple-700 hover:bg-purple-100'
+                        >
+                          Tokens: 1000
+                        </Badge>
+                        <Badge
+                          variant='secondary'
+                          className='font-inter h-5 cursor-pointer border-purple-100 bg-purple-50 px-2 text-[10px] font-normal text-purple-700 hover:bg-purple-100'
+                        >
+                          Temp: {isFactual ? '0.1' : '0.7'}
+                        </Badge>
+                      </div>
+                    </>
+                  ) : (
+                    <div className='font-inter rounded-lg border border-dashed border-purple-200 bg-white/50 py-6 text-center text-sm text-purple-700/50'>
+                      No model selected
                     </div>
-                    <Select value={model} onValueChange={setModel}>
-                      <SelectTrigger className='font-inter h-8 border-transparent px-2 text-sm hover:bg-gray-50 focus:ring-0'>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value='syft-1.5-turbo'>syft-1.5-turbo</SelectItem>
-                        <SelectItem value='syft-2.0-reasoning'>syft-2.0-reasoning</SelectItem>
-                        <SelectItem value='claude-3.5-sonnet'>claude-3.5-sonnet</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className='flex gap-2'>
-                    <Badge
-                      variant='secondary'
-                      className='font-inter h-5 cursor-pointer border-purple-100 bg-purple-50 px-2 text-[10px] font-normal text-purple-700 hover:bg-purple-100'
-                    >
-                      Tokens: 1000
-                    </Badge>
-                    <Badge
-                      variant='secondary'
-                      className='font-inter h-5 cursor-pointer border-purple-100 bg-purple-50 px-2 text-[10px] font-normal text-purple-700 hover:bg-purple-100'
-                    >
-                      Temp: {isFactual ? '0.1' : '0.7'}
-                    </Badge>
-                  </div>
+                  )}
 
                   <div className='font-inter mt-2 flex items-start gap-2 border-t border-purple-50 pt-2 text-xs text-gray-500'>
                     <Info className='mt-0.5 h-3 w-3 shrink-0' />
@@ -378,14 +387,17 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
   const [inputValue, setInputValue] = useState('');
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [availableSources, setAvailableSources] = useState<ChatSource[]>([]);
-  const [isLoadingSources, setIsLoadingSources] = useState(true);
   const messagesEndReference = useRef<HTMLDivElement>(null);
+
+  // Model selection state
+  const [selectedModel, setSelectedModel] = useState<ChatSource | null>(null);
+  const [availableModels, setAvailableModels] = useState<ChatSource[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(true);
 
   // Load real data sources from backend
   useEffect(() => {
     const loadDataSources = async () => {
       try {
-        setIsLoadingSources(true);
         const sources = await getChatDataSources(10); // Load 10 endpoints
         setAvailableSources(sources);
 
@@ -415,12 +427,32 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
         };
 
         setMessages((previous) => [...previous, errorMessage]);
-      } finally {
-        setIsLoadingSources(false);
       }
     };
 
-    loadDataSources();
+    void loadDataSources();
+  }, []);
+
+  // Load available models from backend
+  useEffect(() => {
+    const loadModels = async () => {
+      try {
+        setIsLoadingModels(true);
+        const models = await getChatModels(20); // Load up to 20 models
+        setAvailableModels(models);
+
+        // Auto-select the first model if available
+        if (models.length > 0 && models[0]) {
+          setSelectedModel(models[0]);
+        }
+      } catch (error) {
+        console.error('Failed to load models:', error);
+      } finally {
+        setIsLoadingModels(false);
+      }
+    };
+
+    void loadModels();
   }, []);
 
   // Auto-scroll to bottom when messages change
@@ -476,9 +508,20 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
         }}
         sources={allSources}
         selectedIds={selectedSources}
+        selectedModel={selectedModel}
       />
 
-      <div className='mx-auto max-w-4xl px-6 py-8'>
+      {/* Model Selector - Fixed top left */}
+      <div className='fixed top-4 left-24 z-40'>
+        <ModelSelector
+          selectedModel={selectedModel}
+          onModelSelect={setSelectedModel}
+          models={availableModels}
+          isLoading={isLoadingModels}
+        />
+      </div>
+
+      <div className='mx-auto max-w-4xl px-6 py-8 pt-16'>
         <div className='space-y-8'>
           {messages.map((message) => (
             <div

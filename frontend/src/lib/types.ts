@@ -103,6 +103,9 @@ export interface AvailabilityResponse {
 // Endpoint visibility levels
 export type EndpointVisibility = 'public' | 'private' | 'internal';
 
+// Endpoint type classification
+export type EndpointType = 'model' | 'data_source';
+
 // Policy and Connection types for endpoints
 export interface Policy {
   type: string;
@@ -123,6 +126,7 @@ export interface Connection {
 export interface EndpointBase {
   name: string;
   description: string;
+  type: EndpointType;
   visibility: EndpointVisibility;
   version: string;
   readme: string;
@@ -164,6 +168,7 @@ export interface EndpointPublicResponse {
   name: string;
   slug: string;
   description: string;
+  type: EndpointType;
   contributors: number[];
   version: string;
   readme: string;
@@ -181,6 +186,7 @@ export interface ChatSource {
   name: string;
   tag: string; // Derived from policies/categories
   description: string;
+  type: EndpointType; // Endpoint type (model or data_source)
   updated: string; // Mapped from updated_at
   status: 'active' | 'warning' | 'inactive'; // Derived from backend data
   slug: string; // Backend URL identifier

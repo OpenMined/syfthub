@@ -8,6 +8,7 @@ import type {
   EndpointFilters,
   EndpointPublicResponse,
   EndpointResponse,
+  EndpointType,
   EndpointUpdate,
   PaginationParams
 } from './types';
@@ -58,6 +59,7 @@ export function mapEndpointToSource(endpoint: EndpointPublicResponse): ChatSourc
     name: endpoint.name,
     tag: tag,
     description: endpoint.description,
+    type: endpoint.type,
     updated: formatRelativeTime(updatedDate),
     status: status,
     slug: endpoint.slug,
@@ -70,12 +72,15 @@ export function mapEndpointToSource(endpoint: EndpointPublicResponse): ChatSourc
 }
 
 // Get public endpoints (no authentication required)
-export async function getPublicEndpoints(params: PaginationParams = {}): Promise<ChatSource[]> {
-  const { skip = 0, limit = 10 } = params;
+export async function getPublicEndpoints(
+  params: PaginationParams & { endpoint_type?: EndpointType } = {}
+): Promise<ChatSource[]> {
+  const { skip = 0, limit = 10, endpoint_type } = params;
 
   const queryParams = new URLSearchParams();
   if (skip > 0) queryParams.set('skip', String(skip));
   if (limit !== 10) queryParams.set('limit', String(limit));
+  if (endpoint_type) queryParams.set('endpoint_type', endpoint_type);
 
   const queryString = queryParams.toString();
   const baseUrl = API_CONFIG.ENDPOINTS.ENDPOINTS.PUBLIC;
@@ -87,14 +92,15 @@ export async function getPublicEndpoints(params: PaginationParams = {}): Promise
 
 // Get trending endpoints (no authentication required)
 export async function getTrendingEndpoints(
-  params: PaginationParams & { min_stars?: number } = {}
+  params: PaginationParams & { min_stars?: number; endpoint_type?: EndpointType } = {}
 ): Promise<ChatSource[]> {
-  const { skip = 0, limit = 10, min_stars } = params;
+  const { skip = 0, limit = 10, min_stars, endpoint_type } = params;
 
   const queryParams = new URLSearchParams();
   if (skip > 0) queryParams.set('skip', String(skip));
   if (limit !== 10) queryParams.set('limit', String(limit));
   if (min_stars !== undefined) queryParams.set('min_stars', String(min_stars));
+  if (endpoint_type) queryParams.set('endpoint_type', endpoint_type);
 
   const queryString = queryParams.toString();
   const baseUrl = API_CONFIG.ENDPOINTS.ENDPOINTS.TRENDING;
@@ -154,16 +160,16 @@ export async function deleteEndpoint(id: number): Promise<void> {
   await apiClient.delete<null>(API_CONFIG.ENDPOINTS.ENDPOINTS.BY_ID(id));
 }
 
-// Utility function to get mixed data sources for chat (combines public and trending)
+// Utility function to get data sources for chat (combines public and trending data_source endpoints)
 export async function getChatDataSources(limit = 20): Promise<ChatSource[]> {
   try {
-    // Get half trending and half public endpoints
+    // Get half trending and half public endpoints, filtered to data_source type only
     const trendingLimit = Math.floor(limit / 2);
     const publicLimit = limit - trendingLimit;
 
     const [trending, publicEndpoints] = await Promise.all([
-      getTrendingEndpoints({ limit: trendingLimit }),
-      getPublicEndpoints({ limit: publicLimit })
+      getTrendingEndpoints({ limit: trendingLimit, endpoint_type: 'data_source' }),
+      getPublicEndpoints({ limit: publicLimit, endpoint_type: 'data_source' })
     ]);
 
     // Combine and deduplicate by slug
@@ -189,6 +195,46 @@ export async function getChatDataSources(limit = 20): Promise<ChatSource[]> {
     return combinedSources;
   } catch (error) {
     console.error('Failed to fetch chat data sources:', error);
+    // Return empty array on error - UI can handle gracefully
+    return [];
+  }
+}
+
+// Utility function to get model endpoints for chat (combines public and trending model endpoints)
+export async function getChatModels(limit = 20): Promise<ChatSource[]> {
+  try {
+    // Get half trending and half public endpoints, filtered to model type only
+    const trendingLimit = Math.floor(limit / 2);
+    const publicLimit = limit - trendingLimit;
+
+    const [trending, publicEndpoints] = await Promise.all([
+      getTrendingEndpoints({ limit: trendingLimit, endpoint_type: 'model' }),
+      getPublicEndpoints({ limit: publicLimit, endpoint_type: 'model' })
+    ]);
+
+    // Combine and deduplicate by slug
+    const combinedModels: ChatSource[] = [];
+    const seenSlugs = new Set<string>();
+
+    // Add trending first (higher priority)
+    for (const model of trending) {
+      if (!seenSlugs.has(model.slug)) {
+        seenSlugs.add(model.slug);
+        combinedModels.push(model);
+      }
+    }
+
+    // Add public endpoints that aren't already included
+    for (const model of publicEndpoints) {
+      if (!seenSlugs.has(model.slug)) {
+        seenSlugs.add(model.slug);
+        combinedModels.push(model);
+      }
+    }
+
+    return combinedModels;
+  } catch (error) {
+    console.error('Failed to fetch chat models:', error);
     // Return empty array on error - UI can handle gracefully
     return [];
   }

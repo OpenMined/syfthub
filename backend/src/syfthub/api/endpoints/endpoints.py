@@ -16,6 +16,7 @@ from syfthub.schemas.endpoint import (
     EndpointCreate,
     EndpointPublicResponse,
     EndpointResponse,
+    EndpointType,
     EndpointUpdate,
     EndpointVisibility,
 )
@@ -71,9 +72,14 @@ async def list_public_endpoints(
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
+    endpoint_type: Optional[EndpointType] = Query(
+        None, description="Filter by endpoint type (model or data_source)"
+    ),
 ) -> list[EndpointPublicResponse]:
     """List all public endpoints."""
-    return endpoint_service.list_public_endpoints(skip=skip, limit=limit)
+    return endpoint_service.list_public_endpoints(
+        skip=skip, limit=limit, endpoint_type=endpoint_type
+    )
 
 
 @router.get("/trending", response_model=list[EndpointPublicResponse])
@@ -82,10 +88,13 @@ async def list_trending_endpoints(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
     min_stars: Optional[int] = Query(None, ge=0),
+    endpoint_type: Optional[EndpointType] = Query(
+        None, description="Filter by endpoint type (model or data_source)"
+    ),
 ) -> list[EndpointPublicResponse]:
     """List trending public endpoints."""
     return endpoint_service.list_trending_endpoints(
-        skip=skip, limit=limit, min_stars=min_stars
+        skip=skip, limit=limit, min_stars=min_stars, endpoint_type=endpoint_type
     )
 
 

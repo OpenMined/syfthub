@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 
 import type {
-  EndpointCreate,
   EndpointResponse,
+  EndpointType,
   EndpointUpdate,
   EndpointVisibility
 } from '@/lib/types';
@@ -12,10 +12,10 @@ import {
   AlertCircle,
   Building,
   Check,
+  Download,
   Edit3,
   Globe,
   Lock,
-  Plus,
   Save,
   Star,
   Trash2,
@@ -23,27 +23,13 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '@/context/auth-context';
-import {
-  createEndpoint,
-  deleteEndpoint,
-  getUserEndpoints,
-  updateEndpoint
-} from '@/lib/endpoint-api';
+import { deleteEndpoint, getUserEndpoints, updateEndpoint } from '@/lib/endpoint-api';
 
 import { ParticipateView } from './participate-view';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-
-interface CreateEndpointData {
-  name: string;
-  description: string;
-  visibility: EndpointVisibility;
-  version: string;
-  readme: string;
-}
 
 export function EndpointManagement() {
   const { user } = useAuth();
@@ -51,17 +37,8 @@ export function EndpointManagement() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-
-  // Create endpoint form state
-  const [createData, setCreateData] = useState<CreateEndpointData>({
-    name: '',
-    description: '',
-    visibility: 'public',
-    version: '0.1.0',
-    readme: ''
-  });
+  const [showParticipate, setShowParticipate] = useState(false);
 
   // Edit endpoint form state
   const [editData, setEditData] = useState<Partial<EndpointUpdate>>({});
@@ -82,51 +59,8 @@ export function EndpointManagement() {
       }
     };
 
-    loadEndpoints();
+    void loadEndpoints();
   }, [user]);
-
-  const handleCreateEndpoint = async () => {
-    try {
-      setError(null);
-      setSuccess(null);
-      setIsLoading(true);
-
-      if (!createData.name.trim()) {
-        setError('Endpoint name is required');
-        return;
-      }
-
-      const newEndpoint = await createEndpoint({
-        name: createData.name,
-        description: createData.description,
-        visibility: createData.visibility,
-        version: createData.version,
-        readme: createData.readme,
-        policies: [],
-        connect: [],
-        contributors: []
-      });
-
-      setEndpoints((previous) => [newEndpoint, ...previous]);
-      setSuccess('Endpoint created successfully!');
-      setIsCreating(false);
-      setCreateData({
-        name: '',
-        description: '',
-        visibility: 'public',
-        version: '0.1.0',
-        readme: ''
-      });
-
-      setTimeout(() => {
-        setSuccess(null);
-      }, 3000);
-    } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : 'Failed to create endpoint');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const handleEditEndpoint = async (id: number) => {
     try {
@@ -213,6 +147,34 @@ export function EndpointManagement() {
     }
   };
 
+  const getTypeStyles = (type: EndpointType) => {
+    switch (type) {
+      case 'model': {
+        return 'bg-purple-100 text-purple-800 border-purple-200';
+      }
+      case 'data_source': {
+        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+      }
+      default: {
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+      }
+    }
+  };
+
+  const getTypeLabel = (type: EndpointType) => {
+    switch (type) {
+      case 'model': {
+        return 'Model';
+      }
+      case 'data_source': {
+        return 'Data Source';
+      }
+      default: {
+        return type;
+      }
+    }
+  };
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -234,7 +196,7 @@ export function EndpointManagement() {
   }
 
   // Show loading state
-  if (isLoading && endpoints.length === 0 && !isCreating) {
+  if (isLoading && endpoints.length === 0) {
     return (
       <div className='flex min-h-screen items-center justify-center bg-gray-50'>
         <div className='flex items-center gap-3 text-gray-600'>
@@ -247,131 +209,18 @@ export function EndpointManagement() {
 
   // Show onboarding view when user has no endpoints
   if (endpoints.length === 0 && !isLoading) {
+    return <ParticipateView title='Get Started with Endpoints' />;
+  }
+
+  // Show participate view when requested
+  if (showParticipate) {
     return (
-      <>
-        <ParticipateView
-          title='Get Started with Endpoints'
-          onCreateEndpoint={() => {
-            setIsCreating(true);
-          }}
-        />
-        {/* Create Endpoint Modal - needs to be available even in empty state */}
-        <AnimatePresence>
-          {isCreating && (
-            <>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => {
-                  setIsCreating(false);
-                }}
-                className='fixed inset-0 z-50 bg-black/20 backdrop-blur-sm'
-              />
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className='fixed inset-0 z-50 flex items-center justify-center p-4'
-              >
-                <div className='w-full max-w-2xl rounded-lg border border-gray-200 bg-white shadow-xl'>
-                  <div className='border-b border-gray-200 px-6 py-4'>
-                    <h2 className='text-lg font-semibold text-gray-900'>Create New Endpoint</h2>
-                  </div>
-
-                  <div className='space-y-4 p-6'>
-                    <div>
-                      <Label htmlFor='create-name'>Name</Label>
-                      <Input
-                        id='create-name'
-                        value={createData.name}
-                        onChange={(e) => {
-                          setCreateData({ ...createData, name: e.target.value });
-                        }}
-                        placeholder='My awesome dataset'
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <Label htmlFor='create-description'>Description</Label>
-                      <Input
-                        id='create-description'
-                        value={createData.description}
-                        onChange={(e) => {
-                          setCreateData({ ...createData, description: e.target.value });
-                        }}
-                        placeholder='Brief description of your endpoint'
-                      />
-                    </div>
-
-                    <div className='grid grid-cols-2 gap-4'>
-                      <div>
-                        <Label htmlFor='create-visibility'>Visibility</Label>
-                        <Select
-                          value={createData.visibility}
-                          onValueChange={(value: EndpointVisibility) => {
-                            setCreateData({ ...createData, visibility: value });
-                          }}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value='public'>Public</SelectItem>
-                            <SelectItem value='internal'>Internal</SelectItem>
-                            <SelectItem value='private'>Private</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div>
-                        <Label htmlFor='create-version'>Version</Label>
-                        <Input
-                          id='create-version'
-                          value={createData.version}
-                          onChange={(e) => {
-                            setCreateData({ ...createData, version: e.target.value });
-                          }}
-                          placeholder='0.1.0'
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label htmlFor='create-readme'>README (Optional)</Label>
-                      <textarea
-                        id='create-readme'
-                        value={createData.readme}
-                        onChange={(e) => {
-                          setCreateData({ ...createData, readme: e.target.value });
-                        }}
-                        placeholder='Markdown documentation for your endpoint...'
-                        className='w-full resize-none rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none'
-                        rows={4}
-                      />
-                    </div>
-                  </div>
-
-                  <div className='flex justify-end gap-2 border-t border-gray-200 px-6 py-4'>
-                    <Button
-                      variant='outline'
-                      onClick={() => {
-                        setIsCreating(false);
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button onClick={handleCreateEndpoint} disabled={!createData.name.trim()}>
-                      Create Endpoint
-                    </Button>
-                  </div>
-                </div>
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
-      </>
+      <ParticipateView
+        title='Install SDK'
+        onBack={() => {
+          setShowParticipate(false);
+        }}
+      />
     );
   }
 
@@ -387,12 +236,12 @@ export function EndpointManagement() {
           </div>
           <Button
             onClick={() => {
-              setIsCreating(true);
+              setShowParticipate(true);
             }}
             className='flex items-center gap-2'
           >
-            <Plus className='h-4 w-4' />
-            Create Endpoint
+            <Download className='h-4 w-4' />
+            Install SDK
           </Button>
         </div>
 
@@ -420,126 +269,6 @@ export function EndpointManagement() {
               <AlertCircle className='h-5 w-5 text-red-600' />
               <span className='text-red-800'>{error}</span>
             </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Create Endpoint Modal */}
-        <AnimatePresence>
-          {isCreating && (
-            <>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => {
-                  setIsCreating(false);
-                }}
-                className='fixed inset-0 z-50 bg-black/20 backdrop-blur-sm'
-              />
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className='fixed inset-0 z-50 flex items-center justify-center p-4'
-              >
-                <div className='w-full max-w-2xl rounded-lg border border-gray-200 bg-white shadow-xl'>
-                  <div className='border-b border-gray-200 px-6 py-4'>
-                    <h2 className='text-lg font-semibold text-gray-900'>Create New Endpoint</h2>
-                  </div>
-
-                  <div className='space-y-4 p-6'>
-                    <div>
-                      <Label htmlFor='create-name'>Name</Label>
-                      <Input
-                        id='create-name'
-                        value={createData.name}
-                        onChange={(e) => {
-                          setCreateData({ ...createData, name: e.target.value });
-                        }}
-                        placeholder='My awesome dataset'
-                        required
-                      />
-                    </div>
-
-                    <div>
-                      <Label htmlFor='create-description'>Description</Label>
-                      <Input
-                        id='create-description'
-                        value={createData.description}
-                        onChange={(e) => {
-                          setCreateData({ ...createData, description: e.target.value });
-                        }}
-                        placeholder='Brief description of your endpoint'
-                      />
-                    </div>
-
-                    <div className='grid grid-cols-2 gap-4'>
-                      <div>
-                        <Label htmlFor='create-visibility'>Visibility</Label>
-                        <Select
-                          value={createData.visibility}
-                          onValueChange={(value: EndpointVisibility) => {
-                            setCreateData({ ...createData, visibility: value });
-                          }}
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value='public'>Public</SelectItem>
-                            <SelectItem value='internal'>Internal</SelectItem>
-                            <SelectItem value='private'>Private</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      <div>
-                        <Label htmlFor='create-version'>Version</Label>
-                        <Input
-                          id='create-version'
-                          value={createData.version}
-                          onChange={(e) => {
-                            setCreateData({ ...createData, version: e.target.value });
-                          }}
-                          placeholder='0.1.0'
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label htmlFor='create-readme'>README (Optional)</Label>
-                      <textarea
-                        id='create-readme'
-                        value={createData.readme}
-                        onChange={(e) => {
-                          setCreateData({ ...createData, readme: e.target.value });
-                        }}
-                        placeholder='Markdown documentation for your endpoint...'
-                        className='w-full resize-none rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none'
-                        rows={4}
-                      />
-                    </div>
-                  </div>
-
-                  <div className='flex justify-end gap-2 border-t border-gray-200 px-6 py-4'>
-                    <Button
-                      variant='outline'
-                      onClick={() => {
-                        setIsCreating(false);
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      onClick={handleCreateEndpoint}
-                      disabled={isLoading || !createData.name.trim()}
-                    >
-                      {isLoading ? 'Creating...' : 'Create Endpoint'}
-                    </Button>
-                  </div>
-                </div>
-              </motion.div>
-            </>
           )}
         </AnimatePresence>
 
@@ -587,6 +316,9 @@ export function EndpointManagement() {
                 </div>
 
                 <div className='mb-4 flex flex-wrap gap-2'>
+                  <Badge className={`border ${getTypeStyles(endpoint.type)}`}>
+                    {getTypeLabel(endpoint.type)}
+                  </Badge>
                   <Badge className={getVisibilityColor(endpoint.visibility)}>
                     <div className='flex items-center gap-1'>
                       {getVisibilityIcon(endpoint.visibility)}
