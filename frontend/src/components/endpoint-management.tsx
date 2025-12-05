@@ -23,13 +23,68 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '@/context/auth-context';
-import { deleteEndpoint, getUserEndpoints, updateEndpoint } from '@/lib/endpoint-api';
+// eslint-disable-next-line sonarjs/deprecation -- Using legacy wrappers for backward compatibility
+import { deleteEndpoint, getUserEndpoints, updateEndpoint } from '@/lib/endpoint-utils';
 
 import { ParticipateView } from './participate-view';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+
+// Helper functions moved outside component for consistent-function-scoping
+function getVisibilityColor(visibility: EndpointVisibility) {
+  switch (visibility) {
+    case 'public': {
+      return 'bg-green-100 text-green-800 border-green-200';
+    }
+    case 'private': {
+      return 'bg-red-100 text-red-800 border-red-200';
+    }
+    case 'internal': {
+      return 'bg-blue-100 text-blue-800 border-blue-200';
+    }
+    default: {
+      return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  }
+}
+
+function getTypeStyles(type: EndpointType) {
+  switch (type) {
+    case 'model': {
+      return 'bg-purple-100 text-purple-800 border-purple-200';
+    }
+    case 'data_source': {
+      return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+    }
+    default: {
+      return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  }
+}
+
+function getTypeLabel(type: EndpointType) {
+  switch (type) {
+    case 'model': {
+      return 'Model';
+    }
+    case 'data_source': {
+      return 'Data Source';
+    }
+    default: {
+      return type;
+    }
+  }
+}
+
+function formatDate(dateString: string) {
+  return new Date(dateString).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
+}
 
 export function EndpointManagement() {
   const { user } = useAuth();
@@ -50,7 +105,7 @@ export function EndpointManagement() {
 
       try {
         setIsLoading(true);
-        const userEndpoints = await getUserEndpoints({ limit: 50 });
+        const userEndpoints = await getUserEndpoints({ limit: 50 }, user.username);
         setEndpoints(userEndpoints);
       } catch (error_) {
         setError(error_ instanceof Error ? error_.message : 'Failed to load endpoints');
@@ -68,7 +123,14 @@ export function EndpointManagement() {
       setSuccess(null);
       setIsLoading(true);
 
-      const updatedEndpoint = await updateEndpoint(id, editData);
+      // Find the endpoint to get its slug
+      const endpoint = endpoints.find((ep) => ep.id === id);
+      if (!endpoint || !user?.username) {
+        throw new Error('Endpoint not found');
+      }
+
+      // eslint-disable-next-line sonarjs/deprecation, @typescript-eslint/no-deprecated -- Using legacy wrapper for backward compatibility
+      const updatedEndpoint = await updateEndpoint(id, editData, user.username, endpoint.slug);
 
       setEndpoints((previous) => previous.map((ds) => (ds.id === id ? updatedEndpoint : ds)));
 
@@ -99,7 +161,14 @@ export function EndpointManagement() {
       setError(null);
       setIsLoading(true);
 
-      await deleteEndpoint(id);
+      // Find the endpoint to get its slug
+      const endpoint = endpoints.find((ep) => ep.id === id);
+      if (!endpoint || !user?.username) {
+        throw new Error('Endpoint not found');
+      }
+
+      // eslint-disable-next-line sonarjs/deprecation, @typescript-eslint/no-deprecated -- Using legacy wrapper for backward compatibility
+      await deleteEndpoint(id, user.username, endpoint.slug);
       setEndpoints((previous) => previous.filter((ds) => ds.id !== id));
       setSuccess('Endpoint deleted successfully!');
 
@@ -128,59 +197,6 @@ export function EndpointManagement() {
         return <Globe className='h-4 w-4' />;
       }
     }
-  };
-
-  const getVisibilityColor = (visibility: EndpointVisibility) => {
-    switch (visibility) {
-      case 'public': {
-        return 'bg-green-100 text-green-800 border-green-200';
-      }
-      case 'private': {
-        return 'bg-red-100 text-red-800 border-red-200';
-      }
-      case 'internal': {
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      }
-      default: {
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-      }
-    }
-  };
-
-  const getTypeStyles = (type: EndpointType) => {
-    switch (type) {
-      case 'model': {
-        return 'bg-purple-100 text-purple-800 border-purple-200';
-      }
-      case 'data_source': {
-        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
-      }
-      default: {
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-      }
-    }
-  };
-
-  const getTypeLabel = (type: EndpointType) => {
-    switch (type) {
-      case 'model': {
-        return 'Model';
-      }
-      case 'data_source': {
-        return 'Data Source';
-      }
-      default: {
-        return type;
-      }
-    }
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
   };
 
   if (!user) {
@@ -344,10 +360,10 @@ export function EndpointManagement() {
               {editingId === endpoint.id && (
                 <div className='space-y-3 border-t border-gray-200 bg-gray-50 p-4'>
                   <div>
-                    <Label htmlFor={`edit-name-${endpoint.id}`}>Name</Label>
+                    <Label htmlFor={`edit-name-${String(endpoint.id)}`}>Name</Label>
                     <Input
-                      id={`edit-name-${endpoint.id}`}
-                      value={editData.name || ''}
+                      id={`edit-name-${String(endpoint.id)}`}
+                      value={editData.name ?? ''}
                       onChange={(e) => {
                         setEditData({ ...editData, name: e.target.value });
                       }}
@@ -355,10 +371,10 @@ export function EndpointManagement() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor={`edit-description-${endpoint.id}`}>Description</Label>
+                    <Label htmlFor={`edit-description-${String(endpoint.id)}`}>Description</Label>
                     <Input
-                      id={`edit-description-${endpoint.id}`}
-                      value={editData.description || ''}
+                      id={`edit-description-${String(endpoint.id)}`}
+                      value={editData.description ?? ''}
                       onChange={(e) => {
                         setEditData({ ...editData, description: e.target.value });
                       }}

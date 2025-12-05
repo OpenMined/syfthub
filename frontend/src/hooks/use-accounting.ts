@@ -152,7 +152,8 @@ export function useAccountingReady(): boolean {
 export function useAccountingSupported(): boolean {
   // Check if Web Crypto API is available
   try {
-    if (typeof crypto === 'undefined' || !crypto.subtle) {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Runtime check for browser support
+    if (!crypto?.subtle) {
       return false;
     }
     return typeof crypto.getRandomValues === 'function';

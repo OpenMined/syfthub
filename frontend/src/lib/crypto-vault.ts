@@ -193,7 +193,8 @@ function validateVaultStructure(vault: unknown): vault is EncryptedVault {
 export function isCryptoSupported(): boolean {
   try {
     // Check for crypto global and its methods
-    if (typeof crypto === 'undefined' || !crypto.subtle) {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Runtime check for browser support
+    if (!crypto?.subtle) {
       return false;
     }
     return (
@@ -283,11 +284,13 @@ export async function decrypt(vault: EncryptedVault, pin: string): Promise<strin
   // Validate decoded lengths
   if (salt.length !== SALT_LENGTH) {
     throw new VaultCorruptedError(
-      `Invalid salt length: expected ${SALT_LENGTH}, got ${salt.length}`
+      `Invalid salt length: expected ${String(SALT_LENGTH)}, got ${String(salt.length)}`
     );
   }
   if (iv.length !== IV_LENGTH) {
-    throw new VaultCorruptedError(`Invalid IV length: expected ${IV_LENGTH}, got ${iv.length}`);
+    throw new VaultCorruptedError(
+      `Invalid IV length: expected ${String(IV_LENGTH)}, got ${String(iv.length)}`
+    );
   }
 
   // Derive decryption key from PIN

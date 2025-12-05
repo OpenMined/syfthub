@@ -222,6 +222,7 @@ export function AccountingProvider({
 
         await AccountingStorage.createVault(creds, pin);
 
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Runtime check needed
         if (isMounted.current) {
           refreshStatus();
         }
@@ -231,6 +232,7 @@ export function AccountingProvider({
         handleError(error_);
         return false;
       } finally {
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Runtime check needed
         if (isMounted.current) {
           setIsLoading(false);
         }
@@ -249,7 +251,7 @@ export function AccountingProvider({
         setWaitTime(rateLimit.waitTime);
         setError({
           type: 'RATE_LIMITED',
-          message: `Too many attempts. Please wait ${rateLimit.waitTime} seconds.`,
+          message: `Too many attempts. Please wait ${String(rateLimit.waitTime)} seconds.`,
           waitTime: rateLimit.waitTime
         });
         return false;
@@ -261,6 +263,7 @@ export function AccountingProvider({
 
         await AccountingStorage.unlock(pin);
 
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Runtime check needed
         if (isMounted.current) {
           refreshStatus();
           setWaitTime(0);
@@ -271,6 +274,7 @@ export function AccountingProvider({
         handleError(error_);
         return false;
       } finally {
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Runtime check needed
         if (isMounted.current) {
           setIsLoading(false);
         }
@@ -301,6 +305,7 @@ export function AccountingProvider({
 
         await AccountingStorage.updateVault(creds, currentPin, newPin);
 
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Runtime check needed
         if (isMounted.current) {
           refreshStatus();
         }
@@ -310,6 +315,7 @@ export function AccountingProvider({
         handleError(error_);
         return false;
       } finally {
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Runtime check needed
         if (isMounted.current) {
           setIsLoading(false);
         }

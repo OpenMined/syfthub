@@ -114,6 +114,7 @@ export function ModelSelector({
       setIsOpen(false);
       setSearchQuery('');
       const path = model.full_path ?? `${model.owner_username ?? 'unknown'}/${model.slug}`;
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- Navigation is fire-and-forget
       navigate(`/${path}`);
     },
     [navigate]

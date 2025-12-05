@@ -19,6 +19,7 @@ export default function BrowsePage() {
 
   const handleViewEndpoint = (slug: string, owner = 'anonymous') => {
     // Navigate to GitHub-style URL: /username/endpoint-slug
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises -- Navigation is fire-and-forget
     navigate(`/${owner}/${slug}`);
   };
 

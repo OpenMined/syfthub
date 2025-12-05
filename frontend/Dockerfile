@@ -6,16 +6,19 @@ FROM node:20-alpine AS builder
 # Set working directory
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Copy SDK first (required for file: dependency resolution)
+COPY sdk/typescript /sdk/typescript
+
+# Copy frontend package files
+COPY frontend/package*.json ./
 
 # Install dependencies with retry and timeout settings
 RUN npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
     npm ci --ignore-scripts
 
-# Copy source code
-COPY . .
+# Copy frontend source code
+COPY frontend/ .
 
 # Build the application
 RUN npm run build

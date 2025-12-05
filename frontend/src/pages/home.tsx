@@ -6,7 +6,7 @@ import { RecentSources } from '@/components/recent-sources';
 import { useAuth } from '@/context/auth-context';
 import { useModal } from '@/context/modal-context';
 import { useAPI } from '@/hooks/use-api';
-import { getPublicEndpoints, getTrendingEndpoints } from '@/lib/endpoint-api';
+import { getPublicEndpoints, getTrendingEndpoints } from '@/lib/endpoint-utils';
 
 /**
  * Home page - Landing page with hero, search, and recent items.
@@ -30,6 +30,7 @@ export default function HomePage() {
 
   const handleSearch = (query: string) => {
     // Navigate to chat with the search query in state
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises -- Navigation is fire-and-forget
     navigate('/chat', { state: { query } });
   };
 

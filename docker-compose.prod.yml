@@ -84,8 +84,8 @@ services:
   # Frontend builder (run once to build static files)
   frontend-builder:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: frontend/Dockerfile
       target: builder
     container_name: syfthub-frontend-builder
     volumes:

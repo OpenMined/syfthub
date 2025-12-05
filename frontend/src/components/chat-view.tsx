@@ -5,7 +5,7 @@ import type { ChatSource } from '@/lib/types';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowDown, Brain, Check, Clock, Cpu, Database, Info, Settings2, X } from 'lucide-react';
 
-import { getChatDataSources, getChatModels } from '@/lib/endpoint-api';
+import { getChatDataSources, getChatModels } from '@/lib/endpoint-utils';
 
 import { ModelSelector } from './chat/model-selector';
 import { Badge } from './ui/badge';

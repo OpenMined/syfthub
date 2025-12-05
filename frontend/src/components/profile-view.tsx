@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -16,12 +16,38 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '@/context/auth-context';
-import { changePasswordAPI, updateUserProfileAPI } from '@/lib/real-auth-api';
+import { changePasswordAPI, updateUserProfileAPI } from '@/lib/sdk-client';
 
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+
+// Helper functions moved outside component for consistent-function-scoping
+function formatDate(dateString: string) {
+  return new Date(dateString).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+}
+
+function getRoleBadgeColor(role: string) {
+  switch (role) {
+    case 'admin': {
+      return 'bg-red-100 text-red-800 border-red-200';
+    }
+    case 'user': {
+      return 'bg-blue-100 text-blue-800 border-blue-200';
+    }
+    case 'guest': {
+      return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+    default: {
+      return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  }
+}
 
 interface ProfileEditData {
   full_name: string;
@@ -35,7 +61,7 @@ interface PasswordChangeData {
 }
 
 export function ProfileView() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -44,9 +70,19 @@ export function ProfileView() {
 
   // Profile edit form state
   const [editData, setEditData] = useState<ProfileEditData>({
-    full_name: user?.full_name || '',
-    email: user?.email || ''
+    full_name: user?.full_name ?? '',
+    email: user?.email ?? ''
   });
+
+  // Sync edit data when user context changes (e.g., after successful update)
+  useEffect(() => {
+    if (user) {
+      setEditData({
+        full_name: user.full_name || '',
+        email: user.email || ''
+      });
+    }
+  }, [user]);
 
   // Password change form state
   const [passwordData, setPasswordData] = useState<PasswordChangeData>({
@@ -73,10 +109,14 @@ export function ProfileView() {
       setError(null);
       setSuccess(null);
 
-      await updateUserProfileAPI({
+      // Update profile and get the updated user directly from the response
+      const updatedUser = await updateUserProfileAPI({
         full_name: editData.full_name,
         email: editData.email
       });
+
+      // Update auth context directly with the response data
+      updateUser(updatedUser);
 
       setSuccess('Profile updated successfully!');
       setIsEditing(false);
@@ -130,31 +170,6 @@ export function ProfileView() {
       setError(error_ instanceof Error ? error_.message : 'Failed to change password');
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-  };
-
-  const getRoleBadgeColor = (role: string) => {
-    switch (role) {
-      case 'admin': {
-        return 'bg-red-100 text-red-800 border-red-200';
-      }
-      case 'user': {
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      }
-      case 'guest': {
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-      }
-      default: {
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-      }
     }
   };
 

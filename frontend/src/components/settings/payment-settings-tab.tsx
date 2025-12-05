@@ -146,7 +146,7 @@ function VaultSetupForm() {
     }
   };
 
-  const displayError = localError || error?.message;
+  const displayError = localError ?? error?.message;
 
   return (
     <div className='space-y-6'>
@@ -389,7 +389,7 @@ function VaultUnlockForm() {
     setShowDeleteConfirm(false);
   };
 
-  const displayError = localError || error?.message;
+  const displayError = localError ?? error?.message;
   const isRateLimited = waitTime > 0;
 
   return (

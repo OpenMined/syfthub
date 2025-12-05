@@ -4,12 +4,17 @@ FROM node:20-alpine
 # Set working directory
 WORKDIR /app
 
-# Install dependencies
-COPY package*.json ./
+# Copy SDK first (required for file: dependency resolution)
+COPY sdk/typescript /sdk/typescript
+
+# Copy frontend package files
+COPY frontend/package*.json ./
+
+# Install dependencies (SDK is now available at ../sdk/typescript)
 RUN npm ci
 
-# Copy source code
-COPY . .
+# Copy frontend source code
+COPY frontend/ .
 
 # Expose development server port
 EXPOSE 3000

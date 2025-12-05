@@ -17,10 +17,56 @@ import {
   Users
 } from 'lucide-react';
 
-import { getPublicEndpoints } from '@/lib/endpoint-api';
+import { getPublicEndpoints } from '@/lib/endpoint-utils';
 
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+
+// Helper functions moved outside component for consistent-function-scoping
+function getStatusBadgeColor(status: 'active' | 'warning' | 'inactive') {
+  switch (status) {
+    case 'active': {
+      return 'bg-green-100 text-green-800 border-green-200';
+    }
+    case 'warning': {
+      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+    }
+    case 'inactive': {
+      return 'bg-red-100 text-red-800 border-red-200';
+    }
+    default: {
+      return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  }
+}
+
+function getTypeStyles(type: EndpointType) {
+  switch (type) {
+    case 'model': {
+      return 'bg-purple-100 text-purple-800 border-purple-200';
+    }
+    case 'data_source': {
+      return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+    }
+    default: {
+      return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  }
+}
+
+function getTypeLabel(type: EndpointType) {
+  switch (type) {
+    case 'model': {
+      return 'Model';
+    }
+    case 'data_source': {
+      return 'Data Source';
+    }
+    default: {
+      return type;
+    }
+  }
+}
 
 interface EndpointDetailProperties {
   slug: string;
@@ -57,7 +103,7 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
         if (foundEndpoint) {
           foundEndpoint = {
             ...foundEndpoint,
-            full_path: `${foundEndpoint.owner_username || owner || 'anonymous'}/${slug}`
+            full_path: `${foundEndpoint.owner_username ?? owner ?? 'anonymous'}/${slug}`
           };
         }
 
@@ -85,51 +131,6 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
     }, 2000);
   };
 
-  const getStatusBadgeColor = (status: 'active' | 'warning' | 'inactive') => {
-    switch (status) {
-      case 'active': {
-        return 'bg-green-100 text-green-800 border-green-200';
-      }
-      case 'warning': {
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      }
-      case 'inactive': {
-        return 'bg-red-100 text-red-800 border-red-200';
-      }
-      default: {
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-      }
-    }
-  };
-
-  const getTypeStyles = (type: EndpointType) => {
-    switch (type) {
-      case 'model': {
-        return 'bg-purple-100 text-purple-800 border-purple-200';
-      }
-      case 'data_source': {
-        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
-      }
-      default: {
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-      }
-    }
-  };
-
-  const getTypeLabel = (type: EndpointType) => {
-    switch (type) {
-      case 'model': {
-        return 'Model';
-      }
-      case 'data_source': {
-        return 'Data Source';
-      }
-      default: {
-        return type;
-      }
-    }
-  };
-
   if (isLoading) {
     return (
       <div className='min-h-screen bg-gray-50 p-8'>
@@ -153,7 +154,7 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
           </Button>
           <div className='py-12 text-center'>
             <h2 className='mb-2 text-xl font-semibold text-gray-900'>
-              {error || 'Endpoint not found'}
+              {error ?? 'Endpoint not found'}
             </h2>
             <p className='text-gray-600'>The endpoint with slug "{slug}" could not be found.</p>
           </div>
@@ -209,7 +210,7 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
               {/* Full path with copy */}
               <div className='flex items-center gap-2'>
                 <code className='rounded bg-gray-100 px-2 py-1 font-mono text-sm text-gray-700'>
-                  {endpoint.full_path || `${endpoint.owner_username || 'anonymous'}/${slug}`}
+                  {endpoint.full_path ?? `${endpoint.owner_username ?? 'anonymous'}/${slug}`}
                 </code>
                 <Button variant='ghost' size='sm' onClick={handleCopySlug} className='h-7 w-7 p-0'>
                   {copied ? (
@@ -256,7 +257,8 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                 <h3 className='mt-4 mb-2 text-lg font-medium text-gray-900'>Usage</h3>
                 <p>To use this endpoint in your project:</p>
                 <pre className='rounded bg-gray-50 p-3 text-xs'>
-                  <code>{`from syfthub import Endpoint\n\nds = Endpoint("${endpoint?.full_path || `${endpoint?.owner_username || 'anonymous'}/${slug}`}")\ndata = ds.fetch()`}</code>
+                  {/* eslint-disable-next-line sonarjs/no-nested-template-literals -- Clear inline code example */}
+                  <code>{`from syfthub import Endpoint\n\nds = Endpoint("${endpoint.full_path ?? `${endpoint.owner_username ?? 'anonymous'}/${slug}`}")\ndata = ds.fetch()`}</code>
                 </pre>
                 <h3 className='mt-4 mb-2 text-lg font-medium text-gray-900'>Features</h3>
                 <ul className='list-disc space-y-1 pl-5'>
@@ -299,7 +301,7 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                   <div className='flex items-center gap-2'>
                     <div className='h-6 w-6 rounded-full bg-gradient-to-br from-blue-500 to-purple-600'></div>
                     <span className='text-sm font-medium text-gray-900'>
-                      @{endpoint.owner_username || 'anonymous'}
+                      @{endpoint.owner_username ?? 'anonymous'}
                     </span>
                   </div>
                 </div>
@@ -321,8 +323,10 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                   <div className='flex items-center gap-1'>
                     <Users className='h-4 w-4 text-gray-400' />
                     <span className='text-sm text-gray-900'>
-                      {endpoint.contributors?.length || 1} contributor
-                      {(endpoint.contributors?.length || 1) === 1 ? '' : 's'}
+                      {/* eslint-disable @typescript-eslint/no-unnecessary-condition -- Defensive null check */}
+                      {endpoint.contributors?.length ?? 1} contributor
+                      {(endpoint.contributors?.length ?? 1) === 1 ? '' : 's'}
+                      {/* eslint-enable @typescript-eslint/no-unnecessary-condition */}
                     </span>
                   </div>
                 </div>

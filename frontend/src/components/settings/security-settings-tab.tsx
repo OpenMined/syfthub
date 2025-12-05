@@ -7,8 +7,24 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/context/auth-context';
-import { changePasswordAPI } from '@/lib/real-auth-api';
+import { changePasswordAPI } from '@/lib/sdk-client';
 import { getPasswordStrength } from '@/lib/validation';
+
+// Helper functions moved outside component for consistent-function-scoping
+function getPasswordStrengthInfo(password: string) {
+  const score = getPasswordStrength(password);
+  if (score < 2) return { score, label: 'Weak', color: 'bg-red-500' };
+  if (score < 4) return { score, label: 'Medium', color: 'bg-yellow-500' };
+  return { score, label: 'Strong', color: 'bg-green-500' };
+}
+
+function formatDate(dateString: string) {
+  return new Date(dateString).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+}
 
 interface PasswordFormData {
   current_password: string;
@@ -103,23 +119,7 @@ export function SecuritySettingsTab() {
     }
   };
 
-  // Password strength indicator
-  const passwordStrengthInfo = (password: string) => {
-    const score = getPasswordStrength(password);
-    if (score < 2) return { score, label: 'Weak', color: 'bg-red-500' };
-    if (score < 4) return { score, label: 'Medium', color: 'bg-yellow-500' };
-    return { score, label: 'Strong', color: 'bg-green-500' };
-  };
-
-  const passwordStrength = passwordStrengthInfo(formData.new_password);
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-  };
+  const passwordStrength = getPasswordStrengthInfo(formData.new_password);
 
   return (
     <div className='space-y-6'>
@@ -206,7 +206,7 @@ export function SecuritySettingsTab() {
                 <div className='h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200'>
                   <div
                     className={`h-full transition-all duration-300 ${passwordStrength.color}`}
-                    style={{ width: `${(passwordStrength.score / 5) * 100}%` }}
+                    style={{ width: `${String((passwordStrength.score / 5) * 100)}%` }}
                   />
                 </div>
                 <span className='min-w-0 text-xs text-gray-500'>{passwordStrength.label}</span>

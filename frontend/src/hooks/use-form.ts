@@ -144,7 +144,7 @@ export function useForm<T extends object>({
       if (errors[field]) {
         setErrors((previous) => {
           // Use destructuring to remove the field without dynamic delete
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars, sonarjs/no-unused-vars -- Destructuring pattern
           const { [field]: _removed, ...rest } = previous;
           return rest as Partial<Record<keyof T, string>>;
         });
@@ -227,7 +227,7 @@ export function useForm<T extends object>({
     } else {
       setErrors((previous) => {
         // Use destructuring to remove the field without dynamic delete
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars, sonarjs/no-unused-vars -- Destructuring pattern
         const { [field]: _removed, ...rest } = previous;
         return rest as Partial<Record<keyof T, string>>;
       });

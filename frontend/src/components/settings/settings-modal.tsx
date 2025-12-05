@@ -173,13 +173,16 @@ export function SettingsModal() {
                     }}
                     className={cn(
                       'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors',
-                      activeTab === tab.id
-                        ? tab.danger
-                          ? 'bg-red-100 text-red-700'
-                          : 'bg-blue-100 text-blue-700'
-                        : tab.danger
+                      (() => {
+                        if (activeTab === tab.id) {
+                          return tab.danger
+                            ? 'bg-red-100 text-red-700'
+                            : 'bg-blue-100 text-blue-700';
+                        }
+                        return tab.danger
                           ? 'text-red-600 hover:bg-red-50'
-                          : 'text-gray-700 hover:bg-gray-100'
+                          : 'text-gray-700 hover:bg-gray-100';
+                      })()
                     )}
                   >
                     {tab.icon}

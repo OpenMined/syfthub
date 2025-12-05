@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/context/auth-context';
 import { useSettingsModal } from '@/context/settings-modal-context';
-import { deleteUserAccountAPI } from '@/lib/real-auth-api';
+import { deleteUserAccountAPI } from '@/lib/sdk-client';
 
 export function DangerZoneTab() {
   const { user, logout } = useAuth();

@@ -164,7 +164,7 @@ export function Modal({
             )}
 
             {/* Header */}
-            {(title || description) && (
+            {(title ?? description) && (
               <div className='px-6 pt-6 pb-2'>
                 {title && (
                   <h2 id='modal-title' className='font-rubik text-syft-primary text-xl font-medium'>
@@ -180,7 +180,9 @@ export function Modal({
             )}
 
             {/* Content */}
-            <div className={cn('px-6', title || description ? 'pb-6' : 'py-6')}>{children}</div>
+            <div className={cn('px-6', Boolean(title ?? description) ? 'pb-6' : 'py-6')}>
+              {children}
+            </div>
           </motion.div>
         </div>
       )}

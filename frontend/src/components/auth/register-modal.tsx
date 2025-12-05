@@ -17,6 +17,14 @@ import {
 
 import { AuthErrorAlert, AuthLoadingOverlay } from './auth-utils';
 
+// Password strength indicator - moved outside component for consistent-function-scoping
+function getPasswordStrengthInfo(password: string) {
+  const score = getPasswordStrength(password);
+  if (score < 2) return { score, label: 'Weak', color: 'bg-red-500' };
+  if (score < 4) return { score, label: 'Medium', color: 'bg-yellow-500' };
+  return { score, label: 'Strong', color: 'bg-green-500' };
+}
+
 interface RegisterFormValues {
   name: string;
   email: string;
@@ -109,15 +117,7 @@ export function RegisterModal({
     }
   };
 
-  // Password strength indicator
-  const passwordStrengthInfo = (password: string) => {
-    const score = getPasswordStrength(password);
-    if (score < 2) return { score, label: 'Weak', color: 'bg-red-500' };
-    if (score < 4) return { score, label: 'Medium', color: 'bg-yellow-500' };
-    return { score, label: 'Strong', color: 'bg-green-500' };
-  };
-
-  const passwordStrength = passwordStrengthInfo(values.password);
+  const passwordStrength = getPasswordStrengthInfo(values.password);
 
   return (
     <Modal
@@ -234,7 +234,7 @@ export function RegisterModal({
                   <div className='h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200'>
                     <div
                       className={`h-full transition-all duration-300 ${passwordStrength.color}`}
-                      style={{ width: `${(passwordStrength.score / 5) * 100}%` }}
+                      style={{ width: `${String((passwordStrength.score / 5) * 100)}%` }}
                     />
                   </div>
                   <span className='font-inter text-syft-muted min-w-0 text-xs'>

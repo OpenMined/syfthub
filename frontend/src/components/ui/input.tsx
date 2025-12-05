@@ -62,7 +62,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
     reference
   ) => {
     const [isPasswordVisible, setIsPasswordVisible] = React.useState(false);
-    const inputId = id || React.useId();
+    const inputId = id ?? React.useId();
     const errorId = `${inputId}-error`;
     const helperTextId = `${inputId}-helper`;
 
@@ -97,7 +97,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
             className={cn(
               inputVariants({ variant: currentVariant, size }),
               leftIcon && 'pl-10',
-              (rightIcon || isPassword) && 'pr-10',
+              (rightIcon ?? isPassword) && 'pr-10',
               className
             )}
             ref={reference}

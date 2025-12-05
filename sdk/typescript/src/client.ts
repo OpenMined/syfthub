@@ -53,6 +53,16 @@ function getEnv(key: string): string | undefined {
 }
 
 /**
+ * Check if running in a browser environment.
+ */
+function isBrowser(): boolean {
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  return typeof globalThis !== 'undefined' &&
+         typeof (globalThis as { window?: unknown }).window !== 'undefined' &&
+         typeof (globalThis as { document?: unknown }).document !== 'undefined';
+}
+
+/**
  * SyftHub SDK client for interacting with the SyftHub API.
  *
  * @example
@@ -109,19 +119,24 @@ export class SyftHubClient {
    * Create a new SyftHub client.
    *
    * @param options - Configuration options
-   * @throws {SyftHubError} If baseUrl is not provided and SYFTHUB_URL is not set
+   * @throws {SyftHubError} If baseUrl is not provided and SYFTHUB_URL is not set (in non-browser environments)
    */
   constructor(options: SyftHubClientOptions = {}) {
-    const baseUrl = options.baseUrl ?? getEnv('SYFTHUB_URL');
+    let baseUrl = options.baseUrl ?? getEnv('SYFTHUB_URL');
 
-    if (!baseUrl) {
+    // In browser environments, empty baseUrl means same-origin requests
+    // This is valid and commonly used when the API is served from the same domain
+    if (!baseUrl && !isBrowser()) {
       throw new SyftHubError(
         'baseUrl is required. Provide it in options or set the SYFTHUB_URL environment variable.'
       );
     }
 
-    // Remove trailing slash from base URL
-    const normalizedUrl = baseUrl.replace(/\/+$/, '');
+    // Default to empty string for same-origin browser requests
+    baseUrl = baseUrl ?? '';
+
+    // Remove trailing slash from base URL (only if not empty)
+    const normalizedUrl = baseUrl ? baseUrl.replace(/\/+$/, '') : '';
 
     this.http = new HTTPClient(normalizedUrl, options.timeout ?? 30000);
   }

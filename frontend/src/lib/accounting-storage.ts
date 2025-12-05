@@ -318,7 +318,7 @@ export class AccountingStorage {
     if (!rateLimit.allowed) {
       throw new AccountingStorageError({
         type: 'RATE_LIMITED',
-        message: `Too many attempts. Please wait ${rateLimit.waitTime} seconds.`,
+        message: `Too many attempts. Please wait ${String(rateLimit.waitTime)} seconds.`,
         waitTime: rateLimit.waitTime
       });
     }
@@ -404,7 +404,7 @@ export class AccountingStorage {
     await this.unlock(currentPin);
 
     // Create new vault with new or same PIN
-    await this.createVault(credentials, newPin || currentPin);
+    await this.createVault(credentials, newPin ?? currentPin);
   }
 
   // ===========================================================================

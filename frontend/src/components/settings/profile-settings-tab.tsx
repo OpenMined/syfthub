@@ -12,7 +12,7 @@ import {
   checkEmailAvailability,
   checkUsernameAvailability,
   updateUserProfileAPI
-} from '@/lib/real-auth-api';
+} from '@/lib/sdk-client';
 
 interface ProfileFormData {
   username: string;
@@ -28,7 +28,7 @@ interface AvailabilityState {
 }
 
 export function ProfileSettingsTab() {
-  const { user, refreshUser } = useAuth();
+  const { user, updateUser } = useAuth();
   const { closeSettings } = useSettingsModal();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +40,19 @@ export function ProfileSettingsTab() {
     full_name: user?.full_name ?? '',
     avatar_url: user?.avatar_url ?? ''
   });
+
+  // Sync form data when user context changes (e.g., after successful update)
+  useEffect(() => {
+    if (user) {
+      setFormData({
+        username: user.username,
+        email: user.email,
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Defensive null check
+        full_name: user.full_name ?? '',
+        avatar_url: user.avatar_url ?? ''
+      });
+    }
+  }, [user]);
 
   const [usernameAvailability, setUsernameAvailability] = useState<AvailabilityState>({
     checking: false,
@@ -58,7 +71,7 @@ export function ProfileSettingsTab() {
     const username = formData.username.trim().toLowerCase();
 
     // Skip if same as current or empty
-    if (!username || username === user?.username?.toLowerCase()) {
+    if (!username || username === user?.username.toLowerCase()) {
       setUsernameAvailability({ checking: false, available: null, message: null });
       return;
     }
@@ -113,7 +126,7 @@ export function ProfileSettingsTab() {
     const email = formData.email.trim().toLowerCase();
 
     // Skip if same as current or empty
-    if (!email || email === user?.email?.toLowerCase()) {
+    if (!email || email === user?.email.toLowerCase()) {
       setEmailAvailability({ checking: false, available: null, message: null });
       return;
     }
@@ -201,12 +214,11 @@ export function ProfileSettingsTab() {
     setIsLoading(true);
 
     try {
-      await updateUserProfileAPI(updates);
+      // Update profile and get the updated user directly from the response
+      const updatedUser = await updateUserProfileAPI(updates);
 
-      // Refresh user data in context
-      if (refreshUser) {
-        await refreshUser();
-      }
+      // Update auth context directly with the response data (no need for separate API call)
+      updateUser(updatedUser);
 
       setSuccess('Profile updated successfully!');
 
@@ -226,11 +238,13 @@ export function ProfileSettingsTab() {
     formData.avatar_url ||
     `https://ui-avatars.com/api/?name=${encodeURIComponent(formData.full_name || 'User')}&background=272532&color=fff`;
 
+  /* eslint-disable @typescript-eslint/no-unnecessary-condition -- Defensive null checks */
   const hasChanges =
     formData.username !== user?.username ||
     formData.email !== user?.email ||
-    formData.full_name !== user?.full_name ||
+    formData.full_name !== (user?.full_name ?? '') ||
     formData.avatar_url !== (user?.avatar_url ?? '');
+  /* eslint-enable @typescript-eslint/no-unnecessary-condition */
 
   const canSubmit =
     hasChanges &&
@@ -321,13 +335,15 @@ export function ProfileSettingsTab() {
               onChange={handleInputChange('username')}
               placeholder='your-username'
               disabled={isLoading}
-              className={
-                usernameAvailability.available === false
-                  ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
-                  : usernameAvailability.available === true
-                    ? 'border-green-300 focus:border-green-500 focus:ring-green-500'
-                    : ''
-              }
+              className={(() => {
+                if (usernameAvailability.available === false) {
+                  return 'border-red-300 focus:border-red-500 focus:ring-red-500';
+                }
+                if (usernameAvailability.available === true) {
+                  return 'border-green-300 focus:border-green-500 focus:ring-green-500';
+                }
+                return '';
+              })()}
             />
             {usernameAvailability.checking && (
               <div className='absolute top-1/2 right-3 -translate-y-1/2'>
@@ -367,13 +383,15 @@ export function ProfileSettingsTab() {
               onChange={handleInputChange('email')}
               placeholder='you@example.com'
               disabled={isLoading}
-              className={
-                emailAvailability.available === false
-                  ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
-                  : emailAvailability.available === true
-                    ? 'border-green-300 focus:border-green-500 focus:ring-green-500'
-                    : ''
-              }
+              className={(() => {
+                if (emailAvailability.available === false) {
+                  return 'border-red-300 focus:border-red-500 focus:ring-red-500';
+                }
+                if (emailAvailability.available === true) {
+                  return 'border-green-300 focus:border-green-500 focus:ring-green-500';
+                }
+                return '';
+              })()}
             />
             {emailAvailability.checking && (
               <div className='absolute top-1/2 right-3 -translate-y-1/2'>

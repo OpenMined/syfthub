@@ -11,6 +11,7 @@ export default function EndpointDetailPage() {
   const navigate = useNavigate();
 
   const handleBack = () => {
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises -- Navigation is fire-and-forget
     navigate('/browse');
   };
 

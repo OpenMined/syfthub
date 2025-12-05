@@ -63,8 +63,8 @@ services:
   # Frontend service (internal only)
   frontend:
     build:
-      context: ./frontend
-      dockerfile: Dockerfile.dev
+      context: .
+      dockerfile: frontend/Dockerfile.dev
     container_name: syfthub-frontend-dev
     # Internal only - not exposed to host
     expose:
@@ -80,6 +80,8 @@ services:
       - ./frontend/tailwind.config.js:/app/tailwind.config.js:cached
       - ./frontend/index.html:/app/index.html:cached
       - ./frontend/_config.ts:/app/_config.ts:cached
+      # Mount SDK for hot reload
+      - ./sdk/typescript:/sdk/typescript:cached
       # Exclude node_modules to avoid conflicts
       - /app/node_modules
     environment:

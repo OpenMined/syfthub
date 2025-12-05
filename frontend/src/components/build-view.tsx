@@ -71,42 +71,71 @@ export function BuildView({ onAuthRequired: _onAuthRequired }: Readonly<BuildVie
                 <div className='space-y-6 lg:col-span-2'>
                   <Section
                     title='Installation'
-                    description='Install the SyftHub client library via pip.'
+                    description='Install the SyftHub SDK via pip or uv.'
                     icon={<Box className='h-5 w-5' />}
                   >
-                    <CodeBlock code='pip install syft-hub' language='bash' />
+                    <CodeBlock code='pip install syfthub-sdk' language='bash' />
                   </Section>
 
                   <Section
                     title='Quick Start'
-                    description='Initialize the client and fetch your first dataset.'
+                    description='Initialize the client and start browsing endpoints.'
                     icon={<Terminal className='h-5 w-5' />}
                   >
                     <CodeBlock
-                      code={`from syft_hub import Client
+                      code={`from syfthub_sdk import SyftHubClient
 
-# Initialize with your API key
-client = Client(api_key="syft_...")
+# Initialize client
+client = SyftHubClient(base_url="https://hub.syft.com")
 
-# Connect to a data source
-source = client.get("who/covid-19-global")
+# Login to your account
+user = client.auth.login(username="alice", password="secret123")
+print(f"Logged in as {user.username}")
 
-# Query the latest data
-data = source.query("""
-  SELECT date, new_cases
-  FROM data
-  WHERE country = 'US'
-  ORDER BY date DESC
-  LIMIT 5
-""")
+# Browse public endpoints
+for endpoint in client.hub.browse():
+    print(f"{endpoint.path}: {endpoint.name}")
 
-print(data.to_pandas())`}
+# Get a specific endpoint
+endpoint = client.hub.get("alice/my-model")
+print(endpoint.readme)`}
+                      language='python'
+                    />
+                  </Section>
+
+                  <Section
+                    title='Manage Your Endpoints'
+                    description='Create and manage your own endpoints.'
+                    icon={<Code2 className='h-5 w-5' />}
+                  >
+                    <CodeBlock
+                      code={`# Create an endpoint
+endpoint = client.my_endpoints.create(
+    name="My Model",
+    visibility="public",
+    description="A machine learning model",
+    readme="# My Model\\n\\nDocumentation here."
+)
+print(f"Created: {endpoint.slug}")
+
+# List your endpoints
+for ep in client.my_endpoints.list():
+    print(f"{ep.name} ({ep.visibility})")`}
                       language='python'
                     />
                   </Section>
                 </div>
 
                 <div className='space-y-6'>
+                  <InfoCard
+                    title='Python SDK Features'
+                    items={[
+                      'Full type hints support',
+                      'Lazy pagination iterators',
+                      'Context manager support',
+                      'Automatic token refresh'
+                    ]}
+                  />
                   <Card>
                     <CardHeader>
                       <CardTitle className='text-sm font-medium'>Resources</CardTitle>
@@ -129,39 +158,63 @@ print(data.to_pandas())`}
                 <div className='space-y-6 lg:col-span-2'>
                   <Section
                     title='Installation'
-                    description='Install the SyftHub client via npm or yarn.'
+                    description='Install the SyftHub SDK via npm, yarn, or pnpm.'
                     icon={<Box className='h-5 w-5' />}
                   >
-                    <CodeBlock code='npm install @syft-hub/client' language='bash' />
+                    <CodeBlock code='npm install @syfthub/sdk' language='bash' />
                   </Section>
 
                   <Section
                     title='Quick Start'
-                    description='Connect to SyftHub in your Node.js or Edge application.'
+                    description='Initialize the client and start browsing endpoints.'
                     icon={<Terminal className='h-5 w-5' />}
                   >
                     <CodeBlock
-                      code={`import { SyftHub } from '@syft-hub/client';
+                      code={`import { SyftHubClient } from '@syfthub/sdk';
 
 // Initialize client
-const client = new SyftHub({
-  apiKey: process.env.SYFT_API_KEY
+const client = new SyftHubClient({
+  baseUrl: 'https://hub.syft.com'
 });
 
-// Fetch data
-async function getData() {
-  const source = await client.get('who/covid-19-global');
+// Login to your account
+const user = await client.auth.login('alice', 'secret123');
+console.log(\`Logged in as \${user.username}\`);
 
-  const result = await source.query({
-    select: ['date', 'new_cases'],
-    where: { country: 'US' },
-    limit: 5
-  });
-
-  return result;
+// Browse public endpoints
+for await (const endpoint of client.hub.browse()) {
+  console.log(\`\${endpoint.ownerUsername}/\${endpoint.slug}: \${endpoint.name}\`);
 }
 
-getData();`}
+// Get a specific endpoint
+const endpoint = await client.hub.get('alice/my-model');
+console.log(endpoint.readme);`}
+                      language='typescript'
+                    />
+                  </Section>
+
+                  <Section
+                    title='Manage Your Endpoints'
+                    description='Create and manage your own endpoints.'
+                    icon={<Code2 className='h-5 w-5' />}
+                  >
+                    <CodeBlock
+                      code={`import { EndpointType, Visibility } from '@syfthub/sdk';
+
+// Create an endpoint
+const endpoint = await client.myEndpoints.create({
+  name: 'My Model',
+  type: EndpointType.MODEL,
+  visibility: Visibility.PUBLIC,
+  description: 'A machine learning model',
+  readme: '# My Model\\n\\nDocumentation here.',
+});
+console.log(\`Created: \${endpoint.slug}\`);
+
+// List your endpoints
+for await (const ep of client.myEndpoints.list()) {
+  console.log(\`\${ep.name} (\${ep.visibility})\`);
+}`}
                       language='typescript'
                     />
                   </Section>
@@ -169,11 +222,12 @@ getData();`}
 
                 <div className='space-y-6'>
                   <InfoCard
-                    title='Why JavaScript?'
+                    title='TypeScript SDK Features'
                     items={[
-                      'Type-safe with TypeScript',
-                      'Runs on Edge & Serverless',
-                      'React hooks available'
+                      'Full TypeScript support',
+                      'Async iterators for pagination',
+                      'Runs on Node.js & browsers',
+                      'Automatic token refresh'
                     ]}
                   />
                   <Card>
@@ -204,11 +258,11 @@ getData();`}
                     <CodeBlock
                       code={`{
   "mcpServers": {
-    "syft-hub": {
+    "syfthub": {
       "command": "npx",
-      "args": ["-y", "@syft/mcp-server"],
+      "args": ["-y", "@syfthub/mcp-server"],
       "env": {
-        "SYFT_API_KEY": "your-api-key"
+        "SYFTHUB_URL": "https://hub.syft.com"
       }
     }
   }
@@ -227,9 +281,9 @@ getData();`}
                       <h4 className='mb-1 font-medium text-[#272532]'>What is MCP?</h4>
                       <p className='text-sm text-[#5e5a72]'>
                         The Model Context Protocol (MCP) allows AI assistants like Claude to
-                        directly query SyftHub data sources during conversation. Once configured,
-                        you can ask your AI to "Check the latest WHO data" and it will query SyftHub
-                        in real-time.
+                        directly browse and interact with SyftHub endpoints during conversation.
+                        Once configured, you can ask your AI to explore available models and data
+                        sources in real-time.
                       </p>
                     </div>
                   </div>
@@ -240,7 +294,7 @@ getData();`}
                     title='MCP Features'
                     items={[
                       'Direct LLM integration',
-                      'No code required',
+                      'Browse endpoints via Claude',
                       'Works with Claude Desktop'
                     ]}
                   />
