@@ -15,7 +15,7 @@ from syfthub.main import (
     resolve_owner,
 )
 from syfthub.schemas.auth import UserRole
-from syfthub.schemas.endpoint import Endpoint, EndpointVisibility
+from syfthub.schemas.endpoint import Endpoint, EndpointType, EndpointVisibility
 from syfthub.schemas.organization import Organization
 from syfthub.schemas.user import User
 
@@ -187,6 +187,7 @@ class TestUtilityFunctions:
             name="Endpoint 1",
             slug="endpoint1",
             description="Test endpoint 1",
+            type=EndpointType.MODEL,
             visibility=EndpointVisibility.PUBLIC,
             is_active=True,
             contributors=[],
@@ -233,6 +234,7 @@ class TestUtilityFunctions:
             name="Org Endpoint",
             slug="org-endpoint",
             description="Test org endpoint",
+            type=EndpointType.MODEL,
             visibility=EndpointVisibility.PUBLIC,
             is_active=True,
             contributors=[],
@@ -300,6 +302,7 @@ class TestUtilityFunctions:
             name="Test Endpoint",
             slug="test-endpoint",
             description="A test endpoint",
+            type=EndpointType.MODEL,
             visibility=EndpointVisibility.PUBLIC,
             is_active=True,
             contributors=[],
@@ -348,6 +351,7 @@ class TestUtilityFunctions:
             name="Org Endpoint",
             slug="test-endpoint",
             description="Test org endpoint",
+            type=EndpointType.MODEL,
             visibility=EndpointVisibility.PUBLIC,
             is_active=True,
             contributors=[],
@@ -406,6 +410,7 @@ class TestUtilityFunctions:
             name="Public Endpoint",
             slug="public-endpoint",
             description="A public endpoint",
+            type=EndpointType.MODEL,
             visibility=EndpointVisibility.PUBLIC,
             is_active=True,
             contributors=[],
@@ -444,6 +449,7 @@ class TestUtilityFunctions:
             name="Private Endpoint",
             slug="private-endpoint",
             description="A private endpoint",
+            type=EndpointType.MODEL,
             visibility=EndpointVisibility.PRIVATE,
             is_active=True,
             contributors=[],
@@ -466,6 +472,7 @@ class TestUtilityFunctions:
             name="Private Endpoint",
             slug="private-endpoint",
             description="A private endpoint",
+            type=EndpointType.MODEL,
             visibility=EndpointVisibility.PRIVATE,
             is_active=True,
             contributors=[],
@@ -502,6 +509,7 @@ class TestUtilityFunctions:
             name="User Endpoint",
             slug="user-endpoint",
             description="A user endpoint",
+            type=EndpointType.MODEL,
             visibility=EndpointVisibility.PRIVATE,
             is_active=True,
             contributors=[],
@@ -544,6 +552,7 @@ class TestUtilityFunctions:
             name="Org Endpoint",
             slug="org-endpoint",
             description="An org endpoint",
+            type=EndpointType.MODEL,
             visibility=EndpointVisibility.INTERNAL,
             is_active=True,
             contributors=[],
@@ -589,6 +598,7 @@ class TestUtilityFunctions:
             name="Org Endpoint",
             slug="org-endpoint",
             description="An org endpoint",
+            type=EndpointType.MODEL,
             visibility=EndpointVisibility.PRIVATE,
             is_active=True,
             contributors=[],

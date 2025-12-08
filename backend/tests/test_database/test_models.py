@@ -72,6 +72,7 @@ class TestUserModel:
             name="Test Endpoint",
             slug="test-endpoint",
             description="Test description",
+            type="model",
             visibility="public",
             is_active=True,
         )

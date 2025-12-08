@@ -12,6 +12,7 @@ from syfthub.schemas.endpoint import (
     EndpointCreate,
     EndpointPublicResponse,
     EndpointResponse,
+    EndpointType,
     EndpointUpdate,
     EndpointVisibility,
 )
@@ -60,6 +61,7 @@ def sample_endpoint():
         name="Test Endpoint",
         slug="test-endpoint",
         description="A test endpoint",
+        type=EndpointType.MODEL,
         visibility=EndpointVisibility.PUBLIC,
         version="1.0.0",
         readme="# Test Endpoint\n\nA test endpoint for unit tests.",
@@ -89,6 +91,7 @@ class TestEndpointServiceCreate:
             name="Test Endpoint",
             slug="test-endpoint",
             description="A test endpoint",
+            type=EndpointType.MODEL,
             visibility=EndpointVisibility.PUBLIC,
         )
 
@@ -119,7 +122,10 @@ class TestEndpointServiceCreate:
     ):
         """Test user endpoint creation with existing slug."""
         endpoint_data = EndpointCreate(
-            name="Test Endpoint", slug="existing-slug", description="A test endpoint"
+            name="Test Endpoint",
+            slug="existing-slug",
+            description="A test endpoint",
+            type=EndpointType.MODEL,
         )
 
         with patch.object(
@@ -140,7 +146,10 @@ class TestEndpointServiceCreate:
     ):
         """Test organization endpoint creation without membership."""
         endpoint_data = EndpointCreate(
-            name="Test Endpoint", slug="test-endpoint", description="A test endpoint"
+            name="Test Endpoint",
+            slug="test-endpoint",
+            description="A test endpoint",
+            type=EndpointType.MODEL,
         )
 
         with patch.object(
@@ -159,7 +168,10 @@ class TestEndpointServiceCreate:
     ):
         """Test organization endpoint creation with existing slug."""
         endpoint_data = EndpointCreate(
-            name="Test Endpoint", slug="existing-slug", description="A test endpoint"
+            name="Test Endpoint",
+            slug="existing-slug",
+            description="A test endpoint",
+            type=EndpointType.MODEL,
         )
 
         with (
@@ -189,7 +201,10 @@ class TestEndpointServiceCreate:
     ):
         """Test endpoint creation failure."""
         endpoint_data = EndpointCreate(
-            name="Test Endpoint", slug="test-endpoint", description="A test endpoint"
+            name="Test Endpoint",
+            slug="test-endpoint",
+            description="A test endpoint",
+            type=EndpointType.MODEL,
         )
 
         with (
@@ -267,6 +282,7 @@ class TestEndpointServiceGet:
                 name="Public Endpoint",
                 slug="public-endpoint",
                 description="A public endpoint",
+                type=EndpointType.MODEL,
                 owner_username="testuser",
                 version="1.0.0",
                 readme="# Public Endpoint",

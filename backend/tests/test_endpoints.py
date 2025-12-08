@@ -95,6 +95,7 @@ def test_create_endpoint_requires_auth(client: TestClient) -> None:
     endpoint_data = {
         "name": "Test Endpoint",
         "description": "Test description",
+        "type": "model",
         "visibility": "public",
     }
 
@@ -109,6 +110,7 @@ def test_create_endpoint_with_auth(client: TestClient, user1_token: str) -> None
     endpoint_data = {
         "name": "My First Endpoint",
         "description": "This is my first endpoint",
+        "type": "model",
         "visibility": "public",
     }
 
@@ -139,6 +141,7 @@ def test_create_endpoint_with_custom_slug(client: TestClient, user1_token: str) 
         "name": "Custom Slug Test",
         "slug": "my-custom-slug",
         "description": "Testing custom slug",
+        "type": "model",
         "visibility": "public",
     }
 
@@ -171,6 +174,7 @@ def test_create_endpoint_invalid_slug(client: TestClient, user1_token: str) -> N
             "name": "Test Endpoint",
             "slug": invalid_slug,
             "description": "Test",
+            "type": "model",
             "visibility": "public",
         }
 
@@ -185,6 +189,7 @@ def test_create_duplicate_slug_same_user(client: TestClient, user1_token: str) -
         "name": "Test Endpoint",
         "slug": "test-endpoint",
         "description": "Test",
+        "type": "model",
         "visibility": "public",
     }
 
@@ -206,6 +211,7 @@ def test_create_same_slug_different_users(
         "name": "Test Endpoint",
         "slug": "test-endpoint",
         "description": "Test",
+        "type": "model",
         "visibility": "public",
     }
 
@@ -226,9 +232,9 @@ def test_list_my_endpoints(client: TestClient, user1_token: str) -> None:
 
     # Create multiple endpoints
     endpoints_data = [
-        {"name": "Public Endpoint", "visibility": "public"},
-        {"name": "Private Endpoint", "visibility": "private"},
-        {"name": "Internal Endpoint", "visibility": "internal"},
+        {"name": "Public Endpoint", "type": "model", "visibility": "public"},
+        {"name": "Private Endpoint", "type": "model", "visibility": "private"},
+        {"name": "Internal Endpoint", "type": "model", "visibility": "internal"},
     ]
 
     for endpoint_data in endpoints_data:
@@ -248,13 +254,24 @@ def test_list_my_endpoints_with_filters(client: TestClient, user1_token: str) ->
 
     # Create endpoints
     endpoints_data = [
-        {"name": "Widget Alpha", "description": "A widget", "visibility": "public"},
+        {
+            "name": "Widget Alpha",
+            "description": "A widget",
+            "type": "model",
+            "visibility": "public",
+        },
         {
             "name": "Widget Beta",
             "description": "Another widget",
+            "type": "model",
             "visibility": "private",
         },
-        {"name": "Tool Gamma", "description": "A tool", "visibility": "public"},
+        {
+            "name": "Tool Gamma",
+            "description": "A tool",
+            "type": "model",
+            "visibility": "public",
+        },
     ]
 
     for endpoint_data in endpoints_data:
@@ -279,9 +296,9 @@ def test_list_public_endpoints(client: TestClient, user1_token: str) -> None:
 
     # Create endpoints with different visibility
     endpoints_data = [
-        {"name": "Public Endpoint", "visibility": "public"},
-        {"name": "Private Endpoint", "visibility": "private"},
-        {"name": "Internal Endpoint", "visibility": "internal"},
+        {"name": "Public Endpoint", "type": "model", "visibility": "public"},
+        {"name": "Private Endpoint", "type": "model", "visibility": "private"},
+        {"name": "Internal Endpoint", "type": "model", "visibility": "internal"},
     ]
 
     for endpoint_data in endpoints_data:
@@ -301,7 +318,7 @@ def test_get_endpoint_by_id(client: TestClient, user1_token: str) -> None:
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     # Create endpoint
-    endpoint_data = {"name": "Test Endpoint", "visibility": "public"}
+    endpoint_data = {"name": "Test Endpoint", "type": "model", "visibility": "public"}
     response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     endpoint_id = response.json()["id"]
 
@@ -319,7 +336,11 @@ def test_get_endpoint_visibility_controls(
     headers2 = {"Authorization": f"Bearer {user2_token}"}
 
     # User1 creates private endpoint
-    endpoint_data = {"name": "Private Endpoint", "visibility": "private"}
+    endpoint_data = {
+        "name": "Private Endpoint",
+        "type": "model",
+        "visibility": "private",
+    }
     response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers1)
     endpoint_id = response.json()["id"]
 
@@ -344,7 +365,11 @@ def test_get_endpoint_internal_visibility(
     headers2 = {"Authorization": f"Bearer {user2_token}"}
 
     # User1 creates internal endpoint
-    endpoint_data = {"name": "Internal Endpoint", "visibility": "internal"}
+    endpoint_data = {
+        "name": "Internal Endpoint",
+        "type": "model",
+        "visibility": "internal",
+    }
     response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers1)
     endpoint_id = response.json()["id"]
 
@@ -366,7 +391,7 @@ def test_update_endpoint(client: TestClient, user1_token: str) -> None:
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     # Create endpoint
-    endpoint_data = {"name": "Original Name", "visibility": "public"}
+    endpoint_data = {"name": "Original Name", "type": "model", "visibility": "public"}
     response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     endpoint_id = response.json()["id"]
 
@@ -391,7 +416,7 @@ def test_update_endpoint_ownership(
     headers2 = {"Authorization": f"Bearer {user2_token}"}
 
     # User1 creates endpoint
-    endpoint_data = {"name": "User1 Endpoint", "visibility": "public"}
+    endpoint_data = {"name": "User1 Endpoint", "type": "model", "visibility": "public"}
     response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers1)
     endpoint_id = response.json()["id"]
 
@@ -414,7 +439,7 @@ def test_delete_endpoint(client: TestClient, user1_token: str) -> None:
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     # Create endpoint
-    endpoint_data = {"name": "To Delete", "visibility": "public"}
+    endpoint_data = {"name": "To Delete", "type": "model", "visibility": "public"}
     response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     endpoint_id = response.json()["id"]
 
@@ -435,7 +460,7 @@ def test_delete_endpoint_ownership(
     headers2 = {"Authorization": f"Bearer {user2_token}"}
 
     # User1 creates endpoint
-    endpoint_data = {"name": "User1 Endpoint", "visibility": "public"}
+    endpoint_data = {"name": "User1 Endpoint", "type": "model", "visibility": "public"}
     response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers1)
     endpoint_id = response.json()["id"]
 
@@ -456,7 +481,11 @@ def test_admin_can_access_any_endpoint(
     headers_admin = {"Authorization": f"Bearer {admin_token}"}
 
     # User1 creates private endpoint
-    endpoint_data = {"name": "Private Endpoint", "visibility": "private"}
+    endpoint_data = {
+        "name": "Private Endpoint",
+        "type": "model",
+        "visibility": "private",
+    }
     response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers1)
     endpoint_id = response.json()["id"]
 
@@ -482,11 +511,15 @@ def test_list_user_endpoints_by_username(client: TestClient, user1_token: str) -
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     # Create public endpoint
-    endpoint_data = {"name": "Public Endpoint", "visibility": "public"}
+    endpoint_data = {"name": "Public Endpoint", "type": "model", "visibility": "public"}
     client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
 
     # Create private endpoint
-    endpoint_data = {"name": "Private Endpoint", "visibility": "private"}
+    endpoint_data = {
+        "name": "Private Endpoint",
+        "type": "model",
+        "visibility": "private",
+    }
     client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
 
     # List user's public endpoints by username (no auth)
@@ -508,6 +541,7 @@ def test_get_endpoint_by_username_and_slug(
     endpoint_data = {
         "name": "My Endpoint",
         "slug": "my-endpoint",
+        "type": "model",
         "visibility": "public",
     }
     client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
@@ -531,6 +565,7 @@ def test_get_private_endpoint_by_url_requires_auth(
     endpoint_data = {
         "name": "Private Endpoint",
         "slug": "private-ds",
+        "type": "model",
         "visibility": "private",
     }
     client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
@@ -560,7 +595,7 @@ def test_case_insensitive_username_lookup(client: TestClient, user1_token: str) 
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     # Create endpoint
-    endpoint_data = {"name": "Test Endpoint", "visibility": "public"}
+    endpoint_data = {"name": "Test Endpoint", "type": "model", "visibility": "public"}
     client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
 
     # Test different cases
@@ -582,7 +617,7 @@ def test_slug_generation_from_name(client: TestClient, user1_token: str) -> None
     ]
 
     for name, expected_slug in test_cases:
-        endpoint_data = {"name": name, "visibility": "public"}
+        endpoint_data = {"name": name, "type": "model", "visibility": "public"}
         response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
         assert response.status_code == 201
         assert response.json()["slug"] == expected_slug
@@ -596,6 +631,7 @@ def test_create_endpoint_with_custom_attributes(
     endpoint_data = {
         "name": "Advanced Endpoint",
         "description": "A endpoint with custom attributes",
+        "type": "model",
         "visibility": "public",
         "version": "1.2.3",
         "readme": "# My Project\n\nThis is a sample README with markdown.",
@@ -625,6 +661,7 @@ def test_create_endpoint_invalid_version(client: TestClient, user1_token: str) -
     for invalid_version in invalid_versions:
         endpoint_data = {
             "name": "Test Endpoint",
+            "type": "model",
             "version": invalid_version,
             "visibility": "public",
         }
@@ -638,7 +675,11 @@ def test_update_endpoint_new_attributes(client: TestClient, user1_token: str) ->
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     # Create endpoint
-    endpoint_data = {"name": "Original Endpoint", "visibility": "public"}
+    endpoint_data = {
+        "name": "Original Endpoint",
+        "type": "model",
+        "visibility": "public",
+    }
     response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
     endpoint_id = response.json()["id"]
 
@@ -666,6 +707,7 @@ def test_create_endpoint_with_contributors(
     # Simulate adding additional contributor IDs
     endpoint_data = {
         "name": "Collaborative Endpoint",
+        "type": "model",
         "visibility": "public",
         "contributors": [1, 2, 3],  # Mock user IDs
     }
@@ -689,6 +731,7 @@ def test_endpoint_public_response_includes_new_fields(
     endpoint_data = {
         "name": "Public Endpoint",
         "description": "A public endpoint for testing",
+        "type": "model",
         "visibility": "public",
         "version": "3.1.4",
         "readme": "# Public Project\n\nThis is publicly accessible.",
@@ -725,6 +768,7 @@ def test_endpoint_version_filter_capability(
     for version in versions:
         endpoint_data = {
             "name": f"Endpoint v{version}",
+            "type": "model",
             "visibility": "public",
             "version": version,
         }
@@ -739,6 +783,7 @@ def test_endpoint_stars_count_default(client: TestClient, user1_token: str) -> N
     endpoint_data = {
         "name": "New Endpoint",
         "description": "Testing stars functionality",
+        "type": "model",
         "visibility": "public",
     }
 
@@ -755,9 +800,9 @@ def test_trending_endpoints_endpoint(client: TestClient, user1_token: str) -> No
 
     # Create endpoints with different star counts (simulated)
     endpoints_data = [
-        {"name": "Popular Endpoint", "visibility": "public"},
-        {"name": "Average Endpoint", "visibility": "public"},
-        {"name": "New Endpoint", "visibility": "public"},
+        {"name": "Popular Endpoint", "type": "model", "visibility": "public"},
+        {"name": "Average Endpoint", "type": "model", "visibility": "public"},
+        {"name": "New Endpoint", "type": "model", "visibility": "public"},
     ]
 
     created_ids = []
@@ -804,8 +849,8 @@ def test_trending_endpoints_with_min_stars_filter(
 
     # Create endpoints
     endpoints_data = [
-        {"name": "High Stars Endpoint", "visibility": "public"},
-        {"name": "Low Stars Endpoint", "visibility": "public"},
+        {"name": "High Stars Endpoint", "type": "model", "visibility": "public"},
+        {"name": "Low Stars Endpoint", "type": "model", "visibility": "public"},
     ]
 
     created_ids = []
@@ -847,6 +892,7 @@ def test_public_endpoint_response_includes_stars(
     endpoint_data = {
         "name": "Public Endpoint with Stars",
         "description": "Testing public response",
+        "type": "model",
         "visibility": "public",
     }
 
@@ -891,6 +937,7 @@ def test_trending_endpoints_pagination(client: TestClient, user1_token: str) -> 
     for i in range(5):
         endpoint_data = {
             "name": f"Endpoint {i}",
+            "type": "model",
             "visibility": "public",
         }
         response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
@@ -917,6 +964,7 @@ def test_create_endpoint_with_policies(client: TestClient, user1_token: str) -> 
     endpoint_data = {
         "name": "Policy-Enabled Endpoint",
         "description": "A endpoint with custom policies",
+        "type": "model",
         "visibility": "public",
         "policies": [
             {
@@ -973,6 +1021,7 @@ def test_create_endpoint_default_empty_policies(
     headers = {"Authorization": f"Bearer {user1_token}"}
     endpoint_data = {
         "name": "No Policies Endpoint",
+        "type": "model",
         "visibility": "public",
     }
 
@@ -991,6 +1040,7 @@ def test_create_endpoint_with_minimal_policy(
 
     endpoint_data = {
         "name": "Minimal Policy Endpoint",
+        "type": "model",
         "visibility": "public",
         "policies": [{"type": "simple_policy"}],
     }
@@ -1015,6 +1065,7 @@ def test_create_endpoint_invalid_policy_type(
 
     endpoint_data = {
         "name": "Invalid Policy Endpoint",
+        "type": "model",
         "visibility": "public",
         "policies": [
             {
@@ -1035,6 +1086,7 @@ def test_update_endpoint_policies(client: TestClient, user1_token: str) -> None:
     # Create endpoint with initial policy
     endpoint_data = {
         "name": "Updateable Policies Endpoint",
+        "type": "model",
         "visibility": "public",
         "policies": [
             {"type": "initial_policy", "description": "Initial policy configuration"}
@@ -1081,6 +1133,7 @@ def test_public_endpoint_response_includes_policies(
 
     endpoint_data = {
         "name": "Public Policies Endpoint",
+        "type": "model",
         "visibility": "public",
         "policies": [
             {
@@ -1114,6 +1167,7 @@ def test_policy_version_validation(client: TestClient, user1_token: str) -> None
     for version in valid_versions:
         endpoint_data = {
             "name": f"Version Test {version}",
+            "type": "model",
             "visibility": "public",
             "policies": [{"type": "test_policy", "version": version}],
         }
@@ -1126,6 +1180,7 @@ def test_policy_version_validation(client: TestClient, user1_token: str) -> None
     for version in invalid_versions:
         endpoint_data = {
             "name": "Invalid Version Test",
+            "type": "model",
             "visibility": "public",
             "policies": [{"type": "test_policy", "version": version}],
         }
@@ -1139,6 +1194,7 @@ def test_complex_policy_configurations(client: TestClient, user1_token: str) -> 
 
     endpoint_data = {
         "name": "Complex Config Endpoint",
+        "type": "model",
         "visibility": "public",
         "policies": [
             {
@@ -1183,6 +1239,7 @@ def test_create_endpoint_with_connections(client: TestClient, user1_token: str) 
     endpoint_data = {
         "name": "Connection-Enabled Endpoint",
         "description": "A endpoint with connection methods",
+        "type": "model",
         "visibility": "public",
         "connect": [
             {
@@ -1237,6 +1294,7 @@ def test_create_endpoint_default_empty_connections(
     headers = {"Authorization": f"Bearer {user1_token}"}
     endpoint_data = {
         "name": "No Connections Endpoint",
+        "type": "model",
         "visibility": "public",
     }
 
@@ -1255,6 +1313,7 @@ def test_create_endpoint_with_minimal_connection(
 
     endpoint_data = {
         "name": "Minimal Connection Endpoint",
+        "type": "model",
         "visibility": "public",
         "connect": [{"type": "simple_connection"}],
     }
@@ -1278,6 +1337,7 @@ def test_create_endpoint_invalid_connection_type(
 
     endpoint_data = {
         "name": "Invalid Connection Endpoint",
+        "type": "model",
         "visibility": "public",
         "connect": [
             {
@@ -1298,6 +1358,7 @@ def test_update_endpoint_connections(client: TestClient, user1_token: str) -> No
     # Create endpoint with initial connection
     endpoint_data = {
         "name": "Updateable Connections Endpoint",
+        "type": "model",
         "visibility": "public",
         "connect": [
             {"type": "initial_connection", "description": "Initial connection setup"}
@@ -1342,6 +1403,7 @@ def test_public_endpoint_response_includes_connections(
 
     endpoint_data = {
         "name": "Public Connections Endpoint",
+        "type": "model",
         "visibility": "public",
         "connect": [
             {
@@ -1374,6 +1436,7 @@ def test_complex_connection_configurations(
 
     endpoint_data = {
         "name": "Complex Connection Config Endpoint",
+        "type": "model",
         "visibility": "public",
         "connect": [
             {

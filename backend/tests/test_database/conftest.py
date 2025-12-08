@@ -89,6 +89,7 @@ def sample_endpoint_data() -> dict:
         "name": "Test Endpoint",
         "slug": "test-endpoint",
         "description": "A test endpoint",
+        "type": "model",
         "visibility": "public",
         "is_active": True,
         "contributors": [1],
