@@ -27,14 +27,21 @@ from syfthub_sdk.exceptions import (
     ValidationError,
 )
 from syfthub_sdk.models import (
+    # Backward compatibility aliases (deprecated)
     AccountingBalance,
     AccountingTransaction,
+    # Accounting models
+    AccountingUser,
+    # Core models
     AuthTokens,
     Connection,
+    CreatorType,
     Endpoint,
     EndpointPublic,
     EndpointType,
     Policy,
+    Transaction,
+    TransactionStatus,
     User,
     UserRole,
     Visibility,
@@ -45,7 +52,7 @@ __version__ = "0.1.0"
 __all__ = [
     # Main client
     "SyftHubClient",
-    # Models
+    # Core models
     "User",
     "UserRole",
     "Endpoint",
@@ -55,6 +62,12 @@ __all__ = [
     "Visibility",
     "Policy",
     "Connection",
+    # Accounting models
+    "AccountingUser",
+    "Transaction",
+    "TransactionStatus",
+    "CreatorType",
+    # Backward compatibility (deprecated)
     "AccountingBalance",
     "AccountingTransaction",
     # Exceptions

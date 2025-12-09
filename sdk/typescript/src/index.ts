@@ -54,7 +54,9 @@ export {
   EndpointType,
   UserRole,
   OrganizationRole,
-  TransactionType,
+  // Accounting enums
+  TransactionStatus,
+  CreatorType,
 } from './models/index.js';
 
 // Models - Types
@@ -72,14 +74,39 @@ export type {
   EndpointCreateInput,
   EndpointUpdateInput,
   // Accounting types
+  AccountingUser,
+  Transaction,
+  CreateTransactionInput,
+  CreateDelegatedTransactionInput,
+  UpdatePasswordInput,
+  TransactionResponse,
+  TransactionTokenResponse,
+  // Backward compatibility (deprecated)
   AccountingBalance,
   AccountingTransaction,
 } from './models/index.js';
 
 // Model helpers
-export { getEndpointOwnerType, getEndpointPublicPath } from './models/index.js';
+export {
+  getEndpointOwnerType,
+  getEndpointPublicPath,
+  // Accounting helpers
+  parseTransaction,
+  isTransactionPending,
+  isTransactionCompleted,
+  isTransactionCancelled,
+} from './models/index.js';
+
+// Accounting Resource (standalone client for external accounting service)
+export {
+  AccountingResource,
+  createAccountingResource,
+} from './resources/accounting.js';
+export type {
+  AccountingResourceOptions,
+  TransactionsOptions,
+} from './resources/accounting.js';
 
 // Resource option types (for type-safe usage)
 export type { ListEndpointsOptions } from './resources/my-endpoints.js';
 export type { BrowseOptions, TrendingOptions } from './resources/hub.js';
-export type { TransactionsOptions } from './resources/accounting.js';

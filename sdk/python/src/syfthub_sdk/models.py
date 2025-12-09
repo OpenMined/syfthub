@@ -136,23 +136,87 @@ class EndpointPublic(BaseModel):
         return f"{self.owner_username}/{self.slug}"
 
 
-class AccountingBalance(BaseModel):
-    """Accounting balance information."""
-
-    credits: float = 0.0
-    currency: str = "USD"
-    updated_at: datetime | None = None
-
-    model_config = {"frozen": True}
+# =============================================================================
+# Accounting Models
+# =============================================================================
 
 
-class AccountingTransaction(BaseModel):
-    """Accounting transaction record."""
+class TransactionStatus(str, Enum):
+    """Transaction status in the accounting service."""
+
+    PENDING = "pending"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
+class CreatorType(str, Enum):
+    """Who created or resolved a transaction."""
+
+    SYSTEM = "system"
+    SENDER = "sender"
+    RECIPIENT = "recipient"
+
+
+class AccountingUser(BaseModel):
+    """User from accounting service with balance.
+
+    This represents the user's account in the external accounting service,
+    which is separate from the SyftHub user account.
+    """
 
     id: str
-    amount: float
-    description: str
-    transaction_type: str  # "credit", "debit", "refund"
-    created_at: datetime
+    email: str
+    balance: float = Field(default=0.0, ge=0.0)
+    organization: str | None = None
 
     model_config = {"frozen": True}
+
+
+class Transaction(BaseModel):
+    """Transaction record from accounting service.
+
+    Transactions go through a lifecycle:
+    1. Created (status=PENDING)
+    2. Confirmed or Cancelled (status=COMPLETED or CANCELLED)
+
+    The created_by field indicates who initiated the transaction:
+    - SENDER: Direct transaction by the payer
+    - RECIPIENT: Delegated transaction using a token
+    - SYSTEM: System-initiated transaction
+
+    The resolved_by field indicates who confirmed/cancelled.
+    """
+
+    id: str
+    sender_email: str = Field(alias="senderEmail")
+    recipient_email: str = Field(alias="recipientEmail")
+    amount: float = Field(gt=0.0)
+    status: TransactionStatus
+    created_by: CreatorType = Field(alias="createdBy")
+    resolved_by: CreatorType | None = Field(default=None, alias="resolvedBy")
+    created_at: datetime = Field(alias="createdAt")
+    resolved_at: datetime | None = Field(default=None, alias="resolvedAt")
+    app_name: str | None = Field(default=None, alias="appName")
+    app_ep_path: str | None = Field(default=None, alias="appEpPath")
+
+    model_config = {"frozen": True, "populate_by_name": True}
+
+    @property
+    def is_pending(self) -> bool:
+        """Check if transaction is still pending."""
+        return self.status == TransactionStatus.PENDING
+
+    @property
+    def is_completed(self) -> bool:
+        """Check if transaction was completed."""
+        return self.status == TransactionStatus.COMPLETED
+
+    @property
+    def is_cancelled(self) -> bool:
+        """Check if transaction was cancelled."""
+        return self.status == TransactionStatus.CANCELLED
+
+
+# Backward compatibility aliases (deprecated)
+AccountingBalance = AccountingUser  # Use AccountingUser instead
+AccountingTransaction = Transaction  # Use Transaction instead

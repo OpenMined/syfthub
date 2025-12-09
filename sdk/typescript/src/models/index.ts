@@ -32,8 +32,24 @@ export {
 } from './endpoint.js';
 
 // Accounting types
-export { TransactionType } from './accounting.js';
+export {
+  TransactionStatus,
+  CreatorType,
+  parseTransaction,
+  isTransactionPending,
+  isTransactionCompleted,
+  isTransactionCancelled,
+} from './accounting.js';
+
 export type {
+  AccountingUser,
+  Transaction,
+  CreateTransactionInput,
+  CreateDelegatedTransactionInput,
+  UpdatePasswordInput,
+  TransactionResponse,
+  TransactionTokenResponse,
+  // Backward compatibility (deprecated)
   AccountingBalance,
   AccountingTransaction,
 } from './accounting.js';

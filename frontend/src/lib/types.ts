@@ -325,3 +325,80 @@ export interface AccountingError {
   field?: string;
   waitTime?: number; // For rate limiting
 }
+
+// =============================================================================
+// Accounting API Types (for interacting with external accounting service)
+// =============================================================================
+
+/**
+ * Transaction status in the accounting service.
+ */
+export type TransactionStatus = 'pending' | 'completed' | 'cancelled';
+
+/**
+ * Who created or resolved a transaction.
+ */
+export type CreatorType = 'system' | 'sender' | 'recipient';
+
+/**
+ * User from accounting service with balance.
+ * This is separate from the SyftHub User type.
+ */
+export interface AccountingUser {
+  id: string;
+  email: string;
+  balance: number;
+  organization: string | null;
+}
+
+/**
+ * Transaction record from accounting service.
+ */
+export interface AccountingTransaction {
+  id: string;
+  senderEmail: string;
+  recipientEmail: string;
+  amount: number;
+  status: TransactionStatus;
+  createdBy: CreatorType;
+  resolvedBy: CreatorType | null;
+  createdAt: Date;
+  resolvedAt: Date | null;
+  appName: string | null;
+  appEpPath: string | null;
+}
+
+/**
+ * Input for creating a direct transaction.
+ */
+export interface CreateTransactionInput {
+  recipientEmail: string;
+  amount: number;
+  appName?: string;
+  appEpPath?: string;
+}
+
+/**
+ * Input for creating a delegated transaction.
+ */
+export interface CreateDelegatedTransactionInput {
+  senderEmail: string;
+  amount: number;
+  token: string;
+}
+
+/**
+ * State for accounting API operations
+ */
+export interface AccountingAPIState {
+  /** Current user from accounting service */
+  user: AccountingUser | null;
+  /** Recent transactions */
+  transactions: AccountingTransaction[];
+  /** Currently active (pending) transaction */
+  pendingTransaction: AccountingTransaction | null;
+  /** Whether API operations are in progress */
+  isLoading: boolean;
+  /** API error (separate from vault errors) */
+  apiError: string | null;
+}

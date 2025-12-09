@@ -1,13 +1,42 @@
 /**
  * Accounting Hooks
  *
- * Custom hooks for consuming accounting context.
- * Provides convenient access to vault state and actions.
+ * Custom hooks for consuming accounting context and API operations.
+ * Provides convenient access to:
+ * - Vault state and actions (encrypted credential storage)
+ * - API operations (balance, transactions, delegation)
+ *
+ * @example
+ * ```tsx
+ * import {
+ *   // Vault hooks
+ *   useAccounting,
+ *   useAccountingStatus,
+ *   useAccountingReady,
+ *   // API hooks
+ *   useAccountingUser,
+ *   useAccountingBalance,
+ *   useTransactions,
+ *   useCreateTransaction,
+ * } from '@/hooks/use-accounting';
+ * ```
  */
 
 import type { AccountingCredentials, AccountingError, AccountingVaultStatus } from '@/lib/types';
 
 import { useAccountingContext } from '@/context/accounting-context';
+
+// Re-export API hooks for convenience
+export {
+  useAccountingClient,
+  useAccountingUser,
+  useAccountingBalance,
+  useTransactions,
+  useTransaction,
+  useCreateTransaction,
+  useTransactionToken,
+  useDelegatedTransaction
+} from './use-accounting-api';
 
 // =============================================================================
 // Main Hook

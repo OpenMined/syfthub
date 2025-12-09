@@ -107,6 +107,7 @@ function isBrowser(): boolean {
  */
 export class SyftHubClient {
   private readonly http: HTTPClient;
+  private readonly options: SyftHubClientOptions;
 
   // Lazy-initialized resources
   private _auth?: AuthResource;
@@ -122,6 +123,7 @@ export class SyftHubClient {
    * @throws {SyftHubError} If baseUrl is not provided and SYFTHUB_URL is not set (in non-browser environments)
    */
   constructor(options: SyftHubClientOptions = {}) {
+    this.options = options;
     let baseUrl = options.baseUrl ?? getEnv('SYFTHUB_URL');
 
     // In browser environments, empty baseUrl means same-origin requests
@@ -199,15 +201,47 @@ export class SyftHubClient {
   }
 
   /**
-   * Accounting resource for billing and credits.
+   * Accounting resource for billing and transactions.
+   *
+   * The accounting service is external and uses separate credentials
+   * (email/password Basic auth) from SyftHub's JWT authentication.
+   *
+   * Credentials can be provided via:
+   * - Constructor options: accountingUrl, accountingEmail, accountingPassword
+   * - Environment variables: SYFTHUB_ACCOUNTING_URL, SYFTHUB_ACCOUNTING_EMAIL, SYFTHUB_ACCOUNTING_PASSWORD
+   *
+   * @throws {SyftHubError} If accounting credentials are not configured
    *
    * @example
-   * const balance = await client.accounting.balance();
-   * console.log(`Credits: ${balance.credits}`);
+   * const user = await client.accounting.getUser();
+   * console.log(`Balance: ${user.balance}`);
+   *
+   * // Create a transaction
+   * const tx = await client.accounting.createTransaction({
+   *   recipientEmail: 'bob@example.com',
+   *   amount: 10.0
+   * });
    */
   get accounting(): AccountingResource {
     if (!this._accounting) {
-      this._accounting = new AccountingResource(this.http);
+      const url = this.options.accountingUrl ?? getEnv('SYFTHUB_ACCOUNTING_URL');
+      const email = this.options.accountingEmail ?? getEnv('SYFTHUB_ACCOUNTING_EMAIL');
+      const password = this.options.accountingPassword ?? getEnv('SYFTHUB_ACCOUNTING_PASSWORD');
+
+      if (!url || !email || !password) {
+        throw new SyftHubError(
+          'Accounting credentials not configured. Provide accountingUrl, accountingEmail, and accountingPassword ' +
+          'in options or set SYFTHUB_ACCOUNTING_URL, SYFTHUB_ACCOUNTING_EMAIL, and SYFTHUB_ACCOUNTING_PASSWORD ' +
+          'environment variables.'
+        );
+      }
+
+      this._accounting = new AccountingResource({
+        url,
+        email,
+        password,
+        timeout: this.options.timeout,
+      });
     }
     return this._accounting;
   }
