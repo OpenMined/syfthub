@@ -40,6 +40,13 @@ class User(UserBase):
     password_hash: str = Field(..., description="Hashed password")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # Accounting fields
+    accounting_service_url: Optional[str] = Field(
+        None, description="URL to external accounting service"
+    )
+    accounting_password: Optional[str] = Field(
+        None, description="Password for external accounting service"
+    )
 
     model_config = {"from_attributes": True}
 
@@ -56,6 +63,10 @@ class UserResponse(BaseModel):
     is_active: bool = Field(..., description="Whether the user is active")
     created_at: datetime = Field(..., description="When the user was created")
     updated_at: datetime = Field(..., description="When the user was last updated")
+    # Accounting - only expose URL, never expose password in user response
+    accounting_service_url: Optional[str] = Field(
+        None, description="URL to external accounting service"
+    )
 
     model_config = {"from_attributes": True}
 
@@ -74,3 +85,20 @@ class UserUpdate(BaseModel):
         None, max_length=500, description="URL to user's avatar image"
     )
     is_active: Optional[bool] = Field(None, description="Whether the user is active")
+    # Accounting service credentials
+    accounting_service_url: Optional[str] = Field(
+        None, max_length=500, description="URL to external accounting service"
+    )
+    accounting_password: Optional[str] = Field(
+        None, max_length=255, description="Password for external accounting service"
+    )
+
+
+class AccountingCredentialsResponse(BaseModel):
+    """Schema for accounting credentials response."""
+
+    url: Optional[str] = Field(None, description="Accounting service URL")
+    email: str = Field(..., description="User's email (same as SyftHub email)")
+    password: Optional[str] = Field(None, description="Accounting service password")
+
+    model_config = {"from_attributes": True}

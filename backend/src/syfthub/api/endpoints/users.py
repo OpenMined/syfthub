@@ -10,7 +10,12 @@ from syfthub.auth.db_dependencies import (
 )
 from syfthub.database.dependencies import get_user_service
 from syfthub.schemas.auth import UserRole
-from syfthub.schemas.user import User, UserResponse, UserUpdate
+from syfthub.schemas.user import (
+    AccountingCredentialsResponse,
+    User,
+    UserResponse,
+    UserUpdate,
+)
 from syfthub.services.user_service import UserService
 
 router = APIRouter()
@@ -45,6 +50,22 @@ async def get_current_user_profile(
 ) -> UserResponse:
     """Get current user's profile."""
     return UserResponse.model_validate(current_user)
+
+
+@router.get("/me/accounting", response_model=AccountingCredentialsResponse)
+async def get_my_accounting_credentials(
+    current_user: Annotated[User, Depends(get_current_active_user)],
+) -> AccountingCredentialsResponse:
+    """Get current user's accounting service credentials.
+
+    Returns the accounting service URL, user's email, and accounting password.
+    This endpoint is protected and only returns credentials for the authenticated user.
+    """
+    return AccountingCredentialsResponse(
+        url=current_user.accounting_service_url,
+        email=current_user.email,
+        password=current_user.accounting_password,
+    )
 
 
 @router.get("/check-username/{username}")

@@ -79,6 +79,8 @@ class AuthService(BaseService):
         user = self.user_repository.create_user(
             user_data=user_data,
             password_hash=password_hash,
+            accounting_service_url=register_data.accounting_service_url,
+            accounting_password=register_data.accounting_password,
         )
 
         if not user:

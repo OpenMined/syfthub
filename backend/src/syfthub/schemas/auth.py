@@ -54,6 +54,13 @@ class UserRegister(BaseModel):
         ..., min_length=1, max_length=100, description="User's full name"
     )
     password: str = Field(..., description="User password")
+    # Optional accounting service credentials (can be set up later)
+    accounting_service_url: Optional[str] = Field(
+        None, max_length=500, description="URL to external accounting service"
+    )
+    accounting_password: Optional[str] = Field(
+        None, max_length=255, description="Password for external accounting service"
+    )
 
     @field_validator("password")
     @classmethod

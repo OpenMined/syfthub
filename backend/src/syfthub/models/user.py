@@ -26,6 +26,14 @@ class UserModel(BaseModel, TimestampMixin):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
+    # Accounting service credentials (for external billing integration)
+    accounting_service_url: Mapped[Optional[str]] = mapped_column(
+        String(500), nullable=True, default=None
+    )
+    accounting_password: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True, default=None
+    )
+
     # Relationships
     endpoints: Mapped[List["EndpointModel"]] = relationship(
         "EndpointModel", back_populates="user", cascade="all, delete-orphan"

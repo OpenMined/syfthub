@@ -57,7 +57,13 @@ class UserRepository(BaseRepository[UserModel]):
         except Exception:
             return None
 
-    def create_user(self, user_data: UserCreate, password_hash: str) -> Optional[User]:
+    def create_user(
+        self,
+        user_data: UserCreate,
+        password_hash: str,
+        accounting_service_url: Optional[str] = None,
+        accounting_password: Optional[str] = None,
+    ) -> Optional[User]:
         """Create a new user."""
         try:
             user_model = UserModel(
@@ -66,6 +72,8 @@ class UserRepository(BaseRepository[UserModel]):
                 full_name=user_data.full_name,
                 password_hash=password_hash,
                 is_active=True,
+                accounting_service_url=accounting_service_url,
+                accounting_password=accounting_password,
             )
 
             self.session.add(user_model)
@@ -95,6 +103,11 @@ class UserRepository(BaseRepository[UserModel]):
                 user_model.avatar_url = user_data.avatar_url
             if user_data.is_active is not None:
                 user_model.is_active = user_data.is_active
+            # Accounting fields
+            if user_data.accounting_service_url is not None:
+                user_model.accounting_service_url = user_data.accounting_service_url
+            if user_data.accounting_password is not None:
+                user_model.accounting_password = user_data.accounting_password
 
             self.session.commit()
             self.session.refresh(user_model)
