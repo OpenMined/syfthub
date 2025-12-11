@@ -15,6 +15,7 @@ services:
     depends_on:
       - backend
       - frontend
+      - aggregator
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
       interval: 30s
@@ -132,6 +133,55 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Aggregator service - RAG orchestration
+  aggregator:
+    build:
+      context: ./aggregator
+      dockerfile: Dockerfile
+    container_name: syfthub-aggregator-dev
+    # Internal only - accessed via proxy
+    expose:
+      - "8001"
+    volumes:
+      # Mount source code for hot reload
+      - ./aggregator/src:/app/src:cached
+    environment:
+      - AGGREGATOR_DEBUG=true
+      - AGGREGATOR_SYFTHUB_URL=http://backend:8000
+      - AGGREGATOR_CORS_ORIGINS=["http://localhost:8080"]
+    networks:
+      - syfthub-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # Mock targets service - simulates model and data source endpoints for testing
+  mock-targets:
+    build:
+      context: ./mock_targets
+      dockerfile: Dockerfile
+    container_name: syfthub-mock-targets-dev
+    # Internal only - accessed by aggregator
+    expose:
+      - "8002"
+    volumes:
+      # Mount source code for hot reload
+      - ./mock_targets/src:/app/src:cached
+    networks:
+      - syfthub-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
 networks:
   syfthub-network:
