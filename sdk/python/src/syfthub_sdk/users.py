@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from syfthub_sdk.models import User
+from syfthub_sdk.models import AccountingCredentials, User
 
 if TYPE_CHECKING:
     from syfthub_sdk._http import HTTPClient
@@ -108,3 +108,26 @@ class UsersResource:
         )
         data = response if isinstance(response, dict) else {}
         return bool(data.get("available", False))
+
+    def get_accounting_credentials(self) -> AccountingCredentials:
+        """Get the current user's accounting service credentials.
+
+        Returns credentials stored in SyftHub for connecting to an external
+        accounting service. The email is always the same as the user's SyftHub email.
+
+        Returns:
+            AccountingCredentials with url, email, and password.
+            url and password may be None if not configured.
+
+        Raises:
+            AuthenticationError: If not authenticated
+
+        Example:
+            credentials = client.users.get_accounting_credentials()
+            if credentials.url and credentials.password:
+                # Use credentials to connect to accounting service
+                pass
+        """
+        response = self._http.get("/api/v1/users/me/accounting")
+        data = response if isinstance(response, dict) else {}
+        return AccountingCredentials.model_validate(data)

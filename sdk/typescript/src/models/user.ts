@@ -32,6 +32,10 @@ export interface UserRegisterInput {
   email: string;
   password: string;
   fullName: string;
+  /** Optional accounting service URL (can be set up later in settings) */
+  accountingServiceUrl?: string;
+  /** Optional accounting service password (can be set up later in settings) */
+  accountingPassword?: string;
 }
 
 /**
@@ -50,4 +54,17 @@ export interface UserUpdateInput {
 export interface PasswordChangeInput {
   currentPassword: string;
   newPassword: string;
+}
+
+/**
+ * Credentials for connecting to an external accounting service.
+ * These are stored in the SyftHub backend and fetched via API.
+ */
+export interface AccountingCredentials {
+  /** URL of the accounting service API (null if not configured) */
+  readonly url: string | null;
+  /** Email for authenticating with the accounting service (same as SyftHub email) */
+  readonly email: string;
+  /** Password for authenticating with the accounting service (null if not configured) */
+  readonly password: string | null;
 }

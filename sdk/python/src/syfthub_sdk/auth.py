@@ -53,6 +53,8 @@ class AuthResource:
         email: str,
         password: str,
         full_name: str,
+        accounting_service_url: str | None = None,
+        accounting_password: str | None = None,
     ) -> User:
         """Register a new user.
 
@@ -61,6 +63,8 @@ class AuthResource:
             email: Valid email address
             password: Password (min 8 chars, must contain letter and digit)
             full_name: User's full name
+            accounting_service_url: Optional URL to external accounting service
+            accounting_password: Optional password for accounting service
 
         Returns:
             The created User
@@ -69,14 +73,21 @@ class AuthResource:
             ValidationError: If registration data is invalid
             APIError: If registration fails
         """
+        payload: dict[str, str | None] = {
+            "username": username,
+            "email": email,
+            "password": password,
+            "full_name": full_name,
+        }
+        # Only include accounting fields if provided
+        if accounting_service_url is not None:
+            payload["accounting_service_url"] = accounting_service_url
+        if accounting_password is not None:
+            payload["accounting_password"] = accounting_password
+
         response = self._http.post(
             "/api/v1/auth/register",
-            json={
-                "username": username,
-                "email": email,
-                "password": password,
-                "full_name": full_name,
-            },
+            json=payload,
             include_auth=False,
         )
         # Response contains user and tokens

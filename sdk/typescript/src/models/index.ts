@@ -13,6 +13,7 @@ export type {
   UserRegisterInput,
   UserUpdateInput,
   PasswordChangeInput,
+  AccountingCredentials,
 } from './user.js';
 
 // Endpoint types

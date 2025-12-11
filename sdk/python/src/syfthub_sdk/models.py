@@ -220,3 +220,17 @@ class Transaction(BaseModel):
 # Backward compatibility aliases (deprecated)
 AccountingBalance = AccountingUser  # Use AccountingUser instead
 AccountingTransaction = Transaction  # Use Transaction instead
+
+
+class AccountingCredentials(BaseModel):
+    """Credentials for connecting to an external accounting service.
+
+    These are stored in the SyftHub backend and fetched via API.
+    The email is always the same as the user's SyftHub email.
+    """
+
+    url: str | None = Field(None, description="Accounting service URL")
+    email: str = Field(..., description="User's email (same as SyftHub email)")
+    password: str | None = Field(None, description="Accounting service password")
+
+    model_config = {"frozen": True}

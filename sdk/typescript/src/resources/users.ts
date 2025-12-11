@@ -1,5 +1,5 @@
 import type { HTTPClient } from '../http.js';
-import type { User, UserUpdateInput } from '../models/index.js';
+import type { AccountingCredentials, User, UserUpdateInput } from '../models/index.js';
 
 /**
  * Users resource for profile management and availability checks.
@@ -64,5 +64,24 @@ export class UsersResource {
       { includeAuth: false }
     );
     return response.available;
+  }
+
+  /**
+   * Get the current user's accounting service credentials.
+   *
+   * Returns credentials stored in SyftHub for connecting to an external
+   * accounting service. The email is always the same as the user's SyftHub email.
+   *
+   * @returns Accounting credentials (url and password may be null if not configured)
+   * @throws {AuthenticationError} If not authenticated
+   *
+   * @example
+   * const credentials = await client.users.getAccountingCredentials();
+   * if (credentials.url && credentials.password) {
+   *   // Use credentials to connect to accounting service
+   * }
+   */
+  async getAccountingCredentials(): Promise<AccountingCredentials> {
+    return this.http.get<AccountingCredentials>('/api/v1/users/me/accounting');
   }
 }

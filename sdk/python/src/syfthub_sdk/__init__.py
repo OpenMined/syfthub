@@ -31,6 +31,7 @@ from syfthub_sdk.models import (
     AccountingBalance,
     AccountingTransaction,
     # Accounting models
+    AccountingCredentials,
     AccountingUser,
     # Core models
     AuthTokens,
@@ -63,6 +64,7 @@ __all__ = [
     "Policy",
     "Connection",
     # Accounting models
+    "AccountingCredentials",
     "AccountingUser",
     "Transaction",
     "TransactionStatus",
