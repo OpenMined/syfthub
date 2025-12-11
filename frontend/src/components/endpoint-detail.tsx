@@ -19,6 +19,7 @@ import {
 
 import { getPublicEndpoints } from '@/lib/endpoint-utils';
 
+import { ConnectionCard } from './connection-card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 
@@ -332,6 +333,11 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                 </div>
               </div>
             </div>
+
+            {/* Connections Card */}
+            {endpoint.connections && endpoint.connections.length > 0 && (
+              <ConnectionCard connections={endpoint.connections} />
+            )}
 
             {/* Quick Actions */}
             <div className='rounded-lg border border-gray-200 bg-white p-6'>

@@ -1,6 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 
-import { Mail, User } from 'lucide-react';
+import { ChevronDown, ChevronUp, CreditCard, Mail, User } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -30,6 +30,8 @@ interface RegisterFormValues {
   email: string;
   password: string;
   confirmPassword: string;
+  accountingUrl: string;
+  accountingPassword: string;
 }
 
 // Stable reference to prevent useForm from recreating resetForm on every render
@@ -37,8 +39,21 @@ const REGISTER_INITIAL_VALUES: RegisterFormValues = {
   name: '',
   email: '',
   password: '',
-  confirmPassword: ''
+  confirmPassword: '',
+  accountingUrl: '',
+  accountingPassword: ''
 };
+
+// Validate accounting URL (optional, but must be valid if provided)
+function validateAccountingUrl(url: string): string | null {
+  if (!url.trim()) return null; // Optional field
+  try {
+    new URL(url);
+    return null;
+  } catch {
+    return 'Please enter a valid URL (e.g., https://accounting.example.com)';
+  }
+}
 
 interface RegisterModalProperties {
   isOpen: boolean;
@@ -52,6 +67,7 @@ export function RegisterModal({
   onSwitchToLogin
 }: Readonly<RegisterModalProperties>) {
   const { register, loginWithGoogle, loginWithGitHub, isLoading, error, clearError } = useAuth();
+  const [showAccountingSection, setShowAccountingSection] = useState(false);
 
   const { values, errors, handleChange, handleSubmit, resetForm, setFieldError } =
     useForm<RegisterFormValues>({
@@ -60,14 +76,18 @@ export function RegisterModal({
         name: (value) => validateName(value),
         email: (value) => validateEmail(value),
         password: (value) => validatePassword(value),
-        confirmPassword: (value, allValues) => validateConfirmPassword(allValues.password, value)
+        confirmPassword: (value, allValues) => validateConfirmPassword(allValues.password, value),
+        accountingUrl: (value) => validateAccountingUrl(value)
       },
       onSubmit: async (formValues) => {
         try {
           await register({
             name: formValues.name.trim(),
             email: formValues.email.trim(),
-            password: formValues.password
+            password: formValues.password,
+            // Only include accounting fields if URL is provided
+            accountingServiceUrl: formValues.accountingUrl.trim() || undefined,
+            accountingPassword: formValues.accountingPassword || undefined
           });
           onClose(); // Close modal on successful registration
         } catch {
@@ -81,6 +101,7 @@ export function RegisterModal({
     if (!isOpen) {
       resetForm();
       clearError();
+      setShowAccountingSection(false);
     }
   }, [isOpen, resetForm, clearError]);
 
@@ -255,6 +276,59 @@ export function RegisterModal({
             isRequired
             disabled={isLoading}
           />
+
+          {/* Collapsible Accounting Section */}
+          <div className='border-syft-border rounded-lg border'>
+            <button
+              type='button'
+              onClick={() => {
+                setShowAccountingSection(!showAccountingSection);
+              }}
+              className='flex w-full items-center justify-between px-4 py-3 text-left'
+              disabled={isLoading}
+            >
+              <div className='flex items-center gap-2'>
+                <CreditCard className='text-syft-muted h-4 w-4' />
+                <span className='font-inter text-syft-text text-sm font-medium'>
+                  Accounting Service (Optional)
+                </span>
+              </div>
+              {showAccountingSection ? (
+                <ChevronUp className='text-syft-muted h-4 w-4' />
+              ) : (
+                <ChevronDown className='text-syft-muted h-4 w-4' />
+              )}
+            </button>
+
+            {showAccountingSection && (
+              <div className='space-y-4 border-t px-4 pt-3 pb-4'>
+                <p className='font-inter text-syft-muted text-xs'>
+                  Configure your external accounting service for payment processing. You can also
+                  set this up later in your account settings.
+                </p>
+
+                <Input
+                  type='url'
+                  label='Accounting Service URL'
+                  placeholder='https://accounting.example.com'
+                  value={values.accountingUrl}
+                  onChange={handleInputChange('accountingUrl')}
+                  error={errors.accountingUrl}
+                  disabled={isLoading}
+                />
+
+                <Input
+                  type='password'
+                  label='Accounting Service Password'
+                  placeholder='Your accounting service password'
+                  value={values.accountingPassword}
+                  onChange={handleInputChange('accountingPassword')}
+                  error={errors.accountingPassword}
+                  disabled={isLoading}
+                />
+              </div>
+            )}
+          </div>
 
           <div className='space-y-2 text-sm'>
             <label className='flex items-start space-x-2'>

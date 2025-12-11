@@ -195,6 +195,8 @@ export interface ChatSource {
   contributors: number[];
   owner_username?: string; // Username of the endpoint owner
   full_path?: string; // Full path: username/endpoint-name
+  url?: string; // Connection URL from connect[0].config.url (if available)
+  connections?: Connection[]; // Full connection configurations (for detailed view)
 }
 
 // Organization types
@@ -280,50 +282,16 @@ export interface OrganizationFilters extends SearchParams {
 
 /**
  * Credentials for connecting to an external accounting service.
- * These are stored encrypted in the browser, never sent to SyftHub servers.
+ * These are stored in the SyftHub backend and fetched via API.
+ * The email is the same as the user's SyftHub email.
  */
 export interface AccountingCredentials {
-  /** URL of the accounting service API */
-  url: string;
-  /** Email for authenticating with the accounting service */
+  /** URL of the accounting service API (null if not configured) */
+  url: string | null;
+  /** Email for authenticating with the accounting service (same as SyftHub email) */
   email: string;
-  /** Password for authenticating with the accounting service */
-  password: string;
-}
-
-/**
- * Status of the accounting vault
- */
-export interface AccountingVaultStatus {
-  /** Whether a vault exists in localStorage */
-  isConfigured: boolean;
-  /** Whether the vault has been unlocked in this session */
-  isUnlocked: boolean;
-  /** Whether vault exists but is not unlocked (convenience: isConfigured && !isUnlocked) */
-  isLocked: boolean;
-  /** Whether no vault exists (convenience: !isConfigured) */
-  isEmpty: boolean;
-}
-
-/**
- * Error types for accounting operations
- */
-export type AccountingErrorType =
-  | 'INVALID_PIN'
-  | 'RATE_LIMITED'
-  | 'VAULT_CORRUPTED'
-  | 'CRYPTO_NOT_SUPPORTED'
-  | 'STORAGE_UNAVAILABLE'
-  | 'VALIDATION_ERROR';
-
-/**
- * Structured error for accounting operations
- */
-export interface AccountingError {
-  type: AccountingErrorType;
-  message: string;
-  field?: string;
-  waitTime?: number; // For rate limiting
+  /** Password for authenticating with the accounting service (null if not configured) */
+  password: string | null;
 }
 
 // =============================================================================

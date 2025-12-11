@@ -20,13 +20,21 @@ import {
   ValidationError
 } from '@/lib/sdk-client';
 
+interface RegisterData {
+  name: string;
+  email: string;
+  password: string;
+  accountingServiceUrl?: string;
+  accountingPassword?: string;
+}
+
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isInitializing: boolean;
   error: string | null;
   login: (credentials: { email: string; password: string }) => Promise<void>;
-  register: (userData: { name: string; email: string; password: string }) => Promise<void>;
+  register: (userData: RegisterData) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   loginWithGitHub: () => Promise<void>;
   logout: () => Promise<void>;
@@ -76,7 +84,7 @@ function generateUsernameWithSuffix(baseUsername: string): string {
  * Attempt registration with username retry logic.
  */
 async function attemptRegistration(
-  userData: { name: string; email: string; password: string },
+  userData: RegisterData,
   baseUsername: string,
   maxAttempts = 5
 ): Promise<SdkUser> {
@@ -88,7 +96,9 @@ async function attemptRegistration(
         username,
         email: userData.email,
         password: userData.password,
-        fullName: userData.name
+        fullName: userData.name,
+        accountingServiceUrl: userData.accountingServiceUrl,
+        accountingPassword: userData.accountingPassword
       });
     } catch (registerError) {
       const isLastAttempt = attempt === maxAttempts - 1;
@@ -196,11 +206,7 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
     }
   };
 
-  const register = async (userData: {
-    name: string;
-    email: string;
-    password: string;
-  }): Promise<void> => {
+  const register = async (userData: RegisterData): Promise<void> => {
     try {
       setIsLoading(true);
       setError(null);
@@ -271,16 +277,11 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
       // Update state
       setUser(null);
       setError(null);
-
-      // Dispatch logout event for other contexts to clean up (e.g., accounting vault)
-      globalThis.dispatchEvent(new CustomEvent('syft:logout'));
     } catch (logoutError) {
       console.error('Logout error:', logoutError);
       // Even if logout fails, clear local state
       clearPersistedTokens();
       setUser(null);
-      // Still dispatch logout event on error
-      globalThis.dispatchEvent(new CustomEvent('syft:logout'));
     } finally {
       setIsLoading(false);
     }

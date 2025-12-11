@@ -3,26 +3,23 @@
  *
  * Custom hooks for consuming accounting context and API operations.
  * Provides convenient access to:
- * - Vault state and actions (encrypted credential storage)
+ * - Accounting credentials (stored in backend)
  * - API operations (balance, transactions, delegation)
  *
  * @example
  * ```tsx
  * import {
- *   // Vault hooks
  *   useAccounting,
- *   useAccountingStatus,
+ *   useAccountingCredentials,
  *   useAccountingReady,
- *   // API hooks
  *   useAccountingUser,
  *   useAccountingBalance,
  *   useTransactions,
- *   useCreateTransaction,
  * } from '@/hooks/use-accounting';
  * ```
  */
 
-import type { AccountingCredentials, AccountingError, AccountingVaultStatus } from '@/lib/types';
+import type { AccountingCredentials } from '@/lib/types';
 
 import { useAccountingContext } from '@/context/accounting-context';
 
@@ -48,17 +45,13 @@ export {
  * @example
  * ```tsx
  * function PaymentSettings() {
- *   const { status, credentials, createVault, unlock, lock } = useAccounting();
+ *   const { credentials, isConfigured, updateCredentials, isLoading } = useAccounting();
  *
- *   if (status.isEmpty) {
- *     return <SetupForm onSubmit={createVault} />;
+ *   if (!isConfigured) {
+ *     return <SetupForm onSubmit={updateCredentials} />;
  *   }
  *
- *   if (status.isLocked) {
- *     return <UnlockForm onSubmit={unlock} />;
- *   }
- *
- *   return <CredentialsView credentials={credentials} onLock={lock} />;
+ *   return <CredentialsView credentials={credentials} />;
  * }
  * ```
  */
@@ -71,25 +64,12 @@ export function useAccounting() {
 // =============================================================================
 
 /**
- * Hook for accessing just the vault status
- *
- * @example
- * ```tsx
- * const { isConfigured, isUnlocked } = useAccountingStatus();
- * ```
- */
-export function useAccountingStatus(): AccountingVaultStatus {
-  const { status } = useAccountingContext();
-  return status;
-}
-
-/**
- * Hook for accessing decrypted credentials (null if locked)
+ * Hook for accessing accounting credentials
  *
  * @example
  * ```tsx
  * const credentials = useAccountingCredentials();
- * if (credentials) {
+ * if (credentials?.url && credentials?.password) {
  *   // Use credentials.url, credentials.email, credentials.password
  * }
  * ```
@@ -106,45 +86,16 @@ export function useAccountingCredentials(): AccountingCredentials | null {
  * ```tsx
  * const { error, clearError } = useAccountingError();
  * if (error) {
- *   return <ErrorMessage error={error} onDismiss={clearError} />;
+ *   return <ErrorMessage message={error} onDismiss={clearError} />;
  * }
  * ```
  */
 export function useAccountingError(): {
-  error: AccountingError | null;
+  error: string | null;
   clearError: () => void;
 } {
   const { error, clearError } = useAccountingContext();
   return { error, clearError };
-}
-
-/**
- * Hook for accessing loading and rate limit state
- *
- * @example
- * ```tsx
- * const { isLoading, waitTime } = useAccountingLoadingState();
- * ```
- */
-export function useAccountingLoadingState(): {
-  isLoading: boolean;
-  waitTime: number;
-} {
-  const { isLoading, waitTime } = useAccountingContext();
-  return { isLoading, waitTime };
-}
-
-/**
- * Hook for vault management actions
- *
- * @example
- * ```tsx
- * const { createVault, deleteVault } = useAccountingVaultActions();
- * ```
- */
-export function useAccountingVaultActions() {
-  const { createVault, unlock, lock, deleteVault, updateVault } = useAccountingContext();
-  return { createVault, unlock, lock, deleteVault, updateVault };
 }
 
 // =============================================================================
@@ -152,7 +103,7 @@ export function useAccountingVaultActions() {
 // =============================================================================
 
 /**
- * Hook that returns true if vault is ready to use (unlocked with credentials)
+ * Hook that returns true if accounting is configured and ready to use
  *
  * @example
  * ```tsx
@@ -163,30 +114,6 @@ export function useAccountingVaultActions() {
  * ```
  */
 export function useAccountingReady(): boolean {
-  const { status, credentials } = useAccountingContext();
-  return status.isUnlocked && credentials !== null;
-}
-
-/**
- * Hook that returns true if crypto is supported in the browser
- *
- * @example
- * ```tsx
- * const isSupported = useAccountingSupported();
- * if (!isSupported) {
- *   return <BrowserNotSupportedMessage />;
- * }
- * ```
- */
-export function useAccountingSupported(): boolean {
-  // Check if Web Crypto API is available
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Runtime check for browser support
-    if (!crypto?.subtle) {
-      return false;
-    }
-    return typeof crypto.getRandomValues === 'function';
-  } catch {
-    return false;
-  }
+  const { isConfigured, credentials } = useAccountingContext();
+  return isConfigured && credentials !== null;
 }

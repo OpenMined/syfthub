@@ -20,18 +20,23 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type {
-  AccountingCredentials,
-  AccountingTransaction,
-  AccountingUser,
-  CreateTransactionInput
-} from '@/lib/types';
+import type { AccountingTransaction, AccountingUser, CreateTransactionInput } from '@/lib/types';
 
 import { useAccountingContext } from '@/context/accounting-context';
 
 // =============================================================================
 // Accounting Client (inline implementation to avoid SDK dependency issues)
 // =============================================================================
+
+/**
+ * Validated credentials with non-null values.
+ * Used after we've verified the credentials are configured.
+ */
+interface ValidatedCredentials {
+  url: string;
+  email: string;
+  password: string;
+}
 
 /**
  * Simple accounting client that makes direct API calls.
@@ -42,7 +47,7 @@ class AccountingClient {
   private readonly authHeader: string;
   private readonly timeout: number;
 
-  constructor(credentials: AccountingCredentials, timeout = 30_000) {
+  constructor(credentials: ValidatedCredentials, timeout = 30_000) {
     this.baseUrl = credentials.url.replace(/\/$/, '');
     this.timeout = timeout;
 
@@ -211,18 +216,25 @@ function parseTransaction(response: TransactionResponse): AccountingTransaction 
 // =============================================================================
 
 /**
- * Hook to get an AccountingClient instance from vault credentials.
- * Returns null if vault is not unlocked.
+ * Hook to get an AccountingClient instance from stored credentials.
+ * Returns null if accounting is not configured.
  */
 export function useAccountingClient(): AccountingClient | null {
-  const { credentials, status } = useAccountingContext();
+  const { credentials, isConfigured } = useAccountingContext();
 
   return useMemo(() => {
-    if (!status.isUnlocked || !credentials) {
+    if (!isConfigured || !credentials?.url || !credentials.password) {
       return null;
     }
-    return new AccountingClient(credentials);
-  }, [credentials, status.isUnlocked]);
+    // Create credentials with non-null values for the client
+    // Type assertions are safe here because we've checked for null above
+    const validCredentials: ValidatedCredentials = {
+      url: credentials.url,
+      email: credentials.email,
+      password: credentials.password
+    };
+    return new AccountingClient(validCredentials);
+  }, [credentials, isConfigured]);
 }
 
 // =============================================================================

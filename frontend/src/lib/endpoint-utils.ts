@@ -50,6 +50,7 @@ function formatRelativeTime(date: Date): string {
  * - Relative time formatting
  * - Status derivation based on update time
  * - Tag extraction from policies
+ * - URL extraction from connect config
  */
 export function mapEndpointPublicToSource(endpoint: SdkEndpointPublic): ChatSource {
   // Determine tag from policies (first policy type or fallback to "General")
@@ -70,6 +71,22 @@ export function mapEndpointPublicToSource(endpoint: SdkEndpointPublic): ChatSour
   const ownerUsername = endpoint.ownerUsername;
   const fullPath = `${ownerUsername}/${endpoint.slug}`;
 
+  // Extract URL from first enabled connection (if available)
+  const connections = endpoint.connect;
+  const enabledConnection = connections.find((c) => c.enabled);
+  const url =
+    enabledConnection?.config && typeof enabledConnection.config.url === 'string'
+      ? enabledConnection.config.url
+      : undefined;
+
+  // Map SDK connections to frontend Connection type
+  const mappedConnections = connections.map((c) => ({
+    type: c.type,
+    enabled: c.enabled,
+    description: c.description,
+    config: { ...c.config }
+  }));
+
   return {
     id: endpoint.slug,
     name: endpoint.name,
@@ -83,7 +100,9 @@ export function mapEndpointPublicToSource(endpoint: SdkEndpointPublic): ChatSour
     version: endpoint.version,
     contributors: [],
     owner_username: ownerUsername,
-    full_path: fullPath
+    full_path: fullPath,
+    url: url,
+    connections: mappedConnections
   };
 }
 

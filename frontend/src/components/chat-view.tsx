@@ -1,11 +1,25 @@
 import React, { useEffect, useRef, useState } from 'react';
 
+import type { AggregatorStreamEvent, EndpointReference } from '@/lib/aggregator-client';
 import type { ChatSource } from '@/lib/types';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowDown, Brain, Check, Clock, Cpu, Database, Info, Settings2, X } from 'lucide-react';
+import {
+  ArrowDown,
+  Brain,
+  Check,
+  Clock,
+  Cpu,
+  Database,
+  Info,
+  Loader2,
+  Settings2,
+  X
+} from 'lucide-react';
 
+import { buildChatRequest, streamChatRequest } from '@/lib/aggregator-client';
 import { getChatDataSources, getChatModels } from '@/lib/endpoint-utils';
+import { syftClient } from '@/lib/sdk-client';
 
 import { ModelSelector } from './chat/model-selector';
 import { Badge } from './ui/badge';
@@ -379,6 +393,39 @@ interface ChatViewProperties {
   initialQuery: string;
 }
 
+// Helper function to process SSE events from the aggregator
+function processStreamEvent(
+  event: AggregatorStreamEvent,
+  onToken: (content: string) => void
+): void {
+  switch (event.event) {
+    case 'token': {
+      if (typeof event.data.content === 'string') {
+        onToken(event.data.content);
+      }
+      break;
+    }
+    case 'error': {
+      throw new Error(
+        typeof event.data.message === 'string' ? event.data.message : 'Unknown error'
+      );
+    }
+    case 'done': {
+      // Response complete - could add metadata handling here
+      break;
+    }
+    // Other events (retrieval_start, source_complete, etc.) could be used for UI feedback
+    default: {
+      break;
+    }
+  }
+}
+
+// Helper to update a specific message in the messages array
+function updateMessageContent(messages: Message[], messageId: string, content: string): Message[] {
+  return messages.map((message) => (message.id === messageId ? { ...message, content } : message));
+}
+
 export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
   const [messages, setMessages] = useState<Message[]>([
     { id: '1', role: 'user', content: initialQuery, type: 'text' }
@@ -388,11 +435,15 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [availableSources, setAvailableSources] = useState<ChatSource[]>([]);
   const messagesEndReference = useRef<HTMLDivElement>(null);
+  const abortControllerReference = useRef<AbortController | null>(null);
 
   // Model selection state
   const [selectedModel, setSelectedModel] = useState<ChatSource | null>(null);
   const [availableModels, setAvailableModels] = useState<ChatSource[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(true);
+
+  // Chat processing state
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Load real data sources from backend
   useEffect(() => {
@@ -469,34 +520,114 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
     );
   };
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!inputValue.trim()) return;
+    if (!inputValue.trim() || isProcessing) return;
 
-    const newMessage: Message = {
+    // Validate model is selected
+    if (!selectedModel) {
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: 'Please select a model before sending a message.',
+          type: 'text'
+        }
+      ]);
+      return;
+    }
+
+    const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
       content: inputValue,
       type: 'text'
     };
 
-    setMessages((previous) => [...previous, newMessage]);
+    setMessages((previous) => [...previous, userMessage]);
     setInputValue('');
+    setIsProcessing(true);
 
-    // Mock response
-    setTimeout(() => {
-      setMessages((previous) => [
-        ...previous,
-        {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: `I can help you analyze data from your selected sources: ${
-            selectedSources.length > 0 ? selectedSources.join(', ') : 'none selected'
-          }. What specific insights are you looking for?`,
-          type: 'text'
-        }
-      ]);
-    }, 1000);
+    // Create assistant message placeholder for streaming
+    const assistantMessageId = (Date.now() + 1).toString();
+    setMessages((previous) => [
+      ...previous,
+      {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: '',
+        type: 'text'
+      }
+    ]);
+
+    // Build request with URLs (not paths)
+    // Validate model has a URL configured
+    if (!selectedModel.url) {
+      setMessages((previous) =>
+        updateMessageContent(
+          previous,
+          assistantMessageId,
+          'Error: Selected model does not have a connection URL configured.'
+        )
+      );
+      setIsProcessing(false);
+      return;
+    }
+
+    const modelReference: EndpointReference = {
+      url: selectedModel.url,
+      name: selectedModel.name
+    };
+
+    const dataSourceReferences: EndpointReference[] = selectedSources
+      .map((id) => {
+        const source = availableSources.find((s) => s.id === id);
+        if (!source?.url) return null;
+        return { url: source.url, name: source.name } as EndpointReference;
+      })
+      .filter((reference): reference is EndpointReference => reference !== null);
+
+    const request = buildChatRequest(inputValue, modelReference, dataSourceReferences, {
+      stream: true
+    });
+
+    // Create abort controller for cancellation
+    abortControllerReference.current = new AbortController();
+
+    try {
+      let accumulatedContent = '';
+
+      // Get auth token from SDK client
+      const authToken = syftClient.getTokens()?.accessToken;
+
+      for await (const event of streamChatRequest(
+        request,
+        authToken,
+        abortControllerReference.current.signal
+      )) {
+        processStreamEvent(event, (content) => {
+          accumulatedContent += content;
+          setMessages((previous) =>
+            updateMessageContent(previous, assistantMessageId, accumulatedContent)
+          );
+        });
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
+
+      // Don't show error if it was aborted
+      if (error instanceof Error && error.name === 'AbortError') {
+        return;
+      }
+
+      setMessages((previous) =>
+        updateMessageContent(previous, assistantMessageId, `Error: ${errorMessage}`)
+      );
+    } finally {
+      setIsProcessing(false);
+      abortControllerReference.current = null;
+    }
   };
 
   return (
@@ -586,21 +717,25 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
               />
               <button
                 type='submit'
-                disabled={!inputValue.trim()}
+                disabled={!inputValue.trim() || isProcessing}
                 className='absolute top-1/2 right-2 -translate-y-1/2 rounded-lg bg-[#272532] p-2 text-white transition-colors hover:bg-[#353243] disabled:cursor-not-allowed disabled:opacity-50'
               >
-                <svg
-                  width='16'
-                  height='16'
-                  viewBox='0 0 24 24'
-                  fill='none'
-                  stroke='currentColor'
-                  strokeWidth='2'
-                  strokeLinecap='round'
-                  strokeLinejoin='round'
-                >
-                  <path d='M5 12h14M12 5l7 7-7 7' />
-                </svg>
+                {isProcessing ? (
+                  <Loader2 className='h-4 w-4 animate-spin' />
+                ) : (
+                  <svg
+                    width='16'
+                    height='16'
+                    viewBox='0 0 24 24'
+                    fill='none'
+                    stroke='currentColor'
+                    strokeWidth='2'
+                    strokeLinecap='round'
+                    strokeLinejoin='round'
+                  >
+                    <path d='M5 12h14M12 5l7 7-7 7' />
+                  </svg>
+                )}
               </button>
             </div>
           </form>
