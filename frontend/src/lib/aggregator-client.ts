@@ -3,19 +3,25 @@
  * Handles chat requests and streaming responses from the RAG orchestration service.
  */
 
-// Endpoint reference with URL for direct access
+// Endpoint reference with URL and slug for SyftAI-Space API
 export interface EndpointReference {
-  url: string; // Base URL of the endpoint (aggregator appends /chat or /query)
+  url: string; // Base URL of the SyftAI-Space instance
+  slug: string; // Endpoint slug for API path construction
   name: string; // Display name for attribution/logging
+  tenant_name?: string; // Tenant name for X-Tenant-Name header (SyftAI-Space multi-tenancy)
 }
 
 // Request schema matching aggregator/src/aggregator/schemas/requests.py
 export interface AggregatorChatRequest {
   prompt: string;
-  model: EndpointReference; // Model endpoint with URL
-  data_sources: EndpointReference[]; // Data source endpoints with URLs
+  user_email: string; // Required for SyftAI-Space visibility/policy checks
+  model: EndpointReference; // Model endpoint with URL and slug
+  data_sources: EndpointReference[]; // Data source endpoints with URLs and slugs
   top_k?: number; // 1-20, default 5
   stream?: boolean;
+  max_tokens?: number; // Optional LLM parameter, default 1024
+  temperature?: number; // Optional LLM parameter, default 0.7
+  similarity_threshold?: number; // Optional retrieval threshold, default 0.5
 }
 
 // Response schema matching aggregator/src/aggregator/schemas/responses.py
@@ -91,6 +97,32 @@ export async function sendChatRequest(
 }
 
 /**
+ * Parse a single SSE line and return the parsed event or updated state.
+ */
+function parseSSELine(
+  line: string,
+  currentEvent: string | null
+): { parsed: AggregatorStreamEvent | null; nextEvent: string | null } {
+  if (line.startsWith('event: ')) {
+    return { parsed: null, nextEvent: line.slice(7).trim() };
+  }
+
+  if (line.startsWith('data: ') && currentEvent) {
+    try {
+      const data = JSON.parse(line.slice(6)) as Record<string, unknown>;
+      return {
+        parsed: { event: currentEvent as AggregatorStreamEventType, data },
+        nextEvent: null
+      };
+    } catch {
+      return { parsed: null, nextEvent: null };
+    }
+  }
+
+  return { parsed: null, nextEvent: currentEvent };
+}
+
+/**
  * Send a streaming chat request to the aggregator.
  * Returns an async generator that yields SSE events.
  */
@@ -129,12 +161,10 @@ export async function* streamChatRequest(
   let buffer = '';
 
   try {
-    let done = false;
-    while (!done) {
+    for (;;) {
       const result = await reader.read();
-      done = result.done;
 
-      if (done) {
+      if (result.done) {
         break;
       }
 
@@ -147,19 +177,10 @@ export async function* streamChatRequest(
       let currentEvent: string | null = null;
 
       for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          currentEvent = line.slice(7).trim();
-        } else if (line.startsWith('data: ') && currentEvent) {
-          try {
-            const data = JSON.parse(line.slice(6)) as Record<string, unknown>;
-            yield {
-              event: currentEvent as AggregatorStreamEventType,
-              data
-            };
-          } catch {
-            // Skip malformed data
-          }
-          currentEvent = null;
+        const { parsed, nextEvent } = parseSSELine(line, currentEvent);
+        currentEvent = nextEvent;
+        if (parsed) {
+          yield parsed;
         }
       }
     }
@@ -173,15 +194,28 @@ export async function* streamChatRequest(
  */
 export function buildChatRequest(
   prompt: string,
+  userEmail: string,
   model: EndpointReference,
   dataSources: EndpointReference[],
-  options: { topK?: number; stream?: boolean } = {}
+  options: {
+    topK?: number;
+    stream?: boolean;
+    maxTokens?: number;
+    temperature?: number;
+    similarityThreshold?: number;
+  } = {}
 ): AggregatorChatRequest {
   return {
     prompt,
+    user_email: userEmail,
     model: model,
     data_sources: dataSources,
     top_k: options.topK ?? 5,
-    stream: options.stream ?? false
+    stream: options.stream ?? false,
+    ...(options.maxTokens !== undefined && { max_tokens: options.maxTokens }),
+    ...(options.temperature !== undefined && { temperature: options.temperature }),
+    ...(options.similarityThreshold !== undefined && {
+      similarity_threshold: options.similarityThreshold
+    })
   };
 }

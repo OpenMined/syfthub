@@ -17,6 +17,7 @@ import {
   X
 } from 'lucide-react';
 
+import { useAuth } from '@/context/auth-context';
 import { buildChatRequest, streamChatRequest } from '@/lib/aggregator-client';
 import { getChatDataSources, getChatModels } from '@/lib/endpoint-utils';
 import { syftClient } from '@/lib/sdk-client';
@@ -387,6 +388,34 @@ interface Message {
   content?: string;
   type?: 'text' | 'source-selection';
   sources?: ChatSource[];
+  isThinking?: boolean;
+}
+
+// Thinking indicator component with pulsing glow animation
+function ThinkingIndicator() {
+  return (
+    <div className='flex items-center gap-1.5 px-1'>
+      <span className='font-inter text-sm text-[#5e5a72]'>Thinking</span>
+      <div className='flex items-center gap-1'>
+        {[0, 1, 2].map((index) => (
+          <motion.span
+            key={index}
+            className='inline-block h-1.5 w-1.5 rounded-full bg-[#6976ae]'
+            animate={{
+              opacity: [0.3, 1, 0.3],
+              scale: [0.85, 1, 0.85]
+            }}
+            transition={{
+              duration: 1.2,
+              repeat: Infinity,
+              delay: index * 0.2,
+              ease: 'easeInOut'
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 interface ChatViewProperties {
@@ -421,12 +450,16 @@ function processStreamEvent(
   }
 }
 
-// Helper to update a specific message in the messages array
+// Helper to update a specific message in the messages array (also clears thinking state)
 function updateMessageContent(messages: Message[], messageId: string, content: string): Message[] {
-  return messages.map((message) => (message.id === messageId ? { ...message, content } : message));
+  return messages.map((message) =>
+    message.id === messageId ? { ...message, content, isThinking: false } : message
+  );
 }
 
 export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
+  const { user } = useAuth();
+
   const [messages, setMessages] = useState<Message[]>([
     { id: '1', role: 'user', content: initialQuery, type: 'text' }
   ]);
@@ -538,6 +571,20 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
       return;
     }
 
+    // Validate user is authenticated
+    if (!user?.email) {
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: 'Please log in to use the chat feature.',
+          type: 'text'
+        }
+      ]);
+      return;
+    }
+
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
@@ -549,7 +596,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
     setInputValue('');
     setIsProcessing(true);
 
-    // Create assistant message placeholder for streaming
+    // Create assistant message placeholder for streaming with thinking state
     const assistantMessageId = (Date.now() + 1).toString();
     setMessages((previous) => [
       ...previous,
@@ -557,7 +604,8 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
         id: assistantMessageId,
         role: 'assistant',
         content: '',
-        type: 'text'
+        type: 'text',
+        isThinking: true
       }
     ]);
 
@@ -577,18 +625,25 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
 
     const modelReference: EndpointReference = {
       url: selectedModel.url,
-      name: selectedModel.name
+      slug: selectedModel.slug,
+      name: selectedModel.name,
+      tenant_name: selectedModel.tenant_name
     };
 
     const dataSourceReferences: EndpointReference[] = selectedSources
       .map((id) => {
         const source = availableSources.find((s) => s.id === id);
-        if (!source?.url) return null;
-        return { url: source.url, name: source.name } as EndpointReference;
+        if (!source?.url || !source.slug) return null;
+        return {
+          url: source.url,
+          slug: source.slug,
+          name: source.name,
+          tenant_name: source.tenant_name
+        } as EndpointReference;
       })
       .filter((reference): reference is EndpointReference => reference !== null);
 
-    const request = buildChatRequest(inputValue, modelReference, dataSourceReferences, {
+    const request = buildChatRequest(inputValue, user.email, modelReference, dataSourceReferences, {
       stream: true
     });
 
@@ -662,6 +717,18 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
               <div
                 className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'} max-w-full`}
               >
+                {/* Thinking Indicator */}
+                {message.isThinking && !message.content && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    className='rounded-2xl rounded-bl-none border border-[#ecebef] bg-[#f7f6f9] px-5 py-3 shadow-sm'
+                  >
+                    <ThinkingIndicator />
+                  </motion.div>
+                )}
+
                 {/* Text Content */}
                 {message.content && (
                   <div

@@ -196,6 +196,7 @@ export interface ChatSource {
   owner_username?: string; // Username of the endpoint owner
   full_path?: string; // Full path: username/endpoint-name
   url?: string; // Connection URL from connect[0].config.url (if available)
+  tenant_name?: string; // Tenant name from connect[0].config.tenant_name (for SyftAI-Space multi-tenancy)
   connections?: Connection[]; // Full connection configurations (for detailed view)
 }
 

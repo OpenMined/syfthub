@@ -71,12 +71,16 @@ export function mapEndpointPublicToSource(endpoint: SdkEndpointPublic): ChatSour
   const ownerUsername = endpoint.ownerUsername;
   const fullPath = `${ownerUsername}/${endpoint.slug}`;
 
-  // Extract URL from first enabled connection (if available)
+  // Extract URL and tenant_name from first enabled connection (if available)
   const connections = endpoint.connect;
   const enabledConnection = connections.find((c) => c.enabled);
   const url =
     enabledConnection?.config && typeof enabledConnection.config.url === 'string'
       ? enabledConnection.config.url
+      : undefined;
+  const tenantName =
+    enabledConnection?.config && typeof enabledConnection.config.tenant_name === 'string'
+      ? enabledConnection.config.tenant_name
       : undefined;
 
   // Map SDK connections to frontend Connection type
@@ -102,6 +106,7 @@ export function mapEndpointPublicToSource(endpoint: SdkEndpointPublic): ChatSour
     owner_username: ownerUsername,
     full_path: fullPath,
     url: url,
+    tenant_name: tenantName,
     connections: mappedConnections
   };
 }

@@ -14,6 +14,8 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 
 import type { AccountingCredentials } from '@/lib/types';
 
+import { syftClient } from '@/lib/sdk-client';
+
 import { useAuth } from './auth-context';
 
 // =============================================================================
@@ -87,10 +89,14 @@ export function AccountingProvider({ children }: Readonly<AccountingProviderProp
       setIsLoading(true);
       setError(null);
 
+      // Get token from SDK client (uses syft_access_token in localStorage)
+      const tokens = syftClient.getTokens();
+      const accessToken = tokens?.accessToken ?? '';
+
       const response = await fetch('/api/v1/users/me/accounting', {
         method: 'GET',
         headers: {
-          Authorization: `Bearer ${localStorage.getItem('access_token') ?? ''}`,
+          Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         }
       });
@@ -130,10 +136,14 @@ export function AccountingProvider({ children }: Readonly<AccountingProviderProp
         setIsLoading(true);
         setError(null);
 
+        // Get token from SDK client (uses syft_access_token in localStorage)
+        const tokens = syftClient.getTokens();
+        const accessToken = tokens?.accessToken ?? '';
+
         const response = await fetch('/api/v1/users/me', {
           method: 'PUT',
           headers: {
-            Authorization: `Bearer ${localStorage.getItem('access_token') ?? ''}`,
+            Authorization: `Bearer ${accessToken}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
