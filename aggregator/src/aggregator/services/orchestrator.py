@@ -1,4 +1,4 @@
-"""Orchestrator service - coordinates the RAG workflow."""
+"""Orchestrator service - coordinates the RAG workflow with SyftAI-Space."""
 
 import json
 import logging
@@ -28,13 +28,16 @@ class OrchestratorError(Exception):
 
 class Orchestrator:
     """
-    Main orchestrator for the RAG workflow.
+    Main orchestrator for the RAG workflow with SyftAI-Space.
+
+    This orchestrator is designed for stateless operation - all required
+    information (user_email, tenant_name, slug) comes from the ChatRequest.
 
     Coordinates:
-    1. Direct endpoint access via URLs (no resolution needed)
-    2. Parallel retrieval from data sources
-    3. Prompt construction with context
-    4. Model generation
+    1. Converting EndpointRefs to ResolvedEndpoints
+    2. Parallel retrieval from SyftAI-Space data source endpoints
+    3. Prompt construction with retrieved context
+    4. Model generation via SyftAI-Space model endpoints
     """
 
     def __init__(
@@ -50,12 +53,18 @@ class Orchestrator:
     def _endpoint_ref_to_resolved(
         self, ref: EndpointRef, endpoint_type: str
     ) -> ResolvedEndpoint:
-        """Convert an EndpointRef from request to internal ResolvedEndpoint."""
+        """Convert an EndpointRef from request to internal ResolvedEndpoint.
+
+        Maps the request schema to the internal representation with all
+        SyftAI-Space connection details.
+        """
         return ResolvedEndpoint(
-            path=ref.name or "unknown",
+            path=ref.name or ref.slug,  # Use name for display, fallback to slug
             url=ref.url,
+            slug=ref.slug,
             endpoint_type=endpoint_type,  # type: ignore[arg-type]
-            name=ref.name or "Unnamed Endpoint",
+            name=ref.name or ref.slug,
+            tenant_name=ref.tenant_name,
         )
 
     async def process_chat(
@@ -64,21 +73,31 @@ class Orchestrator:
         user_token: str | None = None,
     ) -> ChatResponse:
         """
-        Process a chat request through the full RAG pipeline.
+        Process a chat request through the full RAG pipeline with SyftAI-Space.
+
+        The request contains all required information for SyftAI-Space:
+        - user_email: For visibility/policy checks
+        - model.slug, model.tenant_name: For model endpoint identification
+        - data_sources[].slug, data_sources[].tenant_name: For data source identification
 
         Args:
-            request: The chat request (contains URLs directly)
-            user_token: Optional user token (unused - kept for API compatibility)
+            request: The chat request with all SyftAI-Space connection details
+            user_token: Optional user token (unused - user_email is used instead)
 
         Returns:
             ChatResponse with generated answer and metadata
         """
-        _ = user_token  # Unused - URLs are provided directly in request
+        _ = user_token  # Unused - user_email is in request
         total_start = time.perf_counter()
 
-        # 1. Convert model EndpointRef to ResolvedEndpoint (no resolution needed)
+        # Extract user_email for SyftAI-Space API calls
+        user_email = str(request.user_email)
+
+        # 1. Convert model EndpointRef to ResolvedEndpoint
         model_endpoint = self._endpoint_ref_to_resolved(request.model, "model")
-        logger.info(f"Using model: {model_endpoint.name} at {model_endpoint.url}")
+        logger.info(
+            f"Using model: {model_endpoint.name} at {model_endpoint.url}/api/v1/endpoints/{model_endpoint.slug}/query"
+        )
 
         # 2. Convert data source EndpointRefs to ResolvedEndpoints
         data_sources: list[ResolvedEndpoint] = [
@@ -88,12 +107,14 @@ class Orchestrator:
         if data_sources:
             logger.info(f"Using {len(data_sources)} data sources")
 
-        # 3. Retrieve context from data sources
+        # 3. Retrieve context from SyftAI-Space data sources
         retrieval_start = time.perf_counter()
         context = await self.retrieval_service.retrieve(
             data_sources=data_sources,
             query=request.prompt,
+            user_email=user_email,
             top_k=request.top_k,
+            similarity_threshold=request.similarity_threshold,
         )
         retrieval_time_ms = int((time.perf_counter() - retrieval_start) * 1000)
 
@@ -103,12 +124,15 @@ class Orchestrator:
             context=context if data_sources else None,
         )
 
-        # 5. Generate response
+        # 5. Generate response via SyftAI-Space model endpoint
         generation_start = time.perf_counter()
         try:
             result = await self.generation_service.generate(
-                model_url=model_endpoint.url,
+                model_endpoint=model_endpoint,
                 messages=messages,
+                user_email=user_email,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
             )
         except GenerationError as e:
             raise OrchestratorError(f"Generation failed: {e}") from e
@@ -143,23 +167,28 @@ class Orchestrator:
         user_token: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """
-        Process a chat request with streaming response.
+        Process a chat request with streaming response via SyftAI-Space.
 
         Yields SSE-formatted events for real-time updates.
 
         Args:
-            request: The chat request (contains URLs directly)
-            user_token: Optional user token (unused - kept for API compatibility)
+            request: The chat request with all SyftAI-Space connection details
+            user_token: Optional user token (unused - user_email is used instead)
 
         Yields:
             SSE-formatted event strings
         """
-        _ = user_token  # Unused - URLs are provided directly in request
+        _ = user_token  # Unused - user_email is in request
         total_start = time.perf_counter()
 
-        # 1. Convert model EndpointRef to ResolvedEndpoint (no resolution needed)
+        # Extract user_email for SyftAI-Space API calls
+        user_email = str(request.user_email)
+
+        # 1. Convert model EndpointRef to ResolvedEndpoint
         model_endpoint = self._endpoint_ref_to_resolved(request.model, "model")
-        logger.info(f"Streaming with model: {model_endpoint.name} at {model_endpoint.url}")
+        logger.info(
+            f"Streaming with model: {model_endpoint.name} at {model_endpoint.url}/api/v1/endpoints/{model_endpoint.slug}/query"
+        )
 
         # 2. Convert data source EndpointRefs to ResolvedEndpoints
         data_sources: list[ResolvedEndpoint] = [
@@ -180,7 +209,9 @@ class Orchestrator:
             async for result in self.retrieval_service.retrieve_streaming(
                 data_sources=data_sources,
                 query=request.prompt,
+                user_email=user_email,
                 top_k=request.top_k,
+                similarity_threshold=request.similarity_threshold,
             ):
                 retrieval_results.append(result)
                 yield self._sse_event(
@@ -231,8 +262,11 @@ class Orchestrator:
 
         try:
             async for chunk in self.generation_service.generate_stream(
-                model_url=model_endpoint.url,
+                model_endpoint=model_endpoint,
                 messages=messages,
+                user_email=user_email,
+                max_tokens=request.max_tokens,
+                temperature=request.temperature,
             ):
                 full_response.append(chunk)
                 yield self._sse_event("token", {"content": chunk})

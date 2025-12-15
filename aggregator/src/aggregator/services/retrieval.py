@@ -1,4 +1,4 @@
-"""Retrieval service for querying data sources in parallel."""
+"""Retrieval service for querying SyftAI-Space data sources in parallel."""
 
 import asyncio
 import logging
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class RetrievalService:
-    """Service for retrieving context from multiple data sources."""
+    """Service for retrieving context from multiple SyftAI-Space data sources."""
 
     def __init__(self, data_source_client: DataSourceClient):
         self.data_source_client = data_source_client
@@ -20,15 +20,19 @@ class RetrievalService:
         self,
         data_sources: list[ResolvedEndpoint],
         query: str,
+        user_email: str,
         top_k: int = 5,
+        similarity_threshold: float = 0.5,
     ) -> AggregatedContext:
         """
-        Retrieve relevant documents from multiple data sources in parallel.
+        Retrieve relevant documents from multiple SyftAI-Space data sources in parallel.
 
         Args:
             data_sources: List of resolved data source endpoints
             query: The search query
+            user_email: User email for SyftAI-Space visibility/policy checks
             top_k: Number of documents to retrieve per source
+            similarity_threshold: Minimum similarity score for documents
 
         Returns:
             AggregatedContext with all documents and retrieval results
@@ -46,9 +50,13 @@ class RetrievalService:
         tasks = [
             self.data_source_client.query(
                 url=ds.url,
+                slug=ds.slug,
                 endpoint_path=ds.path,
                 query=query,
+                user_email=user_email,
                 top_k=top_k,
+                similarity_threshold=similarity_threshold,
+                tenant_name=ds.tenant_name,
             )
             for ds in data_sources
         ]
@@ -84,17 +92,21 @@ class RetrievalService:
         self,
         data_sources: list[ResolvedEndpoint],
         query: str,
+        user_email: str,
         top_k: int = 5,
+        similarity_threshold: float = 0.5,
     ):
         """
-        Retrieve from data sources and yield results as they complete.
+        Retrieve from SyftAI-Space data sources and yield results as they complete.
 
         This is useful for streaming UX where you want to show progress.
 
         Args:
             data_sources: List of resolved data source endpoints
             query: The search query
+            user_email: User email for SyftAI-Space visibility/policy checks
             top_k: Number of documents to retrieve per source
+            similarity_threshold: Minimum similarity score for documents
 
         Yields:
             RetrievalResult for each data source as it completes
@@ -107,9 +119,13 @@ class RetrievalService:
             asyncio.create_task(
                 self.data_source_client.query(
                     url=ds.url,
+                    slug=ds.slug,
                     endpoint_path=ds.path,
                     query=query,
+                    user_email=user_email,
                     top_k=top_k,
+                    similarity_threshold=similarity_threshold,
+                    tenant_name=ds.tenant_name,
                 )
             ): ds
             for ds in data_sources

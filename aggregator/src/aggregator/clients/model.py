@@ -1,14 +1,15 @@
-"""Client for interacting with model endpoints."""
+"""Client for interacting with SyftAI-Space model endpoints."""
 
 import json
 import logging
 import time
 from collections.abc import AsyncGenerator
+from typing import Any
 
 import httpx
 
 from aggregator.schemas.internal import GenerationResult
-from aggregator.schemas.requests import ChatCompletionRequest, Message
+from aggregator.schemas.requests import Message
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,14 @@ class ModelClientError(Exception):
 
 
 class ModelClient:
-    """Client for calling model endpoints."""
+    """Client for calling SyftAI-Space model endpoints.
+
+    This client is adapted to work with SyftAI-Space's unified endpoint API:
+    POST /api/v1/endpoints/{slug}/query
+
+    The endpoint must be configured with response_type that includes "summary"
+    (either "summary" or "both") to return LLM-generated content.
+    """
 
     def __init__(self, timeout: float = 120.0):
         self.timeout = httpx.Timeout(timeout)
@@ -30,14 +38,24 @@ class ModelClient:
     async def chat(
         self,
         url: str,
+        slug: str,
         messages: list[Message],
+        user_email: str,
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+        tenant_name: str | None = None,
     ) -> GenerationResult:
         """
-        Send messages to a model endpoint and get a response.
+        Send messages to a SyftAI-Space model endpoint and get a response.
 
         Args:
-            url: Base URL of the model endpoint
+            url: Base URL of the SyftAI-Space instance
+            slug: Endpoint slug for the API path
             messages: List of conversation messages
+            user_email: User email for visibility/policy checks (required by SyftAI-Space)
+            max_tokens: Maximum tokens to generate
+            temperature: Temperature for generation
+            tenant_name: Tenant name for X-Tenant-Name header (optional)
 
         Returns:
             GenerationResult with response text and metadata
@@ -47,37 +65,62 @@ class ModelClient:
         """
         start_time = time.perf_counter()
 
-        chat_url = f"{url.rstrip('/')}/chat"
-        request_data = ChatCompletionRequest(
-            messages=messages,
-            stream=False,
-        )
+        # Build SyftAI-Space endpoint URL
+        chat_url = f"{url.rstrip('/')}/api/v1/endpoints/{slug}/query"
+
+        # Convert messages to SyftAI-Space format
+        formatted_messages = [
+            {"role": msg.role, "content": msg.content} for msg in messages
+        ]
+
+        # Build SyftAI-Space compatible request body
+        request_data = {
+            "user_email": user_email,
+            "messages": formatted_messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": False,
+        }
+
+        # Build headers
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if tenant_name:
+            headers["X-Tenant-Name"] = tenant_name
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 response = await client.post(
                     chat_url,
-                    json=request_data.model_dump(),
-                    headers={"Content-Type": "application/json"},
+                    json=request_data,
+                    headers=headers,
                 )
 
                 latency_ms = int((time.perf_counter() - start_time) * 1000)
 
-                if response.status_code != 200:
+                if response.status_code == 403:
+                    error_detail = self._extract_error_detail(response)
                     raise ModelClientError(
-                        f"Model request failed: HTTP {response.status_code}",
+                        f"Model access denied: {error_detail}",
+                        status_code=403,
+                    )
+
+                if response.status_code != 200:
+                    error_detail = self._extract_error_detail(response)
+                    raise ModelClientError(
+                        f"Model request failed: HTTP {response.status_code} - {error_detail}",
                         status_code=response.status_code,
                     )
 
                 data = response.json()
-                response_text = self._extract_response_text(data)
+                response_text = self._extract_syftai_response(data)
+                usage = self._extract_usage(data)
 
                 logger.info(f"Model chat success: latency={latency_ms}ms")
 
                 return GenerationResult(
                     response=response_text,
                     latency_ms=latency_ms,
-                    usage=data.get("usage"),
+                    usage=usage,
                 )
 
             except httpx.TimeoutException as e:
@@ -88,35 +131,71 @@ class ModelClient:
     async def chat_stream(
         self,
         url: str,
+        slug: str,
         messages: list[Message],
+        user_email: str,
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+        tenant_name: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """
-        Send messages to a model endpoint and stream the response.
+        Send messages to a SyftAI-Space model endpoint and stream the response.
+
+        Note: SyftAI-Space streaming may not be fully implemented. This method
+        attempts to handle both streaming and non-streaming responses gracefully.
 
         Args:
-            url: Base URL of the model endpoint
+            url: Base URL of the SyftAI-Space instance
+            slug: Endpoint slug for the API path
             messages: List of conversation messages
+            user_email: User email for visibility/policy checks
+            max_tokens: Maximum tokens to generate
+            temperature: Temperature for generation
+            tenant_name: Tenant name for X-Tenant-Name header (optional)
 
         Yields:
             Response text chunks as they arrive
         """
-        chat_url = f"{url.rstrip('/')}/chat"
-        request_data = ChatCompletionRequest(
-            messages=messages,
-            stream=True,
-        )
+        # Build SyftAI-Space endpoint URL
+        chat_url = f"{url.rstrip('/')}/api/v1/endpoints/{slug}/query"
+
+        # Convert messages to SyftAI-Space format
+        formatted_messages = [
+            {"role": msg.role, "content": msg.content} for msg in messages
+        ]
+
+        # Build SyftAI-Space compatible request body
+        request_data = {
+            "user_email": user_email,
+            "messages": formatted_messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": True,  # Request streaming
+        }
+
+        # Build headers
+        headers: dict[str, str] = {
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+        }
+        if tenant_name:
+            headers["X-Tenant-Name"] = tenant_name
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 async with client.stream(
                     "POST",
                     chat_url,
-                    json=request_data.model_dump(),
-                    headers={
-                        "Content-Type": "application/json",
-                        "Accept": "text/event-stream",
-                    },
+                    json=request_data,
+                    headers=headers,
                 ) as response:
+                    if response.status_code == 403:
+                        error_text = await response.aread()
+                        raise ModelClientError(
+                            f"Model access denied: {error_text[:200]}",
+                            status_code=403,
+                        )
+
                     if response.status_code != 200:
                         error_text = await response.aread()
                         raise ModelClientError(
@@ -124,42 +203,89 @@ class ModelClient:
                             status_code=response.status_code,
                         )
 
-                    async for line in response.aiter_lines():
-                        chunk = self._parse_sse_line(line)
-                        if chunk:
-                            yield chunk
+                    # Check content type to determine if we got streaming or non-streaming
+                    content_type = response.headers.get("content-type", "")
+
+                    if "text/event-stream" in content_type:
+                        # Handle SSE streaming
+                        async for line in response.aiter_lines():
+                            chunk = self._parse_sse_line(line)
+                            if chunk:
+                                yield chunk
+                    else:
+                        # SyftAI-Space returned non-streaming response
+                        # Read the full response and yield the content
+                        body = await response.aread()
+                        try:
+                            data = json.loads(body)
+                            response_text = self._extract_syftai_response(data)
+                            if response_text:
+                                yield response_text
+                        except json.JSONDecodeError:
+                            # Plain text response
+                            yield body.decode("utf-8")
 
             except httpx.TimeoutException as e:
                 raise ModelClientError("Model stream timed out") from e
             except httpx.RequestError as e:
                 raise ModelClientError(f"Network error during stream: {e}") from e
 
-    def _extract_response_text(self, data: dict) -> str:
-        """Extract response text from model response."""
-        # Handle OpenAI-style response
-        if "choices" in data:
-            choices = data["choices"]
-            if choices and len(choices) > 0:
-                message = choices[0].get("message", {})
-                return message.get("content", "")
+    def _extract_error_detail(self, response: httpx.Response) -> str:
+        """Extract error detail from response."""
+        try:
+            data = response.json()
+            return data.get("detail", response.text[:200])
+        except Exception:
+            return response.text[:200]
 
-        # Handle simplified response format
-        if "message" in data:
-            message = data["message"]
-            if isinstance(message, dict):
-                return message.get("content", "")
-            if isinstance(message, str):
-                return message
+    def _extract_syftai_response(self, data: dict[str, Any]) -> str:
+        """Extract response text from SyftAI-Space QueryEndpointResponse.
 
-        # Handle direct response
-        if "response" in data:
-            return data["response"]
+        SyftAI-Space returns:
+        {
+            "summary": {
+                "id": str,
+                "model": str,
+                "message": {"role": "assistant", "content": str, "tokens": int},
+                "finish_reason": str,
+                "usage": {...},
+                "cost": float,
+                "provider_info": {...}
+            } | null,
+            "references": {...} | null
+        }
 
-        if "content" in data:
-            return data["content"]
+        We extract from summary.message.content.
+        """
+        # Extract summary from SyftAI-Space response
+        summary = data.get("summary")
+        if not summary:
+            logger.debug("No summary in SyftAI-Space response")
+            return ""
 
-        logger.warning(f"Could not extract response from model output: {list(data.keys())}")
+        # Extract message content
+        message = summary.get("message", {})
+        if isinstance(message, dict):
+            return message.get("content", "")
+        if isinstance(message, str):
+            return message
+
         return ""
+
+    def _extract_usage(self, data: dict[str, Any]) -> dict[str, Any] | None:
+        """Extract token usage from SyftAI-Space response."""
+        summary = data.get("summary")
+        if not summary:
+            return None
+
+        usage = summary.get("usage")
+        if usage:
+            return {
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+                "total_tokens": usage.get("total_tokens", 0),
+            }
+        return None
 
     def _parse_sse_line(self, line: str) -> str | None:
         """Parse a Server-Sent Events line to extract content."""
@@ -179,14 +305,22 @@ class ModelClient:
             try:
                 parsed = json.loads(data)
 
-                # OpenAI-style delta
+                # SyftAI-Space streaming format (if implemented)
+                if "summary" in parsed:
+                    summary = parsed["summary"]
+                    if summary:
+                        message = summary.get("message", {})
+                        if isinstance(message, dict):
+                            return message.get("content")
+
+                # OpenAI-style delta (for compatibility)
                 if "choices" in parsed:
                     choices = parsed["choices"]
                     if choices and len(choices) > 0:
                         delta = choices[0].get("delta", {})
                         return delta.get("content")
 
-                # Simple content
+                # Simple content field
                 if "content" in parsed:
                     return parsed["content"]
 

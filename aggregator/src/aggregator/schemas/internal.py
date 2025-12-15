@@ -8,12 +8,21 @@ from aggregator.schemas.responses import Document
 
 
 class ResolvedEndpoint(BaseModel):
-    """An endpoint resolved from SyftHub with connection details."""
+    """An endpoint with connection details for SyftAI-Space.
 
-    path: str = Field(..., description="Endpoint path (owner/slug)")
-    url: str = Field(..., description="URL to reach the endpoint")
+    This is the internal representation used after converting from EndpointRef.
+    Contains all information needed to make API calls to SyftAI-Space.
+    """
+
+    path: str = Field(..., description="Display path/name for logging")
+    url: str = Field(..., description="Base URL of the SyftAI-Space instance")
+    slug: str = Field(..., description="Endpoint slug for the API path")
     endpoint_type: Literal["model", "data_source"] = Field(..., description="Type of endpoint")
     name: str = Field(..., description="Display name of the endpoint")
+    tenant_name: str | None = Field(
+        default=None,
+        description="Tenant name for X-Tenant-Name header",
+    )
 
 
 class RetrievalResult(BaseModel):

@@ -13,11 +13,15 @@ def test_health_endpoint(client: TestClient) -> None:
 
 
 def test_ready_endpoint_returns_status(client: TestClient) -> None:
-    """Test the readiness endpoint returns a status."""
+    """Test the readiness endpoint returns a status.
+
+    The aggregator is stateless and always ready since all connection
+    information (URLs, slugs, tenant names) comes from the request.
+    """
     response = client.get("/ready")
     assert response.status_code == 200
     data = response.json()
-    assert "status" in data
+    assert data["status"] == "ready"
     assert "checks" in data
-    # SyftHub may not be available in tests, so just check structure
-    assert "syfthub" in data["checks"]
+    # Aggregator is stateless - no external dependencies to check
+    assert data["checks"] == {}

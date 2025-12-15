@@ -1,32 +1,42 @@
 # SyftHub Aggregator
 
-RAG (Retrieval-Augmented Generation) orchestration service for SyftHub.
+RAG (Retrieval-Augmented Generation) orchestration service for SyftHub, designed to work with SyftAI-Space endpoints.
 
 ## Overview
 
 The aggregator service coordinates the chat workflow by:
 
-1. Receiving user prompts with model and data source selections
-2. Querying data sources for relevant context (in parallel)
+1. Receiving user prompts with model and data source endpoint references
+2. Querying SyftAI-Space data source endpoints for relevant context (in parallel)
 3. Building an augmented prompt with retrieved context
-4. Calling the model endpoint
+4. Calling the SyftAI-Space model endpoint
 5. Streaming/returning the response
+
+**Key Feature:** The aggregator is **stateless** - all required connection information (URLs, slugs, tenant names, user email) is provided in each request.
 
 ## Architecture
 
 ```
-Frontend Request
+External Service (e.g., Frontend)
       │
+      │ ChatRequest with:
+      │ - user_email
+      │ - model: {url, slug, tenant_name}
+      │ - data_sources: [{url, slug, tenant_name}, ...]
       ▼
 ┌─────────────────────────────────────────┐
 │            AGGREGATOR                    │
 │                                          │
-│  1. Resolve paths → URLs via SyftHub    │
-│  2. Query data sources (parallel)        │
-│  3. Build RAG prompt                     │
-│  4. Call model endpoint                  │
-│  5. Stream response back                 │
+│  1. Query SyftAI-Space data sources     │
+│     POST {url}/api/v1/endpoints/{slug}/query
+│  2. Build RAG prompt with context        │
+│  3. Call SyftAI-Space model endpoint    │
+│     POST {url}/api/v1/endpoints/{slug}/query
+│  4. Stream response back                 │
 └─────────────────────────────────────────┘
+      │
+      ▼
+  SyftAI-Space Instances
 ```
 
 ## API
@@ -39,18 +49,67 @@ Non-streaming chat completion with RAG context.
 ```json
 {
   "prompt": "What are the key features?",
-  "model": "owner/model-slug",
-  "data_sources": ["owner/datasource-1", "owner/datasource-2"],
-  "top_k": 5
+  "user_email": "user@example.com",
+  "model": {
+    "url": "http://syftai-space-1:8080",
+    "slug": "gpt-model",
+    "name": "GPT Model",
+    "tenant_name": "acme-corp"
+  },
+  "data_sources": [
+    {
+      "url": "http://syftai-space-1:8080",
+      "slug": "docs-dataset",
+      "name": "Documentation",
+      "tenant_name": "acme-corp"
+    },
+    {
+      "url": "http://syftai-space-2:8080",
+      "slug": "wiki-dataset",
+      "name": "Wiki",
+      "tenant_name": null
+    }
+  ],
+  "top_k": 5,
+  "max_tokens": 1024,
+  "temperature": 0.7,
+  "similarity_threshold": 0.5
 }
 ```
+
+**Request Fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `prompt` | string | Yes | The user's question or prompt |
+| `user_email` | string | Yes | User email for SyftAI-Space visibility/policy checks |
+| `model` | EndpointRef | Yes | Model endpoint reference |
+| `data_sources` | EndpointRef[] | No | Data source endpoint references |
+| `top_k` | int | No | Documents per source (1-20, default: 5) |
+| `max_tokens` | int | No | Max tokens for LLM (default: 1024) |
+| `temperature` | float | No | LLM temperature (0.0-2.0, default: 0.7) |
+| `similarity_threshold` | float | No | Min similarity score (0.0-1.0, default: 0.5) |
+
+**EndpointRef Fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `url` | string | Yes | Base URL of the SyftAI-Space instance |
+| `slug` | string | Yes | Endpoint slug for the API path |
+| `name` | string | No | Display name for logging/attribution |
+| `tenant_name` | string | No | Tenant name for X-Tenant-Name header |
 
 **Response:**
 ```json
 {
   "response": "Based on the context...",
   "sources": [
-    {"path": "owner/datasource-1", "documents_retrieved": 5, "status": "success"}
+    {
+      "path": "Documentation",
+      "documents_retrieved": 5,
+      "status": "success",
+      "error_message": null
+    }
   ],
   "metadata": {
     "retrieval_time_ms": 150,
@@ -64,14 +123,16 @@ Non-streaming chat completion with RAG context.
 
 Streaming chat with Server-Sent Events.
 
+**Request:** Same as `/api/v1/chat`
+
 **Events:**
-- `retrieval_start` - Starting data source queries
-- `source_complete` - One data source finished
-- `retrieval_complete` - All sources done
-- `generation_start` - Starting model generation
-- `token` - Response chunk
-- `done` - Complete with metadata
-- `error` - Error occurred
+- `retrieval_start` - Starting data source queries: `{"sources": N}`
+- `source_complete` - One data source finished: `{"path": "...", "status": "success", "documents": N}`
+- `retrieval_complete` - All sources done: `{"total_documents": N, "time_ms": N}`
+- `generation_start` - Starting model generation: `{}`
+- `token` - Response chunk: `{"content": "..."}`
+- `done` - Complete with metadata: `{"sources": [...], "metadata": {...}}`
+- `error` - Error occurred: `{"message": "..."}`
 
 ## Configuration
 
@@ -79,15 +140,39 @@ Environment variables (prefix: `AGGREGATOR_`):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `SYFTHUB_URL` | `http://localhost:8000` | SyftHub backend URL |
 | `DEBUG` | `false` | Enable debug mode |
 | `HOST` | `0.0.0.0` | Server host |
 | `PORT` | `8001` | Server port |
 | `RETRIEVAL_TIMEOUT` | `30.0` | Timeout for data source queries (seconds) |
 | `GENERATION_TIMEOUT` | `120.0` | Timeout for model generation (seconds) |
-| `DEFAULT_TOP_K` | `5` | Default documents per source |
-| `MAX_TOP_K` | `20` | Maximum documents per source |
-| `MAX_DATA_SOURCES` | `10` | Maximum data sources per request |
+
+## SyftAI-Space Compatibility
+
+The aggregator is designed to work with SyftAI-Space's unified endpoint API:
+
+```
+POST /api/v1/endpoints/{slug}/query
+```
+
+### Requirements for SyftAI-Space Endpoints
+
+**For Data Sources:**
+- Endpoint must have a dataset configured
+- Endpoint's `response_type` should include references (`"raw"` or `"both"`)
+- Endpoint must be `published: true`
+- User email must be in the endpoint's `visibility` list (or visibility = `["*"]`)
+
+**For Models:**
+- Endpoint must have a model configured
+- Endpoint's `response_type` should include summary (`"summary"` or `"both"`)
+- Endpoint must be `published: true`
+- User email must be in the endpoint's `visibility` list (or visibility = `["*"]`)
+
+### Multi-tenancy Support
+
+When connecting to SyftAI-Space instances with multi-tenancy enabled:
+- Set `tenant_name` in the EndpointRef
+- The aggregator will include `X-Tenant-Name` header in requests
 
 ## Development
 
@@ -126,31 +211,31 @@ cd .. && docker compose -f docker-compose.dev.yml up --build
 uv run pytest tests/ -v
 ```
 
-## Endpoint Interfaces
+## Example Usage
 
-### Data Source Interface
+```python
+import httpx
 
-Data sources must implement:
+response = httpx.post(
+    "http://localhost:8001/api/v1/chat",
+    json={
+        "prompt": "What is machine learning?",
+        "user_email": "user@example.com",
+        "model": {
+            "url": "http://localhost:8080",
+            "slug": "gpt-endpoint",
+        },
+        "data_sources": [
+            {
+                "url": "http://localhost:8080",
+                "slug": "ml-docs",
+                "name": "ML Documentation",
+            }
+        ],
+        "top_k": 5,
+        "max_tokens": 512,
+    }
+)
 
-```
-POST /query
-Request: {"query": "...", "top_k": 5}
-Response: {"documents": [{"content": "...", "score": 0.9, "metadata": {...}}]}
-```
-
-### Model Interface
-
-Models must implement:
-
-```
-POST /chat
-Request: {"messages": [{"role": "user", "content": "..."}], "stream": false}
-Response: {"message": {"role": "assistant", "content": "..."}}
-```
-
-For streaming:
-```
-POST /chat
-Request: {"messages": [...], "stream": true}
-Response: SSE stream with data: {"content": "..."} chunks
+print(response.json())
 ```

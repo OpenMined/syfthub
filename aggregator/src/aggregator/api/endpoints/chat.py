@@ -89,14 +89,8 @@ async def chat_stream(
     **Error:**
     - `error`: `{"message": "..."}` - An error occurred
     """
-    # Force stream=True in the request
-    request_with_stream = ChatRequest(
-        prompt=request.prompt,
-        model=request.model,
-        data_sources=request.data_sources,
-        top_k=request.top_k,
-        stream=True,
-    )
+    # Force stream=True in the request, preserving all other fields
+    request_with_stream = request.model_copy(update={"stream": True})
 
     return StreamingResponse(
         orchestrator.process_chat_stream(request_with_stream, user_token),

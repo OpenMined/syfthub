@@ -1,10 +1,10 @@
-"""Generation service for calling model endpoints."""
+"""Generation service for calling SyftAI-Space model endpoints."""
 
 import logging
 from collections.abc import AsyncGenerator
 
 from aggregator.clients.model import ModelClient, ModelClientError
-from aggregator.schemas.internal import GenerationResult
+from aggregator.schemas.internal import GenerationResult, ResolvedEndpoint
 from aggregator.schemas.requests import Message
 
 logger = logging.getLogger(__name__)
@@ -17,22 +17,28 @@ class GenerationError(Exception):
 
 
 class GenerationService:
-    """Service for generating responses from model endpoints."""
+    """Service for generating responses from SyftAI-Space model endpoints."""
 
     def __init__(self, model_client: ModelClient):
         self.model_client = model_client
 
     async def generate(
         self,
-        model_url: str,
+        model_endpoint: ResolvedEndpoint,
         messages: list[Message],
+        user_email: str,
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
     ) -> GenerationResult:
         """
-        Generate a response from the model endpoint.
+        Generate a response from a SyftAI-Space model endpoint.
 
         Args:
-            model_url: URL of the model endpoint
+            model_endpoint: Resolved model endpoint with URL, slug, tenant info
             messages: List of conversation messages
+            user_email: User email for SyftAI-Space visibility/policy checks
+            max_tokens: Maximum tokens to generate
+            temperature: Temperature for generation
 
         Returns:
             GenerationResult with response and metadata
@@ -41,7 +47,15 @@ class GenerationService:
             GenerationError: If generation fails
         """
         try:
-            result = await self.model_client.chat(url=model_url, messages=messages)
+            result = await self.model_client.chat(
+                url=model_endpoint.url,
+                slug=model_endpoint.slug,
+                messages=messages,
+                user_email=user_email,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                tenant_name=model_endpoint.tenant_name,
+            )
             logger.info(f"Generation complete: latency={result.latency_ms}ms")
             return result
 
@@ -51,15 +65,21 @@ class GenerationService:
 
     async def generate_stream(
         self,
-        model_url: str,
+        model_endpoint: ResolvedEndpoint,
         messages: list[Message],
+        user_email: str,
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
     ) -> AsyncGenerator[str, None]:
         """
-        Generate a streaming response from the model endpoint.
+        Generate a streaming response from a SyftAI-Space model endpoint.
 
         Args:
-            model_url: URL of the model endpoint
+            model_endpoint: Resolved model endpoint with URL, slug, tenant info
             messages: List of conversation messages
+            user_email: User email for SyftAI-Space visibility/policy checks
+            max_tokens: Maximum tokens to generate
+            temperature: Temperature for generation
 
         Yields:
             Response text chunks as they arrive
@@ -68,7 +88,15 @@ class GenerationService:
             GenerationError: If generation fails
         """
         try:
-            async for chunk in self.model_client.chat_stream(url=model_url, messages=messages):
+            async for chunk in self.model_client.chat_stream(
+                url=model_endpoint.url,
+                slug=model_endpoint.slug,
+                messages=messages,
+                user_email=user_email,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                tenant_name=model_endpoint.tenant_name,
+            ):
                 if chunk:
                     yield chunk
 
