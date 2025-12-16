@@ -67,3 +67,58 @@ class KeyLoadError(IdPException):
             f"Failed to load RSA keys: {reason}",
             "KEY_LOAD_ERROR",
         )
+
+
+# ===========================================
+# ACCOUNTING SERVICE EXCEPTIONS
+# ===========================================
+
+
+class AccountingException(DomainException):
+    """Base exception for accounting service errors."""
+
+    def __init__(self, message: str, error_code: str = "ACCOUNTING_ERROR"):
+        """Initialize accounting exception."""
+        super().__init__(message, error_code)
+
+
+class AccountingAccountExistsError(AccountingException):
+    """Raised when email already has an account in the accounting service.
+
+    This error indicates that the user needs to provide their existing
+    accounting password to link their accounts during registration.
+    """
+
+    def __init__(self, email: str):
+        """Initialize accounting account exists error."""
+        self.email = email
+        self.requires_accounting_password = True
+        super().__init__(
+            f"This email ({email}) already has an account in the accounting service. "
+            "Please provide your existing accounting password to link your accounts.",
+            "ACCOUNTING_ACCOUNT_EXISTS",
+        )
+
+
+class InvalidAccountingPasswordError(AccountingException):
+    """Raised when the provided accounting password is invalid."""
+
+    def __init__(self) -> None:
+        """Initialize invalid accounting password error."""
+        super().__init__(
+            "The provided accounting password is invalid. "
+            "Please check your password and try again.",
+            "INVALID_ACCOUNTING_PASSWORD",
+        )
+
+
+class AccountingServiceUnavailableError(AccountingException):
+    """Raised when the accounting service is unavailable or returns an error."""
+
+    def __init__(self, detail: str):
+        """Initialize accounting service unavailable error."""
+        self.detail = detail
+        super().__init__(
+            f"Accounting service error: {detail}",
+            "ACCOUNTING_SERVICE_UNAVAILABLE",
+        )

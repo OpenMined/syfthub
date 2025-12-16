@@ -165,6 +165,10 @@ export {
   // Chat-specific errors
   AggregatorError,
   EndpointResolutionError,
+  // Accounting-related errors
+  AccountingAccountExistsError,
+  InvalidAccountingPasswordError,
+  AccountingServiceUnavailableError,
   // Enums
   Visibility,
   EndpointType,

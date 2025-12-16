@@ -42,9 +42,41 @@ export class AuthResource {
   /**
    * Register a new user account.
    *
+   * If an accounting service URL is configured (via `accountingServiceUrl` or server default),
+   * the backend will automatically create an accounting account for the user. If the email
+   * already exists in the accounting service, you'll need to provide the existing accounting
+   * password to link accounts.
+   *
    * @param input - Registration details (username, email, password, fullName)
    * @returns The created User
    * @throws {ValidationError} If input validation fails
+   * @throws {AccountingAccountExistsError} If email already exists in accounting service.
+   *         Catch this error and retry with `accountingPassword` set.
+   * @throws {InvalidAccountingPasswordError} If the provided accounting password is invalid
+   * @throws {AccountingServiceUnavailableError} If the accounting service is unreachable
+   *
+   * @example
+   * // Basic registration
+   * const user = await client.auth.register({
+   *   username: 'alice',
+   *   email: 'alice@example.com',
+   *   password: 'SecurePass123!',
+   *   fullName: 'Alice'
+   * });
+   *
+   * @example
+   * // Handle existing accounting account
+   * try {
+   *   await client.auth.register({ username, email, password, fullName });
+   * } catch (error) {
+   *   if (error instanceof AccountingAccountExistsError) {
+   *     // Prompt user for their existing accounting password
+   *     const accountingPassword = await promptUser('Enter your existing accounting password:');
+   *     await client.auth.register({ username, email, password, fullName, accountingPassword });
+   *   } else {
+   *     throw error;
+   *   }
+   * }
    */
   async register(input: UserRegisterInput): Promise<User> {
     const response = await this.http.post<AuthResponse>('/api/v1/auth/register', input, {

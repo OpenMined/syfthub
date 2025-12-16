@@ -149,6 +149,28 @@ class Settings(BaseSettings):
         description="Auto-generate RSA keys if not provided (dev mode only)",
     )
 
+    # ===========================================
+    # ACCOUNTING SERVICE SETTINGS
+    # ===========================================
+
+    # Default accounting service URL - used if user doesn't provide one during registration
+    default_accounting_url: Optional[str] = Field(
+        default=None,
+        description="Default accounting service URL for user registration",
+    )
+
+    # Generated accounting password length
+    accounting_password_length: int = Field(
+        default=32,
+        description="Length of auto-generated accounting passwords",
+    )
+
+    # Timeout for accounting service requests
+    accounting_timeout: float = Field(
+        default=30.0,
+        description="Timeout in seconds for accounting service requests",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:

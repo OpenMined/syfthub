@@ -57,6 +57,10 @@ export {
   NotFoundError,
   ValidationError,
   NetworkError,
+  // Accounting-related errors
+  AccountingAccountExistsError,
+  InvalidAccountingPasswordError,
+  AccountingServiceUnavailableError,
 } from './errors.js';
 
 // Chat-specific errors

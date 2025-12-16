@@ -11,8 +11,10 @@ import type { User as SdkUser } from '@/lib/sdk-client';
 import type { User } from '@/lib/types';
 
 import {
+  AccountingAccountExistsError,
   AuthenticationError,
   clearPersistedTokens,
+  InvalidAccountingPasswordError,
   NetworkError,
   persistTokens,
   restoreTokens,
@@ -137,6 +139,12 @@ function mapSdkUserToFrontend(sdkUser: SdkUser): User {
  * Extract a user-friendly error message from an error.
  */
 function getErrorMessage(error: unknown): string {
+  if (error instanceof AccountingAccountExistsError) {
+    return 'This email already has an accounting service account. Please provide your existing accounting password to link your accounts.';
+  }
+  if (error instanceof InvalidAccountingPasswordError) {
+    return 'The accounting password you provided is incorrect. Please try again.';
+  }
   if (error instanceof AuthenticationError) {
     return 'Invalid email or password';
   }

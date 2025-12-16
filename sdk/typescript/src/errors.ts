@@ -84,3 +84,72 @@ export class NetworkError extends SyftHubError {
     this.name = 'NetworkError';
   }
 }
+
+// =============================================================================
+// Accounting-related Errors
+// =============================================================================
+
+/**
+ * Error thrown when email already exists in the accounting service during registration.
+ *
+ * This error indicates that the user needs to provide their existing
+ * accounting password to link their SyftHub account with their existing
+ * accounting account.
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   await client.auth.register({ username: "john", email: "john@example.com", ... });
+ * } catch (error) {
+ *   if (error instanceof AccountingAccountExistsError) {
+ *     // Prompt user for their existing accounting password
+ *     const accountingPassword = prompt("Enter your existing accounting password:");
+ *     // Retry registration with the password
+ *     await client.auth.register({
+ *       username: "john",
+ *       email: "john@example.com",
+ *       ...,
+ *       accountingPassword
+ *     });
+ *   }
+ * }
+ * ```
+ */
+export class AccountingAccountExistsError extends SyftHubError {
+  /** Indicates that the user needs to provide their existing accounting password */
+  public readonly requiresAccountingPassword = true;
+
+  constructor(
+    message: string = 'This email already has an account in the accounting service',
+    public readonly detail?: unknown
+  ) {
+    super(message);
+    this.name = 'AccountingAccountExistsError';
+  }
+}
+
+/**
+ * Error thrown when the provided accounting password is invalid.
+ */
+export class InvalidAccountingPasswordError extends SyftHubError {
+  constructor(
+    message: string = 'The provided accounting password is invalid',
+    public readonly detail?: unknown
+  ) {
+    super(message);
+    this.name = 'InvalidAccountingPasswordError';
+  }
+}
+
+/**
+ * Error thrown when the accounting service is unavailable or returns an error.
+ */
+export class AccountingServiceUnavailableError extends SyftHubError {
+  constructor(
+    message: string = 'Accounting service is unavailable',
+    public readonly detail?: unknown
+  ) {
+    super(message);
+    this.name = 'AccountingServiceUnavailableError';
+  }
+}

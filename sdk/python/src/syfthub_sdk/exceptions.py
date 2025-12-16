@@ -148,3 +148,62 @@ class EndpointResolutionError(ChatError):
     ) -> None:
         super().__init__(message, detail=detail)
         self.endpoint_path = endpoint_path
+
+
+# =============================================================================
+# Accounting-related Exceptions
+# =============================================================================
+
+
+class AccountingAccountExistsError(SyftHubError):
+    """Raised when email already exists in the accounting service during registration.
+
+    This error indicates that the user needs to provide their existing
+    accounting password to link their SyftHub account with their existing
+    accounting account.
+
+    Example:
+        try:
+            client.auth.register(username="john", email="john@example.com", ...)
+        except AccountingAccountExistsError as e:
+            # Prompt user for their existing accounting password
+            accounting_password = input("Enter your existing accounting password: ")
+            # Retry registration with the password
+            client.auth.register(
+                username="john",
+                email="john@example.com",
+                ...,
+                accounting_password=accounting_password
+            )
+    """
+
+    requires_accounting_password: bool = True
+
+    def __init__(
+        self,
+        message: str = "This email already has an account in the accounting service",
+        detail: Any = None,
+    ) -> None:
+        super().__init__(message, status_code=409, detail=detail)
+
+
+class InvalidAccountingPasswordError(SyftHubError):
+    """Raised when the provided accounting password is invalid."""
+
+    def __init__(
+        self,
+        message: str = "The provided accounting password is invalid",
+        detail: Any = None,
+    ) -> None:
+        super().__init__(message, status_code=401, detail=detail)
+
+
+class AccountingServiceUnavailableError(SyftHubError):
+    """Raised when the accounting service is unavailable or returns an error."""
+
+    def __init__(
+        self,
+        message: str = "Accounting service is unavailable",
+        detail: Any = None,
+    ) -> None:
+        super().__init__(message, status_code=503, detail=detail)

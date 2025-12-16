@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+import logging
+from typing import TYPE_CHECKING, Optional, Tuple
 
 from fastapi import HTTPException, status
 
@@ -11,6 +12,12 @@ from syfthub.auth.security import (
     create_refresh_token,
     hash_password,
     verify_password,
+)
+from syfthub.core.config import settings
+from syfthub.domain.exceptions import (
+    AccountingAccountExistsError,
+    AccountingServiceUnavailableError,
+    InvalidAccountingPasswordError,
 )
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import (
@@ -22,10 +29,16 @@ from syfthub.schemas.auth import (
     UserRegister,
 )
 from syfthub.schemas.user import User, UserCreate
+from syfthub.services.accounting_client import (
+    AccountingClient,
+    generate_accounting_password,
+)
 from syfthub.services.base import BaseService
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 
 class AuthService(BaseService):
@@ -36,8 +49,114 @@ class AuthService(BaseService):
         super().__init__(session)
         self.user_repository = UserRepository(session)
 
+    def _handle_accounting_registration(
+        self,
+        email: str,
+        accounting_url: Optional[str],
+        accounting_password: Optional[str],
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Handle accounting service registration during user signup.
+
+        This method manages the accounting integration:
+        1. If accounting_password is provided: Validate existing credentials
+        2. If not provided: Auto-register a new accounting account
+
+        Args:
+            email: User's email address
+            accounting_url: Accounting service URL (from request or config)
+            accounting_password: Existing accounting password (if user has one)
+
+        Returns:
+            Tuple of (accounting_url, accounting_password) to store
+
+        Raises:
+            AccountingAccountExistsError: If email already exists in accounting service
+            InvalidAccountingPasswordError: If provided password is invalid
+            AccountingServiceUnavailableError: If accounting service is unreachable
+        """
+        # Determine the accounting URL to use
+        effective_url = accounting_url or settings.default_accounting_url
+
+        # If no accounting URL configured, skip accounting integration
+        if not effective_url:
+            logger.debug(
+                "No accounting URL configured, skipping accounting integration"
+            )
+            return (None, None)
+
+        logger.info(
+            f"Processing accounting registration for {email} at {effective_url}"
+        )
+
+        # Create accounting client
+        client = AccountingClient(
+            base_url=effective_url,
+            timeout=settings.accounting_timeout,
+        )
+
+        try:
+            if accounting_password:
+                # User provided existing password - validate it
+                logger.debug(f"Validating existing accounting credentials for {email}")
+                is_valid = client.validate_credentials(email, accounting_password)
+
+                if not is_valid:
+                    logger.warning(f"Invalid accounting credentials for {email}")
+                    raise InvalidAccountingPasswordError()
+
+                logger.info(f"Accounting credentials validated for {email}")
+                return (effective_url, accounting_password)
+
+            else:
+                # Auto-register new accounting account
+                generated_password = generate_accounting_password(
+                    length=settings.accounting_password_length
+                )
+                logger.debug(f"Auto-registering accounting account for {email}")
+
+                result = client.create_user(
+                    email=email,
+                    password=generated_password,
+                    organization=None,  # Could be extended to support org
+                )
+
+                if result.success:
+                    logger.info(f"Successfully created accounting account for {email}")
+                    return (effective_url, generated_password)
+
+                if result.conflict:
+                    logger.info(f"Accounting account already exists for {email}")
+                    raise AccountingAccountExistsError(email)
+
+                # Other error
+                logger.error(f"Failed to create accounting account: {result.error}")
+                raise AccountingServiceUnavailableError(result.error or "Unknown error")
+
+        finally:
+            client.close()
+
     def register_user(self, register_data: UserRegister) -> RegistrationResponse:
-        """Register a new user and return authentication tokens."""
+        """Register a new user and return authentication tokens.
+
+        This method handles the complete registration flow including:
+        1. Input validation
+        2. Username/email uniqueness check
+        3. Accounting service integration (if configured)
+        4. User creation in database
+        5. Token generation
+
+        Args:
+            register_data: Registration data from the request
+
+        Returns:
+            RegistrationResponse with user info and tokens
+
+        Raises:
+            HTTPException: For validation errors
+            AccountingAccountExistsError: If email exists in accounting service
+            InvalidAccountingPasswordError: If provided accounting password is wrong
+            AccountingServiceUnavailableError: If accounting service is unreachable
+        """
         # Validate input data
         if not register_data.username or len(register_data.username) < 3:
             raise HTTPException(
@@ -51,7 +170,7 @@ class AuthService(BaseService):
                 detail="Password must be at least 8 characters long",
             )
 
-        # Check if user already exists
+        # Check if user already exists in SyftHub
         if self.user_repository.username_exists(register_data.username):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -64,7 +183,15 @@ class AuthService(BaseService):
                 detail="Email already exists",
             )
 
-        # Generate password hash
+        # Handle accounting service registration
+        # This may raise AccountingAccountExistsError or InvalidAccountingPasswordError
+        accounting_url, accounting_password = self._handle_accounting_registration(
+            email=register_data.email,
+            accounting_url=register_data.accounting_service_url,
+            accounting_password=register_data.accounting_password,
+        )
+
+        # Generate password hash for SyftHub
         password_hash = hash_password(register_data.password)
 
         # Create user data
@@ -75,12 +202,12 @@ class AuthService(BaseService):
             is_active=True,
         )
 
-        # Create user in database
+        # Create user in database with accounting credentials
         user = self.user_repository.create_user(
             user_data=user_data,
             password_hash=password_hash,
-            accounting_service_url=register_data.accounting_service_url,
-            accounting_password=register_data.accounting_password,
+            accounting_service_url=accounting_url,
+            accounting_password=accounting_password,
         )
 
         if not user:
@@ -96,6 +223,8 @@ class AuthService(BaseService):
         refresh_token = create_refresh_token(
             data={"sub": str(user.id), "username": user.username}
         )
+
+        logger.info(f"Successfully registered user: {user.username} ({user.email})")
 
         return RegistrationResponse(
             user={

@@ -1,7 +1,10 @@
 import {
+  AccountingAccountExistsError,
+  AccountingServiceUnavailableError,
   APIError,
   AuthenticationError,
   AuthorizationError,
+  InvalidAccountingPasswordError,
   NetworkError,
   NotFoundError,
   ValidationError,
@@ -267,7 +270,21 @@ export class HTTPClient {
    */
   private handleErrorResponse(status: number, data: unknown): never {
     const message = this.extractErrorMessage(data);
+    const { code, detail } = this.extractErrorCodeAndDetail(data);
 
+    // Check for accounting-specific errors based on error code first
+    if (code) {
+      switch (code) {
+        case 'ACCOUNTING_ACCOUNT_EXISTS':
+          throw new AccountingAccountExistsError(message, detail);
+        case 'INVALID_ACCOUNTING_PASSWORD':
+          throw new InvalidAccountingPasswordError(message, detail);
+        case 'ACCOUNTING_SERVICE_UNAVAILABLE':
+          throw new AccountingServiceUnavailableError(message, detail);
+      }
+    }
+
+    // Standard status code handling
     switch (status) {
       case 401:
         throw new AuthenticationError(message);
@@ -280,6 +297,32 @@ export class HTTPClient {
       default:
         throw new APIError(message, status, data);
     }
+  }
+
+  /**
+   * Extract error code and detail from API response.
+   * Used for accounting-specific error handling.
+   */
+  private extractErrorCodeAndDetail(
+    data: unknown
+  ): { code?: string; detail?: unknown } {
+    if (!data || typeof data !== 'object') {
+      return {};
+    }
+
+    // FastAPI returns { detail: { code: "...", message: "...", ... } }
+    if ('detail' in data) {
+      const detail = (data as { detail: unknown }).detail;
+      if (detail && typeof detail === 'object' && 'code' in detail) {
+        const innerDetail = detail as { code?: string };
+        return {
+          code: innerDetail.code,
+          detail: detail,
+        };
+      }
+    }
+
+    return {};
   }
 
   /**

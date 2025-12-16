@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 
-import { ChevronDown, ChevronUp, CreditCard, Mail, User } from 'lucide-react';
+import { AlertCircle, ChevronDown, ChevronUp, CreditCard, Mail, User } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/context/auth-context';
 import { useForm } from '@/hooks/use-form';
+import { AccountingAccountExistsError } from '@/lib/sdk-client';
 import {
   getPasswordStrength,
   validateConfirmPassword,
@@ -68,6 +69,7 @@ export function RegisterModal({
 }: Readonly<RegisterModalProperties>) {
   const { register, loginWithGoogle, loginWithGitHub, isLoading, error, clearError } = useAuth();
   const [showAccountingSection, setShowAccountingSection] = useState(false);
+  const [requiresAccountingPassword, setRequiresAccountingPassword] = useState(false);
 
   const { values, errors, handleChange, handleSubmit, resetForm, setFieldError } =
     useForm<RegisterFormValues>({
@@ -85,13 +87,20 @@ export function RegisterModal({
             name: formValues.name.trim(),
             email: formValues.email.trim(),
             password: formValues.password,
-            // Only include accounting fields if URL is provided
+            // Only include accounting fields if URL is provided or if accounting password is required
             accountingServiceUrl: formValues.accountingUrl.trim() || undefined,
             accountingPassword: formValues.accountingPassword || undefined
           });
           onClose(); // Close modal on successful registration
-        } catch {
-          // Error is handled by the auth context
+        } catch (error_) {
+          // Check if this is an accounting account exists error
+          if (error_ instanceof AccountingAccountExistsError) {
+            // Show accounting section and prompt for existing password
+            setRequiresAccountingPassword(true);
+            setShowAccountingSection(true);
+            // The error message is set by auth context, which will be shown in the UI
+          }
+          // Other errors are handled by the auth context
         }
       }
     });
@@ -102,6 +111,7 @@ export function RegisterModal({
       resetForm();
       clearError();
       setShowAccountingSection(false);
+      setRequiresAccountingPassword(false);
     }
   }, [isOpen, resetForm, clearError]);
 
@@ -113,6 +123,11 @@ export function RegisterModal({
       // Clear confirm password error if user is typing in password field
       if (field === 'password' && errors.confirmPassword) {
         setFieldError('confirmPassword', null);
+      }
+
+      // Reset accounting requirement if email changes (different email might not have existing account)
+      if (field === 'email' && requiresAccountingPassword) {
+        setRequiresAccountingPassword(false);
       }
 
       if (error) {
@@ -278,34 +293,66 @@ export function RegisterModal({
           />
 
           {/* Collapsible Accounting Section */}
-          <div className='border-syft-border rounded-lg border'>
+          <div
+            className={`rounded-lg border ${
+              requiresAccountingPassword ? 'border-amber-400 bg-amber-50' : 'border-syft-border'
+            }`}
+          >
             <button
               type='button'
               onClick={() => {
                 setShowAccountingSection(!showAccountingSection);
               }}
               className='flex w-full items-center justify-between px-4 py-3 text-left'
-              disabled={isLoading}
+              disabled={isLoading || requiresAccountingPassword}
             >
               <div className='flex items-center gap-2'>
-                <CreditCard className='text-syft-muted h-4 w-4' />
-                <span className='font-inter text-syft-text text-sm font-medium'>
-                  Accounting Service (Optional)
+                {requiresAccountingPassword ? (
+                  <AlertCircle className='h-4 w-4 text-amber-600' />
+                ) : (
+                  <CreditCard className='text-syft-muted h-4 w-4' />
+                )}
+                <span
+                  className={`font-inter text-sm font-medium ${
+                    requiresAccountingPassword ? 'text-amber-800' : 'text-syft-text'
+                  }`}
+                >
+                  {requiresAccountingPassword
+                    ? 'Accounting Service (Required)'
+                    : 'Accounting Service (Optional)'}
                 </span>
               </div>
               {showAccountingSection ? (
-                <ChevronUp className='text-syft-muted h-4 w-4' />
+                <ChevronUp
+                  className={`h-4 w-4 ${
+                    requiresAccountingPassword ? 'text-amber-600' : 'text-syft-muted'
+                  }`}
+                />
               ) : (
-                <ChevronDown className='text-syft-muted h-4 w-4' />
+                <ChevronDown
+                  className={`h-4 w-4 ${
+                    requiresAccountingPassword ? 'text-amber-600' : 'text-syft-muted'
+                  }`}
+                />
               )}
             </button>
 
             {showAccountingSection && (
               <div className='space-y-4 border-t px-4 pt-3 pb-4'>
-                <p className='font-inter text-syft-muted text-xs'>
-                  Configure your external accounting service for payment processing. You can also
-                  set this up later in your account settings.
-                </p>
+                {requiresAccountingPassword ? (
+                  <div className='flex items-start gap-2 rounded-md bg-amber-100 p-3'>
+                    <AlertCircle className='mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600' />
+                    <p className='font-inter text-xs text-amber-800'>
+                      An accounting account with this email already exists. Please enter your
+                      existing accounting service password to link your accounts.
+                    </p>
+                  </div>
+                ) : (
+                  <p className='font-inter text-syft-muted text-xs'>
+                    Configure your external accounting service for payment processing. You can also
+                    set this up later in your account settings.
+                  </p>
+                )}
 
                 <Input
                   type='url'
@@ -320,11 +367,16 @@ export function RegisterModal({
                 <Input
                   type='password'
                   label='Accounting Service Password'
-                  placeholder='Your accounting service password'
+                  placeholder={
+                    requiresAccountingPassword
+                      ? 'Enter your existing accounting password'
+                      : 'Your accounting service password'
+                  }
                   value={values.accountingPassword}
                   onChange={handleInputChange('accountingPassword')}
                   error={errors.accountingPassword}
                   disabled={isLoading}
+                  isRequired={requiresAccountingPassword}
                 />
               </div>
             )}
