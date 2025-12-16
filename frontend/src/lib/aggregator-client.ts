@@ -1,30 +1,67 @@
+/* eslint-disable sonarjs/deprecation, @typescript-eslint/no-deprecated */
 /**
- * Aggregator API client for the frontend.
- * Handles chat requests and streaming responses from the RAG orchestration service.
+ * Aggregator API types for the frontend.
+ *
+ * @deprecated These types are kept for reference only.
+ * The frontend now uses the TypeScript SDK for chat functionality.
+ * See: @/lib/sdk-client and @syfthub/sdk
+ *
+ * For new code, use the SDK types instead:
+ * - EndpointReference → EndpointRef from @syfthub/sdk
+ * - AggregatorChatRequest → ChatOptions from @syfthub/sdk
+ * - AggregatorChatResponse → ChatResponse from @syfthub/sdk
+ * - AggregatorStreamEvent → ChatStreamEvent from @syfthub/sdk
+ *
+ * Usage:
+ * ```typescript
+ * import { syftClient } from '@/lib/sdk-client';
+ * import type { EndpointRef } from '@/lib/sdk-client';
+ *
+ * // Streaming chat
+ * for await (const event of syftClient.chat.stream({
+ *   prompt: 'Hello',
+ *   model: modelRef,
+ *   dataSources: [sourceRef],
+ * })) {
+ *   if (event.type === 'token') {
+ *     console.log(event.content);
+ *   }
+ * }
+ * ```
  */
 
-// Endpoint reference with URL and slug for SyftAI-Space API
+// =============================================================================
+// Legacy Types (Deprecated - use SDK types instead)
+// =============================================================================
+
+/**
+ * @deprecated Use EndpointRef from @syfthub/sdk instead
+ */
 export interface EndpointReference {
-  url: string; // Base URL of the SyftAI-Space instance
-  slug: string; // Endpoint slug for API path construction
-  name: string; // Display name for attribution/logging
-  tenant_name?: string; // Tenant name for X-Tenant-Name header (SyftAI-Space multi-tenancy)
+  url: string;
+  slug: string;
+  name: string;
+  tenant_name?: string;
 }
 
-// Request schema matching aggregator/src/aggregator/schemas/requests.py
+/**
+ * @deprecated Use ChatOptions from @syfthub/sdk instead
+ */
 export interface AggregatorChatRequest {
   prompt: string;
-  user_email: string; // Required for SyftAI-Space visibility/policy checks
-  model: EndpointReference; // Model endpoint with URL and slug
-  data_sources: EndpointReference[]; // Data source endpoints with URLs and slugs
-  top_k?: number; // 1-20, default 5
+  user_email: string;
+  model: EndpointReference;
+  data_sources: EndpointReference[];
+  top_k?: number;
   stream?: boolean;
-  max_tokens?: number; // Optional LLM parameter, default 1024
-  temperature?: number; // Optional LLM parameter, default 0.7
-  similarity_threshold?: number; // Optional retrieval threshold, default 0.5
+  max_tokens?: number;
+  temperature?: number;
+  similarity_threshold?: number;
 }
 
-// Response schema matching aggregator/src/aggregator/schemas/responses.py
+/**
+ * @deprecated Use SourceInfo from @syfthub/sdk instead
+ */
 export interface AggregatorSourceInfo {
   path: string;
   documents_retrieved: number;
@@ -32,19 +69,27 @@ export interface AggregatorSourceInfo {
   error_message?: string;
 }
 
+/**
+ * @deprecated Use ChatMetadata from @syfthub/sdk instead
+ */
 export interface AggregatorResponseMetadata {
   retrieval_time_ms: number;
   generation_time_ms: number;
   total_time_ms: number;
 }
 
+/**
+ * @deprecated Use ChatResponse from @syfthub/sdk instead
+ */
 export interface AggregatorChatResponse {
   response: string;
   sources: AggregatorSourceInfo[];
   metadata: AggregatorResponseMetadata;
 }
 
-// SSE Event types for streaming
+/**
+ * @deprecated Use ChatStreamEvent from @syfthub/sdk instead
+ */
 export type AggregatorStreamEventType =
   | 'retrieval_start'
   | 'source_complete'
@@ -54,168 +99,10 @@ export type AggregatorStreamEventType =
   | 'done'
   | 'error';
 
+/**
+ * @deprecated Use ChatStreamEvent from @syfthub/sdk instead
+ */
 export interface AggregatorStreamEvent {
   event: AggregatorStreamEventType;
   data: Record<string, unknown>;
-}
-
-// Aggregator client configuration
-const AGGREGATOR_BASE_URL = '/aggregator/api/v1';
-
-// Error response type
-interface ErrorResponse {
-  detail?: string;
-}
-
-/**
- * Send a chat request to the aggregator (non-streaming).
- */
-export async function sendChatRequest(
-  request: AggregatorChatRequest,
-  token?: string
-): Promise<AggregatorChatResponse> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json'
-  };
-
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${AGGREGATOR_BASE_URL}/chat`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ ...request, stream: false })
-  });
-
-  if (!response.ok) {
-    const errorData = (await response.json().catch(() => ({}))) as ErrorResponse;
-    throw new Error(errorData.detail ?? `Aggregator error: ${String(response.status)}`);
-  }
-
-  return response.json() as Promise<AggregatorChatResponse>;
-}
-
-/**
- * Parse a single SSE line and return the parsed event or updated state.
- */
-function parseSSELine(
-  line: string,
-  currentEvent: string | null
-): { parsed: AggregatorStreamEvent | null; nextEvent: string | null } {
-  if (line.startsWith('event: ')) {
-    return { parsed: null, nextEvent: line.slice(7).trim() };
-  }
-
-  if (line.startsWith('data: ') && currentEvent) {
-    try {
-      const data = JSON.parse(line.slice(6)) as Record<string, unknown>;
-      return {
-        parsed: { event: currentEvent as AggregatorStreamEventType, data },
-        nextEvent: null
-      };
-    } catch {
-      return { parsed: null, nextEvent: null };
-    }
-  }
-
-  return { parsed: null, nextEvent: currentEvent };
-}
-
-/**
- * Send a streaming chat request to the aggregator.
- * Returns an async generator that yields SSE events.
- */
-export async function* streamChatRequest(
-  request: AggregatorChatRequest,
-  token?: string,
-  signal?: AbortSignal
-): AsyncGenerator<AggregatorStreamEvent, void, unknown> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json'
-  };
-
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${AGGREGATOR_BASE_URL}/chat/stream`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ ...request, stream: true }),
-    signal
-  });
-
-  if (!response.ok) {
-    const errorData = (await response.json().catch(() => ({}))) as ErrorResponse;
-    throw new Error(errorData.detail ?? `Aggregator error: ${String(response.status)}`);
-  }
-
-  const body = response.body;
-  if (!body) {
-    throw new Error('No response body for streaming');
-  }
-
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-
-  try {
-    for (;;) {
-      const result = await reader.read();
-
-      if (result.done) {
-        break;
-      }
-
-      buffer += decoder.decode(result.value, { stream: true });
-
-      // Parse SSE events from buffer
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? ''; // Keep incomplete line in buffer
-
-      let currentEvent: string | null = null;
-
-      for (const line of lines) {
-        const { parsed, nextEvent } = parseSSELine(line, currentEvent);
-        currentEvent = nextEvent;
-        if (parsed) {
-          yield parsed;
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-}
-
-/**
- * Helper to build aggregator request from chat view state.
- */
-export function buildChatRequest(
-  prompt: string,
-  userEmail: string,
-  model: EndpointReference,
-  dataSources: EndpointReference[],
-  options: {
-    topK?: number;
-    stream?: boolean;
-    maxTokens?: number;
-    temperature?: number;
-    similarityThreshold?: number;
-  } = {}
-): AggregatorChatRequest {
-  return {
-    prompt,
-    user_email: userEmail,
-    model: model,
-    data_sources: dataSources,
-    top_k: options.topK ?? 5,
-    stream: options.stream ?? false,
-    ...(options.maxTokens !== undefined && { max_tokens: options.maxTokens }),
-    ...(options.temperature !== undefined && { temperature: options.temperature }),
-    ...(options.similarityThreshold !== undefined && {
-      similarity_threshold: options.similarityThreshold
-    })
-  };
 }

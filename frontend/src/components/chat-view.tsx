@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-import type { AggregatorStreamEvent, EndpointReference } from '@/lib/aggregator-client';
+import type { ChatStreamEvent, EndpointRef } from '@/lib/sdk-client';
 import type { ChatSource } from '@/lib/types';
 
 import { AnimatePresence, motion } from 'framer-motion';
@@ -18,9 +18,13 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '@/context/auth-context';
-import { buildChatRequest, streamChatRequest } from '@/lib/aggregator-client';
 import { getChatDataSources, getChatModels } from '@/lib/endpoint-utils';
-import { syftClient } from '@/lib/sdk-client';
+import {
+  AggregatorError,
+  AuthenticationError,
+  EndpointResolutionError,
+  syftClient
+} from '@/lib/sdk-client';
 
 import { ModelSelector } from './chat/model-selector';
 import { Badge } from './ui/badge';
@@ -422,28 +426,27 @@ interface ChatViewProperties {
   initialQuery: string;
 }
 
-// Helper function to process SSE events from the aggregator
-function processStreamEvent(
-  event: AggregatorStreamEvent,
-  onToken: (content: string) => void
-): void {
-  switch (event.event) {
+// Helper function to process SDK streaming events
+function processStreamEvent(event: ChatStreamEvent, onToken: (content: string) => void): void {
+  switch (event.type) {
     case 'token': {
-      if (typeof event.data.content === 'string') {
-        onToken(event.data.content);
-      }
+      // SDK provides strongly typed event.content
+      onToken(event.content);
       break;
     }
     case 'error': {
-      throw new Error(
-        typeof event.data.message === 'string' ? event.data.message : 'Unknown error'
-      );
+      throw new Error(event.message);
     }
     case 'done': {
       // Response complete - could add metadata handling here
+      // event.sources and event.metadata available for logging/display
       break;
     }
-    // Other events (retrieval_start, source_complete, etc.) could be used for UI feedback
+    // Other events could be used for UI feedback:
+    // - retrieval_start: show "Retrieving from X sources..."
+    // - source_complete: show "Retrieved N docs from source"
+    // - retrieval_complete: show "Retrieval done in Xms"
+    // - generation_start: show "Generating response..."
     default: {
       break;
     }
@@ -623,14 +626,16 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
       return;
     }
 
-    const modelReference: EndpointReference = {
+    // Build EndpointRef for model (SDK uses camelCase)
+    const modelReference: EndpointRef = {
       url: selectedModel.url,
       slug: selectedModel.slug,
       name: selectedModel.name,
-      tenant_name: selectedModel.tenant_name
+      tenantName: selectedModel.tenant_name
     };
 
-    const dataSourceReferences: EndpointReference[] = selectedSources
+    // Build EndpointRef array for data sources
+    const dataSourceReferences = selectedSources
       .map((id) => {
         const source = availableSources.find((s) => s.id === id);
         if (!source?.url || !source.slug) return null;
@@ -638,14 +643,10 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
           url: source.url,
           slug: source.slug,
           name: source.name,
-          tenant_name: source.tenant_name
-        } as EndpointReference;
+          tenantName: source.tenant_name
+        } as EndpointRef;
       })
-      .filter((reference): reference is EndpointReference => reference !== null);
-
-    const request = buildChatRequest(inputValue, user.email, modelReference, dataSourceReferences, {
-      stream: true
-    });
+      .filter((ref): ref is EndpointRef => ref !== null);
 
     // Create abort controller for cancellation
     abortControllerReference.current = new AbortController();
@@ -653,14 +654,13 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
     try {
       let accumulatedContent = '';
 
-      // Get auth token from SDK client
-      const authToken = syftClient.getTokens()?.accessToken;
-
-      for await (const event of streamChatRequest(
-        request,
-        authToken,
-        abortControllerReference.current.signal
-      )) {
+      // Use SDK for streaming - handles auth and user_email internally
+      for await (const event of syftClient.chat.stream({
+        prompt: inputValue,
+        model: modelReference,
+        dataSources: dataSourceReferences,
+        signal: abortControllerReference.current.signal
+      })) {
         processStreamEvent(event, (content) => {
           accumulatedContent += content;
           setMessages((previous) =>
@@ -669,11 +669,22 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
         });
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
+      // Handle SDK-specific errors
+      let errorMessage = 'An unexpected error occurred';
 
-      // Don't show error if it was aborted
       if (error instanceof Error && error.name === 'AbortError') {
+        // Don't show error if it was aborted
         return;
+      }
+
+      if (error instanceof AuthenticationError) {
+        errorMessage = 'Authentication required. Please log in again.';
+      } else if (error instanceof AggregatorError) {
+        errorMessage = `Chat service error: ${error.message}`;
+      } else if (error instanceof EndpointResolutionError) {
+        errorMessage = `Could not resolve endpoint: ${error.message}`;
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
       }
 
       setMessages((previous) =>

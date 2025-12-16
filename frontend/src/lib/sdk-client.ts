@@ -162,6 +162,9 @@ export {
   NotFoundError,
   ValidationError,
   NetworkError,
+  // Chat-specific errors
+  AggregatorError,
+  EndpointResolutionError,
   // Enums
   Visibility,
   EndpointType,
@@ -179,6 +182,28 @@ export type {
   Connection,
   UserUpdateInput,
   PasswordChangeInput
+} from '@syfthub/sdk';
+
+// Re-export chat types for frontend usage
+export type {
+  // Chat options and response
+  ChatOptions,
+  ChatResponse,
+  ChatMetadata,
+  // Endpoint reference
+  EndpointRef,
+  // Source information
+  SourceInfo,
+  SourceStatus,
+  // Streaming event types
+  ChatStreamEvent,
+  RetrievalStartEvent,
+  SourceCompleteEvent,
+  RetrievalCompleteEvent,
+  GenerationStartEvent,
+  TokenEvent,
+  DoneEvent,
+  ErrorEvent
 } from '@syfthub/sdk';
 
 /**

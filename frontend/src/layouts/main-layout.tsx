@@ -4,6 +4,7 @@ import { LogOut, Settings, User } from 'lucide-react';
 import { Outlet, useNavigate } from 'react-router-dom';
 
 import { AuthModals } from '@/components/auth/auth-modals';
+import { BalanceIndicator } from '@/components/balance';
 import { SettingsModal } from '@/components/settings/settings-modal';
 import { Sidebar } from '@/components/sidebar';
 import { Button } from '@/components/ui/button';
@@ -53,43 +54,49 @@ export function MainLayout() {
       {/* User Menu - Top Right */}
       <div className='fixed top-4 right-4 z-40 flex items-center gap-3'>
         {user ? (
-          <div className='border-syft-border flex items-center gap-3 rounded-lg border bg-white/95 px-3 py-2 shadow-sm backdrop-blur-sm'>
-            <button
-              onClick={() => navigate('/profile')}
-              className='flex items-center gap-2 rounded-md p-1 transition-colors hover:bg-gray-100'
-            >
-              {user.avatar_url ? (
-                <img src={user.avatar_url} alt={user.name} className='h-6 w-6 rounded-full' />
-              ) : (
-                <div className='bg-syft-primary flex h-6 w-6 items-center justify-center rounded-full'>
-                  <User className='h-3 w-3 text-white' />
-                </div>
-              )}
-              <span className='font-inter text-syft-primary text-sm font-medium'>
-                {user.name || user.email}
-              </span>
-            </button>
-            <Button
-              variant='ghost'
-              size='icon'
-              onClick={() => {
-                openSettings();
-              }}
-              className='text-syft-muted hover:text-syft-primary h-6 w-6'
-              aria-label='Settings'
-            >
-              <Settings className='h-3 w-3' />
-            </Button>
-            <Button
-              variant='ghost'
-              size='icon'
-              onClick={handleLogout}
-              className='text-syft-muted hover:text-syft-primary h-6 w-6'
-              aria-label='Logout'
-            >
-              <LogOut className='h-3 w-3' />
-            </Button>
-          </div>
+          <>
+            {/* Balance Indicator */}
+            <BalanceIndicator />
+
+            {/* User Info & Actions */}
+            <div className='border-syft-border flex items-center gap-3 rounded-lg border bg-white/95 px-3 py-2 shadow-sm backdrop-blur-sm'>
+              <button
+                onClick={() => navigate('/profile')}
+                className='flex items-center gap-2 rounded-md p-1 transition-colors hover:bg-gray-100'
+              >
+                {user.avatar_url ? (
+                  <img src={user.avatar_url} alt={user.name} className='h-6 w-6 rounded-full' />
+                ) : (
+                  <div className='bg-syft-primary flex h-6 w-6 items-center justify-center rounded-full'>
+                    <User className='h-3 w-3 text-white' />
+                  </div>
+                )}
+                <span className='font-inter text-syft-primary text-sm font-medium'>
+                  {user.name || user.email}
+                </span>
+              </button>
+              <Button
+                variant='ghost'
+                size='icon'
+                onClick={() => {
+                  openSettings();
+                }}
+                className='text-syft-muted hover:text-syft-primary h-6 w-6'
+                aria-label='Settings'
+              >
+                <Settings className='h-3 w-3' />
+              </Button>
+              <Button
+                variant='ghost'
+                size='icon'
+                onClick={handleLogout}
+                className='text-syft-muted hover:text-syft-primary h-6 w-6'
+                aria-label='Logout'
+              >
+                <LogOut className='h-3 w-3' />
+              </Button>
+            </div>
+          </>
         ) : (
           <div className='flex items-center gap-2'>
             <Button variant='ghost' size='sm' onClick={openLogin} className='font-inter'>
