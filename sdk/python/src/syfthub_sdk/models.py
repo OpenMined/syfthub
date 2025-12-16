@@ -217,11 +217,6 @@ class Transaction(BaseModel):
         return self.status == TransactionStatus.CANCELLED
 
 
-# Backward compatibility aliases (deprecated)
-AccountingBalance = AccountingUser  # Use AccountingUser instead
-AccountingTransaction = Transaction  # Use Transaction instead
-
-
 class AccountingCredentials(BaseModel):
     """Credentials for connecting to an external accounting service.
 

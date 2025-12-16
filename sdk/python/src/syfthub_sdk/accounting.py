@@ -608,34 +608,3 @@ class AccountingResource:
         if self._client is not None:
             self._client.close()
             self._client = None
-
-    # =========================================================================
-    # Convenience Properties (Backward Compatibility)
-    # =========================================================================
-
-    def balance(self) -> AccountingUser:
-        """Get account balance (alias for get_user()).
-
-        Deprecated: Use get_user() instead.
-
-        Returns:
-            AccountingUser with balance information
-        """
-        return self.get_user()
-
-    def transactions(
-        self,
-        *,
-        page_size: int = 20,
-    ) -> PageIterator[Transaction]:
-        """List transactions (alias for get_transactions()).
-
-        Deprecated: Use get_transactions() instead.
-
-        Args:
-            page_size: Number of items per page
-
-        Returns:
-            PageIterator of Transaction objects
-        """
-        return self.get_transactions(page_size=page_size)

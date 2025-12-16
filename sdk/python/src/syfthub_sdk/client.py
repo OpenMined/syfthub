@@ -49,7 +49,7 @@ class SyftHubClient:
             print(public_ep.path)
 
         # With accounting (credentials from env or explicit)
-        balance = client.accounting.balance()
+        user = client.accounting.get_user()
 
         # Context manager for cleanup
         with SyftHubClient() as client:

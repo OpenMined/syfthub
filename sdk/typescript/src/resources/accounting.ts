@@ -560,31 +560,6 @@ export class AccountingResource {
 
     return parseTransaction(response);
   }
-
-  // ===========================================================================
-  // Convenience Methods (Backward Compatibility)
-  // ===========================================================================
-
-  /**
-   * Get account balance (alias for getUser()).
-   *
-   * @deprecated Use getUser() instead.
-   * @returns AccountingUser with balance information
-   */
-  async balance(): Promise<AccountingUser> {
-    return this.getUser();
-  }
-
-  /**
-   * List transactions (alias for getTransactions()).
-   *
-   * @deprecated Use getTransactions() instead.
-   * @param options - Pagination options
-   * @returns PageIterator of Transaction objects
-   */
-  transactions(options?: TransactionsOptions): PageIterator<Transaction> {
-    return this.getTransactions(options);
-  }
 }
 
 // =============================================================================

@@ -23,8 +23,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '@/context/auth-context';
-// eslint-disable-next-line sonarjs/deprecation -- Using legacy wrappers for backward compatibility
-import { deleteEndpoint, getUserEndpoints, updateEndpoint } from '@/lib/endpoint-utils';
+import { deleteEndpointByPath, getUserEndpoints, updateEndpointByPath } from '@/lib/endpoint-utils';
 
 import { ParticipateView } from './participate-view';
 import { Badge } from './ui/badge';
@@ -129,8 +128,8 @@ export function EndpointManagement() {
         throw new Error('Endpoint not found');
       }
 
-      // eslint-disable-next-line sonarjs/deprecation, @typescript-eslint/no-deprecated -- Using legacy wrapper for backward compatibility
-      const updatedEndpoint = await updateEndpoint(id, editData, user.username, endpoint.slug);
+      const path = `${user.username}/${endpoint.slug}`;
+      const updatedEndpoint = await updateEndpointByPath(path, editData);
 
       setEndpoints((previous) => previous.map((ds) => (ds.id === id ? updatedEndpoint : ds)));
 
@@ -167,8 +166,8 @@ export function EndpointManagement() {
         throw new Error('Endpoint not found');
       }
 
-      // eslint-disable-next-line sonarjs/deprecation, @typescript-eslint/no-deprecated -- Using legacy wrapper for backward compatibility
-      await deleteEndpoint(id, user.username, endpoint.slug);
+      const path = `${user.username}/${endpoint.slug}`;
+      await deleteEndpointByPath(path);
       setEndpoints((previous) => previous.filter((ds) => ds.id !== id));
       setSuccess('Endpoint deleted successfully!');
 

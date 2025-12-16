@@ -106,9 +106,6 @@ export type {
   UpdatePasswordInput,
   TransactionResponse,
   TransactionTokenResponse,
-  // Backward compatibility (deprecated)
-  AccountingBalance,
-  AccountingTransaction,
   // Chat types
   EndpointRef,
   Document,

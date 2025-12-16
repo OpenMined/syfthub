@@ -314,47 +314,6 @@ export async function deleteEndpointByPath(path: string): Promise<void> {
 }
 
 // ============================================================================
-// Legacy ID-based Functions (For backward compatibility)
-// ============================================================================
-
-/**
- * Update an endpoint by ID.
- *
- * @deprecated Use updateEndpointByPath instead for better performance.
- * @param id - Endpoint ID (requires additional API call to resolve path)
- * @param updateData - Fields to update
- * @param ownerUsername - Username of the endpoint owner
- * @param slug - Slug of the endpoint
- * @returns Updated EndpointResponse
- */
-export async function updateEndpoint(
-  _id: number,
-  updateData: EndpointUpdate,
-  ownerUsername: string,
-  slug: string
-): Promise<EndpointResponse> {
-  const path = `${ownerUsername}/${slug}`;
-  return updateEndpointByPath(path, updateData);
-}
-
-/**
- * Delete an endpoint by ID.
- *
- * @deprecated Use deleteEndpointByPath instead for better performance.
- * @param id - Endpoint ID (not actually used, kept for signature compatibility)
- * @param ownerUsername - Username of the endpoint owner
- * @param slug - Slug of the endpoint
- */
-export async function deleteEndpoint(
-  _id: number,
-  ownerUsername: string,
-  slug: string
-): Promise<void> {
-  const path = `${ownerUsername}/${slug}`;
-  await deleteEndpointByPath(path);
-}
-
-// ============================================================================
 // Chat Data Source Utilities
 // ============================================================================
 
@@ -443,10 +402,3 @@ export async function getChatModels(limit = 20): Promise<ChatSource[]> {
     return [];
   }
 }
-
-// ============================================================================
-// Re-export for backward compatibility
-// ============================================================================
-
-// Keep the old function name as alias
-export { mapEndpointPublicToSource as mapEndpointToSource };

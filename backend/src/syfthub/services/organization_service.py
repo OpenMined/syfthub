@@ -84,7 +84,7 @@ class OrganizationService(BaseService):
         return OrganizationResponse.model_validate(organization)
 
     def get_organization_by_slug(self, slug: str) -> Optional[OrganizationResponse]:
-        """Get organization by slug (for backward compatibility)."""
+        """Get organization by slug."""
         organization = self.org_repository.get_by_slug(slug)
         if organization:
             return OrganizationResponse.model_validate(organization)

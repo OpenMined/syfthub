@@ -186,17 +186,3 @@ export function isTransactionCompleted(tx: Transaction): boolean {
 export function isTransactionCancelled(tx: Transaction): boolean {
   return tx.status === TransactionStatus.CANCELLED;
 }
-
-// =============================================================================
-// Backward Compatibility
-// =============================================================================
-
-/**
- * @deprecated Use AccountingUser instead
- */
-export type AccountingBalance = AccountingUser;
-
-/**
- * @deprecated Use Transaction instead
- */
-export type AccountingTransaction = Transaction;

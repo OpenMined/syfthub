@@ -57,9 +57,6 @@ from syfthub_sdk.exceptions import (
     ValidationError,
 )
 from syfthub_sdk.models import (
-    # Backward compatibility aliases (deprecated)
-    AccountingBalance,
-    AccountingTransaction,
     # Accounting models
     AccountingCredentials,
     AccountingUser,
@@ -128,9 +125,6 @@ __all__ = [
     "Transaction",
     "TransactionStatus",
     "CreatorType",
-    # Backward compatibility (deprecated)
-    "AccountingBalance",
-    "AccountingTransaction",
     # Exceptions
     "SyftHubError",
     "AuthenticationError",
