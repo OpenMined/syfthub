@@ -332,6 +332,7 @@ export class ChatResource {
         Accept: 'text/event-stream',
       },
       body: JSON.stringify(requestBody),
+      signal: options.signal,
     });
 
     if (!response.ok) {

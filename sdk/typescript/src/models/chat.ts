@@ -111,6 +111,8 @@ export interface ChatOptions {
   temperature?: number;
   /** Minimum similarity for retrieved docs (default: 0.5) */
   similarityThreshold?: number;
+  /** AbortSignal for request cancellation */
+  signal?: AbortSignal;
 }
 
 /**
