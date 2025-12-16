@@ -1,14 +1,18 @@
 """Test main FastAPI application."""
 
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from syfthub.main import (
+    PROXY_TIMEOUT_DATA_SOURCE,
+    PROXY_TIMEOUT_MODEL,
     app,
     can_access_endpoint_with_org,
+    extract_url_from_connections,
     get_endpoint_by_owner_and_slug,
     get_owner_endpoints,
     main,
@@ -633,6 +637,458 @@ class TestUtilityFunctions:
 
         assert result is False
         mock_is_member.assert_called_once_with(1, 2, mock_member_repo)
+
+
+class TestExtractUrlFromConnections:
+    """Tests for extract_url_from_connections helper function."""
+
+    def test_extract_url_from_first_enabled_connection(self):
+        """Test extracting URL from first enabled connection."""
+        connections = [
+            {
+                "type": "http",
+                "enabled": True,
+                "config": {"url": "http://endpoint1.example.com"},
+            }
+        ]
+        result = extract_url_from_connections(connections, "owner/endpoint")
+        assert result == "http://endpoint1.example.com"
+
+    def test_extract_url_skips_disabled_connections(self):
+        """Test that disabled connections are skipped."""
+        connections = [
+            {
+                "type": "http",
+                "enabled": False,
+                "config": {"url": "http://disabled.example.com"},
+            },
+            {
+                "type": "http",
+                "enabled": True,
+                "config": {"url": "http://enabled.example.com"},
+            },
+        ]
+        result = extract_url_from_connections(connections, "owner/endpoint")
+        assert result == "http://enabled.example.com"
+
+    def test_extract_url_defaults_enabled_to_true(self):
+        """Test that connections without enabled field default to True."""
+        connections = [
+            {
+                "type": "http",
+                "config": {"url": "http://default-enabled.example.com"},
+            }
+        ]
+        result = extract_url_from_connections(connections, "owner/endpoint")
+        assert result == "http://default-enabled.example.com"
+
+    def test_extract_url_fallback_to_first_connection(self):
+        """Test fallback to first connection when no enabled ones have URL."""
+        connections = [
+            {
+                "type": "http",
+                "enabled": False,
+                "config": {"url": "http://fallback.example.com"},
+            }
+        ]
+        result = extract_url_from_connections(connections, "owner/endpoint")
+        assert result == "http://fallback.example.com"
+
+    def test_extract_url_empty_connections_raises_error(self):
+        """Test that empty connections list raises HTTPException."""
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            extract_url_from_connections([], "owner/endpoint")
+
+        assert exc_info.value.status_code == 400
+        assert "no connections configured" in exc_info.value.detail
+
+    def test_extract_url_no_url_in_config_raises_error(self):
+        """Test that missing URL raises HTTPException."""
+        from fastapi import HTTPException
+
+        connections = [
+            {
+                "type": "http",
+                "enabled": True,
+                "config": {},  # No URL
+            }
+        ]
+
+        with pytest.raises(HTTPException) as exc_info:
+            extract_url_from_connections(connections, "owner/endpoint")
+
+        assert exc_info.value.status_code == 400
+        assert "No URL found" in exc_info.value.detail
+
+
+class TestTimeoutConstants:
+    """Tests for timeout configuration constants."""
+
+    def test_data_source_timeout(self):
+        """Test data source timeout is 30 seconds."""
+        assert PROXY_TIMEOUT_DATA_SOURCE == 30.0
+
+    def test_model_timeout(self):
+        """Test model timeout is 120 seconds."""
+        assert PROXY_TIMEOUT_MODEL == 120.0
+
+
+class TestInvokeOwnerEndpoint:
+    """Tests for the POST /{owner_slug}/{endpoint_slug} proxy endpoint."""
+
+    @pytest.fixture
+    def mock_endpoint_with_connection(self):
+        """Create a test endpoint with connection configured."""
+        return Endpoint(
+            id=101,
+            user_id=1,
+            name="Test Model",
+            slug="test-model",
+            description="A test model endpoint",
+            type=EndpointType.MODEL,
+            visibility=EndpointVisibility.PUBLIC,
+            is_active=True,
+            contributors=[],
+            version="1.0.0",
+            readme="",
+            stars_count=0,
+            policies=[],
+            connect=[
+                {
+                    "type": "http",
+                    "enabled": True,
+                    "description": "HTTP connection",
+                    "config": {"url": "http://syftai-space:8080"},
+                }
+            ],
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+    @pytest.fixture
+    def mock_data_source_endpoint(self):
+        """Create a test data source endpoint."""
+        return Endpoint(
+            id=102,
+            user_id=1,
+            name="Test Data Source",
+            slug="test-datasource",
+            description="A test data source endpoint",
+            type=EndpointType.DATA_SOURCE,
+            visibility=EndpointVisibility.PUBLIC,
+            is_active=True,
+            contributors=[],
+            version="1.0.0",
+            readme="",
+            stars_count=0,
+            policies=[],
+            connect=[
+                {
+                    "type": "http",
+                    "enabled": True,
+                    "config": {"url": "http://syftai-space:8080"},
+                }
+            ],
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+    @pytest.fixture
+    def mock_user(self):
+        """Create a test user."""
+        return User(
+            id=1,
+            username="testuser",
+            email="test@example.com",
+            full_name="Test User",
+            age=30,
+            role=UserRole.USER,
+            password_hash="hash",
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+    @patch("syfthub.main.httpx.AsyncClient")
+    @patch("syfthub.main.get_endpoint_by_owner_and_slug")
+    @patch("syfthub.main.resolve_owner")
+    @patch("syfthub.main.get_optional_current_user")
+    def test_invoke_endpoint_success(
+        self,
+        mock_get_user,
+        mock_resolve,
+        mock_get_endpoint,
+        mock_async_client,
+        client,
+        mock_endpoint_with_connection,
+        mock_user,
+    ):
+        """Test successful endpoint invocation."""
+        # Setup mocks
+        mock_get_user.return_value = None  # Public endpoint, no auth needed
+        mock_resolve.return_value = (mock_user, "user")
+        mock_get_endpoint.return_value = mock_endpoint_with_connection
+
+        # Setup httpx mock response
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "summary": {"message": {"content": "Hello from endpoint"}}
+        }
+
+        # Use AsyncMock for async context manager
+        mock_client_instance = AsyncMock()
+        mock_client_instance.post.return_value = mock_response
+        mock_async_client.return_value.__aenter__.return_value = mock_client_instance
+
+        # Make request
+        response = client.post(
+            "/testuser/test-model",
+            json={
+                "user_email": "test@example.com",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "summary" in data
+
+    @patch("syfthub.main.resolve_owner")
+    @patch("syfthub.main.get_optional_current_user")
+    def test_invoke_endpoint_owner_not_found(self, mock_get_user, mock_resolve, client):
+        """Test endpoint invocation with non-existent owner."""
+        mock_get_user.return_value = None
+        mock_resolve.return_value = (None, "")
+
+        response = client.post(
+            "/nonexistent/test-model",
+            json={"user_email": "test@example.com"},
+        )
+
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"]
+
+    @patch("syfthub.main.get_endpoint_by_owner_and_slug")
+    @patch("syfthub.main.resolve_owner")
+    @patch("syfthub.main.get_optional_current_user")
+    def test_invoke_endpoint_not_found(
+        self, mock_get_user, mock_resolve, mock_get_endpoint, client, mock_user
+    ):
+        """Test endpoint invocation with non-existent endpoint."""
+        mock_get_user.return_value = None
+        mock_resolve.return_value = (mock_user, "user")
+        mock_get_endpoint.return_value = None
+
+        response = client.post(
+            "/testuser/nonexistent",
+            json={"user_email": "test@example.com"},
+        )
+
+        assert response.status_code == 404
+
+    @patch("syfthub.main.get_endpoint_by_owner_and_slug")
+    @patch("syfthub.main.resolve_owner")
+    @patch("syfthub.main.get_optional_current_user")
+    def test_invoke_endpoint_no_connection(
+        self, mock_get_user, mock_resolve, mock_get_endpoint, client, mock_user
+    ):
+        """Test endpoint invocation with no connections configured."""
+        endpoint_no_connection = Endpoint(
+            id=101,
+            user_id=1,
+            name="No Connection",
+            slug="no-connection",
+            description="Endpoint without connection",
+            type=EndpointType.MODEL,
+            visibility=EndpointVisibility.PUBLIC,
+            is_active=True,
+            contributors=[],
+            version="1.0.0",
+            readme="",
+            stars_count=0,
+            policies=[],
+            connect=[],  # No connections
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        mock_get_user.return_value = None
+        mock_resolve.return_value = (mock_user, "user")
+        mock_get_endpoint.return_value = endpoint_no_connection
+
+        response = client.post(
+            "/testuser/no-connection",
+            json={"user_email": "test@example.com"},
+        )
+
+        assert response.status_code == 400
+        assert "no connections configured" in response.json()["detail"]
+
+    @patch("syfthub.main.httpx.AsyncClient")
+    @patch("syfthub.main.get_endpoint_by_owner_and_slug")
+    @patch("syfthub.main.resolve_owner")
+    @patch("syfthub.main.get_optional_current_user")
+    def test_invoke_endpoint_timeout(
+        self,
+        mock_get_user,
+        mock_resolve,
+        mock_get_endpoint,
+        mock_async_client,
+        client,
+        mock_endpoint_with_connection,
+        mock_user,
+    ):
+        """Test endpoint invocation with timeout."""
+        mock_get_user.return_value = None
+        mock_resolve.return_value = (mock_user, "user")
+        mock_get_endpoint.return_value = mock_endpoint_with_connection
+
+        # Simulate timeout with AsyncMock
+        mock_client_instance = AsyncMock()
+        mock_client_instance.post.side_effect = httpx.TimeoutException("Timeout")
+        mock_async_client.return_value.__aenter__.return_value = mock_client_instance
+
+        response = client.post(
+            "/testuser/test-model",
+            json={"user_email": "test@example.com"},
+        )
+
+        assert response.status_code == 504
+        assert "timed out" in response.json()["detail"]
+
+    @patch("syfthub.main.httpx.AsyncClient")
+    @patch("syfthub.main.get_endpoint_by_owner_and_slug")
+    @patch("syfthub.main.resolve_owner")
+    @patch("syfthub.main.get_optional_current_user")
+    def test_invoke_endpoint_connection_error(
+        self,
+        mock_get_user,
+        mock_resolve,
+        mock_get_endpoint,
+        mock_async_client,
+        client,
+        mock_endpoint_with_connection,
+        mock_user,
+    ):
+        """Test endpoint invocation with connection error."""
+        mock_get_user.return_value = None
+        mock_resolve.return_value = (mock_user, "user")
+        mock_get_endpoint.return_value = mock_endpoint_with_connection
+
+        # Simulate connection error with AsyncMock
+        mock_client_instance = AsyncMock()
+        mock_client_instance.post.side_effect = httpx.RequestError("Connection refused")
+        mock_async_client.return_value.__aenter__.return_value = mock_client_instance
+
+        response = client.post(
+            "/testuser/test-model",
+            json={"user_email": "test@example.com"},
+        )
+
+        assert response.status_code == 502
+        assert "Failed to connect" in response.json()["detail"]
+
+    @patch("syfthub.main.httpx.AsyncClient")
+    @patch("syfthub.main.get_endpoint_by_owner_and_slug")
+    @patch("syfthub.main.resolve_owner")
+    @patch("syfthub.main.get_optional_current_user")
+    def test_invoke_endpoint_403_forbidden(
+        self,
+        mock_get_user,
+        mock_resolve,
+        mock_get_endpoint,
+        mock_async_client,
+        client,
+        mock_endpoint_with_connection,
+        mock_user,
+    ):
+        """Test endpoint invocation with 403 from target."""
+        mock_get_user.return_value = None
+        mock_resolve.return_value = (mock_user, "user")
+        mock_get_endpoint.return_value = mock_endpoint_with_connection
+
+        # Simulate 403 response
+        mock_response = Mock()
+        mock_response.status_code = 403
+        mock_response.json.return_value = {"detail": "User not in visibility list"}
+
+        mock_client_instance = AsyncMock()
+        mock_client_instance.post.return_value = mock_response
+        mock_async_client.return_value.__aenter__.return_value = mock_client_instance
+
+        response = client.post(
+            "/testuser/test-model",
+            json={"user_email": "test@example.com"},
+        )
+
+        assert response.status_code == 403
+        assert "denied access" in response.json()["detail"]
+
+    @patch("syfthub.main.httpx.AsyncClient")
+    @patch("syfthub.main.get_endpoint_by_owner_and_slug")
+    @patch("syfthub.main.resolve_owner")
+    @patch("syfthub.main.get_optional_current_user")
+    def test_invoke_endpoint_target_error(
+        self,
+        mock_get_user,
+        mock_resolve,
+        mock_get_endpoint,
+        mock_async_client,
+        client,
+        mock_endpoint_with_connection,
+        mock_user,
+    ):
+        """Test endpoint invocation with error from target."""
+        mock_get_user.return_value = None
+        mock_resolve.return_value = (mock_user, "user")
+        mock_get_endpoint.return_value = mock_endpoint_with_connection
+
+        # Simulate 500 response
+        mock_response = Mock()
+        mock_response.status_code = 500
+        mock_response.json.return_value = {"detail": "Internal server error"}
+        mock_response.text = "Internal server error"
+
+        mock_client_instance = AsyncMock()
+        mock_client_instance.post.return_value = mock_response
+        mock_async_client.return_value.__aenter__.return_value = mock_client_instance
+
+        response = client.post(
+            "/testuser/test-model",
+            json={"user_email": "test@example.com"},
+        )
+
+        assert response.status_code == 500
+        assert "Target endpoint error" in response.json()["detail"]
+
+    @patch("syfthub.main.get_endpoint_by_owner_and_slug")
+    @patch("syfthub.main.resolve_owner")
+    @patch("syfthub.main.get_optional_current_user")
+    def test_invoke_endpoint_invalid_json_body(
+        self,
+        mock_get_user,
+        mock_resolve,
+        mock_get_endpoint,
+        client,
+        mock_user,
+        mock_endpoint_with_connection,
+    ):
+        """Test endpoint invocation with invalid JSON body."""
+        mock_get_user.return_value = None
+        mock_resolve.return_value = (mock_user, "user")
+        mock_get_endpoint.return_value = mock_endpoint_with_connection
+
+        response = client.post(
+            "/testuser/test-model",
+            content="not valid json",
+            headers={"Content-Type": "application/json"},
+        )
+
+        assert response.status_code == 400
+        assert "Invalid JSON" in response.json()["detail"]
 
 
 class TestMainEntryPoint:

@@ -1,10 +1,12 @@
 """Main FastAPI application."""
 
+import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Optional, Union
+from typing import Annotated, Any, Optional, Union, cast
 
+import httpx
 import markdown
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,6 +35,7 @@ from syfthub.schemas.endpoint import (
     Endpoint,
     EndpointPublicResponse,
     EndpointResponse,
+    EndpointType,
     EndpointVisibility,
 )
 from syfthub.schemas.organization import Organization
@@ -41,6 +44,57 @@ from syfthub.schemas.user import User
 # Setup Jinja2 templates
 templates_dir = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(templates_dir))
+
+# Timeout configuration for endpoint proxying (in seconds)
+PROXY_TIMEOUT_DATA_SOURCE = 30.0
+PROXY_TIMEOUT_MODEL = 120.0
+
+
+def extract_url_from_connections(
+    connections: list[dict[str, Any]], endpoint_path: str
+) -> str:
+    """Extract the URL from endpoint connections config.
+
+    Args:
+        connections: List of connection configurations from the endpoint
+        endpoint_path: Path identifier for error messages (e.g., "owner/endpoint")
+
+    Returns:
+        The URL from the first enabled connection with a URL configured
+
+    Raises:
+        HTTPException: If no URL can be found in the connections
+    """
+    if not connections:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Endpoint '{endpoint_path}' has no connections configured",
+        )
+
+    # Find the first enabled connection with a URL
+    for conn in connections:
+        if not conn.get("enabled", True):
+            continue
+
+        config = conn.get("config", {})
+        url = config.get("url")
+
+        # isinstance validates at runtime, cast tells mypy the type
+        if url and isinstance(url, str):
+            return cast("str", url)
+
+    # Fallback to first connection's URL
+    first_config = connections[0].get("config", {})
+    url = first_config.get("url")
+
+    # Validate URL exists and is a string
+    if not url or not isinstance(url, str):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No URL found in endpoint connections for '{endpoint_path}'",
+        )
+
+    return cast("str", url)
 
 
 # Local helper functions to avoid circular imports
@@ -478,6 +532,175 @@ async def get_owner_endpoint(
                     owner.slug if isinstance(owner, Organization) else ""
                 )
             return EndpointPublicResponse.model_validate(endpoint_dict)
+
+
+@app.post("/{owner_slug}/{endpoint_slug}", response_model=None)
+async def invoke_owner_endpoint(
+    request: Request,
+    owner_slug: str,
+    endpoint_slug: str,
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
+    endpoint_repo: Annotated[EndpointRepository, Depends(get_endpoint_repository)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    org_repo: Annotated[OrganizationRepository, Depends(get_organization_repository)],
+    member_repo: Annotated[
+        OrganizationMemberRepository, Depends(get_organization_member_repository)
+    ],
+) -> JSONResponse:
+    """Invoke a specific endpoint by owner and slug.
+
+    This endpoint handles POST requests to /{owner_slug}/{endpoint_slug} for
+    invoking/executing the endpoint's functionality.
+    """
+    # Resolve owner (user or organization)
+    owner, owner_type = resolve_owner(owner_slug, user_repo, org_repo)
+    if not owner:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Owner or endpoint not found"
+        )
+
+    # Get endpoint by owner and slug
+    endpoint = get_endpoint_by_owner_and_slug(
+        owner, owner_type, endpoint_slug.lower(), endpoint_repo
+    )
+    if not endpoint or not endpoint.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Owner or endpoint not found"
+        )
+
+    # Check access permissions
+    if not can_access_endpoint_with_org(
+        endpoint, current_user, owner_type, member_repo
+    ):
+        if current_user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required to access this endpoint",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        else:
+            # Return 404 for private endpoints to hide existence (like GitHub)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Owner or endpoint not found",
+            )
+
+    # Extract URL from endpoint's connection configuration
+    endpoint_path = f"{owner_slug}/{endpoint_slug}"
+
+    # Convert Connection objects to dicts for the helper function
+    connections_data = [
+        conn.model_dump() if hasattr(conn, "model_dump") else dict(conn)
+        for conn in endpoint.connect
+    ]
+    target_url = extract_url_from_connections(connections_data, endpoint_path)
+
+    # Build the query URL following the SyftAI-Space API pattern
+    query_url = f"{target_url.rstrip('/')}/api/v1/endpoints/{endpoint_slug}/query"
+
+    # Get the request body
+    try:
+        request_body = await request.json()
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid JSON request body",
+        ) from None
+
+    # Set timeout based on endpoint type
+    timeout = (
+        PROXY_TIMEOUT_DATA_SOURCE
+        if endpoint.type == EndpointType.DATA_SOURCE
+        else PROXY_TIMEOUT_MODEL
+    )
+
+    # Prepare headers for the proxied request
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+
+    # Forward X-Tenant-Name header if present (for multi-tenancy)
+    tenant_header = request.headers.get("X-Tenant-Name")
+    if tenant_header:
+        headers["X-Tenant-Name"] = tenant_header
+
+    # Make the proxied request to the target endpoint
+    start_time = time.perf_counter()
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(
+                query_url,
+                json=request_body,
+                headers=headers,
+            )
+
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
+
+        # Handle different response status codes
+        if response.status_code == 200:
+            # Success - return the response from the target endpoint
+            try:
+                response_data = response.json()
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content=response_data,
+                    headers={"X-Proxy-Latency-Ms": str(latency_ms)},
+                )
+            except Exception:
+                # Response is not JSON, return as-is
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={"raw_response": response.text},
+                    headers={"X-Proxy-Latency-Ms": str(latency_ms)},
+                )
+
+        elif response.status_code == 403:
+            # Access denied by target endpoint
+            try:
+                error_detail = response.json().get("detail", "Access denied")
+            except Exception:
+                error_detail = response.text[:200] or "Access denied"
+
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Target endpoint denied access: {error_detail}",
+            )
+
+        else:
+            # Other error from target endpoint
+            try:
+                error_data = response.json()
+                error_detail = error_data.get("detail", str(error_data))
+            except Exception:
+                error_detail = response.text[:200] or f"HTTP {response.status_code}"
+
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=f"Target endpoint error: {error_detail}",
+            )
+
+    except httpx.TimeoutException:
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail=f"Request to target endpoint timed out after {timeout}s",
+        ) from None
+
+    except httpx.RequestError as e:
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to connect to target endpoint: {e}",
+        ) from None
+
+    except HTTPException:
+        # Re-raise HTTPExceptions as-is
+        raise
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Unexpected error during proxy request: {e}",
+        ) from None
 
 
 def main() -> None:
