@@ -23,6 +23,21 @@
  *   console.log(ep.name);
  * }
  *
+ * // Chat with RAG via aggregator
+ * const response = await client.chat.complete({
+ *   prompt: 'What is machine learning?',
+ *   model: 'alice/gpt-model',
+ *   dataSources: ['bob/ml-docs'],
+ * });
+ * console.log(response.response);
+ *
+ * // Streaming chat
+ * for await (const event of client.chat.stream(options)) {
+ *   if (event.type === 'token') {
+ *     process.stdout.write(event.content);
+ *   }
+ * }
+ *
  * @packageDocumentation
  */
 
@@ -43,6 +58,16 @@ export {
   ValidationError,
   NetworkError,
 } from './errors.js';
+
+// Chat-specific errors
+export {
+  AggregatorError,
+  EndpointResolutionError,
+} from './resources/chat.js';
+export {
+  RetrievalError,
+  GenerationError,
+} from './resources/syftai.js';
 
 // Pagination
 export { PageIterator } from './pagination.js';
@@ -84,6 +109,26 @@ export type {
   // Backward compatibility (deprecated)
   AccountingBalance,
   AccountingTransaction,
+  // Chat types
+  EndpointRef,
+  Document,
+  SourceStatus,
+  SourceInfo,
+  ChatMetadata,
+  ChatResponse,
+  Message,
+  ChatOptions,
+  QueryDataSourceOptions,
+  QueryModelOptions,
+  // Chat streaming events
+  ChatStreamEvent,
+  RetrievalStartEvent,
+  SourceCompleteEvent,
+  RetrievalCompleteEvent,
+  GenerationStartEvent,
+  TokenEvent,
+  DoneEvent,
+  ErrorEvent,
 } from './models/index.js';
 
 // Model helpers
@@ -106,6 +151,12 @@ export type {
   AccountingResourceOptions,
   TransactionsOptions,
 } from './resources/accounting.js';
+
+// Chat Resource (for type hints)
+export { ChatResource } from './resources/chat.js';
+
+// SyftAI Resource (for type hints)
+export { SyftAIResource } from './resources/syftai.js';
 
 // Resource option types (for type-safe usage)
 export type { ListEndpointsOptions } from './resources/my-endpoints.js';

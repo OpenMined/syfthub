@@ -234,3 +234,125 @@ class AccountingCredentials(BaseModel):
     password: str | None = Field(None, description="Accounting service password")
 
     model_config = {"frozen": True}
+
+
+# =============================================================================
+# Chat Models (for Aggregator integration)
+# =============================================================================
+
+
+class SourceStatus(str, Enum):
+    """Status of a data source query."""
+
+    SUCCESS = "success"
+    ERROR = "error"
+    TIMEOUT = "timeout"
+
+
+class EndpointRef(BaseModel):
+    """Reference to a SyftAI-Space endpoint with connection details.
+
+    This is used to specify endpoints for chat operations. It can be
+    constructed manually or resolved from an EndpointPublic object.
+
+    Example:
+        # Direct construction
+        ref = EndpointRef(
+            url="http://syftai-space:8080",
+            slug="my-model",
+            name="My Model",
+        )
+
+        # From endpoint path (via ChatResource)
+        response = client.chat.complete(
+            prompt="Hello",
+            model="alice/my-model",  # Resolved automatically
+        )
+    """
+
+    url: str = Field(..., description="Base URL of the SyftAI-Space instance")
+    slug: str = Field(..., description="Endpoint slug for the API path")
+    name: str = Field(default="", description="Display name of the endpoint")
+    tenant_name: str | None = Field(
+        default=None, description="Tenant name for X-Tenant-Name header"
+    )
+
+    model_config = {"frozen": True}
+
+
+class Document(BaseModel):
+    """A document retrieved from a data source.
+
+    Returned as part of retrieval results when querying data sources.
+    """
+
+    content: str = Field(..., description="The document content")
+    score: float = Field(default=0.0, description="Relevance score (0-1)")
+    metadata: dict[str, Any] = Field(
+        default_factory=dict, description="Additional metadata"
+    )
+
+    model_config = {"frozen": True}
+
+
+class SourceInfo(BaseModel):
+    """Information about a data source used in a chat response.
+
+    Provides details about each data source that was queried during
+    the retrieval phase of RAG.
+    """
+
+    path: str = Field(..., description="Endpoint path (owner/slug)")
+    documents_retrieved: int = Field(
+        ..., description="Number of documents retrieved from this source"
+    )
+    status: SourceStatus = Field(..., description="Query status")
+    error_message: str | None = Field(
+        default=None, description="Error message if status is error/timeout"
+    )
+
+    model_config = {"frozen": True}
+
+
+class ChatMetadata(BaseModel):
+    """Timing metadata for chat response.
+
+    Provides performance metrics for the RAG pipeline.
+    """
+
+    retrieval_time_ms: int = Field(
+        ..., description="Time spent retrieving documents (ms)"
+    )
+    generation_time_ms: int = Field(
+        ..., description="Time spent generating response (ms)"
+    )
+    total_time_ms: int = Field(..., description="Total request time (ms)")
+
+    model_config = {"frozen": True}
+
+
+class ChatResponse(BaseModel):
+    """Response from a chat completion request.
+
+    Contains the generated response, source information, and timing metadata.
+    """
+
+    response: str = Field(..., description="The generated response text")
+    sources: list[SourceInfo] = Field(
+        default_factory=list, description="Data sources used in the response"
+    )
+    metadata: ChatMetadata = Field(..., description="Timing metadata")
+
+    model_config = {"frozen": True}
+
+
+class Message(BaseModel):
+    """A chat message for model queries.
+
+    Used when making direct queries to model endpoints via SyftAIResource.
+    """
+
+    role: str = Field(..., description="Message role (system, user, assistant)")
+    content: str = Field(..., description="Message content")
+
+    model_config = {"frozen": True}

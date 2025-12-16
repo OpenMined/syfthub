@@ -5,6 +5,8 @@ import { UsersResource } from './resources/users.js';
 import { MyEndpointsResource } from './resources/my-endpoints.js';
 import { HubResource } from './resources/hub.js';
 import { AccountingResource } from './resources/accounting.js';
+import { ChatResource } from './resources/chat.js';
+import { SyftAIResource } from './resources/syftai.js';
 
 /**
  * Configuration options for SyftHubClient.
@@ -22,6 +24,13 @@ export interface SyftHubClientOptions {
    * @default 30000
    */
   timeout?: number;
+
+  /**
+   * Base URL for the aggregator service (optional).
+   * Falls back to SYFTHUB_AGGREGATOR_URL environment variable.
+   * Defaults to {baseUrl}/aggregator/api/v1
+   */
+  aggregatorUrl?: string;
 
   /**
    * Base URL for the accounting service (optional).
@@ -108,6 +117,7 @@ function isBrowser(): boolean {
 export class SyftHubClient {
   private readonly http: HTTPClient;
   private readonly options: SyftHubClientOptions;
+  private readonly aggregatorUrl: string;
 
   // Lazy-initialized resources
   private _auth?: AuthResource;
@@ -115,6 +125,8 @@ export class SyftHubClient {
   private _myEndpoints?: MyEndpointsResource;
   private _hub?: HubResource;
   private _accounting?: AccountingResource;
+  private _chat?: ChatResource;
+  private _syftai?: SyftAIResource;
 
   /**
    * Create a new SyftHub client.
@@ -141,6 +153,12 @@ export class SyftHubClient {
     const normalizedUrl = baseUrl ? baseUrl.replace(/\/+$/, '') : '';
 
     this.http = new HTTPClient(normalizedUrl, options.timeout ?? 30000);
+
+    // Resolve aggregator URL (default to {baseUrl}/aggregator/api/v1)
+    this.aggregatorUrl =
+      options.aggregatorUrl ??
+      getEnv('SYFTHUB_AGGREGATOR_URL') ??
+      `${normalizedUrl}/aggregator/api/v1`;
   }
 
   /**
@@ -244,6 +262,75 @@ export class SyftHubClient {
       });
     }
     return this._accounting;
+  }
+
+  /**
+   * Chat resource for RAG-augmented conversations via the Aggregator.
+   *
+   * This resource provides high-level chat functionality that integrates
+   * with the SyftHub Aggregator service for RAG workflows.
+   *
+   * @example
+   * // Simple chat completion
+   * const response = await client.chat.complete({
+   *   prompt: 'What is machine learning?',
+   *   model: 'alice/gpt-model',
+   *   dataSources: ['bob/ml-docs'],
+   * });
+   * console.log(response.response);
+   *
+   * // Streaming chat
+   * for await (const event of client.chat.stream(options)) {
+   *   if (event.type === 'token') {
+   *     process.stdout.write(event.content);
+   *   }
+   * }
+   *
+   * // Get available endpoints
+   * const models = await client.chat.getAvailableModels();
+   * const sources = await client.chat.getAvailableDataSources();
+   */
+  get chat(): ChatResource {
+    if (!this._chat) {
+      this._chat = new ChatResource(
+        this.http,
+        this.hub,
+        this.auth,
+        this.aggregatorUrl
+      );
+    }
+    return this._chat;
+  }
+
+  /**
+   * SyftAI-Space resource for direct endpoint queries (low-level API).
+   *
+   * This resource provides direct access to SyftAI-Space endpoints without
+   * going through the aggregator. Use this when you need custom RAG pipelines
+   * or fine-grained control over queries.
+   *
+   * For most use cases, prefer the higher-level `client.chat` API instead.
+   *
+   * @example
+   * // Query a data source directly
+   * const docs = await client.syftai.queryDataSource({
+   *   endpoint: { url: 'http://syftai:8080', slug: 'docs' },
+   *   query: 'What is Python?',
+   *   userEmail: 'alice@example.com',
+   * });
+   *
+   * // Query a model directly
+   * const response = await client.syftai.queryModel({
+   *   endpoint: { url: 'http://syftai:8080', slug: 'gpt-model' },
+   *   messages: [{ role: 'user', content: 'Hello!' }],
+   *   userEmail: 'alice@example.com',
+   * });
+   */
+  get syftai(): SyftAIResource {
+    if (!this._syftai) {
+      this._syftai = new SyftAIResource();
+    }
+    return this._syftai;
   }
 
   /**

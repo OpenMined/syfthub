@@ -14,14 +14,17 @@ else:
 from syfthub_sdk._http import HTTPClient
 from syfthub_sdk.accounting import AccountingResource
 from syfthub_sdk.auth import AuthResource
+from syfthub_sdk.chat import ChatResource
 from syfthub_sdk.exceptions import ConfigurationError
 from syfthub_sdk.hub import HubResource
 from syfthub_sdk.models import AuthTokens, User
 from syfthub_sdk.my_endpoints import MyEndpointsResource
+from syfthub_sdk.syftai import SyftAIResource
 from syfthub_sdk.users import UsersResource
 
 # Environment variable for SyftHub URL
 ENV_SYFTHUB_URL = "SYFTHUB_URL"
+ENV_AGGREGATOR_URL = "SYFTHUB_AGGREGATOR_URL"
 
 
 class SyftHubClient:
@@ -58,6 +61,16 @@ class SyftHubClient:
         # ... save tokens to file/db ...
         # Later:
         client.set_tokens(tokens)
+
+        # Chat with RAG via aggregator
+        response = client.chat.complete(
+            prompt="What is machine learning?",
+            model="alice/gpt-model",
+            data_sources=["bob/ml-docs"],
+        )
+
+        # Direct SyftAI-Space queries
+        docs = client.syftai.query_data_source(endpoint_ref, query, user_email)
     """
 
     def __init__(
@@ -65,6 +78,8 @@ class SyftHubClient:
         base_url: str | None = None,
         *,
         timeout: float = 30.0,
+        # Aggregator URL (optional)
+        aggregator_url: str | None = None,
         # Accounting credentials (optional)
         accounting_url: str | None = None,
         accounting_email: str | None = None,
@@ -75,6 +90,8 @@ class SyftHubClient:
         Args:
             base_url: SyftHub API URL (or from SYFTHUB_URL env var)
             timeout: Request timeout in seconds (default 30)
+            aggregator_url: Aggregator service URL (optional, defaults to
+                {base_url}/aggregator/api/v1 or from SYFTHUB_AGGREGATOR_URL env var)
             accounting_url: Accounting service URL (or from env)
             accounting_email: Accounting auth email (or from env)
             accounting_password: Accounting auth password (or from env)
@@ -91,6 +108,13 @@ class SyftHubClient:
                 f"or set {ENV_SYFTHUB_URL} environment variable."
             )
 
+        # Resolve aggregator URL (default to {base_url}/aggregator/api/v1)
+        self._aggregator_url = (
+            aggregator_url
+            or os.environ.get(ENV_AGGREGATOR_URL)
+            or f"{self._base_url.rstrip('/')}/aggregator/api/v1"
+        )
+
         # Create HTTP client
         self._http = HTTPClient(base_url=self._base_url, timeout=timeout)
 
@@ -99,6 +123,10 @@ class SyftHubClient:
         self._users = UsersResource(self._http)
         self._my_endpoints = MyEndpointsResource(self._http)
         self._hub = HubResource(self._http)
+
+        # Lazy-initialized resources
+        self._chat: ChatResource | None = None
+        self._syftai: SyftAIResource | None = None
 
         # Create accounting resource (with optional explicit credentials)
         self._accounting = AccountingResource(
@@ -132,6 +160,69 @@ class SyftHubClient:
     def accounting(self) -> AccountingResource:
         """Accounting/billing operations (balance, transactions)."""
         return self._accounting
+
+    @property
+    def chat(self) -> ChatResource:
+        """Chat operations via the Aggregator (RAG-augmented conversations).
+
+        This resource provides high-level chat functionality that integrates
+        with the SyftHub Aggregator service for RAG workflows.
+
+        Example:
+            # Simple chat completion
+            response = client.chat.complete(
+                prompt="What is machine learning?",
+                model="alice/gpt-model",
+                data_sources=["bob/ml-docs"],
+            )
+            print(response.response)
+
+            # Streaming chat
+            for event in client.chat.stream(prompt="...", model="..."):
+                if event.type == "token":
+                    print(event.content, end="")
+
+            # Get available endpoints
+            models = list(client.chat.get_available_models())
+            sources = list(client.chat.get_available_data_sources())
+        """
+        if self._chat is None:
+            self._chat = ChatResource(
+                http=self._http,
+                hub=self._hub,
+                auth=self._auth,
+                aggregator_url=self._aggregator_url,
+            )
+        return self._chat
+
+    @property
+    def syftai(self) -> SyftAIResource:
+        """Direct SyftAI-Space endpoint queries (low-level API).
+
+        This resource provides direct access to SyftAI-Space endpoints without
+        going through the aggregator. Use this when you need custom RAG pipelines
+        or fine-grained control over queries.
+
+        For most use cases, prefer the higher-level `client.chat` API instead.
+
+        Example:
+            # Query a data source directly
+            docs = client.syftai.query_data_source(
+                endpoint=EndpointRef(url="http://syftai:8080", slug="docs"),
+                query="What is Python?",
+                user_email="alice@example.com",
+            )
+
+            # Query a model directly
+            response = client.syftai.query_model(
+                endpoint=model_ref,
+                messages=[Message(role="user", content="Hello!")],
+                user_email="alice@example.com",
+            )
+        """
+        if self._syftai is None:
+            self._syftai = SyftAIResource(http=self._http)
+        return self._syftai
 
     @property
     def is_authenticated(self) -> bool:

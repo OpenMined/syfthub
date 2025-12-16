@@ -54,3 +54,26 @@ export type {
   AccountingBalance,
   AccountingTransaction,
 } from './accounting.js';
+
+// Chat types
+export type {
+  EndpointRef,
+  Document,
+  SourceStatus,
+  SourceInfo,
+  ChatMetadata,
+  ChatResponse,
+  Message,
+  ChatOptions,
+  QueryDataSourceOptions,
+  QueryModelOptions,
+  // Streaming events
+  ChatStreamEvent,
+  RetrievalStartEvent,
+  SourceCompleteEvent,
+  RetrievalCompleteEvent,
+  GenerationStartEvent,
+  TokenEvent,
+  DoneEvent,
+  ErrorEvent,
+} from './chat.js';
