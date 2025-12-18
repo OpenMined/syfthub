@@ -95,6 +95,7 @@ export type {
   UserRegisterInput,
   UserUpdateInput,
   PasswordChangeInput,
+  AccountingCredentials,
   // Endpoint types
   Policy,
   Connection,
