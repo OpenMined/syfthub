@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, List, Optional
 from sqlalchemy import and_, select
 from sqlalchemy.exc import SQLAlchemyError
 
+from syfthub.core.url_builder import transform_connection_urls
 from syfthub.models.endpoint import EndpointModel, EndpointStarModel
 from syfthub.models.user import UserModel
 from syfthub.repositories.base import BaseRepository
@@ -149,10 +150,10 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         limit: int = 10,
         endpoint_type: Optional[EndpointType] = None,
     ) -> List[EndpointPublicResponse]:
-        """Get all public endpoints with owner usernames."""
+        """Get all public endpoints with owner usernames and transformed URLs."""
         try:
             stmt = (
-                select(self.model, UserModel.username)
+                select(self.model, UserModel.username, UserModel.domain)
                 .join(UserModel, self.model.user_id == UserModel.id)
                 .where(
                     and_(
@@ -171,7 +172,12 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             rows = result.all()
 
             endpoints = []
-            for endpoint_model, username in rows:
+            for endpoint_model, username, domain in rows:
+                # Transform connection URLs using owner's domain
+                transformed_connect = transform_connection_urls(
+                    domain, endpoint_model.connect or []
+                )
+
                 endpoint_dict = {
                     "name": endpoint_model.name,
                     "slug": endpoint_model.slug,
@@ -182,7 +188,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                     "readme": endpoint_model.readme,
                     "stars_count": endpoint_model.stars_count,
                     "policies": endpoint_model.policies,
-                    "connect": endpoint_model.connect,
+                    "connect": transformed_connect,
                     "created_at": endpoint_model.created_at,
                     "updated_at": endpoint_model.updated_at,
                 }
@@ -199,10 +205,10 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         min_stars: Optional[int] = None,
         endpoint_type: Optional[EndpointType] = None,
     ) -> List[EndpointPublicResponse]:
-        """Get trending public endpoints with owner usernames sorted by stars count with optional min_stars filter."""
+        """Get trending public endpoints with owner usernames and transformed URLs, sorted by stars count."""
         try:
             stmt = (
-                select(self.model, UserModel.username)
+                select(self.model, UserModel.username, UserModel.domain)
                 .join(UserModel, self.model.user_id == UserModel.id)
                 .where(
                     and_(
@@ -226,7 +232,12 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             rows = result.all()
 
             endpoints = []
-            for endpoint_model, username in rows:
+            for endpoint_model, username, domain in rows:
+                # Transform connection URLs using owner's domain
+                transformed_connect = transform_connection_urls(
+                    domain, endpoint_model.connect or []
+                )
+
                 endpoint_dict = {
                     "name": endpoint_model.name,
                     "slug": endpoint_model.slug,
@@ -237,7 +248,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                     "readme": endpoint_model.readme,
                     "stars_count": endpoint_model.stars_count,
                     "policies": endpoint_model.policies,
-                    "connect": endpoint_model.connect,
+                    "connect": transformed_connect,
                     "created_at": endpoint_model.created_at,
                     "updated_at": endpoint_model.updated_at,
                 }

@@ -47,6 +47,10 @@ class User(UserBase):
     accounting_password: Optional[str] = Field(
         None, description="Password for external accounting service"
     )
+    # Domain for dynamic endpoint URL construction
+    domain: Optional[str] = Field(
+        None, max_length=253, description="Domain for endpoint URL construction"
+    )
 
     model_config = {"from_attributes": True}
 
@@ -66,6 +70,10 @@ class UserResponse(BaseModel):
     # Accounting - only expose URL, never expose password in user response
     accounting_service_url: Optional[str] = Field(
         None, description="URL to external accounting service"
+    )
+    # Domain for dynamic endpoint URL construction
+    domain: Optional[str] = Field(
+        None, description="Domain for endpoint URL construction"
     )
 
     model_config = {"from_attributes": True}
@@ -91,6 +99,12 @@ class UserUpdate(BaseModel):
     )
     accounting_password: Optional[str] = Field(
         None, max_length=255, description="Password for external accounting service"
+    )
+    # Domain for dynamic endpoint URL construction
+    domain: Optional[str] = Field(
+        None,
+        max_length=253,
+        description="Domain for endpoint URL construction (no protocol)",
     )
 
 

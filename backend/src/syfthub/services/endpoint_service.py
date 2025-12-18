@@ -7,8 +7,12 @@ from typing import TYPE_CHECKING, List, Optional
 
 from fastapi import HTTPException, status
 
+from syfthub.core.url_builder import transform_connection_urls
 from syfthub.repositories.endpoint import EndpointRepository, EndpointStarRepository
-from syfthub.repositories.organization import OrganizationMemberRepository
+from syfthub.repositories.organization import (
+    OrganizationMemberRepository,
+    OrganizationRepository,
+)
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.endpoint import (
     RESERVED_SLUGS,
@@ -39,7 +43,33 @@ class EndpointService(BaseService):
         self.endpoint_repository = EndpointRepository(session)
         self.star_repository = EndpointStarRepository(session)
         self.org_member_repository = OrganizationMemberRepository(session)
+        self.org_repository = OrganizationRepository(session)
         self.user_repository = UserRepository(session)
+
+    def _get_owner_domain(self, endpoint: Endpoint) -> str | None:
+        """Get the domain for an endpoint's owner (user or organization)."""
+        if endpoint.user_id:
+            user = self.user_repository.get_by_id(endpoint.user_id)
+            return user.domain if user else None
+        elif endpoint.organization_id:
+            org = self.org_repository.get_by_id(endpoint.organization_id)
+            return org.domain if org else None
+        return None
+
+    def _to_response_with_urls(self, endpoint: Endpoint) -> EndpointResponse:
+        """Convert Endpoint to EndpointResponse with transformed URLs."""
+        domain = self._get_owner_domain(endpoint)
+
+        # Transform connection URLs
+        transformed_connect = transform_connection_urls(
+            domain,
+            [c.model_dump() for c in endpoint.connect] if endpoint.connect else [],
+        )
+
+        # Create response with transformed connections
+        endpoint_dict = endpoint.model_dump()
+        endpoint_dict["connect"] = transformed_connect
+        return EndpointResponse.model_validate(endpoint_dict)
 
     def _is_slug_available(
         self,
@@ -195,7 +225,7 @@ class EndpointService(BaseService):
                 detail="Failed to create endpoint",
             )
 
-        return EndpointResponse.model_validate(endpoint)
+        return self._to_response_with_urls(endpoint)
 
     def get_endpoint_by_user_and_slug(
         self, user_id: int, slug: str
@@ -218,7 +248,7 @@ class EndpointService(BaseService):
         search: Optional[str] = None,
         current_user: Optional[User] = None,
     ) -> List[EndpointResponse]:
-        """Get user's endpoints with proper access control and search."""
+        """Get user's endpoints with proper access control, search, and transformed URLs."""
         endpoints = self.endpoint_repository.get_user_endpoints(
             user_id, skip, limit, visibility, search
         )
@@ -226,14 +256,7 @@ class EndpointService(BaseService):
         accessible_endpoints = []
         for endpoint in endpoints:
             if self._can_access_endpoint(endpoint, current_user, "user"):
-                if self._can_see_full_details(endpoint, current_user, "user"):
-                    accessible_endpoints.append(
-                        EndpointResponse.model_validate(endpoint)
-                    )
-                else:
-                    accessible_endpoints.append(
-                        EndpointResponse.model_validate(endpoint)
-                    )
+                accessible_endpoints.append(self._to_response_with_urls(endpoint))
 
         return accessible_endpoints
 
@@ -245,7 +268,7 @@ class EndpointService(BaseService):
         visibility: Optional[EndpointVisibility] = None,
         current_user: Optional[User] = None,
     ) -> List[EndpointResponse]:
-        """Get organization's endpoints with proper access control."""
+        """Get organization's endpoints with proper access control and transformed URLs."""
         endpoints = self.endpoint_repository.get_organization_endpoints(
             org_id, skip, limit, visibility
         )
@@ -253,14 +276,7 @@ class EndpointService(BaseService):
         accessible_endpoints = []
         for endpoint in endpoints:
             if self._can_access_endpoint(endpoint, current_user, "organization"):
-                if self._can_see_full_details(endpoint, current_user, "organization"):
-                    accessible_endpoints.append(
-                        EndpointResponse.model_validate(endpoint)
-                    )
-                else:
-                    accessible_endpoints.append(
-                        EndpointResponse.model_validate(endpoint)
-                    )
+                accessible_endpoints.append(self._to_response_with_urls(endpoint))
 
         return accessible_endpoints
 
@@ -313,7 +329,7 @@ class EndpointService(BaseService):
                 detail="Failed to update endpoint",
             )
 
-        return EndpointResponse.model_validate(updated_endpoint)
+        return self._to_response_with_urls(updated_endpoint)
 
     def admin_update_endpoint(
         self, endpoint_id: int, admin_data: EndpointAdminUpdate, current_user: User
@@ -343,7 +359,7 @@ class EndpointService(BaseService):
                 detail="Failed to update endpoint",
             )
 
-        return EndpointResponse.model_validate(updated_endpoint)
+        return self._to_response_with_urls(updated_endpoint)
 
     # Router-compatible methods
     def list_user_endpoints(
@@ -388,7 +404,7 @@ class EndpointService(BaseService):
         )
 
     def get_endpoint(self, endpoint_id: int, current_user: User) -> EndpointResponse:
-        """Get endpoint by ID with access control."""
+        """Get endpoint by ID with access control and transformed URLs."""
         endpoint = self.endpoint_repository.get_by_id(endpoint_id)
         if not endpoint:
             raise HTTPException(
@@ -396,14 +412,17 @@ class EndpointService(BaseService):
                 detail="Endpoint not found",
             )
 
+        # Determine owner type
+        owner_type = "organization" if endpoint.organization_id else "user"
+
         # Check permissions
-        if not self._can_access_endpoint(endpoint, current_user, "user"):
+        if not self._can_access_endpoint(endpoint, current_user, owner_type):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,  # Hide existence for security
                 detail="Endpoint not found",
             )
 
-        return EndpointResponse.model_validate(endpoint)
+        return self._to_response_with_urls(endpoint)
 
     def delete_endpoint(self, endpoint_id: int, current_user: User) -> bool:
         """Delete endpoint."""

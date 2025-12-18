@@ -34,6 +34,11 @@ class UserModel(BaseModel, TimestampMixin):
         String(255), nullable=True, default=None
     )
 
+    # Domain for dynamic endpoint URL construction
+    domain: Mapped[Optional[str]] = mapped_column(
+        String(253), nullable=True, default=None
+    )
+
     # Relationships
     endpoints: Mapped[List["EndpointModel"]] = relationship(
         "EndpointModel", back_populates="user", cascade="all, delete-orphan"

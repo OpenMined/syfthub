@@ -4,7 +4,7 @@ import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Any, Optional, Union, cast
+from typing import Annotated, Any, Optional, Union
 
 import httpx
 import markdown
@@ -18,6 +18,10 @@ from syfthub.api.router import api_router
 from syfthub.auth.db_dependencies import get_optional_current_user
 from syfthub.auth.keys import key_manager
 from syfthub.core.config import settings
+from syfthub.core.url_builder import (
+    build_connection_url,
+    get_first_enabled_connection,
+)
 from syfthub.database.connection import create_tables
 from syfthub.database.dependencies import (
     get_endpoint_repository,
@@ -50,51 +54,63 @@ PROXY_TIMEOUT_DATA_SOURCE = 30.0
 PROXY_TIMEOUT_MODEL = 120.0
 
 
-def extract_url_from_connections(
-    connections: list[dict[str, Any]], endpoint_path: str
+def build_invocation_url(
+    owner: Union[User, Organization],
+    connections: list[dict[str, Any]],
+    endpoint_slug: str,
+    endpoint_path: str,
 ) -> str:
-    """Extract the URL from endpoint connections config.
+    """Build the invocation URL from owner domain and connection config.
 
     Args:
+        owner: The endpoint owner (User or Organization)
         connections: List of connection configurations from the endpoint
+        endpoint_slug: The endpoint's slug for building the query path
         endpoint_path: Path identifier for error messages (e.g., "owner/endpoint")
 
     Returns:
-        The URL from the first enabled connection with a URL configured
+        The full query URL for invoking the endpoint
 
     Raises:
-        HTTPException: If no URL can be found in the connections
+        HTTPException: If no domain or connections are configured
     """
+    # Check owner has a domain configured
+    domain = getattr(owner, "domain", None)
+    if not domain:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Owner of endpoint '{endpoint_path}' has no domain configured",
+        )
+
     if not connections:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Endpoint '{endpoint_path}' has no connections configured",
         )
 
-    # Find the first enabled connection with a URL
-    for conn in connections:
-        if not conn.get("enabled", True):
-            continue
-
-        config = conn.get("config", {})
-        url = config.get("url")
-
-        # isinstance validates at runtime, cast tells mypy the type
-        if url and isinstance(url, str):
-            return cast("str", url)
-
-    # Fallback to first connection's URL
-    first_config = connections[0].get("config", {})
-    url = first_config.get("url")
-
-    # Validate URL exists and is a string
-    if not url or not isinstance(url, str):
+    # Get the first enabled connection
+    connection = get_first_enabled_connection(connections)
+    if not connection:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"No URL found in endpoint connections for '{endpoint_path}'",
+            detail=f"No enabled connection found for endpoint '{endpoint_path}'",
         )
 
-    return cast("str", url)
+    # Get connection type and path from config
+    connection_type = connection.get("type", "rest_api")
+    config = connection.get("config", {})
+    path_suffix = config.get("url", "") or config.get("path", "")
+
+    # Build the base URL from domain and path
+    base_url = build_connection_url(domain, connection_type, path_suffix)
+    if not base_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Could not build URL for endpoint '{endpoint_path}'",
+        )
+
+    # Append the SyftAI-Space query pattern
+    return f"{base_url.rstrip('/')}/api/v1/endpoints/{endpoint_slug}/query"
 
 
 # Local helper functions to avoid circular imports
@@ -585,7 +601,7 @@ async def invoke_owner_endpoint(
                 detail="Owner or endpoint not found",
             )
 
-    # Extract URL from endpoint's connection configuration
+    # Build invocation URL from owner's domain and connection config
     endpoint_path = f"{owner_slug}/{endpoint_slug}"
 
     # Convert Connection objects to dicts for the helper function
@@ -593,10 +609,11 @@ async def invoke_owner_endpoint(
         conn.model_dump() if hasattr(conn, "model_dump") else dict(conn)
         for conn in endpoint.connect
     ]
-    target_url = extract_url_from_connections(connections_data, endpoint_path)
 
-    # Build the query URL following the SyftAI-Space API pattern
-    query_url = f"{target_url.rstrip('/')}/api/v1/endpoints/{endpoint_slug}/query"
+    # Build the full query URL using owner's domain
+    query_url = build_invocation_url(
+        owner, connections_data, endpoint_slug, endpoint_path
+    )
 
     # Get the request body
     try:

@@ -71,6 +71,10 @@ class OrganizationBase(BaseModel):
         None, max_length=255, description="URL to organization avatar/logo"
     )
     # REMOVED is_active - server-managed field
+    # Domain for dynamic endpoint URL construction
+    domain: Optional[str] = Field(
+        None, max_length=253, description="Domain for endpoint URL construction"
+    )
 
 
 class OrganizationCreate(OrganizationBase):
@@ -129,6 +133,10 @@ class OrganizationUpdate(BaseModel):
         None, max_length=255, description="URL to organization avatar/logo"
     )
     # REMOVED is_active - only admin can change this
+    # Domain for dynamic endpoint URL construction
+    domain: Optional[str] = Field(
+        None, max_length=253, description="Domain for endpoint URL construction"
+    )
 
 
 class Organization(BaseModel):
@@ -147,6 +155,10 @@ class Organization(BaseModel):
         ..., min_length=3, max_length=63, description="URL-safe identifier"
     )
     is_active: bool = Field(..., description="Whether the organization is active")
+    # Domain for dynamic endpoint URL construction
+    domain: Optional[str] = Field(
+        None, description="Domain for endpoint URL construction"
+    )
     created_at: datetime = Field(..., description="When the organization was created")
     updated_at: datetime = Field(
         ..., description="When the organization was last updated"
@@ -166,6 +178,10 @@ class OrganizationResponse(BaseModel):
         ..., description="URL to organization avatar/logo"
     )
     is_active: bool = Field(..., description="Whether the organization is active")
+    # Domain for dynamic endpoint URL construction
+    domain: Optional[str] = Field(
+        None, description="Domain for endpoint URL construction"
+    )
     created_at: datetime = Field(..., description="When the organization was created")
     updated_at: datetime = Field(
         ..., description="When the organization was last updated"

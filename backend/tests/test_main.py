@@ -11,8 +11,8 @@ from syfthub.main import (
     PROXY_TIMEOUT_DATA_SOURCE,
     PROXY_TIMEOUT_MODEL,
     app,
+    build_invocation_url,
     can_access_endpoint_with_org,
-    extract_url_from_connections,
     get_endpoint_by_owner_and_slug,
     get_owner_endpoints,
     main,
@@ -639,88 +639,224 @@ class TestUtilityFunctions:
         mock_is_member.assert_called_once_with(1, 2, mock_member_repo)
 
 
-class TestExtractUrlFromConnections:
-    """Tests for extract_url_from_connections helper function."""
+class TestBuildInvocationUrl:
+    """Tests for build_invocation_url helper function."""
 
-    def test_extract_url_from_first_enabled_connection(self):
-        """Test extracting URL from first enabled connection."""
+    @pytest.fixture
+    def user_with_domain(self):
+        """Create a test user with domain configured."""
+        return User(
+            id=1,
+            username="testuser",
+            email="test@example.com",
+            full_name="Test User",
+            age=30,
+            role=UserRole.USER,
+            password_hash="hash",
+            is_active=True,
+            domain="api.example.com",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+    @pytest.fixture
+    def user_without_domain(self):
+        """Create a test user without domain configured."""
+        return User(
+            id=1,
+            username="testuser",
+            email="test@example.com",
+            full_name="Test User",
+            age=30,
+            role=UserRole.USER,
+            password_hash="hash",
+            is_active=True,
+            domain=None,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+    @pytest.fixture
+    def org_with_domain(self):
+        """Create a test organization with domain configured."""
+        return Organization(
+            id=1,
+            name="Test Org",
+            slug="test-org",
+            description="A test org",
+            avatar_url="",
+            is_active=True,
+            domain="api.testorg.com",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+    def test_build_url_from_user_with_domain(self, user_with_domain):
+        """Test building URL from user owner with domain."""
+        connections = [
+            {
+                "type": "rest_api",
+                "enabled": True,
+                "config": {"url": "v1"},
+            }
+        ]
+        result = build_invocation_url(
+            user_with_domain, connections, "my-endpoint", "testuser/my-endpoint"
+        )
+        assert result == "https://api.example.com/v1/api/v1/endpoints/my-endpoint/query"
+
+    def test_build_url_from_org_with_domain(self, org_with_domain):
+        """Test building URL from organization owner with domain."""
         connections = [
             {
                 "type": "http",
                 "enabled": True,
-                "config": {"url": "http://endpoint1.example.com"},
+                "config": {"url": "api"},
             }
         ]
-        result = extract_url_from_connections(connections, "owner/endpoint")
-        assert result == "http://endpoint1.example.com"
+        result = build_invocation_url(
+            org_with_domain, connections, "org-endpoint", "test-org/org-endpoint"
+        )
+        assert (
+            result == "https://api.testorg.com/api/api/v1/endpoints/org-endpoint/query"
+        )
 
-    def test_extract_url_skips_disabled_connections(self):
+    def test_build_url_skips_disabled_connections(self, user_with_domain):
         """Test that disabled connections are skipped."""
         connections = [
             {
                 "type": "http",
                 "enabled": False,
-                "config": {"url": "http://disabled.example.com"},
+                "config": {"url": "disabled-path"},
             },
             {
                 "type": "http",
                 "enabled": True,
-                "config": {"url": "http://enabled.example.com"},
+                "config": {"url": "enabled-path"},
             },
         ]
-        result = extract_url_from_connections(connections, "owner/endpoint")
-        assert result == "http://enabled.example.com"
+        result = build_invocation_url(
+            user_with_domain, connections, "my-endpoint", "testuser/my-endpoint"
+        )
+        assert (
+            result
+            == "https://api.example.com/enabled-path/api/v1/endpoints/my-endpoint/query"
+        )
 
-    def test_extract_url_defaults_enabled_to_true(self):
+    def test_build_url_defaults_enabled_to_true(self, user_with_domain):
         """Test that connections without enabled field default to True."""
         connections = [
             {
                 "type": "http",
-                "config": {"url": "http://default-enabled.example.com"},
+                "config": {"url": "default-enabled-path"},
             }
         ]
-        result = extract_url_from_connections(connections, "owner/endpoint")
-        assert result == "http://default-enabled.example.com"
+        result = build_invocation_url(
+            user_with_domain, connections, "my-endpoint", "testuser/my-endpoint"
+        )
+        assert (
+            result
+            == "https://api.example.com/default-enabled-path/api/v1/endpoints/my-endpoint/query"
+        )
 
-    def test_extract_url_fallback_to_first_connection(self):
-        """Test fallback to first connection when no enabled ones have URL."""
+    def test_build_url_fallback_to_first_connection(self, user_with_domain):
+        """Test fallback to first connection when no enabled ones found."""
         connections = [
             {
                 "type": "http",
                 "enabled": False,
-                "config": {"url": "http://fallback.example.com"},
+                "config": {"url": "fallback-path"},
             }
         ]
-        result = extract_url_from_connections(connections, "owner/endpoint")
-        assert result == "http://fallback.example.com"
+        result = build_invocation_url(
+            user_with_domain, connections, "my-endpoint", "testuser/my-endpoint"
+        )
+        assert (
+            result
+            == "https://api.example.com/fallback-path/api/v1/endpoints/my-endpoint/query"
+        )
 
-    def test_extract_url_empty_connections_raises_error(self):
-        """Test that empty connections list raises HTTPException."""
-        from fastapi import HTTPException
-
-        with pytest.raises(HTTPException) as exc_info:
-            extract_url_from_connections([], "owner/endpoint")
-
-        assert exc_info.value.status_code == 400
-        assert "no connections configured" in exc_info.value.detail
-
-    def test_extract_url_no_url_in_config_raises_error(self):
-        """Test that missing URL raises HTTPException."""
+    def test_build_url_no_domain_raises_error(self, user_without_domain):
+        """Test that missing domain raises HTTPException."""
         from fastapi import HTTPException
 
         connections = [
             {
                 "type": "http",
                 "enabled": True,
-                "config": {},  # No URL
+                "config": {"url": "some-path"},
             }
         ]
 
         with pytest.raises(HTTPException) as exc_info:
-            extract_url_from_connections(connections, "owner/endpoint")
+            build_invocation_url(
+                user_without_domain,
+                connections,
+                "my-endpoint",
+                "testuser/my-endpoint",
+            )
 
         assert exc_info.value.status_code == 400
-        assert "No URL found" in exc_info.value.detail
+        assert "no domain configured" in exc_info.value.detail
+
+    def test_build_url_empty_connections_raises_error(self, user_with_domain):
+        """Test that empty connections list raises HTTPException."""
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            build_invocation_url(
+                user_with_domain, [], "my-endpoint", "testuser/my-endpoint"
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "no connections configured" in exc_info.value.detail
+
+    def test_build_url_websocket_protocol(self, user_with_domain):
+        """Test building URL with websocket connection type."""
+        connections = [
+            {
+                "type": "websocket",
+                "enabled": True,
+                "config": {"url": "ws/v1"},
+            }
+        ]
+        result = build_invocation_url(
+            user_with_domain, connections, "my-endpoint", "testuser/my-endpoint"
+        )
+        assert (
+            result == "wss://api.example.com/ws/v1/api/v1/endpoints/my-endpoint/query"
+        )
+
+    def test_build_url_empty_path(self, user_with_domain):
+        """Test building URL when config.url is empty."""
+        connections = [
+            {
+                "type": "http",
+                "enabled": True,
+                "config": {"url": ""},
+            }
+        ]
+        result = build_invocation_url(
+            user_with_domain, connections, "my-endpoint", "testuser/my-endpoint"
+        )
+        assert result == "https://api.example.com/api/v1/endpoints/my-endpoint/query"
+
+    def test_build_url_with_leading_slash_in_path(self, user_with_domain):
+        """Test building URL when config.url has leading slash."""
+        connections = [
+            {
+                "type": "http",
+                "enabled": True,
+                "config": {"url": "/api/v2"},
+            }
+        ]
+        result = build_invocation_url(
+            user_with_domain, connections, "my-endpoint", "testuser/my-endpoint"
+        )
+        assert (
+            result
+            == "https://api.example.com/api/v2/api/v1/endpoints/my-endpoint/query"
+        )
 
 
 class TestTimeoutConstants:
@@ -760,7 +896,7 @@ class TestInvokeOwnerEndpoint:
                     "type": "http",
                     "enabled": True,
                     "description": "HTTP connection",
-                    "config": {"url": "http://syftai-space:8080"},
+                    "config": {"url": ""},  # Path only, domain comes from owner
                 }
             ],
             created_at=datetime.now(timezone.utc),
@@ -788,7 +924,7 @@ class TestInvokeOwnerEndpoint:
                 {
                     "type": "http",
                     "enabled": True,
-                    "config": {"url": "http://syftai-space:8080"},
+                    "config": {"url": ""},  # Path only, domain comes from owner
                 }
             ],
             created_at=datetime.now(timezone.utc),
@@ -807,6 +943,7 @@ class TestInvokeOwnerEndpoint:
             role=UserRole.USER,
             password_hash="hash",
             is_active=True,
+            domain="syftai-space:8080",
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
@@ -926,6 +1063,44 @@ class TestInvokeOwnerEndpoint:
 
         assert response.status_code == 400
         assert "no connections configured" in response.json()["detail"]
+
+    @patch("syfthub.main.get_endpoint_by_owner_and_slug")
+    @patch("syfthub.main.resolve_owner")
+    @patch("syfthub.main.get_optional_current_user")
+    def test_invoke_endpoint_no_domain(
+        self,
+        mock_get_user,
+        mock_resolve,
+        mock_get_endpoint,
+        client,
+        mock_endpoint_with_connection,
+    ):
+        """Test endpoint invocation when owner has no domain configured."""
+        user_without_domain = User(
+            id=1,
+            username="testuser",
+            email="test@example.com",
+            full_name="Test User",
+            age=30,
+            role=UserRole.USER,
+            password_hash="hash",
+            is_active=True,
+            domain=None,  # No domain configured
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        mock_get_user.return_value = None
+        mock_resolve.return_value = (user_without_domain, "user")
+        mock_get_endpoint.return_value = mock_endpoint_with_connection
+
+        response = client.post(
+            "/testuser/test-model",
+            json={"user_email": "test@example.com"},
+        )
+
+        assert response.status_code == 400
+        assert "no domain configured" in response.json()["detail"]
 
     @patch("syfthub.main.httpx.AsyncClient")
     @patch("syfthub.main.get_endpoint_by_owner_and_slug")
