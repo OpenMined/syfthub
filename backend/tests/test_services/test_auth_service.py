@@ -11,6 +11,7 @@ from syfthub.domain.exceptions import (
     AccountingAccountExistsError,
     AccountingServiceUnavailableError,
     InvalidAccountingPasswordError,
+    UserAlreadyExistsError,
 )
 from syfthub.schemas.auth import RefreshTokenRequest, UserLogin, UserRegister
 from syfthub.schemas.user import User
@@ -104,11 +105,11 @@ class TestAuthServiceRegistration:
         with patch.object(
             auth_service.user_repository, "username_exists", return_value=True
         ):
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(UserAlreadyExistsError) as exc_info:
                 auth_service.register_user(sample_user_register)
 
-            assert exc_info.value.status_code == 400
-            assert "Username already exists" in str(exc_info.value.detail)
+            assert exc_info.value.field == "username"
+            assert "Username already exists" in str(exc_info.value)
 
     def test_register_user_duplicate_email(self, auth_service, sample_user_register):
         """Test registration with existing email fails."""
@@ -120,11 +121,11 @@ class TestAuthServiceRegistration:
                 auth_service.user_repository, "email_exists", return_value=True
             ),
         ):
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(UserAlreadyExistsError) as exc_info:
                 auth_service.register_user(sample_user_register)
 
-            assert exc_info.value.status_code == 400
-            assert "Email already exists" in str(exc_info.value.detail)
+            assert exc_info.value.field == "email"
+            assert "Email already exists" in str(exc_info.value)
 
     def test_register_user_creation_failure(self, auth_service, sample_user_register):
         """Test registration when user creation fails."""

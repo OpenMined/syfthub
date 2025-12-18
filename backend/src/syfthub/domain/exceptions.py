@@ -70,6 +70,32 @@ class KeyLoadError(IdPException):
 
 
 # ===========================================
+# USER REGISTRATION EXCEPTIONS
+# ===========================================
+
+
+class UserAlreadyExistsError(DomainException):
+    """Raised when username or email already exists in SyftHub.
+
+    This error indicates a duplicate user registration attempt.
+    """
+
+    def __init__(self, field: str, value: str):
+        """Initialize user already exists error.
+
+        Args:
+            field: The field that already exists ("username" or "email")
+            value: The value that already exists
+        """
+        self.field = field
+        self.value = value
+        super().__init__(
+            f"{field.capitalize()} already exists",
+            "USER_ALREADY_EXISTS",
+        )
+
+
+# ===========================================
 # ACCOUNTING SERVICE EXCEPTIONS
 # ===========================================
 

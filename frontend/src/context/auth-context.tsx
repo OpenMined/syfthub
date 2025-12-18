@@ -19,6 +19,7 @@ import {
   persistTokens,
   restoreTokens,
   syftClient,
+  UserAlreadyExistsError,
   ValidationError
 } from '@/lib/sdk-client';
 
@@ -26,7 +27,6 @@ interface RegisterData {
   name: string;
   email: string;
   password: string;
-  accountingServiceUrl?: string;
   accountingPassword?: string;
 }
 
@@ -64,14 +64,14 @@ function generateUsernameFromEmail(email: string): string {
 
 /**
  * Check if error is a username-already-exists error.
+ * Uses type checking for reliable error detection.
  */
 function isUsernameExistsError(error: unknown): boolean {
-  const errorMessage = error instanceof Error ? error.message.toLowerCase() : '';
-  return (
-    errorMessage.includes('username already exists') ||
-    errorMessage.includes('username already registered') ||
-    errorMessage.includes('already exists')
-  );
+  if (error instanceof UserAlreadyExistsError) {
+    // Only retry for username conflicts, not email conflicts
+    return error.field === 'username';
+  }
+  return false;
 }
 
 /**
@@ -99,7 +99,6 @@ async function attemptRegistration(
         email: userData.email,
         password: userData.password,
         fullName: userData.name,
-        accountingServiceUrl: userData.accountingServiceUrl,
         accountingPassword: userData.accountingPassword
       });
     } catch (registerError) {
@@ -139,6 +138,13 @@ function mapSdkUserToFrontend(sdkUser: SdkUser): User {
  * Extract a user-friendly error message from an error.
  */
 function getErrorMessage(error: unknown): string {
+  if (error instanceof UserAlreadyExistsError) {
+    // Provide field-specific message
+    if (error.field === 'email') {
+      return 'This email is already registered. Please use a different email or try logging in.';
+    }
+    return 'This username is already taken. Please try a different one.';
+  }
   if (error instanceof AccountingAccountExistsError) {
     return 'This email already has an accounting service account. Please provide your existing accounting password to link your accounts.';
   }

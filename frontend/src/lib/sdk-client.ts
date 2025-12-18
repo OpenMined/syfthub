@@ -165,6 +165,8 @@ export {
   // Chat-specific errors
   AggregatorError,
   EndpointResolutionError,
+  // User registration errors
+  UserAlreadyExistsError,
   // Accounting-related errors
   AccountingAccountExistsError,
   InvalidAccountingPasswordError,

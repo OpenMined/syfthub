@@ -7,6 +7,7 @@ import {
   InvalidAccountingPasswordError,
   NetworkError,
   NotFoundError,
+  UserAlreadyExistsError,
   ValidationError,
 } from './errors.js';
 import { toCamelCase, toSnakeCase, buildSearchParams } from './utils.js';
@@ -272,9 +273,13 @@ export class HTTPClient {
     const message = this.extractErrorMessage(data);
     const { code, detail } = this.extractErrorCodeAndDetail(data);
 
-    // Check for accounting-specific errors based on error code first
+    // Check for domain-specific errors based on error code first
     if (code) {
       switch (code) {
+        // User registration errors
+        case 'USER_ALREADY_EXISTS':
+          throw new UserAlreadyExistsError(message, detail);
+        // Accounting-related errors
         case 'ACCOUNTING_ACCOUNT_EXISTS':
           throw new AccountingAccountExistsError(message, detail);
         case 'INVALID_ACCOUNTING_PASSWORD':

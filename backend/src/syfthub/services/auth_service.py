@@ -18,6 +18,7 @@ from syfthub.domain.exceptions import (
     AccountingAccountExistsError,
     AccountingServiceUnavailableError,
     InvalidAccountingPasswordError,
+    UserAlreadyExistsError,
 )
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import (
@@ -172,16 +173,10 @@ class AuthService(BaseService):
 
         # Check if user already exists in SyftHub
         if self.user_repository.username_exists(register_data.username):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Username already exists",
-            )
+            raise UserAlreadyExistsError("username", register_data.username)
 
         if self.user_repository.email_exists(register_data.email):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already exists",
-            )
+            raise UserAlreadyExistsError("email", register_data.email)
 
         # Handle accounting service registration
         # This may raise AccountingAccountExistsError or InvalidAccountingPasswordError

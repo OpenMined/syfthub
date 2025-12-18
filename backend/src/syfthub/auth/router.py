@@ -18,6 +18,7 @@ from syfthub.domain.exceptions import (
     AccountingAccountExistsError,
     AccountingServiceUnavailableError,
     InvalidAccountingPasswordError,
+    UserAlreadyExistsError,
 )
 from syfthub.schemas.auth import (
     PasswordChange,
@@ -38,7 +39,21 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
     status_code=status.HTTP_201_CREATED,
     responses={
         409: {
-            "description": "Email already exists in accounting service",
+            "description": "Username or email already exists in SyftHub",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": {
+                            "code": "USER_ALREADY_EXISTS",
+                            "message": "Username already exists",
+                            "field": "username",
+                        }
+                    }
+                }
+            },
+        },
+        424: {
+            "description": "Email already exists in accounting service (requires password)",
             "content": {
                 "application/json": {
                     "example": {
@@ -87,25 +102,39 @@ async def register_user(
 
     This endpoint handles user registration with optional accounting service integration.
 
+    If username or email already exists in SyftHub, a 409 Conflict is returned.
+
     If an accounting service URL is configured (via request or default config), the backend
     will automatically create an accounting account for the user. If the email already
-    exists in the accounting service, a 409 response is returned and the user must provide
-    their existing accounting password to link accounts.
+    exists in the accounting service, a 424 Failed Dependency response is returned and
+    the user must provide their existing accounting password to link accounts.
 
     Flow:
     1. User submits registration without accounting_password
     2. If accounting URL is configured, backend tries to create accounting account
-    3. If 409 (email exists), return error with requires_accounting_password=True
+    3. If 424 (email exists in accounting), return error with requires_accounting_password=True
     4. User re-submits with their existing accounting_password
     5. Backend validates credentials and completes registration
     """
     try:
         return auth_service.register(user_data)
 
-    except AccountingAccountExistsError as e:
-        # Email already exists in accounting service - user needs to provide password
+    except UserAlreadyExistsError as e:
+        # Username or email already exists in SyftHub
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": e.error_code,
+                "message": e.message,
+                "field": e.field,
+            },
+        ) from e
+
+    except AccountingAccountExistsError as e:
+        # Email already exists in accounting service - user needs to provide password
+        # Using 424 Failed Dependency to distinguish from SyftHub user duplication (409)
+        raise HTTPException(
+            status_code=status.HTTP_424_FAILED_DEPENDENCY,
             detail={
                 "code": e.error_code,
                 "message": e.message,

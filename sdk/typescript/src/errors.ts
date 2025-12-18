@@ -86,6 +86,44 @@ export class NetworkError extends SyftHubError {
 }
 
 // =============================================================================
+// User Registration Errors
+// =============================================================================
+
+/**
+ * Error thrown when username or email already exists in SyftHub (HTTP 409).
+ *
+ * This error indicates a duplicate user registration attempt.
+ * The `field` property indicates which field caused the conflict.
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   await client.auth.register({ username: "john", email: "john@example.com", ... });
+ * } catch (error) {
+ *   if (error instanceof UserAlreadyExistsError) {
+ *     console.log(`${error.field} is already taken`);
+ *   }
+ * }
+ * ```
+ */
+export class UserAlreadyExistsError extends SyftHubError {
+  /** The field that caused the conflict ("username" or "email") */
+  public readonly field?: string;
+
+  constructor(
+    message: string = 'Username or email already exists',
+    public readonly detail?: unknown
+  ) {
+    super(message);
+    this.name = 'UserAlreadyExistsError';
+    // Extract field from detail if available
+    if (detail && typeof detail === 'object' && 'field' in detail) {
+      this.field = (detail as { field?: string }).field;
+    }
+  }
+}
+
+// =============================================================================
 // Accounting-related Errors
 // =============================================================================
 

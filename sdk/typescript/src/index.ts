@@ -57,6 +57,8 @@ export {
   NotFoundError,
   ValidationError,
   NetworkError,
+  // User registration errors
+  UserAlreadyExistsError,
   // Accounting-related errors
   AccountingAccountExistsError,
   InvalidAccountingPasswordError,
