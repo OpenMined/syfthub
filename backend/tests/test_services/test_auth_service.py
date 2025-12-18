@@ -1,14 +1,20 @@
 """Tests for AuthService."""
 
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
 
 from syfthub.database.connection import get_db_session
+from syfthub.domain.exceptions import (
+    AccountingAccountExistsError,
+    AccountingServiceUnavailableError,
+    InvalidAccountingPasswordError,
+)
 from syfthub.schemas.auth import RefreshTokenRequest, UserLogin, UserRegister
 from syfthub.schemas.user import User
+from syfthub.services.accounting_client import AccountingUserResult
 from syfthub.services.auth_service import AuthService
 
 
@@ -457,3 +463,211 @@ class TestAuthServiceGetters:
 
             assert result == mock_user
             mock_get.assert_called_once_with(1)
+
+
+class TestHandleAccountingRegistration:
+    """Test accounting registration handling."""
+
+    def test_accounting_registration_skipped_when_no_url(self, auth_service):
+        """Test that accounting registration is skipped when no URL configured."""
+        # When default_accounting_url is empty, should return (None, None)
+        with patch("syfthub.services.auth_service.settings") as mock_settings:
+            mock_settings.default_accounting_url = ""
+
+            result = auth_service._handle_accounting_registration(
+                email="test@example.com",
+                accounting_url=None,
+                accounting_password=None,
+            )
+
+            assert result == (None, None)
+
+    def test_accounting_registration_with_valid_existing_password(self, auth_service):
+        """Test accounting registration with valid existing password."""
+        mock_client = MagicMock()
+        mock_client.validate_credentials.return_value = True
+
+        with (
+            patch("syfthub.services.auth_service.settings") as mock_settings,
+            patch(
+                "syfthub.services.auth_service.AccountingClient",
+                return_value=mock_client,
+            ),
+        ):
+            mock_settings.default_accounting_url = None
+            mock_settings.accounting_timeout = 30.0
+
+            result = auth_service._handle_accounting_registration(
+                email="test@example.com",
+                accounting_url="http://accounting.example.com",
+                accounting_password="existing_password",
+            )
+
+            assert result == ("http://accounting.example.com", "existing_password")
+            mock_client.validate_credentials.assert_called_once_with(
+                "test@example.com", "existing_password"
+            )
+            mock_client.close.assert_called_once()
+
+    def test_accounting_registration_with_invalid_existing_password(self, auth_service):
+        """Test accounting registration with invalid existing password."""
+        mock_client = MagicMock()
+        mock_client.validate_credentials.return_value = False
+
+        with (
+            patch("syfthub.services.auth_service.settings") as mock_settings,
+            patch(
+                "syfthub.services.auth_service.AccountingClient",
+                return_value=mock_client,
+            ),
+        ):
+            mock_settings.default_accounting_url = None
+            mock_settings.accounting_timeout = 30.0
+
+            with pytest.raises(InvalidAccountingPasswordError):
+                auth_service._handle_accounting_registration(
+                    email="test@example.com",
+                    accounting_url="http://accounting.example.com",
+                    accounting_password="wrong_password",
+                )
+
+            mock_client.close.assert_called_once()
+
+    def test_accounting_registration_auto_create_success(self, auth_service):
+        """Test automatic accounting account creation."""
+        mock_client = MagicMock()
+        mock_client.create_user.return_value = AccountingUserResult(
+            success=True,
+            conflict=False,
+            error=None,
+        )
+
+        with (
+            patch("syfthub.services.auth_service.settings") as mock_settings,
+            patch(
+                "syfthub.services.auth_service.AccountingClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "syfthub.services.auth_service.generate_accounting_password",
+                return_value="generated_password_123",
+            ),
+        ):
+            mock_settings.default_accounting_url = None
+            mock_settings.accounting_timeout = 30.0
+            mock_settings.accounting_password_length = 32
+
+            result = auth_service._handle_accounting_registration(
+                email="newuser@example.com",
+                accounting_url="http://accounting.example.com",
+                accounting_password=None,
+            )
+
+            assert result == ("http://accounting.example.com", "generated_password_123")
+            mock_client.create_user.assert_called_once()
+            mock_client.close.assert_called_once()
+
+    def test_accounting_registration_auto_create_conflict(self, auth_service):
+        """Test accounting registration when account already exists."""
+        mock_client = MagicMock()
+        mock_client.create_user.return_value = AccountingUserResult(
+            success=False,
+            conflict=True,
+            error=None,
+        )
+
+        with (
+            patch("syfthub.services.auth_service.settings") as mock_settings,
+            patch(
+                "syfthub.services.auth_service.AccountingClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "syfthub.services.auth_service.generate_accounting_password",
+                return_value="generated_password",
+            ),
+        ):
+            mock_settings.default_accounting_url = None
+            mock_settings.accounting_timeout = 30.0
+            mock_settings.accounting_password_length = 32
+
+            with pytest.raises(AccountingAccountExistsError) as exc_info:
+                auth_service._handle_accounting_registration(
+                    email="existing@example.com",
+                    accounting_url="http://accounting.example.com",
+                    accounting_password=None,
+                )
+
+            assert exc_info.value.email == "existing@example.com"
+            mock_client.close.assert_called_once()
+
+    def test_accounting_registration_auto_create_other_error(self, auth_service):
+        """Test accounting registration when accounting service returns error."""
+        mock_client = MagicMock()
+        mock_client.create_user.return_value = AccountingUserResult(
+            success=False,
+            conflict=False,
+            error="Service unavailable",
+        )
+
+        with (
+            patch("syfthub.services.auth_service.settings") as mock_settings,
+            patch(
+                "syfthub.services.auth_service.AccountingClient",
+                return_value=mock_client,
+            ),
+            patch(
+                "syfthub.services.auth_service.generate_accounting_password",
+                return_value="generated_password",
+            ),
+        ):
+            mock_settings.default_accounting_url = None
+            mock_settings.accounting_timeout = 30.0
+            mock_settings.accounting_password_length = 32
+
+            with pytest.raises(AccountingServiceUnavailableError) as exc_info:
+                auth_service._handle_accounting_registration(
+                    email="test@example.com",
+                    accounting_url="http://accounting.example.com",
+                    accounting_password=None,
+                )
+
+            assert "Service unavailable" in exc_info.value.detail
+            mock_client.close.assert_called_once()
+
+    def test_accounting_registration_uses_default_url(self, auth_service):
+        """Test that default accounting URL is used when not provided."""
+        mock_client = MagicMock()
+        mock_client.create_user.return_value = AccountingUserResult(
+            success=True,
+            conflict=False,
+            error=None,
+        )
+
+        with (
+            patch("syfthub.services.auth_service.settings") as mock_settings,
+            patch(
+                "syfthub.services.auth_service.AccountingClient",
+                return_value=mock_client,
+            ) as mock_client_class,
+            patch(
+                "syfthub.services.auth_service.generate_accounting_password",
+                return_value="generated_password",
+            ),
+        ):
+            mock_settings.default_accounting_url = "http://default-accounting.com"
+            mock_settings.accounting_timeout = 30.0
+            mock_settings.accounting_password_length = 32
+
+            result = auth_service._handle_accounting_registration(
+                email="test@example.com",
+                accounting_url=None,  # Not provided, should use default
+                accounting_password=None,
+            )
+
+            # Verify default URL was used
+            mock_client_class.assert_called_once_with(
+                base_url="http://default-accounting.com",
+                timeout=30.0,
+            )
+            assert result[0] == "http://default-accounting.com"

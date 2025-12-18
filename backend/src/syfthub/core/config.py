@@ -154,8 +154,9 @@ class Settings(BaseSettings):
     # ===========================================
 
     # Default accounting service URL - used if user doesn't provide one during registration
+    # Uses OpenMined's hosted accounting service by default
     default_accounting_url: Optional[str] = Field(
-        default=None,
+        default="https://syftaccounting.centralus.cloudapp.azure.com",
         description="Default accounting service URL for user registration",
     )
 

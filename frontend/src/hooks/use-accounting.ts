@@ -24,6 +24,8 @@ import type { AccountingCredentials } from '@/lib/types';
 import { useAccountingContext } from '@/context/accounting-context';
 
 // Re-export API hooks for convenience
+// Note: Some hooks are deprecated but re-exported for backward compatibility
+/* eslint-disable @typescript-eslint/no-deprecated -- Intentional re-export for backward compatibility */
 export {
   useAccountingClient,
   useAccountingUser,
@@ -34,6 +36,7 @@ export {
   useTransactionToken,
   useDelegatedTransaction
 } from './use-accounting-api';
+/* eslint-enable @typescript-eslint/no-deprecated */
 
 // =============================================================================
 // Main Hook

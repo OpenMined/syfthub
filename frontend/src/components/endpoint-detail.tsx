@@ -1,23 +1,32 @@
 import React, { useEffect, useState } from 'react';
 
-import type { ChatSource, EndpointType } from '@/lib/types';
+import type { ChatSource, EndpointType, Policy } from '@/lib/types';
 
 import {
   ArrowLeft,
   Calendar,
   Check,
+  Coins,
   Copy,
   Download,
-  ExternalLink,
-  GitFork,
+  Gauge,
   Globe,
+  Key,
+  Lock,
+  MapPin,
   Package,
-  Share2,
+  Shield,
+  ShieldCheck,
   Star,
-  Users
+  Unlock,
+  Users,
+  Zap
 } from 'lucide-react';
+import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 import { getPublicEndpoints } from '@/lib/endpoint-utils';
+import { cn } from '@/lib/utils';
 
 import { ConnectionCard } from './connection-card';
 import { Badge } from './ui/badge';
@@ -67,6 +76,352 @@ function getTypeLabel(type: EndpointType) {
       return type;
     }
   }
+}
+
+// Policy type configuration for styling and icons
+const POLICY_TYPE_CONFIG: Record<
+  string,
+  {
+    icon: React.ElementType;
+    label: string;
+    color: string;
+    bgColor: string;
+    borderColor: string;
+    description: string;
+  }
+> = {
+  // Transaction/Pricing policies
+  transaction: {
+    icon: Coins,
+    label: 'Transaction Policy',
+    color: 'text-emerald-600',
+    bgColor: 'bg-emerald-50',
+    borderColor: 'border-emerald-200',
+    description: 'Pay-per-use pricing for this endpoint'
+  },
+  // Access control policies
+  public: {
+    icon: Globe,
+    label: 'Public Access',
+    color: 'text-sky-600',
+    bgColor: 'bg-sky-50',
+    borderColor: 'border-sky-200',
+    description: 'Anyone can access this endpoint without authentication'
+  },
+  private: {
+    icon: Lock,
+    label: 'Private Access',
+    color: 'text-red-600',
+    bgColor: 'bg-red-50',
+    borderColor: 'border-red-200',
+    description: 'Only the owner can access this endpoint'
+  },
+  authenticated: {
+    icon: Key,
+    label: 'Authentication Required',
+    color: 'text-amber-600',
+    bgColor: 'bg-amber-50',
+    borderColor: 'border-amber-200',
+    description: 'Requires authentication to access'
+  },
+  internal: {
+    icon: Shield,
+    label: 'Internal Only',
+    color: 'text-indigo-600',
+    bgColor: 'bg-indigo-50',
+    borderColor: 'border-indigo-200',
+    description: 'Only accessible within the organization'
+  },
+  // Rate limiting and quotas
+  rate_limit: {
+    icon: Gauge,
+    label: 'Rate Limit',
+    color: 'text-orange-600',
+    bgColor: 'bg-orange-50',
+    borderColor: 'border-orange-200',
+    description: 'Request rate is limited'
+  },
+  quota: {
+    icon: Zap,
+    label: 'Usage Quota',
+    color: 'text-purple-600',
+    bgColor: 'bg-purple-50',
+    borderColor: 'border-purple-200',
+    description: 'Usage quota applies to this endpoint'
+  },
+  // Geographic restrictions
+  geographic: {
+    icon: MapPin,
+    label: 'Geographic Restriction',
+    color: 'text-rose-600',
+    bgColor: 'bg-rose-50',
+    borderColor: 'border-rose-200',
+    description: 'Access restricted by geographic location'
+  }
+};
+
+const DEFAULT_POLICY_CONFIG = {
+  icon: ShieldCheck,
+  label: 'Policy',
+  color: 'text-slate-600',
+  bgColor: 'bg-slate-50',
+  borderColor: 'border-slate-200',
+  description: 'Custom policy configuration'
+};
+
+function getPolicyConfig(type: string) {
+  return POLICY_TYPE_CONFIG[type.toLowerCase()] ?? DEFAULT_POLICY_CONFIG;
+}
+
+// Helper to format cost values for display
+function formatCost(value: number, unit: string): string {
+  if (unit === 'token' || unit === 'tokens') {
+    // Convert per-token cost to per-million tokens for readability
+    const perMillion = value * 1_000_000;
+    if (perMillion < 0.01) {
+      return `$${(perMillion * 1000).toFixed(2)} / 1B`;
+    }
+    return `$${perMillion.toFixed(2)} / 1M`;
+  }
+  if (unit === 'query' || unit === 'queries') {
+    // Convert per-query cost to per-thousand queries
+    const perThousand = value * 1000;
+    return `$${perThousand.toFixed(2)} / 1K`;
+  }
+  // Default: show as-is with 6 decimal places
+  return `$${value.toFixed(6)}`;
+}
+
+// Helper to format config key names for display
+function formatConfigKey(key: string): string {
+  return key
+    .replaceAll('_', ' ')
+    .replaceAll(/([A-Z])/g, ' $1')
+    .replaceAll(/^./g, (firstChar) => firstChar.toUpperCase())
+    .trim();
+}
+
+// Render config value based on type
+// eslint-disable-next-line sonarjs/function-return-type -- Different JSX elements are all valid React.ReactNode
+function renderConfigValue(value: unknown, key: string): React.ReactNode {
+  if (value === null || value === undefined) return <span className='text-gray-400'>—</span>;
+  if (typeof value === 'boolean') {
+    return value ? (
+      <span className='text-emerald-600'>Yes</span>
+    ) : (
+      <span className='text-gray-400'>No</span>
+    );
+  }
+  if (typeof value === 'number') {
+    // Check if it looks like a cost value
+    if (key.includes('token') || key.includes('cost')) {
+      return <span className='font-mono'>{formatCost(value, 'token')}</span>;
+    }
+    if (key.includes('query') || key.includes('retrieval')) {
+      return <span className='font-mono'>{formatCost(value, 'query')}</span>;
+    }
+    return <span className='font-mono'>{value.toLocaleString()}</span>;
+  }
+  if (typeof value === 'string') {
+    return <span>{value}</span>;
+  }
+  // Handle objects, arrays, and any other types via JSON serialization
+  return <span className='font-mono text-[10px]'>{JSON.stringify(value)}</span>;
+}
+
+// Transaction policy specific renderer
+function TransactionPolicyContent({ config }: Readonly<{ config: Record<string, unknown> }>) {
+  const costs = config.costs as Record<string, unknown> | undefined;
+  const provider = config.provider as string | undefined;
+  const pricingModel = config.pricing_model as string | undefined;
+  const billingUnit = config.billing_unit as string | undefined;
+
+  return (
+    <div className='mt-3 space-y-2'>
+      {/* Provider & Model Info */}
+      {/* eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- Intentional truthy check for conditional rendering */}
+      {(provider || pricingModel) && (
+        <div className='flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500'>
+          {provider && (
+            <span>
+              Provider: <span className='font-medium text-gray-700'>{provider}</span>
+            </span>
+          )}
+          {pricingModel && (
+            <span>
+              Model:{' '}
+              <span className='font-medium text-gray-700'>{formatConfigKey(pricingModel)}</span>
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Pricing Table */}
+      {costs && (
+        <div className='rounded-md border border-emerald-200 bg-white/60'>
+          <div className='border-b border-emerald-100 px-3 py-1.5'>
+            <span className='text-[10px] font-semibold tracking-wide text-emerald-700 uppercase'>
+              Pricing
+            </span>
+          </div>
+          <div className='divide-y divide-emerald-100'>
+            {Object.entries(costs)
+              .filter(
+                ([key, value]) =>
+                  key !== 'currency' && key !== 'retrieval_per_query' && typeof value === 'number'
+              )
+              .map(([key, value]) => (
+                <div key={key} className='flex items-center justify-between px-3 py-1.5'>
+                  <span className='text-xs text-gray-600'>{formatConfigKey(key)}</span>
+                  <span className='font-mono text-xs font-medium text-gray-900'>
+                    {formatCost(
+                      value as number,
+                      key.includes('token') ? (billingUnit ?? 'token') : 'query'
+                    )}
+                  </span>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Generic config renderer for unknown policy types
+function GenericPolicyContent({ config }: Readonly<{ config: Record<string, unknown> }>) {
+  const entries = Object.entries(config).filter(
+    ([, value]) => value !== null && value !== undefined && value !== ''
+  );
+
+  if (entries.length === 0) return null;
+
+  return (
+    <div className='mt-3'>
+      <div className='rounded-md border border-gray-200 bg-white/60'>
+        <div className='border-b border-gray-100 px-3 py-1.5'>
+          <span className='text-[10px] font-semibold tracking-wide text-gray-500 uppercase'>
+            Configuration
+          </span>
+        </div>
+        <div className='divide-y divide-gray-100'>
+          {entries.map(([key, value]) => (
+            <div key={key} className='flex items-center justify-between gap-2 px-3 py-1.5'>
+              <span className='shrink-0 text-xs text-gray-600'>{formatConfigKey(key)}</span>
+              <span className='truncate text-xs text-gray-900'>
+                {renderConfigValue(value, key)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Single policy item component
+function PolicyItem({ policy }: Readonly<{ policy: Policy }>) {
+  const config = getPolicyConfig(policy.type);
+  const Icon = config.icon;
+  const isTransaction = policy.type.toLowerCase() === 'transaction';
+
+  // For unknown policy types, use the type as the label
+  const displayLabel = POLICY_TYPE_CONFIG[policy.type.toLowerCase()]
+    ? config.label
+    : formatConfigKey(policy.type);
+
+  return (
+    <div
+      className={cn(
+        'group relative rounded-lg border p-4 transition-all duration-200',
+        config.borderColor,
+        config.bgColor,
+        policy.enabled ? 'hover:shadow-md hover:shadow-black/5' : 'opacity-60 grayscale-[30%]'
+      )}
+    >
+      <div className='flex items-start gap-3'>
+        {/* Icon */}
+        <div
+          className={cn(
+            'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
+            config.bgColor,
+            'ring-1 ring-inset',
+            config.borderColor
+          )}
+        >
+          <Icon className={cn('h-4.5 w-4.5', config.color)} />
+        </div>
+
+        {/* Content */}
+        <div className='min-w-0 flex-1'>
+          <div className='flex items-center justify-between gap-2'>
+            <span className={cn('text-sm font-semibold', config.color)}>{displayLabel}</span>
+            <Badge
+              variant='outline'
+              className={cn(
+                'shrink-0 text-[10px] font-medium',
+                policy.enabled
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  : 'border-gray-200 bg-gray-50 text-gray-500'
+              )}
+            >
+              {policy.enabled ? 'Active' : 'Disabled'}
+            </Badge>
+          </div>
+          <p className='mt-1 text-xs text-gray-600'>{policy.description || config.description}</p>
+
+          {/* Policy-specific content */}
+          {isTransaction && Object.keys(policy.config).length > 0 ? (
+            <TransactionPolicyContent config={policy.config} />
+          ) : (
+            Object.keys(policy.config).length > 0 && <GenericPolicyContent config={policy.config} />
+          )}
+
+          {policy.version && (
+            <p className='mt-2 text-[10px] text-gray-400'>Version {policy.version}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Access Policies Card component
+interface AccessPoliciesCardProperties {
+  policies?: Policy[];
+}
+
+function AccessPoliciesCard({ policies }: Readonly<AccessPoliciesCardProperties>) {
+  const validPolicies = policies?.filter((p) => p.type) ?? [];
+
+  return (
+    <div className='rounded-lg border border-gray-200 bg-white p-6'>
+      {/* Header */}
+      <div className='mb-4 flex items-center justify-between'>
+        <h3 className='text-sm font-semibold text-gray-900'>Access Policies</h3>
+        {validPolicies.length > 0 && (
+          <span className='rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600'>
+            {validPolicies.length}
+          </span>
+        )}
+      </div>
+
+      {/* Policies list */}
+      {validPolicies.length > 0 ? (
+        <div className='space-y-3'>
+          {validPolicies.map((policy, index) => (
+            <PolicyItem key={`${policy.type}-${String(index)}`} policy={policy} />
+          ))}
+        </div>
+      ) : (
+        <div className='rounded-lg border border-dashed border-gray-200 py-6 text-center'>
+          <Unlock className='mx-auto h-8 w-8 text-gray-300' />
+          <p className='mt-2 text-sm text-gray-500'>No access policies configured</p>
+          <p className='mt-1 text-xs text-gray-400'>This endpoint may be publicly accessible</p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 interface EndpointDetailProperties {
@@ -229,10 +584,6 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                 <Star className='h-4 w-4' />
                 Star
               </Button>
-              <Button variant='outline' className='flex items-center gap-2'>
-                <GitFork className='h-4 w-4' />
-                Fork
-              </Button>
               <Button className='flex items-center gap-2'>
                 <Download className='h-4 w-4' />
                 Use Endpoint
@@ -249,44 +600,95 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
           <div className='space-y-6 lg:col-span-2'>
             {/* README Section */}
             <div className='rounded-lg border border-gray-200 bg-white p-6'>
-              <h2 className='mb-4 text-xl font-semibold text-gray-900'>Documentation</h2>
               <div className='prose prose-sm max-w-none text-gray-600'>
-                <p>
-                  This endpoint provides access to structured data that can be used for analysis,
-                  machine learning, or application development.
-                </p>
-                <h3 className='mt-4 mb-2 text-lg font-medium text-gray-900'>Usage</h3>
-                <p>To use this endpoint in your project:</p>
-                <pre className='rounded bg-gray-50 p-3 text-xs'>
-                  {/* eslint-disable-next-line sonarjs/no-nested-template-literals -- Clear inline code example */}
-                  <code>{`from syfthub import Endpoint\n\nds = Endpoint("${endpoint.full_path ?? `${endpoint.owner_username ?? 'anonymous'}/${slug}`}")\ndata = ds.fetch()`}</code>
-                </pre>
-                <h3 className='mt-4 mb-2 text-lg font-medium text-gray-900'>Features</h3>
-                <ul className='list-disc space-y-1 pl-5'>
-                  <li>Real-time data updates</li>
-                  <li>RESTful API access</li>
-                  <li>Multiple export formats</li>
-                  <li>Privacy-preserving queries</li>
-                </ul>
-              </div>
-            </div>
-
-            {/* Policies Section */}
-            <div className='rounded-lg border border-gray-200 bg-white p-6'>
-              <h2 className='mb-4 text-xl font-semibold text-gray-900'>Access Policies</h2>
-              <div className='space-y-3'>
-                <div className='rounded-lg border border-blue-200 bg-blue-50 p-4'>
-                  <div className='flex items-start gap-3'>
-                    <Globe className='mt-0.5 h-5 w-5 text-blue-600' />
-                    <div>
-                      <h3 className='text-sm font-medium text-blue-900'>Public Access</h3>
-                      <p className='mt-1 text-xs text-blue-700'>
-                        This endpoint is publicly accessible. No authentication required for read
-                        operations.
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                {endpoint.readme ? (
+                  <Markdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      h1: ({ children }) => (
+                        <h1 className='mt-6 mb-4 text-2xl font-bold text-gray-900'>{children}</h1>
+                      ),
+                      h2: ({ children }) => (
+                        <h2 className='mt-5 mb-3 text-xl font-semibold text-gray-900'>
+                          {children}
+                        </h2>
+                      ),
+                      h3: ({ children }) => (
+                        <h3 className='mt-4 mb-2 text-lg font-medium text-gray-900'>{children}</h3>
+                      ),
+                      h4: ({ children }) => (
+                        <h4 className='mt-3 mb-2 text-base font-medium text-gray-900'>
+                          {children}
+                        </h4>
+                      ),
+                      p: ({ children }) => <p className='mb-3 text-gray-600'>{children}</p>,
+                      ul: ({ children }) => (
+                        <ul className='mb-3 list-disc space-y-1 pl-5'>{children}</ul>
+                      ),
+                      ol: ({ children }) => (
+                        <ol className='mb-3 list-decimal space-y-1 pl-5'>{children}</ol>
+                      ),
+                      li: ({ children }) => <li className='text-gray-600'>{children}</li>,
+                      code: ({ className, children }) => {
+                        const isInline = !className;
+                        return isInline ? (
+                          <code className='rounded bg-gray-100 px-1.5 py-0.5 font-mono text-sm text-gray-800'>
+                            {children}
+                          </code>
+                        ) : (
+                          <code className='block'>{children}</code>
+                        );
+                      },
+                      pre: ({ children }) => (
+                        <pre className='mb-3 overflow-x-auto rounded bg-gray-50 p-3 text-xs'>
+                          {children}
+                        </pre>
+                      ),
+                      a: ({ href, children }) => (
+                        <a
+                          href={href}
+                          className='text-blue-600 hover:text-blue-800 hover:underline'
+                          target='_blank'
+                          rel='noopener noreferrer'
+                        >
+                          {children}
+                        </a>
+                      ),
+                      blockquote: ({ children }) => (
+                        <blockquote className='my-3 border-l-4 border-gray-300 pl-4 text-gray-600 italic'>
+                          {children}
+                        </blockquote>
+                      ),
+                      hr: () => <hr className='my-4 border-gray-200' />,
+                      table: ({ children }) => (
+                        <div className='my-4 overflow-x-auto'>
+                          <table className='min-w-full divide-y divide-gray-200 border border-gray-200'>
+                            {children}
+                          </table>
+                        </div>
+                      ),
+                      thead: ({ children }) => <thead className='bg-gray-50'>{children}</thead>,
+                      tbody: ({ children }) => (
+                        <tbody className='divide-y divide-gray-200 bg-white'>{children}</tbody>
+                      ),
+                      tr: ({ children }) => <tr>{children}</tr>,
+                      th: ({ children }) => (
+                        <th className='px-4 py-2 text-left text-xs font-semibold text-gray-700'>
+                          {children}
+                        </th>
+                      ),
+                      td: ({ children }) => (
+                        <td className='px-4 py-2 text-sm text-gray-600'>{children}</td>
+                      )
+                    }}
+                  >
+                    {endpoint.readme}
+                  </Markdown>
+                ) : (
+                  <p className='text-gray-500 italic'>
+                    No documentation available for this endpoint.
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -339,47 +741,8 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
               <ConnectionCard connections={endpoint.connections} />
             )}
 
-            {/* Quick Actions */}
-            <div className='rounded-lg border border-gray-200 bg-white p-6'>
-              <h3 className='mb-4 text-sm font-semibold text-gray-900'>Quick Actions</h3>
-              <div className='space-y-2'>
-                <Button variant='outline' className='w-full justify-start' size='sm'>
-                  <ExternalLink className='mr-2 h-4 w-4' />
-                  View in Browser
-                </Button>
-                <Button variant='outline' className='w-full justify-start' size='sm'>
-                  <Share2 className='mr-2 h-4 w-4' />
-                  Share Endpoint
-                </Button>
-                <Button variant='outline' className='w-full justify-start' size='sm'>
-                  <Download className='mr-2 h-4 w-4' />
-                  Export Data
-                </Button>
-              </div>
-            </div>
-
-            {/* Stats */}
-            <div className='rounded-lg border border-gray-200 bg-white p-6'>
-              <h3 className='mb-4 text-sm font-semibold text-gray-900'>Statistics</h3>
-              <div className='grid grid-cols-2 gap-4'>
-                <div>
-                  <p className='text-2xl font-bold text-gray-900'>{endpoint.stars_count}</p>
-                  <p className='text-xs text-gray-500'>Stars</p>
-                </div>
-                <div>
-                  <p className='text-2xl font-bold text-gray-900'>0</p>
-                  <p className='text-xs text-gray-500'>Forks</p>
-                </div>
-                <div>
-                  <p className='text-2xl font-bold text-gray-900'>0</p>
-                  <p className='text-xs text-gray-500'>Downloads</p>
-                </div>
-                <div>
-                  <p className='text-2xl font-bold text-gray-900'>0</p>
-                  <p className='text-xs text-gray-500'>Views</p>
-                </div>
-              </div>
-            </div>
+            {/* Access Policies Card */}
+            <AccessPoliciesCard policies={endpoint.policies} />
           </div>
         </div>
       </div>

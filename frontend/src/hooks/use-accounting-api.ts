@@ -1,8 +1,8 @@
 /**
  * Accounting API Hooks
  *
- * React hooks for interacting with the external accounting service.
- * These hooks use the credentials stored in the encrypted vault.
+ * React hooks for interacting with the accounting service via backend proxy.
+ * All requests go through the SyftHub backend to avoid CORS issues.
  *
  * @example
  * ```tsx
@@ -18,42 +18,36 @@
  * ```
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { AccountingTransaction, AccountingUser, CreateTransactionInput } from '@/lib/types';
 
 import { useAccountingContext } from '@/context/accounting-context';
+import { syftClient } from '@/lib/sdk-client';
 
 // =============================================================================
-// Accounting Client (inline implementation to avoid SDK dependency issues)
+// Proxy Client - Makes requests to SyftHub backend (which proxies to accounting)
 // =============================================================================
 
 /**
- * Validated credentials with non-null values.
- * Used after we've verified the credentials are configured.
+ * Makes authenticated requests to the SyftHub backend accounting proxy endpoints.
+ * This avoids CORS issues by going through the backend.
  */
-interface ValidatedCredentials {
-  url: string;
-  email: string;
-  password: string;
-}
-
-/**
- * Simple accounting client that makes direct API calls.
- * This mirrors the SDK's AccountingResource but is self-contained.
- */
-class AccountingClient {
-  private readonly baseUrl: string;
-  private readonly authHeader: string;
+class AccountingProxyClient {
+  // Use same-origin for API calls (through Vite proxy or nginx)
+  private readonly baseUrl = '/api/v1/accounting';
   private readonly timeout: number;
 
-  constructor(credentials: ValidatedCredentials, timeout = 30_000) {
-    this.baseUrl = credentials.url.replace(/\/$/, '');
+  constructor(timeout = 30_000) {
     this.timeout = timeout;
+  }
 
-    // Create Basic auth header
-    const encoded = btoa(`${credentials.email}:${credentials.password}`);
-    this.authHeader = `Basic ${encoded}`;
+  private getAuthHeader(): string {
+    const tokens = syftClient.getTokens();
+    if (!tokens?.accessToken) {
+      throw new Error('Not authenticated');
+    }
+    return `Bearer ${tokens.accessToken}`;
   }
 
   private async request<T>(
@@ -64,7 +58,7 @@ class AccountingClient {
       params?: Record<string, string | number>;
     }
   ): Promise<T> {
-    const url = new URL(path, this.baseUrl);
+    const url = new URL(path, globalThis.location.origin + this.baseUrl);
 
     if (options?.params) {
       for (const [key, value] of Object.entries(options.params)) {
@@ -78,10 +72,10 @@ class AccountingClient {
     }, this.timeout);
 
     try {
-      const response = await fetch(url.toString(), {
+      const response = await fetch(this.baseUrl + path + url.search, {
         method,
         headers: {
-          Authorization: this.authHeader,
+          Authorization: this.getAuthHeader(),
           'Content-Type': 'application/json',
           Accept: 'application/json'
         },
@@ -125,17 +119,13 @@ class AccountingClient {
     });
   }
 
-  async getTransaction(id: string): Promise<TransactionResponse> {
-    return this.request<TransactionResponse>('GET', `/transactions/${id}`);
-  }
-
   async createTransaction(input: CreateTransactionInput): Promise<TransactionResponse> {
     return this.request<TransactionResponse>('POST', '/transactions', {
       body: {
-        recipientEmail: input.recipientEmail,
+        recipient_email: input.recipientEmail,
         amount: input.amount,
-        ...(input.appName && { appName: input.appName }),
-        ...(input.appEpPath && { appEpPath: input.appEpPath })
+        ...(input.appName && { app_name: input.appName }),
+        ...(input.appEpPath && { app_ep_path: input.appEpPath })
       }
     });
   }
@@ -146,44 +136,6 @@ class AccountingClient {
 
   async cancelTransaction(id: string): Promise<TransactionResponse> {
     return this.request<TransactionResponse>('POST', `/transactions/${id}/cancel`);
-  }
-
-  async createTransactionToken(recipientEmail: string): Promise<string> {
-    const response = await this.request<{ token: string }>('POST', '/tokens', {
-      body: { recipientEmail }
-    });
-    return response.token;
-  }
-
-  async createDelegatedTransaction(
-    senderEmail: string,
-    amount: number,
-    token: string
-  ): Promise<TransactionResponse> {
-    const url = new URL('/transactions', this.baseUrl);
-
-    const response = await fetch(url.toString(), {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json'
-      },
-      body: JSON.stringify({ senderEmail, amount })
-    });
-
-    if (!response.ok) {
-      let detail: string;
-      try {
-        const body = (await response.json()) as { detail?: string };
-        detail = body.detail ?? `HTTP ${String(response.status)}`;
-      } catch {
-        detail = `HTTP ${String(response.status)}`;
-      }
-      throw new Error(detail);
-    }
-
-    return (await response.json()) as TransactionResponse;
   }
 }
 
@@ -211,30 +163,31 @@ function parseTransaction(response: TransactionResponse): AccountingTransaction 
   };
 }
 
+// Singleton proxy client instance
+let proxyClient: AccountingProxyClient | null = null;
+
+function getProxyClient(): AccountingProxyClient {
+  proxyClient ??= new AccountingProxyClient();
+  return proxyClient;
+}
+
 // =============================================================================
-// useAccountingClient - Get or create accounting client from vault credentials
+// useAccountingClient - For backward compatibility
 // =============================================================================
 
 /**
- * Hook to get an AccountingClient instance from stored credentials.
- * Returns null if accounting is not configured.
+ * Hook to check if accounting is configured.
+ * Returns a proxy client if configured, null otherwise.
+ * @deprecated Use the proxy client directly via hooks
  */
-export function useAccountingClient(): AccountingClient | null {
-  const { credentials, isConfigured } = useAccountingContext();
+export function useAccountingClient(): AccountingProxyClient | null {
+  const { isConfigured } = useAccountingContext();
 
-  return useMemo(() => {
-    if (!isConfigured || !credentials?.url || !credentials.password) {
-      return null;
-    }
-    // Create credentials with non-null values for the client
-    // Type assertions are safe here because we've checked for null above
-    const validCredentials: ValidatedCredentials = {
-      url: credentials.url,
-      email: credentials.email,
-      password: credentials.password
-    };
-    return new AccountingClient(validCredentials);
-  }, [credentials, isConfigured]);
+  if (!isConfigured) {
+    return null;
+  }
+
+  return getProxyClient();
 }
 
 // =============================================================================
@@ -252,14 +205,14 @@ interface UseAccountingUserResult {
  * Hook to fetch and manage the current accounting user.
  */
 export function useAccountingUser(): UseAccountingUserResult {
-  const client = useAccountingClient();
+  const { isConfigured } = useAccountingContext();
   const [user, setUser] = useState<AccountingUser | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isMounted = useRef(true);
 
   const refetch = useCallback(async () => {
-    if (!client) {
+    if (!isConfigured) {
       setUser(null);
       return;
     }
@@ -268,6 +221,7 @@ export function useAccountingUser(): UseAccountingUserResult {
     setError(null);
 
     try {
+      const client = getProxyClient();
       const fetchedUser = await client.getUser();
       if (isMounted.current) {
         setUser(fetchedUser);
@@ -281,7 +235,7 @@ export function useAccountingUser(): UseAccountingUserResult {
         setIsLoading(false);
       }
     }
-  }, [client]);
+  }, [isConfigured]);
 
   useEffect(() => {
     isMounted.current = true;
@@ -344,7 +298,7 @@ interface UseTransactionsResult {
  */
 export function useTransactions(options: UseTransactionsOptions = {}): UseTransactionsResult {
   const { pageSize = 20, autoFetch = true } = options;
-  const client = useAccountingClient();
+  const { isConfigured } = useAccountingContext();
   const [transactions, setTransactions] = useState<AccountingTransaction[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -352,12 +306,13 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
   const isMounted = useRef(true);
 
   const fetchMore = useCallback(async () => {
-    if (!client || isLoading || !hasMore) return;
+    if (!isConfigured || isLoading || !hasMore) return;
 
     setIsLoading(true);
     setError(null);
 
     try {
+      const client = getProxyClient();
       const skip = transactions.length;
       const response = await client.getTransactions(skip, pageSize);
       const newTransactions = response.map((tx) => parseTransaction(tx));
@@ -375,10 +330,10 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
         setIsLoading(false);
       }
     }
-  }, [client, isLoading, hasMore, transactions.length, pageSize]);
+  }, [isConfigured, isLoading, hasMore, transactions.length, pageSize]);
 
   const refetch = useCallback(async () => {
-    if (!client) {
+    if (!isConfigured) {
       setTransactions([]);
       return;
     }
@@ -388,6 +343,7 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
     setHasMore(true);
 
     try {
+      const client = getProxyClient();
       const response = await client.getTransactions(0, pageSize);
       const newTransactions = response.map((tx) => parseTransaction(tx));
 
@@ -404,7 +360,7 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
         setIsLoading(false);
       }
     }
-  }, [client, pageSize]);
+  }, [isConfigured, pageSize]);
 
   useEffect(() => {
     isMounted.current = true;
@@ -414,124 +370,12 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
   }, []);
 
   useEffect(() => {
-    if (autoFetch) {
+    if (autoFetch && isConfigured) {
       void refetch();
     }
-  }, [autoFetch, refetch]);
+  }, [autoFetch, isConfigured, refetch]);
 
   return { transactions, isLoading, error, hasMore, fetchMore, refetch };
-}
-
-// =============================================================================
-// useTransaction - Get single transaction with actions
-// =============================================================================
-
-interface UseTransactionResult {
-  transaction: AccountingTransaction | null;
-  isLoading: boolean;
-  error: string | null;
-  confirm: () => Promise<AccountingTransaction | null>;
-  cancel: () => Promise<AccountingTransaction | null>;
-  refetch: () => Promise<void>;
-}
-
-/**
- * Hook to manage a single transaction.
- */
-export function useTransaction(transactionId: string | null): UseTransactionResult {
-  const client = useAccountingClient();
-  const [transaction, setTransaction] = useState<AccountingTransaction | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const isMounted = useRef(true);
-
-  const refetch = useCallback(async () => {
-    if (!client || !transactionId) {
-      setTransaction(null);
-      return;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await client.getTransaction(transactionId);
-      if (isMounted.current) {
-        setTransaction(parseTransaction(response));
-      }
-    } catch (error_) {
-      if (isMounted.current) {
-        setError(error_ instanceof Error ? error_.message : 'Failed to fetch transaction');
-      }
-    } finally {
-      if (isMounted.current) {
-        setIsLoading(false);
-      }
-    }
-  }, [client, transactionId]);
-
-  const confirm = useCallback(async (): Promise<AccountingTransaction | null> => {
-    if (!client || !transactionId) return null;
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await client.confirmTransaction(transactionId);
-      const updated = parseTransaction(response);
-      if (isMounted.current) {
-        setTransaction(updated);
-      }
-      return updated;
-    } catch (error_) {
-      if (isMounted.current) {
-        setError(error_ instanceof Error ? error_.message : 'Failed to confirm transaction');
-      }
-      return null;
-    } finally {
-      if (isMounted.current) {
-        setIsLoading(false);
-      }
-    }
-  }, [client, transactionId]);
-
-  const cancel = useCallback(async (): Promise<AccountingTransaction | null> => {
-    if (!client || !transactionId) return null;
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const response = await client.cancelTransaction(transactionId);
-      const updated = parseTransaction(response);
-      if (isMounted.current) {
-        setTransaction(updated);
-      }
-      return updated;
-    } catch (error_) {
-      if (isMounted.current) {
-        setError(error_ instanceof Error ? error_.message : 'Failed to cancel transaction');
-      }
-      return null;
-    } finally {
-      if (isMounted.current) {
-        setIsLoading(false);
-      }
-    }
-  }, [client, transactionId]);
-
-  useEffect(() => {
-    isMounted.current = true;
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    void refetch();
-  }, [refetch]);
-
-  return { transaction, isLoading, error, confirm, cancel, refetch };
 }
 
 // =============================================================================
@@ -549,14 +393,14 @@ interface UseCreateTransactionResult {
  * Hook to create new transactions.
  */
 export function useCreateTransaction(): UseCreateTransactionResult {
-  const client = useAccountingClient();
+  const { isConfigured } = useAccountingContext();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isMounted = useRef(true);
 
   const create = useCallback(
     async (input: CreateTransactionInput): Promise<AccountingTransaction | null> => {
-      if (!client) {
+      if (!isConfigured) {
         setError('Accounting not configured');
         return null;
       }
@@ -570,6 +414,7 @@ export function useCreateTransaction(): UseCreateTransactionResult {
       setError(null);
 
       try {
+        const client = getProxyClient();
         const response = await client.createTransaction(input);
         return parseTransaction(response);
       } catch (error_) {
@@ -583,7 +428,7 @@ export function useCreateTransaction(): UseCreateTransactionResult {
         }
       }
     },
-    [client]
+    [isConfigured]
   );
 
   const clearError = useCallback(() => {
@@ -601,28 +446,28 @@ export function useCreateTransaction(): UseCreateTransactionResult {
 }
 
 // =============================================================================
-// useTransactionToken - Create delegation tokens
+// useConfirmTransaction - Confirm a transaction
 // =============================================================================
 
-interface UseTransactionTokenResult {
-  createToken: (recipientEmail: string) => Promise<string | null>;
+interface UseConfirmTransactionResult {
+  confirm: (transactionId: string) => Promise<AccountingTransaction | null>;
   isLoading: boolean;
   error: string | null;
   clearError: () => void;
 }
 
 /**
- * Hook to create transaction tokens for delegated transfers.
+ * Hook to confirm transactions.
  */
-export function useTransactionToken(): UseTransactionTokenResult {
-  const client = useAccountingClient();
+export function useConfirmTransaction(): UseConfirmTransactionResult {
+  const { isConfigured } = useAccountingContext();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isMounted = useRef(true);
 
-  const createToken = useCallback(
-    async (recipientEmail: string): Promise<string | null> => {
-      if (!client) {
+  const confirm = useCallback(
+    async (transactionId: string): Promise<AccountingTransaction | null> => {
+      if (!isConfigured) {
         setError('Accounting not configured');
         return null;
       }
@@ -631,86 +476,12 @@ export function useTransactionToken(): UseTransactionTokenResult {
       setError(null);
 
       try {
-        return await client.createTransactionToken(recipientEmail);
-      } catch (error_) {
-        if (isMounted.current) {
-          setError(error_ instanceof Error ? error_.message : 'Failed to create token');
-        }
-        return null;
-      } finally {
-        if (isMounted.current) {
-          setIsLoading(false);
-        }
-      }
-    },
-    [client]
-  );
-
-  const clearError = useCallback(() => {
-    setError(null);
-  }, []);
-
-  useEffect(() => {
-    isMounted.current = true;
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
-
-  return { createToken, isLoading, error, clearError };
-}
-
-// =============================================================================
-// useDelegatedTransaction - Create delegated transactions
-// =============================================================================
-
-interface UseDelegatedTransactionResult {
-  create: (
-    senderEmail: string,
-    amount: number,
-    token: string
-  ) => Promise<AccountingTransaction | null>;
-  isLoading: boolean;
-  error: string | null;
-  clearError: () => void;
-}
-
-/**
- * Hook to create delegated transactions using pre-authorized tokens.
- */
-export function useDelegatedTransaction(): UseDelegatedTransactionResult {
-  const client = useAccountingClient();
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const isMounted = useRef(true);
-
-  const create = useCallback(
-    async (
-      senderEmail: string,
-      amount: number,
-      token: string
-    ): Promise<AccountingTransaction | null> => {
-      if (!client) {
-        setError('Accounting not configured');
-        return null;
-      }
-
-      if (amount <= 0) {
-        setError('Amount must be greater than 0');
-        return null;
-      }
-
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const response = await client.createDelegatedTransaction(senderEmail, amount, token);
+        const client = getProxyClient();
+        const response = await client.confirmTransaction(transactionId);
         return parseTransaction(response);
       } catch (error_) {
         if (isMounted.current) {
-          setError(
-            error_ instanceof Error ? error_.message : 'Failed to create delegated transaction'
-          );
+          setError(error_ instanceof Error ? error_.message : 'Failed to confirm transaction');
         }
         return null;
       } finally {
@@ -719,7 +490,7 @@ export function useDelegatedTransaction(): UseDelegatedTransactionResult {
         }
       }
     },
-    [client]
+    [isConfigured]
   );
 
   const clearError = useCallback(() => {
@@ -733,5 +504,184 @@ export function useDelegatedTransaction(): UseDelegatedTransactionResult {
     };
   }, []);
 
-  return { create, isLoading, error, clearError };
+  return { confirm, isLoading, error, clearError };
+}
+
+// =============================================================================
+// useCancelTransaction - Cancel a transaction
+// =============================================================================
+
+interface UseCancelTransactionResult {
+  cancel: (transactionId: string) => Promise<AccountingTransaction | null>;
+  isLoading: boolean;
+  error: string | null;
+  clearError: () => void;
+}
+
+/**
+ * Hook to cancel transactions.
+ */
+export function useCancelTransaction(): UseCancelTransactionResult {
+  const { isConfigured } = useAccountingContext();
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isMounted = useRef(true);
+
+  const cancel = useCallback(
+    async (transactionId: string): Promise<AccountingTransaction | null> => {
+      if (!isConfigured) {
+        setError('Accounting not configured');
+        return null;
+      }
+
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const client = getProxyClient();
+        const response = await client.cancelTransaction(transactionId);
+        return parseTransaction(response);
+      } catch (error_) {
+        if (isMounted.current) {
+          setError(error_ instanceof Error ? error_.message : 'Failed to cancel transaction');
+        }
+        return null;
+      } finally {
+        if (isMounted.current) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [isConfigured]
+  );
+
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  return { cancel, isLoading, error, clearError };
+}
+
+// =============================================================================
+// Deprecated hooks - kept for backward compatibility
+// =============================================================================
+
+/**
+ * @deprecated Use useConfirmTransaction and useCancelTransaction instead
+ */
+export function useTransaction(transactionId: string | null) {
+  const { isConfigured } = useAccountingContext();
+  const [transaction, setTransaction] = useState<AccountingTransaction | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isMounted = useRef(true);
+
+  const refetch = useCallback(async () => {
+    if (!isConfigured || !transactionId) {
+      setTransaction(null);
+      return;
+    }
+    // Note: Single transaction fetch not implemented in proxy yet
+    setTransaction(null);
+  }, [isConfigured, transactionId]);
+
+  const confirm = useCallback(async (): Promise<AccountingTransaction | null> => {
+    if (!isConfigured || !transactionId) return null;
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const client = getProxyClient();
+      const response = await client.confirmTransaction(transactionId);
+      const updated = parseTransaction(response);
+      if (isMounted.current) {
+        setTransaction(updated);
+      }
+      return updated;
+    } catch (error_) {
+      if (isMounted.current) {
+        setError(error_ instanceof Error ? error_.message : 'Failed to confirm transaction');
+      }
+      return null;
+    } finally {
+      if (isMounted.current) {
+        setIsLoading(false);
+      }
+    }
+  }, [isConfigured, transactionId]);
+
+  const cancel = useCallback(async (): Promise<AccountingTransaction | null> => {
+    if (!isConfigured || !transactionId) return null;
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const client = getProxyClient();
+      const response = await client.cancelTransaction(transactionId);
+      const updated = parseTransaction(response);
+      if (isMounted.current) {
+        setTransaction(updated);
+      }
+      return updated;
+    } catch (error_) {
+      if (isMounted.current) {
+        setError(error_ instanceof Error ? error_.message : 'Failed to cancel transaction');
+      }
+      return null;
+    } finally {
+      if (isMounted.current) {
+        setIsLoading(false);
+      }
+    }
+  }, [isConfigured, transactionId]);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    void refetch();
+  }, [refetch]);
+
+  return { transaction, isLoading, error, confirm, cancel, refetch };
+}
+
+/**
+ * @deprecated Token-based delegation not supported via proxy
+ */
+export function useTransactionToken() {
+  return {
+    createToken: async () => null as string | null,
+    isLoading: false,
+    error: 'Token creation not supported via proxy' as string | null,
+    // No-op: deprecated stub with no error state to clear
+    // eslint-disable-next-line @typescript-eslint/no-empty-function -- Intentional no-op for deprecated stub
+    clearError: () => {}
+  };
+}
+
+/**
+ * @deprecated Delegated transactions not supported via proxy
+ */
+export function useDelegatedTransaction() {
+  return {
+    create: async () => null as AccountingTransaction | null,
+    isLoading: false,
+    error: 'Delegated transactions not supported via proxy' as string | null,
+    // No-op: deprecated stub with no error state to clear
+    // eslint-disable-next-line @typescript-eslint/no-empty-function -- Intentional no-op for deprecated stub
+    clearError: () => {}
+  };
 }

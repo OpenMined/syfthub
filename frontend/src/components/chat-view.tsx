@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '@/context/auth-context';
+import { formatCostPerUnit, getCostsFromSource } from '@/lib/cost-utils';
 import { getChatDataSources, getChatModels } from '@/lib/endpoint-utils';
 import {
   AggregatorError,
@@ -26,6 +27,8 @@ import {
   syftClient
 } from '@/lib/sdk-client';
 
+import { CostEstimationPanel } from './chat/cost-estimation-panel';
+import { MarkdownMessage } from './chat/markdown-message';
 import { ModelSelector } from './chat/model-selector';
 import { Badge } from './ui/badge';
 import { Label } from './ui/label';
@@ -135,41 +138,55 @@ function AdvancedPanel({
                     </div>
                   ) : (
                     <>
-                      {activeSources.map((source) => (
-                        <div
-                          key={source.id}
-                          className='rounded-lg border border-green-100 bg-white p-3 shadow-sm'
-                        >
-                          <div className='mb-3 flex items-center gap-3'>
-                            <div className='font-inter flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-green-100 text-xs font-bold text-green-700'>
-                              {source.name.slice(0, 2).toUpperCase()}
+                      {activeSources.map((source) => {
+                        const costs = getCostsFromSource(source);
+                        const hasInputCost = costs.inputPerToken > 0;
+                        const hasOutputCost = costs.outputPerToken > 0;
+                        return (
+                          <div
+                            key={source.id}
+                            className='rounded-lg border border-green-100 bg-white p-3 shadow-sm'
+                          >
+                            <div className='mb-3 flex items-center gap-3'>
+                              <div className='font-inter flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-green-100 text-xs font-bold text-green-700'>
+                                {source.name.slice(0, 2).toUpperCase()}
+                              </div>
+                              <span className='font-inter truncate text-sm font-medium text-[#272532]'>
+                                {source.name}
+                              </span>
                             </div>
-                            <span className='font-inter truncate text-sm font-medium text-[#272532]'>
-                              {source.name}
-                            </span>
+                            <div className='flex flex-wrap gap-2'>
+                              {hasInputCost || hasOutputCost ? (
+                                <>
+                                  {hasInputCost && (
+                                    <Badge
+                                      variant='secondary'
+                                      className='font-inter h-5 border-green-200 bg-green-50 px-2 text-[10px] font-medium text-green-700'
+                                    >
+                                      In: {formatCostPerUnit(costs.inputPerToken, 'token')}
+                                    </Badge>
+                                  )}
+                                  {hasOutputCost && (
+                                    <Badge
+                                      variant='secondary'
+                                      className='font-inter h-5 border-green-200 bg-green-50 px-2 text-[10px] font-medium text-green-700'
+                                    >
+                                      Out: {formatCostPerUnit(costs.outputPerToken, 'token')}
+                                    </Badge>
+                                  )}
+                                </>
+                              ) : (
+                                <Badge
+                                  variant='secondary'
+                                  className='font-inter h-5 border-gray-200 bg-gray-50 px-2 text-[10px] font-normal text-gray-500'
+                                >
+                                  No pricing
+                                </Badge>
+                              )}
+                            </div>
                           </div>
-                          <div className='flex flex-wrap gap-2'>
-                            <Badge
-                              variant='secondary'
-                              className='font-inter h-5 cursor-pointer border-blue-100 bg-blue-50 px-2 text-[10px] font-normal text-blue-700 hover:bg-blue-100'
-                            >
-                              Top-K: 5
-                            </Badge>
-                            <Badge
-                              variant='secondary'
-                              className='font-inter h-5 cursor-pointer border-blue-100 bg-blue-50 px-2 text-[10px] font-normal text-blue-700 hover:bg-blue-100'
-                            >
-                              Tokens: 500
-                            </Badge>
-                            <Badge
-                              variant='secondary'
-                              className='font-inter h-5 cursor-pointer border-blue-100 bg-blue-50 px-2 text-[10px] font-normal text-blue-700 hover:bg-blue-100'
-                            >
-                              Temp: 0.7
-                            </Badge>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                       {customSources.map((source, index) => (
                         <div
                           key={index}
@@ -236,37 +253,59 @@ function AdvancedPanel({
 
                 <div className='space-y-3 rounded-lg border border-purple-100 bg-white p-3 shadow-sm'>
                   {selectedModel ? (
-                    <>
-                      <div className='flex items-center gap-3'>
-                        <div className='flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple-100 text-purple-700'>
-                          <Brain className='h-4 w-4' />
-                        </div>
-                        <div className='min-w-0 flex-1'>
-                          <span className='font-inter block truncate text-sm font-medium text-[#272532]'>
-                            {selectedModel.name}
-                          </span>
-                          {selectedModel.version && (
-                            <span className='font-inter text-xs text-[#5e5a72]'>
-                              v{selectedModel.version}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <div className='flex gap-2'>
-                        <Badge
-                          variant='secondary'
-                          className='font-inter h-5 cursor-pointer border-purple-100 bg-purple-50 px-2 text-[10px] font-normal text-purple-700 hover:bg-purple-100'
-                        >
-                          Tokens: 1000
-                        </Badge>
-                        <Badge
-                          variant='secondary'
-                          className='font-inter h-5 cursor-pointer border-purple-100 bg-purple-50 px-2 text-[10px] font-normal text-purple-700 hover:bg-purple-100'
-                        >
-                          Temp: {isFactual ? '0.1' : '0.7'}
-                        </Badge>
-                      </div>
-                    </>
+                    (() => {
+                      const modelCosts = getCostsFromSource(selectedModel);
+                      const hasInputCost = modelCosts.inputPerToken > 0;
+                      const hasOutputCost = modelCosts.outputPerToken > 0;
+                      return (
+                        <>
+                          <div className='flex items-center gap-3'>
+                            <div className='flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple-100 text-purple-700'>
+                              <Brain className='h-4 w-4' />
+                            </div>
+                            <div className='min-w-0 flex-1'>
+                              <span className='font-inter block truncate text-sm font-medium text-[#272532]'>
+                                {selectedModel.name}
+                              </span>
+                              {selectedModel.version && (
+                                <span className='font-inter text-xs text-[#5e5a72]'>
+                                  v{selectedModel.version}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className='flex flex-wrap gap-2'>
+                            {hasInputCost || hasOutputCost ? (
+                              <>
+                                {hasInputCost && (
+                                  <Badge
+                                    variant='secondary'
+                                    className='font-inter h-5 border-purple-200 bg-purple-50 px-2 text-[10px] font-medium text-purple-700'
+                                  >
+                                    In: {formatCostPerUnit(modelCosts.inputPerToken, 'token')}
+                                  </Badge>
+                                )}
+                                {hasOutputCost && (
+                                  <Badge
+                                    variant='secondary'
+                                    className='font-inter h-5 border-purple-200 bg-purple-50 px-2 text-[10px] font-medium text-purple-700'
+                                  >
+                                    Out: {formatCostPerUnit(modelCosts.outputPerToken, 'token')}
+                                  </Badge>
+                                )}
+                              </>
+                            ) : (
+                              <Badge
+                                variant='secondary'
+                                className='font-inter h-5 border-gray-200 bg-gray-50 px-2 text-[10px] font-normal text-gray-500'
+                              >
+                                No pricing
+                              </Badge>
+                            )}
+                          </div>
+                        </>
+                      );
+                    })()
                   ) : (
                     <div className='font-inter rounded-lg border border-dashed border-purple-200 bg-white/50 py-6 text-center text-sm text-purple-700/50'>
                       No model selected
@@ -288,29 +327,8 @@ function AdvancedPanel({
                 <span className='font-inter text-[10px] font-medium'>Process & Combine</span>
               </div>
 
-              {/* Final Response Section */}
-              <div className='rounded-xl border border-blue-200 bg-blue-50/30 p-4'>
-                <div className='mb-3 flex items-center justify-between'>
-                  <span className='font-inter font-medium text-blue-900'>Final Response</span>
-                </div>
-                <div className='space-y-2 text-sm'>
-                  <div className='font-inter flex justify-between text-blue-800/80'>
-                    <span>Mode:</span>
-                    <span className='font-medium text-[#272532]'>auto</span>
-                  </div>
-                  <div className='font-inter flex justify-between text-blue-800/80'>
-                    <div className='flex items-center gap-1'>
-                      <span>Total Price:</span>
-                    </div>
-                    <span className='font-medium text-green-600'>$0.095</span>
-                  </div>
-                  <div className='font-inter mt-3 flex items-start gap-2 rounded-lg border border-blue-100 bg-blue-100/50 p-2.5 text-[10px] text-blue-700/60'>
-                    <Info className='mt-0.5 h-3 w-3 shrink-0' />
-                    Estimated cost per request based on selected data sources and AI model token
-                    usage.
-                  </div>
-                </div>
-              </div>
+              {/* Cost Estimation Section */}
+              <CostEstimationPanel model={selectedModel} dataSources={activeSources} />
             </div>
           </motion.div>
         </>
@@ -460,6 +478,18 @@ function updateMessageContent(messages: Message[], messageId: string, content: s
   );
 }
 
+// Helper to check if a source-selection message already exists (prevents duplicates from Strict Mode / remounts)
+function hasSourceSelectionMessage(messages: Message[]): boolean {
+  return messages.some((m) => m.type === 'source-selection');
+}
+
+// Helper to check if we already have a source-related message (error or source-selection)
+function hasSourceRelatedMessage(messages: Message[]): boolean {
+  return messages.some(
+    (m) => m.type === 'source-selection' || (m.role === 'assistant' && m.id.startsWith('source-'))
+  );
+}
+
 export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
   const { user } = useAuth();
 
@@ -483,14 +513,21 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
 
   // Load real data sources from backend
   useEffect(() => {
+    let isMounted = true;
+
     const loadDataSources = async () => {
       try {
         const sources = await getChatDataSources(10); // Load 10 endpoints
+
+        // Guard against state updates after unmount
+        if (!isMounted) return;
+
         setAvailableSources(sources);
 
-        // Add assistant message with real sources
+        // Add assistant message with real sources - ATOMIC check to prevent duplicates
+        const messageId = `source-selection-${String(Date.now())}`;
         const assistantMessage: Message = {
-          id: '2',
+          id: messageId,
           role: 'assistant',
           content:
             sources.length > 0
@@ -500,46 +537,79 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
           sources: sources
         };
 
-        setMessages((previous) => [...previous, assistantMessage]);
+        setMessages((previous) => {
+          if (hasSourceSelectionMessage(previous)) {
+            return previous;
+          }
+          return [...previous, assistantMessage];
+        });
       } catch (error) {
+        // Guard against state updates after unmount
+        if (!isMounted) return;
+
         console.error('Failed to load data sources:', error);
 
-        // Add error message
+        // Add error message - ATOMIC check to prevent duplicates
+        const errorMessageId = `source-error-${String(Date.now())}`;
         const errorMessage: Message = {
-          id: '2',
+          id: errorMessageId,
           role: 'assistant',
           content:
             'Unable to load data sources from the server. You can still add external sources manually using the advanced configuration panel.',
           type: 'text'
         };
 
-        setMessages((previous) => [...previous, errorMessage]);
+        setMessages((previous) => {
+          if (hasSourceRelatedMessage(previous)) {
+            return previous;
+          }
+          return [...previous, errorMessage];
+        });
       }
     };
 
     void loadDataSources();
+
+    // Cleanup: prevent state updates after unmount
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Load available models from backend
   useEffect(() => {
+    let isMounted = true;
+
     const loadModels = async () => {
       try {
         setIsLoadingModels(true);
         const models = await getChatModels(20); // Load up to 20 models
+
+        // Guard against state updates after unmount
+        if (!isMounted) return;
+
         setAvailableModels(models);
 
-        // Auto-select the first model if available
-        if (models.length > 0 && models[0]) {
-          setSelectedModel(models[0]);
-        }
+        // Auto-select the first model if available and not already selected
+        setSelectedModel((current) => {
+          if (current !== null) return current; // Already selected, don't override
+          return models.length > 0 && models[0] ? models[0] : null;
+        });
       } catch (error) {
         console.error('Failed to load models:', error);
       } finally {
-        setIsLoadingModels(false);
+        if (isMounted) {
+          setIsLoadingModels(false);
+        }
       }
     };
 
     void loadModels();
+
+    // Cleanup: prevent state updates after unmount
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Auto-scroll to bottom when messages change
@@ -743,13 +813,17 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                 {/* Text Content */}
                 {message.content && (
                   <div
-                    className={`font-inter max-w-2xl rounded-2xl px-5 py-3 text-[15px] leading-relaxed shadow-sm ${
+                    className={`font-inter max-w-2xl rounded-2xl px-5 py-3 shadow-sm ${
                       message.role === 'user'
-                        ? 'rounded-br-none bg-[#272532] text-white'
+                        ? 'rounded-br-none bg-[#272532] text-[15px] leading-relaxed text-white'
                         : 'rounded-bl-none border border-[#ecebef] bg-[#f7f6f9] text-[#272532]'
                     } `}
                   >
-                    {message.content}
+                    {message.role === 'assistant' ? (
+                      <MarkdownMessage content={message.content} />
+                    ) : (
+                      message.content
+                    )}
                   </div>
                 )}
 

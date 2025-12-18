@@ -91,6 +91,15 @@ export function mapEndpointPublicToSource(endpoint: SdkEndpointPublic): ChatSour
     config: { ...c.config }
   }));
 
+  // Map SDK policies to frontend Policy type
+  const mappedPolicies = policies.map((p) => ({
+    type: p.type,
+    version: p.version,
+    enabled: p.enabled,
+    description: p.description,
+    config: { ...p.config }
+  }));
+
   return {
     id: endpoint.slug,
     name: endpoint.name,
@@ -102,12 +111,14 @@ export function mapEndpointPublicToSource(endpoint: SdkEndpointPublic): ChatSour
     slug: endpoint.slug,
     stars_count: endpoint.starsCount,
     version: endpoint.version,
+    readme: endpoint.readme,
     contributors: [],
     owner_username: ownerUsername,
     full_path: fullPath,
     url: url,
     tenant_name: tenantName,
-    connections: mappedConnections
+    connections: mappedConnections,
+    policies: mappedPolicies
   };
 }
 

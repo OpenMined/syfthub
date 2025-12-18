@@ -150,6 +150,9 @@ services:
       - AGGREGATOR_DEBUG=true
       - AGGREGATOR_SYFTHUB_URL=http://backend:8000
       - AGGREGATOR_CORS_ORIGINS=["http://localhost:8080"]
+    # Enable host.docker.internal on Linux/WSL2 (required for connecting to host services)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - syfthub-network
     depends_on:

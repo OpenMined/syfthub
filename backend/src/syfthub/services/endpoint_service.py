@@ -143,9 +143,10 @@ class EndpointService(BaseService):
         # Validate and sanitize contributors
         valid_contributors = self._validate_contributors(endpoint_data.contributors)
 
-        # Auto-add owner as contributor if not already included
-        if not is_organization and owner_id not in valid_contributors:
-            valid_contributors.append(owner_id)
+        # Auto-add the creating user as contributor if not already included
+        # This ensures every endpoint has at least one contributor (the creator)
+        if current_user and current_user.id not in valid_contributors:
+            valid_contributors.append(current_user.id)
 
         # Auto-generate slug if not provided
         final_slug = endpoint_data.slug
@@ -293,9 +294,14 @@ class EndpointService(BaseService):
         # Validate contributors if they are being updated
         if endpoint_data.contributors is not None:
             valid_contributors = self._validate_contributors(endpoint_data.contributors)
-            # Ensure the owner is always included as a contributor
+            # Ensure at least one contributor exists (the user performing the update)
+            # For user-owned endpoints, the owner should always be included
+            # For org-owned endpoints, ensure the updating user is included if list would be empty
             if endpoint.user_id and endpoint.user_id not in valid_contributors:
                 valid_contributors.append(endpoint.user_id)
+            elif not endpoint.user_id and current_user.id not in valid_contributors:
+                # Org-owned endpoint: ensure at least the updating user is a contributor
+                valid_contributors.append(current_user.id)
             endpoint_data.contributors = valid_contributors
 
         updated_endpoint = self.endpoint_repository.update_endpoint(

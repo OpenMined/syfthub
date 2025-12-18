@@ -80,6 +80,7 @@ class ModelClient:
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": False,
+            "stop_sequences": [],  # Don't stop on newlines - allow complete responses
         }
 
         # Build headers
@@ -171,6 +172,7 @@ class ModelClient:
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": True,  # Request streaming
+            "stop_sequences": [],  # Don't stop on newlines - allow complete responses
         }
 
         # Build headers
