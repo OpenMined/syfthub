@@ -81,8 +81,11 @@ def test_register_duplicate_username(client: TestClient) -> None:
     user_data2["email"] = "different@example.com"
 
     response2 = client.post("/api/v1/auth/register", json=user_data2)
-    assert response2.status_code == 400
-    assert "Username already exists" in response2.json()["detail"]
+    assert response2.status_code == 409
+    detail = response2.json()["detail"]
+    assert detail["code"] == "USER_ALREADY_EXISTS"
+    assert detail["field"] == "username"
+    assert "Username already exists" in detail["message"]
 
 
 def test_register_duplicate_email(client: TestClient) -> None:
@@ -103,8 +106,11 @@ def test_register_duplicate_email(client: TestClient) -> None:
     user_data2["username"] = "differentuser"
 
     response2 = client.post("/api/v1/auth/register", json=user_data2)
-    assert response2.status_code == 400
-    assert "Email already exists" in response2.json()["detail"]
+    assert response2.status_code == 409
+    detail = response2.json()["detail"]
+    assert detail["code"] == "USER_ALREADY_EXISTS"
+    assert detail["field"] == "email"
+    assert "Email already exists" in detail["message"]
 
 
 def test_register_invalid_password(client: TestClient) -> None:
