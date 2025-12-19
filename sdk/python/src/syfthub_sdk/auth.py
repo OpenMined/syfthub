@@ -58,20 +58,68 @@ class AuthResource:
     ) -> User:
         """Register a new user.
 
+        If an accounting service URL is configured (via `accounting_service_url` or
+        server default), the backend handles accounting integration using a
+        "try-create-first" approach:
+
+        **Accounting Password Behavior:**
+        - **Not provided**: A secure password is auto-generated and a new
+          accounting account is created.
+        - **Provided (new user)**: The account is created with your chosen password.
+        - **Provided (existing user)**: Your password is validated and accounts
+          are linked.
+
+        This means you can set your own accounting password during registration
+        even if you're a new user - you don't need an existing accounting account.
+
         Args:
             username: Unique username (3-50 chars)
             email: Valid email address
             password: Password (min 8 chars, must contain letter and digit)
             full_name: User's full name
             accounting_service_url: Optional URL to external accounting service
-            accounting_password: Optional password for accounting service
+            accounting_password: Optional password for accounting service. Can be:
+                - A new password to create an account with (for new users)
+                - An existing password to validate (for existing users)
+                - None to auto-generate a password (for new users)
 
         Returns:
             The created User
 
         Raises:
             ValidationError: If registration data is invalid
-            APIError: If registration fails
+            UserAlreadyExistsError: If username or email already exists in SyftHub
+            AccountingAccountExistsError: If email exists in accounting service
+                and no accounting_password was provided
+            InvalidAccountingPasswordError: If the provided accounting password
+                doesn't match an existing accounting account
+            AccountingServiceUnavailableError: If the accounting service is unreachable
+
+        Example:
+            # Basic registration (auto-generated accounting password)
+            user = client.auth.register(
+                username="alice",
+                email="alice@example.com",
+                password="SecurePass123!",
+                full_name="Alice",
+            )
+
+            # Registration with custom accounting password (NEW user)
+            user = client.auth.register(
+                username="bob",
+                email="bob@example.com",
+                password="SecurePass123!",
+                full_name="Bob",
+                accounting_password="MyChosenAccountingPass!",
+            )
+
+            # Handle existing accounting account
+            try:
+                user = client.auth.register(...)
+            except AccountingAccountExistsError:
+                # Prompt user for their existing accounting password
+                accounting_password = input("Enter your existing accounting password: ")
+                user = client.auth.register(..., accounting_password=accounting_password)
         """
         payload: dict[str, str | None] = {
             "username": username,

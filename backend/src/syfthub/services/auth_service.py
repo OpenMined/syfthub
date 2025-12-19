@@ -58,20 +58,34 @@ class AuthService(BaseService):
     ) -> Tuple[Optional[str], Optional[str]]:
         """Handle accounting service registration during user signup.
 
-        This method manages the accounting integration:
-        1. If accounting_password is provided: Validate existing credentials
-        2. If not provided: Auto-register a new accounting account
+        This method uses a "try-create-first" approach that intelligently handles
+        both new and existing accounting users:
+
+        1. If accounting_password is provided:
+           - First TRY to create a new account with this password
+           - If account exists (conflict), VALIDATE the password instead
+           This supports both:
+           - New users who want to set their own accounting password
+           - Existing users linking their accounts
+
+        2. If accounting_password is NOT provided:
+           - Auto-generate a secure password
+           - Create a new accounting account
+           - If account exists, raise error asking for password
 
         Args:
             email: User's email address
             accounting_url: Accounting service URL (from request or config)
-            accounting_password: Existing accounting password (if user has one)
+            accounting_password: Password for accounting service. Can be:
+                - A new password to create an account with (for new users)
+                - An existing password to validate (for existing users)
+                - None to auto-generate a password (for new users)
 
         Returns:
             Tuple of (accounting_url, accounting_password) to store
 
         Raises:
-            AccountingAccountExistsError: If email already exists in accounting service
+            AccountingAccountExistsError: If email exists and no password provided
             InvalidAccountingPasswordError: If provided password is invalid
             AccountingServiceUnavailableError: If accounting service is unreachable
         """
@@ -97,19 +111,49 @@ class AuthService(BaseService):
 
         try:
             if accounting_password:
-                # User provided existing password - validate it
-                logger.debug(f"Validating existing accounting credentials for {email}")
-                is_valid = client.validate_credentials(email, accounting_password)
+                # User provided a password - could be for new OR existing account
+                # Try to create first (handles new user with custom password)
+                logger.debug(
+                    f"Attempting to create accounting account for {email} "
+                    "with user-provided password"
+                )
 
-                if not is_valid:
-                    logger.warning(f"Invalid accounting credentials for {email}")
-                    raise InvalidAccountingPasswordError()
+                result = client.create_user(
+                    email=email,
+                    password=accounting_password,
+                    organization=None,
+                )
 
-                logger.info(f"Accounting credentials validated for {email}")
-                return (effective_url, accounting_password)
+                if result.success:
+                    # New account created with user's chosen password
+                    logger.info(
+                        f"Created accounting account for {email} "
+                        "with user-provided password"
+                    )
+                    return (effective_url, accounting_password)
+
+                if result.conflict:
+                    # Account already exists - validate the provided password
+                    logger.debug(
+                        f"Accounting account exists for {email}, validating credentials"
+                    )
+                    is_valid = client.validate_credentials(email, accounting_password)
+
+                    if not is_valid:
+                        logger.warning(f"Invalid accounting credentials for {email}")
+                        raise InvalidAccountingPasswordError()
+
+                    logger.info(
+                        f"Validated and linked existing accounting account for {email}"
+                    )
+                    return (effective_url, accounting_password)
+
+                # Other error from accounting service
+                logger.error(f"Accounting service error: {result.error}")
+                raise AccountingServiceUnavailableError(result.error or "Unknown error")
 
             else:
-                # Auto-register new accounting account
+                # No password provided - auto-generate and create
                 generated_password = generate_accounting_password(
                     length=settings.accounting_password_length
                 )
@@ -118,14 +162,18 @@ class AuthService(BaseService):
                 result = client.create_user(
                     email=email,
                     password=generated_password,
-                    organization=None,  # Could be extended to support org
+                    organization=None,
                 )
 
                 if result.success:
-                    logger.info(f"Successfully created accounting account for {email}")
+                    logger.info(
+                        f"Created accounting account for {email} "
+                        "with auto-generated password"
+                    )
                     return (effective_url, generated_password)
 
                 if result.conflict:
+                    # Account exists but user didn't provide password - they need to
                     logger.info(f"Accounting account already exists for {email}")
                     raise AccountingAccountExistsError(email)
 

@@ -34,7 +34,17 @@ export interface UserRegisterInput {
   fullName: string;
   /** Optional accounting service URL (can be set up later in settings) */
   accountingServiceUrl?: string;
-  /** Optional accounting service password (can be set up later in settings) */
+  /**
+   * Optional password for the accounting service account.
+   *
+   * The backend uses a "try-create-first" approach:
+   * - **If provided (new user)**: Creates a new accounting account with this password.
+   * - **If provided (existing user)**: Validates against the existing account and links it.
+   * - **If not provided**: Auto-generates a secure password for a new account.
+   *
+   * This means you can set your own accounting password during registration
+   * without needing an existing accounting account.
+   */
   accountingPassword?: string;
 }
 

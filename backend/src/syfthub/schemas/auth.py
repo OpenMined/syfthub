@@ -44,7 +44,21 @@ class UserLogin(BaseModel):
 
 
 class UserRegister(BaseModel):
-    """User registration schema."""
+    """User registration schema.
+
+    The registration endpoint uses a "try-create-first" approach for accounting
+    integration, which supports multiple scenarios:
+
+    - **New user without accounting_password**: A secure password is auto-generated
+      and a new accounting account is created.
+    - **New user with accounting_password**: A new accounting account is created
+      with the user's chosen password.
+    - **Existing accounting user with accounting_password**: The password is validated
+      and the accounts are linked.
+
+    This design allows new users to set their own accounting password during
+    registration without needing an existing accounting account.
+    """
 
     username: str = Field(
         ..., min_length=3, max_length=50, description="Unique username"
@@ -54,12 +68,19 @@ class UserRegister(BaseModel):
         ..., min_length=1, max_length=100, description="User's full name"
     )
     password: str = Field(..., description="User password")
-    # Optional accounting service credentials (can be set up later)
+    # Accounting service configuration
     accounting_service_url: Optional[str] = Field(
         None, max_length=500, description="URL to external accounting service"
     )
     accounting_password: Optional[str] = Field(
-        None, max_length=255, description="Password for external accounting service"
+        None,
+        max_length=255,
+        description=(
+            "Password for the accounting service account. Can be: "
+            "(1) A new password to create an account with (for new users), "
+            "(2) An existing password to validate (for existing users), or "
+            "(3) None to auto-generate a password (for new users)."
+        ),
     )
 
     @field_validator("password")

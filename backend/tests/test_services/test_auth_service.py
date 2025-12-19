@@ -467,7 +467,13 @@ class TestAuthServiceGetters:
 
 
 class TestHandleAccountingRegistration:
-    """Test accounting registration handling."""
+    """Test accounting registration handling.
+
+    These tests cover the "try-create-first" approach which supports:
+    - New users who want to set their own accounting password
+    - New users who want auto-generated passwords
+    - Existing accounting users linking their accounts
+    """
 
     def test_accounting_registration_skipped_when_no_url(self, auth_service):
         """Test that accounting registration is skipped when no URL configured."""
@@ -483,9 +489,71 @@ class TestHandleAccountingRegistration:
 
             assert result == (None, None)
 
-    def test_accounting_registration_with_valid_existing_password(self, auth_service):
-        """Test accounting registration with valid existing password."""
+    # =========================================================================
+    # NEW USER WITH CUSTOM PASSWORD (try-create-first succeeds)
+    # =========================================================================
+
+    def test_new_user_with_custom_accounting_password(self, auth_service):
+        """Test new user can set their own accounting password.
+
+        Scenario: User is new to both SyftHub and accounting service,
+        but wants to set their own accounting password instead of auto-generated.
+
+        Expected: create_user succeeds, returns user's chosen password.
+        """
         mock_client = MagicMock()
+        mock_client.create_user.return_value = AccountingUserResult(
+            success=True,
+            conflict=False,
+            error=None,
+        )
+
+        with (
+            patch("syfthub.services.auth_service.settings") as mock_settings,
+            patch(
+                "syfthub.services.auth_service.AccountingClient",
+                return_value=mock_client,
+            ),
+        ):
+            mock_settings.default_accounting_url = None
+            mock_settings.accounting_timeout = 30.0
+
+            result = auth_service._handle_accounting_registration(
+                email="newuser@example.com",
+                accounting_url="http://accounting.example.com",
+                accounting_password="MyCustomPassword123!",
+            )
+
+            assert result == ("http://accounting.example.com", "MyCustomPassword123!")
+            # Should try to create first
+            mock_client.create_user.assert_called_once_with(
+                email="newuser@example.com",
+                password="MyCustomPassword123!",
+                organization=None,
+            )
+            # Should NOT call validate (create succeeded)
+            mock_client.validate_credentials.assert_not_called()
+            mock_client.close.assert_called_once()
+
+    # =========================================================================
+    # EXISTING USER WITH CORRECT PASSWORD (try-create-first → conflict → validate)
+    # =========================================================================
+
+    def test_existing_user_with_correct_password(self, auth_service):
+        """Test existing accounting user with correct password links successfully.
+
+        Scenario: User already has an accounting account and provides correct password.
+
+        Expected: create_user returns conflict, validate_credentials succeeds.
+        """
+        mock_client = MagicMock()
+        # First call: create_user returns conflict (account exists)
+        mock_client.create_user.return_value = AccountingUserResult(
+            success=False,
+            conflict=True,
+            error=None,
+        )
+        # Second call: validate_credentials returns True
         mock_client.validate_credentials.return_value = True
 
         with (
@@ -499,20 +567,44 @@ class TestHandleAccountingRegistration:
             mock_settings.accounting_timeout = 30.0
 
             result = auth_service._handle_accounting_registration(
-                email="test@example.com",
+                email="existing@example.com",
                 accounting_url="http://accounting.example.com",
                 accounting_password="existing_password",
             )
 
             assert result == ("http://accounting.example.com", "existing_password")
+            # Should try to create first
+            mock_client.create_user.assert_called_once_with(
+                email="existing@example.com",
+                password="existing_password",
+                organization=None,
+            )
+            # Should fall back to validate after conflict
             mock_client.validate_credentials.assert_called_once_with(
-                "test@example.com", "existing_password"
+                "existing@example.com", "existing_password"
             )
             mock_client.close.assert_called_once()
 
-    def test_accounting_registration_with_invalid_existing_password(self, auth_service):
-        """Test accounting registration with invalid existing password."""
+    # =========================================================================
+    # EXISTING USER WITH WRONG PASSWORD (try-create-first → conflict → validate fails)
+    # =========================================================================
+
+    def test_existing_user_with_wrong_password(self, auth_service):
+        """Test existing accounting user with wrong password fails.
+
+        Scenario: User already has an accounting account but provides wrong password.
+
+        Expected: create_user returns conflict, validate_credentials fails,
+        raises InvalidAccountingPasswordError.
+        """
         mock_client = MagicMock()
+        # First call: create_user returns conflict (account exists)
+        mock_client.create_user.return_value = AccountingUserResult(
+            success=False,
+            conflict=True,
+            error=None,
+        )
+        # Second call: validate_credentials returns False (wrong password)
         mock_client.validate_credentials.return_value = False
 
         with (
@@ -527,15 +619,66 @@ class TestHandleAccountingRegistration:
 
             with pytest.raises(InvalidAccountingPasswordError):
                 auth_service._handle_accounting_registration(
-                    email="test@example.com",
+                    email="existing@example.com",
                     accounting_url="http://accounting.example.com",
                     accounting_password="wrong_password",
                 )
 
+            # Should try to create first
+            mock_client.create_user.assert_called_once()
+            # Should fall back to validate after conflict
+            mock_client.validate_credentials.assert_called_once()
             mock_client.close.assert_called_once()
 
-    def test_accounting_registration_auto_create_success(self, auth_service):
-        """Test automatic accounting account creation."""
+    # =========================================================================
+    # ACCOUNTING SERVICE ERROR WITH PROVIDED PASSWORD
+    # =========================================================================
+
+    def test_accounting_service_error_with_provided_password(self, auth_service):
+        """Test accounting service error when password is provided.
+
+        Scenario: User provides password but accounting service returns error.
+
+        Expected: raises AccountingServiceUnavailableError.
+        """
+        mock_client = MagicMock()
+        mock_client.create_user.return_value = AccountingUserResult(
+            success=False,
+            conflict=False,
+            error="Connection timeout",
+        )
+
+        with (
+            patch("syfthub.services.auth_service.settings") as mock_settings,
+            patch(
+                "syfthub.services.auth_service.AccountingClient",
+                return_value=mock_client,
+            ),
+        ):
+            mock_settings.default_accounting_url = None
+            mock_settings.accounting_timeout = 30.0
+
+            with pytest.raises(AccountingServiceUnavailableError) as exc_info:
+                auth_service._handle_accounting_registration(
+                    email="test@example.com",
+                    accounting_url="http://accounting.example.com",
+                    accounting_password="some_password",
+                )
+
+            assert "Connection timeout" in exc_info.value.detail
+            mock_client.close.assert_called_once()
+
+    # =========================================================================
+    # NEW USER WITH AUTO-GENERATED PASSWORD (no password provided)
+    # =========================================================================
+
+    def test_new_user_with_auto_generated_password(self, auth_service):
+        """Test automatic accounting account creation with generated password.
+
+        Scenario: New user doesn't provide accounting password.
+
+        Expected: Password is auto-generated, account is created.
+        """
         mock_client = MagicMock()
         mock_client.create_user.return_value = AccountingUserResult(
             success=True,
@@ -568,8 +711,17 @@ class TestHandleAccountingRegistration:
             mock_client.create_user.assert_called_once()
             mock_client.close.assert_called_once()
 
-    def test_accounting_registration_auto_create_conflict(self, auth_service):
-        """Test accounting registration when account already exists."""
+    # =========================================================================
+    # EXISTING USER WITHOUT PASSWORD (must provide password)
+    # =========================================================================
+
+    def test_existing_user_without_password_fails(self, auth_service):
+        """Test existing accounting user must provide password.
+
+        Scenario: User has existing accounting account but doesn't provide password.
+
+        Expected: create_user returns conflict, raises AccountingAccountExistsError.
+        """
         mock_client = MagicMock()
         mock_client.create_user.return_value = AccountingUserResult(
             success=False,
@@ -602,8 +754,17 @@ class TestHandleAccountingRegistration:
             assert exc_info.value.email == "existing@example.com"
             mock_client.close.assert_called_once()
 
-    def test_accounting_registration_auto_create_other_error(self, auth_service):
-        """Test accounting registration when accounting service returns error."""
+    # =========================================================================
+    # ACCOUNTING SERVICE ERROR WITHOUT PASSWORD
+    # =========================================================================
+
+    def test_accounting_service_error_without_password(self, auth_service):
+        """Test accounting service error when no password provided.
+
+        Scenario: New user, no password, but accounting service returns error.
+
+        Expected: raises AccountingServiceUnavailableError.
+        """
         mock_client = MagicMock()
         mock_client.create_user.return_value = AccountingUserResult(
             success=False,
@@ -635,6 +796,10 @@ class TestHandleAccountingRegistration:
 
             assert "Service unavailable" in exc_info.value.detail
             mock_client.close.assert_called_once()
+
+    # =========================================================================
+    # DEFAULT URL HANDLING
+    # =========================================================================
 
     def test_accounting_registration_uses_default_url(self, auth_service):
         """Test that default accounting URL is used when not provided."""
