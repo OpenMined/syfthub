@@ -5,12 +5,14 @@ import logging
 import time
 from collections.abc import AsyncGenerator
 
+from aggregator.core.config import get_settings
 from aggregator.schemas import (
     ChatRequest,
     ChatResponse,
     EndpointRef,
     ResponseMetadata,
     SourceInfo,
+    TokenUsage,
 )
 from aggregator.schemas.internal import ResolvedEndpoint
 from aggregator.services.generation import GenerationError, GenerationService
@@ -151,6 +153,15 @@ class Orchestrator:
             for r in context.retrieval_results
         ]
 
+        # Convert usage dict to TokenUsage if available
+        usage = None
+        if result.usage:
+            usage = TokenUsage(
+                prompt_tokens=result.usage.get("prompt_tokens", 0),
+                completion_tokens=result.usage.get("completion_tokens", 0),
+                total_tokens=result.usage.get("total_tokens", 0),
+            )
+
         return ChatResponse(
             response=result.response,
             sources=sources,
@@ -159,6 +170,7 @@ class Orchestrator:
                 generation_time_ms=generation_time_ms,
                 total_time_ms=total_time_ms,
             ),
+            usage=usage,
         )
 
     async def process_chat_stream(
@@ -254,22 +266,45 @@ class Orchestrator:
             context=context if data_sources else None,
         )
 
-        # 5. Generation phase with streaming
+        # 5. Generation phase with streaming (or non-streaming fallback)
         yield self._sse_event("generation_start", {})
 
         generation_start = time.perf_counter()
         full_response = []
+        usage_data: dict | None = None
+        settings = get_settings()
 
         try:
-            async for chunk in self.generation_service.generate_stream(
-                model_endpoint=model_endpoint,
-                messages=messages,
-                user_email=user_email,
-                max_tokens=request.max_tokens,
-                temperature=request.temperature,
-            ):
-                full_response.append(chunk)
-                yield self._sse_event("token", {"content": chunk})
+            # TODO: When SyftAI-Space implements model streaming, set
+            # AGGREGATOR_MODEL_STREAMING_ENABLED=true to enable streaming.
+            # Currently SyftAI-Space ignores the stream parameter and always
+            # returns synchronous JSON, so we use the non-streaming path
+            # to avoid the long pause that would occur waiting for SSE.
+            if settings.model_streaming_enabled:
+                # Streaming mode: yield tokens as they arrive from model
+                # Note: Streaming mode doesn't provide usage data
+                async for chunk in self.generation_service.generate_stream(
+                    model_endpoint=model_endpoint,
+                    messages=messages,
+                    user_email=user_email,
+                    max_tokens=request.max_tokens,
+                    temperature=request.temperature,
+                ):
+                    full_response.append(chunk)
+                    yield self._sse_event("token", {"content": chunk})
+            else:
+                # Non-streaming mode: get full response then yield as single token
+                # This avoids the UX issue where user sees long pause before tokens
+                result = await self.generation_service.generate(
+                    model_endpoint=model_endpoint,
+                    messages=messages,
+                    user_email=user_email,
+                    max_tokens=request.max_tokens,
+                    temperature=request.temperature,
+                )
+                full_response.append(result.response)
+                usage_data = result.usage  # Capture usage from non-streaming response
+                yield self._sse_event("token", {"content": result.response})
         except GenerationError as e:
             yield self._sse_event("error", {"message": str(e)})
             return
@@ -277,7 +312,7 @@ class Orchestrator:
         generation_time_ms = int((time.perf_counter() - generation_start) * 1000)
         total_time_ms = int((time.perf_counter() - total_start) * 1000)
 
-        # 6. Final event with metadata
+        # 6. Final event with metadata and usage
         sources = [
             {
                 "path": r.endpoint_path,
@@ -287,17 +322,20 @@ class Orchestrator:
             for r in retrieval_results
         ]
 
-        yield self._sse_event(
-            "done",
-            {
-                "sources": sources,
-                "metadata": {
-                    "retrieval_time_ms": retrieval_time_ms,
-                    "generation_time_ms": generation_time_ms,
-                    "total_time_ms": total_time_ms,
-                },
+        done_data: dict = {
+            "sources": sources,
+            "metadata": {
+                "retrieval_time_ms": retrieval_time_ms,
+                "generation_time_ms": generation_time_ms,
+                "total_time_ms": total_time_ms,
             },
-        )
+        }
+
+        # Include usage if available (only from non-streaming mode)
+        if usage_data:
+            done_data["usage"] = usage_data
+
+        yield self._sse_event("done", done_data)
 
     def _sse_event(self, event_type: str, data: dict) -> str:
         """Format an SSE event."""

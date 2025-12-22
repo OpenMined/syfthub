@@ -1,4 +1,28 @@
-"""Client for interacting with SyftAI-Space data source endpoints."""
+"""Client for interacting with SyftAI-Space data source endpoints.
+
+TODO: Satellite Token Integration
+---------------------------------
+When SyftAI-Space implements satellite token support, this client should:
+
+1. Accept an optional `authorization_token` parameter in the `query()` method
+2. Include the token in an Authorization header: `Authorization: Bearer <token>`
+3. This allows SyftAI-Space to validate user permissions via the satellite token
+
+Example change for query() method:
+    async def query(
+        self,
+        url: str,
+        slug: str,
+        ...
+        authorization_token: str | None = None,  # Add this parameter
+    ) -> RetrievalResult:
+        ...
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if tenant_name:
+            headers["X-Tenant-Name"] = tenant_name
+        if authorization_token:
+            headers["Authorization"] = f"Bearer {authorization_token}"
+"""
 
 import logging
 import time

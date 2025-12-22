@@ -16,6 +16,29 @@
  *     process.stdout.write(event.content);
  *   }
  * }
+ *
+ * TODO: Satellite Token Integration
+ * ----------------------------------
+ * When SyftAI-Space implements satellite token support, this resource should:
+ *
+ * 1. Include the user's access token in requests to the aggregator
+ * 2. The aggregator will forward this token to SyftAI-Space for permission checks
+ *
+ * Example change for complete() and stream() methods:
+ *   const accessToken = await this.http.getAccessToken();
+ *   const response = await fetch(url, {
+ *     method: 'POST',
+ *     headers: {
+ *       'Content-Type': 'application/json',
+ *       'Authorization': `Bearer ${accessToken}`,  // Add this header
+ *     },
+ *     body: JSON.stringify(requestBody),
+ *   });
+ *
+ * See also:
+ * - aggregator/api/dependencies.py - receives and extracts the token
+ * - aggregator/clients/model.py - forwards token to SyftAI-Space
+ * - aggregator/clients/data_source.py - forwards token to SyftAI-Space
  */
 
 import type { HTTPClient } from '../http.js';
@@ -28,6 +51,7 @@ import type {
   EndpointRef,
   SourceInfo,
   SourceStatus,
+  TokenUsage,
 } from '../models/chat.js';
 import { AuthenticationError, SyftHubError } from '../errors.js';
 import type { HubResource } from './hub.js';
@@ -234,6 +258,17 @@ export class ChatResource {
   }
 
   /**
+   * Parse TokenUsage from raw data.
+   */
+  private parseUsage(data: Record<string, unknown>): TokenUsage {
+    return {
+      promptTokens: Number(data['prompt_tokens'] ?? 0),
+      completionTokens: Number(data['completion_tokens'] ?? 0),
+      totalTokens: Number(data['total_tokens'] ?? 0),
+    };
+  }
+
+  /**
    * Send a chat request and get the complete response.
    *
    * @param options - Chat completion options
@@ -293,10 +328,15 @@ export class ChatResource {
     const metadataData = data['metadata'] as Record<string, unknown> | undefined;
     const metadata = this.parseMetadata(metadataData ?? {});
 
+    // Parse usage if available
+    const usageData = data['usage'] as Record<string, unknown> | undefined;
+    const usage = usageData ? this.parseUsage(usageData) : undefined;
+
     return {
       response: String(data['response'] ?? ''),
       sources,
       metadata,
+      usage,
     };
   }
 
@@ -448,7 +488,11 @@ export class ChatResource {
         const metadataData = data['metadata'] as Record<string, unknown> | undefined;
         const metadata = this.parseMetadata(metadataData ?? {});
 
-        return { type: 'done', sources, metadata };
+        // Parse usage if available (only from non-streaming mode)
+        const usageData = data['usage'] as Record<string, unknown> | undefined;
+        const usage = usageData ? this.parseUsage(usageData) : undefined;
+
+        return { type: 'done', sources, metadata, usage };
       }
 
       case 'error':

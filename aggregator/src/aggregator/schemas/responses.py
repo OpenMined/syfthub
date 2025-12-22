@@ -36,12 +36,21 @@ class ResponseMetadata(BaseModel):
     total_time_ms: int = Field(..., description="Total request time")
 
 
+class TokenUsage(BaseModel):
+    """Token usage information from model generation."""
+
+    prompt_tokens: int = Field(default=0, description="Number of tokens in the prompt")
+    completion_tokens: int = Field(default=0, description="Number of tokens in the completion")
+    total_tokens: int = Field(default=0, description="Total tokens used")
+
+
 class ChatResponse(BaseModel):
     """Response from the aggregator chat endpoint."""
 
     response: str = Field(..., description="The generated response")
     sources: list[SourceInfo] = Field(default_factory=list, description="Data sources used")
     metadata: ResponseMetadata = Field(..., description="Timing metadata")
+    usage: TokenUsage | None = Field(default=None, description="Token usage if available")
 
 
 class ChatCompletionResponse(BaseModel):

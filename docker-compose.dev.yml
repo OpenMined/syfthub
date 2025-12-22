@@ -49,6 +49,8 @@ services:
       - LOG_LEVEL=debug
       # Single origin since everything goes through proxy
       - CORS_ORIGINS=http://localhost:8080
+      # Disable accounting service for local development
+      - DEFAULT_ACCOUNTING_URL=
     networks:
       - syfthub-network
     depends_on:

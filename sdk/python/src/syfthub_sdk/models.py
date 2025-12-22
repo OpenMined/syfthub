@@ -326,10 +326,26 @@ class ChatMetadata(BaseModel):
     model_config = {"frozen": True}
 
 
+class TokenUsage(BaseModel):
+    """Token usage information from model generation.
+
+    Provides token counts for prompt and completion.
+    """
+
+    prompt_tokens: int = Field(default=0, description="Number of tokens in the prompt")
+    completion_tokens: int = Field(
+        default=0, description="Number of tokens in the completion"
+    )
+    total_tokens: int = Field(default=0, description="Total tokens used")
+
+    model_config = {"frozen": True}
+
+
 class ChatResponse(BaseModel):
     """Response from a chat completion request.
 
-    Contains the generated response, source information, and timing metadata.
+    Contains the generated response, source information, timing metadata,
+    and token usage if available.
     """
 
     response: str = Field(..., description="The generated response text")
@@ -337,6 +353,9 @@ class ChatResponse(BaseModel):
         default_factory=list, description="Data sources used in the response"
     )
     metadata: ChatMetadata = Field(..., description="Timing metadata")
+    usage: TokenUsage | None = Field(
+        default=None, description="Token usage if available"
+    )
 
     model_config = {"frozen": True}
 

@@ -1,4 +1,17 @@
-"""Generation service for calling SyftAI-Space model endpoints."""
+"""Generation service for calling SyftAI-Space model endpoints.
+
+TODO: Streaming Support
+----------------------
+Currently SyftAI-Space does not implement model streaming - it accepts the
+`stream` parameter but always returns a synchronous JSON response. The
+`generate_stream` method in this service is preserved for future use when
+SyftAI-Space adds streaming support.
+
+To enable streaming:
+1. Wait for SyftAI-Space to implement the `stream=true` parameter properly
+2. Set AGGREGATOR_MODEL_STREAMING_ENABLED=true in environment
+3. The orchestrator will then use generate_stream() instead of generate()
+"""
 
 import logging
 from collections.abc import AsyncGenerator

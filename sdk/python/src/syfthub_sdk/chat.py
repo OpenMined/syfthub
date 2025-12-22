@@ -23,6 +23,29 @@ Example usage:
     # Get available models and data sources
     models = list(client.chat.get_available_models())
     sources = list(client.chat.get_available_data_sources())
+
+TODO: Satellite Token Integration
+---------------------------------
+When SyftAI-Space implements satellite token support, this resource should:
+
+1. Include the user's access token in requests to the aggregator
+2. The aggregator will forward this token to SyftAI-Space for permission checks
+
+Example change for complete() and stream() methods:
+    access_token = self._http.get_access_token()
+    response = self._agg_client.post(
+        f"{self._aggregator_url}/chat",
+        json=request_body,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {access_token}",  # Add this header
+        },
+    )
+
+See also:
+- aggregator/api/dependencies.py - receives and extracts the token
+- aggregator/clients/model.py - forwards token to SyftAI-Space
+- aggregator/clients/data_source.py - forwards token to SyftAI-Space
 """
 
 from __future__ import annotations
@@ -48,6 +71,7 @@ from syfthub_sdk.models import (
     EndpointType,
     SourceInfo,
     SourceStatus,
+    TokenUsage,
 )
 
 if TYPE_CHECKING:
@@ -114,6 +138,7 @@ class DoneEvent:
     type: Literal["done"] = field(default="done", repr=False)
     sources: list[SourceInfo] = field(default_factory=list)
     metadata: ChatMetadata | None = None
+    usage: TokenUsage | None = None  # Token usage if available (only from non-streaming)
 
 
 @dataclass(frozen=True)
@@ -368,7 +393,17 @@ class ChatResource:
                     total_time_ms=m.get("total_time_ms", 0),
                 )
 
-            return DoneEvent(sources=sources, metadata=metadata)
+            # Parse usage if available (only from non-streaming mode)
+            usage = None
+            if "usage" in data:
+                u = data["usage"]
+                usage = TokenUsage(
+                    prompt_tokens=u.get("prompt_tokens", 0),
+                    completion_tokens=u.get("completion_tokens", 0),
+                    total_tokens=u.get("total_tokens", 0),
+                )
+
+            return DoneEvent(sources=sources, metadata=metadata, usage=usage)
 
         elif event_type == "error":
             return ErrorEvent(message=data.get("message", "Unknown error"))
@@ -479,10 +514,21 @@ class ChatResource:
             total_time_ms=m.get("total_time_ms", 0),
         )
 
+        # Parse usage if available
+        usage = None
+        if "usage" in data and data["usage"]:
+            u = data["usage"]
+            usage = TokenUsage(
+                prompt_tokens=u.get("prompt_tokens", 0),
+                completion_tokens=u.get("completion_tokens", 0),
+                total_tokens=u.get("total_tokens", 0),
+            )
+
         return ChatResponse(
             response=data.get("response", ""),
             sources=sources,
             metadata=metadata,
+            usage=usage,
         )
 
     def stream(

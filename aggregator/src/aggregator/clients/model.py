@@ -1,4 +1,30 @@
-"""Client for interacting with SyftAI-Space model endpoints."""
+"""Client for interacting with SyftAI-Space model endpoints.
+
+TODO: Satellite Token Integration
+---------------------------------
+When SyftAI-Space implements satellite token support, this client should:
+
+1. Accept an optional `authorization_token` parameter in `chat()` and `chat_stream()`
+2. Include the token in an Authorization header: `Authorization: Bearer <token>`
+3. This allows SyftAI-Space to validate user permissions via the satellite token
+
+Example change for chat() method:
+    async def chat(
+        self,
+        url: str,
+        slug: str,
+        ...
+        authorization_token: str | None = None,  # Add this parameter
+    ) -> GenerationResult:
+        ...
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if tenant_name:
+            headers["X-Tenant-Name"] = tenant_name
+        if authorization_token:
+            headers["Authorization"] = f"Bearer {authorization_token}"
+
+Same pattern applies to chat_stream() method.
+"""
 
 import json
 import logging

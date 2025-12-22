@@ -43,6 +43,8 @@ export interface User {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  /** Domain for endpoint URL construction (e.g., "api.example.com:8080") */
+  domain?: string;
 }
 
 // Authentication request schemas
@@ -91,6 +93,8 @@ export interface UserUpdate {
   email?: string;
   full_name?: string;
   avatar_url?: string;
+  /** Domain for endpoint URL construction (no protocol) */
+  domain?: string;
 }
 
 // Availability check responses

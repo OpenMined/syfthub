@@ -1,4 +1,20 @@
-"""FastAPI dependencies for the aggregator API."""
+"""FastAPI dependencies for the aggregator API.
+
+TODO: Satellite Token Integration
+---------------------------------
+Currently the aggregator receives user tokens but does not forward them to
+SyftAI-Space endpoints. When SyftAI-Space implements satellite token support:
+
+1. The `get_optional_token()` function extracts Bearer tokens from requests
+2. These tokens should be passed through the orchestrator to the clients
+3. DataSourceClient and ModelClient should include Authorization headers
+4. SyftAI-Space will validate tokens and check user permissions
+
+See also:
+- aggregator/clients/data_source.py - needs Authorization header
+- aggregator/clients/model.py - needs Authorization header
+- syfthub backend token endpoint - generates satellite tokens
+"""
 
 from functools import lru_cache
 from typing import Annotated

@@ -13,6 +13,8 @@ export interface User {
   readonly isActive: boolean;
   readonly createdAt: Date;
   readonly updatedAt: Date | null;
+  /** Domain for endpoint URL construction (e.g., "api.example.com" or "api.example.com:8080") */
+  readonly domain: string | null;
 }
 
 /**
@@ -56,6 +58,8 @@ export interface UserUpdateInput {
   email?: string;
   fullName?: string;
   avatarUrl?: string;
+  /** Domain for endpoint URL construction (no protocol, e.g., "api.example.com:8080") */
+  domain?: string;
 }
 
 /**

@@ -76,6 +76,7 @@ from syfthub_sdk.models import (
     Policy,
     SourceInfo,
     SourceStatus,
+    TokenUsage,
     Transaction,
     TransactionStatus,
     User,
@@ -106,6 +107,7 @@ __all__ = [
     "SourceStatus",
     "ChatMetadata",
     "ChatResponse",
+    "TokenUsage",
     "Message",
     # Chat streaming events
     "ChatStreamEvent",

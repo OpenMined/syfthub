@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     max_top_k: int = 20
     max_data_sources: int = 10
 
+    # Model streaming configuration
+    # TODO: Set to True when SyftAI-Space implements model streaming.
+    # Currently SyftAI-Space ignores the stream parameter and always returns
+    # synchronous JSON responses. When this is enabled, the aggregator will
+    # attempt to stream tokens from the model endpoint.
+    model_streaming_enabled: bool = False
+
     # CORS configuration
     cors_origins: list[str] = ["*"]
 

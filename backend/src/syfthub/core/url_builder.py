@@ -1,13 +1,21 @@
 """URL building utilities for dynamic endpoint URL construction.
 
 This module provides functions to build full URLs from owner domains and
-connection path configurations. The URL is constructed as:
-    {protocol}://{owner.domain}/{connection.config.url}
+connection path configurations.
+
+DESIGN INTENT:
+- Internally (database storage), connection.config.url contains only the PATH portion
+  (e.g., "api/v2" or "" for root)
+- Externally (API responses), we ALWAYS expose full URLs by combining:
+  {protocol}://{owner.domain}/{connection.config.url}
 
 Where:
-- protocol is determined by the connection type
-- owner.domain is stored on User or Organization
-- connection.config.url contains only the path portion
+- protocol is determined by the connection type (rest_api → https, ws → wss, etc.)
+- owner.domain is stored on User or Organization (e.g., "api.example.com")
+- connection.config.url contains only the path portion (e.g., "v1" or "")
+
+IMPORTANT: All API responses returning endpoints MUST use transform_connection_urls()
+to ensure clients always receive full URLs, not paths.
 """
 
 from __future__ import annotations

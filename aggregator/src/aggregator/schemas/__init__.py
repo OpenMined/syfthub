@@ -21,6 +21,7 @@ from aggregator.schemas.responses import (
     QueryResponse,
     ResponseMetadata,
     SourceInfo,
+    TokenUsage,
 )
 
 __all__ = [
@@ -36,6 +37,7 @@ __all__ = [
     "QueryResponse",
     "SourceInfo",
     "ResponseMetadata",
+    "TokenUsage",
     "ChatCompletionResponse",
     "ErrorResponse",
     # Internal

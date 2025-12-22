@@ -21,6 +21,7 @@ from syfthub.core.config import settings
 from syfthub.core.url_builder import (
     build_connection_url,
     get_first_enabled_connection,
+    transform_connection_urls,
 )
 from syfthub.database.connection import create_tables
 from syfthub.database.dependencies import (
@@ -416,10 +417,21 @@ async def list_owner_public_endpoints(
     # Apply pagination
     accessible_endpoints = accessible_endpoints[skip : skip + limit]
 
-    # Build response with owner_username
+    # Build response with owner_username and transformed URLs
+    # Get owner's domain for URL transformation
+    owner_domain = getattr(owner, "domain", None)
+
     response_list = []
     for ds in accessible_endpoints:
         ds_dict = ds.model_dump()
+
+        # Transform connection URLs using owner's domain
+        if ds_dict.get("connect"):
+            ds_dict["connect"] = transform_connection_urls(
+                owner_domain,
+                ds_dict["connect"],
+            )
+
         # Get the appropriate username/slug based on owner type
         if owner_type == "user":
             from syfthub.schemas.user import User
@@ -528,12 +540,22 @@ async def get_owner_endpoint(
             },
         )
     else:
-        # Return JSON for API clients
+        # Return JSON for API clients with transformed URLs
+        # Get owner's domain for URL transformation
+        owner_domain = getattr(owner, "domain", None)
+        endpoint_dict = endpoint.model_dump()
+
+        # Transform connection URLs using owner's domain
+        if endpoint_dict.get("connect"):
+            endpoint_dict["connect"] = transform_connection_urls(
+                owner_domain,
+                endpoint_dict["connect"],
+            )
+
         if can_see_full_details:
-            return EndpointResponse.model_validate(endpoint)
+            return EndpointResponse.model_validate(endpoint_dict)
         else:
             # Build public response with owner_username
-            endpoint_dict = endpoint.model_dump()
             # Get the appropriate username/slug based on owner type
             if owner_type == "user":
                 from syfthub.schemas.user import User

@@ -59,6 +59,7 @@ export type {
   SourceStatus,
   SourceInfo,
   ChatMetadata,
+  TokenUsage,
   ChatResponse,
   Message,
   ChatOptions,

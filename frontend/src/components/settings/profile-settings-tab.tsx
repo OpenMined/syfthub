@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, Check, Loader2, Save, User } from 'lucide-react';
+import { AlertCircle, Check, Globe, Loader2, Save, User } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,7 @@ interface ProfileFormData {
   email: string;
   full_name: string;
   avatar_url: string;
+  domain: string;
 }
 
 interface AvailabilityState {
@@ -38,7 +39,8 @@ export function ProfileSettingsTab() {
     username: user?.username ?? '',
     email: user?.email ?? '',
     full_name: user?.full_name ?? '',
-    avatar_url: user?.avatar_url ?? ''
+    avatar_url: user?.avatar_url ?? '',
+    domain: user?.domain ?? ''
   });
 
   // Sync form data when user context changes (e.g., after successful update)
@@ -49,7 +51,8 @@ export function ProfileSettingsTab() {
         email: user.email,
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Defensive null check
         full_name: user.full_name ?? '',
-        avatar_url: user.avatar_url ?? ''
+        avatar_url: user.avatar_url ?? '',
+        domain: user.domain ?? ''
       });
     }
   }, [user]);
@@ -204,6 +207,12 @@ export function ProfileSettingsTab() {
     if (formData.avatar_url !== (user?.avatar_url ?? '')) {
       updates.avatar_url = formData.avatar_url.trim();
     }
+    if (formData.domain !== (user?.domain ?? '')) {
+      // Strip protocol if user accidentally included it
+      let domainValue = formData.domain.trim();
+      domainValue = domainValue.replace(/^https?:\/\//, '');
+      updates.domain = domainValue;
+    }
 
     // If nothing changed, show message
     if (Object.keys(updates).length === 0) {
@@ -243,7 +252,8 @@ export function ProfileSettingsTab() {
     formData.username !== user?.username ||
     formData.email !== user?.email ||
     formData.full_name !== (user?.full_name ?? '') ||
-    formData.avatar_url !== (user?.avatar_url ?? '');
+    formData.avatar_url !== (user?.avatar_url ?? '') ||
+    formData.domain !== (user?.domain ?? '');
   /* eslint-enable @typescript-eslint/no-unnecessary-condition */
 
   const canSubmit =
@@ -430,6 +440,34 @@ export function ProfileSettingsTab() {
             placeholder='Your full name'
             disabled={isLoading}
           />
+        </div>
+
+        {/* Endpoint Configuration Section */}
+        <div className='mt-6 border-t border-gray-200 pt-6'>
+          <div className='mb-4 flex items-center gap-2'>
+            <Globe className='h-4 w-4 text-gray-500' />
+            <h4 className='text-sm font-medium text-gray-700'>Endpoint Configuration</h4>
+          </div>
+          <p className='mb-4 text-xs text-gray-500'>
+            Configure the domain where your endpoints are hosted. This is used to construct full
+            URLs for your endpoints.
+          </p>
+
+          {/* Domain */}
+          <div className='space-y-2'>
+            <Label htmlFor='domain'>API Domain</Label>
+            <Input
+              id='domain'
+              value={formData.domain}
+              onChange={handleInputChange('domain')}
+              placeholder='api.example.com or api.example.com:8080'
+              disabled={isLoading}
+            />
+            <p className='text-xs text-gray-500'>
+              Enter the base domain for your endpoints without the protocol (https:// will be added
+              automatically).
+            </p>
+          </div>
         </div>
 
         {/* Submit Button */}

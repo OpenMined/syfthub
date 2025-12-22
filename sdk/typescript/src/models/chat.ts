@@ -72,6 +72,18 @@ export interface ChatMetadata {
 }
 
 /**
+ * Token usage information from model generation.
+ */
+export interface TokenUsage {
+  /** Number of tokens in the prompt */
+  promptTokens: number;
+  /** Number of tokens in the completion */
+  completionTokens: number;
+  /** Total tokens used */
+  totalTokens: number;
+}
+
+/**
  * Response from a chat completion request.
  */
 export interface ChatResponse {
@@ -81,6 +93,8 @@ export interface ChatResponse {
   sources: SourceInfo[];
   /** Timing metadata */
   metadata: ChatMetadata;
+  /** Token usage if available */
+  usage?: TokenUsage;
 }
 
 /**
@@ -200,6 +214,8 @@ export interface DoneEvent {
   type: 'done';
   sources: SourceInfo[];
   metadata: ChatMetadata;
+  /** Token usage if available (only from non-streaming mode) */
+  usage?: TokenUsage;
 }
 
 /**

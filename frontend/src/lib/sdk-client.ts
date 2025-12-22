@@ -239,7 +239,8 @@ export async function updateUserProfileAPI(profileData: UserUpdate): Promise<Fro
     username: profileData.username,
     email: profileData.email,
     fullName: profileData.full_name,
-    avatarUrl: profileData.avatar_url
+    avatarUrl: profileData.avatar_url,
+    domain: profileData.domain
   });
 
   // Convert SDK User to frontend User format
@@ -253,7 +254,8 @@ export async function updateUserProfileAPI(profileData: UserUpdate): Promise<Fro
     role: sdkUser.role,
     is_active: sdkUser.isActive,
     created_at: sdkUser.createdAt.toISOString(),
-    updated_at: sdkUser.updatedAt?.toISOString() ?? sdkUser.createdAt.toISOString()
+    updated_at: sdkUser.updatedAt?.toISOString() ?? sdkUser.createdAt.toISOString(),
+    domain: sdkUser.domain ?? undefined
   };
 }
 
