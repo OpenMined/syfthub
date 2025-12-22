@@ -2,7 +2,7 @@
 # Supports both development and production environments
 
 # Base stage with Python and system dependencies
-FROM python:3.12-slim as base
+FROM python:3.12-slim AS base
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -30,7 +30,7 @@ WORKDIR /app
 
 # ==============================================================================
 # Dependencies stage - install Python packages
-FROM base as dependencies
+FROM base AS dependencies
 
 # Copy dependency files
 COPY --chown=syfthub:syfthub pyproject.toml ./
@@ -50,7 +50,7 @@ RUN uv venv .venv && \
 
 # ==============================================================================
 # Development stage
-FROM dependencies as development
+FROM dependencies AS development
 
 # Switch back to root for dev dependencies installation
 USER root
@@ -93,7 +93,7 @@ CMD ["/app/.venv/bin/uvicorn", "syfthub.main:app", \
 
 # ==============================================================================
 # Testing stage
-FROM dependencies as testing
+FROM dependencies AS testing
 
 # Install test dependencies
 USER root
@@ -115,7 +115,7 @@ CMD ["/app/.venv/bin/pytest", "--cov=syfthub", "--cov-report=term-missing"]
 
 # ==============================================================================
 # Production build stage
-FROM dependencies as builder
+FROM dependencies AS builder
 
 # Copy source code
 COPY --chown=syfthub:syfthub src src
@@ -127,7 +127,7 @@ RUN uv build --wheel
 
 # ==============================================================================
 # Production runtime stage
-FROM python:3.12-slim as production
+FROM python:3.12-slim AS production
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -141,6 +141,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Install uv for fast package installation
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
 # Create non-root user
 RUN useradd -m -u 1000 syfthub && \
     mkdir -p /app && \
@@ -148,12 +151,10 @@ RUN useradd -m -u 1000 syfthub && \
 
 WORKDIR /app
 
-# Copy virtual environment from builder
-COPY --from=builder --chown=syfthub:syfthub /app/.venv /app/.venv
-
-# Copy built wheel and install
+# Create fresh virtual environment and install the wheel
 COPY --from=builder --chown=syfthub:syfthub /app/dist/*.whl /tmp/
-RUN .venv/bin/pip install /tmp/*.whl && \
+RUN uv venv .venv && \
+    uv pip install /tmp/*.whl --python .venv/bin/python && \
     rm -rf /tmp/*.whl
 
 # Create necessary directories
@@ -181,7 +182,7 @@ CMD [".venv/bin/uvicorn", "syfthub.main:app", \
 
 # ==============================================================================
 # Lightweight production stage (alternative)
-FROM python:3.12-alpine as production-alpine
+FROM python:3.12-alpine AS production-alpine
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -206,12 +207,13 @@ RUN adduser -D -u 1000 syfthub && \
 
 WORKDIR /app
 
-# Copy virtual environment from builder
-COPY --from=builder --chown=syfthub:syfthub /app/.venv /app/.venv
+# Install uv for fast package installation
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Copy built wheel and install
+# Create fresh virtual environment and install the wheel
 COPY --from=builder --chown=syfthub:syfthub /app/dist/*.whl /tmp/
-RUN .venv/bin/pip install /tmp/*.whl && \
+RUN uv venv .venv && \
+    uv pip install /tmp/*.whl --python .venv/bin/python && \
     rm -rf /tmp/*.whl && \
     apk del .build-deps
 

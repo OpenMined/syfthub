@@ -3,11 +3,17 @@
 # Stage 1: Build environment
 FROM node:20-alpine AS builder
 
-# Set working directory
-WORKDIR /app
+# Set working directory for SDK build
+WORKDIR /sdk/typescript
 
-# Copy SDK first (required for file: dependency resolution)
-COPY sdk/typescript /sdk/typescript
+# Copy and build SDK first (required for file: dependency resolution)
+COPY sdk/typescript/package*.json ./
+RUN npm ci
+COPY sdk/typescript/ .
+RUN npm run build
+
+# Set working directory for frontend
+WORKDIR /app
 
 # Copy frontend package files
 COPY frontend/package*.json ./
