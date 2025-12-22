@@ -25,6 +25,10 @@ set -euo pipefail
 # =============================================================================
 # Configuration
 # =============================================================================
+
+# Docker requires lowercase repository names
+GITHUB_REPOSITORY=$(echo "${GITHUB_REPOSITORY:-}" | tr '[:upper:]' '[:lower:]')
+
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/syfthub}"
 COMPOSE_FILE="docker-compose.deploy.yml"
 LOG_DIR="/var/log/syfthub"
