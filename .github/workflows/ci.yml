@@ -189,3 +189,123 @@ jobs:
           name: frontend-build
           path: frontend/dist/
           retention-days: 7
+
+  # ============================================================================
+  # BUILD AND PUSH DOCKER IMAGES TO GHCR
+  # Only runs on main branch after all CI checks pass
+  # ============================================================================
+  build-images:
+    name: Build ${{ matrix.image }}
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [backend-lint, backend-test, frontend-lint, frontend-test, frontend-build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: backend
+            context: ./backend
+            dockerfile: backend/Dockerfile
+            target: production
+          - image: frontend
+            context: .
+            dockerfile: frontend/Dockerfile
+            target: production
+          - image: aggregator
+            context: ./aggregator
+            dockerfile: aggregator/Dockerfile
+            target: ""
+    outputs:
+      image_tag: ${{ steps.vars.outputs.sha_short }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set output variables
+        id: vars
+        run: echo "sha_short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-${{ matrix.image }}
+          tags: |
+            type=raw,value=${{ steps.vars.outputs.sha_short }}
+            type=raw,value=latest
+            type=ref,event=tag
+
+      - name: Build and push ${{ matrix.image }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target || '' }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  # ============================================================================
+  # DEPLOY TO PRODUCTION VM
+  # Deploys all services to production after successful image builds
+  # ============================================================================
+  deploy:
+    name: Deploy to Production
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [build-images]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          IMAGE_TAG: ${{ needs.build-images.outputs.image_tag }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          envs: IMAGE_TAG,GITHUB_REPOSITORY,GHCR_TOKEN
+          script: |
+            set -e
+            cd /opt/syfthub
+
+            echo "=========================================="
+            echo "Deploying SyftHub: $IMAGE_TAG"
+            echo "Repository: $GITHUB_REPOSITORY"
+            echo "=========================================="
+
+            # Login to GHCR
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
+
+            # Export for docker-compose
+            export IMAGE_TAG
+            export GITHUB_REPOSITORY
+
+            # Run deployment script
+            ./deploy.sh
+
+      - name: Deployment notification
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "✅ Deployment successful: ${{ needs.build-images.outputs.image_tag }}"
+          else
+            echo "❌ Deployment failed"
+          fi
