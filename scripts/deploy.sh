@@ -160,6 +160,10 @@ pull_images() {
     source .env
     set +a
 
+    # Ensure GITHUB_REPOSITORY is lowercase (Docker requirement)
+    GITHUB_REPOSITORY=$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
+    export GITHUB_REPOSITORY
+
     # Pull all images
     docker compose -f "$COMPOSE_FILE" pull backend aggregator || die "Failed to pull backend/aggregator images"
 
