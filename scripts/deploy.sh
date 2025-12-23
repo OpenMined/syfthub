@@ -277,10 +277,10 @@ deploy_services() {
     docker compose -f "$COMPOSE_FILE" up -d --no-deps --force-recreate aggregator
     sleep 5
 
-    # Wait for aggregator to be healthy
+    # Wait for aggregator to be healthy (use Python since curl not installed in aggregator container)
     log INFO "Waiting for aggregator to be healthy..."
     retries=0
-    while ! docker compose -f "$COMPOSE_FILE" exec -T aggregator curl -sf http://localhost:8001/health &> /dev/null; do
+    while ! docker compose -f "$COMPOSE_FILE" exec -T aggregator python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)" &> /dev/null; do
         retries=$((retries + 1))
         if [[ $retries -ge $HEALTH_CHECK_RETRIES ]]; then
             die "Aggregator failed health check after restart"
