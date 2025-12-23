@@ -197,10 +197,38 @@ run_migrations() {
 
     cd "$DEPLOY_DIR"
 
-    # Run migrations
-    docker compose -f "$COMPOSE_FILE" --profile migrate run --rm migrate || die "Database migration failed"
+    # Ensure database is running and healthy
+    docker compose -f "$COMPOSE_FILE" up -d db
 
-    log INFO "Migrations completed successfully"
+    local retries=30
+    while [ $retries -gt 0 ]; do
+        if docker compose -f "$COMPOSE_FILE" exec -T db pg_isready -U syfthub -d syfthub &>/dev/null; then
+            break
+        fi
+        log INFO "Waiting for database to be ready... ($retries retries left)"
+        sleep 2
+        retries=$((retries - 1))
+    done
+
+    if [ $retries -eq 0 ]; then
+        die "Database failed to become ready"
+    fi
+
+    # Try to run migrations - handle case where Alembic isn't configured
+    local migration_output
+    if migration_output=$(docker compose -f "$COMPOSE_FILE" --profile migrate run --rm migrate 2>&1); then
+        log INFO "Migrations completed successfully"
+    else
+        # Check if the error is because Alembic isn't configured
+        if echo "$migration_output" | grep -q "No 'script_location' key found\|No such file or directory.*alembic"; then
+            log WARN "Alembic not configured - skipping migrations"
+            log INFO "Database schema will be created on application startup"
+        else
+            # Real migration error - fail the deployment
+            echo "$migration_output"
+            die "Database migration failed"
+        fi
+    fi
 }
 
 # =============================================================================
