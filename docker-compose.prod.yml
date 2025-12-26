@@ -20,6 +20,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      mcp:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
       interval: 30s
@@ -153,6 +155,50 @@ services:
         reservations:
           cpus: '0.1'
           memory: 64M
+
+  # MCP Server - OAuth 2.1 and Model Context Protocol
+  mcp:
+    build:
+      context: ./mcp
+      dockerfile: Dockerfile
+      target: production
+    image: ${GITHUB_REPOSITORY:-syfthub}/mcp:${IMAGE_TAG:-latest}
+    container_name: syfthub-mcp
+    restart: unless-stopped
+    # Internal only - accessed via proxy
+    expose:
+      - "8002"
+    environment:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - MCP_PORT=8002
+      # OAuth configuration (proxy-aware URLs)
+      - OAUTH_ISSUER=https://${DOMAIN:-localhost}/mcp
+      - OAUTH_AUDIENCE=mcp-server
+      - API_BASE_URL=https://${DOMAIN:-localhost}/mcp
+      # SyftHub backend (internal Docker network)
+      - SYFTHUB_URL=http://backend:8000
+      # SyftHub public URL (for register link)
+      - SYFTHUB_PUBLIC_URL=https://${DOMAIN:-localhost}
+    networks:
+      - syfthub-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
 
   # Database backup service (runs daily)
   backup:

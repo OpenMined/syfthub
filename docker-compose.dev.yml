@@ -16,6 +16,7 @@ services:
       - backend
       - frontend
       - aggregator
+      - mcp
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
       interval: 30s
@@ -161,7 +162,53 @@ services:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # MCP Server - OAuth 2.1 and Model Context Protocol
+  mcp:
+    build:
+      context: ./mcp
+      dockerfile: Dockerfile
+      target: development
+    container_name: syfthub-mcp-dev
+    # Internal only - accessed via proxy
+    expose:
+      - "8002"
+    volumes:
+      # Mount source code for hot reload
+      - ./mcp/server.py:/app/server.py:cached
+      - ./mcp/syfthub_client.py:/app/syfthub_client.py:cached
+      - ./mcp/fastmcp.json:/app/fastmcp.json:cached
+      - ./mcp/pyproject.toml:/app/pyproject.toml:cached
+      # Mount Python SDK for development (path matches pyproject.toml: ../sdk/python -> /sdk/python)
+      - ./sdk/python:/sdk/python:cached
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=debug
+      - MCP_PORT=8002
+      # OAuth configuration (proxy-aware URLs)
+      - OAUTH_ISSUER=http://localhost:8080/mcp
+      - OAUTH_AUDIENCE=mcp-server
+      - API_BASE_URL=http://localhost:8080/mcp
+      # SyftHub backend (internal Docker network)
+      - SYFTHUB_URL=http://backend:8000
+      # SyftHub public URL (for SDK client)
+      - SYFTHUB_PUBLIC_URL=http://localhost:8080
+      # Aggregator URL (internal Docker network)
+      - AGGREGATOR_URL=http://aggregator:8001
+    networks:
+      - syfthub-network
+    depends_on:
+      backend:
+        condition: service_healthy
+      aggregator:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
       interval: 30s
       timeout: 10s
       retries: 3
