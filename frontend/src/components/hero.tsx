@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 
-import { Send, Sparkles } from 'lucide-react';
+import { Send } from 'lucide-react';
+
+import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 
 interface HeroProperties {
   onSearch?: (query: string) => void;
@@ -51,7 +53,7 @@ export function Hero({
       <div className='mx-auto w-full max-w-2xl space-y-6'>
         {/* Logo */}
         <div className='flex items-center justify-center gap-2.5'>
-          <Sparkles className='text-syft-secondary h-7 w-7' />
+          <OpenMinedIcon className='h-7 w-7' />
           <span className='font-rubik text-syft-primary text-xl font-medium'>SyftHub</span>
         </div>
 

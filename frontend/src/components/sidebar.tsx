@@ -1,8 +1,9 @@
 import type React from 'react';
 
-import { FileText, Globe, MessageSquare, Sparkles, UserPlus } from 'lucide-react';
+import { FileText, Globe, MessageSquare, UserPlus } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 
+import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 import { useAuth } from '@/context/auth-context';
 import { useModal } from '@/context/modal-context';
 import { cn } from '@/lib/utils';
@@ -53,7 +54,7 @@ export function Sidebar() {
         aria-label='SyftHub Home'
       >
         <div className='flex items-center justify-center'>
-          <Sparkles className='text-syft-secondary group-hover:text-syft-primary h-8 w-8 transition-colors' />
+          <OpenMinedIcon className='h-8 w-8' />
         </div>
       </NavLink>
 
