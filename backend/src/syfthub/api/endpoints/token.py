@@ -11,6 +11,12 @@ Per the OpenAPI spec:
 - POST /api/v1/verify - Verify a satellite token (server-side)
 - Requires valid Hub session (Bearer token)
 - Returns RS256-signed satellite token
+
+Audience Validation:
+- Audiences are dynamically validated against the user database
+- A valid audience is any active user's username
+- When a user is created, their username becomes a valid audience
+- When a user is deactivated/deleted, their username becomes invalid
 """
 
 from typing import Annotated, Any, Union
@@ -20,6 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from syfthub.auth.db_dependencies import get_current_active_user
 from syfthub.auth.keys import key_manager
 from syfthub.auth.satellite_tokens import (
+    AudienceValidationResult,
     TokenVerificationResult,
     create_satellite_token,
     get_allowed_audiences,
@@ -28,7 +35,11 @@ from syfthub.auth.satellite_tokens import (
 )
 from syfthub.core.config import settings
 from syfthub.database.dependencies import get_user_repository
-from syfthub.domain.exceptions import InvalidAudienceError, KeyNotConfiguredError
+from syfthub.domain.exceptions import (
+    AudienceInactiveError,
+    AudienceNotFoundError,
+    KeyNotConfiguredError,
+)
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.satellite import (
     SatelliteTokenErrorResponse,
@@ -69,21 +80,27 @@ The returned token is signed by the Hub's Private Key using RS256.
 **Token Claims:**
 - `sub`: User's unique ID
 - `iss`: Issuer URL (Hub URL)
-- `aud`: The target service identifier
+- `aud`: The target service identifier (username of target user/service)
 - `exp`: Expiration timestamp (short-lived, typically 60 seconds)
 - `role`: User's role (admin, user, etc.)
 
+**Audience Validation:**
+- The audience must be the username of an active user account
+- When a user is created, their username becomes a valid audience
+- When a user is deactivated/deleted, their username becomes invalid
+
 **Security:**
 - Requires valid Hub session token
-- Audience must be in the allowlist
+- Audience must be a valid, active username
 - Token cannot be refreshed - request a new one when expired
 """,
 )
 async def get_satellite_token(
     current_user: Annotated[User, Depends(get_current_active_user)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
     aud: str = Query(
         ...,
-        description="Identifier of target service (e.g., 'syftai-space')",
+        description="Username of target service/user (e.g., 'syftai-space')",
         examples=["syftai-space"],
     ),
 ) -> SatelliteTokenResponse:
@@ -93,15 +110,21 @@ async def get_satellite_token(
     RS256-signed JWT token for use with satellite services. The token
     can be verified locally by satellite services using the JWKS endpoint.
 
+    The audience is dynamically validated against the user database:
+    - A valid audience is any active user's username
+    - When users are created, their username becomes a valid audience
+    - When users are deactivated/deleted, their username becomes invalid
+
     Args:
         current_user: Authenticated user from Hub session token
-        aud: Target service identifier (must be in allowlist)
+        user_repo: User repository for audience validation
+        aud: Target service identifier (username of an active user)
 
     Returns:
         SatelliteTokenResponse containing the RS256-signed JWT
 
     Raises:
-        HTTPException: 400 if audience is invalid
+        HTTPException: 400 if audience is invalid, not found, or inactive
         HTTPException: 401 if user is not authenticated (handled by dependency)
         HTTPException: 503 if RSA keys are not configured
     """
@@ -122,24 +145,25 @@ async def get_satellite_token(
             },
         )
 
-    # Validate audience against allowlist (FR-06)
-    if not validate_audience(aud):
-        allowed = ", ".join(sorted(get_allowed_audiences()))
+    # Validate audience against user database (dynamic validation)
+    validation_result: AudienceValidationResult = validate_audience(aud, user_repo)
+    if not validation_result.valid:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
-                "error": "invalid_audience",
-                "message": f"The requested audience '{aud}' is not a registered service. "
-                f"Allowed audiences: {allowed}",
+                "error": validation_result.error_code or "invalid_audience",
+                "message": validation_result.error
+                or f"The requested audience '{aud}' is not valid.",
             },
         )
 
     try:
-        # Create satellite token
+        # Create satellite token (validation already done, but pass user_repo for consistency)
         target_token = create_satellite_token(
             user=current_user,
             audience=aud,
             key_manager=key_manager,
+            user_repo=user_repo,
         )
 
         return SatelliteTokenResponse(
@@ -147,11 +171,20 @@ async def get_satellite_token(
             expires_in=settings.satellite_token_expire_seconds,
         )
 
-    except InvalidAudienceError as e:
+    except AudienceNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
-                "error": "invalid_audience",
+                "error": "audience_not_found",
+                "message": str(e.message),
+            },
+        ) from e
+
+    except AudienceInactiveError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "audience_inactive",
                 "message": str(e.message),
             },
         ) from e
@@ -167,10 +200,17 @@ async def get_satellite_token(
     "/token/audiences",
     response_model=dict[str, Any],
     summary="List Allowed Audiences",
-    description="Returns the list of allowed audience identifiers for satellite tokens.",
+    description="""Returns the list of allowed audience identifiers for satellite tokens.
+
+**Dynamic Audiences:**
+- Audiences are dynamically generated from active user accounts
+- Any active user's username is a valid audience
+- The list updates automatically as users are created/deactivated
+""",
 )
 async def list_allowed_audiences(
     _current_user: Annotated[User, Depends(get_current_active_user)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> dict[str, Any]:
     """List allowed audience identifiers.
 
@@ -178,11 +218,14 @@ async def list_allowed_audiences(
     used when requesting satellite tokens. Only authenticated users
     can view this list.
 
+    The list is dynamically generated from active user accounts in the
+    database. Any active user's username is a valid audience.
+
     Returns:
-        Dictionary containing the list of allowed audiences
+        Dictionary containing the list of allowed audiences (active usernames)
     """
     return {
-        "allowed_audiences": sorted(get_allowed_audiences()),
+        "allowed_audiences": sorted(get_allowed_audiences(user_repo)),
         "idp_configured": key_manager.is_configured,
     }
 
@@ -259,6 +302,7 @@ tokens where `aud=syftai-space`.
 2. Token expiry (exp claim)
 3. Token audience matches calling service's authorized audience
 4. Token issuer matches Hub URL
+5. Token subject user is active (not deactivated/deleted)
 
 **Response:**
 - `valid: true` with user context if verification succeeds
@@ -333,6 +377,15 @@ async def verify_satellite_token(
             valid=False,
             error="user_not_found",
             message=f"User with ID {user_id} not found.",
+        )
+
+    # Check if user is still active (important for server-side verification)
+    # This catches cases where user was deactivated after token was minted
+    if not user.is_active:
+        return TokenVerifyErrorResponse(
+            valid=False,
+            error="user_inactive",
+            message=f"User '{user.username}' is no longer active.",
         )
 
     # Return success response with user context

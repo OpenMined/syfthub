@@ -1,7 +1,7 @@
 """Unit tests for Satellite Token Service.
 
 Tests the audience-bound token creation and verification functionality
-for the Identity Provider.
+for the Identity Provider, including dynamic audience validation.
 """
 
 from datetime import datetime, timezone
@@ -12,6 +12,7 @@ import pytest
 
 from syfthub.auth.keys import RSAKeyManager
 from syfthub.auth.satellite_tokens import (
+    AudienceValidationResult,
     TokenVerificationResult,
     create_satellite_token,
     decode_satellite_token,
@@ -19,42 +20,182 @@ from syfthub.auth.satellite_tokens import (
     validate_audience,
     verify_satellite_token_for_service,
 )
-from syfthub.domain.exceptions import InvalidAudienceError, KeyNotConfiguredError
+from syfthub.domain.exceptions import (
+    AudienceInactiveError,
+    AudienceNotFoundError,
+    KeyNotConfiguredError,
+)
 
 
 class TestAudienceValidation:
     """Tests for audience validation functions."""
 
-    def test_validate_audience_valid(self):
-        """Test that valid audience passes validation."""
+    @pytest.fixture
+    def mock_user_repo(self):
+        """Create a mock user repository."""
+        repo = MagicMock()
+        return repo
+
+    @pytest.fixture
+    def mock_active_user(self):
+        """Create a mock active user."""
+        user = MagicMock()
+        user.id = 123
+        user.username = "syftai-space"
+        user.is_active = True
+        return user
+
+    @pytest.fixture
+    def mock_inactive_user(self):
+        """Create a mock inactive user."""
+        user = MagicMock()
+        user.id = 456
+        user.username = "inactive-service"
+        user.is_active = False
+        return user
+
+    def test_validate_audience_with_repo_valid_active_user(
+        self, mock_user_repo, mock_active_user
+    ):
+        """Test that valid active user passes validation with user_repo."""
+        mock_user_repo.get_by_username.return_value = mock_active_user
+
+        result = validate_audience("syftai-space", mock_user_repo)
+
+        assert result.valid is True
+        assert result.error is None
+        assert result.error_code is None
+        mock_user_repo.get_by_username.assert_called_once_with("syftai-space")
+
+    def test_validate_audience_with_repo_case_insensitive(
+        self, mock_user_repo, mock_active_user
+    ):
+        """Test that validation is case-insensitive."""
+        mock_user_repo.get_by_username.return_value = mock_active_user
+
+        result = validate_audience("SYFTAI-SPACE", mock_user_repo)
+
+        assert result.valid is True
+        mock_user_repo.get_by_username.assert_called_once_with("syftai-space")
+
+    def test_validate_audience_with_repo_whitespace_stripped(
+        self, mock_user_repo, mock_active_user
+    ):
+        """Test that whitespace is stripped from audience."""
+        mock_user_repo.get_by_username.return_value = mock_active_user
+
+        result = validate_audience("  syftai-space  ", mock_user_repo)
+
+        assert result.valid is True
+        mock_user_repo.get_by_username.assert_called_once_with("syftai-space")
+
+    def test_validate_audience_with_repo_user_not_found(self, mock_user_repo):
+        """Test that non-existent user fails validation."""
+        mock_user_repo.get_by_username.return_value = None
+
+        result = validate_audience("unknown-service", mock_user_repo)
+
+        assert result.valid is False
+        assert result.error_code == "audience_not_found"
+        assert "unknown-service" in result.error
+
+    def test_validate_audience_with_repo_user_inactive(
+        self, mock_user_repo, mock_inactive_user
+    ):
+        """Test that inactive user fails validation."""
+        mock_user_repo.get_by_username.return_value = mock_inactive_user
+
+        result = validate_audience("inactive-service", mock_user_repo)
+
+        assert result.valid is False
+        assert result.error_code == "audience_inactive"
+        assert "inactive-service" in result.error
+
+    def test_validate_audience_with_repo_database_error(self, mock_user_repo):
+        """Test that database errors result in denial (fail closed)."""
+        mock_user_repo.get_by_username.side_effect = Exception("Database error")
+
+        result = validate_audience("syftai-space", mock_user_repo)
+
+        assert result.valid is False
+        assert result.error_code == "validation_error"
+        assert "try again" in result.error.lower()
+
+    def test_validate_audience_fallback_without_repo_valid(self):
+        """Test fallback to static config when no user_repo (deprecated)."""
         with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
             mock_settings.allowed_audiences = {"syftai-space", "syft-billing"}
 
-            assert validate_audience("syftai-space") is True
-            assert validate_audience("SYFTAI-SPACE") is True  # Case insensitive
-            assert validate_audience("  syftai-space  ") is True  # Whitespace
+            result = validate_audience("syftai-space")  # No user_repo
 
-    def test_validate_audience_invalid(self):
-        """Test that invalid audience fails validation."""
+            assert result.valid is True
+
+    def test_validate_audience_fallback_without_repo_invalid(self):
+        """Test fallback to static config when no user_repo (deprecated)."""
         with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
             mock_settings.allowed_audiences = {"syftai-space"}
 
-            assert validate_audience("unknown-service") is False
-            assert validate_audience("syft-mars") is False
+            result = validate_audience("unknown-service")  # No user_repo
 
-    def test_get_allowed_audiences(self):
-        """Test retrieving allowed audiences."""
+            assert result.valid is False
+            assert result.error_code == "invalid_audience"
+
+    def test_get_allowed_audiences_with_repo(self, mock_user_repo):
+        """Test retrieving allowed audiences from database."""
+        mock_users = [
+            MagicMock(username="syftai-space"),
+            MagicMock(username="Syft-Billing"),  # Mixed case
+        ]
+        mock_user_repo.get_all.return_value = mock_users
+
+        audiences = get_allowed_audiences(mock_user_repo)
+
+        assert "syftai-space" in audiences
+        assert "syft-billing" in audiences  # Normalized to lowercase
+        mock_user_repo.get_all.assert_called_once()
+
+    def test_get_allowed_audiences_with_repo_database_error(self, mock_user_repo):
+        """Test fallback when database query fails."""
+        mock_user_repo.get_all.side_effect = Exception("Database error")
+
+        with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
+            mock_settings.allowed_audiences = {"fallback-service"}
+
+            audiences = get_allowed_audiences(mock_user_repo)
+
+            assert "fallback-service" in audiences
+
+    def test_get_allowed_audiences_fallback_without_repo(self):
+        """Test fallback to static config when no user_repo."""
         with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
             mock_settings.allowed_audiences = {"syftai-space", "syft-billing"}
 
-            audiences = get_allowed_audiences()
+            audiences = get_allowed_audiences()  # No user_repo
 
             assert "syftai-space" in audiences
             assert "syft-billing" in audiences
 
+    def test_audience_validation_result_dataclass(self):
+        """Test AudienceValidationResult dataclass."""
+        # Success result
+        success = AudienceValidationResult(valid=True)
+        assert success.valid is True
+        assert success.error is None
+        assert success.error_code is None
+
+        # Error result
+        error = AudienceValidationResult(
+            valid=False,
+            error="User not found",
+            error_code="audience_not_found",
+        )
+        assert error.valid is False
+        assert error.error == "User not found"
+        assert error.error_code == "audience_not_found"
+
 
 class TestSatelliteTokenCreation:
-    """Tests for satellite token creation."""
+    """Tests for satellite token creation with dynamic audience validation."""
 
     @pytest.fixture
     def mock_user(self):
@@ -63,6 +204,21 @@ class TestSatelliteTokenCreation:
         user.id = 123
         user.role = "user"
         user.username = "testuser"
+        return user
+
+    @pytest.fixture
+    def mock_user_repo(self):
+        """Create a mock user repository."""
+        repo = MagicMock()
+        return repo
+
+    @pytest.fixture
+    def mock_audience_user(self):
+        """Create a mock user representing the audience (service account)."""
+        user = MagicMock()
+        user.id = 999
+        user.username = "syftai-space"
+        user.is_active = True
         return user
 
     @pytest.fixture
@@ -83,10 +239,13 @@ class TestSatelliteTokenCreation:
         yield manager
         RSAKeyManager._instance = None
 
-    def test_create_satellite_token_valid(self, mock_user, configured_key_manager):
-        """Test creating a valid satellite token."""
+    def test_create_satellite_token_valid_with_user_repo(
+        self, mock_user, mock_user_repo, mock_audience_user, configured_key_manager
+    ):
+        """Test creating a valid satellite token with user_repo validation."""
+        mock_user_repo.get_by_username.return_value = mock_audience_user
+
         with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
-            mock_settings.allowed_audiences = {"syftai-space"}
             mock_settings.issuer_url = "https://hub.syft.com"
             mock_settings.satellite_token_expire_seconds = 60
 
@@ -94,6 +253,7 @@ class TestSatelliteTokenCreation:
                 user=mock_user,
                 audience="syftai-space",
                 key_manager=configured_key_manager,
+                user_repo=mock_user_repo,
             )
 
             assert isinstance(token, str)
@@ -103,10 +263,13 @@ class TestSatelliteTokenCreation:
             parts = token.split(".")
             assert len(parts) == 3
 
-    def test_satellite_token_claims(self, mock_user, configured_key_manager):
+    def test_satellite_token_claims(
+        self, mock_user, mock_user_repo, mock_audience_user, configured_key_manager
+    ):
         """Test that satellite token contains required claims."""
+        mock_user_repo.get_by_username.return_value = mock_audience_user
+
         with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
-            mock_settings.allowed_audiences = {"syftai-space"}
             mock_settings.issuer_url = "https://hub.syft.com"
             mock_settings.satellite_token_expire_seconds = 60
 
@@ -114,6 +277,7 @@ class TestSatelliteTokenCreation:
                 user=mock_user,
                 audience="syftai-space",
                 key_manager=configured_key_manager,
+                user_repo=mock_user_repo,
             )
 
             # Decode without verification to check claims
@@ -127,10 +291,13 @@ class TestSatelliteTokenCreation:
             assert "exp" in payload
             assert "iat" in payload
 
-    def test_satellite_token_kid_header(self, mock_user, configured_key_manager):
+    def test_satellite_token_kid_header(
+        self, mock_user, mock_user_repo, mock_audience_user, configured_key_manager
+    ):
         """Test that satellite token includes kid in header (FR-08)."""
+        mock_user_repo.get_by_username.return_value = mock_audience_user
+
         with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
-            mock_settings.allowed_audiences = {"syftai-space"}
             mock_settings.issuer_url = "https://hub.syft.com"
             mock_settings.satellite_token_expire_seconds = 60
 
@@ -138,6 +305,7 @@ class TestSatelliteTokenCreation:
                 user=mock_user,
                 audience="syftai-space",
                 key_manager=configured_key_manager,
+                user_repo=mock_user_repo,
             )
 
             # Get unverified header
@@ -146,10 +314,13 @@ class TestSatelliteTokenCreation:
             assert header["alg"] == "RS256"
             assert header["kid"] == "test-key-123"
 
-    def test_satellite_token_expiry(self, mock_user, configured_key_manager):
+    def test_satellite_token_expiry(
+        self, mock_user, mock_user_repo, mock_audience_user, configured_key_manager
+    ):
         """Test that satellite token has correct expiry."""
+        mock_user_repo.get_by_username.return_value = mock_audience_user
+
         with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
-            mock_settings.allowed_audiences = {"syftai-space"}
             mock_settings.issuer_url = "https://hub.syft.com"
             mock_settings.satellite_token_expire_seconds = 60
 
@@ -159,6 +330,7 @@ class TestSatelliteTokenCreation:
                 user=mock_user,
                 audience="syftai-space",
                 key_manager=configured_key_manager,
+                user_repo=mock_user_repo,
             )
 
             after = datetime.now(timezone.utc).timestamp()
@@ -174,36 +346,62 @@ class TestSatelliteTokenCreation:
             assert exp >= before + 58  # Allow 2s tolerance
             assert exp <= after + 62  # Allow 2s tolerance
 
-    def test_invalid_audience_rejected(self, mock_user, configured_key_manager):
-        """Test that invalid audience raises error (FR-06)."""
-        with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
-            mock_settings.allowed_audiences = {"syftai-space"}
+    def test_audience_not_found_raises_error(
+        self, mock_user, mock_user_repo, configured_key_manager
+    ):
+        """Test that non-existent audience raises AudienceNotFoundError."""
+        mock_user_repo.get_by_username.return_value = None
 
-            with pytest.raises(InvalidAudienceError) as exc_info:
-                create_satellite_token(
-                    user=mock_user,
-                    audience="unknown-service",
-                    key_manager=configured_key_manager,
-                )
+        with pytest.raises(AudienceNotFoundError) as exc_info:
+            create_satellite_token(
+                user=mock_user,
+                audience="unknown-service",
+                key_manager=configured_key_manager,
+                user_repo=mock_user_repo,
+            )
 
-            assert "unknown-service" in str(exc_info.value.message)
+        assert "unknown-service" in str(exc_info.value.message)
 
-    def test_key_not_configured_error(self, mock_user, unconfigured_key_manager):
+    def test_audience_inactive_raises_error(
+        self, mock_user, mock_user_repo, configured_key_manager
+    ):
+        """Test that inactive audience raises AudienceInactiveError."""
+        inactive_user = MagicMock()
+        inactive_user.username = "inactive-service"
+        inactive_user.is_active = False
+        mock_user_repo.get_by_username.return_value = inactive_user
+
+        with pytest.raises(AudienceInactiveError) as exc_info:
+            create_satellite_token(
+                user=mock_user,
+                audience="inactive-service",
+                key_manager=configured_key_manager,
+                user_repo=mock_user_repo,
+            )
+
+        assert "inactive-service" in str(exc_info.value.message)
+
+    def test_key_not_configured_error(
+        self, mock_user, mock_user_repo, mock_audience_user, unconfigured_key_manager
+    ):
         """Test that unconfigured keys raise error."""
-        with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
-            mock_settings.allowed_audiences = {"syftai-space"}
+        mock_user_repo.get_by_username.return_value = mock_audience_user
 
-            with pytest.raises(KeyNotConfiguredError):
-                create_satellite_token(
-                    user=mock_user,
-                    audience="syftai-space",
-                    key_manager=unconfigured_key_manager,
-                )
+        with pytest.raises(KeyNotConfiguredError):
+            create_satellite_token(
+                user=mock_user,
+                audience="syftai-space",
+                key_manager=unconfigured_key_manager,
+                user_repo=mock_user_repo,
+            )
 
-    def test_token_verifiable_with_public_key(self, mock_user, configured_key_manager):
+    def test_token_verifiable_with_public_key(
+        self, mock_user, mock_user_repo, mock_audience_user, configured_key_manager
+    ):
         """Test that token can be verified with the public key."""
+        mock_user_repo.get_by_username.return_value = mock_audience_user
+
         with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
-            mock_settings.allowed_audiences = {"syftai-space"}
             mock_settings.issuer_url = "https://hub.syft.com"
             mock_settings.satellite_token_expire_seconds = 60
 
@@ -211,6 +409,7 @@ class TestSatelliteTokenCreation:
                 user=mock_user,
                 audience="syftai-space",
                 key_manager=configured_key_manager,
+                user_repo=mock_user_repo,
             )
 
             # Verify token using the public key
@@ -227,11 +426,12 @@ class TestSatelliteTokenCreation:
             assert payload["aud"] == "syftai-space"
 
     def test_token_verification_fails_with_wrong_audience(
-        self, mock_user, configured_key_manager
+        self, mock_user, mock_user_repo, mock_audience_user, configured_key_manager
     ):
         """Test that token verification fails with wrong audience."""
+        mock_user_repo.get_by_username.return_value = mock_audience_user
+
         with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
-            mock_settings.allowed_audiences = {"syftai-space"}
             mock_settings.issuer_url = "https://hub.syft.com"
             mock_settings.satellite_token_expire_seconds = 60
 
@@ -239,6 +439,7 @@ class TestSatelliteTokenCreation:
                 user=mock_user,
                 audience="syftai-space",
                 key_manager=configured_key_manager,
+                user_repo=mock_user_repo,
             )
 
             # Try to verify with wrong audience

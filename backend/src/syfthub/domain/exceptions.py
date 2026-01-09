@@ -35,7 +35,11 @@ class IdPException(DomainException):
 
 
 class InvalidAudienceError(IdPException):
-    """Raised when requested audience is not in the allowlist."""
+    """Raised when requested audience is not in the allowlist.
+
+    DEPRECATED: Use AudienceNotFoundError or AudienceInactiveError instead.
+    This exception is kept for backward compatibility.
+    """
 
     def __init__(self, audience: str):
         """Initialize invalid audience error."""
@@ -43,6 +47,39 @@ class InvalidAudienceError(IdPException):
         super().__init__(
             f"The requested audience '{audience}' is not a registered service.",
             "INVALID_AUDIENCE",
+        )
+
+
+class AudienceNotFoundError(IdPException):
+    """Raised when the requested audience is not a registered user.
+
+    In the dynamic audience model, a valid audience must be the username
+    of an existing user account. This error is raised when the requested
+    audience doesn't match any username in the database.
+    """
+
+    def __init__(self, audience: str):
+        """Initialize audience not found error."""
+        self.audience = audience
+        super().__init__(
+            f"Audience '{audience}' is not a registered user.",
+            "AUDIENCE_NOT_FOUND",
+        )
+
+
+class AudienceInactiveError(IdPException):
+    """Raised when the requested audience user is inactive.
+
+    In the dynamic audience model, tokens can only be minted for active
+    users. This error is raised when the user exists but is deactivated.
+    """
+
+    def __init__(self, audience: str):
+        """Initialize audience inactive error."""
+        self.audience = audience
+        super().__init__(
+            f"Audience '{audience}' is inactive and cannot receive tokens.",
+            "AUDIENCE_INACTIVE",
         )
 
 

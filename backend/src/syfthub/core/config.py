@@ -116,26 +116,39 @@ class Settings(BaseSettings):
         description="Satellite token lifetime in seconds (short-lived)",
     )
 
-    # Audience Allowlist - comma-separated list of allowed service identifiers
+    # Audience Allowlist - DEPRECATED: Now dynamically generated from user database
+    # This static list is kept as a fallback for backward compatibility only.
+    # In the new model, any active user's username is automatically a valid audience.
+    # This list is only used when database lookup is not available.
     allowed_audiences_str: str = Field(
-        default="syftai-space",
+        default="",
         alias="allowed_audiences",
-        description="Comma-separated list of allowed audience identifiers",
+        description="DEPRECATED: Comma-separated list of fallback audience identifiers. "
+        "Audiences are now dynamically generated from active user accounts.",
     )
 
     @field_validator("allowed_audiences_str", mode="before")
     @classmethod
     def validate_allowed_audiences(cls, v: Any) -> str:
         """Validate allowed audiences environment variable."""
-        if v is None or v == "":
-            return "syftai-space"
+        if v is None:
+            return ""
         return str(v)
 
     @property
     def allowed_audiences(self) -> Set[str]:
-        """Get parsed allowed audiences as a set."""
+        """Get parsed allowed audiences as a set.
+
+        DEPRECATED: This property returns the static fallback list.
+        Use validate_audience() with a UserRepository for dynamic validation.
+
+        In the new model:
+        - Audiences are dynamically validated against the user database
+        - Any active user's username is a valid audience
+        - This static list is only used as a fallback when DB is unavailable
+        """
         if not self.allowed_audiences_str or self.allowed_audiences_str.strip() == "":
-            return {"syftai-space"}
+            return set()  # Empty set - no static fallback by default
 
         return {
             aud.strip().lower()

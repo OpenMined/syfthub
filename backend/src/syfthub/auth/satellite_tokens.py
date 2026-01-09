@@ -8,50 +8,155 @@ SyftHub for every request.
 Token Flow:
 1. User authenticates with SyftHub (gets HS256 Hub token)
 2. User requests a satellite token for a specific audience
-3. SyftHub validates audience against allowlist
+3. SyftHub validates audience against user database (audience = username)
 4. SyftHub creates RS256-signed token with user claims
 5. Satellite service verifies token using JWKS public keys
+
+Audience Validation:
+- Audiences are dynamically tied to user accounts
+- A valid audience is any active user's username
+- When a user is created, their username becomes a valid audience
+- When a user is deactivated/deleted, their username becomes invalid
 """
 
 from __future__ import annotations
 
+import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 import jwt
 
 from syfthub.core.config import settings
-from syfthub.domain.exceptions import InvalidAudienceError, KeyNotConfiguredError
+from syfthub.domain.exceptions import (
+    AudienceInactiveError,
+    AudienceNotFoundError,
+    KeyNotConfiguredError,
+)
 
 if TYPE_CHECKING:
     from syfthub.auth.keys import RSAKeyManager
+    from syfthub.repositories.user import UserRepository
     from syfthub.schemas.user import User
 
+logger = logging.getLogger(__name__)
 
-def validate_audience(audience: str) -> bool:
-    """Validate that the requested audience is in the allowlist.
 
-    Per FR-06 (Security Check), the system must validate the requested
-    audience against a strict allowlist of known services. If an unknown
-    audience is requested, it should be rejected.
+@dataclass
+class AudienceValidationResult:
+    """Result of audience validation.
+
+    Attributes:
+        valid: Whether the audience is valid
+        error: Error message if invalid
+        error_code: Error code for programmatic handling
+    """
+
+    valid: bool
+    error: Optional[str] = None
+    error_code: Optional[str] = None
+
+
+def validate_audience(
+    audience: str,
+    user_repo: Optional[UserRepository] = None,
+) -> AudienceValidationResult:
+    """Validate that the requested audience is a valid, active user.
+
+    The audience must be the username of an active user account. This ensures
+    that tokens can only be minted for registered services/users.
+
+    When user_repo is provided (recommended), validation is done against the
+    database. This is the dynamic audience validation approach where any
+    active user's username is a valid audience.
 
     Args:
-        audience: The requested service identifier (e.g., 'syftai-space')
+        audience: The requested service identifier (username)
+        user_repo: User repository for database lookup. If None, falls back
+                   to static config (deprecated behavior).
 
     Returns:
-        True if audience is valid, False otherwise
+        AudienceValidationResult with validation status and error details
     """
     # Normalize to lowercase for comparison
     normalized_audience = audience.strip().lower()
-    return normalized_audience in settings.allowed_audiences
+
+    if user_repo is not None:
+        # Dynamic validation: Check if audience is an active user's username
+        try:
+            user = user_repo.get_by_username(normalized_audience)
+        except Exception as e:
+            # Fail closed on database errors - deny access
+            logger.error(f"Database error during audience validation: {e}")
+            return AudienceValidationResult(
+                valid=False,
+                error="Unable to validate audience. Please try again.",
+                error_code="validation_error",
+            )
+
+        if user is None:
+            return AudienceValidationResult(
+                valid=False,
+                error=f"Audience '{audience}' is not a registered user.",
+                error_code="audience_not_found",
+            )
+
+        if not user.is_active:
+            return AudienceValidationResult(
+                valid=False,
+                error=f"Audience '{audience}' is inactive.",
+                error_code="audience_inactive",
+            )
+
+        return AudienceValidationResult(valid=True)
+
+    # Fallback to static config (deprecated)
+    logger.warning(
+        "Using deprecated static audience validation. "
+        "Pass user_repo for dynamic validation."
+    )
+    if normalized_audience in settings.allowed_audiences:
+        return AudienceValidationResult(valid=True)
+
+    return AudienceValidationResult(
+        valid=False,
+        error=f"Audience '{audience}' is not in the allowed list.",
+        error_code="invalid_audience",
+    )
 
 
-def get_allowed_audiences() -> set[str]:
+def get_allowed_audiences(
+    user_repo: Optional[UserRepository] = None,
+    limit: int = 100,
+) -> set[str]:
     """Get the set of allowed audience identifiers.
 
+    When user_repo is provided, returns usernames of active users.
+    Otherwise, falls back to static config (deprecated).
+
+    Args:
+        user_repo: User repository for database lookup
+        limit: Maximum number of usernames to return (for performance)
+
     Returns:
-        Set of allowed audience strings
+        Set of allowed audience strings (usernames)
     """
+    if user_repo is not None:
+        try:
+            # Get active users from database
+            users = user_repo.get_all(
+                skip=0,
+                limit=limit,
+                filters={"is_active": True},
+            )
+            return {user.username.lower() for user in users}
+        except Exception as e:
+            logger.error(f"Failed to get allowed audiences from database: {e}")
+            # Fall back to static config on error
+            return settings.allowed_audiences
+
+    # Fallback to static config (deprecated)
     return settings.allowed_audiences
 
 
@@ -59,6 +164,7 @@ def create_satellite_token(
     user: User,
     audience: str,
     key_manager: RSAKeyManager,
+    user_repo: Optional[UserRepository] = None,
 ) -> str:
     """Create an audience-bound satellite token for a user.
 
@@ -68,7 +174,7 @@ def create_satellite_token(
     Token Claims (per FR-07):
     - sub: User's unique ID
     - iss: Issuer URL (e.g., 'https://hub.syft.com')
-    - aud: Target service identifier
+    - aud: Target service identifier (username of target user/service)
     - exp: Expiration timestamp (short-lived, e.g., 60s)
     - iat: Issued at timestamp
     - role: User's role (e.g., 'admin', 'user')
@@ -80,19 +186,26 @@ def create_satellite_token(
 
     Args:
         user: The authenticated user requesting the token
-        audience: Target service identifier (e.g., 'syftai-space')
+        audience: Target service identifier (username of target user/service)
         key_manager: RSA key manager for signing
+        user_repo: User repository for audience validation. If provided,
+                   validates that audience is an active user's username.
 
     Returns:
         RS256-signed JWT string
 
     Raises:
-        InvalidAudienceError: If audience is not in the allowlist
+        AudienceNotFoundError: If audience is not a registered user
+        AudienceInactiveError: If audience user is inactive
         KeyNotConfiguredError: If RSA keys are not configured
     """
-    # Validate audience against allowlist (FR-06)
-    if not validate_audience(audience):
-        raise InvalidAudienceError(audience)
+    # Validate audience against database (dynamic) or config (deprecated)
+    validation_result = validate_audience(audience, user_repo)
+    if not validation_result.valid:
+        if validation_result.error_code == "audience_inactive":
+            raise AudienceInactiveError(audience)
+        else:
+            raise AudienceNotFoundError(audience)
 
     # Check that key manager is configured
     if not key_manager.is_configured:
