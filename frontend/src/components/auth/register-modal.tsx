@@ -54,7 +54,7 @@ export function RegisterModal({
   onClose,
   onSwitchToLogin
 }: Readonly<RegisterModalProperties>) {
-  const { register, loginWithGoogle, loginWithGitHub, isLoading, error, clearError } = useAuth();
+  const { register, isLoading, error, clearError } = useAuth();
   const [requiresAccountingPassword, setRequiresAccountingPassword] = useState(false);
 
   const { values, errors, handleChange, handleSubmit, resetForm, setFieldError } =
@@ -116,23 +116,24 @@ export function RegisterModal({
       }
     };
 
-  const handleGoogleRegister = async () => {
-    try {
-      await loginWithGoogle();
-      onClose();
-    } catch {
-      // Error handled by context
-    }
-  };
+  // OAuth handlers commented out - not supported in v1
+  // const handleGoogleRegister = async () => {
+  //   try {
+  //     await loginWithGoogle();
+  //     onClose();
+  //   } catch {
+  //     // Error handled by context
+  //   }
+  // };
 
-  const handleGitHubRegister = async () => {
-    try {
-      await loginWithGitHub();
-      onClose();
-    } catch {
-      // Error handled by context
-    }
-  };
+  // const handleGitHubRegister = async () => {
+  //   try {
+  //     await loginWithGitHub();
+  //     onClose();
+  //   } catch {
+  //     // Error handled by context
+  //   }
+  // };
 
   const passwordStrength = getPasswordStrengthInfo(values.password);
 
@@ -157,7 +158,7 @@ export function RegisterModal({
         {/* Global Error */}
         {error && <AuthErrorAlert error={error} onDismiss={clearError} />}
 
-        {/* OAuth Buttons */}
+        {/* OAuth Buttons - Hidden for v1, uncomment when OAuth is implemented
         <div className='space-y-2'>
           <Button
             type='button'
@@ -203,7 +204,6 @@ export function RegisterModal({
           </Button>
         </div>
 
-        {/* Divider */}
         <div className='relative'>
           <div className='absolute inset-0 flex items-center'>
             <span className='border-syft-border w-full border-t' />
@@ -212,6 +212,7 @@ export function RegisterModal({
             <span className='font-inter text-syft-muted bg-white px-2'>Or create account with</span>
           </div>
         </div>
+        End of OAuth section */}
 
         {/* Registration Form */}
         <form onSubmit={handleSubmit} className='space-y-4'>

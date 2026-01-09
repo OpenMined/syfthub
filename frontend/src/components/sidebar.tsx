@@ -1,6 +1,6 @@
 import type React from 'react';
 
-import { Database, FileText, Globe, MessageSquare, Sparkles } from 'lucide-react';
+import { FileText, Globe, MessageSquare, Sparkles, UserPlus } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 
 import { useAuth } from '@/context/auth-context';
@@ -19,7 +19,7 @@ const navItems: NavItem[] = [
   { id: 'home', path: '/', label: 'Chat', icon: MessageSquare, protected: false },
   { id: 'browse', path: '/browse', label: 'Browse', icon: Globe, protected: false },
   { id: 'build', path: '/build', label: 'Build', icon: FileText, protected: false },
-  { id: 'endpoints', path: '/endpoints', label: 'Endpoints', icon: Database, protected: true }
+  { id: 'endpoints', path: '/endpoints', label: 'Participate', icon: UserPlus, protected: true }
 ];
 
 /**

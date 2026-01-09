@@ -33,7 +33,7 @@ export function LoginModal({
   onClose,
   onSwitchToRegister
 }: Readonly<LoginModalProperties>) {
-  const { login, loginWithGoogle, loginWithGitHub, isLoading, error, clearError } = useAuth();
+  const { login, isLoading, error, clearError } = useAuth();
 
   const { values, errors, handleChange, handleSubmit, resetForm } = useForm<LoginFormValues>({
     initialValues: LOGIN_INITIAL_VALUES,
@@ -72,23 +72,24 @@ export function LoginModal({
       }
     };
 
-  const handleGoogleLogin = async () => {
-    try {
-      await loginWithGoogle();
-      onClose();
-    } catch {
-      // Error handled by context
-    }
-  };
+  // OAuth handlers commented out - not supported in v1
+  // const handleGoogleLogin = async () => {
+  //   try {
+  //     await loginWithGoogle();
+  //     onClose();
+  //   } catch {
+  //     // Error handled by context
+  //   }
+  // };
 
-  const handleGitHubLogin = async () => {
-    try {
-      await loginWithGitHub();
-      onClose();
-    } catch {
-      // Error handled by context
-    }
-  };
+  // const handleGitHubLogin = async () => {
+  //   try {
+  //     await loginWithGitHub();
+  //     onClose();
+  //   } catch {
+  //     // Error handled by context
+  //   }
+  // };
 
   return (
     <Modal
@@ -104,7 +105,7 @@ export function LoginModal({
         {/* Global Error */}
         {error && <AuthErrorAlert error={error} onDismiss={clearError} />}
 
-        {/* OAuth Buttons */}
+        {/* OAuth Buttons - Hidden for v1, uncomment when OAuth is implemented
         <div className='space-y-2'>
           <Button
             type='button'
@@ -150,7 +151,6 @@ export function LoginModal({
           </Button>
         </div>
 
-        {/* Divider */}
         <div className='relative'>
           <div className='absolute inset-0 flex items-center'>
             <span className='border-syft-border w-full border-t' />
@@ -159,6 +159,7 @@ export function LoginModal({
             <span className='font-inter text-syft-muted bg-white px-2'>Or continue with</span>
           </div>
         </div>
+        End of OAuth section */}
 
         {/* Email/Password Form */}
         <form onSubmit={handleSubmit} className='space-y-4'>
