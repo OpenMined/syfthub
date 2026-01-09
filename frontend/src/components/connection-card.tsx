@@ -164,13 +164,15 @@ function SingleConnection({ connection, isCompact = false }: Readonly<SingleConn
                 <span
                   className={cn(
                     'relative inline-flex h-2 w-2 rounded-full',
-                    connection.enabled ? config.dotColor : 'bg-gray-300'
+                    connection.enabled ? config.dotColor : 'bg-[#b4b0bf]'
                   )}
                 />
               </span>
             </div>
             {!isCompact && connection.description && (
-              <p className='mt-0.5 line-clamp-1 text-xs text-gray-500'>{connection.description}</p>
+              <p className='font-inter mt-0.5 line-clamp-1 text-xs text-[#5e5a72]'>
+                {connection.description}
+              </p>
             )}
           </div>
         </div>
@@ -195,9 +197,9 @@ function SingleConnection({ connection, isCompact = false }: Readonly<SingleConn
           <div className='flex items-center gap-2'>
             <code
               className={cn(
-                'flex-1 truncate rounded-md px-2.5 py-1.5 font-mono text-xs',
-                'bg-white/80 text-gray-600 ring-1 ring-gray-200 ring-inset',
-                'transition-colors group-hover:bg-white group-hover:ring-gray-300'
+                'flex-1 truncate rounded-lg px-2.5 py-1.5 font-mono text-xs',
+                'bg-white/80 text-[#5e5a72] ring-1 ring-[#ecebef] ring-inset',
+                'transition-colors group-hover:bg-white group-hover:ring-[#cfcdd6]'
               )}
               title={url}
             >
@@ -211,7 +213,7 @@ function SingleConnection({ connection, isCompact = false }: Readonly<SingleConn
                 'h-7 w-7 shrink-0 p-0 transition-all',
                 copied
                   ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-100'
-                  : 'text-gray-400 hover:bg-white hover:text-gray-600'
+                  : 'text-[#b4b0bf] hover:bg-white hover:text-[#5e5a72]'
               )}
               title={copied ? 'Copied!' : 'Copy URL'}
             >
@@ -243,12 +245,12 @@ export function ConnectionCard({
   }
 
   return (
-    <div className='rounded-lg border border-gray-200 bg-white p-6'>
+    <div className='rounded-xl border border-[#ecebef] bg-white p-6'>
       {/* Header */}
       <div className='mb-4 flex items-center justify-between'>
-        <h3 className='text-sm font-semibold text-gray-900'>{title}</h3>
+        <h3 className='font-rubik text-sm font-medium text-[#272532]'>{title}</h3>
         {validConnections.length > 0 && (
-          <span className='rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600'>
+          <span className='rounded-full bg-[#f1f0f4] px-2 py-0.5 text-xs font-medium text-[#5e5a72]'>
             {validConnections.length}
           </span>
         )}
@@ -266,10 +268,10 @@ export function ConnectionCard({
           ))}
         </div>
       ) : (
-        <div className='rounded-lg border border-dashed border-gray-200 py-6 text-center'>
-          <Link2 className='mx-auto h-8 w-8 text-gray-300' />
-          <p className='mt-2 text-sm text-gray-500'>No connections configured</p>
-          <p className='mt-1 text-xs text-gray-400'>
+        <div className='rounded-xl border border-dashed border-[#ecebef] py-6 text-center'>
+          <Link2 className='mx-auto h-8 w-8 text-[#b4b0bf]' />
+          <p className='font-inter mt-2 text-sm text-[#5e5a72]'>No connections configured</p>
+          <p className='font-inter mt-1 text-xs text-[#b4b0bf]'>
             Add a connection to enable external access to this endpoint
           </p>
         </div>

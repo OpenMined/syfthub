@@ -44,7 +44,7 @@ function getVisibilityColor(visibility: EndpointVisibility) {
       return 'bg-blue-100 text-blue-800 border-blue-200';
     }
     default: {
-      return 'bg-gray-100 text-gray-800 border-gray-200';
+      return 'bg-[#f1f0f4] text-[#272532] border-[#ecebef]';
     }
   }
 }
@@ -58,7 +58,7 @@ function getTypeStyles(type: EndpointType) {
       return 'bg-emerald-100 text-emerald-800 border-emerald-200';
     }
     default: {
-      return 'bg-gray-100 text-gray-800 border-gray-200';
+      return 'bg-[#f1f0f4] text-[#272532] border-[#ecebef]';
     }
   }
 }
@@ -200,11 +200,11 @@ export function EndpointManagement() {
 
   if (!user) {
     return (
-      <div className='flex min-h-screen items-center justify-center'>
+      <div className='flex min-h-screen items-center justify-center bg-[#fcfcfd]'>
         <div className='text-center'>
           <AlertCircle className='mx-auto mb-4 h-12 w-12 text-red-500' />
-          <h2 className='mb-2 text-xl font-semibold text-gray-900'>Access Denied</h2>
-          <p className='text-gray-600'>You need to be logged in to manage endpoints.</p>
+          <h2 className='font-rubik mb-2 text-xl font-medium text-[#272532]'>Access Denied</h2>
+          <p className='font-inter text-[#5e5a72]'>You need to be logged in to manage endpoints.</p>
         </div>
       </div>
     );
@@ -213,10 +213,10 @@ export function EndpointManagement() {
   // Show loading state
   if (isLoading && endpoints.length === 0) {
     return (
-      <div className='flex min-h-screen items-center justify-center bg-gray-50'>
-        <div className='flex items-center gap-3 text-gray-600'>
-          <div className='h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-blue-600'></div>
-          <span>Loading endpoints...</span>
+      <div className='flex min-h-screen items-center justify-center bg-[#fcfcfd]'>
+        <div className='flex items-center gap-3 text-[#5e5a72]'>
+          <div className='h-6 w-6 animate-spin rounded-full border-2 border-[#ecebef] border-t-[#6976ae]'></div>
+          <span className='font-inter'>Loading endpoints...</span>
         </div>
       </div>
     );
@@ -241,174 +241,186 @@ export function EndpointManagement() {
 
   // Show endpoint management grid when user has endpoints
   return (
-    <div className='min-h-screen bg-gray-50 py-8'>
-      <div className='mx-auto max-w-6xl px-6'>
-        {/* Header */}
-        <div className='mb-8 flex items-center justify-between'>
-          <div>
-            <h1 className='text-3xl font-bold text-gray-900'>My Endpoints</h1>
-            <p className='mt-2 text-gray-600'>Create and manage your data sources.</p>
-          </div>
-          <Button
-            onClick={() => {
-              setShowParticipate(true);
-            }}
-            className='flex items-center gap-2'
-          >
-            <Download className='h-4 w-4' />
-            Install SDK
-          </Button>
-        </div>
-
-        {/* Success/Error Messages */}
-        <AnimatePresence>
-          {success && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className='mb-6 flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-4'
-            >
-              <Check className='h-5 w-5 text-green-600' />
-              <span className='text-green-800'>{success}</span>
-            </motion.div>
-          )}
-
-          {error && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className='mb-6 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-4'
-            >
-              <AlertCircle className='h-5 w-5 text-red-600' />
-              <span className='text-red-800'>{error}</span>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Endpoints Grid */}
-        <div className='grid gap-6 md:grid-cols-2 lg:grid-cols-3'>
-          {endpoints.map((endpoint) => (
-            <div
-              key={endpoint.id}
-              className='rounded-lg border border-gray-200 bg-white shadow-sm transition-shadow hover:shadow-md'
-            >
-              <div className='p-6'>
-                <div className='mb-4 flex items-start justify-between'>
-                  <div>
-                    <h3 className='mb-1 text-lg font-semibold text-gray-900'>{endpoint.name}</h3>
-                    <p className='line-clamp-2 text-sm text-gray-600'>
-                      {endpoint.description || 'No description provided'}
-                    </p>
-                  </div>
-                  <div className='flex items-center gap-1'>
-                    <Button
-                      variant='ghost'
-                      size='sm'
-                      onClick={() => {
-                        setEditingId(endpoint.id);
-                        setEditData({
-                          name: endpoint.name,
-                          description: endpoint.description,
-                          visibility: endpoint.visibility,
-                          version: endpoint.version,
-                          readme: endpoint.readme
-                        });
-                      }}
-                    >
-                      <Edit3 className='h-4 w-4' />
-                    </Button>
-                    <Button
-                      variant='ghost'
-                      size='sm'
-                      onClick={() => handleDeleteEndpoint(endpoint.id)}
-                      className='text-red-600 hover:bg-red-50 hover:text-red-700'
-                    >
-                      <Trash2 className='h-4 w-4' />
-                    </Button>
-                  </div>
-                </div>
-
-                <div className='mb-4 flex flex-wrap gap-2'>
-                  <Badge className={`border ${getTypeStyles(endpoint.type)}`}>
-                    {getTypeLabel(endpoint.type)}
-                  </Badge>
-                  <Badge className={getVisibilityColor(endpoint.visibility)}>
-                    <div className='flex items-center gap-1'>
-                      {getVisibilityIcon(endpoint.visibility)}
-                      <span className='capitalize'>{endpoint.visibility}</span>
-                    </div>
-                  </Badge>
-                  <Badge variant='outline'>v{endpoint.version}</Badge>
-                  {endpoint.stars_count > 0 && (
-                    <Badge variant='outline' className='border-yellow-200 text-yellow-600'>
-                      <Star className='mr-1 h-3 w-3' />
-                      {endpoint.stars_count}
-                    </Badge>
-                  )}
-                </div>
-
-                <div className='text-xs text-gray-500'>
-                  <p>Created: {formatDate(endpoint.created_at)}</p>
-                  <p>Updated: {formatDate(endpoint.updated_at)}</p>
-                </div>
-              </div>
-
-              {/* Edit Form */}
-              {editingId === endpoint.id && (
-                <div className='space-y-3 border-t border-gray-200 bg-gray-50 p-4'>
-                  <div>
-                    <Label htmlFor={`edit-name-${String(endpoint.id)}`}>Name</Label>
-                    <Input
-                      id={`edit-name-${String(endpoint.id)}`}
-                      value={editData.name ?? ''}
-                      onChange={(e) => {
-                        setEditData({ ...editData, name: e.target.value });
-                      }}
-                      size='sm'
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor={`edit-description-${String(endpoint.id)}`}>Description</Label>
-                    <Input
-                      id={`edit-description-${String(endpoint.id)}`}
-                      value={editData.description ?? ''}
-                      onChange={(e) => {
-                        setEditData({ ...editData, description: e.target.value });
-                      }}
-                      size='sm'
-                    />
-                  </div>
-                  <div className='flex gap-2'>
-                    <Button
-                      size='sm'
-                      onClick={() => handleEditEndpoint(endpoint.id)}
-                      disabled={isLoading}
-                      className='flex-1'
-                    >
-                      <Save className='mr-1 h-3 w-3' />
-                      Save
-                    </Button>
-                    <Button
-                      variant='outline'
-                      size='sm'
-                      onClick={() => {
-                        setEditingId(null);
-                        setEditData({});
-                      }}
-                      className='flex-1'
-                    >
-                      <X className='mr-1 h-3 w-3' />
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
+    <div className='mx-auto flex min-h-screen max-w-[1600px] flex-col'>
+      {/* Sticky Header */}
+      <div className='sticky top-0 z-30 flex w-full items-center justify-between border-b border-[#ecebef] bg-[#fcfcfd]/95 px-6 py-4 backdrop-blur-sm'>
+        <h2 className='font-rubik text-xl font-medium text-[#272532]'>My Endpoints</h2>
+        <Button
+          onClick={() => {
+            setShowParticipate(true);
+          }}
+          className='flex items-center gap-2'
+        >
+          <Download className='h-4 w-4' />
+          Install SDK
+        </Button>
       </div>
+
+      {/* Main Content */}
+      <main className='w-full min-w-0 flex-1'>
+        <div className='mx-auto max-w-5xl space-y-8 px-6 py-8'>
+          {/* Page Title */}
+          <div className='max-w-3xl space-y-4'>
+            <h2 className='font-rubik text-3xl font-medium text-[#272532]'>
+              Manage Your Endpoints
+            </h2>
+            <p className='font-inter text-lg leading-relaxed text-[#5e5a72]'>
+              Create and manage your data sources and models.
+            </p>
+          </div>
+
+          {/* Success/Error Messages */}
+          <AnimatePresence>
+            {success && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className='flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 p-4'
+              >
+                <Check className='h-5 w-5 text-green-600' />
+                <span className='font-inter text-green-800'>{success}</span>
+              </motion.div>
+            )}
+
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className='flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-4'
+              >
+                <AlertCircle className='h-5 w-5 text-red-600' />
+                <span className='font-inter text-red-800'>{error}</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Endpoints Grid */}
+          <div className='grid gap-8 md:grid-cols-2 lg:grid-cols-3'>
+            {endpoints.map((endpoint) => (
+              <div
+                key={endpoint.id}
+                className='rounded-xl border border-[#ecebef] bg-white shadow-sm transition-shadow hover:shadow-md'
+              >
+                <div className='p-6'>
+                  <div className='mb-4 flex items-start justify-between'>
+                    <div>
+                      <h3 className='font-rubik mb-1 text-lg font-medium text-[#272532]'>
+                        {endpoint.name}
+                      </h3>
+                      <p className='font-inter line-clamp-2 text-sm text-[#5e5a72]'>
+                        {endpoint.description || 'No description provided'}
+                      </p>
+                    </div>
+                    <div className='flex items-center gap-1'>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        onClick={() => {
+                          setEditingId(endpoint.id);
+                          setEditData({
+                            name: endpoint.name,
+                            description: endpoint.description,
+                            visibility: endpoint.visibility,
+                            version: endpoint.version,
+                            readme: endpoint.readme
+                          });
+                        }}
+                      >
+                        <Edit3 className='h-4 w-4' />
+                      </Button>
+                      <Button
+                        variant='ghost'
+                        size='sm'
+                        onClick={() => handleDeleteEndpoint(endpoint.id)}
+                        className='text-red-600 hover:bg-red-50 hover:text-red-700'
+                      >
+                        <Trash2 className='h-4 w-4' />
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className='mb-4 flex flex-wrap gap-2'>
+                    <Badge className={`border ${getTypeStyles(endpoint.type)}`}>
+                      {getTypeLabel(endpoint.type)}
+                    </Badge>
+                    <Badge className={getVisibilityColor(endpoint.visibility)}>
+                      <div className='flex items-center gap-1'>
+                        {getVisibilityIcon(endpoint.visibility)}
+                        <span className='capitalize'>{endpoint.visibility}</span>
+                      </div>
+                    </Badge>
+                    <Badge variant='outline'>v{endpoint.version}</Badge>
+                    {endpoint.stars_count > 0 && (
+                      <Badge variant='outline' className='border-yellow-200 text-yellow-600'>
+                        <Star className='mr-1 h-3 w-3' />
+                        {endpoint.stars_count}
+                      </Badge>
+                    )}
+                  </div>
+
+                  <div className='font-inter text-xs text-[#5e5a72]'>
+                    <p>Created: {formatDate(endpoint.created_at)}</p>
+                    <p>Updated: {formatDate(endpoint.updated_at)}</p>
+                  </div>
+                </div>
+
+                {/* Edit Form */}
+                {editingId === endpoint.id && (
+                  <div className='space-y-3 border-t border-[#ecebef] bg-[#f7f6f9] p-4'>
+                    <div>
+                      <Label htmlFor={`edit-name-${String(endpoint.id)}`}>Name</Label>
+                      <Input
+                        id={`edit-name-${String(endpoint.id)}`}
+                        value={editData.name ?? ''}
+                        onChange={(e) => {
+                          setEditData({ ...editData, name: e.target.value });
+                        }}
+                        size='sm'
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor={`edit-description-${String(endpoint.id)}`}>Description</Label>
+                      <Input
+                        id={`edit-description-${String(endpoint.id)}`}
+                        value={editData.description ?? ''}
+                        onChange={(e) => {
+                          setEditData({ ...editData, description: e.target.value });
+                        }}
+                        size='sm'
+                      />
+                    </div>
+                    <div className='flex gap-2'>
+                      <Button
+                        size='sm'
+                        onClick={() => handleEditEndpoint(endpoint.id)}
+                        disabled={isLoading}
+                        className='flex-1'
+                      >
+                        <Save className='mr-1 h-3 w-3' />
+                        Save
+                      </Button>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={() => {
+                          setEditingId(null);
+                          setEditData({});
+                        }}
+                        className='flex-1'
+                      >
+                        <X className='mr-1 h-3 w-3' />
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </main>
     </div>
   );
 }

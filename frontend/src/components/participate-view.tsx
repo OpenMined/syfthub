@@ -31,7 +31,7 @@ export function ParticipateView({
 
       {/* Main Content */}
       <main className='w-full min-w-0 flex-1'>
-        <div className='mx-auto max-w-4xl space-y-12 px-6 py-8'>
+        <div className='mx-auto max-w-5xl space-y-8 px-6 py-8'>
           {/* Intro Text */}
           <div>
             <p className='font-inter max-w-2xl text-lg leading-relaxed text-[#5e5a72]'>
