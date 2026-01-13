@@ -119,6 +119,29 @@ async def update_endpoint(
     return endpoint_service.update_endpoint(endpoint_id, endpoint_data, current_user)
 
 
+@router.get("/{endpoint_slug}/exists", response_model=bool)
+async def endpoint_exists_for_user(
+    endpoint_slug: str,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> bool:
+    """Check if endpoint exists for user."""
+    return endpoint_service.endpoint_exists_for_user(endpoint_slug, current_user)
+
+
+@router.patch("/{endpoint_slug}", response_model=EndpointResponse)
+async def update_endpoint_by_slug(
+    endpoint_slug: str,
+    endpoint_data: EndpointUpdate,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> EndpointResponse:
+    """Update a endpoint by slug."""
+    return endpoint_service.update_endpoint_by_slug(
+        endpoint_slug, endpoint_data, current_user
+    )
+
+
 @router.delete("/{endpoint_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_endpoint(
     endpoint_id: int,
