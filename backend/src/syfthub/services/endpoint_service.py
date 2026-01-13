@@ -233,6 +233,11 @@ class EndpointService(BaseService):
         """Get endpoint by user and slug."""
         return self.endpoint_repository.get_by_user_and_slug(user_id, slug)
 
+    def endpoint_exists_for_user(self, slug: str, current_user: User) -> bool:
+        """Check if endpoint exists for user."""
+        endpoint = self.endpoint_repository.get_by_user_and_slug(current_user.id, slug)
+        return endpoint is not None
+
     def get_endpoint_by_org_and_slug(
         self, org_id: int, slug: str
     ) -> Optional[Endpoint]:
@@ -322,6 +327,49 @@ class EndpointService(BaseService):
 
         updated_endpoint = self.endpoint_repository.update_endpoint(
             endpoint_id, endpoint_data
+        )
+        if not updated_endpoint:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update endpoint",
+            )
+
+        return self._to_response_with_urls(updated_endpoint)
+
+    def update_endpoint_by_slug(
+        self, endpoint_slug: str, endpoint_data: EndpointUpdate, current_user: User
+    ) -> EndpointResponse:
+        """Update endpoint by slug."""
+        endpoint = self.endpoint_repository.get_by_user_and_slug(
+            current_user.id, endpoint_slug
+        )
+        if not endpoint:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Endpoint not found",
+            )
+
+        if not self._can_modify_endpoint(endpoint, current_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Permission denied: insufficient permissions",
+            )
+
+        # Validate contributors if they are being updated
+        if endpoint_data.contributors is not None:
+            valid_contributors = self._validate_contributors(endpoint_data.contributors)
+            # Ensure at least one contributor exists (the user performing the update)
+            # For user-owned endpoints, the owner should always be included
+            # For org-owned endpoints, ensure the updating user is included if list would be empty
+            if endpoint.user_id and endpoint.user_id not in valid_contributors:
+                valid_contributors.append(endpoint.user_id)
+            elif not endpoint.user_id and current_user.id not in valid_contributors:
+                # Org-owned endpoint: ensure at least the updating user is a contributor
+                valid_contributors.append(current_user.id)
+            endpoint_data.contributors = valid_contributors
+
+        updated_endpoint = self.endpoint_repository.update_endpoint(
+            endpoint.id, endpoint_data
         )
         if not updated_endpoint:
             raise HTTPException(
