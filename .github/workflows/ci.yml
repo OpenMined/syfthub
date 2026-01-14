@@ -278,30 +278,37 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup SSH key
+        env:
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -p ${{ secrets.SSH_PORT }} -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+          ssh-keyscan -p ${SSH_PORT:-22} -H "$SSH_HOST" >> ~/.ssh/known_hosts
 
       - name: Sync config files to production
+        env:
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
         run: |
           echo "Syncing configuration files to production server..."
 
           # Sync docker-compose.deploy.yml
-          scp -i ~/.ssh/deploy_key -P ${{ secrets.SSH_PORT }} \
+          scp -i ~/.ssh/deploy_key -P ${SSH_PORT:-22} \
             docker-compose.deploy.yml \
-            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/opt/syfthub/
+            "${SSH_USER}@${SSH_HOST}:/opt/syfthub/"
 
           # Sync nginx config
-          scp -i ~/.ssh/deploy_key -P ${{ secrets.SSH_PORT }} \
+          scp -i ~/.ssh/deploy_key -P ${SSH_PORT:-22} \
             nginx/nginx.prod.conf \
-            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/opt/syfthub/nginx/
+            "${SSH_USER}@${SSH_HOST}:/opt/syfthub/nginx/"
 
           # Sync deploy script
-          scp -i ~/.ssh/deploy_key -P ${{ secrets.SSH_PORT }} \
+          scp -i ~/.ssh/deploy_key -P ${SSH_PORT:-22} \
             scripts/deploy.sh \
-            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/opt/syfthub/
+            "${SSH_USER}@${SSH_HOST}:/opt/syfthub/"
 
           echo "Config files synced successfully"
 
