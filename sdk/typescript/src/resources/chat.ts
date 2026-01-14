@@ -1,6 +1,11 @@
 /**
  * Chat resource for RAG-augmented conversations via the Aggregator service.
  *
+ * This resource handles satellite token authentication automatically:
+ * - Resolves endpoints and extracts owner information
+ * - Exchanges Hub access tokens for satellite tokens (one per unique owner)
+ * - Sends tokens to the aggregator for forwarding to SyftAI-Space
+ *
  * @example
  * // Simple chat completion
  * const response = await client.chat.complete({
@@ -16,32 +21,8 @@
  *     process.stdout.write(event.content);
  *   }
  * }
- *
- * TODO: Satellite Token Integration
- * ----------------------------------
- * When SyftAI-Space implements satellite token support, this resource should:
- *
- * 1. Include the user's access token in requests to the aggregator
- * 2. The aggregator will forward this token to SyftAI-Space for permission checks
- *
- * Example change for complete() and stream() methods:
- *   const accessToken = await this.http.getAccessToken();
- *   const response = await fetch(url, {
- *     method: 'POST',
- *     headers: {
- *       'Content-Type': 'application/json',
- *       'Authorization': `Bearer ${accessToken}`,  // Add this header
- *     },
- *     body: JSON.stringify(requestBody),
- *   });
- *
- * See also:
- * - aggregator/api/dependencies.py - receives and extracts the token
- * - aggregator/clients/model.py - forwards token to SyftAI-Space
- * - aggregator/clients/data_source.py - forwards token to SyftAI-Space
  */
 
-import type { HTTPClient } from '../http.js';
 import type { EndpointPublic } from '../models/index.js';
 import type {
   ChatMetadata,
@@ -53,7 +34,7 @@ import type {
   SourceStatus,
   TokenUsage,
 } from '../models/chat.js';
-import { AuthenticationError, SyftHubError } from '../errors.js';
+import { SyftHubError } from '../errors.js';
 import type { HubResource } from './hub.js';
 import type { AuthResource } from './auth.js';
 import { EndpointType } from '../models/index.js';
@@ -95,25 +76,14 @@ export class EndpointResolutionError extends SyftHubError {
  */
 export class ChatResource {
   constructor(
-    private readonly http: HTTPClient,
     private readonly hub: HubResource,
     private readonly auth: AuthResource,
     private readonly aggregatorUrl: string
   ) {}
 
   /**
-   * Get the current authenticated user's email.
-   */
-  private async getUserEmail(): Promise<string> {
-    if (!this.http.hasTokens()) {
-      throw new AuthenticationError('Must be authenticated to use chat');
-    }
-    const user = await this.auth.me();
-    return user.email;
-  }
-
-  /**
-   * Convert any endpoint format to EndpointRef with URL.
+   * Convert any endpoint format to EndpointRef with URL and owner info.
+   * The ownerUsername is critical for satellite token authentication.
    */
   private async resolveEndpointRef(
     endpoint: string | EndpointRef | EndpointPublic,
@@ -141,6 +111,7 @@ export class ChatResource {
             slug: endpoint.slug,
             name: endpoint.name,
             tenantName: conn.config['tenant_name'] as string | undefined,
+            ownerUsername: endpoint.ownerUsername, // Capture owner for satellite token
           };
         }
       }
@@ -166,6 +137,50 @@ export class ChatResource {
     }
 
     throw new TypeError(`Cannot resolve endpoint from type: ${typeof endpoint}`);
+  }
+
+  /**
+   * Collect unique owner usernames from all endpoints.
+   * Used to determine which satellite tokens need to be fetched.
+   */
+  private collectUniqueOwners(
+    modelRef: EndpointRef,
+    dataSourceRefs: EndpointRef[]
+  ): string[] {
+    const owners = new Set<string>();
+
+    if (modelRef.ownerUsername) {
+      owners.add(modelRef.ownerUsername);
+    }
+
+    for (const ds of dataSourceRefs) {
+      if (ds.ownerUsername) {
+        owners.add(ds.ownerUsername);
+      }
+    }
+
+    return [...owners];
+  }
+
+  /**
+   * Get satellite tokens for all unique endpoint owners.
+   * Returns a map of owner username to satellite token.
+   */
+  private async getSatelliteTokensForOwners(
+    owners: string[]
+  ): Promise<Record<string, string>> {
+    if (owners.length === 0) {
+      return {};
+    }
+
+    const tokenMap = await this.auth.getSatelliteTokens(owners);
+    const result: Record<string, string> = {};
+
+    for (const [owner, token] of tokenMap) {
+      result[owner] = token;
+    }
+
+    return result;
   }
 
   /**
@@ -197,12 +212,14 @@ export class ChatResource {
 
   /**
    * Build the request body for the aggregator.
+   * Includes endpoint_tokens mapping for satellite token authentication.
+   * User identity is derived from satellite tokens, not passed in request body.
    */
   private buildRequestBody(
     prompt: string,
-    userEmail: string,
     modelRef: EndpointRef,
     dataSourceRefs: EndpointRef[],
+    endpointTokens: Record<string, string>,
     options: {
       topK?: number;
       maxTokens?: number;
@@ -213,19 +230,21 @@ export class ChatResource {
   ): Record<string, unknown> {
     return {
       prompt,
-      user_email: userEmail,
       model: {
         url: modelRef.url,
         slug: modelRef.slug,
         name: modelRef.name ?? '',
         tenant_name: modelRef.tenantName ?? null,
+        owner_username: modelRef.ownerUsername ?? null,
       },
       data_sources: dataSourceRefs.map((ds) => ({
         url: ds.url,
         slug: ds.slug,
         name: ds.name ?? '',
         tenant_name: ds.tenantName ?? null,
+        owner_username: ds.ownerUsername ?? null,
       })),
+      endpoint_tokens: endpointTokens,
       top_k: options.topK ?? 5,
       max_tokens: options.maxTokens ?? 1024,
       temperature: options.temperature ?? 0.7,
@@ -271,14 +290,17 @@ export class ChatResource {
   /**
    * Send a chat request and get the complete response.
    *
+   * This method automatically:
+   * 1. Resolves endpoints and extracts owner information
+   * 2. Exchanges Hub tokens for satellite tokens (one per unique owner)
+   * 3. Sends tokens to the aggregator for forwarding to SyftAI-Space
+   *
    * @param options - Chat completion options
    * @returns ChatResponse with response text, sources, and metadata
-   * @throws {AuthenticationError} If not authenticated
    * @throws {EndpointResolutionError} If endpoint cannot be resolved
    * @throws {AggregatorError} If aggregator service fails
    */
   async complete(options: ChatOptions): Promise<ChatResponse> {
-    const userEmail = await this.getUserEmail();
     const modelRef = await this.resolveEndpointRef(options.model, 'model');
 
     const dsRefs: EndpointRef[] = [];
@@ -286,13 +308,23 @@ export class ChatResource {
       dsRefs.push(await this.resolveEndpointRef(ds, 'data_source'));
     }
 
-    const requestBody = this.buildRequestBody(options.prompt, userEmail, modelRef, dsRefs, {
-      topK: options.topK,
-      maxTokens: options.maxTokens,
-      temperature: options.temperature,
-      similarityThreshold: options.similarityThreshold,
-      stream: false,
-    });
+    // Get satellite tokens for all unique endpoint owners
+    const uniqueOwners = this.collectUniqueOwners(modelRef, dsRefs);
+    const endpointTokens = await this.getSatelliteTokensForOwners(uniqueOwners);
+
+    const requestBody = this.buildRequestBody(
+      options.prompt,
+      modelRef,
+      dsRefs,
+      endpointTokens,
+      {
+        topK: options.topK,
+        maxTokens: options.maxTokens,
+        temperature: options.temperature,
+        similarityThreshold: options.similarityThreshold,
+        stream: false,
+      }
+    );
 
     const url = `${this.aggregatorUrl}/chat`;
 
@@ -343,11 +375,15 @@ export class ChatResource {
   /**
    * Send a chat request and stream response events.
    *
+   * This method automatically:
+   * 1. Resolves endpoints and extracts owner information
+   * 2. Exchanges Hub tokens for satellite tokens (one per unique owner)
+   * 3. Sends tokens to the aggregator for forwarding to SyftAI-Space
+   *
    * @param options - Chat completion options
    * @yields ChatStreamEvent objects as they arrive
    */
   async *stream(options: ChatOptions): AsyncGenerator<ChatStreamEvent, void, unknown> {
-    const userEmail = await this.getUserEmail();
     const modelRef = await this.resolveEndpointRef(options.model, 'model');
 
     const dsRefs: EndpointRef[] = [];
@@ -355,13 +391,23 @@ export class ChatResource {
       dsRefs.push(await this.resolveEndpointRef(ds, 'data_source'));
     }
 
-    const requestBody = this.buildRequestBody(options.prompt, userEmail, modelRef, dsRefs, {
-      topK: options.topK,
-      maxTokens: options.maxTokens,
-      temperature: options.temperature,
-      similarityThreshold: options.similarityThreshold,
-      stream: true,
-    });
+    // Get satellite tokens for all unique endpoint owners
+    const uniqueOwners = this.collectUniqueOwners(modelRef, dsRefs);
+    const endpointTokens = await this.getSatelliteTokensForOwners(uniqueOwners);
+
+    const requestBody = this.buildRequestBody(
+      options.prompt,
+      modelRef,
+      dsRefs,
+      endpointTokens,
+      {
+        topK: options.topK,
+        maxTokens: options.maxTokens,
+        temperature: options.temperature,
+        similarityThreshold: options.similarityThreshold,
+        stream: true,
+      }
+    );
 
     const url = `${this.aggregatorUrl}/chat/stream`;
 

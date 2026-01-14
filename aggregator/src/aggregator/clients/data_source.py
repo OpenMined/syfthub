@@ -1,28 +1,4 @@
-"""Client for interacting with SyftAI-Space data source endpoints.
-
-TODO: Satellite Token Integration
----------------------------------
-When SyftAI-Space implements satellite token support, this client should:
-
-1. Accept an optional `authorization_token` parameter in the `query()` method
-2. Include the token in an Authorization header: `Authorization: Bearer <token>`
-3. This allows SyftAI-Space to validate user permissions via the satellite token
-
-Example change for query() method:
-    async def query(
-        self,
-        url: str,
-        slug: str,
-        ...
-        authorization_token: str | None = None,  # Add this parameter
-    ) -> RetrievalResult:
-        ...
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-        if tenant_name:
-            headers["X-Tenant-Name"] = tenant_name
-        if authorization_token:
-            headers["Authorization"] = f"Bearer {authorization_token}"
-"""
+"""Client for interacting with SyftAI-Space data source endpoints."""
 
 import logging
 import time
@@ -55,23 +31,25 @@ class DataSourceClient:
         slug: str,
         endpoint_path: str,
         query: str,
-        user_email: str,
         top_k: int = 5,
         similarity_threshold: float = 0.5,
         tenant_name: str | None = None,
+        authorization_token: str | None = None,
     ) -> RetrievalResult:
         """
         Query a SyftAI-Space endpoint for relevant documents.
+
+        User identity is derived from the satellite token by SyftAI-Space.
 
         Args:
             url: Base URL of the SyftAI-Space instance
             slug: Endpoint slug for the API path
             endpoint_path: Path identifier for logging/tracking
             query: The search query
-            user_email: User email for visibility/policy checks (required by SyftAI-Space)
             top_k: Number of documents to retrieve (maps to 'limit')
             similarity_threshold: Minimum similarity score for documents
             tenant_name: Tenant name for X-Tenant-Name header (optional)
+            authorization_token: Satellite token for Authorization header (optional)
 
         Returns:
             RetrievalResult with documents and status
@@ -83,8 +61,8 @@ class DataSourceClient:
 
         # Build SyftAI-Space compatible request body
         # SyftAI-Space accepts messages as a string for simple queries
+        # User identity is derived from the satellite token, not the request body
         request_data = {
-            "user_email": user_email,
             "messages": query,  # String is accepted by SyftAI-Space
             "limit": top_k,
             "similarity_threshold": similarity_threshold,
@@ -95,6 +73,8 @@ class DataSourceClient:
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if tenant_name:
             headers["X-Tenant-Name"] = tenant_name
+        if authorization_token:
+            headers["Authorization"] = f"Bearer {authorization_token}"
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:

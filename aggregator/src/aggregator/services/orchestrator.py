@@ -58,7 +58,7 @@ class Orchestrator:
         """Convert an EndpointRef from request to internal ResolvedEndpoint.
 
         Maps the request schema to the internal representation with all
-        SyftAI-Space connection details.
+        SyftAI-Space connection details including owner for token lookup.
         """
         return ResolvedEndpoint(
             path=ref.name or ref.slug,  # Use name for display, fallback to slug
@@ -67,6 +67,7 @@ class Orchestrator:
             endpoint_type=endpoint_type,  # type: ignore[arg-type]
             name=ref.name or ref.slug,
             tenant_name=ref.tenant_name,
+            owner_username=ref.owner_username,
         )
 
     async def process_chat(
@@ -78,22 +79,25 @@ class Orchestrator:
         Process a chat request through the full RAG pipeline with SyftAI-Space.
 
         The request contains all required information for SyftAI-Space:
-        - user_email: For visibility/policy checks
-        - model.slug, model.tenant_name: For model endpoint identification
-        - data_sources[].slug, data_sources[].tenant_name: For data source identification
+        - endpoint_tokens: Mapping of owner username to satellite token for auth
+        - model.slug, model.tenant_name, model.owner_username: For model endpoint
+        - data_sources[]: For data source endpoints
+
+        User identity is derived from the satellite tokens by SyftAI-Space,
+        not passed separately in the request.
 
         Args:
             request: The chat request with all SyftAI-Space connection details
-            user_token: Optional user token (unused - user_email is used instead)
+            user_token: Optional user token (deprecated - use endpoint_tokens instead)
 
         Returns:
             ChatResponse with generated answer and metadata
         """
-        _ = user_token  # Unused - user_email is in request
+        _ = user_token  # Deprecated - endpoint_tokens in request is used instead
         total_start = time.perf_counter()
 
-        # Extract user_email for SyftAI-Space API calls
-        user_email = str(request.user_email)
+        # Extract endpoint_tokens mapping for satellite token auth
+        endpoint_tokens = request.endpoint_tokens
 
         # 1. Convert model EndpointRef to ResolvedEndpoint
         model_endpoint = self._endpoint_ref_to_resolved(request.model, "model")
@@ -114,9 +118,9 @@ class Orchestrator:
         context = await self.retrieval_service.retrieve(
             data_sources=data_sources,
             query=request.prompt,
-            user_email=user_email,
             top_k=request.top_k,
             similarity_threshold=request.similarity_threshold,
+            endpoint_tokens=endpoint_tokens,
         )
         retrieval_time_ms = int((time.perf_counter() - retrieval_start) * 1000)
 
@@ -132,9 +136,9 @@ class Orchestrator:
             result = await self.generation_service.generate(
                 model_endpoint=model_endpoint,
                 messages=messages,
-                user_email=user_email,
                 max_tokens=request.max_tokens,
                 temperature=request.temperature,
+                endpoint_tokens=endpoint_tokens,
             )
         except GenerationError as e:
             raise OrchestratorError(f"Generation failed: {e}") from e
@@ -185,16 +189,16 @@ class Orchestrator:
 
         Args:
             request: The chat request with all SyftAI-Space connection details
-            user_token: Optional user token (unused - user_email is used instead)
+            user_token: Optional user token (deprecated - use endpoint_tokens instead)
 
         Yields:
             SSE-formatted event strings
         """
-        _ = user_token  # Unused - user_email is in request
+        _ = user_token  # Deprecated - endpoint_tokens in request is used instead
         total_start = time.perf_counter()
 
-        # Extract user_email for SyftAI-Space API calls
-        user_email = str(request.user_email)
+        # Extract endpoint_tokens mapping for satellite token auth
+        endpoint_tokens = request.endpoint_tokens
 
         # 1. Convert model EndpointRef to ResolvedEndpoint
         model_endpoint = self._endpoint_ref_to_resolved(request.model, "model")
@@ -221,9 +225,9 @@ class Orchestrator:
             async for result in self.retrieval_service.retrieve_streaming(
                 data_sources=data_sources,
                 query=request.prompt,
-                user_email=user_email,
                 top_k=request.top_k,
                 similarity_threshold=request.similarity_threshold,
+                endpoint_tokens=endpoint_tokens,
             ):
                 retrieval_results.append(result)
                 yield self._sse_event(
@@ -286,9 +290,9 @@ class Orchestrator:
                 async for chunk in self.generation_service.generate_stream(
                     model_endpoint=model_endpoint,
                     messages=messages,
-                    user_email=user_email,
                     max_tokens=request.max_tokens,
                     temperature=request.temperature,
+                    endpoint_tokens=endpoint_tokens,
                 ):
                     full_response.append(chunk)
                     yield self._sse_event("token", {"content": chunk})
@@ -298,9 +302,9 @@ class Orchestrator:
                 result = await self.generation_service.generate(
                     model_endpoint=model_endpoint,
                     messages=messages,
-                    user_email=user_email,
                     max_tokens=request.max_tokens,
                     temperature=request.temperature,
+                    endpoint_tokens=endpoint_tokens,
                 )
                 full_response.append(result.response)
                 usage_data = result.usage  # Capture usage from non-streaming response

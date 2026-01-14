@@ -16,23 +16,33 @@ class RetrievalService:
     def __init__(self, data_source_client: DataSourceClient):
         self.data_source_client = data_source_client
 
+    def _get_token_for_endpoint(
+        self, endpoint: ResolvedEndpoint, endpoint_tokens: dict[str, str]
+    ) -> str | None:
+        """Get the satellite token for an endpoint based on its owner."""
+        if endpoint.owner_username and endpoint.owner_username in endpoint_tokens:
+            return endpoint_tokens[endpoint.owner_username]
+        return None
+
     async def retrieve(
         self,
         data_sources: list[ResolvedEndpoint],
         query: str,
-        user_email: str,
         top_k: int = 5,
         similarity_threshold: float = 0.5,
+        endpoint_tokens: dict[str, str] | None = None,
     ) -> AggregatedContext:
         """
         Retrieve relevant documents from multiple SyftAI-Space data sources in parallel.
 
+        User identity is derived from satellite tokens by SyftAI-Space.
+
         Args:
             data_sources: List of resolved data source endpoints
             query: The search query
-            user_email: User email for SyftAI-Space visibility/policy checks
             top_k: Number of documents to retrieve per source
             similarity_threshold: Minimum similarity score for documents
+            endpoint_tokens: Mapping of owner username to satellite token for auth
 
         Returns:
             AggregatedContext with all documents and retrieval results
@@ -44,6 +54,7 @@ class RetrievalService:
                 total_latency_ms=0,
             )
 
+        endpoint_tokens = endpoint_tokens or {}
         start_time = time.perf_counter()
 
         # Query all data sources in parallel
@@ -53,10 +64,10 @@ class RetrievalService:
                 slug=ds.slug,
                 endpoint_path=ds.path,
                 query=query,
-                user_email=user_email,
                 top_k=top_k,
                 similarity_threshold=similarity_threshold,
                 tenant_name=ds.tenant_name,
+                authorization_token=self._get_token_for_endpoint(ds, endpoint_tokens),
             )
             for ds in data_sources
         ]
@@ -92,27 +103,30 @@ class RetrievalService:
         self,
         data_sources: list[ResolvedEndpoint],
         query: str,
-        user_email: str,
         top_k: int = 5,
         similarity_threshold: float = 0.5,
+        endpoint_tokens: dict[str, str] | None = None,
     ):
         """
         Retrieve from SyftAI-Space data sources and yield results as they complete.
 
         This is useful for streaming UX where you want to show progress.
+        User identity is derived from satellite tokens by SyftAI-Space.
 
         Args:
             data_sources: List of resolved data source endpoints
             query: The search query
-            user_email: User email for SyftAI-Space visibility/policy checks
             top_k: Number of documents to retrieve per source
             similarity_threshold: Minimum similarity score for documents
+            endpoint_tokens: Mapping of owner username to satellite token for auth
 
         Yields:
             RetrievalResult for each data source as it completes
         """
         if not data_sources:
             return
+
+        endpoint_tokens = endpoint_tokens or {}
 
         # Create tasks
         tasks = {
@@ -122,10 +136,10 @@ class RetrievalService:
                     slug=ds.slug,
                     endpoint_path=ds.path,
                     query=query,
-                    user_email=user_email,
                     top_k=top_k,
                     similarity_threshold=similarity_threshold,
                     tenant_name=ds.tenant_name,
+                    authorization_token=self._get_token_for_endpoint(ds, endpoint_tokens),
                 )
             ): ds
             for ds in data_sources

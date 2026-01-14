@@ -15,6 +15,7 @@
  *   url: 'http://syftai-space:8080',
  *   slug: 'my-model',
  *   name: 'My Model',
+ *   ownerUsername: 'alice',
  * };
  */
 export interface EndpointRef {
@@ -26,6 +27,8 @@ export interface EndpointRef {
   name?: string;
   /** Tenant name for X-Tenant-Name header */
   tenantName?: string;
+  /** Owner's username - used as the audience for satellite token authentication */
+  ownerUsername?: string;
 }
 
 /**

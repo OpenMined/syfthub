@@ -28,10 +28,13 @@ def test_endpoint_ref_minimal() -> None:
 
 
 def test_chat_request_valid() -> None:
-    """Test valid ChatRequest creation with SyftAI-Space format."""
+    """Test valid ChatRequest creation with SyftAI-Space format.
+
+    Note: user_email is no longer in the request - identity is derived
+    from satellite tokens by SyftAI-Space.
+    """
     request = ChatRequest(
         prompt="What is the meaning of life?",
-        user_email="user@example.com",
         model=EndpointRef(url="http://localhost:8080", slug="gpt-model"),
         data_sources=[
             EndpointRef(url="http://localhost:8080", slug="ds1", name="Dataset 1"),
@@ -40,7 +43,6 @@ def test_chat_request_valid() -> None:
         top_k=5,
     )
     assert request.prompt == "What is the meaning of life?"
-    assert request.user_email == "user@example.com"
     assert request.model.slug == "gpt-model"
     assert len(request.data_sources) == 2
     assert request.data_sources[0].slug == "ds1"
@@ -52,7 +54,6 @@ def test_chat_request_minimal() -> None:
     """Test ChatRequest with minimal fields."""
     request = ChatRequest(
         prompt="Hello",
-        user_email="user@example.com",
         model=EndpointRef(url="http://localhost:8080", slug="model"),
     )
     assert request.data_sources == []
@@ -68,17 +69,6 @@ def test_chat_request_empty_prompt_fails() -> None:
     with pytest.raises(ValidationError):
         ChatRequest(
             prompt="",
-            user_email="user@example.com",
-            model=EndpointRef(url="http://localhost:8080", slug="model"),
-        )
-
-
-def test_chat_request_invalid_email_fails() -> None:
-    """Test that invalid email is rejected."""
-    with pytest.raises(ValidationError):
-        ChatRequest(
-            prompt="test",
-            user_email="not-an-email",
             model=EndpointRef(url="http://localhost:8080", slug="model"),
         )
 
@@ -88,16 +78,16 @@ def test_chat_request_top_k_bounds() -> None:
     model = EndpointRef(url="http://localhost:8080", slug="model")
 
     # Valid range
-    ChatRequest(prompt="test", user_email="user@example.com", model=model, top_k=1)
-    ChatRequest(prompt="test", user_email="user@example.com", model=model, top_k=20)
+    ChatRequest(prompt="test", model=model, top_k=1)
+    ChatRequest(prompt="test", model=model, top_k=20)
 
     # Invalid: too low
     with pytest.raises(ValidationError):
-        ChatRequest(prompt="test", user_email="user@example.com", model=model, top_k=0)
+        ChatRequest(prompt="test", model=model, top_k=0)
 
     # Invalid: too high
     with pytest.raises(ValidationError):
-        ChatRequest(prompt="test", user_email="user@example.com", model=model, top_k=21)
+        ChatRequest(prompt="test", model=model, top_k=21)
 
 
 def test_chat_request_temperature_bounds() -> None:
@@ -105,16 +95,16 @@ def test_chat_request_temperature_bounds() -> None:
     model = EndpointRef(url="http://localhost:8080", slug="model")
 
     # Valid range
-    ChatRequest(prompt="test", user_email="user@example.com", model=model, temperature=0.0)
-    ChatRequest(prompt="test", user_email="user@example.com", model=model, temperature=2.0)
+    ChatRequest(prompt="test", model=model, temperature=0.0)
+    ChatRequest(prompt="test", model=model, temperature=2.0)
 
     # Invalid: too low
     with pytest.raises(ValidationError):
-        ChatRequest(prompt="test", user_email="user@example.com", model=model, temperature=-0.1)
+        ChatRequest(prompt="test", model=model, temperature=-0.1)
 
     # Invalid: too high
     with pytest.raises(ValidationError):
-        ChatRequest(prompt="test", user_email="user@example.com", model=model, temperature=2.1)
+        ChatRequest(prompt="test", model=model, temperature=2.1)
 
 
 def test_message_roles() -> None:

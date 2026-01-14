@@ -23,6 +23,10 @@ class ResolvedEndpoint(BaseModel):
         default=None,
         description="Tenant name for X-Tenant-Name header",
     )
+    owner_username: str | None = Field(
+        default=None,
+        description="Owner's username - used to lookup satellite token from endpoint_tokens",
+    )
 
 
 class RetrievalResult(BaseModel):

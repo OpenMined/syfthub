@@ -196,4 +196,73 @@ export class AuthResource {
       newPassword,
     });
   }
+
+  /**
+   * Get a satellite token for a specific audience (target service).
+   *
+   * Satellite tokens are short-lived, RS256-signed JWTs that allow satellite
+   * services (like SyftAI-Space) to verify user identity without calling
+   * SyftHub for every request.
+   *
+   * @param audience - Target service identifier (username of the service owner)
+   * @returns Satellite token response with token and expiry
+   * @throws {AuthenticationError} If not authenticated
+   * @throws {ValidationError} If audience is invalid or inactive
+   *
+   * @example
+   * // Get a token for querying alice's SyftAI-Space endpoints
+   * const tokenResponse = await client.auth.getSatelliteToken('alice');
+   * console.log(`Token expires in ${tokenResponse.expiresIn} seconds`);
+   */
+  async getSatelliteToken(audience: string): Promise<SatelliteTokenResponse> {
+    return this.http.get<SatelliteTokenResponse>('/api/v1/token', { aud: audience });
+  }
+
+  /**
+   * Get satellite tokens for multiple audiences in parallel.
+   *
+   * This is useful when making requests to endpoints owned by different users.
+   * Tokens are cached and reused where possible.
+   *
+   * @param audiences - Array of unique audience identifiers (usernames)
+   * @returns Map of audience to satellite token
+   * @throws {AuthenticationError} If not authenticated
+   *
+   * @example
+   * // Get tokens for multiple endpoint owners
+   * const tokens = await client.auth.getSatelliteTokens(['alice', 'bob']);
+   * console.log(`Got ${tokens.size} tokens`);
+   */
+  async getSatelliteTokens(audiences: string[]): Promise<Map<string, string>> {
+    const uniqueAudiences = [...new Set(audiences)];
+    const tokenMap = new Map<string, string>();
+
+    // Fetch tokens in parallel
+    const results = await Promise.allSettled(
+      uniqueAudiences.map(async (aud) => {
+        const response = await this.getSatelliteToken(aud);
+        return { audience: aud, token: response.targetToken };
+      })
+    );
+
+    // Collect successful results
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        tokenMap.set(result.value.audience, result.value.token);
+      }
+      // Failed tokens are silently skipped - the aggregator will handle missing tokens
+    }
+
+    return tokenMap;
+  }
+}
+
+/**
+ * Response from satellite token endpoint.
+ */
+export interface SatelliteTokenResponse {
+  /** RS256-signed JWT for the target service */
+  targetToken: string;
+  /** Seconds until the token expires */
+  expiresIn: number;
 }

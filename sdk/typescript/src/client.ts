@@ -293,7 +293,6 @@ export class SyftHubClient {
   get chat(): ChatResource {
     if (!this._chat) {
       this._chat = new ChatResource(
-        this.http,
         this.hub,
         this.auth,
         this.aggregatorUrl

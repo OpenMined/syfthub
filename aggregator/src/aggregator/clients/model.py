@@ -1,30 +1,4 @@
-"""Client for interacting with SyftAI-Space model endpoints.
-
-TODO: Satellite Token Integration
----------------------------------
-When SyftAI-Space implements satellite token support, this client should:
-
-1. Accept an optional `authorization_token` parameter in `chat()` and `chat_stream()`
-2. Include the token in an Authorization header: `Authorization: Bearer <token>`
-3. This allows SyftAI-Space to validate user permissions via the satellite token
-
-Example change for chat() method:
-    async def chat(
-        self,
-        url: str,
-        slug: str,
-        ...
-        authorization_token: str | None = None,  # Add this parameter
-    ) -> GenerationResult:
-        ...
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-        if tenant_name:
-            headers["X-Tenant-Name"] = tenant_name
-        if authorization_token:
-            headers["Authorization"] = f"Bearer {authorization_token}"
-
-Same pattern applies to chat_stream() method.
-"""
+"""Client for interacting with SyftAI-Space model endpoints."""
 
 import json
 import logging
@@ -66,22 +40,24 @@ class ModelClient:
         url: str,
         slug: str,
         messages: list[Message],
-        user_email: str,
         max_tokens: int = 1024,
         temperature: float = 0.7,
         tenant_name: str | None = None,
+        authorization_token: str | None = None,
     ) -> GenerationResult:
         """
         Send messages to a SyftAI-Space model endpoint and get a response.
+
+        User identity is derived from the satellite token by SyftAI-Space.
 
         Args:
             url: Base URL of the SyftAI-Space instance
             slug: Endpoint slug for the API path
             messages: List of conversation messages
-            user_email: User email for visibility/policy checks (required by SyftAI-Space)
             max_tokens: Maximum tokens to generate
             temperature: Temperature for generation
             tenant_name: Tenant name for X-Tenant-Name header (optional)
+            authorization_token: Satellite token for Authorization header (optional)
 
         Returns:
             GenerationResult with response text and metadata
@@ -100,8 +76,8 @@ class ModelClient:
         ]
 
         # Build SyftAI-Space compatible request body
+        # User identity is derived from the satellite token, not the request body
         request_data = {
-            "user_email": user_email,
             "messages": formatted_messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
@@ -113,6 +89,8 @@ class ModelClient:
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if tenant_name:
             headers["X-Tenant-Name"] = tenant_name
+        if authorization_token:
+            headers["Authorization"] = f"Bearer {authorization_token}"
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
@@ -160,10 +138,10 @@ class ModelClient:
         url: str,
         slug: str,
         messages: list[Message],
-        user_email: str,
         max_tokens: int = 1024,
         temperature: float = 0.7,
         tenant_name: str | None = None,
+        authorization_token: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """
         Send messages to a SyftAI-Space model endpoint and stream the response.
@@ -171,14 +149,16 @@ class ModelClient:
         Note: SyftAI-Space streaming may not be fully implemented. This method
         attempts to handle both streaming and non-streaming responses gracefully.
 
+        User identity is derived from the satellite token by SyftAI-Space.
+
         Args:
             url: Base URL of the SyftAI-Space instance
             slug: Endpoint slug for the API path
             messages: List of conversation messages
-            user_email: User email for visibility/policy checks
             max_tokens: Maximum tokens to generate
             temperature: Temperature for generation
             tenant_name: Tenant name for X-Tenant-Name header (optional)
+            authorization_token: Satellite token for Authorization header (optional)
 
         Yields:
             Response text chunks as they arrive
@@ -192,8 +172,8 @@ class ModelClient:
         ]
 
         # Build SyftAI-Space compatible request body
+        # User identity is derived from the satellite token, not the request body
         request_data = {
-            "user_email": user_email,
             "messages": formatted_messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
@@ -208,6 +188,8 @@ class ModelClient:
         }
         if tenant_name:
             headers["X-Tenant-Name"] = tenant_name
+        if authorization_token:
+            headers["Authorization"] = f"Bearer {authorization_token}"
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:

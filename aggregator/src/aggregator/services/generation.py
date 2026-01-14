@@ -35,23 +35,33 @@ class GenerationService:
     def __init__(self, model_client: ModelClient):
         self.model_client = model_client
 
+    def _get_token_for_endpoint(
+        self, endpoint: ResolvedEndpoint, endpoint_tokens: dict[str, str]
+    ) -> str | None:
+        """Get the satellite token for an endpoint based on its owner."""
+        if endpoint.owner_username and endpoint.owner_username in endpoint_tokens:
+            return endpoint_tokens[endpoint.owner_username]
+        return None
+
     async def generate(
         self,
         model_endpoint: ResolvedEndpoint,
         messages: list[Message],
-        user_email: str,
         max_tokens: int = 1024,
         temperature: float = 0.7,
+        endpoint_tokens: dict[str, str] | None = None,
     ) -> GenerationResult:
         """
         Generate a response from a SyftAI-Space model endpoint.
 
+        User identity is derived from satellite tokens by SyftAI-Space.
+
         Args:
             model_endpoint: Resolved model endpoint with URL, slug, tenant info
             messages: List of conversation messages
-            user_email: User email for SyftAI-Space visibility/policy checks
             max_tokens: Maximum tokens to generate
             temperature: Temperature for generation
+            endpoint_tokens: Mapping of owner username to satellite token for auth
 
         Returns:
             GenerationResult with response and metadata
@@ -59,15 +69,16 @@ class GenerationService:
         Raises:
             GenerationError: If generation fails
         """
+        endpoint_tokens = endpoint_tokens or {}
         try:
             result = await self.model_client.chat(
                 url=model_endpoint.url,
                 slug=model_endpoint.slug,
                 messages=messages,
-                user_email=user_email,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 tenant_name=model_endpoint.tenant_name,
+                authorization_token=self._get_token_for_endpoint(model_endpoint, endpoint_tokens),
             )
             logger.info(f"Generation complete: latency={result.latency_ms}ms")
             return result
@@ -80,19 +91,21 @@ class GenerationService:
         self,
         model_endpoint: ResolvedEndpoint,
         messages: list[Message],
-        user_email: str,
         max_tokens: int = 1024,
         temperature: float = 0.7,
+        endpoint_tokens: dict[str, str] | None = None,
     ) -> AsyncGenerator[str, None]:
         """
         Generate a streaming response from a SyftAI-Space model endpoint.
 
+        User identity is derived from satellite tokens by SyftAI-Space.
+
         Args:
             model_endpoint: Resolved model endpoint with URL, slug, tenant info
             messages: List of conversation messages
-            user_email: User email for SyftAI-Space visibility/policy checks
             max_tokens: Maximum tokens to generate
             temperature: Temperature for generation
+            endpoint_tokens: Mapping of owner username to satellite token for auth
 
         Yields:
             Response text chunks as they arrive
@@ -100,15 +113,16 @@ class GenerationService:
         Raises:
             GenerationError: If generation fails
         """
+        endpoint_tokens = endpoint_tokens or {}
         try:
             async for chunk in self.model_client.chat_stream(
                 url=model_endpoint.url,
                 slug=model_endpoint.slug,
                 messages=messages,
-                user_email=user_email,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 tenant_name=model_endpoint.tenant_name,
+                authorization_token=self._get_token_for_endpoint(model_endpoint, endpoint_tokens),
             ):
                 if chunk:
                     yield chunk
