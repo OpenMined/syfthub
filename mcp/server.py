@@ -1737,12 +1737,14 @@ def chat_with_syfthub(
         sources_info = []
         if response.sources:
             for source in response.sources:
-                sources_info.append({
+                source_entry = {
                     "path": source.path,
                     "status": source.status.value if hasattr(source.status, 'value') else str(source.status),
                     "documents_retrieved": source.documents_retrieved,
-                    "retrieval_time_ms": source.retrieval_time_ms
-                })
+                }
+                if source.error_message:
+                    source_entry["error_message"] = source.error_message
+                sources_info.append(source_entry)
 
         # Format metadata
         metadata_info = {}
@@ -1751,8 +1753,6 @@ def chat_with_syfthub(
                 "retrieval_time_ms": response.metadata.retrieval_time_ms,
                 "generation_time_ms": response.metadata.generation_time_ms,
                 "total_time_ms": response.metadata.total_time_ms,
-                "model_used": response.metadata.model_used,
-                "tokens_used": response.metadata.tokens_used
             }
 
         logger.info(f"Chat query successful. Response length: {len(response.response)}")
