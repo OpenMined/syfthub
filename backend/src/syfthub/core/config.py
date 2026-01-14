@@ -162,6 +162,14 @@ class Settings(BaseSettings):
         description="Auto-generate RSA keys if not provided (dev mode only)",
     )
 
+    # Directory for persisting auto-generated RSA keys (multi-worker support)
+    # When auto-generating keys, they are saved to this directory so all workers
+    # in a multi-process deployment share the same keys.
+    rsa_keys_directory: str = Field(
+        default="./data/rsa_keys",
+        description="Directory to persist auto-generated RSA keys for multi-worker support",
+    )
+
     # ===========================================
     # ACCOUNTING SERVICE SETTINGS
     # ===========================================

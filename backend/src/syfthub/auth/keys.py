@@ -3,13 +3,25 @@
 This module provides RSA key management for the SyftHub Identity Provider (IdP).
 It handles key generation, loading, and JWKS (JSON Web Key Set) generation
 for stateless token verification by satellite services.
+
+Multi-Worker Support:
+    When running with multiple workers (e.g., uvicorn --workers 4), each worker
+    is a separate process with its own memory. To ensure all workers use the
+    same RSA keys, auto-generated keys are persisted to the filesystem and
+    loaded by subsequent workers. File locking prevents race conditions during
+    key generation.
 """
 
 from __future__ import annotations
 
 import base64
+import fcntl
 import logging
-from typing import TYPE_CHECKING, Dict, List, Optional, cast
+import os
+import stat
+import time
+from pathlib import Path
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, cast
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -24,6 +36,12 @@ if TYPE_CHECKING:
     )
 
 logger = logging.getLogger(__name__)
+
+# Constants for file-based key persistence
+KEY_FILE_PRIVATE = "private.pem"
+KEY_FILE_PUBLIC = "public.pem"
+KEY_FILE_LOCK = ".rsa_keys.lock"
+LOCK_TIMEOUT_SECONDS = 10
 
 
 def _int_to_base64url(num: int) -> str:
@@ -80,6 +98,154 @@ class RSAKeyManager:
         self._public_keys: Dict[str, RSAPublicKey] = {}  # kid -> public key
         self._current_key_id: str = ""
         self._initialized = False
+        self._lock_file: Optional[int] = None  # File descriptor for lock file
+
+    def _get_keys_directory(self) -> Path:
+        """Get the directory for persisted RSA keys.
+
+        Returns:
+            Path to the keys directory
+        """
+        return Path(settings.rsa_keys_directory)
+
+    def _get_key_file_paths(self) -> Tuple[Path, Path, Path]:
+        """Get paths for private key, public key, and lock files.
+
+        Returns:
+            Tuple of (private_key_path, public_key_path, lock_file_path)
+        """
+        keys_dir = self._get_keys_directory()
+        return (
+            keys_dir / KEY_FILE_PRIVATE,
+            keys_dir / KEY_FILE_PUBLIC,
+            keys_dir / KEY_FILE_LOCK,
+        )
+
+    def _ensure_keys_directory(self) -> None:
+        """Ensure the keys directory exists with proper permissions."""
+        keys_dir = self._get_keys_directory()
+        if not keys_dir.exists():
+            keys_dir.mkdir(parents=True, mode=0o700)
+            logger.debug(f"Created RSA keys directory: {keys_dir}")
+
+    def _acquire_lock(self, lock_path: Path) -> bool:
+        """Acquire an exclusive lock for key generation.
+
+        Uses file locking to prevent race conditions when multiple workers
+        try to generate keys simultaneously.
+
+        Args:
+            lock_path: Path to the lock file
+
+        Returns:
+            True if lock was acquired, False if timeout
+        """
+        self._ensure_keys_directory()
+
+        start_time = time.time()
+        try:
+            # Open or create lock file
+            self._lock_file = os.open(
+                str(lock_path),
+                os.O_CREAT | os.O_RDWR,
+                stat.S_IRUSR | stat.S_IWUSR,
+            )
+
+            # Try to acquire exclusive lock with timeout
+            while time.time() - start_time < LOCK_TIMEOUT_SECONDS:
+                try:
+                    fcntl.flock(self._lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    logger.debug("Acquired RSA key generation lock")
+                    return True
+                except BlockingIOError:
+                    # Lock is held by another process, wait and retry
+                    time.sleep(0.1)
+
+            logger.warning(
+                f"Timeout waiting for RSA key lock after {LOCK_TIMEOUT_SECONDS}s"
+            )
+            return False
+
+        except OSError as e:
+            logger.error(f"Failed to acquire RSA key lock: {e}")
+            return False
+
+    def _release_lock(self) -> None:
+        """Release the exclusive lock."""
+        if self._lock_file is not None:
+            try:
+                fcntl.flock(self._lock_file, fcntl.LOCK_UN)
+                os.close(self._lock_file)
+                logger.debug("Released RSA key generation lock")
+            except OSError as e:
+                logger.warning(f"Error releasing RSA key lock: {e}")
+            finally:
+                self._lock_file = None
+
+    def _load_persisted_keys(self) -> bool:
+        """Try to load keys from persisted files.
+
+        Returns:
+            True if keys were loaded successfully, False otherwise
+        """
+        private_path, public_path, _ = self._get_key_file_paths()
+
+        if not private_path.exists() or not public_path.exists():
+            return False
+
+        try:
+            self._load_from_files(
+                str(private_path),
+                str(public_path),
+                settings.rsa_key_id,
+            )
+            logger.info(
+                f"Loaded persisted RSA keys from {self._get_keys_directory()}. "
+                f"Key ID: {self._current_key_id}"
+            )
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to load persisted RSA keys: {e}")
+            return False
+
+    def _save_keys_to_files(self) -> None:
+        """Save current keys to files for persistence across workers.
+
+        Sets restrictive file permissions (600) for security.
+        """
+        if self._private_key is None:
+            return
+
+        private_path, public_path, _ = self._get_key_file_paths()
+        self._ensure_keys_directory()
+
+        try:
+            # Save private key with restrictive permissions
+            private_pem = self._private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+            private_path.write_bytes(private_pem)
+            os.chmod(private_path, stat.S_IRUSR | stat.S_IWUSR)  # 600
+
+            # Save public key
+            public_key = self._public_keys.get(self._current_key_id)
+            if public_key:
+                public_pem = public_key.public_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PublicFormat.SubjectPublicKeyInfo,
+                )
+                public_path.write_bytes(public_pem)
+                os.chmod(public_path, stat.S_IRUSR | stat.S_IWUSR)  # 600
+
+            logger.info(
+                f"Persisted auto-generated RSA keys to {self._get_keys_directory()}"
+            )
+
+        except OSError as e:
+            logger.error(f"Failed to persist RSA keys: {e}")
+            raise KeyLoadError(f"Failed to save RSA keys: {e}") from e
 
     def initialize(self) -> None:
         """Initialize keys from configuration.
@@ -134,19 +300,71 @@ class RSAKeyManager:
                 logger.warning(f"Failed to load keys from files: {e}")
 
         # Auto-generate keys if enabled (development mode)
+        # For multi-worker support, keys are persisted to filesystem
         if settings.auto_generate_rsa_keys:
-            logger.info("Auto-generating RSA keys (development mode)...")
-            try:
-                self._generate_keypair(settings.rsa_key_id)
+            # First, try to load already-persisted keys (created by another worker)
+            if self._load_persisted_keys():
                 self._initialized = True
-                logger.info(f"RSA keys auto-generated. Key ID: {self._current_key_id}")
                 logger.warning(
-                    "WARNING: Auto-generated keys should NOT be used in production!"
+                    "WARNING: Using auto-generated keys. "
+                    "For production, configure explicit RSA keys via environment variables."
                 )
                 return
+
+            # No persisted keys found - need to generate
+            # Use file locking to prevent race conditions with other workers
+            _, _, lock_path = self._get_key_file_paths()
+
+            logger.info(
+                "No persisted RSA keys found. Acquiring lock for key generation..."
+            )
+
+            if not self._acquire_lock(lock_path):
+                # Lock timeout - another worker might be generating keys
+                # Try loading persisted keys one more time
+                logger.warning(
+                    "Could not acquire lock for RSA key generation. "
+                    "Attempting to load keys that may have been created by another worker..."
+                )
+                if self._load_persisted_keys():
+                    self._initialized = True
+                    return
+                else:
+                    raise KeyLoadError(
+                        "Failed to acquire lock and no persisted keys found. "
+                        "RSA key initialization failed."
+                    )
+
+            try:
+                # Double-check: another worker might have created keys while we waited
+                if self._load_persisted_keys():
+                    self._initialized = True
+                    logger.info(
+                        "Another worker created RSA keys while waiting for lock."
+                    )
+                    return
+
+                # Generate new keys and persist them
+                logger.info("Generating new RSA keypair...")
+                self._generate_keypair(settings.rsa_key_id)
+                self._save_keys_to_files()
+                self._initialized = True
+
+                logger.info(
+                    f"RSA keys auto-generated and persisted. Key ID: {self._current_key_id}"
+                )
+                logger.warning(
+                    "WARNING: Using auto-generated keys. "
+                    "For production, configure explicit RSA keys via environment variables."
+                )
+                return
+
             except Exception as e:
                 logger.error(f"Failed to generate RSA keys: {e}")
                 raise KeyLoadError(f"Auto-generation failed: {e}") from e
+
+            finally:
+                self._release_lock()
 
         # No keys configured
         logger.warning(

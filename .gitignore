@@ -162,6 +162,11 @@ backend/uv.lock
 data/
 backend/data/
 
+# RSA keys (auto-generated for multi-worker support)
+# These should NEVER be committed to version control
+**/rsa_keys/
+*.pem
+
 # Backend-specific ignores
 backend/.coverage
 backend/coverage.xml
