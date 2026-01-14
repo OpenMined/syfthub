@@ -70,22 +70,33 @@ export class HubResource {
   /**
    * Resolve an endpoint path to its ID.
    *
+   * This searches the user's own endpoints to find the ID.
+   *
    * @param path - Endpoint path in "owner/slug" format
    * @returns The endpoint ID
    */
   private async resolveEndpointId(path: string): Promise<number> {
-    const [owner, slug] = this.parsePath(path);
+    const [, slug] = this.parsePath(path);
 
-    // Get the endpoint - when authenticated, we get the full response with ID
-    const response = await this.http.get<{ id?: number }>(`/${owner}/${slug}`);
+    // Search the user's endpoints to find the ID
+    // This uses /api/v1/endpoints which returns full details including ID
+    const endpoints = await this.http.get<Array<{ id?: number; slug?: string }>>(
+      '/api/v1/endpoints',
+      { limit: 100 }
+    );
 
-    if (response.id === undefined) {
-      throw new Error(
-        `Could not resolve endpoint ID for '${path}'. Make sure you are authenticated.`
-      );
+    for (const ep of endpoints) {
+      if (ep.slug === slug && ep.id !== undefined) {
+        return ep.id;
+      }
     }
 
-    return response.id;
+    // Import NotFoundError here to avoid circular dependency
+    const { NotFoundError } = await import('../errors.js');
+    throw new NotFoundError(
+      `Could not resolve endpoint ID for '${path}'. ` +
+        'Endpoint not found or you don\'t have access to get its ID.'
+    );
   }
 
   /**
@@ -131,16 +142,31 @@ export class HubResource {
   /**
    * Get an endpoint by its path.
    *
+   * This method searches the public endpoints API to find the endpoint,
+   * which works reliably across all deployment configurations.
+   *
    * @param path - Endpoint path in "owner/slug" format (e.g., "alice/cool-api")
    * @returns The EndpointPublic
    * @throws {NotFoundError} If endpoint not found
    */
   async get(path: string): Promise<EndpointPublic> {
     const [owner, slug] = this.parsePath(path);
-    // Use auth if available (gets more details)
-    return this.http.get<EndpointPublic>(`/${owner}/${slug}`, undefined, {
-      includeAuth: this.http.hasTokens(),
-    });
+
+    // Search public endpoints to find the matching one
+    // This approach works because /api/v1/endpoints/public is reliably
+    // served by the backend API, unlike /{owner}/{slug} which may be
+    // intercepted by frontend routing in some deployments.
+    for await (const endpoint of this.browse({ pageSize: 100 })) {
+      if (endpoint.ownerUsername === owner && endpoint.slug === slug) {
+        return endpoint;
+      }
+    }
+
+    // Import NotFoundError here to avoid circular dependency
+    const { NotFoundError } = await import('../errors.js');
+    throw new NotFoundError(
+      `Endpoint not found: '${path}'. No public endpoint found with owner '${owner}' and slug '${slug}'.`
+    );
   }
 
   /**

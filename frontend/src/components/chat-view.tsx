@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-import type { ChatStreamEvent, EndpointRef } from '@/lib/sdk-client';
+import type { ChatStreamEvent } from '@/lib/sdk-client';
 import type { ChatSource } from '@/lib/types';
+import type { ProcessingStatus } from './chat/status-indicator';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -30,6 +31,7 @@ import {
 import { CostEstimationPanel } from './chat/cost-estimation-panel';
 import { MarkdownMessage } from './chat/markdown-message';
 import { ModelSelector } from './chat/model-selector';
+import { StatusIndicator } from './chat/status-indicator';
 import { Badge } from './ui/badge';
 import { Label } from './ui/label';
 import { Switch } from './ui/switch';
@@ -413,59 +415,152 @@ interface Message {
   isThinking?: boolean;
 }
 
-// Thinking indicator component with pulsing glow animation
-function ThinkingIndicator() {
-  return (
-    <div className='flex items-center gap-1.5 px-1'>
-      <span className='font-inter text-sm text-[#5e5a72]'>Thinking</span>
-      <div className='flex items-center gap-1'>
-        {[0, 1, 2].map((index) => (
-          <motion.span
-            key={index}
-            className='inline-block h-1.5 w-1.5 rounded-full bg-[#6976ae]'
-            animate={{
-              opacity: [0.3, 1, 0.3],
-              scale: [0.85, 1, 0.85]
-            }}
-            transition={{
-              duration: 1.2,
-              repeat: Infinity,
-              delay: index * 0.2,
-              ease: 'easeInOut'
-            }}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 interface ChatViewProperties {
   initialQuery: string;
 }
 
-// Helper function to process SDK streaming events
+// Helper function to process SDK streaming events (handles token content)
 function processStreamEvent(event: ChatStreamEvent, onToken: (content: string) => void): void {
   switch (event.type) {
     case 'token': {
-      // SDK provides strongly typed event.content
       onToken(event.content);
       break;
     }
     case 'error': {
       throw new Error(event.message);
     }
-    case 'done': {
-      // Response complete - could add metadata handling here
-      // event.sources and event.metadata available for logging/display
+    default: {
+      // Other events handled by updateStatusFromEvent
       break;
     }
-    // Other events could be used for UI feedback:
-    // - retrieval_start: show "Retrieving from X sources..."
-    // - source_complete: show "Retrieved N docs from source"
-    // - retrieval_complete: show "Retrieval done in Xms"
-    // - generation_start: show "Generating response..."
-    default: {
+  }
+}
+
+// Helper to extract a display name from an endpoint path (e.g., "owner/my-data-source" → "My Data Source")
+function extractSourceDisplayName(path: string): string {
+  const parts = path.split('/');
+  const name = parts.at(-1) ?? path;
+  return name
+    .split('-')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+// Helper to update processing status from streaming events
+function updateStatusFromEvent(
+  event: ChatStreamEvent,
+  setProcessingStatus: React.Dispatch<React.SetStateAction<ProcessingStatus | null>>
+): void {
+  switch (event.type) {
+    case 'retrieval_start': {
+      if (event.sourceCount === 0) {
+        // No data sources - show preparing message
+        setProcessingStatus({
+          phase: 'retrieving',
+          message: 'Preparing request...',
+          completedSources: []
+        });
+      } else {
+        setProcessingStatus({
+          phase: 'retrieving',
+          message: `Searching ${event.sourceCount} data ${event.sourceCount === 1 ? 'source' : 'sources'}...`,
+          retrieval: {
+            completed: 0,
+            total: event.sourceCount,
+            documentsFound: 0
+          },
+          completedSources: []
+        });
+      }
+      break;
+    }
+
+    case 'source_complete': {
+      setProcessingStatus((previous) => {
+        if (!previous) return null;
+        const newCompleted = (previous.retrieval?.completed ?? 0) + 1;
+        const newDocsFound = (previous.retrieval?.documentsFound ?? 0) + event.documentsRetrieved;
+        const total = previous.retrieval?.total ?? 1;
+
+        return {
+          ...previous,
+          message: `Retrieved from ${newCompleted}/${total} ${total === 1 ? 'source' : 'sources'}...`,
+          retrieval: {
+            completed: newCompleted,
+            total,
+            documentsFound: newDocsFound
+          },
+          completedSources: [
+            ...previous.completedSources,
+            {
+              path: event.path,
+              displayName: extractSourceDisplayName(event.path),
+              status: event.status as 'success' | 'error' | 'timeout',
+              documents: event.documentsRetrieved
+            }
+          ]
+        };
+      });
+      break;
+    }
+
+    case 'retrieval_complete': {
+      setProcessingStatus((previous) => {
+        if (!previous) return null;
+        const documentCount = event.totalDocuments;
+        return {
+          ...previous,
+          message:
+            documentCount > 0
+              ? `Found ${documentCount} relevant ${documentCount === 1 ? 'document' : 'documents'}`
+              : 'No relevant documents found',
+          timing: {
+            ...previous.timing,
+            retrievalMs: event.timeMs
+          }
+        };
+      });
+      break;
+    }
+
+    case 'generation_start': {
+      setProcessingStatus((previous) => ({
+        phase: 'generating',
+        message: 'Generating response...',
+        completedSources: previous?.completedSources ?? [],
+        retrieval: previous?.retrieval,
+        timing: previous?.timing
+      }));
+      break;
+    }
+
+    case 'token': {
+      // Update phase to streaming on first token (prevents excessive re-renders)
+      setProcessingStatus((previous) => {
+        if (!previous || previous.phase === 'streaming') return previous;
+        return {
+          ...previous,
+          phase: 'streaming',
+          message: 'Writing response...'
+        };
+      });
+      break;
+    }
+
+    case 'done': {
+      // Clear status - the response content is now visible
+      setProcessingStatus(null);
+      break;
+    }
+
+    case 'error': {
+      setProcessingStatus((previous) => ({
+        phase: 'error',
+        message: event.message,
+        completedSources: previous?.completedSources ?? [],
+        retrieval: previous?.retrieval,
+        timing: previous?.timing
+      }));
       break;
     }
   }
@@ -510,6 +605,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
 
   // Chat processing state
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState<ProcessingStatus | null>(null);
 
   // Load real data sources from backend
   useEffect(() => {
@@ -682,57 +778,53 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
       }
     ]);
 
-    // Build request with URLs (not paths)
-    // Validate model has a URL configured
-    if (!selectedModel.url) {
+    // Build endpoint paths using "owner/slug" format
+    // The SDK will resolve these to full endpoint references internally
+    const modelPath = selectedModel.full_path;
+    if (!modelPath) {
       setMessages((previous) =>
         updateMessageContent(
           previous,
           assistantMessageId,
-          'Error: Selected model does not have a connection URL configured.'
+          'Error: Selected model does not have a valid path configured.'
         )
       );
       setIsProcessing(false);
       return;
     }
 
-    // Build EndpointRef for model (SDK uses camelCase)
-    const modelReference: EndpointRef = {
-      url: selectedModel.url,
-      slug: selectedModel.slug,
-      name: selectedModel.name,
-      tenantName: selectedModel.tenant_name,
-      ownerUsername: selectedModel.owner_username
-    };
-
-    // Build EndpointRef array for data sources
-    const dataSourceReferences = selectedSources
+    // Build data source paths
+    const dataSourcePaths = selectedSources
       .map((id) => {
         const source = availableSources.find((s) => s.id === id);
-        if (!source?.url || !source.slug) return null;
-        return {
-          url: source.url,
-          slug: source.slug,
-          name: source.name,
-          tenantName: source.tenant_name,
-          ownerUsername: source.owner_username
-        } as EndpointRef;
+        return source?.full_path;
       })
-      .filter((ref): ref is EndpointRef => ref !== null);
+      .filter((path): path is string => path !== undefined);
 
     // Create abort controller for cancellation
     abortControllerReference.current = new AbortController();
 
+    // Initialize processing status
+    setProcessingStatus({
+      phase: 'retrieving',
+      message: 'Starting...',
+      completedSources: []
+    });
+
     try {
       let accumulatedContent = '';
 
-      // Use SDK for streaming - handles auth and user_email internally
+      // Use SDK for streaming - SDK resolves paths internally
       for await (const event of syftClient.chat.stream({
         prompt: inputValue,
-        model: modelReference,
-        dataSources: dataSourceReferences,
+        model: modelPath,
+        dataSources: dataSourcePaths.length > 0 ? dataSourcePaths : undefined,
         signal: abortControllerReference.current.signal
       })) {
+        // Update processing status from event
+        updateStatusFromEvent(event, setProcessingStatus);
+
+        // Handle token content
         processStreamEvent(event, (content) => {
           accumulatedContent += content;
           setMessages((previous) =>
@@ -745,7 +837,8 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
       let errorMessage = 'An unexpected error occurred';
 
       if (error instanceof Error && error.name === 'AbortError') {
-        // Don't show error if it was aborted
+        // Don't show error if it was aborted - clean up status
+        setProcessingStatus(null);
         return;
       }
 
@@ -762,6 +855,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
       setMessages((previous) =>
         updateMessageContent(previous, assistantMessageId, `Error: ${errorMessage}`)
       );
+      setProcessingStatus(null);
     } finally {
       setIsProcessing(false);
       abortControllerReference.current = null;
@@ -800,16 +894,9 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
               <div
                 className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'} max-w-full`}
               >
-                {/* Thinking Indicator */}
-                {message.isThinking && !message.content && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -8 }}
-                    className='rounded-2xl rounded-bl-none border border-[#ecebef] bg-[#f7f6f9] px-5 py-3 shadow-sm'
-                  >
-                    <ThinkingIndicator />
-                  </motion.div>
+                {/* Status Indicator - shows real-time progress during processing */}
+                {message.isThinking && !message.content && processingStatus && (
+                  <StatusIndicator status={processingStatus} />
                 )}
 
                 {/* Text Content */}

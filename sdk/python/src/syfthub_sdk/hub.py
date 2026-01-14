@@ -102,6 +102,9 @@ class HubResource:
     def get(self, path: str) -> EndpointPublic:
         """Get an endpoint by its path (owner/slug format).
 
+        This method searches the public endpoints API to find the endpoint,
+        which works reliably across all deployment configurations.
+
         Args:
             path: Endpoint path in "owner/slug" format (e.g., "alice/cool-api")
 
@@ -112,13 +115,22 @@ class HubResource:
             NotFoundError: If endpoint not found
             ValueError: If path format is invalid
         """
+        from syfthub_sdk.exceptions import NotFoundError
+
         owner, slug = self._parse_path(path)
-        response = self._http.get(
-            f"/{owner}/{slug}",
-            include_auth=self._http.is_authenticated,
+
+        # Search public endpoints to find the matching one
+        # This approach works because /api/v1/endpoints/public is reliably
+        # served by the backend API, unlike /{owner}/{slug} which may be
+        # intercepted by frontend routing in some deployments.
+        for endpoint in self.browse(page_size=100):
+            if endpoint.owner_username == owner and endpoint.slug == slug:
+                return endpoint
+
+        raise NotFoundError(
+            message=f"Endpoint not found: '{path}'",
+            detail=f"No public endpoint found with owner '{owner}' and slug '{slug}'",
         )
-        data = response if isinstance(response, dict) else {}
-        return EndpointPublic.model_validate(data)
 
     def star(self, path: str) -> None:
         """Star an endpoint.
@@ -187,6 +199,7 @@ class HubResource:
         """Resolve an endpoint path to its ID.
 
         This requires authentication to get the full endpoint details.
+        Uses the user's own endpoints API to find the ID.
 
         Args:
             path: Endpoint path in "owner/slug" format
@@ -198,19 +211,29 @@ class HubResource:
             NotFoundError: If endpoint not found
             AuthenticationError: If not authenticated
         """
+        from syfthub_sdk.exceptions import NotFoundError
+
         owner, slug = self._parse_path(path)
 
-        # Get the endpoint - when authenticated, we get the full response with ID
-        response = self._http.get(f"/{owner}/{slug}")
-        data = response if isinstance(response, dict) else {}
+        # Search the user's endpoints to find the ID
+        # This uses /api/v1/endpoints which returns full details including ID
+        response = self._http.get(
+            "/api/v1/endpoints",
+            params={"limit": 100},
+        )
+        endpoints = response if isinstance(response, list) else []
 
-        # The response should include 'id' when authenticated
-        endpoint_id = data.get("id")
-        if endpoint_id is None:
-            # Fallback: try to get from nested structure
-            raise ValueError(
-                f"Could not resolve endpoint ID for '{path}'. "
-                "Make sure you are authenticated."
-            )
+        for ep in endpoints:
+            if ep.get("slug") == slug:
+                endpoint_id = ep.get("id")
+                if endpoint_id is not None:
+                    return int(endpoint_id)
 
-        return int(endpoint_id)
+        # If not found in user's endpoints, the endpoint might belong to another user
+        # In this case, we need to search public endpoints and use a different approach
+        raise NotFoundError(
+            message=f"Could not resolve endpoint ID for '{path}'",
+            detail="Endpoint not found or you don't have access to get its ID. "
+            "Star/unstar operations require the endpoint ID which is only "
+            "available for endpoints you own.",
+        )
