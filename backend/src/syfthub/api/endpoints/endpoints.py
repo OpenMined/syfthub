@@ -129,7 +129,7 @@ async def endpoint_exists_for_user(
     return endpoint_service.endpoint_exists_for_user(endpoint_slug, current_user)
 
 
-@router.patch("/{endpoint_slug}", response_model=EndpointResponse)
+@router.patch("/slug/{endpoint_slug}", response_model=EndpointResponse)
 async def update_endpoint_by_slug(
     endpoint_slug: str,
     endpoint_data: EndpointUpdate,
