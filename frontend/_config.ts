@@ -1,8 +1,9 @@
 const config = {
   metadata: {
-    title: 'SyftHub UI',
-    description: 'Modern React application with TypeScript, Tailwind CSS and shadcn/ui components',
-    keywords: 'syfthub, react, typescript, shadcn-ui, tailwindcss, vite'
+    title: 'SyftHub',
+    description: 'Discover and connect to PySyft dataspaces. Search, explore, and collaborate on privacy-preserving data science projects powered by OpenMined.',
+    keywords: 'syfthub, openmined, pysyft, privacy, data science, federated learning, differential privacy',
+    ogImage: '/og-image.png'
   },
   server: {
     host: '0.0.0.0',

@@ -22,7 +22,8 @@ export default defineConfig({
         return html
           .replace(/%TITLE%/g, config.metadata.title)
           .replace(/%DESCRIPTION%/g, config.metadata.description)
-          .replace(/%KEYWORDS%/g, config.metadata.keywords);
+          .replace(/%KEYWORDS%/g, config.metadata.keywords)
+          .replace(/%OG_IMAGE%/g, config.metadata.ogImage);
       }
     }
   ],
