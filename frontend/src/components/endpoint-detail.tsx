@@ -5,9 +5,7 @@ import type { ChatSource, EndpointType, Policy } from '@/lib/types';
 import {
   ArrowLeft,
   Calendar,
-  Check,
   Coins,
-  Copy,
   Gauge,
   Globe,
   Key,
@@ -435,7 +433,6 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
   const [endpoint, setEndpoint] = useState<ChatSource | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const loadEndpoint = async () => {
@@ -478,15 +475,6 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
 
     void loadEndpoint();
   }, [slug, owner]);
-
-  const handleCopySlug = () => {
-    const fullPath = endpoint?.full_path ?? `${endpoint?.owner_username ?? 'anonymous'}/${slug}`;
-    void navigator.clipboard.writeText(fullPath);
-    setCopied(true);
-    setTimeout(() => {
-      setCopied(false);
-    }, 2000);
-  };
 
   if (isLoading) {
     return (
@@ -566,20 +554,6 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                   <Calendar className='mr-1 h-3 w-3' />
                   Updated {endpoint.updated}
                 </Badge>
-              </div>
-
-              {/* Full path with copy */}
-              <div className='flex items-center gap-2'>
-                <code className='rounded-lg bg-[#f1f0f4] px-2 py-1 font-mono text-sm text-[#272532]'>
-                  {endpoint.full_path ?? `${endpoint.owner_username ?? 'anonymous'}/${slug}`}
-                </code>
-                <Button variant='ghost' size='sm' onClick={handleCopySlug} className='h-7 w-7 p-0'>
-                  {copied ? (
-                    <Check className='h-3.5 w-3.5 text-green-600' />
-                  ) : (
-                    <Copy className='h-3.5 w-3.5' />
-                  )}
-                </Button>
               </div>
             </div>
           </div>
