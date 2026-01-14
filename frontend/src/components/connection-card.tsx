@@ -92,30 +92,24 @@ function getConnectionConfig(type: string) {
   return CONNECTION_TYPE_CONFIG[type.toLowerCase()] ?? DEFAULT_CONFIG;
 }
 
-function truncateUrl(url: string, maxLength = 35): string {
-  if (url.length <= maxLength) return url;
-  // Keep protocol and truncate the rest
-  const protocolMatch = /^(https?:\/\/)/.exec(url);
-  const protocol = protocolMatch?.[1] ?? '';
-  const rest = url.slice(protocol.length);
-  const truncated = rest.slice(0, maxLength - protocol.length - 3);
-  return `${protocol}${truncated}...`;
-}
-
 interface SingleConnectionProperties {
   connection: Connection;
   isCompact?: boolean;
+  endpointSlug?: string;
 }
 
-function SingleConnection({ connection, isCompact = false }: Readonly<SingleConnectionProperties>) {
+function SingleConnection({
+  connection,
+  isCompact = false,
+  endpointSlug
+}: Readonly<SingleConnectionProperties>) {
   const [copied, setCopied] = useState(false);
   const config = getConnectionConfig(connection.type);
   const Icon = config.icon;
-  const url = typeof connection.config.url === 'string' ? connection.config.url : null;
 
-  const handleCopyUrl = () => {
-    if (url) {
-      void navigator.clipboard.writeText(url);
+  const handleCopySlug = () => {
+    if (endpointSlug) {
+      void navigator.clipboard.writeText(endpointSlug);
       setCopied(true);
       setTimeout(() => {
         setCopied(false);
@@ -191,8 +185,8 @@ function SingleConnection({ connection, isCompact = false }: Readonly<SingleConn
         </Badge>
       </div>
 
-      {/* URL section */}
-      {url && (
+      {/* Endpoint slug section */}
+      {endpointSlug && (
         <div className='mt-3'>
           <div className='flex items-center gap-2'>
             <code
@@ -201,21 +195,21 @@ function SingleConnection({ connection, isCompact = false }: Readonly<SingleConn
                 'bg-white/80 text-[#5e5a72] ring-1 ring-[#ecebef] ring-inset',
                 'transition-colors group-hover:bg-white group-hover:ring-[#cfcdd6]'
               )}
-              title={url}
+              title={endpointSlug}
             >
-              {truncateUrl(url)}
+              {endpointSlug}
             </code>
             <Button
               variant='ghost'
               size='sm'
-              onClick={handleCopyUrl}
+              onClick={handleCopySlug}
               className={cn(
                 'h-7 w-7 shrink-0 p-0 transition-all',
                 copied
                   ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-100'
                   : 'text-[#b4b0bf] hover:bg-white hover:text-[#5e5a72]'
               )}
-              title={copied ? 'Copied!' : 'Copy URL'}
+              title={copied ? 'Copied!' : 'Copy slug'}
             >
               {copied ? <Check className='h-3.5 w-3.5' /> : <Copy className='h-3.5 w-3.5' />}
             </Button>
@@ -230,12 +224,14 @@ interface ConnectionCardProperties {
   connections: Connection[];
   title?: string;
   showEmpty?: boolean;
+  endpointSlug?: string;
 }
 
 export function ConnectionCard({
   connections,
   title = 'Connections',
-  showEmpty = true
+  showEmpty = true,
+  endpointSlug
 }: Readonly<ConnectionCardProperties>) {
   // Filter to only show connections (optionally filter to enabled only)
   const validConnections = connections.filter((c) => c.type);
@@ -264,6 +260,7 @@ export function ConnectionCard({
               key={`${connection.type}-${String(index)}`}
               connection={connection}
               isCompact={validConnections.length > 2}
+              endpointSlug={endpointSlug}
             />
           ))}
         </div>

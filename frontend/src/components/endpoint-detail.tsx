@@ -8,7 +8,6 @@ import {
   Check,
   Coins,
   Copy,
-  Download,
   Gauge,
   Globe,
   Key,
@@ -583,18 +582,6 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                 </Button>
               </div>
             </div>
-
-            {/* Action buttons */}
-            <div className='flex gap-2'>
-              <Button variant='outline' className='flex items-center gap-2'>
-                <Star className='h-4 w-4' />
-                Star
-              </Button>
-              <Button className='flex items-center gap-2'>
-                <Download className='h-4 w-4' />
-                Use Endpoint
-              </Button>
-            </div>
           </div>
         </div>
       </div>
@@ -752,7 +739,12 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
 
             {/* Connections Card */}
             {endpoint.connections && endpoint.connections.length > 0 && (
-              <ConnectionCard connections={endpoint.connections} />
+              <ConnectionCard
+                connections={endpoint.connections}
+                endpointSlug={
+                  endpoint.full_path ?? `${endpoint.owner_username ?? 'anonymous'}/${slug}`
+                }
+              />
             )}
 
             {/* Access Policies Card */}
