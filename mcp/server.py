@@ -148,6 +148,12 @@ else:
     logger.info("RSA key pair generated successfully")
 
 # In-memory storage for OAuth server
+# TODO: Replace in-memory storage with Redis-backed storage to support multiple workers.
+# Currently limited to single worker (--workers 1) because OAuth client registrations,
+# authorization codes, and access tokens are stored in-memory per process.
+# With multiple workers, a client registered on Worker A won't exist on Worker B,
+# causing "invalid_client" errors. Redis is already available in the stack and can be
+# used to share OAuth state across workers. See: https://redis.io/docs/data-types/hashes/
 oauth_clients: Dict[str, dict] = {}
 oauth_authorization_codes: Dict[str, dict] = {}
 oauth_access_tokens: Dict[str, dict] = {}
@@ -1511,11 +1517,11 @@ def discover_syfthub_endpoints() -> Dict[str, Any]:
                 "path": endpoint.path,
                 "name": endpoint.name,
                 "description": endpoint.description[:200] if endpoint.description else "",
-                "owner": endpoint.owner.username if endpoint.owner else "unknown",
+                "owner": endpoint.owner_username or "unknown",
                 "has_url": has_url,
                 "url": endpoint_url,
                 "slug": endpoint.slug,
-                "tenant_name": endpoint.owner.username if endpoint.owner else None,
+                "tenant_name": endpoint.owner_username,
             }
 
             if endpoint.type == EndpointType.MODEL:

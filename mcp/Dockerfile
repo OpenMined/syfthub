@@ -113,6 +113,6 @@ EXPOSE 8002
 CMD ["/app/.venv/bin/uvicorn", "server:create_app", \
      "--host", "0.0.0.0", \
      "--port", "8002", \
-     "--workers", "2", \
+     "--workers", "1", \
      "--log-level", "info", \
      "--factory"]
