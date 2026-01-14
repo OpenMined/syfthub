@@ -701,7 +701,8 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
       url: selectedModel.url,
       slug: selectedModel.slug,
       name: selectedModel.name,
-      tenantName: selectedModel.tenant_name
+      tenantName: selectedModel.tenant_name,
+      ownerUsername: selectedModel.owner_username
     };
 
     // Build EndpointRef array for data sources
@@ -713,7 +714,8 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
           url: source.url,
           slug: source.slug,
           name: source.name,
-          tenantName: source.tenant_name
+          tenantName: source.tenant_name,
+          ownerUsername: source.owner_username
         } as EndpointRef;
       })
       .filter((ref): ref is EndpointRef => ref !== null);
