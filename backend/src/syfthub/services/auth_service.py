@@ -411,15 +411,10 @@ class AuthService(BaseService):
         """Register a new user - router-compatible wrapper."""
         return self.register_user(user_data)
 
-    def login(self, username: str, password: str) -> Token:
-        """Login user and return tokens - router-compatible wrapper."""
+    def login(self, username: str, password: str) -> AuthResponse:
+        """Login user and return tokens with user info - router-compatible wrapper."""
         login_data = UserLogin(username=username, password=password)
-        auth_response = self.login_user(login_data)
-        return Token(
-            access_token=auth_response.access_token,
-            refresh_token=auth_response.refresh_token,
-            token_type=auth_response.token_type,
-        )
+        return self.login_user(login_data)
 
     def refresh_token(self, refresh_token: str) -> Token:
         """Refresh access token - router-compatible wrapper."""

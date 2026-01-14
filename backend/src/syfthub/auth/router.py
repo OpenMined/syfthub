@@ -21,6 +21,7 @@ from syfthub.domain.exceptions import (
     UserAlreadyExistsError,
 )
 from syfthub.schemas.auth import (
+    AuthResponse,
     PasswordChange,
     RefreshTokenRequest,
     RegistrationResponse,
@@ -163,11 +164,11 @@ async def register_user(
         ) from e
 
 
-@router.post("/login", response_model=Token)
+@router.post("/login", response_model=AuthResponse)
 async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
-) -> Token:
+) -> AuthResponse:
     """OAuth2 compatible token login, get an access token for future requests."""
     return auth_service.login(form_data.username, form_data.password)
 
