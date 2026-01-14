@@ -173,7 +173,8 @@ export interface EndpointPublicResponse {
   slug: string;
   description: string;
   type: EndpointType;
-  contributors: number[];
+  /** Number of contributors (user IDs not exposed for privacy) */
+  contributors_count: number;
   version: string;
   readme: string;
   stars_count: number;
@@ -197,7 +198,8 @@ export interface ChatSource {
   stars_count: number;
   version: string;
   readme: string; // Markdown content for documentation
-  contributors: number[];
+  /** Number of contributors (user IDs not exposed for privacy) */
+  contributors_count: number;
   owner_username?: string; // Username of the endpoint owner
   full_path?: string; // Full path: username/endpoint-name
   url?: string; // Connection URL from connect[0].config.url (if available)

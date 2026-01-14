@@ -53,6 +53,8 @@ export interface EndpointPublic {
   readonly description: string;
   readonly type: EndpointType;
   readonly ownerUsername: string;
+  /** Number of contributors (user IDs not exposed for privacy) */
+  readonly contributorsCount: number;
   readonly version: string;
   readonly readme: string;
   readonly starsCount: number;

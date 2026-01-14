@@ -112,7 +112,7 @@ export function mapEndpointPublicToSource(endpoint: SdkEndpointPublic): ChatSour
     stars_count: endpoint.starsCount,
     version: endpoint.version,
     readme: endpoint.readme,
-    contributors: [],
+    contributors_count: endpoint.contributorsCount ?? 0,
     owner_username: ownerUsername,
     full_path: fullPath,
     url: url,

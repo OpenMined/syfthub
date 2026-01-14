@@ -701,10 +701,8 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                   <div className='flex items-center gap-1'>
                     <Users className='h-4 w-4 text-[#b4b0bf]' />
                     <span className='font-inter text-sm text-[#272532]'>
-                      {/* eslint-disable @typescript-eslint/no-unnecessary-condition -- Defensive null check */}
-                      {endpoint.contributors?.length ?? 1} contributor
-                      {(endpoint.contributors?.length ?? 1) === 1 ? '' : 's'}
-                      {/* eslint-enable @typescript-eslint/no-unnecessary-condition */}
+                      {endpoint.contributors_count ?? 1} contributor
+                      {(endpoint.contributors_count ?? 1) === 1 ? '' : 's'}
                     </span>
                   </div>
                 </div>
