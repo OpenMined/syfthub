@@ -22,7 +22,6 @@ from syfthub_sdk.chat import (
 )
 from syfthub_sdk.exceptions import (
     AggregatorError,
-    AuthenticationError,
     EndpointResolutionError,
 )
 from syfthub_sdk.models import (
@@ -124,6 +123,15 @@ def mock_chat_response() -> dict[str, Any]:
     }
 
 
+@pytest.fixture
+def mock_satellite_token_response() -> dict[str, Any]:
+    """Return mock satellite token response."""
+    return {
+        "target_token": "fake-satellite-token-for-alice",
+        "expires_in": 3600,
+    }
+
+
 # =============================================================================
 # ChatResource Unit Tests
 # =============================================================================
@@ -138,14 +146,14 @@ class TestChatComplete:
         base_url: str,
         aggregator_url: str,
         fake_tokens: AuthTokens,
-        mock_user_response: dict[str, Any],
         mock_endpoint_public: dict[str, Any],
         mock_chat_response: dict[str, Any],
+        mock_satellite_token_response: dict[str, Any],
     ) -> None:
         """Test chat completion with string endpoint references."""
-        # Mock auth endpoint
-        respx.get(f"{base_url}/api/v1/auth/me").mock(
-            return_value=httpx.Response(200, json=mock_user_response)
+        # Mock satellite token endpoint (for owner "alice")
+        respx.get(f"{base_url}/api/v1/token").mock(
+            return_value=httpx.Response(200, json=mock_satellite_token_response)
         )
 
         # Mock hub endpoint lookup for model (hub.get uses /{owner}/{slug} path)
@@ -187,12 +195,17 @@ class TestChatComplete:
         base_url: str,
         aggregator_url: str,
         fake_tokens: AuthTokens,
-        mock_user_response: dict[str, Any],
         mock_chat_response: dict[str, Any],
+        mock_satellite_token_response: dict[str, Any],
     ) -> None:
-        """Test chat completion with EndpointRef objects."""
-        respx.get(f"{base_url}/api/v1/auth/me").mock(
-            return_value=httpx.Response(200, json=mock_user_response)
+        """Test chat completion with EndpointRef objects.
+
+        Note: When using EndpointRef with owner_username, satellite tokens
+        are fetched. Without owner_username, no tokens are fetched.
+        """
+        # Mock satellite token endpoint (for owner "alice")
+        respx.get(f"{base_url}/api/v1/token").mock(
+            return_value=httpx.Response(200, json=mock_satellite_token_response)
         )
 
         respx.post(f"{aggregator_url}/chat").mock(
@@ -206,6 +219,7 @@ class TestChatComplete:
             url="http://syftai:8080",
             slug="test-model",
             name="Test Model",
+            owner_username="alice",  # Include owner for satellite token
         )
 
         response = client.chat.complete(
@@ -216,33 +230,13 @@ class TestChatComplete:
         assert isinstance(response, ChatResponse)
 
     @respx.mock
-    def test_complete_requires_authentication(
-        self,
-        base_url: str,
-    ) -> None:
-        """Test that complete() requires authentication."""
-        client = SyftHubClient(base_url=base_url)
-        # Don't set tokens
-
-        with pytest.raises(AuthenticationError, match="authenticated"):
-            client.chat.complete(
-                prompt="Hello",
-                model="alice/model",
-            )
-
-    @respx.mock
     def test_complete_aggregator_error(
         self,
         base_url: str,
         aggregator_url: str,
         fake_tokens: AuthTokens,
-        mock_user_response: dict[str, Any],
     ) -> None:
         """Test handling of aggregator errors."""
-        respx.get(f"{base_url}/api/v1/auth/me").mock(
-            return_value=httpx.Response(200, json=mock_user_response)
-        )
-
         respx.post(f"{aggregator_url}/chat").mock(
             return_value=httpx.Response(
                 500,
@@ -253,6 +247,7 @@ class TestChatComplete:
         client = SyftHubClient(base_url=base_url)
         client._http.set_tokens(fake_tokens)
 
+        # EndpointRef without owner_username means no satellite tokens are fetched
         model_ref = EndpointRef(url="http://syftai:8080", slug="model")
 
         with pytest.raises(AggregatorError, match="Internal server error"):
@@ -263,13 +258,8 @@ class TestChatComplete:
         self,
         base_url: str,
         fake_tokens: AuthTokens,
-        mock_user_response: dict[str, Any],
     ) -> None:
         """Test handling of endpoint resolution errors."""
-        respx.get(f"{base_url}/api/v1/auth/me").mock(
-            return_value=httpx.Response(200, json=mock_user_response)
-        )
-
         respx.get(f"{base_url}/alice/nonexistent").mock(
             return_value=httpx.Response(404, json={"detail": "Not found"})
         )
@@ -293,13 +283,8 @@ class TestChatStream:
         base_url: str,
         aggregator_url: str,
         fake_tokens: AuthTokens,
-        mock_user_response: dict[str, Any],
     ) -> None:
         """Test that stream() parses SSE events correctly."""
-        respx.get(f"{base_url}/api/v1/auth/me").mock(
-            return_value=httpx.Response(200, json=mock_user_response)
-        )
-
         # Create SSE response
         sse_content = (
             'event: retrieval_start\ndata: {"sources": 2}\n\n'
@@ -322,6 +307,7 @@ class TestChatStream:
         client = SyftHubClient(base_url=base_url)
         client._http.set_tokens(fake_tokens)
 
+        # EndpointRef without owner_username means no satellite tokens are fetched
         model_ref = EndpointRef(url="http://syftai:8080", slug="model")
 
         events: list[ChatStreamEvent] = []
@@ -350,13 +336,8 @@ class TestChatStream:
         base_url: str,
         aggregator_url: str,
         fake_tokens: AuthTokens,
-        mock_user_response: dict[str, Any],
     ) -> None:
         """Test that stream() handles error events."""
-        respx.get(f"{base_url}/api/v1/auth/me").mock(
-            return_value=httpx.Response(200, json=mock_user_response)
-        )
-
         sse_content = 'event: error\ndata: {"message": "Model unavailable"}\n\n'
 
         respx.post(f"{aggregator_url}/chat/stream").mock(
@@ -370,6 +351,7 @@ class TestChatStream:
         client = SyftHubClient(base_url=base_url)
         client._http.set_tokens(fake_tokens)
 
+        # EndpointRef without owner_username means no satellite tokens are fetched
         model_ref = EndpointRef(url="http://syftai:8080", slug="model")
 
         events = list(client.chat.stream(prompt="Hello", model=model_ref))
@@ -388,7 +370,7 @@ class TestEndpointResolution:
         base_url: str,
         mock_endpoint_public: dict[str, Any],
     ) -> None:
-        """Test resolving string path to EndpointRef."""
+        """Test resolving string path to EndpointRef with owner_username."""
         respx.get(f"{base_url}/alice/test-model").mock(
             return_value=httpx.Response(200, json=mock_endpoint_public)
         )
@@ -402,6 +384,7 @@ class TestEndpointResolution:
         assert ref.url == "http://syftai:8080"
         assert ref.slug == "test-model"
         assert ref.tenant_name == "default"
+        assert ref.owner_username == "alice"  # Verify owner is captured for satellite token
 
     def test_resolve_endpoint_ref_passthrough(
         self,
@@ -425,7 +408,7 @@ class TestEndpointResolution:
         self,
         base_url: str,
     ) -> None:
-        """Test resolving EndpointPublic to EndpointRef."""
+        """Test resolving EndpointPublic to EndpointRef with owner_username."""
         client = SyftHubClient(base_url=base_url)
 
         now = datetime.now(timezone.utc)
@@ -453,6 +436,7 @@ class TestEndpointResolution:
         assert isinstance(resolved, EndpointRef)
         assert resolved.url == "http://space:8080"
         assert resolved.slug == "test-model"
+        assert resolved.owner_username == "alice"  # Verify owner is captured for satellite token
 
     def test_resolve_endpoint_no_url_raises(
         self,

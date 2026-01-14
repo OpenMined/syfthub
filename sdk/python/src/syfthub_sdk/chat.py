@@ -3,6 +3,11 @@
 This module provides high-level chat functionality that integrates with the
 SyftHub Aggregator service for RAG (Retrieval-Augmented Generation) workflows.
 
+This resource handles satellite token authentication automatically:
+- Resolves endpoints and extracts owner information
+- Exchanges Hub access tokens for satellite tokens (one per unique owner)
+- Sends tokens to the aggregator for forwarding to SyftAI-Space
+
 Example usage:
     # Simple chat completion
     response = client.chat.complete(
@@ -23,29 +28,6 @@ Example usage:
     # Get available models and data sources
     models = list(client.chat.get_available_models())
     sources = list(client.chat.get_available_data_sources())
-
-TODO: Satellite Token Integration
----------------------------------
-When SyftAI-Space implements satellite token support, this resource should:
-
-1. Include the user's access token in requests to the aggregator
-2. The aggregator will forward this token to SyftAI-Space for permission checks
-
-Example change for complete() and stream() methods:
-    access_token = self._http.get_access_token()
-    response = self._agg_client.post(
-        f"{self._aggregator_url}/chat",
-        json=request_body,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {access_token}",  # Add this header
-        },
-    )
-
-See also:
-- aggregator/api/dependencies.py - receives and extracts the token
-- aggregator/clients/model.py - forwards token to SyftAI-Space
-- aggregator/clients/data_source.py - forwards token to SyftAI-Space
 """
 
 from __future__ import annotations
@@ -60,7 +42,6 @@ import httpx
 
 from syfthub_sdk.exceptions import (
     AggregatorError,
-    AuthenticationError,
     EndpointResolutionError,
 )
 from syfthub_sdk.models import (
@@ -75,7 +56,6 @@ from syfthub_sdk.models import (
 )
 
 if TYPE_CHECKING:
-    from syfthub_sdk._http import HTTPClient
     from syfthub_sdk.auth import AuthResource
     from syfthub_sdk.hub import HubResource
 
@@ -173,6 +153,11 @@ class ChatResource:
     - Sends prompts with context to model endpoints (generation)
     - Supports both synchronous and streaming responses
 
+    The resource handles satellite token authentication automatically:
+    - Resolves endpoints and extracts owner information
+    - Exchanges Hub access tokens for satellite tokens (one per unique owner)
+    - Sends tokens to the aggregator for forwarding to SyftAI-Space
+
     The aggregator service handles the RAG orchestration, including:
     - Parallel querying of multiple data sources
     - Context aggregation and prompt building
@@ -201,7 +186,6 @@ class ChatResource:
 
     def __init__(
         self,
-        http: HTTPClient,
         hub: HubResource,
         auth: AuthResource,
         aggregator_url: str,
@@ -209,45 +193,31 @@ class ChatResource:
         """Initialize chat resource.
 
         Args:
-            http: HTTP client for SyftHub API (for auth checks)
             hub: Hub resource for endpoint lookups
-            auth: Auth resource for getting current user
+            auth: Auth resource for satellite token exchange
             aggregator_url: Base URL of the aggregator service
         """
-        self._http = http
         self._hub = hub
         self._auth = auth
         self._aggregator_url = aggregator_url.rstrip("/")
         # Separate client for aggregator with longer timeout (LLM can be slow)
         self._agg_client = httpx.Client(timeout=120.0)
 
-    def _get_user_email(self) -> str:
-        """Get the current authenticated user's email.
-
-        Returns:
-            User's email address
-
-        Raises:
-            AuthenticationError: If not authenticated
-        """
-        if not self._http.is_authenticated:
-            raise AuthenticationError("Must be authenticated to use chat")
-        user = self._auth.me()
-        return user.email
-
     def _resolve_endpoint_ref(
         self,
         endpoint: str | EndpointRef | EndpointPublic,
         expected_type: str | None = None,
     ) -> EndpointRef:
-        """Convert any endpoint format to EndpointRef with URL.
+        """Convert any endpoint format to EndpointRef with URL and owner info.
+
+        The owner_username is critical for satellite token authentication.
 
         Args:
             endpoint: Endpoint path, EndpointRef, or EndpointPublic
             expected_type: Expected endpoint type ("model" or "data_source")
 
         Returns:
-            EndpointRef with URL and slug
+            EndpointRef with URL, slug, and owner_username
 
         Raises:
             EndpointResolutionError: If endpoint cannot be resolved
@@ -272,6 +242,7 @@ class ChatResource:
                         slug=endpoint.slug,
                         name=endpoint.name,
                         tenant_name=conn.config.get("tenant_name"),
+                        owner_username=endpoint.owner_username,  # Capture owner for satellite token
                     )
 
             raise EndpointResolutionError(
@@ -295,12 +266,56 @@ class ChatResource:
 
         raise TypeError(f"Cannot resolve endpoint from type: {type(endpoint)}")
 
+    def _collect_unique_owners(
+        self,
+        model_ref: EndpointRef,
+        data_source_refs: list[EndpointRef],
+    ) -> list[str]:
+        """Collect unique owner usernames from all endpoints.
+
+        Used to determine which satellite tokens need to be fetched.
+
+        Args:
+            model_ref: The model endpoint reference
+            data_source_refs: List of data source endpoint references
+
+        Returns:
+            List of unique owner usernames
+        """
+        owners: set[str] = set()
+
+        if model_ref.owner_username:
+            owners.add(model_ref.owner_username)
+
+        for ds in data_source_refs:
+            if ds.owner_username:
+                owners.add(ds.owner_username)
+
+        return list(owners)
+
+    def _get_satellite_tokens_for_owners(
+        self,
+        owners: list[str],
+    ) -> dict[str, str]:
+        """Get satellite tokens for all unique endpoint owners.
+
+        Args:
+            owners: List of owner usernames
+
+        Returns:
+            Dict mapping owner username to satellite token
+        """
+        if not owners:
+            return {}
+
+        return self._auth.get_satellite_tokens(owners)
+
     def _build_request_body(
         self,
         prompt: str,
-        user_email: str,
         model_ref: EndpointRef,
         data_source_refs: list[EndpointRef],
+        endpoint_tokens: dict[str, str],
         *,
         top_k: int = 5,
         max_tokens: int = 1024,
@@ -308,15 +323,19 @@ class ChatResource:
         similarity_threshold: float = 0.5,
         stream: bool = False,
     ) -> dict[str, Any]:
-        """Build the request body for the aggregator."""
+        """Build the request body for the aggregator.
+
+        Includes endpoint_tokens mapping for satellite token authentication.
+        User identity is derived from satellite tokens, not passed in request body.
+        """
         return {
             "prompt": prompt,
-            "user_email": user_email,
             "model": {
                 "url": model_ref.url,
                 "slug": model_ref.slug,
                 "name": model_ref.name,
                 "tenant_name": model_ref.tenant_name,
+                "owner_username": model_ref.owner_username,
             },
             "data_sources": [
                 {
@@ -324,9 +343,11 @@ class ChatResource:
                     "slug": ds.slug,
                     "name": ds.name,
                     "tenant_name": ds.tenant_name,
+                    "owner_username": ds.owner_username,
                 }
                 for ds in data_source_refs
             ],
+            "endpoint_tokens": endpoint_tokens,
             "top_k": top_k,
             "max_tokens": max_tokens,
             "temperature": temperature,
@@ -425,11 +446,10 @@ class ChatResource:
     ) -> ChatResponse:
         """Send a chat request and get the complete response.
 
-        This method sends a prompt to the aggregator service, which:
-        1. Queries the specified data sources for relevant context
-        2. Builds a RAG prompt with the retrieved documents
-        3. Sends the prompt to the model endpoint
-        4. Returns the complete response
+        This method automatically:
+        1. Resolves endpoints and extracts owner information
+        2. Exchanges Hub tokens for satellite tokens (one per unique owner)
+        3. Sends tokens to the aggregator for forwarding to SyftAI-Space
 
         Args:
             prompt: The user's question or prompt
@@ -444,7 +464,6 @@ class ChatResource:
             ChatResponse with response text, sources, and metadata
 
         Raises:
-            AuthenticationError: If not authenticated
             EndpointResolutionError: If endpoint cannot be resolved
             AggregatorError: If aggregator service fails
             ValueError: If endpoint type is wrong
@@ -458,18 +477,21 @@ class ChatResource:
             print(response.response)
             print(f"Used {len(response.sources)} sources")
         """
-        user_email = self._get_user_email()
         model_ref = self._resolve_endpoint_ref(model, expected_type="model")
 
         ds_refs = []
         for ds in data_sources or []:
             ds_refs.append(self._resolve_endpoint_ref(ds, expected_type="data_source"))
 
+        # Get satellite tokens for all unique endpoint owners
+        unique_owners = self._collect_unique_owners(model_ref, ds_refs)
+        endpoint_tokens = self._get_satellite_tokens_for_owners(unique_owners)
+
         request_body = self._build_request_body(
             prompt=prompt,
-            user_email=user_email,
             model_ref=model_ref,
             data_source_refs=ds_refs,
+            endpoint_tokens=endpoint_tokens,
             top_k=top_k,
             max_tokens=max_tokens,
             temperature=temperature,
@@ -544,8 +566,10 @@ class ChatResource:
     ) -> Iterator[ChatStreamEvent]:
         """Send a chat request and stream response events.
 
-        This method streams events as they occur, allowing real-time UI updates.
-        Events include retrieval progress, generation start, tokens, and completion.
+        This method automatically:
+        1. Resolves endpoints and extracts owner information
+        2. Exchanges Hub tokens for satellite tokens (one per unique owner)
+        3. Sends tokens to the aggregator for forwarding to SyftAI-Space
 
         Args:
             prompt: The user's question or prompt
@@ -578,18 +602,21 @@ class ChatResource:
                 elif event.type == "done":
                     print(f"\\nCompleted in {event.metadata.total_time_ms}ms")
         """
-        user_email = self._get_user_email()
         model_ref = self._resolve_endpoint_ref(model, expected_type="model")
 
         ds_refs = []
         for ds in data_sources or []:
             ds_refs.append(self._resolve_endpoint_ref(ds, expected_type="data_source"))
 
+        # Get satellite tokens for all unique endpoint owners
+        unique_owners = self._collect_unique_owners(model_ref, ds_refs)
+        endpoint_tokens = self._get_satellite_tokens_for_owners(unique_owners)
+
         request_body = self._build_request_body(
             prompt=prompt,
-            user_email=user_email,
             model_ref=model_ref,
             data_source_refs=ds_refs,
+            endpoint_tokens=endpoint_tokens,
             top_k=top_k,
             max_tokens=max_tokens,
             temperature=temperature,

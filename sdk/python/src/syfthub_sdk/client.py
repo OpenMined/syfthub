@@ -188,7 +188,6 @@ class SyftHubClient:
         """
         if self._chat is None:
             self._chat = ChatResource(
-                http=self._http,
                 hub=self._hub,
                 auth=self._auth,
                 aggregator_url=self._aggregator_url,

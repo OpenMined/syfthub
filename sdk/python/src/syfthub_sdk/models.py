@@ -58,6 +58,20 @@ class AuthTokens(BaseModel):
     model_config = {"frozen": True}
 
 
+class SatelliteTokenResponse(BaseModel):
+    """Response from satellite token endpoint.
+
+    Satellite tokens are short-lived, RS256-signed JWTs that allow satellite
+    services (like SyftAI-Space) to verify user identity without calling
+    SyftHub for every request.
+    """
+
+    target_token: str = Field(..., description="RS256-signed JWT for the target service")
+    expires_in: int = Field(..., description="Seconds until the token expires")
+
+    model_config = {"frozen": True}
+
+
 class Policy(BaseModel):
     """Policy configuration for endpoints."""
 
@@ -256,6 +270,7 @@ class EndpointRef(BaseModel):
             url="http://syftai-space:8080",
             slug="my-model",
             name="My Model",
+            owner_username="alice",
         )
 
         # From endpoint path (via ChatResource)
@@ -270,6 +285,10 @@ class EndpointRef(BaseModel):
     name: str = Field(default="", description="Display name of the endpoint")
     tenant_name: str | None = Field(
         default=None, description="Tenant name for X-Tenant-Name header"
+    )
+    owner_username: str | None = Field(
+        default=None,
+        description="Owner's username - used as the audience for satellite token authentication",
     )
 
     model_config = {"frozen": True}

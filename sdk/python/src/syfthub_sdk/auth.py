@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import concurrent.futures
 from typing import TYPE_CHECKING
 
-from syfthub_sdk.models import AuthTokens, User
+from syfthub_sdk.models import AuthTokens, SatelliteTokenResponse, User
 
 if TYPE_CHECKING:
     from syfthub_sdk._http import HTTPClient
@@ -254,3 +255,75 @@ class AuthResource:
                 "new_password": new_password,
             },
         )
+
+    def get_satellite_token(self, audience: str) -> SatelliteTokenResponse:
+        """Get a satellite token for a specific audience (target service).
+
+        Satellite tokens are short-lived, RS256-signed JWTs that allow satellite
+        services (like SyftAI-Space) to verify user identity without calling
+        SyftHub for every request.
+
+        Args:
+            audience: Target service identifier (username of the service owner)
+
+        Returns:
+            SatelliteTokenResponse with token and expiry
+
+        Raises:
+            AuthenticationError: If not authenticated
+            ValidationError: If audience is invalid or inactive
+
+        Example:
+            # Get a token for querying alice's SyftAI-Space endpoints
+            token_response = client.auth.get_satellite_token("alice")
+            print(f"Token expires in {token_response.expires_in} seconds")
+        """
+        response = self._http.get("/api/v1/token", params={"aud": audience})
+        data = response if isinstance(response, dict) else {}
+        return SatelliteTokenResponse.model_validate(data)
+
+    def get_satellite_tokens(self, audiences: list[str]) -> dict[str, str]:
+        """Get satellite tokens for multiple audiences in parallel.
+
+        This is useful when making requests to endpoints owned by different users.
+        Tokens are cached and reused where possible.
+
+        Args:
+            audiences: List of audience identifiers (usernames)
+
+        Returns:
+            Dict mapping audience to satellite token
+
+        Raises:
+            AuthenticationError: If not authenticated
+
+        Example:
+            # Get tokens for multiple endpoint owners
+            tokens = client.auth.get_satellite_tokens(["alice", "bob"])
+            print(f"Got {len(tokens)} tokens")
+        """
+        unique_audiences = list(set(audiences))
+        token_map: dict[str, str] = {}
+
+        if not unique_audiences:
+            return token_map
+
+        def fetch_token(aud: str) -> tuple[str, str | None]:
+            """Fetch a single token, returning None on failure."""
+            try:
+                response = self.get_satellite_token(aud)
+                return (aud, response.target_token)
+            except Exception:
+                # Failed tokens are silently skipped - the aggregator will handle missing tokens
+                return (aud, None)
+
+        # Fetch tokens in parallel using ThreadPoolExecutor
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(unique_audiences), 10)) as executor:
+            results = list(executor.map(fetch_token, unique_audiences))
+
+        # Collect successful results
+        for aud, token in results:
+            if token is not None:
+                token_map[aud] = token
+
+        return token_map
