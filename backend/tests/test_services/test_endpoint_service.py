@@ -284,6 +284,7 @@ class TestEndpointServiceGet:
                 description="A public endpoint",
                 type=EndpointType.MODEL,
                 owner_username="testuser",
+                contributors_count=1,
                 version="1.0.0",
                 readme="# Public Endpoint",
                 stars_count=5,
