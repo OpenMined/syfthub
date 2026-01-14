@@ -108,6 +108,8 @@ class UserRepository(BaseRepository[UserModel]):
                 user_model.accounting_service_url = user_data.accounting_service_url
             if user_data.accounting_password is not None:
                 user_model.accounting_password = user_data.accounting_password
+            if user_data.domain is not None:
+                user_model.domain = user_data.domain
 
             self.session.commit()
             self.session.refresh(user_model)
