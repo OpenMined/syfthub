@@ -432,6 +432,9 @@ async def list_owner_public_endpoints(
                 ds_dict["connect"],
             )
 
+        # Calculate contributors_count from contributors array (privacy: don't expose user IDs)
+        ds_dict["contributors_count"] = len(ds_dict.pop("contributors", []) or [])
+
         # Get the appropriate username/slug based on owner type
         if owner_type == "user":
             from syfthub.schemas.user import User
@@ -556,6 +559,11 @@ async def get_owner_endpoint(
             return EndpointResponse.model_validate(endpoint_dict)
         else:
             # Build public response with owner_username
+            # Calculate contributors_count from contributors array (privacy: don't expose user IDs)
+            endpoint_dict["contributors_count"] = len(
+                endpoint_dict.pop("contributors", []) or []
+            )
+
             # Get the appropriate username/slug based on owner type
             if owner_type == "user":
                 from syfthub.schemas.user import User

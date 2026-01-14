@@ -322,7 +322,10 @@ class EndpointPublicResponse(BaseModel):
         ..., description="Type of endpoint (model or data_source)"
     )
     owner_username: str = Field(..., description="Username of the endpoint owner")
-    # REMOVED contributors - privacy issue, only owner should see this
+    # Show contributor count (not user IDs) for privacy - users can see collaboration level
+    contributors_count: int = Field(
+        ..., description="Number of contributors to this endpoint"
+    )
     version: str = Field(..., description="Semantic version of the endpoint")
     readme: str = Field(..., description="Markdown content for the README")
     stars_count: int = Field(
