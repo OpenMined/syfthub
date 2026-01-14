@@ -54,6 +54,33 @@ def get_protocol_for_connection_type(connection_type: str) -> str:
     return CONNECTION_PROTOCOL_MAP.get(connection_type.lower(), "https")
 
 
+def normalize_domain(domain: str) -> str:
+    """Normalize a domain by stripping any protocol prefix and trailing slashes.
+
+    This is a defensive measure to handle cases where users accidentally include
+    the protocol in their domain (e.g., "https://api.example.com" instead of
+    "api.example.com").
+
+    Args:
+        domain: The domain string, possibly with protocol prefix
+
+    Returns:
+        The normalized domain without protocol or trailing slashes
+    """
+    normalized = domain.strip()
+
+    # Strip protocol prefixes (handle both http and https, with or without //)
+    for prefix in ("https://", "http://", "wss://", "ws://"):
+        if normalized.lower().startswith(prefix):
+            normalized = normalized[len(prefix) :]
+            break
+
+    # Strip trailing slashes
+    normalized = normalized.rstrip("/")
+
+    return normalized
+
+
 def build_connection_url(
     domain: str | None,
     connection_type: str,
@@ -63,6 +90,8 @@ def build_connection_url(
 
     Args:
         domain: The owner's domain (e.g., "api.example.com" or "api.example.com:8080")
+            Note: If the domain accidentally includes a protocol prefix, it will be
+            stripped automatically.
         connection_type: The connection type for protocol selection
         path: The path portion of the URL (e.g., "api/v2" or "/api/v2")
 
@@ -72,8 +101,13 @@ def build_connection_url(
     if not domain:
         return None
 
+    # Normalize domain to strip any accidental protocol prefix
+    normalized_domain = normalize_domain(domain)
+    if not normalized_domain:
+        return None
+
     protocol = get_protocol_for_connection_type(connection_type)
-    base_url = f"{protocol}://{domain}"
+    base_url = f"{protocol}://{normalized_domain}"
 
     if path:
         # Normalize path - remove leading slashes

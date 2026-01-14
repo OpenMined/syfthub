@@ -5,6 +5,7 @@ from syfthub.core.url_builder import (
     build_connection_url,
     get_first_enabled_connection,
     get_protocol_for_connection_type,
+    normalize_domain,
     transform_connection_urls,
 )
 
@@ -44,6 +45,63 @@ class TestGetProtocolForConnectionType:
         """Test that connection type lookup is case insensitive."""
         assert get_protocol_for_connection_type("REST_API") == "https"
         assert get_protocol_for_connection_type("WebSocket") == "wss"
+
+
+class TestNormalizeDomain:
+    """Tests for normalize_domain function."""
+
+    def test_plain_domain_unchanged(self):
+        """Test that plain domain without protocol is unchanged."""
+        assert normalize_domain("api.example.com") == "api.example.com"
+
+    def test_strips_https_prefix(self):
+        """Test that https:// prefix is stripped."""
+        assert normalize_domain("https://api.example.com") == "api.example.com"
+
+    def test_strips_http_prefix(self):
+        """Test that http:// prefix is stripped."""
+        assert normalize_domain("http://api.example.com") == "api.example.com"
+
+    def test_strips_wss_prefix(self):
+        """Test that wss:// prefix is stripped."""
+        assert normalize_domain("wss://ws.example.com") == "ws.example.com"
+
+    def test_strips_ws_prefix(self):
+        """Test that ws:// prefix is stripped."""
+        assert normalize_domain("ws://ws.example.com") == "ws.example.com"
+
+    def test_strips_trailing_slashes(self):
+        """Test that trailing slashes are stripped."""
+        assert normalize_domain("api.example.com/") == "api.example.com"
+        assert normalize_domain("api.example.com///") == "api.example.com"
+
+    def test_strips_both_prefix_and_trailing_slash(self):
+        """Test that both protocol prefix and trailing slash are stripped."""
+        assert normalize_domain("https://api.example.com/") == "api.example.com"
+
+    def test_preserves_port(self):
+        """Test that port number is preserved."""
+        assert (
+            normalize_domain("https://api.example.com:8080/") == "api.example.com:8080"
+        )
+
+    def test_case_insensitive_protocol(self):
+        """Test that protocol detection is case insensitive."""
+        assert normalize_domain("HTTPS://api.example.com") == "api.example.com"
+        assert normalize_domain("Http://api.example.com") == "api.example.com"
+
+    def test_handles_ngrok_url(self):
+        """Test the specific bug case with ngrok URL."""
+        # This was the actual bug: user stored full URL as domain
+        domain = "https://tertius-unconstricted-jayceon.ngrok-free.dev/"
+        assert (
+            normalize_domain(domain) == "tertius-unconstricted-jayceon.ngrok-free.dev"
+        )
+
+    def test_strips_whitespace(self):
+        """Test that leading/trailing whitespace is stripped."""
+        assert normalize_domain("  api.example.com  ") == "api.example.com"
+        assert normalize_domain("  https://api.example.com/  ") == "api.example.com"
 
 
 class TestBuildConnectionUrl:
@@ -92,6 +150,35 @@ class TestBuildConnectionUrl:
     def test_build_url_returns_none_for_empty_domain(self):
         """Test that None is returned when domain is empty."""
         result = build_connection_url("", "rest_api", "v1")
+        assert result is None
+
+    def test_build_url_strips_https_from_domain(self):
+        """Test that https:// prefix in domain is stripped to avoid double protocol."""
+        result = build_connection_url("https://api.example.com", "rest_api", "v1")
+        assert result == "https://api.example.com/v1"
+        # Should NOT be https://https://api.example.com/v1
+
+    def test_build_url_strips_http_from_domain(self):
+        """Test that http:// prefix in domain is stripped."""
+        result = build_connection_url("http://api.example.com", "rest_api", "v1")
+        assert result == "https://api.example.com/v1"
+
+    def test_build_url_strips_trailing_slash_from_domain(self):
+        """Test that trailing slash in domain is handled."""
+        result = build_connection_url("https://api.example.com/", "rest_api", "v1")
+        assert result == "https://api.example.com/v1"
+
+    def test_build_url_handles_ngrok_url_bug_case(self):
+        """Test the specific bug case where user stored full ngrok URL as domain."""
+        # This was causing: https://https://tertius-unconstricted-jayceon.ngrok-free.dev/
+        domain = "https://tertius-unconstricted-jayceon.ngrok-free.dev/"
+        result = build_connection_url(domain, "https", "/api/v1/endpoints/test/query")
+        expected = "https://tertius-unconstricted-jayceon.ngrok-free.dev/api/v1/endpoints/test/query"
+        assert result == expected
+
+    def test_build_url_returns_none_for_only_protocol(self):
+        """Test that None is returned when domain is only a protocol."""
+        result = build_connection_url("https://", "rest_api", "v1")
         assert result is None
 
 
