@@ -218,6 +218,10 @@ jobs:
             context: ./aggregator
             dockerfile: aggregator/Dockerfile
             target: ""
+          - image: mcp
+            context: .
+            dockerfile: mcp/Dockerfile
+            target: production
     outputs:
       image_tag: ${{ steps.vars.outputs.sha_short }}
     steps:
@@ -270,6 +274,37 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p ${{ secrets.SSH_PORT }} -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Sync config files to production
+        run: |
+          echo "Syncing configuration files to production server..."
+
+          # Sync docker-compose.deploy.yml
+          scp -i ~/.ssh/deploy_key -P ${{ secrets.SSH_PORT }} \
+            docker-compose.deploy.yml \
+            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/opt/syfthub/
+
+          # Sync nginx config
+          scp -i ~/.ssh/deploy_key -P ${{ secrets.SSH_PORT }} \
+            nginx/nginx.prod.conf \
+            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/opt/syfthub/nginx/
+
+          # Sync deploy script
+          scp -i ~/.ssh/deploy_key -P ${{ secrets.SSH_PORT }} \
+            scripts/deploy.sh \
+            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/opt/syfthub/
+
+          echo "Config files synced successfully"
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         env:

@@ -57,6 +57,8 @@ services:
         condition: service_healthy
       aggregator:
         condition: service_healthy
+      mcp:
+        condition: service_healthy
       frontend-init:
         condition: service_completed_successfully
     healthcheck:
@@ -141,6 +143,51 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # ==========================================================================
+  # MCP SERVER - OAuth 2.1 and Model Context Protocol for AI clients
+  # ==========================================================================
+  mcp:
+    image: ghcr.io/${GITHUB_REPOSITORY}-mcp:${IMAGE_TAG:-latest}
+    container_name: syfthub-mcp
+    restart: unless-stopped
+    expose:
+      - "8002"
+    environment:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - MCP_PORT=8002
+      # OAuth configuration (proxy-aware URLs)
+      - OAUTH_ISSUER=https://${DOMAIN:-localhost}/mcp
+      - OAUTH_AUDIENCE=mcp-server
+      - API_BASE_URL=https://${DOMAIN:-localhost}/mcp
+      # SyftHub backend (internal Docker network)
+      - SYFTHUB_URL=http://backend:8000
+      # SyftHub public URL (for register link)
+      - SYFTHUB_PUBLIC_URL=https://${DOMAIN:-localhost}
+      # Aggregator URL (internal Docker network)
+      - AGGREGATOR_URL=http://aggregator:8001
+    networks:
+      - syfthub-network
+    depends_on:
+      backend:
+        condition: service_healthy
+      aggregator:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
       interval: 30s
       timeout: 10s
       retries: 3

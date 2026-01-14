@@ -129,12 +129,14 @@ backup_current_state() {
         local current_backend=$(docker inspect --format='{{.Config.Image}}' syfthub-backend 2>/dev/null || echo "none")
         local current_aggregator=$(docker inspect --format='{{.Config.Image}}' syfthub-aggregator 2>/dev/null || echo "none")
         local current_frontend=$(docker inspect --format='{{.Config.Image}}' syfthub-frontend-init 2>/dev/null || echo "none")
+        local current_mcp=$(docker inspect --format='{{.Config.Image}}' syfthub-mcp 2>/dev/null || echo "none")
 
         cat > "$backup_file" << EOF
 BACKUP_TIMESTAMP=$(date +%s)
 BACKUP_BACKEND_IMAGE=${current_backend}
 BACKUP_AGGREGATOR_IMAGE=${current_aggregator}
 BACKUP_FRONTEND_IMAGE=${current_frontend}
+BACKUP_MCP_IMAGE=${current_mcp}
 EOF
         log INFO "Backup saved to $backup_file"
     else
@@ -165,7 +167,7 @@ pull_images() {
     export GITHUB_REPOSITORY
 
     # Pull all images
-    docker compose -f "$COMPOSE_FILE" pull backend aggregator || die "Failed to pull backend/aggregator images"
+    docker compose -f "$COMPOSE_FILE" pull backend aggregator mcp || die "Failed to pull backend/aggregator/mcp images"
 
     # Pull frontend image (for frontend-init)
     docker pull "ghcr.io/${GITHUB_REPOSITORY}-frontend:${IMAGE_TAG}" || die "Failed to pull frontend image"
@@ -289,6 +291,23 @@ deploy_services() {
     done
     log INFO "Aggregator is healthy"
 
+    # Rolling restart: MCP Server
+    log INFO "Restarting MCP server..."
+    docker compose -f "$COMPOSE_FILE" up -d --no-deps --force-recreate mcp
+    sleep 5
+
+    # Wait for MCP to be healthy
+    log INFO "Waiting for MCP server to be healthy..."
+    retries=0
+    while ! docker compose -f "$COMPOSE_FILE" exec -T mcp curl -sf http://localhost:8002/health &> /dev/null; do
+        retries=$((retries + 1))
+        if [[ $retries -ge $HEALTH_CHECK_RETRIES ]]; then
+            die "MCP server failed health check after restart"
+        fi
+        sleep $HEALTH_CHECK_INTERVAL
+    done
+    log INFO "MCP server is healthy"
+
     # Restart proxy (to pick up any nginx config changes)
     log INFO "Restarting proxy..."
     docker compose -f "$COMPOSE_FILE" up -d --no-deps --force-recreate proxy
@@ -337,7 +356,7 @@ cleanup() {
     docker image prune -f
 
     # Remove old images (keep last 3 versions)
-    for image in backend frontend aggregator; do
+    for image in backend frontend aggregator mcp; do
         local full_image="ghcr.io/${GITHUB_REPOSITORY}-${image}"
         local image_ids=$(docker images "$full_image" --format "{{.ID}}" | tail -n +4)
         if [[ -n "$image_ids" ]]; then

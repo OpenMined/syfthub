@@ -1,5 +1,9 @@
 # SyftHub MCP Server Dockerfile
 # Multi-stage build for development and production
+#
+# Build contexts:
+#   - Development: context: ./mcp (SDK mounted as volume)
+#   - Production:  context: .     (SDK included in build)
 
 # ==============================================================================
 # Base stage with Python and system dependencies
@@ -23,17 +27,18 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Create non-root user
 RUN useradd -m -u 1000 syfthub && \
-    mkdir -p /app /app/sdk && \
-    chown -R syfthub:syfthub /app
+    mkdir -p /app /sdk/python && \
+    chown -R syfthub:syfthub /app /sdk
 
 # Set working directory
 WORKDIR /app
 
 # ==============================================================================
-# Dependencies stage - install Python packages
-FROM base AS dependencies
+# Development stage - SDK mounted as volume at runtime
+# Build with: context: ./mcp
+FROM base AS development
 
-# Copy dependency files
+# Copy dependency files (from mcp context)
 COPY --chown=syfthub:syfthub pyproject.toml ./
 
 # Switch to non-root user
@@ -41,10 +46,6 @@ USER syfthub
 
 # Create virtual environment
 RUN uv venv .venv
-
-# ==============================================================================
-# Development stage - SDK mounted as volume
-FROM dependencies AS development
 
 # Copy source code
 COPY --chown=syfthub:syfthub server.py ./
@@ -60,7 +61,7 @@ ENV ENVIRONMENT=development \
     MCP_PORT=8002
 
 # Development entrypoint - hot reload enabled
-# SDK will be mounted at /sdk/python via docker-compose (matches pyproject.toml: ../sdk/python)
+# SDK will be mounted at /sdk/python via docker-compose
 # Dependencies installed at container startup to pick up SDK mount
 CMD uv pip install -e . -e /sdk/python --python .venv/bin/python && \
     /app/.venv/bin/uvicorn server:create_app \
@@ -70,13 +71,28 @@ CMD uv pip install -e . -e /sdk/python --python .venv/bin/python && \
     --factory
 
 # ==============================================================================
-# Production stage
-FROM dependencies AS production
+# Production stage - SDK baked into image
+# Build with: context: . (repository root)
+FROM base AS production
+
+# Copy SDK from repository root (build context must be .)
+COPY --chown=syfthub:syfthub sdk/python /sdk/python
+
+# Copy MCP dependency files (from mcp subdirectory)
+COPY --chown=syfthub:syfthub mcp/pyproject.toml ./
+
+# Switch to non-root user
+USER syfthub
+
+# Create virtual environment and install ALL dependencies including SDK
+# This bakes dependencies into the image at build time
+RUN uv venv .venv && \
+    uv pip install -e . -e /sdk/python --python .venv/bin/python
 
 # Copy source code
-COPY --chown=syfthub:syfthub server.py ./
-COPY --chown=syfthub:syfthub syfthub_client.py ./
-COPY --chown=syfthub:syfthub fastmcp.json ./
+COPY --chown=syfthub:syfthub mcp/server.py ./
+COPY --chown=syfthub:syfthub mcp/syfthub_client.py ./
+COPY --chown=syfthub:syfthub mcp/fastmcp.json ./
 
 # Environment variables for production
 ENV ENVIRONMENT=production \
