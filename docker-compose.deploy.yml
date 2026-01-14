@@ -169,6 +169,9 @@ services:
       - ENVIRONMENT=production
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - MCP_PORT=8002
+      # RSA key for JWT signing (REQUIRED for multi-worker deployments)
+      # Generate with: python mcp/generate_rsa_key.py
+      - RSA_PRIVATE_KEY=${RSA_PRIVATE_KEY_PEM}
       # OAuth configuration (proxy-aware URLs)
       - OAUTH_ISSUER=https://${DOMAIN:-localhost}/mcp
       - OAUTH_AUDIENCE=mcp-server

@@ -85,28 +85,67 @@ logger.info(f"OAuth Issuer: {OAUTH_ISSUER}")
 logger.info(f"OAuth Audience: {OAUTH_AUDIENCE}")
 logger.info(f"API Base URL: {API_BASE_URL}")
 
-# Generate RSA key pair for JWT signing
-logger.info("Generating RSA key pair for JWT signing...")
-private_key = rsa.generate_private_key(
-    public_exponent=65537,
-    key_size=2048,
-    backend=default_backend()
-)
-public_key = private_key.public_key()
+# RSA Key Configuration for JWT Signing
+# In multi-worker deployments, all workers must share the same RSA key pair.
+# Set RSA_PRIVATE_KEY environment variable with base64-encoded PEM private key.
+# Generate with: python -c "from cryptography.hazmat.primitives.asymmetric import rsa; from cryptography.hazmat.primitives import serialization; import base64; k=rsa.generate_private_key(65537,2048); print(base64.b64encode(k.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption())).decode())"
 
-# Convert keys to PEM format
-private_pem = private_key.private_bytes(
-    encoding=serialization.Encoding.PEM,
-    format=serialization.PrivateFormat.PKCS8,
-    encryption_algorithm=serialization.NoEncryption()
-)
+# Support both RSA_PRIVATE_KEY and RSA_PRIVATE_KEY_PEM for backwards compatibility
+RSA_PRIVATE_KEY_ENV = os.getenv("RSA_PRIVATE_KEY") or os.getenv("RSA_PRIVATE_KEY_PEM")
 
-public_pem = public_key.public_bytes(
-    encoding=serialization.Encoding.PEM,
-    format=serialization.PublicFormat.SubjectPublicKeyInfo
-)
+if RSA_PRIVATE_KEY_ENV:
+    # Load shared RSA key from environment variable (base64-encoded PEM)
+    logger.info("Loading RSA private key from RSA_PRIVATE_KEY environment variable...")
+    try:
+        private_pem = base64.b64decode(RSA_PRIVATE_KEY_ENV)
+        private_key = serialization.load_pem_private_key(
+            private_pem,
+            password=None,
+            backend=default_backend()
+        )
+        public_key = private_key.public_key()
+        public_pem = public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+        logger.info("RSA key pair loaded successfully from environment")
+    except Exception as e:
+        logger.error(f"Failed to load RSA key from environment: {e}")
+        raise RuntimeError(
+            "Invalid RSA_PRIVATE_KEY environment variable. "
+            "Ensure it contains a valid base64-encoded PEM private key."
+        ) from e
+else:
+    # Generate new RSA key pair (for development or single-worker deployments)
+    environment = os.getenv("ENVIRONMENT", "development")
+    if environment == "production":
+        logger.warning(
+            "⚠️  RSA_PRIVATE_KEY not set in production! Generating ephemeral key pair. "
+            "This will cause JWT validation failures in multi-worker deployments. "
+            "Set RSA_PRIVATE_KEY environment variable for production use."
+        )
+    else:
+        logger.info("Generating RSA key pair for JWT signing (development mode)...")
 
-logger.info("RSA key pair generated successfully")
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+        backend=default_backend()
+    )
+    public_key = private_key.public_key()
+
+    private_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption()
+    )
+
+    public_pem = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+
+    logger.info("RSA key pair generated successfully")
 
 # In-memory storage for OAuth server
 oauth_clients: Dict[str, dict] = {}

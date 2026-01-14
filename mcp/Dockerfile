@@ -95,9 +95,12 @@ COPY --chown=syfthub:syfthub mcp/syfthub_client.py ./
 COPY --chown=syfthub:syfthub mcp/fastmcp.json ./
 
 # Environment variables for production
+# RSA_PRIVATE_KEY: Base64-encoded PEM private key for JWT signing (REQUIRED for multi-worker)
+# Generate with: python -c "from cryptography.hazmat.primitives.asymmetric import rsa; from cryptography.hazmat.primitives import serialization; import base64; k=rsa.generate_private_key(65537,2048); print(base64.b64encode(k.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption())).decode())"
 ENV ENVIRONMENT=production \
     LOG_LEVEL=info \
     MCP_PORT=8002
+    # RSA_PRIVATE_KEY should be set via docker-compose or orchestrator secrets
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
