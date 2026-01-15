@@ -25,7 +25,17 @@ Instructions:
 5. Do NOT invent sources or cite anything that is not provided.
 6. If the documents do not contain enough information, say so explicitly.
 7. At the end of the response, include a "Sources" section listing all cited documents:
-   [SNAG/DATASET] <document_title>"""
+   [SNAG/DATASET] <document_title>
+
+Example response format:
+Federated document search enables users to retrieve information from multiple systems through a single query, eliminating the need to manually search each source [JD123/Salesforce]. This unified access improves productivity by reducing context switching and accelerating decision-making [JD123/Zendesk].
+
+Federated architectures can also strengthen security by minimizing data duplication, which reduces the risk of exposure and simplifies compliance efforts [OP789/Confluence].
+
+Sources:
+[JD123/Salesforce] Federated Search Overview
+[JD123/Zendesk] Productivity Gains with Unified Search
+[OP789/Confluence] Security in Distributed Architectures"""
 
     def __init__(self, system_prompt: str | None = None):
         self.system_prompt = system_prompt or self.DEFAULT_SYSTEM_PROMPT
