@@ -93,6 +93,10 @@ class ChatRequest(BaseModel):
         le=1.0,
         description="Minimum similarity score for retrieved documents",
     )
+    custom_system_prompt: str | None = Field(
+        default=None,
+        description="Optional custom system prompt to override the default RAG prompt",
+    )
 
 
 class Message(BaseModel):
