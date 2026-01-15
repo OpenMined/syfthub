@@ -26,7 +26,7 @@ export function ParticipateView({
             </Button>
           )}
           <h2 className='font-rubik text-xl font-medium text-[#272532]'>{title}</h2>
-          <div className='font-mono text-xs text-[#b4b0bf] hidden sm:block opacity-60'>
+          <div className='hidden font-mono text-xs text-[#b4b0bf] opacity-60 sm:block'>
             ~/participate
           </div>
         </div>

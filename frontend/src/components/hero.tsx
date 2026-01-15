@@ -58,9 +58,12 @@ export function Hero({
         </div>
 
         {/* Tagline */}
-        <div className='text-center space-y-4 pb-4'>
+        <div className='space-y-4 pb-4 text-center'>
           <h1 className='font-rubik text-syft-primary text-3xl font-medium'>
-            Access the World's <span className='text-transparent bg-gradient-to-r from-syft-secondary via-syft-purple to-syft-green bg-clip-text'>Collective Intelligence</span>
+            Access the World's{' '}
+            <span className='from-syft-secondary via-syft-purple to-syft-green bg-gradient-to-r bg-clip-text text-transparent'>
+              Collective Intelligence
+            </span>
           </h1>
           <p className='font-inter text-syft-primary text-base'>
             Query trusted data sources — public, copyrighted, or private — directly from source.
@@ -81,46 +84,46 @@ export function Hero({
 
           {/* Search Bar */}
           <form onSubmit={handleSearch} className='space-y-4'>
-          <div className='group relative'>
-            <input
-              autoFocus
-              type='text'
-              value={searchValue}
-              onChange={(event) => {
-                setSearchValue(event.target.value);
-              }}
-              placeholder='What are you looking for?'
-              className='font-inter border-syft-border-light text-syft-primary placeholder:text-syft-placeholder focus:ring-syft-primary w-full rounded-xl border bg-white px-6 py-4 shadow-sm transition-all focus:border-transparent focus:ring-2 focus:outline-none'
-            />
-            <button
-              type='submit'
-              aria-label='Search'
-              className='group-focus-within:text-syft-primary hover:bg-syft-surface absolute top-1/2 right-3 -translate-y-1/2 rounded-lg p-2 transition-colors'
-            >
-              <Send
-                className={`h-5 w-5 transition-colors ${
-                  searchValue ? 'text-syft-primary' : 'text-syft-placeholder'
-                }`}
-              />
-            </button>
-          </div>
-
-          {/* Search Suggestions Pills */}
-          <div className='flex flex-wrap items-center justify-center gap-2.5'>
-            {searchSuggestions.map((suggestion, index) => (
-              <button
-                key={index}
-                type='button'
-                onClick={() => {
-                  handleSuggestionClick(suggestion);
+            <div className='group relative'>
+              <input
+                autoFocus
+                type='text'
+                value={searchValue}
+                onChange={(event) => {
+                  setSearchValue(event.target.value);
                 }}
-                className='font-inter border-syft-border text-syft-primary hover:border-syft-primary hover:bg-syft-surface focus:ring-syft-primary rounded-full border bg-white px-4 py-1.5 text-sm transition-all focus:ring-2 focus:ring-offset-2 focus:outline-none'
+                placeholder='What are you looking for?'
+                className='font-inter border-syft-border-light text-syft-primary placeholder:text-syft-placeholder focus:ring-syft-primary w-full rounded-xl border bg-white px-6 py-4 shadow-sm transition-all focus:border-transparent focus:ring-2 focus:outline-none'
+              />
+              <button
+                type='submit'
+                aria-label='Search'
+                className='group-focus-within:text-syft-primary hover:bg-syft-surface absolute top-1/2 right-3 -translate-y-1/2 rounded-lg p-2 transition-colors'
               >
-                {suggestion}
+                <Send
+                  className={`h-5 w-5 transition-colors ${
+                    searchValue ? 'text-syft-primary' : 'text-syft-placeholder'
+                  }`}
+                />
               </button>
-            ))}
-          </div>
-        </form>
+            </div>
+
+            {/* Search Suggestions Pills */}
+            <div className='flex flex-wrap items-center justify-center gap-2.5'>
+              {searchSuggestions.map((suggestion, index) => (
+                <button
+                  key={index}
+                  type='button'
+                  onClick={() => {
+                    handleSuggestionClick(suggestion);
+                  }}
+                  className='font-inter border-syft-border text-syft-primary hover:border-syft-primary hover:bg-syft-surface focus:ring-syft-primary rounded-full border bg-white px-4 py-1.5 text-sm transition-all focus:ring-2 focus:ring-offset-2 focus:outline-none'
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          </form>
         </div>
       </div>
     </section>

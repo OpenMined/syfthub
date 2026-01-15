@@ -117,7 +117,7 @@ export function BrowseView({
       <div className='sticky top-0 z-30 flex w-full items-center border-b border-[#ecebef] bg-[#fcfcfd]/95 px-6 py-4 backdrop-blur-sm'>
         <div className='flex items-center gap-4'>
           <h2 className='font-rubik text-xl font-medium text-[#272532]'>Browse</h2>
-          <div className='font-mono text-xs text-[#b4b0bf] hidden sm:block opacity-60'>
+          <div className='hidden font-mono text-xs text-[#b4b0bf] opacity-60 sm:block'>
             ~/browse
           </div>
         </div>
@@ -136,130 +136,130 @@ export function BrowseView({
             </p>
           </div>
 
-        {/* Search and Filter Bar */}
-        <div className='mb-8 flex gap-4'>
-          <div className='relative flex-1'>
-            <Search className='text-syft-placeholder absolute top-1/2 left-3 h-5 w-5 -translate-y-1/2' />
-            <input
-              type='text'
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-              }}
-              placeholder='Search data sources...'
-              className='font-inter border-syft-border focus:border-syft-primary focus:ring-syft-primary/10 w-full rounded-xl border py-3 pr-4 pl-11 transition-all focus:ring-2 focus:outline-none'
-            />
-          </div>
-          <button className='font-inter border-syft-border text-syft-muted hover:bg-syft-surface flex items-center gap-2 rounded-xl border px-4 py-3 transition-colors'>
-            <Filter className='h-5 w-5' />
-            Filter
-          </button>
-        </div>
-
-        {/* Content */}
-        {isLoading && (
-          <div className='py-16 text-center'>
-            <LoadingSpinner size='lg' message='Loading endpoints...' className='justify-center' />
-          </div>
-        )}
-        {!isLoading && error && (
-          <div className='py-16 text-center'>
-            <div className='mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-50'>
-              <Search className='h-8 w-8 text-red-500' />
+          {/* Search and Filter Bar */}
+          <div className='mb-8 flex gap-4'>
+            <div className='relative flex-1'>
+              <Search className='text-syft-placeholder absolute top-1/2 left-3 h-5 w-5 -translate-y-1/2' />
+              <input
+                type='text'
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                }}
+                placeholder='Search data sources...'
+                className='font-inter border-syft-border focus:border-syft-primary focus:ring-syft-primary/10 w-full rounded-xl border py-3 pr-4 pl-11 transition-all focus:ring-2 focus:outline-none'
+              />
             </div>
-            <h3 className='font-inter mb-2 text-lg font-medium text-gray-900'>
-              Error Loading Endpoints
-            </h3>
-            <p className='font-inter text-syft-muted'>{error.message}</p>
+            <button className='font-inter border-syft-border text-syft-muted hover:bg-syft-surface flex items-center gap-2 rounded-xl border px-4 py-3 transition-colors'>
+              <Filter className='h-5 w-5' />
+              Filter
+            </button>
           </div>
-        )}
-        {!isLoading && !error && filteredEndpoints.length === 0 && (
-          <div className='py-16 text-center'>
-            <div className='bg-syft-surface mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full'>
-              <Search className='text-syft-muted h-8 w-8' />
+
+          {/* Content */}
+          {isLoading && (
+            <div className='py-16 text-center'>
+              <LoadingSpinner size='lg' message='Loading endpoints...' className='justify-center' />
             </div>
-            <h3 className='font-inter text-syft-primary mb-2 text-lg font-medium'>
-              No Results Found
-            </h3>
-            <p className='font-inter text-syft-muted'>
-              {searchQuery ? `No endpoints match "${searchQuery}"` : 'No endpoints available'}
-            </p>
-          </div>
-        )}
-        {!isLoading && !error && filteredEndpoints.length > 0 && (
-          <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-3'>
-            {filteredEndpoints.map((endpoint) => (
-              <div
-                key={endpoint.id}
-                onClick={() => onViewEndpoint?.(endpoint.slug, endpoint.owner_username)}
-                className='group border-syft-border hover:border-syft-secondary cursor-pointer rounded-xl border bg-white p-5 transition-all hover:shadow-md'
-              >
-                {/* Header */}
-                <div className='mb-3 flex items-start justify-between'>
-                  <div className='min-w-0 flex-1'>
-                    <h3 className='font-inter text-syft-primary group-hover:text-syft-secondary mb-1 truncate text-base font-semibold'>
-                      {endpoint.name}
-                    </h3>
-                    {endpoint.owner_username && (
-                      <p className='font-inter text-syft-placeholder truncate text-xs'>
-                        by @{endpoint.owner_username}
-                      </p>
-                    )}
-                    <p className='font-inter text-syft-muted line-clamp-2 text-sm'>
-                      {endpoint.description}
-                    </p>
-                  </div>
-                  <ChevronRight className='text-syft-placeholder group-hover:text-syft-secondary ml-2 h-5 w-5 shrink-0 transition-transform group-hover:translate-x-1' />
-                </div>
-
-                {/* Tags and Status */}
-                <div className='mb-3 flex flex-wrap items-center gap-2'>
-                  <Badge
-                    variant='outline'
-                    className={`font-inter border text-xs ${getTypeStyles(endpoint.type)}`}
-                  >
-                    {getTypeLabel(endpoint.type)}
-                  </Badge>
-                  <Badge variant='secondary' className='font-inter text-xs'>
-                    {endpoint.tag}
-                  </Badge>
-                  <div className='flex items-center gap-1'>
-                    <div className={`h-2 w-2 rounded-full ${getStatusColor(endpoint.status)}`} />
-                    <span className='font-inter text-syft-muted text-xs capitalize'>
-                      {endpoint.status}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Footer Info */}
-                <div className='border-syft-surface flex items-center justify-between border-t pt-3'>
-                  <div className='text-syft-placeholder flex items-center gap-3 text-xs'>
-                    <div className='flex items-center gap-1'>
-                      {getVisibilityIcon(endpoint)}
-                      <span>Public</span>
-                    </div>
-                    <div className='flex items-center gap-1'>
-                      <Package className='h-3 w-3' />
-                      <span>v{endpoint.version}</span>
-                    </div>
-                  </div>
-                  <div className='text-syft-placeholder flex items-center gap-3 text-xs'>
-                    {endpoint.stars_count > 0 && (
-                      <div className='flex items-center gap-1'>
-                        <Star className='h-3 w-3' />
-                        <span>{endpoint.stars_count}</span>
-                      </div>
-                    )}
-                    <div className='flex items-center gap-1'>
-                      <Calendar className='h-3 w-3' />
-                      <span>{endpoint.updated}</span>
-                    </div>
-                  </div>
-                </div>
+          )}
+          {!isLoading && error && (
+            <div className='py-16 text-center'>
+              <div className='mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-50'>
+                <Search className='h-8 w-8 text-red-500' />
               </div>
-            ))}
-          </div>
-        )}
+              <h3 className='font-inter mb-2 text-lg font-medium text-gray-900'>
+                Error Loading Endpoints
+              </h3>
+              <p className='font-inter text-syft-muted'>{error.message}</p>
+            </div>
+          )}
+          {!isLoading && !error && filteredEndpoints.length === 0 && (
+            <div className='py-16 text-center'>
+              <div className='bg-syft-surface mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full'>
+                <Search className='text-syft-muted h-8 w-8' />
+              </div>
+              <h3 className='font-inter text-syft-primary mb-2 text-lg font-medium'>
+                No Results Found
+              </h3>
+              <p className='font-inter text-syft-muted'>
+                {searchQuery ? `No endpoints match "${searchQuery}"` : 'No endpoints available'}
+              </p>
+            </div>
+          )}
+          {!isLoading && !error && filteredEndpoints.length > 0 && (
+            <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-3'>
+              {filteredEndpoints.map((endpoint) => (
+                <div
+                  key={endpoint.id}
+                  onClick={() => onViewEndpoint?.(endpoint.slug, endpoint.owner_username)}
+                  className='group border-syft-border hover:border-syft-secondary cursor-pointer rounded-xl border bg-white p-5 transition-all hover:shadow-md'
+                >
+                  {/* Header */}
+                  <div className='mb-3 flex items-start justify-between'>
+                    <div className='min-w-0 flex-1'>
+                      <h3 className='font-inter text-syft-primary group-hover:text-syft-secondary mb-1 truncate text-base font-semibold'>
+                        {endpoint.name}
+                      </h3>
+                      {endpoint.owner_username && (
+                        <p className='font-inter text-syft-placeholder truncate text-xs'>
+                          by @{endpoint.owner_username}
+                        </p>
+                      )}
+                      <p className='font-inter text-syft-muted line-clamp-2 text-sm'>
+                        {endpoint.description}
+                      </p>
+                    </div>
+                    <ChevronRight className='text-syft-placeholder group-hover:text-syft-secondary ml-2 h-5 w-5 shrink-0 transition-transform group-hover:translate-x-1' />
+                  </div>
+
+                  {/* Tags and Status */}
+                  <div className='mb-3 flex flex-wrap items-center gap-2'>
+                    <Badge
+                      variant='outline'
+                      className={`font-inter border text-xs ${getTypeStyles(endpoint.type)}`}
+                    >
+                      {getTypeLabel(endpoint.type)}
+                    </Badge>
+                    <Badge variant='secondary' className='font-inter text-xs'>
+                      {endpoint.tag}
+                    </Badge>
+                    <div className='flex items-center gap-1'>
+                      <div className={`h-2 w-2 rounded-full ${getStatusColor(endpoint.status)}`} />
+                      <span className='font-inter text-syft-muted text-xs capitalize'>
+                        {endpoint.status}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Footer Info */}
+                  <div className='border-syft-surface flex items-center justify-between border-t pt-3'>
+                    <div className='text-syft-placeholder flex items-center gap-3 text-xs'>
+                      <div className='flex items-center gap-1'>
+                        {getVisibilityIcon(endpoint)}
+                        <span>Public</span>
+                      </div>
+                      <div className='flex items-center gap-1'>
+                        <Package className='h-3 w-3' />
+                        <span>v{endpoint.version}</span>
+                      </div>
+                    </div>
+                    <div className='text-syft-placeholder flex items-center gap-3 text-xs'>
+                      {endpoint.stars_count > 0 && (
+                        <div className='flex items-center gap-1'>
+                          <Star className='h-3 w-3' />
+                          <span>{endpoint.stars_count}</span>
+                        </div>
+                      )}
+                      <div className='flex items-center gap-1'>
+                        <Calendar className='h-3 w-3' />
+                        <span>{endpoint.updated}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </main>
     </div>
