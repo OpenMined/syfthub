@@ -193,6 +193,34 @@ class Settings(BaseSettings):
         description="Timeout in seconds for accounting service requests",
     )
 
+    # ===========================================
+    # ENDPOINT HEALTH CHECK SETTINGS
+    # ===========================================
+
+    # Enable/disable periodic endpoint health monitoring
+    health_check_enabled: bool = Field(
+        default=True,
+        description="Enable periodic endpoint health monitoring",
+    )
+
+    # Interval between health check cycles
+    health_check_interval_seconds: int = Field(
+        default=30,
+        description="Interval between health check cycles in seconds",
+    )
+
+    # Timeout for individual health check requests
+    health_check_timeout_seconds: float = Field(
+        default=5.0,
+        description="Timeout for individual health check requests in seconds",
+    )
+
+    # Maximum concurrent health check requests
+    health_check_max_concurrent: int = Field(
+        default=20,
+        description="Maximum concurrent health check requests",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:
