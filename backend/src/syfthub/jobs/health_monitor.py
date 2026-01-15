@@ -341,7 +341,3 @@ class EndpointHealthMonitor:
             self._task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-
-
-# Global health monitor instance (initialized in main.py)
-health_monitor: Optional[EndpointHealthMonitor] = None
