@@ -359,8 +359,8 @@ class TestCheckEndpointHealth:
         assert state_changed is False  # Was active, still active
 
     @pytest.mark.asyncio
-    async def test_check_health_success_500(self, monitor, sample_endpoint):
-        """Test health check with HTTP 500 still counts as healthy (server reachable)."""
+    async def test_check_health_500_is_unhealthy(self, monitor, sample_endpoint):
+        """Test health check with HTTP 500 is considered unhealthy."""
         semaphore = asyncio.Semaphore(10)
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_response = MagicMock()
@@ -374,8 +374,49 @@ class TestCheckEndpointHealth:
                 sample_endpoint, semaphore, mock_client
             )
 
-        _endpoint_id, is_healthy, _state_changed = result
-        assert is_healthy is True  # Server is reachable
+        _endpoint_id, is_healthy, state_changed = result
+        assert is_healthy is False  # 5xx errors are unhealthy
+        assert state_changed is True  # Was active, now unhealthy
+
+    @pytest.mark.asyncio
+    async def test_check_health_404_is_unhealthy(self, monitor, sample_endpoint):
+        """Test health check with HTTP 404 is considered unhealthy."""
+        semaphore = asyncio.Semaphore(10)
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_response = MagicMock()
+        mock_response.status_code = 404
+        mock_client.get.return_value = mock_response
+
+        with patch.object(
+            monitor, "_build_health_check_url", return_value="https://example.com/test"
+        ):
+            result = await monitor._check_endpoint_health(
+                sample_endpoint, semaphore, mock_client
+            )
+
+        _endpoint_id, is_healthy, state_changed = result
+        assert is_healthy is False  # 4xx errors are unhealthy
+        assert state_changed is True  # Was active, now unhealthy
+
+    @pytest.mark.asyncio
+    async def test_check_health_redirect_is_healthy(self, monitor, sample_endpoint):
+        """Test health check with HTTP 3xx redirect is considered healthy."""
+        semaphore = asyncio.Semaphore(10)
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_response = MagicMock()
+        mock_response.status_code = 302
+        mock_client.get.return_value = mock_response
+
+        with patch.object(
+            monitor, "_build_health_check_url", return_value="https://example.com/test"
+        ):
+            result = await monitor._check_endpoint_health(
+                sample_endpoint, semaphore, mock_client
+            )
+
+        _endpoint_id, is_healthy, state_changed = result
+        assert is_healthy is True  # 3xx redirects are healthy
+        assert state_changed is False  # Was active, still active
 
     @pytest.mark.asyncio
     async def test_check_health_timeout(self, monitor, sample_endpoint):

@@ -193,12 +193,13 @@ class EndpointHealthMonitor:
 
             try:
                 # Make a simple GET request to check connectivity
-                # We accept any HTTP response as "healthy" - the server is reachable
                 response = await client.get(url, timeout=self.timeout)
-                # Any response (2xx, 3xx, 4xx, even 5xx) means server is reachable
-                is_healthy = True
+                # Only 2xx and 3xx responses are considered healthy
+                # 4xx (client errors like 404) and 5xx (server errors) are unhealthy
+                is_healthy = response.status_code < 400
                 logger.debug(
-                    f"Endpoint {endpoint.id} health check: {url} -> {response.status_code}"
+                    f"Endpoint {endpoint.id} health check: {url} -> {response.status_code} "
+                    f"({'healthy' if is_healthy else 'unhealthy'})"
                 )
             except httpx.TimeoutException:
                 is_healthy = False

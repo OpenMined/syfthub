@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import logging
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -48,6 +49,13 @@ from syfthub.schemas.endpoint import (
 )
 from syfthub.schemas.organization import Organization
 from syfthub.schemas.user import User
+
+# Configure logging for application logs
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
 # Setup Jinja2 templates
 templates_dir = Path(__file__).parent / "templates"
@@ -247,13 +255,13 @@ def can_access_endpoint_with_org(
     return False
 
 
+logger = logging.getLogger(__name__)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage application lifecycle."""
     # Startup
-    import logging
-
-    logger = logging.getLogger(__name__)
     logger.info(f"Starting Syfthub API v{__version__}")
 
     # Initialize database
