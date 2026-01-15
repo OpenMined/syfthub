@@ -112,17 +112,29 @@ export function BrowseView({
   };
 
   return (
-    <div className='min-h-screen bg-white p-6'>
-      <div className='mx-auto max-w-6xl'>
-        {/* Header */}
-        <div className='mb-8'>
-          <h1 className='font-rubik text-syft-primary mb-2 text-3xl font-semibold'>
-            Browse Data Sources
-          </h1>
-          <p className='font-inter text-syft-muted'>
-            Discover and explore trusted data sources from the community
-          </p>
+    <div className='mx-auto flex min-h-screen max-w-[1600px] flex-col'>
+      {/* Sticky Header */}
+      <div className='sticky top-0 z-30 flex w-full items-center border-b border-[#ecebef] bg-[#fcfcfd]/95 px-6 py-4 backdrop-blur-sm'>
+        <div className='flex items-center gap-4'>
+          <h2 className='font-rubik text-xl font-medium text-[#272532]'>Browse</h2>
+          <div className='font-mono text-xs text-[#b4b0bf] hidden sm:block opacity-60'>
+            ~/browse
+          </div>
         </div>
+      </div>
+
+      {/* Main Content */}
+      <main className='w-full min-w-0 flex-1'>
+        <div className='mx-auto max-w-6xl p-6'>
+          {/* Header */}
+          <div className='mb-8'>
+            <h1 className='font-rubik text-syft-primary mb-2 text-3xl font-semibold'>
+              Browse Data Sources & Models
+            </h1>
+            <p className='font-inter text-syft-muted'>
+              Discover and explore trusted data sources and models from the community
+            </p>
+          </div>
 
         {/* Search and Filter Bar */}
         <div className='mb-8 flex gap-4'>
@@ -248,7 +260,8 @@ export function BrowseView({
             ))}
           </div>
         )}
-      </div>
+        </div>
+      </main>
     </div>
   );
 }

@@ -218,6 +218,21 @@ export async function getTrendingEndpoints(
   }
 }
 
+/**
+ * Get the total count of all public endpoints.
+ *
+ * @returns The total number of public endpoints
+ */
+export async function getTotalEndpointsCount(): Promise<number> {
+  try {
+    const endpoints = await syftClient.hub.browse().all();
+    return endpoints.length;
+  } catch (error) {
+    console.error('Failed to fetch total endpoints count:', error);
+    return 0;
+  }
+}
+
 // ============================================================================
 // User Endpoint Functions (Auth Required)
 // ============================================================================

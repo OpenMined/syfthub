@@ -35,7 +35,7 @@ export function Hero({
   const features = [
     { label: 'Secure & Private', color: 'bg-syft-green' },
     { label: 'Rare Data & Models', color: 'bg-syft-secondary' },
-    { label: 'Permissioned Access', color: 'bg-syft-purple' }
+    { label: 'Federated, Permissioned Access', color: 'bg-syft-purple' }
   ];
 
   const searchSuggestions = [
@@ -50,33 +50,37 @@ export function Hero({
         fullHeight ? 'min-h-[calc(100vh-2rem)]' : 'min-h-[50vh]'
       }`}
     >
-      <div className='mx-auto w-full max-w-2xl space-y-6'>
+      <div className='mx-auto w-full max-w-2xl space-y-8'>
         {/* Logo */}
-        <div className='flex items-center justify-center gap-2.5'>
-          <OpenMinedIcon className='h-7 w-7' />
-          <span className='font-rubik text-syft-primary text-xl font-medium'>SyftHub</span>
+        <div className='flex items-center justify-center gap-3'>
+          <OpenMinedIcon className='h-8 w-8' />
+          <span className='font-rubik text-syft-primary text-2xl font-normal'>SyftHub</span>
         </div>
 
         {/* Tagline */}
-        <div className='text-center'>
-          <p className='font-inter text-syft-primary text-lg'>
-            Explore trustworthy data sources and discover insights{' '}
-            <span className='text-syft-primary font-medium'>beyond public reach</span>
+        <div className='text-center space-y-4 pb-4'>
+          <h1 className='font-rubik text-syft-primary text-3xl font-medium'>
+            Access the World's <span className='text-transparent bg-gradient-to-r from-syft-secondary via-syft-purple to-syft-green bg-clip-text'>Collective Intelligence</span>
+          </h1>
+          <p className='font-inter text-syft-primary text-base'>
+            Query trusted data sources — public, copyrighted, or private — directly from source.
           </p>
         </div>
 
-        {/* Feature Badges */}
-        <div className='flex flex-wrap items-center justify-center gap-6'>
-          {features.map((feature, index) => (
-            <div key={index} className='flex items-center gap-2'>
-              <div className={`h-2 w-2 rounded-full ${feature.color}`}></div>
-              <span className='font-inter text-syft-primary text-sm'>{feature.label}</span>
-            </div>
-          ))}
-        </div>
+        {/* Feature Badges and Search Bar - grouped closer together */}
+        <div className='space-y-6'>
+          {/* Feature Badges */}
+          <div className='flex flex-wrap items-center justify-center gap-8'>
+            {features.map((feature, index) => (
+              <div key={index} className='flex items-center gap-2'>
+                <div className={`h-2 w-2 rounded-full ${feature.color}`}></div>
+                <span className='font-inter text-syft-primary text-sm'>{feature.label}</span>
+              </div>
+            ))}
+          </div>
 
-        {/* Search Bar */}
-        <form onSubmit={handleSearch} className='space-y-4'>
+          {/* Search Bar */}
+          <form onSubmit={handleSearch} className='space-y-4'>
           <div className='group relative'>
             <input
               autoFocus
@@ -85,7 +89,7 @@ export function Hero({
               onChange={(event) => {
                 setSearchValue(event.target.value);
               }}
-              placeholder='Ask anything from collective intelligence'
+              placeholder='What are you looking for?'
               className='font-inter border-syft-border-light text-syft-primary placeholder:text-syft-placeholder focus:ring-syft-primary w-full rounded-xl border bg-white px-6 py-4 shadow-sm transition-all focus:border-transparent focus:ring-2 focus:outline-none'
             />
             <button
@@ -117,6 +121,7 @@ export function Hero({
             ))}
           </div>
         </form>
+        </div>
       </div>
     </section>
   );
