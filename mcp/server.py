@@ -221,7 +221,7 @@ def get_sdk_client_for_user(user_email: str) -> Optional["SyftHubSDKClient"]:
         # Use internal URLs for container-to-container communication
         client = SyftHubSDKClient(
             base_url=SYFTHUB_URL,  # Internal backend URL (http://backend:8000)
-            aggregator_url=AGGREGATOR_URL,  # Internal aggregator URL (http://aggregator:8001)
+            aggregator_url=f"{AGGREGATOR_URL.rstrip('/')}/api/v1",  # SDK expects URL with /api/v1 suffix
             timeout=60.0
         )
         client.set_tokens(AuthTokens(

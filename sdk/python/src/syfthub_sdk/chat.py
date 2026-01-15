@@ -501,7 +501,7 @@ class ChatResource:
 
         try:
             response = self._agg_client.post(
-                f"{self._aggregator_url}/api/v1/chat",
+                f"{self._aggregator_url}/chat",
                 json=request_body,
                 headers={"Content-Type": "application/json"},
             )
@@ -627,7 +627,7 @@ class ChatResource:
         try:
             with self._agg_client.stream(
                 "POST",
-                f"{self._aggregator_url}/api/v1/chat/stream",
+                f"{self._aggregator_url}/chat/stream",
                 json=request_body,
                 headers={
                     "Content-Type": "application/json",
