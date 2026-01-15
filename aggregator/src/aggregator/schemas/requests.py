@@ -47,6 +47,11 @@ class ChatRequest(BaseModel):
         Each endpoint's owner_username is used to lookup its token from this mapping.
         The aggregator forwards these tokens in Authorization headers to SyftAI-Space.
         User identity is derived from the satellite tokens (not passed separately).
+
+    Billing:
+        The transaction_tokens field maps owner usernames to accounting transaction tokens.
+        These tokens authorize endpoint owners to charge the user for usage.
+        The aggregator forwards these tokens to SyftAI-Space endpoints via headers.
     """
 
     prompt: str = Field(..., min_length=1, description="The user's question or prompt")
@@ -58,6 +63,10 @@ class ChatRequest(BaseModel):
     endpoint_tokens: dict[str, str] = Field(
         default_factory=dict,
         description="Mapping of owner username to satellite token for authentication",
+    )
+    transaction_tokens: dict[str, str] = Field(
+        default_factory=dict,
+        description="Mapping of owner username to transaction token for billing authorization",
     )
     top_k: int = Field(
         default=5,

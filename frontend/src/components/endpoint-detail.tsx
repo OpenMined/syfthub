@@ -691,10 +691,18 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                   </Badge>
                 </div>
 
-                <div>
-                  <p className='font-inter mb-1 text-xs text-[#5e5a72]'>Category</p>
-                  <Badge variant='outline'>{endpoint.tag}</Badge>
-                </div>
+                {endpoint.tags && endpoint.tags.length > 0 && (
+                  <div>
+                    <p className='font-inter mb-1 text-xs text-[#5e5a72]'>Tags</p>
+                    <div className='flex flex-wrap gap-1'>
+                      {endpoint.tags.map((tag) => (
+                        <Badge key={tag} variant='outline'>
+                          {tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <p className='font-inter mb-1 text-xs text-[#5e5a72]'>Contributors</p>

@@ -37,6 +37,7 @@ export interface Endpoint {
   readonly contributors: readonly number[];
   readonly version: string;
   readonly readme: string;
+  readonly tags: readonly string[];
   readonly starsCount: number;
   readonly policies: readonly Policy[];
   readonly connect: readonly Connection[];
@@ -57,6 +58,7 @@ export interface EndpointPublic {
   readonly contributorsCount: number;
   readonly version: string;
   readonly readme: string;
+  readonly tags: readonly string[];
   readonly starsCount: number;
   readonly policies: readonly Policy[];
   readonly connect: readonly Connection[];
@@ -75,6 +77,7 @@ export interface EndpointCreateInput {
   slug?: string;
   version?: string;
   readme?: string;
+  tags?: string[];
   policies?: Policy[];
   connect?: Connection[];
   contributors?: number[];
@@ -89,6 +92,7 @@ export interface EndpointUpdateInput {
   visibility?: Visibility;
   version?: string;
   readme?: string;
+  tags?: string[];
   policies?: Policy[];
   connect?: Connection[];
   contributors?: number[];

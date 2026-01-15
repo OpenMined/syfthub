@@ -136,10 +136,61 @@ class EndpointBase(BaseModel):
     readme: str = Field(
         default="", max_length=50000, description="Markdown content for the README"
     )
+    tags: List[str] = Field(
+        default_factory=list,
+        max_length=10,
+        description="List of tags for categorization (max 10 tags)",
+    )
     # REMOVED stars_count - CRITICAL: server-managed field only
     policies: List[Policy] = Field(
         default_factory=list, description="List of policies applied to this endpoint"
     )
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v: List[str]) -> List[str]:
+        """Validate and normalize tags."""
+        if not v:
+            return []
+
+        # Max 10 tags
+        if len(v) > 10:
+            raise ValueError("Maximum 10 tags allowed")
+
+        normalized_tags = []
+        seen = set()
+
+        for tag in v:
+            # Strip whitespace and convert to lowercase
+            tag = tag.strip().lower()
+
+            # Skip empty tags
+            if not tag:
+                continue
+
+            # Validate length
+            if len(tag) < 1 or len(tag) > 30:
+                raise ValueError(f"Tag '{tag}' must be between 1 and 30 characters")
+
+            # Validate format: alphanumeric + hyphens, no leading/trailing hyphens
+            tag_pattern = r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$|^[a-z0-9]$"
+            if not re.match(tag_pattern, tag):
+                raise ValueError(
+                    f"Tag '{tag}' must contain only lowercase letters, numbers, and hyphens. "
+                    "Cannot start or end with hyphen."
+                )
+
+            # Check for consecutive hyphens
+            if "--" in tag:
+                raise ValueError(f"Tag '{tag}' cannot contain consecutive hyphens")
+
+            # Deduplicate
+            if tag not in seen:
+                seen.add(tag)
+                normalized_tags.append(tag)
+
+        return normalized_tags
+
     connect: List[Connection] = Field(
         default_factory=list,
         description="List of connection methods available for this endpoint",
@@ -216,9 +267,63 @@ class EndpointUpdate(BaseModel):
     readme: Optional[str] = Field(
         None, max_length=50000, description="Markdown content for the README"
     )
+    tags: Optional[List[str]] = Field(
+        None,
+        max_length=10,
+        description="List of tags for categorization (max 10 tags)",
+    )
     policies: Optional[List[Policy]] = Field(
         None, description="List of policies applied to this endpoint"
     )
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        """Validate and normalize tags."""
+        if v is None:
+            return None
+
+        if not v:
+            return []
+
+        # Max 10 tags
+        if len(v) > 10:
+            raise ValueError("Maximum 10 tags allowed")
+
+        normalized_tags = []
+        seen = set()
+
+        for tag in v:
+            # Strip whitespace and convert to lowercase
+            tag = tag.strip().lower()
+
+            # Skip empty tags
+            if not tag:
+                continue
+
+            # Validate length
+            if len(tag) < 1 or len(tag) > 30:
+                raise ValueError(f"Tag '{tag}' must be between 1 and 30 characters")
+
+            # Validate format: alphanumeric + hyphens, no leading/trailing hyphens
+            tag_pattern = r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$|^[a-z0-9]$"
+            if not re.match(tag_pattern, tag):
+                raise ValueError(
+                    f"Tag '{tag}' must contain only lowercase letters, numbers, and hyphens. "
+                    "Cannot start or end with hyphen."
+                )
+
+            # Check for consecutive hyphens
+            if "--" in tag:
+                raise ValueError(f"Tag '{tag}' cannot contain consecutive hyphens")
+
+            # Deduplicate
+            if tag not in seen:
+                seen.add(tag)
+                normalized_tags.append(tag)
+
+        return normalized_tags
+
     connect: Optional[List[Connection]] = Field(
         None, description="List of connection methods available for this endpoint"
     )
@@ -249,6 +354,7 @@ class Endpoint(BaseModel):
     )
     version: str = Field(..., description="Semantic version of the endpoint")
     readme: str = Field(..., description="Markdown content for the README")
+    tags: List[str] = Field(..., description="List of tags for categorization")
     policies: List[Policy] = Field(..., description="List of policies")
     connect: List[Connection] = Field(..., description="List of connection methods")
 
@@ -297,6 +403,7 @@ class EndpointResponse(BaseModel):
     contributors: List[int] = Field(..., description="List of contributor user IDs")
     version: str = Field(..., description="Semantic version of the endpoint")
     readme: str = Field(..., description="Markdown content for the README")
+    tags: List[str] = Field(..., description="List of tags for categorization")
     stars_count: int = Field(
         ..., description="Number of stars this endpoint has received"
     )
@@ -328,6 +435,7 @@ class EndpointPublicResponse(BaseModel):
     )
     version: str = Field(..., description="Semantic version of the endpoint")
     readme: str = Field(..., description="Markdown content for the README")
+    tags: List[str] = Field(..., description="List of tags for categorization")
     stars_count: int = Field(
         ..., description="Number of stars this endpoint has received"
     )

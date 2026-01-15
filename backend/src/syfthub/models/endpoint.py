@@ -48,6 +48,7 @@ class EndpointModel(BaseModel, TimestampMixin):
     version: Mapped[str] = mapped_column(String(20), nullable=False, default="0.1.0")
     readme: Mapped[str] = mapped_column(Text, nullable=False, default="")
     stars_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tags: Mapped[List[str]] = mapped_column(JSON, nullable=False, default=lambda: [])
 
     # JSON fields for complex data
     contributors: Mapped[List[int]] = mapped_column(

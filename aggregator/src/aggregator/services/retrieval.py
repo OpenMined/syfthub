@@ -17,11 +17,11 @@ class RetrievalService:
         self.data_source_client = data_source_client
 
     def _get_token_for_endpoint(
-        self, endpoint: ResolvedEndpoint, endpoint_tokens: dict[str, str]
+        self, endpoint: ResolvedEndpoint, token_mapping: dict[str, str]
     ) -> str | None:
-        """Get the satellite token for an endpoint based on its owner."""
-        if endpoint.owner_username and endpoint.owner_username in endpoint_tokens:
-            return endpoint_tokens[endpoint.owner_username]
+        """Get a token for an endpoint based on its owner username."""
+        if endpoint.owner_username and endpoint.owner_username in token_mapping:
+            return token_mapping[endpoint.owner_username]
         return None
 
     async def retrieve(
@@ -31,6 +31,7 @@ class RetrievalService:
         top_k: int = 5,
         similarity_threshold: float = 0.5,
         endpoint_tokens: dict[str, str] | None = None,
+        transaction_tokens: dict[str, str] | None = None,
     ) -> AggregatedContext:
         """
         Retrieve relevant documents from multiple SyftAI-Space data sources in parallel.
@@ -43,6 +44,7 @@ class RetrievalService:
             top_k: Number of documents to retrieve per source
             similarity_threshold: Minimum similarity score for documents
             endpoint_tokens: Mapping of owner username to satellite token for auth
+            transaction_tokens: Mapping of owner username to transaction token for billing
 
         Returns:
             AggregatedContext with all documents and retrieval results
@@ -55,6 +57,7 @@ class RetrievalService:
             )
 
         endpoint_tokens = endpoint_tokens or {}
+        transaction_tokens = transaction_tokens or {}
         start_time = time.perf_counter()
 
         # Query all data sources in parallel
@@ -68,6 +71,7 @@ class RetrievalService:
                 similarity_threshold=similarity_threshold,
                 tenant_name=ds.tenant_name,
                 authorization_token=self._get_token_for_endpoint(ds, endpoint_tokens),
+                transaction_token=self._get_token_for_endpoint(ds, transaction_tokens),
             )
             for ds in data_sources
         ]
@@ -106,6 +110,7 @@ class RetrievalService:
         top_k: int = 5,
         similarity_threshold: float = 0.5,
         endpoint_tokens: dict[str, str] | None = None,
+        transaction_tokens: dict[str, str] | None = None,
     ):
         """
         Retrieve from SyftAI-Space data sources and yield results as they complete.
@@ -119,6 +124,7 @@ class RetrievalService:
             top_k: Number of documents to retrieve per source
             similarity_threshold: Minimum similarity score for documents
             endpoint_tokens: Mapping of owner username to satellite token for auth
+            transaction_tokens: Mapping of owner username to transaction token for billing
 
         Yields:
             RetrievalResult for each data source as it completes
@@ -127,6 +133,7 @@ class RetrievalService:
             return
 
         endpoint_tokens = endpoint_tokens or {}
+        transaction_tokens = transaction_tokens or {}
 
         # Create tasks
         tasks = {
@@ -140,6 +147,7 @@ class RetrievalService:
                     similarity_threshold=similarity_threshold,
                     tenant_name=ds.tenant_name,
                     authorization_token=self._get_token_for_endpoint(ds, endpoint_tokens),
+                    transaction_token=self._get_token_for_endpoint(ds, transaction_tokens),
                 )
             ): ds
             for ds in data_sources

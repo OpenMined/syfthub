@@ -134,6 +134,7 @@ export interface EndpointBase {
   visibility: EndpointVisibility;
   version: string;
   readme: string;
+  tags: string[];
   policies: Policy[];
   connect: Connection[];
 }
@@ -150,6 +151,7 @@ export interface EndpointUpdate {
   contributors?: number[];
   version?: string;
   readme?: string;
+  tags?: string[];
   policies?: Policy[];
   connect?: Connection[];
 }
@@ -177,6 +179,7 @@ export interface EndpointPublicResponse {
   contributors_count: number;
   version: string;
   readme: string;
+  tags: string[];
   stars_count: number;
   policies: Policy[];
   connect: Connection[];
@@ -189,7 +192,7 @@ export interface EndpointPublicResponse {
 export interface ChatSource {
   id: string; // Use slug as ID for frontend
   name: string;
-  tag: string; // Derived from policies/categories
+  tags: string[]; // Tags for categorization
   description: string;
   type: EndpointType; // Endpoint type (model or data_source)
   updated: string; // Mapped from updated_at

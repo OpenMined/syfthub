@@ -96,7 +96,7 @@ export function BrowseView({
       (ds) =>
         ds.name.toLowerCase().includes(query) ||
         ds.description.toLowerCase().includes(query) ||
-        ds.tag.toLowerCase().includes(query)
+        ds.tags.some((tag) => tag.toLowerCase().includes(query))
     );
   }, [endpoints, searchQuery]);
 
@@ -208,9 +208,16 @@ export function BrowseView({
                   >
                     {getTypeLabel(endpoint.type)}
                   </Badge>
-                  <Badge variant='secondary' className='font-inter text-xs'>
-                    {endpoint.tag}
-                  </Badge>
+                  {endpoint.tags.slice(0, 3).map((tag) => (
+                    <Badge key={tag} variant='secondary' className='font-inter text-xs'>
+                      {tag}
+                    </Badge>
+                  ))}
+                  {endpoint.tags.length > 3 && (
+                    <Badge variant='secondary' className='font-inter text-xs'>
+                      +{endpoint.tags.length - 3}
+                    </Badge>
+                  )}
                   <div className='flex items-center gap-1'>
                     <div className={`h-2 w-2 rounded-full ${getStatusColor(endpoint.status)}`} />
                     <span className='font-inter text-syft-muted text-xs capitalize'>

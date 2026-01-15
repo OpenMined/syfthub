@@ -44,6 +44,7 @@ class ModelClient:
         temperature: float = 0.7,
         tenant_name: str | None = None,
         authorization_token: str | None = None,
+        transaction_token: str | None = None,
     ) -> GenerationResult:
         """
         Send messages to a SyftAI-Space model endpoint and get a response.
@@ -58,6 +59,7 @@ class ModelClient:
             temperature: Temperature for generation
             tenant_name: Tenant name for X-Tenant-Name header (optional)
             authorization_token: Satellite token for Authorization header (optional)
+            transaction_token: Transaction token for billing authorization (optional)
 
         Returns:
             GenerationResult with response text and metadata
@@ -77,13 +79,17 @@ class ModelClient:
 
         # Build SyftAI-Space compatible request body
         # User identity is derived from the satellite token, not the request body
-        request_data = {
+        request_data: dict[str, Any] = {
             "messages": formatted_messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": False,
             "stop_sequences": [],  # Don't stop on newlines - allow complete responses
         }
+
+        # Include transaction token in payload for billing authorization
+        if transaction_token:
+            request_data["transaction_token"] = transaction_token
 
         # Build headers
         headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -142,6 +148,7 @@ class ModelClient:
         temperature: float = 0.7,
         tenant_name: str | None = None,
         authorization_token: str | None = None,
+        transaction_token: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """
         Send messages to a SyftAI-Space model endpoint and stream the response.
@@ -159,6 +166,7 @@ class ModelClient:
             temperature: Temperature for generation
             tenant_name: Tenant name for X-Tenant-Name header (optional)
             authorization_token: Satellite token for Authorization header (optional)
+            transaction_token: Transaction token for billing authorization (optional)
 
         Yields:
             Response text chunks as they arrive
@@ -173,13 +181,17 @@ class ModelClient:
 
         # Build SyftAI-Space compatible request body
         # User identity is derived from the satellite token, not the request body
-        request_data = {
+        request_data: dict[str, Any] = {
             "messages": formatted_messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": True,  # Request streaming
             "stop_sequences": [],  # Don't stop on newlines - allow complete responses
         }
+
+        # Include transaction token in payload for billing authorization
+        if transaction_token:
+            request_data["transaction_token"] = transaction_token
 
         # Build headers
         headers: dict[str, str] = {

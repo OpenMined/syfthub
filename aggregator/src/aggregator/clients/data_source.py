@@ -35,6 +35,7 @@ class DataSourceClient:
         similarity_threshold: float = 0.5,
         tenant_name: str | None = None,
         authorization_token: str | None = None,
+        transaction_token: str | None = None,
     ) -> RetrievalResult:
         """
         Query a SyftAI-Space endpoint for relevant documents.
@@ -50,6 +51,7 @@ class DataSourceClient:
             similarity_threshold: Minimum similarity score for documents
             tenant_name: Tenant name for X-Tenant-Name header (optional)
             authorization_token: Satellite token for Authorization header (optional)
+            transaction_token: Transaction token for billing authorization (optional)
 
         Returns:
             RetrievalResult with documents and status
@@ -62,12 +64,16 @@ class DataSourceClient:
         # Build SyftAI-Space compatible request body
         # SyftAI-Space accepts messages as a string for simple queries
         # User identity is derived from the satellite token, not the request body
-        request_data = {
+        request_data: dict[str, Any] = {
             "messages": query,  # String is accepted by SyftAI-Space
             "limit": top_k,
             "similarity_threshold": similarity_threshold,
             "include_metadata": True,
         }
+
+        # Include transaction token in payload for billing authorization
+        if transaction_token:
+            request_data["transaction_token"] = transaction_token
 
         # Build headers
         headers: dict[str, str] = {"Content-Type": "application/json"}
