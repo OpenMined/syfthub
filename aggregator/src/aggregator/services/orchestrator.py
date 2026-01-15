@@ -60,8 +60,14 @@ class Orchestrator:
         Maps the request schema to the internal representation with all
         SyftAI-Space connection details including owner for token lookup.
         """
+        # Construct full path as owner/slug for citation format
+        if ref.owner_username:
+            full_path = f"{ref.owner_username}/{ref.slug}"
+        else:
+            full_path = ref.slug
+
         return ResolvedEndpoint(
-            path=ref.name or ref.slug,  # Use name for display, fallback to slug
+            path=full_path,  # Full path for citations (e.g., "ionesiotest/general-knowledge")
             url=ref.url,
             slug=ref.slug,
             endpoint_type=endpoint_type,  # type: ignore[arg-type]
