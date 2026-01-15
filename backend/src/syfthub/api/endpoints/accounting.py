@@ -456,7 +456,7 @@ async def create_transaction_tokens(
             # Create transaction token for this owner
             try:
                 response = client.client.post(
-                    "/tokens",
+                    "/token/create",
                     json={"recipientEmail": owner.email},
                     auth=(current_user.email, password),
                 )
