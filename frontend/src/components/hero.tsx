@@ -53,8 +53,8 @@ export function Hero({
       <div className='mx-auto w-full max-w-2xl space-y-8'>
         {/* Logo */}
         <div className='flex items-center justify-center gap-3'>
-          <OpenMinedIcon className='h-8 w-8' />
-          <span className='font-rubik text-syft-primary text-2xl font-normal'>SyftHub</span>
+          <OpenMinedIcon className='h-7 w-7' />
+          <span className='font-rubik text-syft-primary text-xl font-normal'>SyftHub</span>
         </div>
 
         {/* Tagline */}
