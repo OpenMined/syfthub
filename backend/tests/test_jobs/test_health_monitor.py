@@ -98,7 +98,7 @@ class TestBuildHealthCheckUrl:
         return EndpointHealthMonitor(settings)
 
     def test_build_url_success(self, monitor):
-        """Test successful URL building."""
+        """Test successful URL building checks base domain only."""
         connect = [
             {
                 "type": "rest_api",
@@ -114,15 +114,14 @@ class TestBuildHealthCheckUrl:
             patch("syfthub.jobs.health_monitor.build_connection_url") as mock_build_url,
         ):
             mock_get_conn.return_value = connect[0]
-            mock_build_url.return_value = "https://example.com/api/health"
+            mock_build_url.return_value = "https://example.com"
 
             url = monitor._build_health_check_url("example.com", connect)
 
-            assert url == "https://example.com/api/health"
+            assert url == "https://example.com"
             mock_get_conn.assert_called_once_with(connect)
-            mock_build_url.assert_called_once_with(
-                "example.com", "rest_api", "/api/health"
-            )
+            # Should check base domain, not the endpoint path
+            mock_build_url.assert_called_once_with("example.com", "rest_api", path=None)
 
     def test_build_url_no_enabled_connection(self, monitor):
         """Test URL building when no connection is enabled."""
@@ -148,8 +147,8 @@ class TestBuildHealthCheckUrl:
 
             assert url is None
 
-    def test_build_url_uses_path_fallback(self, monitor):
-        """Test URL building using path config instead of url."""
+    def test_build_url_uses_connection_type(self, monitor):
+        """Test URL building uses connection type for protocol selection."""
         connect = [
             {
                 "type": "mcp",
@@ -165,14 +164,13 @@ class TestBuildHealthCheckUrl:
             patch("syfthub.jobs.health_monitor.build_connection_url") as mock_build_url,
         ):
             mock_get_conn.return_value = connect[0]
-            mock_build_url.return_value = "https://example.com/mcp/endpoint"
+            mock_build_url.return_value = "https://example.com"
 
             url = monitor._build_health_check_url("example.com", connect)
 
-            assert url == "https://example.com/mcp/endpoint"
-            mock_build_url.assert_called_once_with(
-                "example.com", "mcp", "/mcp/endpoint"
-            )
+            assert url == "https://example.com"
+            # Should use the connection type but check base domain
+            mock_build_url.assert_called_once_with("example.com", "mcp", path=None)
 
     def test_build_url_default_type(self, monitor):
         """Test URL building defaults to rest_api type."""
@@ -185,11 +183,11 @@ class TestBuildHealthCheckUrl:
             patch("syfthub.jobs.health_monitor.build_connection_url") as mock_build_url,
         ):
             mock_get_conn.return_value = connect[0]
-            mock_build_url.return_value = "https://example.com/test"
+            mock_build_url.return_value = "https://example.com"
 
             monitor._build_health_check_url("example.com", connect)
 
-            mock_build_url.assert_called_once_with("example.com", "rest_api", "/test")
+            mock_build_url.assert_called_once_with("example.com", "rest_api", path=None)
 
 
 class TestGetEndpointsForHealthCheck:

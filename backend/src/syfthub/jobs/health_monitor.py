@@ -76,22 +76,24 @@ class EndpointHealthMonitor:
     ) -> Optional[str]:
         """Build URL for health check from endpoint connection config.
 
+        Checks the base domain to verify the server is reachable,
+        rather than hitting the specific endpoint path.
+
         Args:
             owner_domain: The domain of the endpoint owner (user or organization)
             connect: List of connection configurations from the endpoint
 
         Returns:
-            The full URL to check, or None if no valid connection is available
+            The base URL to check, or None if no valid connection is available
         """
         connection = get_first_enabled_connection(connect)
         if not connection:
             return None
 
         conn_type = connection.get("type", "rest_api")
-        config = connection.get("config", {})
-        path = config.get("url", "") or config.get("path", "")
 
-        return build_connection_url(owner_domain, conn_type, path)
+        # Check the base domain only, not the specific endpoint path
+        return build_connection_url(owner_domain, conn_type, path=None)
 
     def _get_endpoints_for_health_check(
         self, session: Session
