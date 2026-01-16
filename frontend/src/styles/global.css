@@ -165,4 +165,13 @@
   .border-syft-light {
     border-color: var(--color-syft-border-light);
   }
+  .border-syft-border {
+    border-color: var(--color-syft-border);
+  }
+  .border-syft-primary {
+    border-color: var(--color-syft-primary);
+  }
+  .border-syft-secondary {
+    border-color: var(--color-syft-secondary);
+  }
 }
