@@ -17,7 +17,10 @@ export function BuildView({ onAuthRequired: _onAuthRequired }: Readonly<BuildVie
     <div className='mx-auto flex min-h-screen max-w-[1600px] flex-col'>
       {/* Sticky Header */}
       <div className='sticky top-0 z-30 flex w-full items-center border-b border-[#ecebef] bg-[#fcfcfd]/95 px-6 py-4 backdrop-blur-sm'>
-        <h2 className='font-rubik text-xl font-medium text-[#272532]'>Build</h2>
+        <div className='flex items-center gap-4'>
+          <h2 className='font-rubik text-xl font-medium text-[#272532]'>Build</h2>
+          <div className='hidden font-mono text-xs text-[#b4b0bf] opacity-60 sm:block'>~/build</div>
+        </div>
       </div>
 
       {/* Main Content */}

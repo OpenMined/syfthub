@@ -1,6 +1,6 @@
 import type React from 'react';
 
-import { FileText, Globe, MessageSquare, UserPlus } from 'lucide-react';
+import { FileText, Globe, Info, MessageSquare, UserPlus } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
@@ -19,8 +19,9 @@ interface NavItem {
 const navItems: NavItem[] = [
   { id: 'home', path: '/', label: 'Chat', icon: MessageSquare, protected: false },
   { id: 'browse', path: '/browse', label: 'Browse', icon: Globe, protected: false },
+  { id: 'endpoints', path: '/endpoints', label: 'Participate', icon: UserPlus, protected: true },
   { id: 'build', path: '/build', label: 'Build', icon: FileText, protected: false },
-  { id: 'endpoints', path: '/endpoints', label: 'Participate', icon: UserPlus, protected: true }
+  { id: 'about', path: '/about', label: 'About', icon: Info, protected: false }
 ];
 
 /**

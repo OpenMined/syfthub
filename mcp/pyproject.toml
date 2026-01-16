@@ -4,18 +4,31 @@ version = "0.1.0"
 description = "SyftHub MCP Server with OAuth 2.1 authentication integrated with SyftHub accounts"
 requires-python = ">=3.12"
 dependencies = [
-    "fastmcp[auth]>=2.12.4",
-    "python-dotenv==1.1.0",
-    "requests>=2.31.0",
+    # Core MCP framework - pinned for security (CVE-2025-66416, GHSA-rj5c-58rq-j5g5, GHSA-fg6f-75jq-6523)
+    # Note: auth extra deprecated in 2.14+, auth features now included by default
+    "fastmcp>=2.14.3",
+    # MCP SDK with DNS rebinding protection (CVE-2025-66416)
+    "mcp>=1.23.0",
+    # HTTP libraries with security fixes
+    "requests>=2.32.4",  # CVE-2024-47081: .netrc credentials leak
+    "httpx>=0.27.0",
+    "aiohttp>=3.13.3",  # CVE-2025-69223 and related DoS vulnerabilities
+    "urllib3>=2.6.3",  # CVE-2025-66471, CVE-2026-21441: decompression bomb
+    # Web framework dependencies with security fixes
+    "starlette>=0.49.1",  # CVE-2025-62727: O(n^2) DoS via Range header
+    "werkzeug>=3.1.5",  # CVE-2025-66221, CVE-2026-21860: Windows device names
+    "authlib>=1.6.6",  # CVE-2025-68158: Account takeover vulnerability
+    # Pydantic (pinned for compatibility)
     "pydantic==2.11.4",
     "pydantic-core==2.33.2",
-    "python-jose[cryptography]>=3.3.0",
+    # Authentication and crypto
     "cryptography>=41.0.0",
-    "httpx>=0.27.0",
     "pyjwt>=2.0.0",
+    # Utilities
+    "python-dotenv==1.1.0",
     "python-multipart>=0.0.5",
-    "aiohttp>=3.13.0",
     "email-validator>=2.0.0",
+    # SyftHub integration
     "syft-accounting-sdk @ git+https://git@github.com/OpenMined/accounting-sdk.git",
     "syfthub-sdk",
 ]
@@ -27,4 +40,12 @@ syfthub-sdk = { path = "../sdk/python", editable = true }
 override-dependencies = [
     "pydantic==2.11.4",
     "pydantic-core==2.33.2",
+    # Security overrides - force minimum secure versions even when transitive deps pin older versions
+    "requests>=2.32.4",  # CVE-2024-47081: syft-accounting-sdk pins 2.32.3
+    "urllib3>=2.6.3",  # CVE-2025-66471, CVE-2026-21441
+    "starlette>=0.49.1",  # CVE-2025-62727
+    "werkzeug>=3.1.5",  # CVE-2025-66221, CVE-2026-21860
+    "authlib>=1.6.6",  # CVE-2025-68158
+    "aiohttp>=3.13.3",  # CVE-2025-69223
+    "mcp>=1.23.0",  # CVE-2025-66416
 ]

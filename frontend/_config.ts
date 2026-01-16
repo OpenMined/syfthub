@@ -1,7 +1,7 @@
 const config = {
   metadata: {
-    title: 'SyftHub',
-    description: 'Discover and connect to Syft AI Spaces. Search, explore, and collaborate on privacy-preserving data science projects powered by OpenMined.',
+    title: 'SyftHub | Directory for Collective Intelligence',
+    description: 'Discover your peers on the Syft network. Choose and query trusted sources - with attribution, privacy, and control built in.',
     keywords: 'syfthub, openmined, pysyft, privacy, data science, federated learning, differential privacy',
     ogImage: 'https://syfthub.openmined.org/favicon/openmined-icon.svg'
   },
