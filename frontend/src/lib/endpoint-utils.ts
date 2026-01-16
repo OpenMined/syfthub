@@ -427,3 +427,364 @@ export async function getChatModels(limit = 20): Promise<ChatSource[]> {
     return [];
   }
 }
+
+// ============================================================================
+// Query Relevance Utilities
+// ============================================================================
+
+/**
+ * Extract endpoint path mentions from a query string.
+ * Looks for patterns like "owner/endpoint-name" in the text.
+ *
+ * @param query - The user's query string
+ * @returns Array of potential endpoint paths found
+ */
+export function parseEndpointMentions(query: string): string[] {
+  // Match patterns like "owner/endpoint-name" or "owner/endpoint_name"
+  // Supports alphanumeric, hyphens, and underscores
+  const pathPattern = /\b([a-zA-Z][\w-]*\/[\w-]+)\b/g;
+  const matches = query.match(pathPattern);
+  return matches ?? [];
+}
+
+/**
+ * Find an endpoint by exact path match from available sources.
+ *
+ * @param sources - Available chat sources
+ * @param path - Endpoint path to find (owner/slug format)
+ * @returns The matching ChatSource or undefined
+ */
+export function findEndpointByPath(sources: ChatSource[], path: string): ChatSource | undefined {
+  const normalizedPath = path.toLowerCase();
+  return sources.find((source) => source.full_path?.toLowerCase() === normalizedPath);
+}
+
+/**
+ * Find an endpoint by name match from available sources.
+ *
+ * @param sources - Available chat sources
+ * @param name - Endpoint name to find (case-insensitive)
+ * @returns The matching ChatSource or undefined
+ */
+export function findEndpointByName(sources: ChatSource[], name: string): ChatSource | undefined {
+  const normalizedName = name.toLowerCase().trim();
+  return sources.find((source) => source.name.toLowerCase() === normalizedName);
+}
+
+/**
+ * Calculate a relevance score for a source based on query keywords.
+ * Higher score = more relevant.
+ *
+ * @param source - The chat source to score
+ * @param keywords - Array of keywords to match against
+ * @returns Relevance score (0 = no match)
+ */
+function calculateRelevanceScore(source: ChatSource, keywords: string[]): number {
+  let score = 0;
+  const nameWords = source.name.toLowerCase().split(/[\s-_]+/);
+  const descText = source.description.toLowerCase();
+  const tags = source.tags.map((t) => t.toLowerCase());
+  const readmeText = source.readme.toLowerCase();
+
+  for (const keyword of keywords) {
+    // Exact name word match (highest weight)
+    if (nameWords.includes(keyword)) {
+      score += 10;
+    }
+    // Name contains keyword
+    else if (source.name.toLowerCase().includes(keyword)) {
+      score += 5;
+    }
+
+    // Description contains keyword (high weight)
+    if (descText.includes(keyword)) {
+      score += 8;
+    }
+
+    // Tag exact match
+    if (tags.includes(keyword)) {
+      score += 4;
+    }
+    // Tag contains keyword
+    else if (tags.some((tag) => tag.includes(keyword))) {
+      score += 2;
+    }
+
+    // Readme/summary contains keyword (lower weight, can be lengthy)
+    if (readmeText.includes(keyword)) {
+      score += 1;
+    }
+  }
+
+  return score;
+}
+
+/**
+ * Extract meaningful keywords from a query string.
+ * Filters out common stop words and short words.
+ *
+ * @param query - The user's query string
+ * @returns Array of meaningful keywords
+ */
+function extractKeywords(query: string): string[] {
+  const stopWords = new Set([
+    'a',
+    'an',
+    'the',
+    'is',
+    'are',
+    'was',
+    'were',
+    'be',
+    'been',
+    'being',
+    'have',
+    'has',
+    'had',
+    'do',
+    'does',
+    'did',
+    'will',
+    'would',
+    'could',
+    'should',
+    'may',
+    'might',
+    'must',
+    'shall',
+    'can',
+    'of',
+    'at',
+    'by',
+    'for',
+    'with',
+    'about',
+    'against',
+    'between',
+    'into',
+    'through',
+    'during',
+    'before',
+    'after',
+    'above',
+    'below',
+    'to',
+    'from',
+    'up',
+    'down',
+    'in',
+    'out',
+    'on',
+    'off',
+    'over',
+    'under',
+    'again',
+    'further',
+    'then',
+    'once',
+    'and',
+    'but',
+    'or',
+    'nor',
+    'so',
+    'yet',
+    'both',
+    'each',
+    'few',
+    'more',
+    'most',
+    'other',
+    'some',
+    'such',
+    'no',
+    'not',
+    'only',
+    'own',
+    'same',
+    'than',
+    'too',
+    'very',
+    'just',
+    'also',
+    'now',
+    'here',
+    'there',
+    'when',
+    'where',
+    'why',
+    'how',
+    'all',
+    'any',
+    'what',
+    'which',
+    'who',
+    'whom',
+    'this',
+    'that',
+    'these',
+    'those',
+    'am',
+    'i',
+    'me',
+    'my',
+    'myself',
+    'we',
+    'our',
+    'ours',
+    'you',
+    'your',
+    'yours',
+    'he',
+    'him',
+    'his',
+    'she',
+    'her',
+    'hers',
+    'it',
+    'its',
+    'they',
+    'them',
+    'their',
+    'tell',
+    'show',
+    'give',
+    'get',
+    'find',
+    'use',
+    'using',
+    'want',
+    'need',
+    'like',
+    'know',
+    'think',
+    'make',
+    'help',
+    'please'
+  ]);
+
+  // Split on whitespace and punctuation, filter meaningful words
+  const words = query
+    .toLowerCase()
+    .split(/[\s,.:;!?()[\]{}'"]+/)
+    .filter((word) => word.length >= 2 && !stopWords.has(word));
+
+  return [...new Set(words)]; // Deduplicate
+}
+
+/**
+ * Filter sources by relevance to a query.
+ * Returns sources sorted by relevance score (highest first).
+ *
+ * @param sources - All available chat sources
+ * @param query - The user's query string
+ * @param minScore - Minimum score to include (default: 1)
+ * @returns Filtered and sorted array of relevant sources
+ */
+export function filterRelevantSources(
+  sources: ChatSource[],
+  query: string,
+  minScore = 1
+): ChatSource[] {
+  const keywords = extractKeywords(query);
+
+  if (keywords.length === 0) {
+    // No meaningful keywords, return all sources
+    return sources;
+  }
+
+  // Score and filter sources
+  const scoredSources = sources
+    .map((source) => ({
+      source,
+      score: calculateRelevanceScore(source, keywords)
+    }))
+    .filter(({ score }) => score >= minScore)
+    .toSorted((a, b) => b.score - a.score);
+
+  return scoredSources.map(({ source }) => source);
+}
+
+/**
+ * Try to find an endpoint by name from words in the query.
+ * Checks single words and adjacent word pairs.
+ */
+function findEndpointByQueryWords(
+  query: string,
+  availableSources: ChatSource[]
+): ChatSource | undefined {
+  const words = query.split(/\s+/);
+
+  for (let index = 0; index < words.length; index++) {
+    const singleWord = words[index];
+    if (singleWord) {
+      const matched = findEndpointByName(availableSources, singleWord);
+      if (matched) return matched;
+    }
+
+    // Try word pairs (e.g., "Financial Data")
+    const nextWord = words[index + 1];
+    if (singleWord && nextWord) {
+      const matched = findEndpointByName(availableSources, `${singleWord} ${nextWord}`);
+      if (matched) return matched;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Analyze a query to determine the best action for source selection.
+ *
+ * @param query - The user's query string
+ * @param availableSources - All available chat sources
+ * @returns Analysis result with recommended action
+ */
+export function analyzeQueryForSources(
+  query: string,
+  availableSources: ChatSource[]
+): {
+  action: 'auto-select' | 'show-relevant' | 'show-all';
+  matchedEndpoint?: ChatSource;
+  relevantSources: ChatSource[];
+  mentionedPath?: string;
+} {
+  // 1. Check for explicit endpoint path mentions (owner/slug)
+  const mentionedPaths = parseEndpointMentions(query);
+  for (const path of mentionedPaths) {
+    const matched = findEndpointByPath(availableSources, path);
+    if (matched) {
+      return {
+        action: 'auto-select',
+        matchedEndpoint: matched,
+        relevantSources: [matched],
+        mentionedPath: path
+      };
+    }
+  }
+
+  // 2. Check for exact endpoint name matches
+  const nameMatch = findEndpointByQueryWords(query, availableSources);
+  if (nameMatch) {
+    return {
+      action: 'auto-select',
+      matchedEndpoint: nameMatch,
+      relevantSources: [nameMatch]
+    };
+  }
+
+  // 3. Filter by relevance
+  const relevantSources = filterRelevantSources(availableSources, query);
+
+  if (relevantSources.length > 0 && relevantSources.length < availableSources.length) {
+    return {
+      action: 'show-relevant',
+      relevantSources
+    };
+  }
+
+  // 4. No specific matches, show all
+  return {
+    action: 'show-all',
+    relevantSources: availableSources
+  };
+}
