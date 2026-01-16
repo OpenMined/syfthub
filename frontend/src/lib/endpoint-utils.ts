@@ -54,8 +54,9 @@ function formatRelativeTime(date: Date): string {
  */
 export function mapEndpointPublicToSource(endpoint: SdkEndpointPublic): ChatSource {
   // Get tags directly from backend (or empty array if not set)
-  const endpointWithTags = endpoint as SdkEndpointPublic & { tags?: readonly string[] };
-  const tags = [...(endpointWithTags.tags ?? [])];
+  // Use 'in' check since tags may not be present on all endpoint objects
+  const tags =
+    'tags' in endpoint && Array.isArray(endpoint.tags) ? [...(endpoint.tags as string[])] : [];
 
   // Get policies for mapping
   const policies = endpoint.policies;

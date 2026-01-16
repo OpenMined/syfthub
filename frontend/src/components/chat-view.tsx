@@ -478,7 +478,7 @@ function updateStatusFromEvent(
       } else {
         setProcessingStatus({
           phase: 'retrieving',
-          message: `Searching ${event.sourceCount} data ${event.sourceCount === 1 ? 'source' : 'sources'}...`,
+          message: `Searching ${String(event.sourceCount)} data ${event.sourceCount === 1 ? 'source' : 'sources'}...`,
           retrieval: {
             completed: 0,
             total: event.sourceCount,
@@ -494,16 +494,17 @@ function updateStatusFromEvent(
       setProcessingStatus((previous) => {
         if (!previous) return null;
         const newCompleted = (previous.retrieval?.completed ?? 0) + 1;
-        const newDocsFound = (previous.retrieval?.documentsFound ?? 0) + event.documentsRetrieved;
+        const newDocumentsFound =
+          (previous.retrieval?.documentsFound ?? 0) + event.documentsRetrieved;
         const total = previous.retrieval?.total ?? 1;
 
         return {
           ...previous,
-          message: `Retrieved from ${newCompleted}/${total} ${total === 1 ? 'source' : 'sources'}...`,
+          message: `Retrieved from ${String(newCompleted)}/${String(total)} ${total === 1 ? 'source' : 'sources'}...`,
           retrieval: {
             completed: newCompleted,
             total,
-            documentsFound: newDocsFound
+            documentsFound: newDocumentsFound
           },
           completedSources: [
             ...previous.completedSources,
@@ -523,12 +524,14 @@ function updateStatusFromEvent(
       setProcessingStatus((previous) => {
         if (!previous) return null;
         const documentCount = event.totalDocuments;
+        const documentLabel = documentCount === 1 ? 'document' : 'documents';
+        const message =
+          documentCount > 0
+            ? `Found ${String(documentCount)} relevant ${documentLabel}`
+            : 'No relevant documents found';
         return {
           ...previous,
-          message:
-            documentCount > 0
-              ? `Found ${documentCount} relevant ${documentCount === 1 ? 'document' : 'documents'}`
-              : 'No relevant documents found',
+          message,
           timing: {
             ...previous.timing,
             retrievalMs: event.timeMs
@@ -609,6 +612,23 @@ function hasSourceRelatedMessage(messages: Message[]): boolean {
   return messages.some(
     (m) => m.type === 'source-selection' || (m.role === 'assistant' && m.id.startsWith('source-'))
   );
+}
+
+// Helper to convert chat errors to user-friendly messages
+function getChatErrorMessage(error: unknown): string {
+  if (error instanceof AuthenticationError) {
+    return 'Authentication required. Please log in again.';
+  }
+  if (error instanceof AggregatorError) {
+    return `Chat service error: ${error.message}`;
+  }
+  if (error instanceof EndpointResolutionError) {
+    return `Could not resolve endpoint: ${error.message}`;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return 'An unexpected error occurred';
 }
 
 export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
@@ -939,25 +959,13 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
       // Refresh balance after successful chat completion (credits may have been consumed)
       triggerBalanceRefresh();
     } catch (error) {
-      // Handle SDK-specific errors
-      let errorMessage = 'An unexpected error occurred';
-
+      // Don't show error if it was aborted - clean up status
       if (error instanceof Error && error.name === 'AbortError') {
-        // Don't show error if it was aborted - clean up status
         setProcessingStatus(null);
         return;
       }
 
-      if (error instanceof AuthenticationError) {
-        errorMessage = 'Authentication required. Please log in again.';
-      } else if (error instanceof AggregatorError) {
-        errorMessage = `Chat service error: ${error.message}`;
-      } else if (error instanceof EndpointResolutionError) {
-        errorMessage = `Could not resolve endpoint: ${error.message}`;
-      } else if (error instanceof Error) {
-        errorMessage = error.message;
-      }
-
+      const errorMessage = getChatErrorMessage(error);
       setMessages((previous) =>
         updateMessageContent(previous, assistantMessageId, `Error: ${errorMessage}`)
       );

@@ -241,10 +241,15 @@ export function EndpointManagement() {
 
   // Show endpoint management grid when user has endpoints
   return (
-    <div className='mx-auto flex min-h-screen max-w-[1600px] flex-col'>
+    <div className='bg-syft-background min-h-screen'>
       {/* Sticky Header */}
-      <div className='sticky top-0 z-30 flex w-full items-center justify-between border-b border-[#ecebef] bg-[#fcfcfd]/95 px-6 py-4 backdrop-blur-sm'>
-        <h2 className='font-rubik text-xl font-medium text-[#272532]'>My Endpoints</h2>
+      <div className='border-syft-border bg-syft-background/95 sticky top-0 z-30 flex w-full items-center justify-between border-b px-6 py-4 backdrop-blur-sm'>
+        <div className='flex items-center gap-4'>
+          <h2 className='font-rubik text-syft-primary text-xl font-medium'>My Endpoints</h2>
+          <div className='text-syft-muted hidden font-mono text-xs opacity-60 sm:block'>
+            ~/endpoints
+          </div>
+        </div>
         <Button
           onClick={() => {
             setShowParticipate(true);
