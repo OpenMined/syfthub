@@ -13,7 +13,15 @@ def test_prompt_builder_no_context() -> None:
     assert len(messages) == 2
     assert messages[0].role == "system"
     assert messages[1].role == "user"
-    assert messages[1].content == "What is Python?"
+
+    # System message should be simple
+    assert messages[0].content == "You're a helpful AI assistant."
+
+    # User message should contain instructions and question
+    user_content = messages[1].content
+    assert "USER QUESTION:" in user_content
+    assert "What is Python?" in user_content
+    assert "Instructions:" in user_content
 
 
 def test_prompt_builder_with_context() -> None:
@@ -45,11 +53,16 @@ def test_prompt_builder_with_context() -> None:
     assert messages[0].role == "system"
     assert messages[1].role == "user"
 
-    # Check that context is included in system message
-    system_content = messages[0].content
-    assert "CONTEXT FROM DATA SOURCES" in system_content
-    assert "Python is a programming language" in system_content
-    assert "docs/python" in system_content
+    # System message should be simple
+    assert messages[0].content == "You're a helpful AI assistant."
+
+    # Check that context is included in user message (not system)
+    user_content = messages[1].content
+    assert "CONTEXT FROM DATA SOURCES" in user_content
+    assert "Python is a programming language" in user_content
+    assert "docs/python" in user_content
+    assert "USER QUESTION:" in user_content
+    assert "What is Python?" in user_content
 
 
 def test_prompt_builder_empty_context() -> None:
@@ -64,8 +77,12 @@ def test_prompt_builder_empty_context() -> None:
 
     messages = builder.build(user_prompt="Test", context=context)
 
-    system_content = messages[0].content
-    assert "No relevant context was found" in system_content
+    # System message should be simple
+    assert messages[0].content == "You're a helpful AI assistant."
+
+    # "No relevant context" note should be in user message
+    user_content = messages[1].content
+    assert "No relevant context was found" in user_content
 
 
 def test_prompt_builder_custom_system_prompt() -> None:
@@ -89,10 +106,11 @@ def test_prompt_builder_no_sources_section_instruction() -> None:
     builder = PromptBuilder()
     messages = builder.build(user_prompt="Test")
 
-    system_content = messages[0].content
+    # Instructions are now in user message, not system message
+    user_content = messages[1].content
 
     # Should instruct NOT to include Sources section
-    assert 'Do NOT include a "Sources" section' in system_content
+    assert 'Do NOT include a "Sources" section' in user_content
 
     # Should NOT have the old instruction about including Sources bullet list
-    assert 'At the end of the response, include a "Sources"' not in system_content
+    assert 'At the end of the response, include a "Sources"' not in user_content

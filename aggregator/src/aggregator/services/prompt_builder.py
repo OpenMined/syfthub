@@ -8,9 +8,9 @@ from aggregator.schemas.responses import Document
 class PromptBuilder:
     """Builds prompts for RAG-augmented generation."""
 
-    DEFAULT_SYSTEM_PROMPT = """You are an AI assistant that generates clear summaries with precise source citations.
+    DEFAULT_SYSTEM_PROMPT = """You're a helpful AI assistant."""
 
-You will receive multiple documents. Each document includes:
+    DEFAULT_USER_INSTRUCTIONS = """You will receive multiple documents. Each document includes:
 - user_snag/dataset_name
 - document_title
 - relevance (similarity score from 0 to 1)
@@ -54,29 +54,29 @@ Federated architectures can also strengthen security by minimizing data duplicat
         """
         messages: list[Message] = []
 
-        # Build system message with context
-        system_content = self._build_system_content(
-            context=context,
-            custom_system_prompt=custom_system_prompt,
-        )
+        # Build simple system message
+        system_content = custom_system_prompt or self.system_prompt
         messages.append(Message(role="system", content=system_content))
 
-        # Add user message
-        messages.append(Message(role="user", content=user_prompt))
+        # Build user message with instructions, context, and question blended
+        user_content = self._build_user_content(
+            user_prompt=user_prompt,
+            context=context,
+        )
+        messages.append(Message(role="user", content=user_content))
 
         return messages
 
-    def _build_system_content(
+    def _build_user_content(
         self,
+        user_prompt: str,
         context: AggregatedContext | None,
-        custom_system_prompt: str | None,
     ) -> str:
-        """Build the system message content with context."""
+        """Build the user message content with instructions, context, and question."""
         parts: list[str] = []
 
-        # Add system prompt
-        system_prompt = custom_system_prompt or self.system_prompt
-        parts.append(system_prompt)
+        # Add instructions
+        parts.append(self.DEFAULT_USER_INSTRUCTIONS)
 
         # Add context if available
         if context and context.documents:
@@ -88,6 +88,9 @@ Federated architectures can also strengthen security by minimizing data duplicat
                 "\n---\nNote: No relevant context was found in the selected data sources. "
                 "Please answer based on your general knowledge.\n---"
             )
+
+        # Add user question
+        parts.append(f"\n---\nUSER QUESTION:\n{user_prompt}\n---")
 
         return "\n".join(parts)
 
