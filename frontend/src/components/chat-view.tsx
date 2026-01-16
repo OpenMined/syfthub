@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '@/context/auth-context';
+import { triggerBalanceRefresh } from '@/hooks/use-accounting-api';
 import { formatCostPerUnit, getCostsFromSource } from '@/lib/cost-utils';
 import { getChatDataSources, getChatModels } from '@/lib/endpoint-utils';
 import {
@@ -842,6 +843,9 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
           );
         });
       }
+
+      // Refresh balance after successful chat completion (credits may have been consumed)
+      triggerBalanceRefresh();
     } catch (error) {
       // Handle SDK-specific errors
       let errorMessage = 'An unexpected error occurred';
