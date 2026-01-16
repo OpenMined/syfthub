@@ -19,6 +19,7 @@ import { getPublicEndpoints } from '@/lib/endpoint-utils';
 
 import { Badge } from './ui/badge';
 import { LoadingSpinner } from './ui/loading-spinner';
+import { PageHeader } from './ui/page-header';
 
 // Helper functions moved outside component for consistent-function-scoping
 function getStatusColor(status: 'active' | 'warning' | 'inactive') {
@@ -112,16 +113,8 @@ export function BrowseView({
   };
 
   return (
-    <div className='bg-syft-background min-h-screen'>
-      {/* Sticky Header */}
-      <div className='border-syft-border bg-syft-background/95 sticky top-0 z-30 flex w-full items-center border-b px-6 py-4 backdrop-blur-sm'>
-        <div className='flex items-center gap-4'>
-          <h2 className='font-rubik text-syft-primary text-xl font-medium'>Browse</h2>
-          <div className='text-syft-muted hidden font-mono text-xs opacity-60 sm:block'>
-            ~/browse
-          </div>
-        </div>
-      </div>
+    <div className='mx-auto flex min-h-screen max-w-[1600px] flex-col'>
+      <PageHeader title='Browse' path='~/browse' />
 
       {/* Main Content */}
       <main className='w-full min-w-0 flex-1'>

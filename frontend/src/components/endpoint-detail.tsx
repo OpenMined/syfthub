@@ -42,7 +42,7 @@ function getStatusBadgeColor(status: 'active' | 'warning' | 'inactive') {
       return 'bg-red-100 text-red-800 border-red-200';
     }
     default: {
-      return 'bg-[#f1f0f4] text-[#272532] border-[#ecebef]';
+      return 'bg-syft-surface text-syft-primary border-syft-border';
     }
   }
 }
@@ -56,7 +56,7 @@ function getTypeStyles(type: EndpointType) {
       return 'bg-emerald-100 text-emerald-800 border-emerald-200';
     }
     default: {
-      return 'bg-[#f1f0f4] text-[#272532] border-[#ecebef]';
+      return 'bg-syft-surface text-syft-primary border-syft-border';
     }
   }
 }
@@ -201,12 +201,13 @@ function formatConfigKey(key: string): string {
 // Render config value based on type
 // eslint-disable-next-line sonarjs/function-return-type -- Different JSX elements are all valid React.ReactNode
 function renderConfigValue(value: unknown, key: string): React.ReactNode {
-  if (value === null || value === undefined) return <span className='text-[#b4b0bf]'>—</span>;
+  if (value === null || value === undefined)
+    return <span className='text-syft-placeholder'>—</span>;
   if (typeof value === 'boolean') {
     return value ? (
       <span className='text-emerald-600'>Yes</span>
     ) : (
-      <span className='text-[#b4b0bf]'>No</span>
+      <span className='text-syft-placeholder'>No</span>
     );
   }
   if (typeof value === 'number') {
@@ -238,16 +239,16 @@ function TransactionPolicyContent({ config }: Readonly<{ config: Record<string, 
       {/* Provider & Model Info */}
       {/* eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- Intentional truthy check for conditional rendering */}
       {(provider || pricingModel) && (
-        <div className='flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#5e5a72]'>
+        <div className='text-syft-muted flex flex-wrap gap-x-4 gap-y-1 text-xs'>
           {provider && (
             <span>
-              Provider: <span className='font-medium text-[#272532]'>{provider}</span>
+              Provider: <span className='text-syft-primary font-medium'>{provider}</span>
             </span>
           )}
           {pricingModel && (
             <span>
               Model:{' '}
-              <span className='font-medium text-[#272532]'>{formatConfigKey(pricingModel)}</span>
+              <span className='text-syft-primary font-medium'>{formatConfigKey(pricingModel)}</span>
             </span>
           )}
         </div>
@@ -269,8 +270,8 @@ function TransactionPolicyContent({ config }: Readonly<{ config: Record<string, 
               )
               .map(([key, value]) => (
                 <div key={key} className='flex items-center justify-between px-3 py-1.5'>
-                  <span className='text-xs text-[#5e5a72]'>{formatConfigKey(key)}</span>
-                  <span className='font-mono text-xs font-medium text-[#272532]'>
+                  <span className='text-syft-muted text-xs'>{formatConfigKey(key)}</span>
+                  <span className='text-syft-primary font-mono text-xs font-medium'>
                     {formatCost(
                       value as number,
                       key.includes('token') ? (billingUnit ?? 'token') : 'query'
@@ -295,17 +296,17 @@ function GenericPolicyContent({ config }: Readonly<{ config: Record<string, unkn
 
   return (
     <div className='mt-3'>
-      <div className='rounded-md border border-[#ecebef] bg-white/60'>
-        <div className='border-b border-[#ecebef] px-3 py-1.5'>
-          <span className='text-[10px] font-semibold tracking-wide text-[#5e5a72] uppercase'>
+      <div className='border-syft-border rounded-md border bg-white/60'>
+        <div className='border-syft-border border-b px-3 py-1.5'>
+          <span className='text-syft-muted text-[10px] font-semibold tracking-wide uppercase'>
             Configuration
           </span>
         </div>
-        <div className='divide-y divide-[#ecebef]'>
+        <div className='divide-syft-border divide-y'>
           {entries.map(([key, value]) => (
             <div key={key} className='flex items-center justify-between gap-2 px-3 py-1.5'>
-              <span className='shrink-0 text-xs text-[#5e5a72]'>{formatConfigKey(key)}</span>
-              <span className='truncate text-xs text-[#272532]'>
+              <span className='text-syft-muted shrink-0 text-xs'>{formatConfigKey(key)}</span>
+              <span className='text-syft-primary truncate text-xs'>
                 {renderConfigValue(value, key)}
               </span>
             </div>
@@ -365,7 +366,7 @@ function PolicyItem({ policy }: Readonly<{ policy: Policy }>) {
               {policy.enabled ? 'Active' : 'Disabled'}
             </Badge>
           </div>
-          <p className='mt-1 text-xs text-[#5e5a72]'>{policy.description || config.description}</p>
+          <p className='text-syft-muted mt-1 text-xs'>{policy.description || config.description}</p>
 
           {/* Policy-specific content */}
           {isTransaction && Object.keys(policy.config).length > 0 ? (
@@ -375,7 +376,7 @@ function PolicyItem({ policy }: Readonly<{ policy: Policy }>) {
           )}
 
           {policy.version && (
-            <p className='mt-2 text-[10px] text-[#b4b0bf]'>Version {policy.version}</p>
+            <p className='text-syft-placeholder mt-2 text-[10px]'>Version {policy.version}</p>
           )}
         </div>
       </div>
@@ -392,12 +393,12 @@ function AccessPoliciesCard({ policies }: Readonly<AccessPoliciesCardProperties>
   const validPolicies = policies?.filter((p) => p.type) ?? [];
 
   return (
-    <div className='rounded-xl border border-[#ecebef] bg-white p-6'>
+    <div className='border-syft-border rounded-xl border bg-white p-6'>
       {/* Header */}
       <div className='mb-4 flex items-center justify-between'>
-        <h3 className='font-rubik text-sm font-medium text-[#272532]'>Access Policies</h3>
+        <h3 className='font-rubik text-syft-primary text-sm font-medium'>Access Policies</h3>
         {validPolicies.length > 0 && (
-          <span className='rounded-full bg-[#f1f0f4] px-2 py-0.5 text-xs font-medium text-[#5e5a72]'>
+          <span className='bg-syft-surface text-syft-muted rounded-full px-2 py-0.5 text-xs font-medium'>
             {validPolicies.length}
           </span>
         )}
@@ -411,10 +412,10 @@ function AccessPoliciesCard({ policies }: Readonly<AccessPoliciesCardProperties>
           ))}
         </div>
       ) : (
-        <div className='rounded-xl border border-dashed border-[#ecebef] py-6 text-center'>
-          <Unlock className='mx-auto h-8 w-8 text-[#b4b0bf]' />
-          <p className='font-inter mt-2 text-sm text-[#5e5a72]'>No access policies configured</p>
-          <p className='font-inter mt-1 text-xs text-[#b4b0bf]'>
+        <div className='border-syft-border rounded-xl border border-dashed py-6 text-center'>
+          <Unlock className='text-syft-placeholder mx-auto h-8 w-8' />
+          <p className='font-inter text-syft-muted mt-2 text-sm'>No access policies configured</p>
+          <p className='font-inter text-syft-placeholder mt-1 text-xs'>
             This endpoint may be publicly accessible
           </p>
         </div>
@@ -478,10 +479,10 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
 
   if (isLoading) {
     return (
-      <div className='min-h-screen bg-[#fcfcfd] p-8'>
+      <div className='bg-syft-background min-h-screen p-8'>
         <div className='flex items-center justify-center py-12'>
-          <div className='flex items-center gap-3 text-[#5e5a72]'>
-            <div className='h-6 w-6 animate-spin rounded-full border-2 border-[#ecebef] border-t-[#6976ae]'></div>
+          <div className='text-syft-muted flex items-center gap-3'>
+            <div className='border-syft-border border-t-syft-secondary h-6 w-6 animate-spin rounded-full border-2'></div>
             <span className='font-inter'>Loading endpoint...</span>
           </div>
         </div>
@@ -491,17 +492,17 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
 
   if (error || !endpoint) {
     return (
-      <div className='min-h-screen bg-[#fcfcfd] p-8'>
+      <div className='bg-syft-background min-h-screen p-8'>
         <div className='mx-auto max-w-4xl'>
           <Button variant='ghost' onClick={onBack} className='mb-4 flex items-center gap-2'>
             <ArrowLeft className='h-4 w-4' />
             Back
           </Button>
           <div className='py-12 text-center'>
-            <h2 className='font-rubik mb-2 text-xl font-medium text-[#272532]'>
+            <h2 className='font-rubik text-syft-primary mb-2 text-xl font-medium'>
               {error ?? 'Endpoint not found'}
             </h2>
-            <p className='font-inter text-[#5e5a72]'>
+            <p className='font-inter text-syft-muted'>
               The endpoint with slug "{slug}" could not be found.
             </p>
           </div>
@@ -511,14 +512,14 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
   }
 
   return (
-    <div className='min-h-screen bg-[#fcfcfd]'>
+    <div className='bg-syft-background min-h-screen'>
       {/* Header */}
-      <div className='border-b border-[#ecebef] bg-white'>
+      <div className='border-syft-border border-b bg-white'>
         <div className='mx-auto max-w-5xl px-6 py-4'>
           <Button
             variant='ghost'
             onClick={onBack}
-            className='mb-4 flex items-center gap-2 text-[#5e5a72] hover:text-[#272532]'
+            className='text-syft-muted hover:text-syft-primary mb-4 flex items-center gap-2'
           >
             <ArrowLeft className='h-4 w-4' />
             Back to endpoints
@@ -526,10 +527,10 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
 
           <div className='flex items-start justify-between'>
             <div>
-              <h1 className='font-rubik mb-2 text-3xl font-medium text-[#272532]'>
+              <h1 className='font-rubik text-syft-primary mb-2 text-3xl font-medium'>
                 {endpoint.name}
               </h1>
-              <p className='font-inter mb-4 text-lg text-[#5e5a72]'>{endpoint.description}</p>
+              <p className='font-inter text-syft-muted mb-4 text-lg'>{endpoint.description}</p>
 
               {/* Badges */}
               <div className='mb-4 flex flex-wrap gap-2'>
@@ -566,34 +567,34 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
           {/* Main content */}
           <div className='space-y-6 lg:col-span-2'>
             {/* README Section */}
-            <div className='rounded-xl border border-[#ecebef] bg-white p-6'>
-              <div className='prose prose-sm max-w-none text-[#5e5a72]'>
+            <div className='border-syft-border rounded-xl border bg-white p-6'>
+              <div className='prose prose-sm text-syft-muted max-w-none'>
                 {endpoint.readme ? (
                   <Markdown
                     remarkPlugins={[remarkGfm]}
                     components={{
                       h1: ({ children }) => (
-                        <h1 className='font-rubik mt-6 mb-4 text-2xl font-medium text-[#272532]'>
+                        <h1 className='font-rubik text-syft-primary mt-6 mb-4 text-2xl font-medium'>
                           {children}
                         </h1>
                       ),
                       h2: ({ children }) => (
-                        <h2 className='font-rubik mt-5 mb-3 text-xl font-medium text-[#272532]'>
+                        <h2 className='font-rubik text-syft-primary mt-5 mb-3 text-xl font-medium'>
                           {children}
                         </h2>
                       ),
                       h3: ({ children }) => (
-                        <h3 className='font-rubik mt-4 mb-2 text-lg font-medium text-[#272532]'>
+                        <h3 className='font-rubik text-syft-primary mt-4 mb-2 text-lg font-medium'>
                           {children}
                         </h3>
                       ),
                       h4: ({ children }) => (
-                        <h4 className='font-rubik mt-3 mb-2 text-base font-medium text-[#272532]'>
+                        <h4 className='font-rubik text-syft-primary mt-3 mb-2 text-base font-medium'>
                           {children}
                         </h4>
                       ),
                       p: ({ children }) => (
-                        <p className='font-inter mb-3 text-[#5e5a72]'>{children}</p>
+                        <p className='font-inter text-syft-muted mb-3'>{children}</p>
                       ),
                       ul: ({ children }) => (
                         <ul className='mb-3 list-disc space-y-1 pl-5'>{children}</ul>
@@ -602,12 +603,12 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                         <ol className='mb-3 list-decimal space-y-1 pl-5'>{children}</ol>
                       ),
                       li: ({ children }) => (
-                        <li className='font-inter text-[#5e5a72]'>{children}</li>
+                        <li className='font-inter text-syft-muted'>{children}</li>
                       ),
                       code: ({ className, children }) => {
                         const isInline = !className;
                         return isInline ? (
-                          <code className='rounded-lg bg-[#f1f0f4] px-1.5 py-0.5 font-mono text-sm text-[#272532]'>
+                          <code className='bg-syft-surface text-syft-primary rounded-lg px-1.5 py-0.5 font-mono text-sm'>
                             {children}
                           </code>
                         ) : (
@@ -615,14 +616,14 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                         );
                       },
                       pre: ({ children }) => (
-                        <pre className='mb-3 overflow-x-auto rounded-lg bg-[#f7f6f9] p-3 text-xs'>
+                        <pre className='bg-syft-surface mb-3 overflow-x-auto rounded-lg p-3 text-xs'>
                           {children}
                         </pre>
                       ),
                       a: ({ href, children }) => (
                         <a
                           href={href}
-                          className='text-[#6976ae] hover:text-[#272532] hover:underline'
+                          className='text-syft-secondary hover:text-syft-primary hover:underline'
                           target='_blank'
                           rel='noopener noreferrer'
                         >
@@ -630,37 +631,39 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                         </a>
                       ),
                       blockquote: ({ children }) => (
-                        <blockquote className='my-3 border-l-4 border-[#ecebef] pl-4 text-[#5e5a72] italic'>
+                        <blockquote className='border-syft-border text-syft-muted my-3 border-l-4 pl-4 italic'>
                           {children}
                         </blockquote>
                       ),
-                      hr: () => <hr className='my-4 border-[#ecebef]' />,
+                      hr: () => <hr className='border-syft-border my-4' />,
                       table: ({ children }) => (
                         <div className='my-4 overflow-x-auto'>
-                          <table className='min-w-full divide-y divide-[#ecebef] border border-[#ecebef]'>
+                          <table className='divide-syft-border border-syft-border min-w-full divide-y border'>
                             {children}
                           </table>
                         </div>
                       ),
-                      thead: ({ children }) => <thead className='bg-[#f7f6f9]'>{children}</thead>,
+                      thead: ({ children }) => (
+                        <thead className='bg-syft-surface'>{children}</thead>
+                      ),
                       tbody: ({ children }) => (
-                        <tbody className='divide-y divide-[#ecebef] bg-white'>{children}</tbody>
+                        <tbody className='divide-syft-border divide-y bg-white'>{children}</tbody>
                       ),
                       tr: ({ children }) => <tr>{children}</tr>,
                       th: ({ children }) => (
-                        <th className='font-inter px-4 py-2 text-left text-xs font-semibold text-[#272532]'>
+                        <th className='font-inter text-syft-primary px-4 py-2 text-left text-xs font-semibold'>
                           {children}
                         </th>
                       ),
                       td: ({ children }) => (
-                        <td className='font-inter px-4 py-2 text-sm text-[#5e5a72]'>{children}</td>
+                        <td className='font-inter text-syft-muted px-4 py-2 text-sm'>{children}</td>
                       )
                     }}
                   >
                     {endpoint.readme}
                   </Markdown>
                 ) : (
-                  <p className='font-inter text-[#5e5a72] italic'>
+                  <p className='font-inter text-syft-muted italic'>
                     No documentation available for this endpoint.
                   </p>
                 )}
@@ -671,21 +674,21 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
           {/* Sidebar */}
           <div className='space-y-6'>
             {/* Info Card */}
-            <div className='rounded-xl border border-[#ecebef] bg-white p-6'>
-              <h3 className='font-rubik mb-4 text-sm font-medium text-[#272532]'>About</h3>
+            <div className='border-syft-border rounded-xl border bg-white p-6'>
+              <h3 className='font-rubik text-syft-primary mb-4 text-sm font-medium'>About</h3>
               <div className='space-y-4'>
                 <div>
-                  <p className='font-inter mb-1 text-xs text-[#5e5a72]'>Owner</p>
+                  <p className='font-inter text-syft-muted mb-1 text-xs'>Owner</p>
                   <div className='flex items-center gap-2'>
-                    <div className='h-6 w-6 rounded-full bg-gradient-to-br from-[#6976ae] to-[#937098]'></div>
-                    <span className='font-inter text-sm font-medium text-[#272532]'>
+                    <div className='from-syft-secondary to-syft-purple h-6 w-6 rounded-full bg-gradient-to-br'></div>
+                    <span className='font-inter text-syft-primary text-sm font-medium'>
                       @{endpoint.owner_username ?? 'anonymous'}
                     </span>
                   </div>
                 </div>
 
                 <div>
-                  <p className='font-inter mb-1 text-xs text-[#5e5a72]'>Endpoint Type</p>
+                  <p className='font-inter text-syft-muted mb-1 text-xs'>Endpoint Type</p>
                   <Badge className={`border ${getTypeStyles(endpoint.type)}`}>
                     {getTypeLabel(endpoint.type)}
                   </Badge>
@@ -693,7 +696,7 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
 
                 {endpoint.tags.length > 0 && (
                   <div>
-                    <p className='font-inter mb-1 text-xs text-[#5e5a72]'>Tags</p>
+                    <p className='font-inter text-syft-muted mb-1 text-xs'>Tags</p>
                     <div className='flex flex-wrap gap-1'>
                       {endpoint.tags.map((tag) => (
                         <Badge key={tag} variant='outline'>
@@ -705,10 +708,10 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                 )}
 
                 <div>
-                  <p className='font-inter mb-1 text-xs text-[#5e5a72]'>Contributors</p>
+                  <p className='font-inter text-syft-muted mb-1 text-xs'>Contributors</p>
                   <div className='flex items-center gap-1'>
-                    <Users className='h-4 w-4 text-[#b4b0bf]' />
-                    <span className='font-inter text-sm text-[#272532]'>
+                    <Users className='text-syft-placeholder h-4 w-4' />
+                    <span className='font-inter text-syft-primary text-sm'>
                       {endpoint.contributors_count} contributor
                       {endpoint.contributors_count === 1 ? '' : 's'}
                     </span>
