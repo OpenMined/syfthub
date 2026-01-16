@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { ChevronDown, ChevronUp, FileText } from 'lucide-react';
@@ -32,13 +32,22 @@ interface HoverCardProps {
   content: string;
   isVisible: boolean;
   position: { x: number; y: number };
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
 }
 
 /**
  * Custom hover card that displays document content preview.
  * Uses Framer Motion for smooth animations.
+ * Supports mouse interaction for scrolling content.
  */
-function HoverCard({ content, isVisible, position }: Readonly<HoverCardProps>) {
+function HoverCard({
+  content,
+  isVisible,
+  position,
+  onMouseEnter,
+  onMouseLeave
+}: Readonly<HoverCardProps>) {
   // Truncate content for preview
   const truncatedContent = content.length > 500 ? `${content.slice(0, 500).trim()}...` : content;
 
@@ -53,9 +62,10 @@ function HoverCard({ content, isVisible, position }: Readonly<HoverCardProps>) {
           className='fixed z-50 max-h-[280px] w-[360px] overflow-hidden rounded-xl border border-[#ecebef] bg-white shadow-xl'
           style={{
             left: position.x,
-            top: position.y,
-            pointerEvents: 'none'
+            top: position.y
           }}
+          onMouseEnter={onMouseEnter}
+          onMouseLeave={onMouseLeave}
         >
           {/* Header */}
           <div className='border-b border-[#ecebef] bg-[#fcfcfd] px-4 py-2.5'>
@@ -85,15 +95,47 @@ interface SourceItemProps {
   index: number;
 }
 
+/** Delay in ms before hiding the hover card when mouse leaves */
+const HOVER_HIDE_DELAY = 100;
+
 /**
  * Individual source item with hover functionality.
+ * Uses hover intent to allow smooth mouse transitions to the preview card.
  */
 function SourceItem({ title, source, index }: Readonly<SourceItemProps>) {
-  const [isHovered, setIsHovered] = useState(false);
+  const [isItemHovered, setIsItemHovered] = useState(false);
+  const [isCardHovered, setIsCardHovered] = useState(false);
   const [hoverPosition, setHoverPosition] = useState({ x: 0, y: 0 });
   const itemReference = useRef<HTMLDivElement>(null);
+  const hideTimeoutReference = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleMouseEnter = (event: React.MouseEvent) => {
+  // Clear any pending hide timeout
+  const clearHideTimeout = useCallback(() => {
+    if (hideTimeoutReference.current) {
+      clearTimeout(hideTimeoutReference.current);
+      hideTimeoutReference.current = null;
+    }
+  }, []);
+
+  // Schedule hiding the card after a delay
+  const scheduleHide = useCallback(() => {
+    clearHideTimeout();
+    hideTimeoutReference.current = setTimeout(() => {
+      setIsItemHovered(false);
+      setIsCardHovered(false);
+    }, HOVER_HIDE_DELAY);
+  }, [clearHideTimeout]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      clearHideTimeout();
+    };
+  }, [clearHideTimeout]);
+
+  const handleItemMouseEnter = (event: React.MouseEvent) => {
+    clearHideTimeout();
+
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
 
     // Position card to the right of the item, accounting for viewport bounds
@@ -120,12 +162,27 @@ function SourceItem({ title, source, index }: Readonly<SourceItemProps>) {
     }
 
     setHoverPosition({ x, y });
-    setIsHovered(true);
+    setIsItemHovered(true);
   };
 
-  const handleMouseLeave = () => {
-    setIsHovered(false);
+  const handleItemMouseLeave = () => {
+    // Schedule hide with delay to allow moving to the card
+    scheduleHide();
   };
+
+  const handleCardMouseEnter = () => {
+    // Cancel any pending hide when entering the card
+    clearHideTimeout();
+    setIsCardHovered(true);
+  };
+
+  const handleCardMouseLeave = () => {
+    // Schedule hide when leaving the card
+    scheduleHide();
+  };
+
+  // Show card if either the item or the card is hovered
+  const isVisible = isItemHovered || isCardHovered;
 
   return (
     <>
@@ -134,8 +191,8 @@ function SourceItem({ title, source, index }: Readonly<SourceItemProps>) {
         initial={{ opacity: 0, x: -8 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ delay: index * 0.03 }}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
+        onMouseEnter={handleItemMouseEnter}
+        onMouseLeave={handleItemMouseLeave}
         className='group flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-[#f1f0f4]'
       >
         {/* Endpoint slug (green) */}
@@ -152,7 +209,13 @@ function SourceItem({ title, source, index }: Readonly<SourceItemProps>) {
         </span>
       </motion.div>
 
-      <HoverCard content={source.content} isVisible={isHovered} position={hoverPosition} />
+      <HoverCard
+        content={source.content}
+        isVisible={isVisible}
+        position={hoverPosition}
+        onMouseEnter={handleCardMouseEnter}
+        onMouseLeave={handleCardMouseLeave}
+      />
     </>
   );
 }
