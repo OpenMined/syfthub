@@ -26,6 +26,120 @@ import { useAccountingContext } from '@/context/accounting-context';
 import { syftClient } from '@/lib/sdk-client';
 
 // =============================================================================
+// Polling Configuration
+// =============================================================================
+
+/** Polling interval for balance and transactions (30 seconds) */
+const POLLING_INTERVAL_MS = 30_000;
+
+// =============================================================================
+// Force Refresh Event System
+// =============================================================================
+
+type RefreshListener = () => void;
+const refreshListeners = new Set<RefreshListener>();
+
+/**
+ * Subscribe to force refresh events.
+ * Returns an unsubscribe function.
+ */
+function subscribeToRefresh(listener: RefreshListener): () => void {
+  refreshListeners.add(listener);
+  return () => refreshListeners.delete(listener);
+}
+
+/**
+ * Trigger a force refresh of all balance/transaction data.
+ * Call this from anywhere in the app to immediately refresh accounting data.
+ *
+ * @example
+ * ```tsx
+ * // After a successful payment
+ * import { triggerBalanceRefresh } from '@/hooks/use-accounting-api';
+ * await processPayment();
+ * triggerBalanceRefresh();
+ * ```
+ */
+export function triggerBalanceRefresh(): void {
+  for (const listener of refreshListeners) {
+    listener();
+  }
+}
+
+/**
+ * Hook to get a function that forces refresh of balance data.
+ * Use this when you need to trigger a refresh from a component.
+ *
+ * @example
+ * ```tsx
+ * function PaymentButton() {
+ *   const forceRefresh = useBalanceRefresh();
+ *
+ *   const handlePayment = async () => {
+ *     await processPayment();
+ *     forceRefresh(); // Immediately update balance display
+ *   };
+ * }
+ * ```
+ */
+export function useBalanceRefresh(): () => void {
+  return triggerBalanceRefresh;
+}
+
+// =============================================================================
+// Visibility-Aware Polling Utilities
+// =============================================================================
+
+interface PollingController {
+  start: () => void;
+  stop: () => void;
+  cleanup: () => void;
+}
+
+/**
+ * Creates a visibility-aware polling controller.
+ * Pauses polling when tab is hidden, resumes when visible.
+ */
+function createVisibilityAwarePolling(
+  fetchFunction: (isPolling: boolean) => Promise<void>,
+  intervalMs: number
+): PollingController {
+  let intervalId: ReturnType<typeof setInterval> | null = null;
+
+  const start = () => {
+    if (intervalId) return; // Already polling
+    void fetchFunction(false); // Initial fetch with loading state
+    intervalId = setInterval(() => void fetchFunction(true), intervalMs);
+  };
+
+  const stop = () => {
+    if (intervalId) {
+      clearInterval(intervalId);
+      intervalId = null;
+    }
+  };
+
+  const handleVisibilityChange = () => {
+    if (document.hidden) {
+      stop();
+    } else {
+      // Resume polling with immediate fetch when tab becomes visible
+      start();
+    }
+  };
+
+  const cleanup = () => {
+    stop();
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+  };
+
+  // Set up visibility listener
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+
+  return { start, stop, cleanup };
+}
+
+// =============================================================================
 // Proxy Client - Makes requests to SyftHub backend (which proxies to accounting)
 // =============================================================================
 
@@ -203,6 +317,13 @@ interface UseAccountingUserResult {
 
 /**
  * Hook to fetch and manage the current accounting user.
+ *
+ * Features:
+ * - Auto-polls every 30 seconds when tab is visible
+ * - Pauses polling when tab is hidden (saves bandwidth)
+ * - Resumes with immediate fetch when tab becomes visible
+ * - Supports force refresh via triggerBalanceRefresh()
+ * - Silent error handling during polling (doesn't disrupt UI)
  */
 export function useAccountingUser(): UseAccountingUserResult {
   const { isConfigured } = useAccountingContext();
@@ -210,43 +331,78 @@ export function useAccountingUser(): UseAccountingUserResult {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isMounted = useRef(true);
+  const isFetching = useRef(false);
 
+  // Fetch user data, with optional silent mode for polling
+  const fetchUser = useCallback(
+    async (isPolling = false) => {
+      if (!isConfigured) {
+        setUser(null);
+        return;
+      }
+
+      // Prevent concurrent fetches
+      if (isFetching.current) return;
+      isFetching.current = true;
+
+      // Only show loading state on initial/manual fetch, not polling
+      if (!isPolling) {
+        setIsLoading(true);
+        setError(null);
+      }
+
+      try {
+        const client = getProxyClient();
+        const fetchedUser = await client.getUser();
+        if (isMounted.current) {
+          setUser(fetchedUser);
+          // Clear any previous error on successful fetch (self-healing)
+          setError(null);
+        }
+      } catch (error_) {
+        // Only show error to user on initial/manual fetch, not during polling
+        // This prevents transient network issues from disrupting the UI
+        if (isMounted.current && !isPolling) {
+          setError(error_ instanceof Error ? error_.message : 'Failed to fetch user');
+        }
+      } finally {
+        isFetching.current = false;
+        if (isMounted.current && !isPolling) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [isConfigured]
+  );
+
+  // Manual refetch (shows loading state)
   const refetch = useCallback(async () => {
-    if (!isConfigured) {
-      setUser(null);
-      return;
-    }
+    await fetchUser(false);
+  }, [fetchUser]);
 
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const client = getProxyClient();
-      const fetchedUser = await client.getUser();
-      if (isMounted.current) {
-        setUser(fetchedUser);
-      }
-    } catch (error_) {
-      if (isMounted.current) {
-        setError(error_ instanceof Error ? error_.message : 'Failed to fetch user');
-      }
-    } finally {
-      if (isMounted.current) {
-        setIsLoading(false);
-      }
-    }
-  }, [isConfigured]);
-
+  // Visibility-aware polling effect
   useEffect(() => {
+    if (!isConfigured) return;
+
     isMounted.current = true;
+
+    // Create polling controller
+    const polling = createVisibilityAwarePolling(fetchUser, POLLING_INTERVAL_MS);
+
+    // Start polling if tab is currently visible
+    if (!document.hidden) {
+      polling.start();
+    }
+
+    // Subscribe to force refresh events
+    const unsubscribe = subscribeToRefresh(() => void fetchUser(false));
+
     return () => {
       isMounted.current = false;
+      polling.cleanup();
+      unsubscribe();
     };
-  }, []);
-
-  useEffect(() => {
-    void refetch();
-  }, [refetch]);
+  }, [isConfigured, fetchUser]);
 
   return { user, isLoading, error, refetch };
 }
@@ -295,6 +451,14 @@ interface UseTransactionsResult {
 
 /**
  * Hook to fetch and manage transactions list.
+ *
+ * Features:
+ * - Auto-polls every 30 seconds when tab is visible (if autoFetch is true)
+ * - Pauses polling when tab is hidden (saves bandwidth)
+ * - Resumes with immediate fetch when tab becomes visible
+ * - Supports force refresh via triggerBalanceRefresh()
+ * - Silent error handling during polling (doesn't disrupt UI)
+ * - Pagination support via fetchMore()
  */
 export function useTransactions(options: UseTransactionsOptions = {}): UseTransactionsResult {
   const { pageSize = 20, autoFetch = true } = options;
@@ -304,10 +468,13 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const isMounted = useRef(true);
+  const isFetching = useRef(false);
 
+  // Fetch more transactions (pagination) - not used during polling
   const fetchMore = useCallback(async () => {
-    if (!isConfigured || isLoading || !hasMore) return;
+    if (!isConfigured || isFetching.current || !hasMore) return;
 
+    isFetching.current = true;
     setIsLoading(true);
     setError(null);
 
@@ -318,7 +485,7 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
       const newTransactions = response.map((tx) => parseTransaction(tx));
 
       if (isMounted.current) {
-        setTransactions((previous) => [...previous, ...newTransactions]);
+        setTransactions((previous: AccountingTransaction[]) => [...previous, ...newTransactions]);
         setHasMore(newTransactions.length === pageSize);
       }
     } catch (error_) {
@@ -326,54 +493,86 @@ export function useTransactions(options: UseTransactionsOptions = {}): UseTransa
         setError(error_ instanceof Error ? error_.message : 'Failed to fetch transactions');
       }
     } finally {
+      isFetching.current = false;
       if (isMounted.current) {
         setIsLoading(false);
       }
     }
-  }, [isConfigured, isLoading, hasMore, transactions.length, pageSize]);
+  }, [isConfigured, hasMore, transactions.length, pageSize]);
 
+  // Fetch transactions (first page), with optional silent mode for polling
+  const fetchTransactions = useCallback(
+    async (isPolling = false) => {
+      if (!isConfigured) {
+        setTransactions([]);
+        return;
+      }
+
+      // Prevent concurrent fetches
+      if (isFetching.current) return;
+      isFetching.current = true;
+
+      // Only show loading state on initial/manual fetch, not polling
+      if (!isPolling) {
+        setIsLoading(true);
+        setError(null);
+        setHasMore(true);
+      }
+
+      try {
+        const client = getProxyClient();
+        const response = await client.getTransactions(0, pageSize);
+        const newTransactions = response.map((tx) => parseTransaction(tx));
+
+        if (isMounted.current) {
+          setTransactions(newTransactions);
+          setHasMore(newTransactions.length === pageSize);
+          // Clear any previous error on successful fetch (self-healing)
+          setError(null);
+        }
+      } catch (error_) {
+        // Only show error to user on initial/manual fetch, not during polling
+        if (isMounted.current && !isPolling) {
+          setError(error_ instanceof Error ? error_.message : 'Failed to fetch transactions');
+        }
+      } finally {
+        isFetching.current = false;
+        if (isMounted.current && !isPolling) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [isConfigured, pageSize]
+  );
+
+  // Manual refetch (shows loading state)
   const refetch = useCallback(async () => {
-    if (!isConfigured) {
-      setTransactions([]);
-      return;
-    }
+    await fetchTransactions(false);
+  }, [fetchTransactions]);
 
-    setIsLoading(true);
-    setError(null);
-    setHasMore(true);
-
-    try {
-      const client = getProxyClient();
-      const response = await client.getTransactions(0, pageSize);
-      const newTransactions = response.map((tx) => parseTransaction(tx));
-
-      if (isMounted.current) {
-        setTransactions(newTransactions);
-        setHasMore(newTransactions.length === pageSize);
-      }
-    } catch (error_) {
-      if (isMounted.current) {
-        setError(error_ instanceof Error ? error_.message : 'Failed to fetch transactions');
-      }
-    } finally {
-      if (isMounted.current) {
-        setIsLoading(false);
-      }
-    }
-  }, [isConfigured, pageSize]);
-
+  // Visibility-aware polling effect
   useEffect(() => {
+    if (!isConfigured || !autoFetch) return;
+
     isMounted.current = true;
+
+    // Create polling controller
+    const polling = createVisibilityAwarePolling(fetchTransactions, POLLING_INTERVAL_MS);
+
+    // Start polling if tab is currently visible
+    if (!document.hidden) {
+      polling.start();
+    }
+
+    // Subscribe to force refresh events
+    const unsubscribe = subscribeToRefresh(() => void fetchTransactions(false));
+
     return () => {
       isMounted.current = false;
+      polling.cleanup();
+      unsubscribe();
     };
-  }, []);
-
-  useEffect(() => {
-    if (autoFetch && isConfigured) {
-      void refetch();
-    }
-  }, [autoFetch, isConfigured, refetch]);
+  }, [isConfigured, autoFetch, fetchTransactions]);
 
   return { transactions, isLoading, error, hasMore, fetchMore, refetch };
 }
