@@ -21,11 +21,7 @@ import {
 import { useAuth } from '@/context/auth-context';
 import { triggerBalanceRefresh } from '@/hooks/use-accounting-api';
 import { formatCostPerUnit, getCostsFromSource } from '@/lib/cost-utils';
-import {
-  analyzeQueryForSources,
-  getChatDataSources,
-  getChatModels
-} from '@/lib/endpoint-utils';
+import { analyzeQueryForSources, getChatDataSources, getChatModels } from '@/lib/endpoint-utils';
 import {
   AggregatorError,
   AuthenticationError,
@@ -683,7 +679,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
           const noRelevantMessage: Message = {
             id: `source-selection-${String(Date.now())}`,
             role: 'assistant',
-            content: `No sources matched your query directly. Here are the top ${sourcesToShow.length} popular sources (${sources.length} total available):`,
+            content: `No sources matched your query directly. Here are the top ${String(sourcesToShow.length)} popular sources (${String(sources.length)} total available):`,
             type: 'source-selection',
             sources: sourcesToShow
           };
@@ -703,8 +699,8 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
             analysis.action === 'show-relevant' && relevantSources.length < sources.length;
 
           const messageContent = isFiltered
-            ? `Based on your question, here are the top ${sourcesToShow.length} most relevant data sources (${relevantSources.length} matched, ${sources.length} total):`
-            : `Select data sources to get started (showing top ${sourcesToShow.length} of ${sources.length} available):`;
+            ? `Based on your question, here are the top ${String(sourcesToShow.length)} most relevant data sources (${String(relevantSources.length)} matched, ${String(sources.length)} total):`
+            : `Select data sources to get started (showing top ${String(sourcesToShow.length)} of ${String(sources.length)} available):`;
 
           const sourceSelectionMessage: Message = {
             id: `source-selection-${String(Date.now())}`,

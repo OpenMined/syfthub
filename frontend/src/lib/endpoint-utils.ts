@@ -454,10 +454,7 @@ export function parseEndpointMentions(query: string): string[] {
  * @param path - Endpoint path to find (owner/slug format)
  * @returns The matching ChatSource or undefined
  */
-export function findEndpointByPath(
-  sources: ChatSource[],
-  path: string
-): ChatSource | undefined {
+export function findEndpointByPath(sources: ChatSource[], path: string): ChatSource | undefined {
   const normalizedPath = path.toLowerCase();
   return sources.find((source) => source.full_path?.toLowerCase() === normalizedPath);
 }
@@ -469,10 +466,7 @@ export function findEndpointByPath(
  * @param name - Endpoint name to find (case-insensitive)
  * @returns The matching ChatSource or undefined
  */
-export function findEndpointByName(
-  sources: ChatSource[],
-  name: string
-): ChatSource | undefined {
+export function findEndpointByName(sources: ChatSource[], name: string): ChatSource | undefined {
   const normalizedName = name.toLowerCase().trim();
   return sources.find((source) => source.name.toLowerCase() === normalizedName);
 }
@@ -490,7 +484,7 @@ function calculateRelevanceScore(source: ChatSource, keywords: string[]): number
   const nameWords = source.name.toLowerCase().split(/[\s-_]+/);
   const descText = source.description.toLowerCase();
   const tags = source.tags.map((t) => t.toLowerCase());
-  const readmeText = source.readme?.toLowerCase() ?? '';
+  const readmeText = source.readme.toLowerCase();
 
   for (const keyword of keywords) {
     // Exact name word match (highest weight)
@@ -705,9 +699,37 @@ export function filterRelevantSources(
       score: calculateRelevanceScore(source, keywords)
     }))
     .filter(({ score }) => score >= minScore)
-    .sort((a, b) => b.score - a.score);
+    .toSorted((a, b) => b.score - a.score);
 
   return scoredSources.map(({ source }) => source);
+}
+
+/**
+ * Try to find an endpoint by name from words in the query.
+ * Checks single words and adjacent word pairs.
+ */
+function findEndpointByQueryWords(
+  query: string,
+  availableSources: ChatSource[]
+): ChatSource | undefined {
+  const words = query.split(/\s+/);
+
+  for (let index = 0; index < words.length; index++) {
+    const singleWord = words[index];
+    if (singleWord) {
+      const matched = findEndpointByName(availableSources, singleWord);
+      if (matched) return matched;
+    }
+
+    // Try word pairs (e.g., "Financial Data")
+    const nextWord = words[index + 1];
+    if (singleWord && nextWord) {
+      const matched = findEndpointByName(availableSources, `${singleWord} ${nextWord}`);
+      if (matched) return matched;
+    }
+  }
+
+  return undefined;
 }
 
 /**
@@ -741,34 +763,13 @@ export function analyzeQueryForSources(
   }
 
   // 2. Check for exact endpoint name matches
-  // Extract potential names (longer phrases that might be endpoint names)
-  const words = query.split(/\s+/);
-  for (let i = 0; i < words.length; i++) {
-    // Try single words and pairs
-    const singleWord = words[i];
-    if (singleWord) {
-      const matched = findEndpointByName(availableSources, singleWord);
-      if (matched) {
-        return {
-          action: 'auto-select',
-          matchedEndpoint: matched,
-          relevantSources: [matched]
-        };
-      }
-    }
-
-    // Try word pairs (e.g., "Financial Data")
-    if (i < words.length - 1 && words[i + 1]) {
-      const pair = `${words[i]} ${words[i + 1]}`;
-      const matched = findEndpointByName(availableSources, pair);
-      if (matched) {
-        return {
-          action: 'auto-select',
-          matchedEndpoint: matched,
-          relevantSources: [matched]
-        };
-      }
-    }
+  const nameMatch = findEndpointByQueryWords(query, availableSources);
+  if (nameMatch) {
+    return {
+      action: 'auto-select',
+      matchedEndpoint: nameMatch,
+      relevantSources: [nameMatch]
+    };
   }
 
   // 3. Filter by relevance
