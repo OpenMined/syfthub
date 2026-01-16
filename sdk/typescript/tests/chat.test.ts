@@ -55,7 +55,13 @@ describe('ChatResource', () => {
 
   const mockChatResponse = {
     response: 'Machine learning is a subset of AI that enables systems to learn from data.',
-    sources: [
+    sources: {
+      'ML Overview': {
+        slug: 'alice/docs',
+        content: 'Machine learning is a subset of artificial intelligence...',
+      },
+    },
+    retrieval_info: [
       {
         path: 'alice/docs',
         documents_retrieved: 3,
@@ -114,7 +120,9 @@ describe('ChatResource', () => {
       });
 
       expect(response.response).toContain('Machine learning');
-      expect(response.sources).toHaveLength(1);
+      expect(Object.keys(response.sources)).toHaveLength(1);
+      expect(response.sources['ML Overview'].slug).toBe('alice/docs');
+      expect(response.retrievalInfo).toHaveLength(1);
       expect(response.metadata.totalTimeMs).toBe(650);
     });
 

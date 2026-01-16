@@ -49,7 +49,7 @@ export interface Document {
 export type SourceStatus = 'success' | 'error' | 'timeout';
 
 /**
- * Information about a data source used in a chat response.
+ * Information about a data source retrieval (metadata).
  */
 export interface SourceInfo {
   /** Endpoint path (owner/slug) */
@@ -60,6 +60,17 @@ export interface SourceInfo {
   status: SourceStatus;
   /** Error message if status is error/timeout */
   errorMessage?: string;
+}
+
+/**
+ * A document source entry with endpoint path and content.
+ * Used in the sources dict of ChatResponse, keyed by document title.
+ */
+export interface DocumentSource {
+  /** Endpoint path (owner/slug) where document was retrieved */
+  slug: string;
+  /** The actual document content */
+  content: string;
 }
 
 /**
@@ -92,8 +103,10 @@ export interface TokenUsage {
 export interface ChatResponse {
   /** The generated response text */
   response: string;
-  /** Data sources used in the response */
-  sources: SourceInfo[];
+  /** Retrieved documents keyed by title, with endpoint slug and content */
+  sources: Record<string, DocumentSource>;
+  /** Metadata about each data source retrieval (status, count, errors) */
+  retrievalInfo: SourceInfo[];
   /** Timing metadata */
   metadata: ChatMetadata;
   /** Token usage if available */
@@ -215,7 +228,10 @@ export interface TokenEvent {
  */
 export interface DoneEvent {
   type: 'done';
-  sources: SourceInfo[];
+  /** Retrieved documents keyed by title, with endpoint slug and content */
+  sources: Record<string, DocumentSource>;
+  /** Metadata about each data source retrieval (status, count, errors) */
+  retrievalInfo: SourceInfo[];
   metadata: ChatMetadata;
   /** Token usage if available (only from non-streaming mode) */
   usage?: TokenUsage;

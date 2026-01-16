@@ -56,6 +56,7 @@ export type {
 export type {
   EndpointRef,
   Document,
+  DocumentSource,
   SourceStatus,
   SourceInfo,
   ChatMetadata,

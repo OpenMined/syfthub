@@ -9,12 +9,13 @@ from aggregator.core.config import get_settings
 from aggregator.schemas import (
     ChatRequest,
     ChatResponse,
+    DocumentSource,
     EndpointRef,
     ResponseMetadata,
     SourceInfo,
     TokenUsage,
 )
-from aggregator.schemas.internal import ResolvedEndpoint
+from aggregator.schemas.internal import AggregatedContext, ResolvedEndpoint
 from aggregator.services.generation import GenerationError, GenerationService
 from aggregator.services.prompt_builder import PromptBuilder
 from aggregator.services.retrieval import RetrievalService
@@ -75,6 +76,52 @@ class Orchestrator:
             tenant_name=ref.tenant_name,
             owner_username=ref.owner_username,
         )
+
+    def _build_document_sources(
+        self, context: AggregatedContext
+    ) -> dict[str, DocumentSource]:
+        """Build document sources dict from retrieval results.
+
+        Returns a dict mapping document title to DocumentSource (slug + content).
+        Handles title collisions by appending numeric suffix.
+
+        Args:
+            context: Aggregated context containing retrieval results
+
+        Returns:
+            Dict mapping document titles to DocumentSource objects
+        """
+        sources: dict[str, DocumentSource] = {}
+        title_counts: dict[str, int] = {}
+
+        for result in context.retrieval_results:
+            if result.status != "success":
+                continue
+
+            endpoint_path = result.endpoint_path  # e.g., "john/salesforce-docs"
+
+            for doc in result.documents:
+                # Extract title with fallback
+                title = (
+                    doc.metadata.get("title")
+                    or doc.metadata.get("document_title")
+                    or f"Document from {endpoint_path}"
+                )
+
+                # Handle title collisions by appending numeric suffix
+                if title in title_counts:
+                    title_counts[title] += 1
+                    unique_title = f"{title} ({title_counts[title]})"
+                else:
+                    title_counts[title] = 1
+                    unique_title = title
+
+                sources[unique_title] = DocumentSource(
+                    slug=endpoint_path,
+                    content=doc.content,
+                )
+
+        return sources
 
     async def process_chat(
         self,
@@ -158,7 +205,8 @@ class Orchestrator:
         # 6. Build response
         total_time_ms = int((time.perf_counter() - total_start) * 1000)
 
-        sources = [
+        # Build retrieval info (metadata about each data source retrieval)
+        retrieval_info = [
             SourceInfo(
                 path=r.endpoint_path,
                 documents_retrieved=len(r.documents),
@@ -167,6 +215,9 @@ class Orchestrator:
             )
             for r in context.retrieval_results
         ]
+
+        # Build document sources dict (title -> {slug, content})
+        document_sources = self._build_document_sources(context)
 
         # Convert usage dict to TokenUsage if available
         usage = None
@@ -179,7 +230,8 @@ class Orchestrator:
 
         return ChatResponse(
             response=result.response,
-            sources=sources,
+            sources=document_sources,
+            retrieval_info=retrieval_info,
             metadata=ResponseMetadata(
                 retrieval_time_ms=retrieval_time_ms,
                 generation_time_ms=generation_time_ms,
@@ -270,8 +322,6 @@ class Orchestrator:
         )
 
         # 4. Build prompt with context
-        from aggregator.schemas.internal import AggregatedContext
-
         context = AggregatedContext(
             documents=all_documents,
             retrieval_results=retrieval_results,
@@ -333,7 +383,8 @@ class Orchestrator:
         total_time_ms = int((time.perf_counter() - total_start) * 1000)
 
         # 6. Final event with metadata and usage
-        sources = [
+        # Build retrieval info (metadata about each data source retrieval)
+        retrieval_info = [
             {
                 "path": r.endpoint_path,
                 "documents_retrieved": len(r.documents),
@@ -342,8 +393,16 @@ class Orchestrator:
             for r in retrieval_results
         ]
 
+        # Build document sources dict (title -> {slug, content})
+        # Convert DocumentSource objects to dicts for JSON serialization
+        document_sources = {
+            title: {"slug": doc_source.slug, "content": doc_source.content}
+            for title, doc_source in self._build_document_sources(context).items()
+        }
+
         done_data: dict = {
-            "sources": sources,
+            "sources": document_sources,
+            "retrieval_info": retrieval_info,
             "metadata": {
                 "retrieval_time_ms": retrieval_time_ms,
                 "generation_time_ms": generation_time_ms,

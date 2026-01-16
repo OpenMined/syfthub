@@ -68,6 +68,7 @@ from syfthub_sdk.models import (
     Connection,
     CreatorType,
     Document,
+    DocumentSource,
     Endpoint,
     EndpointPublic,
     EndpointRef,
@@ -105,6 +106,7 @@ __all__ = [
     # Chat models
     "EndpointRef",
     "Document",
+    "DocumentSource",
     "SourceInfo",
     "SourceStatus",
     "ChatMetadata",

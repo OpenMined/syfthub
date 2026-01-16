@@ -310,7 +310,7 @@ class Document(BaseModel):
 
 
 class SourceInfo(BaseModel):
-    """Information about a data source used in a chat response.
+    """Information about a data source retrieval (metadata).
 
     Provides details about each data source that was queried during
     the retrieval phase of RAG.
@@ -324,6 +324,20 @@ class SourceInfo(BaseModel):
     error_message: str | None = Field(
         default=None, description="Error message if status is error/timeout"
     )
+
+    model_config = {"frozen": True}
+
+
+class DocumentSource(BaseModel):
+    """A document source entry with endpoint path and content.
+
+    Used in the sources dict of ChatResponse, keyed by document title.
+    """
+
+    slug: str = Field(
+        ..., description="Endpoint path (owner/slug) where document was retrieved"
+    )
+    content: str = Field(..., description="The actual document content")
 
     model_config = {"frozen": True}
 
@@ -368,8 +382,13 @@ class ChatResponse(BaseModel):
     """
 
     response: str = Field(..., description="The generated response text")
-    sources: list[SourceInfo] = Field(
-        default_factory=list, description="Data sources used in the response"
+    sources: dict[str, DocumentSource] = Field(
+        default_factory=dict,
+        description="Retrieved documents keyed by title, with endpoint slug and content",
+    )
+    retrieval_info: list[SourceInfo] = Field(
+        default_factory=list,
+        description="Metadata about each data source retrieval (status, count, errors)",
     )
     metadata: ChatMetadata = Field(..., description="Timing metadata")
     usage: TokenUsage | None = Field(

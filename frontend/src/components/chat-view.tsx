@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 
 import type { ChatStreamEvent } from '@/lib/sdk-client';
 import type { ChatSource } from '@/lib/types';
+import type { SourcesData } from './chat/sources-section';
 import type { ProcessingStatus } from './chat/status-indicator';
 
 import { AnimatePresence, motion } from 'framer-motion';
@@ -21,7 +22,7 @@ import {
 import { useAuth } from '@/context/auth-context';
 import { triggerBalanceRefresh } from '@/hooks/use-accounting-api';
 import { formatCostPerUnit, getCostsFromSource } from '@/lib/cost-utils';
-import { getChatDataSources, getChatModels } from '@/lib/endpoint-utils';
+import { analyzeQueryForSources, getChatDataSources, getChatModels } from '@/lib/endpoint-utils';
 import {
   AggregatorError,
   AuthenticationError,
@@ -32,6 +33,7 @@ import {
 import { CostEstimationPanel } from './chat/cost-estimation-panel';
 import { MarkdownMessage } from './chat/markdown-message';
 import { ModelSelector } from './chat/model-selector';
+import { SourcesSection } from './chat/sources-section';
 import { StatusIndicator } from './chat/status-indicator';
 import { Badge } from './ui/badge';
 import { Label } from './ui/label';
@@ -424,6 +426,8 @@ interface Message {
   type?: 'text' | 'source-selection';
   sources?: ChatSource[];
   isThinking?: boolean;
+  /** Sources from aggregator response (document titles -> endpoint slug & content) */
+  aggregatorSources?: SourcesData;
 }
 
 interface ChatViewProperties {
@@ -584,6 +588,17 @@ function updateMessageContent(messages: Message[], messageId: string, content: s
   );
 }
 
+// Helper to add aggregator sources to a message
+function addAggregatorSources(
+  messages: Message[],
+  messageId: string,
+  aggregatorSources: SourcesData
+): Message[] {
+  return messages.map((message) =>
+    message.id === messageId ? { ...message, aggregatorSources } : message
+  );
+}
+
 // Helper to check if a source-selection message already exists (prevents duplicates from Strict Mode / remounts)
 function hasSourceSelectionMessage(messages: Message[]): boolean {
   return messages.some((m) => m.type === 'source-selection');
@@ -618,38 +633,105 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus | null>(null);
 
-  // Load real data sources from backend
+  // Load real data sources from backend and analyze query for relevance
   useEffect(() => {
     let isMounted = true;
 
     const loadDataSources = async () => {
       try {
-        const sources = await getChatDataSources(10); // Load 10 endpoints
+        const sources = await getChatDataSources(100); // Load up to 100 endpoints for comprehensive search
 
         // Guard against state updates after unmount
         if (!isMounted) return;
 
         setAvailableSources(sources);
 
-        // Add assistant message with real sources - ATOMIC check to prevent duplicates
-        const messageId = `source-selection-${String(Date.now())}`;
-        const assistantMessage: Message = {
-          id: messageId,
-          role: 'assistant',
-          content:
-            sources.length > 0
-              ? 'Select data sources to get started with your analysis:'
-              : 'No data sources are currently available. You can add external sources manually in the advanced configuration panel.',
-          type: 'source-selection',
-          sources: sources
-        };
+        // Analyze the initial query to determine the best action
+        const analysis = analyzeQueryForSources(initialQuery, sources);
 
-        setMessages((previous) => {
-          if (hasSourceSelectionMessage(previous)) {
-            return previous;
-          }
-          return [...previous, assistantMessage];
-        });
+        if (analysis.action === 'auto-select' && analysis.matchedEndpoint) {
+          // Endpoint was explicitly mentioned - auto-select and proceed
+          setSelectedSources([analysis.matchedEndpoint.id]);
+
+          // Add a message indicating auto-selection
+          const autoSelectMessage: Message = {
+            id: `auto-select-${String(Date.now())}`,
+            role: 'assistant',
+            content: analysis.mentionedPath
+              ? `Found endpoint **${analysis.matchedEndpoint.name}** (${analysis.mentionedPath}). Processing your question...`
+              : `Found endpoint **${analysis.matchedEndpoint.name}**. Processing your question...`,
+            type: 'text'
+          };
+
+          setMessages((previous) => {
+            if (hasSourceRelatedMessage(previous)) {
+              return previous;
+            }
+            return [...previous, autoSelectMessage];
+          });
+        } else if (sources.length === 0) {
+          // No sources available
+          const noSourcesMessage: Message = {
+            id: `source-selection-${String(Date.now())}`,
+            role: 'assistant',
+            content:
+              'No data sources are currently available. You can add external sources manually in the advanced configuration panel.',
+            type: 'source-selection',
+            sources: []
+          };
+
+          setMessages((previous) => {
+            if (hasSourceSelectionMessage(previous)) {
+              return previous;
+            }
+            return [...previous, noSourcesMessage];
+          });
+        } else if (analysis.relevantSources.length === 0) {
+          // Sources exist but none are relevant - show top sources as fallback
+          const MAX_SOURCES_TO_SHOW = 3;
+          const sourcesToShow = sources.slice(0, MAX_SOURCES_TO_SHOW);
+
+          const noRelevantMessage: Message = {
+            id: `source-selection-${String(Date.now())}`,
+            role: 'assistant',
+            content: `No sources matched your query directly. Here are the top ${String(sourcesToShow.length)} popular sources (${String(sources.length)} total available):`,
+            type: 'source-selection',
+            sources: sourcesToShow
+          };
+
+          setMessages((previous) => {
+            if (hasSourceSelectionMessage(previous)) {
+              return previous;
+            }
+            return [...previous, noRelevantMessage];
+          });
+        } else {
+          // Show relevant sources (top 3)
+          const MAX_SOURCES_TO_SHOW = 3;
+          const relevantSources = analysis.relevantSources;
+          const sourcesToShow = relevantSources.slice(0, MAX_SOURCES_TO_SHOW);
+          const isFiltered =
+            analysis.action === 'show-relevant' && relevantSources.length < sources.length;
+
+          const messageContent = isFiltered
+            ? `Based on your question, here are the top ${String(sourcesToShow.length)} most relevant data sources (${String(relevantSources.length)} matched, ${String(sources.length)} total):`
+            : `Select data sources to get started (showing top ${String(sourcesToShow.length)} of ${String(sources.length)} available):`;
+
+          const sourceSelectionMessage: Message = {
+            id: `source-selection-${String(Date.now())}`,
+            role: 'assistant',
+            content: messageContent,
+            type: 'source-selection',
+            sources: sourcesToShow
+          };
+
+          setMessages((previous) => {
+            if (hasSourceSelectionMessage(previous)) {
+              return previous;
+            }
+            return [...previous, sourceSelectionMessage];
+          });
+        }
       } catch (error) {
         // Guard against state updates after unmount
         if (!isMounted) return;
@@ -681,7 +763,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [initialQuery]);
 
   // Load available models from backend
   useEffect(() => {
@@ -842,6 +924,16 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
             updateMessageContent(previous, assistantMessageId, accumulatedContent)
           );
         });
+
+        // Capture sources from done event
+        if (event.type === 'done') {
+          const doneEvent = event;
+          if (Object.keys(doneEvent.sources).length > 0) {
+            setMessages((previous) =>
+              addAggregatorSources(previous, assistantMessageId, doneEvent.sources)
+            );
+          }
+        }
       }
 
       // Refresh balance after successful chat completion (credits may have been consumed)
@@ -929,6 +1021,15 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                     )}
                   </div>
                 )}
+
+                {/* Aggregator Sources Section - shows after assistant messages with sources */}
+                {message.role === 'assistant' &&
+                  message.aggregatorSources &&
+                  Object.keys(message.aggregatorSources).length > 0 && (
+                    <div className='mt-2 w-full max-w-2xl'>
+                      <SourcesSection sources={message.aggregatorSources} />
+                    </div>
+                  )}
 
                 {/* Source Selection UI */}
                 {message.type === 'source-selection' && message.sources && (
