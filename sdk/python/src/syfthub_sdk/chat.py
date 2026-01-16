@@ -47,6 +47,7 @@ from syfthub_sdk.exceptions import (
 from syfthub_sdk.models import (
     ChatMetadata,
     ChatResponse,
+    DocumentSource,
     EndpointPublic,
     EndpointRef,
     EndpointType,
@@ -116,7 +117,8 @@ class DoneEvent:
     """Fired when generation completes successfully."""
 
     type: Literal["done"] = field(default="done", repr=False)
-    sources: list[SourceInfo] = field(default_factory=list)
+    sources: dict[str, DocumentSource] = field(default_factory=dict)
+    retrieval_info: list[SourceInfo] = field(default_factory=list)
     metadata: ChatMetadata | None = None
     usage: TokenUsage | None = None  # Token usage if available (only from non-streaming)
 
@@ -394,9 +396,21 @@ class ChatResource:
             return TokenEvent(content=data.get("content", ""))
 
         elif event_type == "done":
-            sources = []
-            for s in data.get("sources", []):
-                sources.append(
+            # Parse document sources (new format: dict of title -> {slug, content})
+            sources: dict[str, DocumentSource] = {}
+            sources_data = data.get("sources", {})
+            if isinstance(sources_data, dict):
+                for title, source_data in sources_data.items():
+                    if isinstance(source_data, dict):
+                        sources[title] = DocumentSource(
+                            slug=source_data.get("slug", ""),
+                            content=source_data.get("content", ""),
+                        )
+
+            # Parse retrieval info (metadata about each data source retrieval)
+            retrieval_info: list[SourceInfo] = []
+            for s in data.get("retrieval_info", []):
+                retrieval_info.append(
                     SourceInfo(
                         path=s.get("path", ""),
                         documents_retrieved=s.get("documents_retrieved", 0),
@@ -424,7 +438,12 @@ class ChatResource:
                     total_tokens=u.get("total_tokens", 0),
                 )
 
-            return DoneEvent(sources=sources, metadata=metadata, usage=usage)
+            return DoneEvent(
+                sources=sources,
+                retrieval_info=retrieval_info,
+                metadata=metadata,
+                usage=usage,
+            )
 
         elif event_type == "error":
             return ErrorEvent(message=data.get("message", "Unknown error"))
@@ -516,10 +535,21 @@ class ChatResource:
 
         data = response.json()
 
-        # Parse sources
-        sources = []
-        for s in data.get("sources", []):
-            sources.append(
+        # Parse document sources (new format: dict of title -> {slug, content})
+        sources: dict[str, DocumentSource] = {}
+        sources_data = data.get("sources", {})
+        if isinstance(sources_data, dict):
+            for title, source_data in sources_data.items():
+                if isinstance(source_data, dict):
+                    sources[title] = DocumentSource(
+                        slug=source_data.get("slug", ""),
+                        content=source_data.get("content", ""),
+                    )
+
+        # Parse retrieval info (metadata about each data source retrieval)
+        retrieval_info: list[SourceInfo] = []
+        for s in data.get("retrieval_info", []):
+            retrieval_info.append(
                 SourceInfo(
                     path=s.get("path", ""),
                     documents_retrieved=s.get("documents_retrieved", 0),
@@ -549,6 +579,7 @@ class ChatResource:
         return ChatResponse(
             response=data.get("response", ""),
             sources=sources,
+            retrieval_info=retrieval_info,
             metadata=metadata,
             usage=usage,
         )

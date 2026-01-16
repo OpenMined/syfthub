@@ -17,6 +17,7 @@ from aggregator.schemas.responses import (
     ChatCompletionResponse,
     ChatResponse,
     Document,
+    DocumentSource,
     ErrorResponse,
     QueryResponse,
     ResponseMetadata,
@@ -34,6 +35,7 @@ __all__ = [
     # Responses
     "ChatResponse",
     "Document",
+    "DocumentSource",
     "QueryResponse",
     "SourceInfo",
     "ResponseMetadata",

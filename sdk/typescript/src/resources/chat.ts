@@ -29,6 +29,7 @@ import type {
   ChatOptions,
   ChatResponse,
   ChatStreamEvent,
+  DocumentSource,
   EndpointRef,
   SourceInfo,
   SourceStatus,
@@ -309,6 +310,47 @@ export class ChatResource {
   }
 
   /**
+   * Parse document sources from raw data.
+   * The new format is a dict mapping document title to {slug, content}.
+   */
+  private parseDocumentSources(
+    data: Record<string, unknown> | undefined
+  ): Record<string, DocumentSource> {
+    const sources: Record<string, DocumentSource> = {};
+    if (!data || typeof data !== 'object') {
+      return sources;
+    }
+
+    for (const [title, value] of Object.entries(data)) {
+      if (value && typeof value === 'object') {
+        const source = value as Record<string, unknown>;
+        sources[title] = {
+          slug: String(source['slug'] ?? ''),
+          content: String(source['content'] ?? ''),
+        };
+      }
+    }
+    return sources;
+  }
+
+  /**
+   * Parse retrieval info (SourceInfo array) from raw data.
+   */
+  private parseRetrievalInfo(
+    data: Record<string, unknown>[] | undefined
+  ): SourceInfo[] {
+    const retrievalInfo: SourceInfo[] = [];
+    if (!Array.isArray(data)) {
+      return retrievalInfo;
+    }
+
+    for (const item of data) {
+      retrievalInfo.push(this.parseSourceInfo(item));
+    }
+    return retrievalInfo;
+  }
+
+  /**
    * Send a chat request and get the complete response.
    *
    * This method automatically:
@@ -375,13 +417,13 @@ export class ChatResource {
 
     const data = (await response.json()) as Record<string, unknown>;
 
-    const sources: SourceInfo[] = [];
-    const sourcesData = data['sources'] as Record<string, unknown>[] | undefined;
-    if (Array.isArray(sourcesData)) {
-      for (const s of sourcesData) {
-        sources.push(this.parseSourceInfo(s));
-      }
-    }
+    // Parse document sources (new format: dict of title -> {slug, content})
+    const sourcesData = data['sources'] as Record<string, unknown> | undefined;
+    const sources = this.parseDocumentSources(sourcesData);
+
+    // Parse retrieval info (metadata about each data source retrieval)
+    const retrievalInfoData = data['retrieval_info'] as Record<string, unknown>[] | undefined;
+    const retrievalInfo = this.parseRetrievalInfo(retrievalInfoData);
 
     const metadataData = data['metadata'] as Record<string, unknown> | undefined;
     const metadata = this.parseMetadata(metadataData ?? {});
@@ -393,6 +435,7 @@ export class ChatResource {
     return {
       response: String(data['response'] ?? ''),
       sources,
+      retrievalInfo,
       metadata,
       usage,
     };
@@ -554,13 +597,13 @@ export class ChatResource {
         };
 
       case 'done': {
-        const sources: SourceInfo[] = [];
-        const sourcesData = data['sources'] as Record<string, unknown>[] | undefined;
-        if (Array.isArray(sourcesData)) {
-          for (const s of sourcesData) {
-            sources.push(this.parseSourceInfo(s));
-          }
-        }
+        // Parse document sources (new format: dict of title -> {slug, content})
+        const sourcesData = data['sources'] as Record<string, unknown> | undefined;
+        const sources = this.parseDocumentSources(sourcesData);
+
+        // Parse retrieval info (metadata about each data source retrieval)
+        const retrievalInfoData = data['retrieval_info'] as Record<string, unknown>[] | undefined;
+        const retrievalInfo = this.parseRetrievalInfo(retrievalInfoData);
 
         const metadataData = data['metadata'] as Record<string, unknown> | undefined;
         const metadata = this.parseMetadata(metadataData ?? {});
@@ -569,7 +612,7 @@ export class ChatResource {
         const usageData = data['usage'] as Record<string, unknown> | undefined;
         const usage = usageData ? this.parseUsage(usageData) : undefined;
 
-        return { type: 'done', sources, metadata, usage };
+        return { type: 'done', sources, retrievalInfo, metadata, usage };
       }
 
       case 'error':

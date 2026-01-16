@@ -90,7 +90,7 @@ export default function HomePage() {
               </div>
               <div className='flex flex-col'>
                 <span className='font-inter text-lg font-semibold text-gray-800'>
-                  {isLoadingTotalCount ? '...' : `${totalCount ?? 0} Nodes`}
+                  {isLoadingTotalCount ? '...' : `${String(totalCount ?? 0)} Nodes`}
                 </span>
                 <span className='font-inter text-xs text-gray-500'>Active contributors</span>
               </div>

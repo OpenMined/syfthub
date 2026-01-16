@@ -3,7 +3,16 @@
 import pytest
 from pydantic import ValidationError
 
-from aggregator.schemas import ChatRequest, Document, EndpointRef, Message
+from aggregator.schemas import (
+    ChatRequest,
+    ChatResponse,
+    Document,
+    DocumentSource,
+    EndpointRef,
+    Message,
+    ResponseMetadata,
+    SourceInfo,
+)
 
 
 def test_endpoint_ref_valid() -> None:
@@ -135,3 +144,73 @@ def test_document_with_metadata() -> None:
     )
     assert doc.score == 0.95
     assert doc.metadata["source"] == "file.txt"
+
+
+def test_document_source_valid() -> None:
+    """Test valid DocumentSource creation."""
+    doc_source = DocumentSource(
+        slug="john/salesforce-docs",
+        content="Federated search allows organizations to query multiple systems.",
+    )
+    assert doc_source.slug == "john/salesforce-docs"
+    assert "Federated search" in doc_source.content
+
+
+def test_chat_response_with_new_sources_format() -> None:
+    """Test ChatResponse with new sources format (dict of DocumentSource)."""
+    response = ChatResponse(
+        response="This is the generated response.",
+        sources={
+            "Federated Search Overview": DocumentSource(
+                slug="john/salesforce-docs",
+                content="Federated search allows organizations to query multiple systems.",
+            ),
+            "Security Best Practices": DocumentSource(
+                slug="mary/security-wiki",
+                content="Federated architectures reduce data duplication risks.",
+            ),
+        },
+        retrieval_info=[
+            SourceInfo(
+                path="john/salesforce-docs",
+                documents_retrieved=1,
+                status="success",
+            ),
+            SourceInfo(
+                path="mary/security-wiki",
+                documents_retrieved=1,
+                status="success",
+            ),
+        ],
+        metadata=ResponseMetadata(
+            retrieval_time_ms=150,
+            generation_time_ms=500,
+            total_time_ms=650,
+        ),
+    )
+
+    assert response.response == "This is the generated response."
+    assert len(response.sources) == 2
+    assert "Federated Search Overview" in response.sources
+    assert response.sources["Federated Search Overview"].slug == "john/salesforce-docs"
+    assert "Federated search" in response.sources["Federated Search Overview"].content
+    assert len(response.retrieval_info) == 2
+    assert response.retrieval_info[0].path == "john/salesforce-docs"
+    assert response.metadata.total_time_ms == 650
+
+
+def test_chat_response_empty_sources() -> None:
+    """Test ChatResponse with no sources (no data sources queried)."""
+    response = ChatResponse(
+        response="General knowledge response.",
+        sources={},
+        retrieval_info=[],
+        metadata=ResponseMetadata(
+            retrieval_time_ms=0,
+            generation_time_ms=300,
+            total_time_ms=300,
+        ),
+    )
+
+    assert response.sources == {}
+    assert response.retrieval_info == []

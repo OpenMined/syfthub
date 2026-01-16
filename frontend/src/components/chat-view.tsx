@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 
 import type { ChatStreamEvent } from '@/lib/sdk-client';
 import type { ChatSource } from '@/lib/types';
+import type { SourcesData } from './chat/sources-section';
 import type { ProcessingStatus } from './chat/status-indicator';
 
 import { AnimatePresence, motion } from 'framer-motion';
@@ -32,6 +33,7 @@ import {
 import { CostEstimationPanel } from './chat/cost-estimation-panel';
 import { MarkdownMessage } from './chat/markdown-message';
 import { ModelSelector } from './chat/model-selector';
+import { SourcesSection } from './chat/sources-section';
 import { StatusIndicator } from './chat/status-indicator';
 import { Badge } from './ui/badge';
 import { Label } from './ui/label';
@@ -424,6 +426,8 @@ interface Message {
   type?: 'text' | 'source-selection';
   sources?: ChatSource[];
   isThinking?: boolean;
+  /** Sources from aggregator response (document titles -> endpoint slug & content) */
+  aggregatorSources?: SourcesData;
 }
 
 interface ChatViewProperties {
@@ -581,6 +585,17 @@ function updateStatusFromEvent(
 function updateMessageContent(messages: Message[], messageId: string, content: string): Message[] {
   return messages.map((message) =>
     message.id === messageId ? { ...message, content, isThinking: false } : message
+  );
+}
+
+// Helper to add aggregator sources to a message
+function addAggregatorSources(
+  messages: Message[],
+  messageId: string,
+  aggregatorSources: SourcesData
+): Message[] {
+  return messages.map((message) =>
+    message.id === messageId ? { ...message, aggregatorSources } : message
   );
 }
 
@@ -909,6 +924,16 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
             updateMessageContent(previous, assistantMessageId, accumulatedContent)
           );
         });
+
+        // Capture sources from done event
+        if (event.type === 'done') {
+          const doneEvent = event;
+          if (Object.keys(doneEvent.sources).length > 0) {
+            setMessages((previous) =>
+              addAggregatorSources(previous, assistantMessageId, doneEvent.sources)
+            );
+          }
+        }
       }
 
       // Refresh balance after successful chat completion (credits may have been consumed)
@@ -996,6 +1021,15 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                     )}
                   </div>
                 )}
+
+                {/* Aggregator Sources Section - shows after assistant messages with sources */}
+                {message.role === 'assistant' &&
+                  message.aggregatorSources &&
+                  Object.keys(message.aggregatorSources).length > 0 && (
+                    <div className='mt-2 w-full max-w-2xl'>
+                      <SourcesSection sources={message.aggregatorSources} />
+                    </div>
+                  )}
 
                 {/* Source Selection UI */}
                 {message.type === 'source-selection' && message.sources && (

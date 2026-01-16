@@ -78,3 +78,21 @@ def test_prompt_builder_custom_system_prompt() -> None:
     )
 
     assert "pirate" in messages[0].content
+
+
+def test_prompt_builder_no_sources_section_instruction() -> None:
+    """Test that prompt instructs model NOT to include Sources section.
+
+    The aggregator now provides sources separately in the response,
+    so the model should not generate a Sources section.
+    """
+    builder = PromptBuilder()
+    messages = builder.build(user_prompt="Test")
+
+    system_content = messages[0].content
+
+    # Should instruct NOT to include Sources section
+    assert 'Do NOT include a "Sources" section' in system_content
+
+    # Should NOT have the old instruction about including Sources bullet list
+    assert 'At the end of the response, include a "Sources"' not in system_content

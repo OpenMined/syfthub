@@ -691,7 +691,7 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                   </Badge>
                 </div>
 
-                {endpoint.tags && endpoint.tags.length > 0 && (
+                {endpoint.tags.length > 0 && (
                   <div>
                     <p className='font-inter mb-1 text-xs text-[#5e5a72]'>Tags</p>
                     <div className='flex flex-wrap gap-1'>
@@ -709,8 +709,8 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                   <div className='flex items-center gap-1'>
                     <Users className='h-4 w-4 text-[#b4b0bf]' />
                     <span className='font-inter text-sm text-[#272532]'>
-                      {endpoint.contributors_count ?? 1} contributor
-                      {(endpoint.contributors_count ?? 1) === 1 ? '' : 's'}
+                      {endpoint.contributors_count} contributor
+                      {endpoint.contributors_count === 1 ? '' : 's'}
                     </span>
                   </div>
                 </div>

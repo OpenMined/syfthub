@@ -28,6 +28,16 @@ class SourceInfo(BaseModel):
     error_message: str | None = Field(default=None, description="Error message if failed")
 
 
+class DocumentSource(BaseModel):
+    """A document source entry with endpoint path and content.
+
+    Used in the sources dict of ChatResponse, keyed by document title.
+    """
+
+    slug: str = Field(..., description="Endpoint path (owner/slug) where document was retrieved")
+    content: str = Field(..., description="The actual document content")
+
+
 class ResponseMetadata(BaseModel):
     """Metadata about the aggregator response."""
 
@@ -48,7 +58,14 @@ class ChatResponse(BaseModel):
     """Response from the aggregator chat endpoint."""
 
     response: str = Field(..., description="The generated response")
-    sources: list[SourceInfo] = Field(default_factory=list, description="Data sources used")
+    sources: dict[str, DocumentSource] = Field(
+        default_factory=dict,
+        description="Retrieved documents keyed by title, with endpoint slug and content",
+    )
+    retrieval_info: list[SourceInfo] = Field(
+        default_factory=list,
+        description="Metadata about each data source retrieval (status, count, errors)",
+    )
     metadata: ResponseMetadata = Field(..., description="Timing metadata")
     usage: TokenUsage | None = Field(default=None, description="Token usage if available")
 

@@ -196,8 +196,8 @@ export default function AboutPage() {
                   'CLI Client (Syft Space equivalent)',
                   'Extended analytics in Syft Space',
                   'Connecting local models in Syft Space'
-                ].map((item, idx) => (
-                  <li key={idx} className='text-syft-muted font-rubik flex items-start gap-3'>
+                ].map((item, index) => (
+                  <li key={index} className='text-syft-muted font-rubik flex items-start gap-3'>
                     <div className='bg-syft-green mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full' />
                     <span>{item}</span>
                   </li>
@@ -220,8 +220,8 @@ export default function AboutPage() {
                   'Output privacy policies',
                   'Syft for Research (using non-public data sources beyond querying)',
                   'SyftBox & Syft Client integration'
-                ].map((item, idx) => (
-                  <li key={idx} className='text-syft-muted font-rubik flex items-start gap-3'>
+                ].map((item, index) => (
+                  <li key={index} className='text-syft-muted font-rubik flex items-start gap-3'>
                     <div className='bg-syft-purple mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full' />
                     <span>{item}</span>
                   </li>
