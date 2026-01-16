@@ -15,6 +15,7 @@ const HomePage = lazy(() => import('./pages/home'));
 const BrowsePage = lazy(() => import('./pages/browse'));
 const ChatPage = lazy(() => import('./pages/chat'));
 const BuildPage = lazy(() => import('./pages/build'));
+const AboutPage = lazy(() => import('./pages/about'));
 const ProfilePage = lazy(() => import('./pages/profile'));
 const EndpointsPage = lazy(() => import('./pages/endpoints'));
 const EndpointDetailPage = lazy(() => import('./pages/endpoint-detail'));
@@ -54,6 +55,7 @@ export default function App() {
                     <Route path='browse' element={<BrowsePage />} />
                     <Route path='chat' element={<ChatPage />} />
                     <Route path='build' element={<BuildPage />} />
+                    <Route path='about' element={<AboutPage />} />
 
                     {/* Protected routes */}
                     <Route
