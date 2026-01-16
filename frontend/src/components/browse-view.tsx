@@ -210,37 +210,6 @@ export function BrowseView({
                       </p>
                     </div>
                     <ChevronRight className='text-syft-placeholder group-hover:text-syft-secondary ml-2 h-5 w-5 shrink-0 transition-transform group-hover:translate-x-1' />
-                    )}
-                    <p className='font-inter text-syft-muted line-clamp-2 text-sm'>
-                      {endpoint.description}
-                    </p>
-                  </div>
-                  <ChevronRight className='text-syft-placeholder group-hover:text-syft-secondary ml-2 h-5 w-5 shrink-0 transition-transform group-hover:translate-x-1' />
-                </div>
-
-                {/* Tags and Status */}
-                <div className='mb-3 flex flex-wrap items-center gap-2'>
-                  <Badge
-                    variant='outline'
-                    className={`font-inter border text-xs ${getTypeStyles(endpoint.type)}`}
-                  >
-                    {getTypeLabel(endpoint.type)}
-                  </Badge>
-                  {endpoint.tags.slice(0, 3).map((tag) => (
-                    <Badge key={tag} variant='secondary' className='font-inter text-xs'>
-                      {tag}
-                    </Badge>
-                  ))}
-                  {endpoint.tags.length > 3 && (
-                    <Badge variant='secondary' className='font-inter text-xs'>
-                      +{endpoint.tags.length - 3}
-                    </Badge>
-                  )}
-                  <div className='flex items-center gap-1'>
-                    <div className={`h-2 w-2 rounded-full ${getStatusColor(endpoint.status)}`} />
-                    <span className='font-inter text-syft-muted text-xs capitalize'>
-                      {endpoint.status}
-                    </span>
                   </div>
 
                   {/* Tags and Status */}
@@ -251,9 +220,16 @@ export function BrowseView({
                     >
                       {getTypeLabel(endpoint.type)}
                     </Badge>
-                    <Badge variant='secondary' className='font-inter text-xs'>
-                      {endpoint.tag}
-                    </Badge>
+                    {endpoint.tags.slice(0, 3).map((tag) => (
+                      <Badge key={tag} variant='secondary' className='font-inter text-xs'>
+                        {tag}
+                      </Badge>
+                    ))}
+                    {endpoint.tags.length > 3 && (
+                      <Badge variant='secondary' className='font-inter text-xs'>
+                        +{endpoint.tags.length - 3}
+                      </Badge>
+                    )}
                     <div className='flex items-center gap-1'>
                       <div className={`h-2 w-2 rounded-full ${getStatusColor(endpoint.status)}`} />
                       <span className='font-inter text-syft-muted text-xs capitalize'>
