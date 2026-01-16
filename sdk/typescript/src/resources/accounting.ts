@@ -503,7 +503,7 @@ export class AccountingResource {
    * ```
    */
   async createTransactionToken(recipientEmail: string): Promise<string> {
-    const response = await this.request<{ token: string }>('POST', '/tokens', {
+    const response = await this.request<{ token: string }>('POST', '/token/create', {
       body: { recipientEmail },
     });
     return response.token;

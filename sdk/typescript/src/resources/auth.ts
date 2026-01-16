@@ -255,6 +255,47 @@ export class AuthResource {
 
     return tokenMap;
   }
+
+  /**
+   * Get transaction tokens for multiple endpoint owners.
+   *
+   * Transaction tokens are short-lived JWTs that pre-authorize the endpoint owner
+   * (recipient) to charge the current user (sender) for usage. These tokens are
+   * created via the accounting service and passed to the aggregator.
+   *
+   * This is used by the chat flow to enable billing for endpoint usage.
+   *
+   * @param ownerUsernames - Array of endpoint owner usernames
+   * @returns TransactionTokensResponse with tokens map and any errors
+   * @throws {AuthenticationError} If not authenticated
+   *
+   * @example
+   * // Get transaction tokens for endpoint owners
+   * const response = await client.auth.getTransactionTokens(['alice', 'bob']);
+   * console.log(`Got ${Object.keys(response.tokens).length} tokens`);
+   * if (Object.keys(response.errors).length > 0) {
+   *   console.log('Some tokens failed:', response.errors);
+   * }
+   */
+  async getTransactionTokens(ownerUsernames: string[]): Promise<TransactionTokensResponse> {
+    const uniqueOwners = [...new Set(ownerUsernames)];
+
+    if (uniqueOwners.length === 0) {
+      return { tokens: {}, errors: {} };
+    }
+
+    try {
+      return await this.http.post<TransactionTokensResponse>(
+        '/api/v1/accounting/transaction-tokens',
+        { owner_usernames: uniqueOwners }
+      );
+    } catch (error) {
+      // If accounting is not configured or fails, return empty tokens
+      // The chat can proceed without transaction tokens (billing will fail later)
+      console.warn('Failed to get transaction tokens:', error);
+      return { tokens: {}, errors: {} };
+    }
+  }
 }
 
 /**
@@ -265,4 +306,14 @@ export interface SatelliteTokenResponse {
   targetToken: string;
   /** Seconds until the token expires */
   expiresIn: number;
+}
+
+/**
+ * Response from transaction tokens endpoint.
+ */
+export interface TransactionTokensResponse {
+  /** Mapping of owner_username to transaction token */
+  tokens: Record<string, string>;
+  /** Mapping of owner_username to error message (for failed tokens) */
+  errors: Record<string, string>;
 }

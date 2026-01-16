@@ -49,16 +49,15 @@ function formatRelativeTime(date: Date): string {
  * This transforms the API response into a UI-friendly format with:
  * - Relative time formatting
  * - Status derivation based on update time
- * - Tag extraction from policies
+ * - Tags from backend
  * - URL extraction from connect config
  */
 export function mapEndpointPublicToSource(endpoint: SdkEndpointPublic): ChatSource {
-  // Determine tag from policies (first policy type or fallback to "General")
+  // Get tags directly from backend (or empty array if not set)
+  const tags = [...((endpoint as SdkEndpointPublic & { tags?: readonly string[] }).tags ?? [])];
+
+  // Get policies for mapping
   const policies = endpoint.policies;
-  const firstPolicy = policies[0];
-  const tag = firstPolicy
-    ? firstPolicy.type.charAt(0).toUpperCase() + firstPolicy.type.slice(1)
-    : 'General';
 
   // Determine status based on updated time
   const updatedDate = endpoint.updatedAt;
@@ -103,7 +102,7 @@ export function mapEndpointPublicToSource(endpoint: SdkEndpointPublic): ChatSour
   return {
     id: endpoint.slug,
     name: endpoint.name,
-    tag: tag,
+    tags: tags,
     description: endpoint.description,
     type: endpoint.type,
     updated: formatRelativeTime(updatedDate),

@@ -60,8 +60,14 @@ class Orchestrator:
         Maps the request schema to the internal representation with all
         SyftAI-Space connection details including owner for token lookup.
         """
+        # Construct full path as owner/slug for citation format
+        if ref.owner_username:
+            full_path = f"{ref.owner_username}/{ref.slug}"
+        else:
+            full_path = ref.slug
+
         return ResolvedEndpoint(
-            path=ref.name or ref.slug,  # Use name for display, fallback to slug
+            path=full_path,  # Full path for citations (e.g., "ionesiotest/general-knowledge")
             url=ref.url,
             slug=ref.slug,
             endpoint_type=endpoint_type,  # type: ignore[arg-type]
@@ -80,6 +86,7 @@ class Orchestrator:
 
         The request contains all required information for SyftAI-Space:
         - endpoint_tokens: Mapping of owner username to satellite token for auth
+        - transaction_tokens: Mapping of owner username to transaction token for billing
         - model.slug, model.tenant_name, model.owner_username: For model endpoint
         - data_sources[]: For data source endpoints
 
@@ -96,8 +103,9 @@ class Orchestrator:
         _ = user_token  # Deprecated - endpoint_tokens in request is used instead
         total_start = time.perf_counter()
 
-        # Extract endpoint_tokens mapping for satellite token auth
+        # Extract token mappings
         endpoint_tokens = request.endpoint_tokens
+        transaction_tokens = request.transaction_tokens
 
         # 1. Convert model EndpointRef to ResolvedEndpoint
         model_endpoint = self._endpoint_ref_to_resolved(request.model, "model")
@@ -121,6 +129,7 @@ class Orchestrator:
             top_k=request.top_k,
             similarity_threshold=request.similarity_threshold,
             endpoint_tokens=endpoint_tokens,
+            transaction_tokens=transaction_tokens,
         )
         retrieval_time_ms = int((time.perf_counter() - retrieval_start) * 1000)
 
@@ -128,6 +137,7 @@ class Orchestrator:
         messages = self.prompt_builder.build(
             user_prompt=request.prompt,
             context=context if data_sources else None,
+            custom_system_prompt=request.custom_system_prompt,
         )
 
         # 5. Generate response via SyftAI-Space model endpoint
@@ -139,6 +149,7 @@ class Orchestrator:
                 max_tokens=request.max_tokens,
                 temperature=request.temperature,
                 endpoint_tokens=endpoint_tokens,
+                transaction_tokens=transaction_tokens,
             )
         except GenerationError as e:
             raise OrchestratorError(f"Generation failed: {e}") from e
@@ -197,8 +208,9 @@ class Orchestrator:
         _ = user_token  # Deprecated - endpoint_tokens in request is used instead
         total_start = time.perf_counter()
 
-        # Extract endpoint_tokens mapping for satellite token auth
+        # Extract token mappings
         endpoint_tokens = request.endpoint_tokens
+        transaction_tokens = request.transaction_tokens
 
         # 1. Convert model EndpointRef to ResolvedEndpoint
         model_endpoint = self._endpoint_ref_to_resolved(request.model, "model")
@@ -228,6 +240,7 @@ class Orchestrator:
                 top_k=request.top_k,
                 similarity_threshold=request.similarity_threshold,
                 endpoint_tokens=endpoint_tokens,
+                transaction_tokens=transaction_tokens,
             ):
                 retrieval_results.append(result)
                 yield self._sse_event(
@@ -268,6 +281,7 @@ class Orchestrator:
         messages = self.prompt_builder.build(
             user_prompt=request.prompt,
             context=context if data_sources else None,
+            custom_system_prompt=request.custom_system_prompt,
         )
 
         # 5. Generation phase with streaming (or non-streaming fallback)
@@ -293,6 +307,7 @@ class Orchestrator:
                     max_tokens=request.max_tokens,
                     temperature=request.temperature,
                     endpoint_tokens=endpoint_tokens,
+                    transaction_tokens=transaction_tokens,
                 ):
                     full_response.append(chunk)
                     yield self._sse_event("token", {"content": chunk})
@@ -305,6 +320,7 @@ class Orchestrator:
                     max_tokens=request.max_tokens,
                     temperature=request.temperature,
                     endpoint_tokens=endpoint_tokens,
+                    transaction_tokens=transaction_tokens,
                 )
                 full_response.append(result.response)
                 usage_data = result.usage  # Capture usage from non-streaming response

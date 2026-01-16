@@ -6,14 +6,19 @@ avoiding CORS issues by making server-to-server calls.
 The frontend calls these endpoints instead of the accounting service directly.
 """
 
+import logging
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from syfthub.auth.db_dependencies import get_current_active_user
+from syfthub.database.dependencies import get_user_repository
+from syfthub.repositories.user import UserRepository
 from syfthub.schemas.user import User
 from syfthub.services.accounting_client import AccountingClient
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -61,6 +66,37 @@ class CreateTransactionRequest(BaseModel):
 
     class Config:
         populate_by_name = True
+
+
+class CreateTransactionTokensRequest(BaseModel):
+    """Request to create transaction tokens for multiple endpoint owners.
+
+    Used by the chat flow to pre-authorize payments to endpoint owners.
+    """
+
+    owner_usernames: list[str] = Field(
+        ...,
+        description="List of endpoint owner usernames to create tokens for",
+        min_length=1,
+        max_length=20,
+    )
+
+
+class TransactionTokensResponse(BaseModel):
+    """Response containing transaction tokens for endpoint owners.
+
+    Maps owner_username to their transaction token.
+    Missing entries indicate the token could not be created for that owner.
+    """
+
+    tokens: dict[str, str] = Field(
+        default_factory=dict,
+        description="Mapping of owner_username to transaction token",
+    )
+    errors: dict[str, str] = Field(
+        default_factory=dict,
+        description="Mapping of owner_username to error message (if token creation failed)",
+    )
 
 
 # =============================================================================
@@ -343,6 +379,123 @@ async def cancel_transaction(
             app_name=tx.get("appName"),
             app_ep_path=tx.get("appEpPath"),
         )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Error communicating with accounting service: {e!s}",
+        ) from e
+    finally:
+        client.close()
+
+
+@router.post("/transaction-tokens", response_model=TransactionTokensResponse)
+async def create_transaction_tokens(
+    request: CreateTransactionTokensRequest,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+) -> TransactionTokensResponse:
+    """Create transaction tokens for multiple endpoint owners.
+
+    This endpoint is used by the chat flow to pre-authorize payments to
+    endpoint owners before making requests to their endpoints.
+
+    For each owner username:
+    1. Looks up the owner's email from the database
+    2. Creates a transaction token via the accounting service
+    3. Returns the token (or error) for each owner
+
+    Transaction tokens are short-lived JWTs that authorize the recipient
+    (endpoint owner) to create a delegated transaction charging the sender
+    (current user).
+
+    Args:
+        request: List of owner usernames to create tokens for
+        current_user: The authenticated user (will be charged)
+        user_repo: Repository for looking up user emails
+
+    Returns:
+        TransactionTokensResponse with tokens and any errors
+    """
+    # Check if current user has accounting configured
+    if not current_user.accounting_service_url or not current_user.accounting_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Accounting not configured. Please set up billing in settings.",
+        )
+
+    client = AccountingClient(current_user.accounting_service_url)
+    password = current_user.accounting_password
+
+    tokens: dict[str, str] = {}
+    errors: dict[str, str] = {}
+
+    try:
+        for owner_username in request.owner_usernames:
+            # Skip if we've already processed this username (handle duplicates)
+            if owner_username in tokens or owner_username in errors:
+                continue
+
+            # Look up the owner's email
+            owner = user_repo.get_by_username(owner_username)
+            if owner is None:
+                errors[owner_username] = f"User '{owner_username}' not found"
+                logger.warning(
+                    f"Transaction token request: user '{owner_username}' not found"
+                )
+                continue
+
+            if not owner.email:
+                errors[owner_username] = f"User '{owner_username}' has no email"
+                logger.warning(
+                    f"Transaction token request: user '{owner_username}' has no email"
+                )
+                continue
+
+            # Create transaction token for this owner
+            try:
+                response = client.client.post(
+                    "/token/create",
+                    json={"recipientEmail": owner.email},
+                    auth=(current_user.email, password),
+                )
+
+                if response.status_code in (200, 201):
+                    token_data = response.json()
+                    token = token_data.get("token")
+                    if token:
+                        tokens[owner_username] = token
+                        logger.debug(
+                            f"Created transaction token for owner '{owner_username}'"
+                        )
+                    else:
+                        errors[owner_username] = (
+                            "Token not returned by accounting service"
+                        )
+                else:
+                    # Extract error detail
+                    try:
+                        error_data = response.json()
+                        detail = error_data.get(
+                            "detail",
+                            error_data.get("message", f"HTTP {response.status_code}"),
+                        )
+                    except Exception:
+                        detail = f"HTTP {response.status_code}"
+                    errors[owner_username] = detail
+                    logger.warning(
+                        f"Failed to create transaction token for '{owner_username}': {detail}"
+                    )
+
+            except Exception as e:
+                errors[owner_username] = f"Request failed: {e!s}"
+                logger.error(
+                    f"Exception creating transaction token for '{owner_username}': {e}"
+                )
+
+        return TransactionTokensResponse(tokens=tokens, errors=errors)
+
     except HTTPException:
         raise
     except Exception as e:

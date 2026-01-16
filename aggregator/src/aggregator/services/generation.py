@@ -36,11 +36,11 @@ class GenerationService:
         self.model_client = model_client
 
     def _get_token_for_endpoint(
-        self, endpoint: ResolvedEndpoint, endpoint_tokens: dict[str, str]
+        self, endpoint: ResolvedEndpoint, token_mapping: dict[str, str]
     ) -> str | None:
-        """Get the satellite token for an endpoint based on its owner."""
-        if endpoint.owner_username and endpoint.owner_username in endpoint_tokens:
-            return endpoint_tokens[endpoint.owner_username]
+        """Get a token for an endpoint based on its owner username."""
+        if endpoint.owner_username and endpoint.owner_username in token_mapping:
+            return token_mapping[endpoint.owner_username]
         return None
 
     async def generate(
@@ -50,6 +50,7 @@ class GenerationService:
         max_tokens: int = 1024,
         temperature: float = 0.7,
         endpoint_tokens: dict[str, str] | None = None,
+        transaction_tokens: dict[str, str] | None = None,
     ) -> GenerationResult:
         """
         Generate a response from a SyftAI-Space model endpoint.
@@ -62,6 +63,7 @@ class GenerationService:
             max_tokens: Maximum tokens to generate
             temperature: Temperature for generation
             endpoint_tokens: Mapping of owner username to satellite token for auth
+            transaction_tokens: Mapping of owner username to transaction token for billing
 
         Returns:
             GenerationResult with response and metadata
@@ -70,6 +72,7 @@ class GenerationService:
             GenerationError: If generation fails
         """
         endpoint_tokens = endpoint_tokens or {}
+        transaction_tokens = transaction_tokens or {}
         try:
             result = await self.model_client.chat(
                 url=model_endpoint.url,
@@ -79,6 +82,7 @@ class GenerationService:
                 temperature=temperature,
                 tenant_name=model_endpoint.tenant_name,
                 authorization_token=self._get_token_for_endpoint(model_endpoint, endpoint_tokens),
+                transaction_token=self._get_token_for_endpoint(model_endpoint, transaction_tokens),
             )
             logger.info(f"Generation complete: latency={result.latency_ms}ms")
             return result
@@ -94,6 +98,7 @@ class GenerationService:
         max_tokens: int = 1024,
         temperature: float = 0.7,
         endpoint_tokens: dict[str, str] | None = None,
+        transaction_tokens: dict[str, str] | None = None,
     ) -> AsyncGenerator[str, None]:
         """
         Generate a streaming response from a SyftAI-Space model endpoint.
@@ -106,6 +111,7 @@ class GenerationService:
             max_tokens: Maximum tokens to generate
             temperature: Temperature for generation
             endpoint_tokens: Mapping of owner username to satellite token for auth
+            transaction_tokens: Mapping of owner username to transaction token for billing
 
         Yields:
             Response text chunks as they arrive
@@ -114,6 +120,7 @@ class GenerationService:
             GenerationError: If generation fails
         """
         endpoint_tokens = endpoint_tokens or {}
+        transaction_tokens = transaction_tokens or {}
         try:
             async for chunk in self.model_client.chat_stream(
                 url=model_endpoint.url,
@@ -123,6 +130,7 @@ class GenerationService:
                 temperature=temperature,
                 tenant_name=model_endpoint.tenant_name,
                 authorization_token=self._get_token_for_endpoint(model_endpoint, endpoint_tokens),
+                transaction_token=self._get_token_for_endpoint(model_endpoint, transaction_tokens),
             ):
                 if chunk:
                     yield chunk

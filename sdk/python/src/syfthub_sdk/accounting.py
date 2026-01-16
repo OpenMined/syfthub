@@ -541,7 +541,7 @@ class AccountingResource:
         """
         response = self._request(
             "POST",
-            "/tokens",
+            "/token/create",
             json={"recipientEmail": recipient_email},
         )
         data = response if isinstance(response, dict) else {}
