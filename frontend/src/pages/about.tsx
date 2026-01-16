@@ -1,21 +1,15 @@
 import { motion } from 'framer-motion';
 import { ArrowRight } from 'lucide-react';
 
+import { PageHeader } from '@/components/ui/page-header';
+
 /**
  * About page - Information about SyftHub and how it works.
  */
 export default function AboutPage() {
   return (
     <div className='bg-syft-background min-h-screen'>
-      {/* Sticky Header */}
-      <div className='border-syft-border bg-syft-background/95 sticky top-0 z-30 flex w-full items-center border-b px-6 py-4 backdrop-blur-sm'>
-        <div className='flex items-center gap-4'>
-          <h2 className='font-rubik text-syft-primary text-xl font-medium'>About</h2>
-          <div className='text-syft-muted hidden font-mono text-xs opacity-60 sm:block'>
-            ~/about
-          </div>
-        </div>
-      </div>
+      <PageHeader title='About' path='~/about' />
 
       <div className='mx-auto max-w-3xl px-6 py-12 md:py-16'>
         <motion.div
