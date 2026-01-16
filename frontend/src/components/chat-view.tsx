@@ -20,7 +20,11 @@ import {
 
 import { useAuth } from '@/context/auth-context';
 import { formatCostPerUnit, getCostsFromSource } from '@/lib/cost-utils';
-import { getChatDataSources, getChatModels } from '@/lib/endpoint-utils';
+import {
+  analyzeQueryForSources,
+  getChatDataSources,
+  getChatModels
+} from '@/lib/endpoint-utils';
 import {
   AggregatorError,
   AuthenticationError,
@@ -617,38 +621,105 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus | null>(null);
 
-  // Load real data sources from backend
+  // Load real data sources from backend and analyze query for relevance
   useEffect(() => {
     let isMounted = true;
 
     const loadDataSources = async () => {
       try {
-        const sources = await getChatDataSources(10); // Load 10 endpoints
+        const sources = await getChatDataSources(100); // Load up to 100 endpoints for comprehensive search
 
         // Guard against state updates after unmount
         if (!isMounted) return;
 
         setAvailableSources(sources);
 
-        // Add assistant message with real sources - ATOMIC check to prevent duplicates
-        const messageId = `source-selection-${String(Date.now())}`;
-        const assistantMessage: Message = {
-          id: messageId,
-          role: 'assistant',
-          content:
-            sources.length > 0
-              ? 'Select data sources to get started with your analysis:'
-              : 'No data sources are currently available. You can add external sources manually in the advanced configuration panel.',
-          type: 'source-selection',
-          sources: sources
-        };
+        // Analyze the initial query to determine the best action
+        const analysis = analyzeQueryForSources(initialQuery, sources);
 
-        setMessages((previous) => {
-          if (hasSourceSelectionMessage(previous)) {
-            return previous;
-          }
-          return [...previous, assistantMessage];
-        });
+        if (analysis.action === 'auto-select' && analysis.matchedEndpoint) {
+          // Endpoint was explicitly mentioned - auto-select and proceed
+          setSelectedSources([analysis.matchedEndpoint.id]);
+
+          // Add a message indicating auto-selection
+          const autoSelectMessage: Message = {
+            id: `auto-select-${String(Date.now())}`,
+            role: 'assistant',
+            content: analysis.mentionedPath
+              ? `Found endpoint **${analysis.matchedEndpoint.name}** (${analysis.mentionedPath}). Processing your question...`
+              : `Found endpoint **${analysis.matchedEndpoint.name}**. Processing your question...`,
+            type: 'text'
+          };
+
+          setMessages((previous) => {
+            if (hasSourceRelatedMessage(previous)) {
+              return previous;
+            }
+            return [...previous, autoSelectMessage];
+          });
+        } else if (sources.length === 0) {
+          // No sources available
+          const noSourcesMessage: Message = {
+            id: `source-selection-${String(Date.now())}`,
+            role: 'assistant',
+            content:
+              'No data sources are currently available. You can add external sources manually in the advanced configuration panel.',
+            type: 'source-selection',
+            sources: []
+          };
+
+          setMessages((previous) => {
+            if (hasSourceSelectionMessage(previous)) {
+              return previous;
+            }
+            return [...previous, noSourcesMessage];
+          });
+        } else if (analysis.relevantSources.length === 0) {
+          // Sources exist but none are relevant - show top sources as fallback
+          const MAX_SOURCES_TO_SHOW = 3;
+          const sourcesToShow = sources.slice(0, MAX_SOURCES_TO_SHOW);
+
+          const noRelevantMessage: Message = {
+            id: `source-selection-${String(Date.now())}`,
+            role: 'assistant',
+            content: `No sources matched your query directly. Here are the top ${sourcesToShow.length} popular sources (${sources.length} total available):`,
+            type: 'source-selection',
+            sources: sourcesToShow
+          };
+
+          setMessages((previous) => {
+            if (hasSourceSelectionMessage(previous)) {
+              return previous;
+            }
+            return [...previous, noRelevantMessage];
+          });
+        } else {
+          // Show relevant sources (top 3)
+          const MAX_SOURCES_TO_SHOW = 3;
+          const relevantSources = analysis.relevantSources;
+          const sourcesToShow = relevantSources.slice(0, MAX_SOURCES_TO_SHOW);
+          const isFiltered =
+            analysis.action === 'show-relevant' && relevantSources.length < sources.length;
+
+          const messageContent = isFiltered
+            ? `Based on your question, here are the top ${sourcesToShow.length} most relevant data sources (${relevantSources.length} matched, ${sources.length} total):`
+            : `Select data sources to get started (showing top ${sourcesToShow.length} of ${sources.length} available):`;
+
+          const sourceSelectionMessage: Message = {
+            id: `source-selection-${String(Date.now())}`,
+            role: 'assistant',
+            content: messageContent,
+            type: 'source-selection',
+            sources: sourcesToShow
+          };
+
+          setMessages((previous) => {
+            if (hasSourceSelectionMessage(previous)) {
+              return previous;
+            }
+            return [...previous, sourceSelectionMessage];
+          });
+        }
       } catch (error) {
         // Guard against state updates after unmount
         if (!isMounted) return;
@@ -680,7 +751,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [initialQuery]);
 
   // Load available models from backend
   useEffect(() => {
