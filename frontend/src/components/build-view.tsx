@@ -15,73 +15,72 @@ interface BuildViewProperties {
 
 export function BuildView({ onAuthRequired: _onAuthRequired }: Readonly<BuildViewProperties>) {
   return (
-    <div className='mx-auto flex min-h-screen max-w-[1600px] flex-col'>
+    <div className='bg-syft-background min-h-screen'>
       <PageHeader title='Build' path='~/build' />
 
       {/* Main Content */}
-      <main className='w-full min-w-0 flex-1'>
-        <div className='mx-auto max-w-5xl space-y-8 px-6 py-8'>
-          {/* Hero / Intro Section */}
-          <div className='max-w-3xl space-y-4'>
-            <div className='bg-syft-surface text-syft-muted inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium'>
-              <Code2 className='h-3 w-3' />
-              Developer Portal
-            </div>
-            <h1 className='font-rubik text-syft-primary text-3xl font-medium'>
-              Build privacy-first AI apps
-            </h1>
-            <p className='font-inter text-syft-muted text-lg leading-relaxed'>
-              Access high-value data and models you don't own through a unified, permissioned API.
-              Choose your stack and start building in minutes.
-            </p>
+      <div className='mx-auto max-w-5xl space-y-8 px-6 py-8'>
+        {/* Hero / Intro Section */}
+        <div className='max-w-3xl space-y-4'>
+          <div className='bg-syft-surface text-syft-muted inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium'>
+            <Code2 className='h-3 w-3' />
+            Developer Portal
+          </div>
+          <h1 className='font-rubik text-syft-primary text-3xl font-medium'>
+            Build privacy-first AI apps
+          </h1>
+          <p className='font-inter text-syft-muted text-lg leading-relaxed'>
+            Access high-value data and models you don't own through a unified, permissioned API.
+            Choose your stack and start building in minutes.
+          </p>
+        </div>
+
+        {/* Tabs Section */}
+        <Tabs defaultValue='python' className='space-y-8'>
+          <div className='flex items-center justify-between overflow-x-auto pb-2'>
+            <TabsList className='border-syft-border bg-syft-surface h-auto flex-shrink-0 border p-1'>
+              <TabsTrigger
+                value='python'
+                className='text-syft-muted data-[state=active]:text-syft-primary px-4 py-2 data-[state=active]:bg-white'
+              >
+                Python SDK
+              </TabsTrigger>
+              <TabsTrigger
+                value='javascript'
+                className='text-syft-muted data-[state=active]:text-syft-primary px-4 py-2 data-[state=active]:bg-white'
+              >
+                JavaScript SDK
+              </TabsTrigger>
+              <TabsTrigger
+                value='mcp'
+                className='text-syft-muted data-[state=active]:text-syft-primary px-4 py-2 data-[state=active]:bg-white'
+              >
+                MCP Integration
+              </TabsTrigger>
+            </TabsList>
           </div>
 
-          {/* Tabs Section */}
-          <Tabs defaultValue='python' className='space-y-8'>
-            <div className='flex items-center justify-between overflow-x-auto pb-2'>
-              <TabsList className='border-syft-border bg-syft-surface h-auto flex-shrink-0 border p-1'>
-                <TabsTrigger
-                  value='python'
-                  className='text-syft-muted data-[state=active]:text-syft-primary px-4 py-2 data-[state=active]:bg-white'
+          <TabsContent
+            value='python'
+            className='animate-in fade-in slide-in-from-bottom-2 space-y-6 duration-500'
+          >
+            <div className='grid grid-cols-1 gap-8 lg:grid-cols-3'>
+              <div className='space-y-6 lg:col-span-2'>
+                <Section
+                  title='Installation'
+                  description='Install the SyftHub SDK via pip or uv.'
+                  icon={<Box className='h-5 w-5' />}
                 >
-                  Python SDK
-                </TabsTrigger>
-                <TabsTrigger
-                  value='javascript'
-                  className='text-syft-muted data-[state=active]:text-syft-primary px-4 py-2 data-[state=active]:bg-white'
-                >
-                  JavaScript SDK
-                </TabsTrigger>
-                <TabsTrigger
-                  value='mcp'
-                  className='text-syft-muted data-[state=active]:text-syft-primary px-4 py-2 data-[state=active]:bg-white'
-                >
-                  MCP Integration
-                </TabsTrigger>
-              </TabsList>
-            </div>
+                  <CodeBlock code='pip install syfthub-sdk' language='bash' />
+                </Section>
 
-            <TabsContent
-              value='python'
-              className='animate-in fade-in slide-in-from-bottom-2 space-y-6 duration-500'
-            >
-              <div className='grid grid-cols-1 gap-8 lg:grid-cols-3'>
-                <div className='space-y-6 lg:col-span-2'>
-                  <Section
-                    title='Installation'
-                    description='Install the SyftHub SDK via pip or uv.'
-                    icon={<Box className='h-5 w-5' />}
-                  >
-                    <CodeBlock code='pip install syfthub-sdk' language='bash' />
-                  </Section>
-
-                  <Section
-                    title='Quick Start'
-                    description='Initialize the client and start browsing endpoints.'
-                    icon={<Terminal className='h-5 w-5' />}
-                  >
-                    <CodeBlock
-                      code={`from syfthub_sdk import SyftHubClient
+                <Section
+                  title='Quick Start'
+                  description='Initialize the client and start browsing endpoints.'
+                  icon={<Terminal className='h-5 w-5' />}
+                >
+                  <CodeBlock
+                    code={`from syfthub_sdk import SyftHubClient
 
 # Initialize client
 client = SyftHubClient(base_url="https://hub.syft.com")
@@ -97,17 +96,17 @@ for endpoint in client.hub.browse():
 # Get a specific endpoint
 endpoint = client.hub.get("alice/my-model")
 print(endpoint.readme)`}
-                      language='python'
-                    />
-                  </Section>
+                    language='python'
+                  />
+                </Section>
 
-                  <Section
-                    title='Manage Your Endpoints'
-                    description='Create and manage your own endpoints.'
-                    icon={<Code2 className='h-5 w-5' />}
-                  >
-                    <CodeBlock
-                      code={`# Create an endpoint
+                <Section
+                  title='Manage Your Endpoints'
+                  description='Create and manage your own endpoints.'
+                  icon={<Code2 className='h-5 w-5' />}
+                >
+                  <CodeBlock
+                    code={`# Create an endpoint
 endpoint = client.my_endpoints.create(
     name="My Model",
     visibility="public",
@@ -119,56 +118,56 @@ print(f"Created: {endpoint.slug}")
 # List your endpoints
 for ep in client.my_endpoints.list():
     print(f"{ep.name} ({ep.visibility})")`}
-                      language='python'
-                    />
-                  </Section>
-                </div>
-
-                <div className='space-y-6'>
-                  <InfoCard
-                    title='Python SDK Features'
-                    items={[
-                      'Full type hints support',
-                      'Lazy pagination iterators',
-                      'Context manager support',
-                      'Automatic token refresh'
-                    ]}
+                    language='python'
                   />
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className='text-sm font-medium'>Resources</CardTitle>
-                    </CardHeader>
-                    <CardContent className='grid gap-2'>
-                      <ResourceLink label='API Reference' />
-                      <ResourceLink label='Example Notebooks' />
-                      <ResourceLink label='Github Repository' />
-                    </CardContent>
-                  </Card>
-                </div>
+                </Section>
               </div>
-            </TabsContent>
 
-            <TabsContent
-              value='javascript'
-              className='animate-in fade-in slide-in-from-bottom-2 space-y-6 duration-500'
-            >
-              <div className='grid grid-cols-1 gap-8 lg:grid-cols-3'>
-                <div className='space-y-6 lg:col-span-2'>
-                  <Section
-                    title='Installation'
-                    description='Install the SyftHub SDK via npm, yarn, or pnpm.'
-                    icon={<Box className='h-5 w-5' />}
-                  >
-                    <CodeBlock code='npm install @syfthub/sdk' language='bash' />
-                  </Section>
+              <div className='space-y-6'>
+                <InfoCard
+                  title='Python SDK Features'
+                  items={[
+                    'Full type hints support',
+                    'Lazy pagination iterators',
+                    'Context manager support',
+                    'Automatic token refresh'
+                  ]}
+                />
+                <Card>
+                  <CardHeader>
+                    <CardTitle className='text-sm font-medium'>Resources</CardTitle>
+                  </CardHeader>
+                  <CardContent className='grid gap-2'>
+                    <ResourceLink label='API Reference' />
+                    <ResourceLink label='Example Notebooks' />
+                    <ResourceLink label='Github Repository' />
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </TabsContent>
 
-                  <Section
-                    title='Quick Start'
-                    description='Initialize the client and start browsing endpoints.'
-                    icon={<Terminal className='h-5 w-5' />}
-                  >
-                    <CodeBlock
-                      code={`import { SyftHubClient } from '@syfthub/sdk';
+          <TabsContent
+            value='javascript'
+            className='animate-in fade-in slide-in-from-bottom-2 space-y-6 duration-500'
+          >
+            <div className='grid grid-cols-1 gap-8 lg:grid-cols-3'>
+              <div className='space-y-6 lg:col-span-2'>
+                <Section
+                  title='Installation'
+                  description='Install the SyftHub SDK via npm, yarn, or pnpm.'
+                  icon={<Box className='h-5 w-5' />}
+                >
+                  <CodeBlock code='npm install @syfthub/sdk' language='bash' />
+                </Section>
+
+                <Section
+                  title='Quick Start'
+                  description='Initialize the client and start browsing endpoints.'
+                  icon={<Terminal className='h-5 w-5' />}
+                >
+                  <CodeBlock
+                    code={`import { SyftHubClient } from '@syfthub/sdk';
 
 // Initialize client
 const client = new SyftHubClient({
@@ -187,17 +186,17 @@ for await (const endpoint of client.hub.browse()) {
 // Get a specific endpoint
 const endpoint = await client.hub.get('alice/my-model');
 console.log(endpoint.readme);`}
-                      language='typescript'
-                    />
-                  </Section>
+                    language='typescript'
+                  />
+                </Section>
 
-                  <Section
-                    title='Manage Your Endpoints'
-                    description='Create and manage your own endpoints.'
-                    icon={<Code2 className='h-5 w-5' />}
-                  >
-                    <CodeBlock
-                      code={`import { EndpointType, Visibility } from '@syfthub/sdk';
+                <Section
+                  title='Manage Your Endpoints'
+                  description='Create and manage your own endpoints.'
+                  icon={<Code2 className='h-5 w-5' />}
+                >
+                  <CodeBlock
+                    code={`import { EndpointType, Visibility } from '@syfthub/sdk';
 
 // Create an endpoint
 const endpoint = await client.myEndpoints.create({
@@ -213,48 +212,48 @@ console.log(\`Created: \${endpoint.slug}\`);
 for await (const ep of client.myEndpoints.list()) {
   console.log(\`\${ep.name} (\${ep.visibility})\`);
 }`}
-                      language='typescript'
-                    />
-                  </Section>
-                </div>
-
-                <div className='space-y-6'>
-                  <InfoCard
-                    title='TypeScript SDK Features'
-                    items={[
-                      'Full TypeScript support',
-                      'Async iterators for pagination',
-                      'Runs on Node.js & browsers',
-                      'Automatic token refresh'
-                    ]}
+                    language='typescript'
                   />
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className='text-sm font-medium'>Resources</CardTitle>
-                    </CardHeader>
-                    <CardContent className='grid gap-2'>
-                      <ResourceLink label='Documentation' />
-                      <ResourceLink label='Next.js Starter' />
-                      <ResourceLink label='Github Repository' />
-                    </CardContent>
-                  </Card>
-                </div>
+                </Section>
               </div>
-            </TabsContent>
 
-            <TabsContent
-              value='mcp'
-              className='animate-in fade-in slide-in-from-bottom-2 space-y-6 duration-500'
-            >
-              <div className='grid grid-cols-1 gap-8 lg:grid-cols-3'>
-                <div className='space-y-6 lg:col-span-2'>
-                  <Section
-                    title='Configuration'
-                    description='Add SyftHub to your MCP settings file.'
-                    icon={<Box className='h-5 w-5' />}
-                  >
-                    <CodeBlock
-                      code={`{
+              <div className='space-y-6'>
+                <InfoCard
+                  title='TypeScript SDK Features'
+                  items={[
+                    'Full TypeScript support',
+                    'Async iterators for pagination',
+                    'Runs on Node.js & browsers',
+                    'Automatic token refresh'
+                  ]}
+                />
+                <Card>
+                  <CardHeader>
+                    <CardTitle className='text-sm font-medium'>Resources</CardTitle>
+                  </CardHeader>
+                  <CardContent className='grid gap-2'>
+                    <ResourceLink label='Documentation' />
+                    <ResourceLink label='Next.js Starter' />
+                    <ResourceLink label='Github Repository' />
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent
+            value='mcp'
+            className='animate-in fade-in slide-in-from-bottom-2 space-y-6 duration-500'
+          >
+            <div className='grid grid-cols-1 gap-8 lg:grid-cols-3'>
+              <div className='space-y-6 lg:col-span-2'>
+                <Section
+                  title='Configuration'
+                  description='Add SyftHub to your MCP settings file.'
+                  icon={<Box className='h-5 w-5' />}
+                >
+                  <CodeBlock
+                    code={`{
   "mcpServers": {
     "syfthub": {
       "command": "npx",
@@ -265,52 +264,51 @@ for await (const ep of client.myEndpoints.list()) {
     }
   }
 }`}
-                      language='json'
-                    />
-                  </Section>
+                    language='json'
+                  />
+                </Section>
 
-                  <div className='flex gap-4 rounded-lg border border-blue-100 bg-blue-50 p-4'>
-                    <div className='min-w-[24px] pt-1'>
-                      <div className='flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-600'>
-                        i
-                      </div>
-                    </div>
-                    <div>
-                      <h4 className='text-syft-primary mb-1 font-medium'>What is MCP?</h4>
-                      <p className='text-syft-muted text-sm'>
-                        The Model Context Protocol (MCP) allows AI assistants like Claude to
-                        directly browse and interact with SyftHub endpoints during conversation.
-                        Once configured, you can ask your AI to explore available models and data
-                        sources in real-time.
-                      </p>
+                <div className='flex gap-4 rounded-lg border border-blue-100 bg-blue-50 p-4'>
+                  <div className='min-w-[24px] pt-1'>
+                    <div className='flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-600'>
+                      i
                     </div>
                   </div>
-                </div>
-
-                <div className='space-y-6'>
-                  <InfoCard
-                    title='MCP Features'
-                    items={[
-                      'Direct LLM integration',
-                      'Browse endpoints via Claude',
-                      'Works with Claude Desktop'
-                    ]}
-                  />
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className='text-sm font-medium'>Resources</CardTitle>
-                    </CardHeader>
-                    <CardContent className='grid gap-2'>
-                      <ResourceLink label='MCP Specification' />
-                      <ResourceLink label='Setup Guide' />
-                    </CardContent>
-                  </Card>
+                  <div>
+                    <h4 className='text-syft-primary mb-1 font-medium'>What is MCP?</h4>
+                    <p className='text-syft-muted text-sm'>
+                      The Model Context Protocol (MCP) allows AI assistants like Claude to directly
+                      browse and interact with SyftHub endpoints during conversation. Once
+                      configured, you can ask your AI to explore available models and data sources
+                      in real-time.
+                    </p>
+                  </div>
                 </div>
               </div>
-            </TabsContent>
-          </Tabs>
-        </div>
-      </main>
+
+              <div className='space-y-6'>
+                <InfoCard
+                  title='MCP Features'
+                  items={[
+                    'Direct LLM integration',
+                    'Browse endpoints via Claude',
+                    'Works with Claude Desktop'
+                  ]}
+                />
+                <Card>
+                  <CardHeader>
+                    <CardTitle className='text-sm font-medium'>Resources</CardTitle>
+                  </CardHeader>
+                  <CardContent className='grid gap-2'>
+                    <ResourceLink label='MCP Specification' />
+                    <ResourceLink label='Setup Guide' />
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
+      </div>
     </div>
   );
 }
