@@ -6,6 +6,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { PageHeader } from './ui/page-header';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 interface BuildViewProperties {
@@ -15,27 +16,21 @@ interface BuildViewProperties {
 export function BuildView({ onAuthRequired: _onAuthRequired }: Readonly<BuildViewProperties>) {
   return (
     <div className='mx-auto flex min-h-screen max-w-[1600px] flex-col'>
-      {/* Sticky Header */}
-      <div className='sticky top-0 z-30 flex w-full items-center border-b border-[#ecebef] bg-[#fcfcfd]/95 px-6 py-4 backdrop-blur-sm'>
-        <div className='flex items-center gap-4'>
-          <h2 className='font-rubik text-xl font-medium text-[#272532]'>Build</h2>
-          <div className='hidden font-mono text-xs text-[#b4b0bf] opacity-60 sm:block'>~/build</div>
-        </div>
-      </div>
+      <PageHeader title='Build' path='~/build' />
 
       {/* Main Content */}
       <main className='w-full min-w-0 flex-1'>
         <div className='mx-auto max-w-5xl space-y-8 px-6 py-8'>
           {/* Hero / Intro Section */}
           <div className='max-w-3xl space-y-4'>
-            <div className='inline-flex items-center gap-2 rounded-full bg-[#f1f0f4] px-3 py-1 text-xs font-medium text-[#5e5a72]'>
+            <div className='bg-syft-surface text-syft-muted inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium'>
               <Code2 className='h-3 w-3' />
               Developer Portal
             </div>
-            <h1 className='font-rubik text-3xl font-medium text-[#272532]'>
+            <h1 className='font-rubik text-syft-primary text-3xl font-medium'>
               Build privacy-first AI apps
             </h1>
-            <p className='font-inter text-lg leading-relaxed text-[#5e5a72]'>
+            <p className='font-inter text-syft-muted text-lg leading-relaxed'>
               Access high-value data and models you don't own through a unified, permissioned API.
               Choose your stack and start building in minutes.
             </p>
@@ -44,22 +39,22 @@ export function BuildView({ onAuthRequired: _onAuthRequired }: Readonly<BuildVie
           {/* Tabs Section */}
           <Tabs defaultValue='python' className='space-y-8'>
             <div className='flex items-center justify-between overflow-x-auto pb-2'>
-              <TabsList className='h-auto flex-shrink-0 border border-[#ecebef] bg-[#f1f0f4] p-1'>
+              <TabsList className='border-syft-border bg-syft-surface h-auto flex-shrink-0 border p-1'>
                 <TabsTrigger
                   value='python'
-                  className='px-4 py-2 text-[#5e5a72] data-[state=active]:bg-white data-[state=active]:text-[#272532]'
+                  className='text-syft-muted data-[state=active]:text-syft-primary px-4 py-2 data-[state=active]:bg-white'
                 >
                   Python SDK
                 </TabsTrigger>
                 <TabsTrigger
                   value='javascript'
-                  className='px-4 py-2 text-[#5e5a72] data-[state=active]:bg-white data-[state=active]:text-[#272532]'
+                  className='text-syft-muted data-[state=active]:text-syft-primary px-4 py-2 data-[state=active]:bg-white'
                 >
                   JavaScript SDK
                 </TabsTrigger>
                 <TabsTrigger
                   value='mcp'
-                  className='px-4 py-2 text-[#5e5a72] data-[state=active]:bg-white data-[state=active]:text-[#272532]'
+                  className='text-syft-muted data-[state=active]:text-syft-primary px-4 py-2 data-[state=active]:bg-white'
                 >
                   MCP Integration
                 </TabsTrigger>
@@ -281,8 +276,8 @@ for await (const ep of client.myEndpoints.list()) {
                       </div>
                     </div>
                     <div>
-                      <h4 className='mb-1 font-medium text-[#272532]'>What is MCP?</h4>
-                      <p className='text-sm text-[#5e5a72]'>
+                      <h4 className='text-syft-primary mb-1 font-medium'>What is MCP?</h4>
+                      <p className='text-syft-muted text-sm'>
                         The Model Context Protocol (MCP) allows AI assistants like Claude to
                         directly browse and interact with SyftHub endpoints during conversation.
                         Once configured, you can ask your AI to explore available models and data
@@ -334,10 +329,12 @@ function Section({
   return (
     <div className='space-y-4'>
       <div className='flex items-start gap-3'>
-        <div className='rounded-lg border border-[#ecebef] bg-white p-2 text-[#272532]'>{icon}</div>
+        <div className='border-syft-border text-syft-primary rounded-lg border bg-white p-2'>
+          {icon}
+        </div>
         <div>
-          <h3 className='text-lg font-medium text-[#272532]'>{title}</h3>
-          <p className='text-sm text-[#5e5a72]'>{description}</p>
+          <h3 className='text-syft-primary text-lg font-medium'>{title}</h3>
+          <p className='text-syft-muted text-sm'>{description}</p>
         </div>
       </div>
       {children}
@@ -376,7 +373,7 @@ function CodeBlock({ code, language }: Readonly<{ code: string; language: string
   };
 
   return (
-    <div className='group relative overflow-hidden rounded-xl border border-[#ecebef] bg-[#1a1923]'>
+    <div className='group border-syft-border relative overflow-hidden rounded-xl border bg-[#1a1923]'>
       <div className='absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100'>
         <Button
           variant='ghost'
@@ -422,7 +419,7 @@ function InfoCard({ title, items }: Readonly<{ title: string; items: string[] }>
       <CardContent>
         <ul className='space-y-2'>
           {items.map((item, index) => (
-            <li key={index} className='flex items-center gap-2 text-sm text-[#5e5a72]'>
+            <li key={index} className='text-syft-muted flex items-center gap-2 text-sm'>
               <Check className='h-4 w-4 text-green-500' />
               {item}
             </li>
@@ -437,7 +434,7 @@ function ResourceLink({ label }: Readonly<{ label: string }>) {
   return (
     <a
       href='#'
-      className='flex items-center justify-between rounded p-2 text-sm text-[#5e5a72] transition-colors hover:bg-[#f1f0f4] hover:text-[#272532]'
+      className='text-syft-muted hover:bg-syft-surface hover:text-syft-primary flex items-center justify-between rounded p-2 text-sm transition-colors'
     >
       {label}
       <ArrowRight className='h-4 w-4 opacity-50' />

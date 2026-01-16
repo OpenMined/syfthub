@@ -30,6 +30,7 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+import { PageHeader } from './ui/page-header';
 
 // Helper functions moved outside component for consistent-function-scoping
 function getVisibilityColor(visibility: EndpointVisibility) {
@@ -44,7 +45,7 @@ function getVisibilityColor(visibility: EndpointVisibility) {
       return 'bg-blue-100 text-blue-800 border-blue-200';
     }
     default: {
-      return 'bg-[#f1f0f4] text-[#272532] border-[#ecebef]';
+      return 'bg-syft-surface text-syft-primary border-syft-border';
     }
   }
 }
@@ -58,7 +59,7 @@ function getTypeStyles(type: EndpointType) {
       return 'bg-emerald-100 text-emerald-800 border-emerald-200';
     }
     default: {
-      return 'bg-[#f1f0f4] text-[#272532] border-[#ecebef]';
+      return 'bg-syft-surface text-syft-primary border-syft-border';
     }
   }
 }
@@ -200,11 +201,13 @@ export function EndpointManagement() {
 
   if (!user) {
     return (
-      <div className='flex min-h-screen items-center justify-center bg-[#fcfcfd]'>
+      <div className='bg-syft-background flex min-h-screen items-center justify-center'>
         <div className='text-center'>
           <AlertCircle className='mx-auto mb-4 h-12 w-12 text-red-500' />
-          <h2 className='font-rubik mb-2 text-xl font-medium text-[#272532]'>Access Denied</h2>
-          <p className='font-inter text-[#5e5a72]'>You need to be logged in to manage endpoints.</p>
+          <h2 className='font-rubik text-syft-primary mb-2 text-xl font-medium'>Access Denied</h2>
+          <p className='font-inter text-syft-muted'>
+            You need to be logged in to manage endpoints.
+          </p>
         </div>
       </div>
     );
@@ -213,9 +216,9 @@ export function EndpointManagement() {
   // Show loading state
   if (isLoading && endpoints.length === 0) {
     return (
-      <div className='flex min-h-screen items-center justify-center bg-[#fcfcfd]'>
-        <div className='flex items-center gap-3 text-[#5e5a72]'>
-          <div className='h-6 w-6 animate-spin rounded-full border-2 border-[#ecebef] border-t-[#6976ae]'></div>
+      <div className='bg-syft-background flex min-h-screen items-center justify-center'>
+        <div className='text-syft-muted flex items-center gap-3'>
+          <div className='border-syft-border border-t-syft-secondary h-6 w-6 animate-spin rounded-full border-2'></div>
           <span className='font-inter'>Loading endpoints...</span>
         </div>
       </div>
@@ -242,9 +245,7 @@ export function EndpointManagement() {
   // Show endpoint management grid when user has endpoints
   return (
     <div className='mx-auto flex min-h-screen max-w-[1600px] flex-col'>
-      {/* Sticky Header */}
-      <div className='sticky top-0 z-30 flex w-full items-center justify-between border-b border-[#ecebef] bg-[#fcfcfd]/95 px-6 py-4 backdrop-blur-sm'>
-        <h2 className='font-rubik text-xl font-medium text-[#272532]'>My Endpoints</h2>
+      <PageHeader title='My Endpoints'>
         <Button
           onClick={() => {
             setShowParticipate(true);
@@ -254,17 +255,17 @@ export function EndpointManagement() {
           <Download className='h-4 w-4' />
           Install SDK
         </Button>
-      </div>
+      </PageHeader>
 
       {/* Main Content */}
       <main className='w-full min-w-0 flex-1'>
         <div className='mx-auto max-w-5xl space-y-8 px-6 py-8'>
           {/* Page Title */}
           <div className='max-w-3xl space-y-4'>
-            <h2 className='font-rubik text-3xl font-medium text-[#272532]'>
+            <h2 className='font-rubik text-syft-primary text-3xl font-medium'>
               Manage Your Endpoints
             </h2>
-            <p className='font-inter text-lg leading-relaxed text-[#5e5a72]'>
+            <p className='font-inter text-syft-muted text-lg leading-relaxed'>
               Create and manage your data sources and models.
             </p>
           </div>
@@ -301,15 +302,15 @@ export function EndpointManagement() {
             {endpoints.map((endpoint) => (
               <div
                 key={endpoint.id}
-                className='rounded-xl border border-[#ecebef] bg-white shadow-sm transition-shadow hover:shadow-md'
+                className='border-syft-border rounded-xl border bg-white shadow-sm transition-shadow hover:shadow-md'
               >
                 <div className='p-6'>
                   <div className='mb-4 flex items-start justify-between'>
                     <div>
-                      <h3 className='font-rubik mb-1 text-lg font-medium text-[#272532]'>
+                      <h3 className='font-rubik text-syft-primary mb-1 text-lg font-medium'>
                         {endpoint.name}
                       </h3>
-                      <p className='font-inter line-clamp-2 text-sm text-[#5e5a72]'>
+                      <p className='font-inter text-syft-muted line-clamp-2 text-sm'>
                         {endpoint.description || 'No description provided'}
                       </p>
                     </div>
@@ -360,7 +361,7 @@ export function EndpointManagement() {
                     )}
                   </div>
 
-                  <div className='font-inter text-xs text-[#5e5a72]'>
+                  <div className='font-inter text-syft-muted text-xs'>
                     <p>Created: {formatDate(endpoint.created_at)}</p>
                     <p>Updated: {formatDate(endpoint.updated_at)}</p>
                   </div>
@@ -368,7 +369,7 @@ export function EndpointManagement() {
 
                 {/* Edit Form */}
                 {editingId === endpoint.id && (
-                  <div className='space-y-3 border-t border-[#ecebef] bg-[#f7f6f9] p-4'>
+                  <div className='border-syft-border bg-syft-surface space-y-3 border-t p-4'>
                     <div>
                       <Label htmlFor={`edit-name-${String(endpoint.id)}`}>Name</Label>
                       <Input
