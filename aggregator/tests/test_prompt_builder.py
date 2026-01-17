@@ -14,14 +14,17 @@ def test_prompt_builder_no_context() -> None:
     assert messages[0].role == "system"
     assert messages[1].role == "user"
 
-    # System message should be simple
-    assert messages[0].content == "You're a helpful AI assistant."
+    # System message should enforce document-grounded behavior
+    assert "document-grounded" in messages[0].content
+    assert "ONLY" in messages[0].content
 
     # User message should contain instructions and question
     user_content = messages[1].content
     assert "USER QUESTION:" in user_content
     assert "What is Python?" in user_content
-    assert "Instructions:" in user_content
+    assert "CRITICAL RULES" in user_content
+    # Should instruct model to refuse when no documents
+    assert "No documents were provided" in user_content
 
 
 def test_prompt_builder_with_context() -> None:
@@ -53,20 +56,22 @@ def test_prompt_builder_with_context() -> None:
     assert messages[0].role == "system"
     assert messages[1].role == "user"
 
-    # System message should be simple
-    assert messages[0].content == "You're a helpful AI assistant."
+    # System message should enforce document-grounded behavior
+    assert "document-grounded" in messages[0].content
 
-    # Check that context is included in user message (not system)
+    # Check that context is included in user message with XML structure
     user_content = messages[1].content
-    assert "CONTEXT FROM DATA SOURCES" in user_content
+    assert "<documents>" in user_content
+    assert "</documents>" in user_content
+    assert "<document index=" in user_content
+    assert "<source>docs/python</source>" in user_content
     assert "Python is a programming language" in user_content
-    assert "docs/python" in user_content
     assert "USER QUESTION:" in user_content
     assert "What is Python?" in user_content
 
 
 def test_prompt_builder_empty_context() -> None:
-    """Test prompt building with empty context."""
+    """Test prompt building with empty context (no documents retrieved)."""
     builder = PromptBuilder()
 
     context = AggregatedContext(
@@ -77,12 +82,15 @@ def test_prompt_builder_empty_context() -> None:
 
     messages = builder.build(user_prompt="Test", context=context)
 
-    # System message should be simple
-    assert messages[0].content == "You're a helpful AI assistant."
+    # System message should enforce document-grounded behavior
+    assert "document-grounded" in messages[0].content
 
-    # "No relevant context" note should be in user message
+    # Should instruct model to refuse answering (NOT use general knowledge)
     user_content = messages[1].content
-    assert "No relevant context was found" in user_content
+    assert "No relevant documents were retrieved" in user_content
+    assert "MUST respond with" in user_content
+    # Should NOT tell model to use general knowledge
+    assert "general knowledge" not in user_content.lower() or "Do NOT" in user_content
 
 
 def test_prompt_builder_custom_system_prompt() -> None:

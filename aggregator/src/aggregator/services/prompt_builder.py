@@ -8,29 +8,48 @@ from aggregator.schemas.responses import Document
 class PromptBuilder:
     """Builds prompts for RAG-augmented generation."""
 
-    DEFAULT_SYSTEM_PROMPT = """You're a helpful AI assistant."""
+    DEFAULT_SYSTEM_PROMPT = """You are a document-grounded AI assistant. You ONLY provide answers based on information explicitly stated in the provided documents. You never use your training knowledge or make assumptions beyond what the documents contain."""
 
-    DEFAULT_USER_INSTRUCTIONS = """You will receive multiple documents. Each document includes:
-- user_snag/dataset_name
-- document_title
-- relevance (similarity score from 0 to 1)
-- content
+    DEFAULT_USER_INSTRUCTIONS = """CRITICAL RULES - YOU MUST FOLLOW THESE:
+1. Your answer must be drawn EXCLUSIVELY from the documents provided below.
+2. You must NEVER use your training data or general knowledge to answer questions.
+3. If the documents do not contain information relevant to the question, you MUST respond:
+   "The provided documents do not contain information to answer this question."
+   DO NOT attempt to answer from your own knowledge.
 
-Instructions:
-1. Write a coherent response to the user's question.
-2. Ensure that at least half of the statements are coming from the provided documents.
-3. Use inline citations in square brackets using this exact format:
-   [<user_snag>/<dataset_name>]
-4. If a sentence uses multiple sources, include all citations:
-   [SNAG1/DATASET1, SNAG2/DATASET2]
-5. Do NOT invent sources or cite anything that is not provided.
-6. If the documents do not contain enough information, say so explicitly.
-7. Do NOT include a "Sources" section at the end of your response - sources will be provided separately by the system.
+DOCUMENT FORMAT:
+You will receive documents inside <documents> tags. Each document includes:
+- source: The data source identifier (owner/dataset_name)
+- title: Document title
+- relevance: Similarity score (0 to 1)
+- content: The document text
 
-Example response format:
-Federated document search enables users to retrieve information from multiple systems through a single query, eliminating the need to manually search each source [JD123/Salesforce]. This unified access improves productivity by reducing context switching and accelerating decision-making [JD123/Zendesk].
+RESPONSE PROCESS:
+1. Search the provided documents for information relevant to the user's question.
+2. If relevant information is found:
+   - Answer using ONLY that information
+   - Cite EVERY factual statement using the format: [owner/dataset_name]
+   - Multiple sources for one statement: [source1, source2]
+3. If NO relevant information is found:
+   - State clearly: "The provided documents do not contain information to answer this question."
+   - DO NOT guess, speculate, or use external knowledge.
 
-Federated architectures can also strengthen security by minimizing data duplication, which reduces the risk of exposure and simplifies compliance efforts [OP789/Confluence]."""
+CITATION REQUIREMENTS:
+- EVERY factual claim must have a citation from the provided documents.
+- Use this exact format: [owner/dataset_name]
+- If you cannot cite a statement from the documents, do not include that statement.
+- Do NOT include a "Sources" section at the end - sources are provided separately by the system.
+
+EXAMPLE OF CORRECT BEHAVIOR:
+Question: "What is the company's revenue?"
+Documents contain revenue data → "The company's revenue was $10M in 2024 [acme/financial-reports]."
+Documents do NOT contain revenue → "The provided documents do not contain information to answer this question."
+
+EXAMPLE OF INCORRECT BEHAVIOR (DO NOT DO THIS):
+Question: "What is the company's revenue?"
+Documents do NOT contain revenue → Making up "$5M" or using general knowledge about typical revenues.
+
+Remember: If you cannot find the answer in the provided documents, say so. Never invent information."""
 
     def __init__(self, system_prompt: str | None = None):
         self.system_prompt = system_prompt or self.DEFAULT_SYSTEM_PROMPT
@@ -78,15 +97,26 @@ Federated architectures can also strengthen security by minimizing data duplicat
         # Add instructions
         parts.append(self.DEFAULT_USER_INSTRUCTIONS)
 
-        # Add context if available
+        # Add context if available - using XML tags for clear structure
         if context and context.documents:
-            parts.append("\n---\nCONTEXT FROM DATA SOURCES:\n")
+            parts.append("\n<documents>")
             parts.append(self._format_context(context))
-            parts.append("\n---")
+            parts.append("</documents>")
         elif context and not context.documents:
+            # No documents retrieved - instruct model to refuse answering
             parts.append(
-                "\n---\nNote: No relevant context was found in the selected data sources. "
-                "Please answer based on your general knowledge.\n---"
+                "\n<documents>\nNo relevant documents were retrieved from the selected data sources.\n</documents>\n"
+                "IMPORTANT: Since no relevant documents were found, you MUST respond with:\n"
+                '"The provided documents do not contain information to answer this question."\n'
+                "Do NOT attempt to answer using your own knowledge."
+            )
+        else:
+            # No context provided at all
+            parts.append(
+                "\n<documents>\nNo documents were provided.\n</documents>\n"
+                "IMPORTANT: Since no documents were provided, you MUST respond with:\n"
+                '"No documents were provided to answer this question."\n'
+                "Do NOT attempt to answer using your own knowledge."
             )
 
         # Add user question
@@ -95,12 +125,12 @@ Federated architectures can also strengthen security by minimizing data duplicat
         return "\n".join(parts)
 
     def _format_context(self, context: AggregatedContext) -> str:
-        """Format retrieved documents as context.
+        """Format retrieved documents as context using XML structure.
 
-        Formats documents to match the system prompt's expected structure:
-        - user_snag/dataset_name: owner/endpoint-slug
-        - document_title: from metadata or fallback
-        - relevance: similarity score
+        Formats documents with clear XML tags for better model parsing:
+        - source: owner/endpoint-slug (for citations)
+        - title: from metadata or fallback
+        - relevance: similarity score (0-1)
         - content: document text
         """
         formatted_parts: list[str] = []
@@ -112,7 +142,7 @@ Federated architectures can also strengthen security by minimizing data duplicat
             if result.status == "success" and result.documents:
                 docs_by_source[result.endpoint_path] = result.documents
 
-        # Format each source's documents
+        # Format each source's documents with XML tags
         for source_path, documents in docs_by_source.items():
             for doc in documents:
                 # Extract title from metadata or use fallback
@@ -120,12 +150,14 @@ Federated architectures can also strengthen security by minimizing data duplicat
                 relevance = f"{doc.score:.2f}" if doc.score > 0 else "N/A"
 
                 formatted_parts.append(f"""
-Document {doc_number}
-user_snag/dataset_name: {source_path}
-document_title: {title}
-relevance: {relevance}
-content:
-{doc.content}""")
+<document index="{doc_number}">
+<source>{source_path}</source>
+<title>{title}</title>
+<relevance>{relevance}</relevance>
+<content>
+{doc.content}
+</content>
+</document>""")
                 doc_number += 1
 
         # If no grouped documents, fall back to flat list
@@ -135,12 +167,14 @@ content:
                 relevance = f"{doc.score:.2f}" if doc.score > 0 else "N/A"
 
                 formatted_parts.append(f"""
-Document {doc_number}
-user_snag/dataset_name: unknown
-document_title: {title}
-relevance: {relevance}
-content:
-{doc.content}""")
+<document index="{doc_number}">
+<source>unknown</source>
+<title>{title}</title>
+<relevance>{relevance}</relevance>
+<content>
+{doc.content}
+</content>
+</document>""")
                 doc_number += 1
 
         return "\n".join(formatted_parts)
