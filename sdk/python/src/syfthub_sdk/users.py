@@ -44,6 +44,7 @@ class UsersResource:
         email: str | None = None,
         full_name: str | None = None,
         avatar_url: str | None = None,
+        domain: str | None = None,
     ) -> User:
         """Update the current user's profile.
 
@@ -54,6 +55,8 @@ class UsersResource:
             email: New email address
             full_name: New full name (1-100 chars)
             avatar_url: New avatar URL (max 500 chars)
+            domain: Domain for endpoint URL construction (no protocol,
+                    e.g., "api.example.com" or "api.example.com:8080")
 
         Returns:
             Updated User
@@ -72,6 +75,8 @@ class UsersResource:
             payload["full_name"] = full_name
         if avatar_url is not None:
             payload["avatar_url"] = avatar_url
+        if domain is not None:
+            payload["domain"] = domain
 
         response = self._http.put("/api/v1/users/me", json=payload)
         data = response if isinstance(response, dict) else {}

@@ -13,7 +13,9 @@ from syfthub_sdk.exceptions import (
     AuthenticationError,
     AuthorizationError,
     InvalidAccountingPasswordError,
+    NetworkError,
     NotFoundError,
+    SyftHubError,
     ValidationError,
 )
 from syfthub_sdk.models import AuthTokens
@@ -207,14 +209,36 @@ class HTTPClient:
         if data is not None:
             headers["Content-Type"] = "application/x-www-form-urlencoded"
 
-        response = self._client.request(
-            method=method,
-            url=url,
-            headers=headers,
-            json=json,
-            params=params,
-            data=data,
-        )
+        try:
+            response = self._client.request(
+                method=method,
+                url=url,
+                headers=headers,
+                json=json,
+                params=params,
+                data=data,
+            )
+        except httpx.TimeoutException as e:
+            raise NetworkError(
+                message="Request timed out",
+                cause=e,
+                detail=str(e),
+            ) from e
+        except httpx.RequestError as e:
+            raise NetworkError(
+                message=str(e) or "Network request failed",
+                cause=e,
+                detail=str(e),
+            ) from e
+        except Exception as e:
+            # Re-raise SyftHubErrors as-is
+            if isinstance(e, SyftHubError):
+                raise
+            raise NetworkError(
+                message="Unknown network error",
+                cause=e,
+                detail=str(e),
+            ) from e
 
         # Handle 401 with token refresh
         if (

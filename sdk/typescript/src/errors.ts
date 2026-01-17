@@ -85,6 +85,16 @@ export class NetworkError extends SyftHubError {
   }
 }
 
+/**
+ * Error thrown when SDK configuration is invalid.
+ */
+export class ConfigurationError extends SyftHubError {
+  constructor(message: string = 'Invalid SDK configuration') {
+    super(message);
+    this.name = 'ConfigurationError';
+  }
+}
+
 // =============================================================================
 // User Registration Errors
 // =============================================================================

@@ -312,12 +312,34 @@ class ChatResource:
 
         return self._auth.get_satellite_tokens(owners)
 
+    def _get_transaction_tokens_for_owners(
+        self,
+        owners: list[str],
+    ) -> dict[str, str]:
+        """Get transaction tokens for billing authorization.
+
+        Transaction tokens pre-authorize endpoint owners to charge
+        the current user for usage.
+
+        Args:
+            owners: List of owner usernames
+
+        Returns:
+            Dict mapping owner username to transaction token
+        """
+        if not owners:
+            return {}
+
+        response = self._auth.get_transaction_tokens(owners)
+        return response.get("tokens", {})
+
     def _build_request_body(
         self,
         prompt: str,
         model_ref: EndpointRef,
         data_source_refs: list[EndpointRef],
         endpoint_tokens: dict[str, str],
+        transaction_tokens: dict[str, str],
         *,
         top_k: int = 5,
         max_tokens: int = 1024,
@@ -327,7 +349,8 @@ class ChatResource:
     ) -> dict[str, Any]:
         """Build the request body for the aggregator.
 
-        Includes endpoint_tokens mapping for satellite token authentication.
+        Includes endpoint_tokens mapping for satellite token authentication
+        and transaction_tokens for billing authorization.
         User identity is derived from satellite tokens, not passed in request body.
         """
         return {
@@ -350,6 +373,7 @@ class ChatResource:
                 for ds in data_source_refs
             ],
             "endpoint_tokens": endpoint_tokens,
+            "transaction_tokens": transaction_tokens,
             "top_k": top_k,
             "max_tokens": max_tokens,
             "temperature": temperature,
@@ -502,15 +526,17 @@ class ChatResource:
         for ds in data_sources or []:
             ds_refs.append(self._resolve_endpoint_ref(ds, expected_type="data_source"))
 
-        # Get satellite tokens for all unique endpoint owners
+        # Get satellite tokens and transaction tokens for all unique endpoint owners
         unique_owners = self._collect_unique_owners(model_ref, ds_refs)
         endpoint_tokens = self._get_satellite_tokens_for_owners(unique_owners)
+        transaction_tokens = self._get_transaction_tokens_for_owners(unique_owners)
 
         request_body = self._build_request_body(
             prompt=prompt,
             model_ref=model_ref,
             data_source_refs=ds_refs,
             endpoint_tokens=endpoint_tokens,
+            transaction_tokens=transaction_tokens,
             top_k=top_k,
             max_tokens=max_tokens,
             temperature=temperature,
@@ -639,15 +665,17 @@ class ChatResource:
         for ds in data_sources or []:
             ds_refs.append(self._resolve_endpoint_ref(ds, expected_type="data_source"))
 
-        # Get satellite tokens for all unique endpoint owners
+        # Get satellite tokens and transaction tokens for all unique endpoint owners
         unique_owners = self._collect_unique_owners(model_ref, ds_refs)
         endpoint_tokens = self._get_satellite_tokens_for_owners(unique_owners)
+        transaction_tokens = self._get_transaction_tokens_for_owners(unique_owners)
 
         request_body = self._build_request_body(
             prompt=prompt,
             model_ref=model_ref,
             data_source_refs=ds_refs,
             endpoint_tokens=endpoint_tokens,
+            transaction_tokens=transaction_tokens,
             top_k=top_k,
             max_tokens=max_tokens,
             temperature=temperature,

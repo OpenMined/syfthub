@@ -148,11 +148,13 @@ class MyEndpointsResource:
         slug: str | None = None,
         version: str = "0.1.0",
         readme: str = "",
+        tags: builtins.list[str] | None = None,
         policies: builtins.list[Policy] | builtins.list[dict[str, Any]] | None = None,
         connect: builtins.list[Connection]
         | builtins.list[dict[str, Any]]
         | None = None,
         contributors: builtins.list[int] | None = None,
+        organization_id: int | None = None,
     ) -> Endpoint:
         """Create a new endpoint.
 
@@ -164,9 +166,12 @@ class MyEndpointsResource:
             slug: URL-safe identifier (auto-generated from name if not provided)
             version: Semantic version (default "0.1.0")
             readme: Markdown README content (max 50000 chars)
+            tags: List of tags for categorization
             policies: List of policy configurations
             connect: List of connection configurations
             contributors: List of contributor user IDs
+            organization_id: ID of organization to create endpoint under (optional).
+                            If not provided, endpoint belongs to the authenticated user.
 
         Returns:
             The created Endpoint
@@ -192,6 +197,9 @@ class MyEndpointsResource:
         if slug is not None:
             payload["slug"] = slug
 
+        if tags is not None:
+            payload["tags"] = tags
+
         if policies is not None:
             payload["policies"] = [
                 p.model_dump() if isinstance(p, Policy) else p for p in policies
@@ -204,6 +212,9 @@ class MyEndpointsResource:
 
         if contributors is not None:
             payload["contributors"] = contributors
+
+        if organization_id is not None:
+            payload["organization_id"] = organization_id
 
         response = self._http.post("/api/v1/endpoints", json=payload)
         data = response if isinstance(response, dict) else {}
@@ -238,6 +249,7 @@ class MyEndpointsResource:
         description: str | None = None,
         version: str | None = None,
         readme: str | None = None,
+        tags: builtins.list[str] | None = None,
         policies: builtins.list[Policy] | builtins.list[dict[str, Any]] | None = None,
         connect: builtins.list[Connection]
         | builtins.list[dict[str, Any]]
@@ -255,6 +267,7 @@ class MyEndpointsResource:
             description: New description
             version: New version
             readme: New README content
+            tags: New tags for categorization
             policies: New policy configurations
             connect: New connection configurations
             contributors: New contributor user IDs
@@ -284,6 +297,8 @@ class MyEndpointsResource:
             payload["version"] = version
         if readme is not None:
             payload["readme"] = readme
+        if tags is not None:
+            payload["tags"] = tags
         if policies is not None:
             payload["policies"] = [
                 p.model_dump() if isinstance(p, Policy) else p for p in policies
