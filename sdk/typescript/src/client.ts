@@ -1,5 +1,5 @@
 import { HTTPClient, type AuthTokens } from './http.js';
-import { SyftHubError } from './errors.js';
+import { ConfigurationError, SyftHubError } from './errors.js';
 import { AuthResource } from './resources/auth.js';
 import { UsersResource } from './resources/users.js';
 import { MyEndpointsResource } from './resources/my-endpoints.js';
@@ -247,10 +247,13 @@ export class SyftHubClient {
       const password = this.options.accountingPassword ?? getEnv('SYFTHUB_ACCOUNTING_PASSWORD');
 
       if (!url || !email || !password) {
-        throw new SyftHubError(
-          'Accounting credentials not configured. Provide accountingUrl, accountingEmail, and accountingPassword ' +
-          'in options or set SYFTHUB_ACCOUNTING_URL, SYFTHUB_ACCOUNTING_EMAIL, and SYFTHUB_ACCOUNTING_PASSWORD ' +
-          'environment variables.'
+        const missing: string[] = [];
+        if (!url) missing.push('SYFTHUB_ACCOUNTING_URL');
+        if (!email) missing.push('SYFTHUB_ACCOUNTING_EMAIL');
+        if (!password) missing.push('SYFTHUB_ACCOUNTING_PASSWORD');
+        throw new ConfigurationError(
+          `Accounting not configured. Missing: ${missing.join(', ')}. ` +
+          'Set environment variables or pass credentials to SyftHubClient.'
         );
       }
 
@@ -373,6 +376,26 @@ export class SyftHubClient {
    */
   get isAuthenticated(): boolean {
     return this.http.hasTokens();
+  }
+
+  /**
+   * Check if accounting service is configured.
+   *
+   * Use this to check if accounting credentials are available before
+   * accessing the `accounting` property, which will throw if not configured.
+   *
+   * @returns True if accounting url, email, and password are all configured
+   *
+   * @example
+   * if (client.isAccountingConfigured) {
+   *   const user = await client.accounting.getUser();
+   * }
+   */
+  get isAccountingConfigured(): boolean {
+    const url = this.options.accountingUrl ?? getEnv('SYFTHUB_ACCOUNTING_URL');
+    const email = this.options.accountingEmail ?? getEnv('SYFTHUB_ACCOUNTING_EMAIL');
+    const password = this.options.accountingPassword ?? getEnv('SYFTHUB_ACCOUNTING_PASSWORD');
+    return Boolean(url && email && password);
   }
 
   /**

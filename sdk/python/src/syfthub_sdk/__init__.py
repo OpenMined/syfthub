@@ -51,9 +51,11 @@ from syfthub_sdk.exceptions import (
     ConfigurationError,
     EndpointResolutionError,
     GenerationError,
+    NetworkError,
     NotFoundError,
     RetrievalError,
     SyftHubError,
+    UserAlreadyExistsError,
     ValidationError,
 )
 from syfthub_sdk.models import (
@@ -74,6 +76,7 @@ from syfthub_sdk.models import (
     EndpointRef,
     EndpointType,
     Message,
+    OrganizationRole,
     Policy,
     SatelliteTokenResponse,
     SourceInfo,
@@ -95,6 +98,7 @@ __all__ = [
     # Core models
     "User",
     "UserRole",
+    "OrganizationRole",
     "Endpoint",
     "EndpointPublic",
     "EndpointType",
@@ -139,6 +143,8 @@ __all__ = [
     "ValidationError",
     "APIError",
     "ConfigurationError",
+    "NetworkError",
+    "UserAlreadyExistsError",
     # Chat exceptions
     "ChatError",
     "AggregatorError",

@@ -59,20 +59,66 @@ class NotFoundError(SyftHubError):
 
 
 class ValidationError(SyftHubError):
-    """Raised when request validation fails (422)."""
+    """Raised when request validation fails (422).
+
+    Attributes:
+        errors: Optional dict mapping field names to lists of error messages.
+                Example: {"email": ["Invalid format", "Already taken"]}
+    """
 
     def __init__(
         self,
         message: str = "Validation error",
         detail: Any = None,
+        errors: dict[str, list[str]] | None = None,
     ) -> None:
         super().__init__(message, status_code=422, detail=detail)
+        self.errors = errors or {}
 
 
 class APIError(SyftHubError):
     """Raised for other API errors."""
 
     pass
+
+
+class NetworkError(SyftHubError):
+    """Raised when a network operation fails (connection, timeout, DNS).
+
+    This is distinct from APIError which indicates the server returned an error.
+    NetworkError means we couldn't reach the server at all.
+
+    Attributes:
+        cause: The underlying exception that caused this error
+    """
+
+    def __init__(
+        self,
+        message: str = "Network error",
+        cause: Exception | None = None,
+        detail: Any = None,
+    ) -> None:
+        super().__init__(message, status_code=None, detail=detail)
+        self.cause = cause
+        self.__cause__ = cause
+
+
+class UserAlreadyExistsError(SyftHubError):
+    """Raised when user registration fails due to duplicate username or email.
+
+    Attributes:
+        field: The field that caused the conflict ('username' or 'email'), if determinable
+    """
+
+    def __init__(
+        self,
+        message: str = "User already exists",
+        field: str | None = None,
+        status_code: int | None = 409,
+        detail: Any = None,
+    ) -> None:
+        super().__init__(message, status_code=status_code, detail=detail)
+        self.field = field
 
 
 class ConfigurationError(SyftHubError):

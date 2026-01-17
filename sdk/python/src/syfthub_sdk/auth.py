@@ -327,3 +327,43 @@ class AuthResource:
                 token_map[aud] = token
 
         return token_map
+
+    def get_transaction_tokens(
+        self, owner_usernames: list[str]
+    ) -> dict[str, dict[str, str]]:
+        """Get transaction tokens for billing authorization.
+
+        Transaction tokens are short-lived JWTs that pre-authorize endpoint owners
+        (recipients) to charge the current user (sender) for usage. This enables
+        billing workflows in the aggregator.
+
+        Args:
+            owner_usernames: List of endpoint owner usernames
+
+        Returns:
+            Dict with 'tokens' (owner -> token) and 'errors' (owner -> error msg)
+
+        Example:
+            response = client.auth.get_transaction_tokens(["alice", "bob"])
+            print(f"Got tokens for: {list(response['tokens'].keys())}")
+            if response['errors']:
+                print(f"Failed for: {list(response['errors'].keys())}")
+        """
+        unique_owners = list(set(owner_usernames))
+        if not unique_owners:
+            return {"tokens": {}, "errors": {}}
+
+        try:
+            response = self._http.post(
+                "/api/v1/accounting/transaction-tokens",
+                json={"owner_usernames": unique_owners},
+            )
+            data = response if isinstance(response, dict) else {}
+            return {
+                "tokens": data.get("tokens", {}),
+                "errors": data.get("errors", {}),
+            }
+        except Exception:
+            # Silent failure - chat can proceed without transaction tokens
+            # Billing will not work, but the query can still execute
+            return {"tokens": {}, "errors": {}}

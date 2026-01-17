@@ -32,6 +32,14 @@ class UserRole(str, Enum):
     GUEST = "guest"
 
 
+class OrganizationRole(str, Enum):
+    """Role within an organization."""
+
+    OWNER = "owner"
+    ADMIN = "admin"
+    MEMBER = "member"
+
+
 class User(BaseModel):
     """User model returned from API."""
 
@@ -44,6 +52,7 @@ class User(BaseModel):
     is_active: bool = True
     created_at: datetime
     updated_at: datetime | None = None  # Some endpoints don't return this
+    domain: str | None = None  # Domain for endpoint URL construction
 
     model_config = {"frozen": True}
 
@@ -110,6 +119,7 @@ class Endpoint(BaseModel):
     contributors: list[int] = Field(default_factory=list)
     version: str = "0.1.0"
     readme: str = ""
+    tags: list[str] = Field(default_factory=list)
     stars_count: int = 0
     policies: list[Policy] = Field(default_factory=list)
     connect: list[Connection] = Field(default_factory=list)
@@ -134,8 +144,10 @@ class EndpointPublic(BaseModel):
     description: str = ""
     type: EndpointType
     owner_username: str
+    contributors_count: int = 0  # Privacy-friendly count instead of list
     version: str = "0.1.0"
     readme: str = ""
+    tags: list[str] = Field(default_factory=list)
     stars_count: int = 0
     policies: list[Policy] = Field(default_factory=list)
     connect: list[Connection] = Field(default_factory=list)
