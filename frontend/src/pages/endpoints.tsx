@@ -1,9 +1,9 @@
-import { EndpointManagement } from '@/components/endpoint-management';
+import { ParticipateView } from '@/components/participate-view';
 
 /**
- * Endpoints page - Manage user's data endpoints.
+ * Endpoints page - Guide users to participate in the network.
  * This is a protected route - requires authentication.
  */
 export default function EndpointsPage() {
-  return <EndpointManagement />;
+  return <ParticipateView title='Get Started with Endpoints' />;
 }
