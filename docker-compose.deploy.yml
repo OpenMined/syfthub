@@ -41,6 +41,11 @@ services:
     image: nginx:1.25-alpine
     container_name: syfthub-proxy
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     ports:
       - "80:80"
       - "443:443"
@@ -83,6 +88,11 @@ services:
     image: ghcr.io/${GITHUB_REPOSITORY}-backend:${IMAGE_TAG:-latest}
     container_name: syfthub-backend
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     expose:
       - "8000"
     volumes:
@@ -130,6 +140,11 @@ services:
     image: ghcr.io/${GITHUB_REPOSITORY}-aggregator:${IMAGE_TAG:-latest}
     container_name: syfthub-aggregator
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     expose:
       - "8001"
     environment:
@@ -165,6 +180,11 @@ services:
     image: ghcr.io/${GITHUB_REPOSITORY}-mcp:${IMAGE_TAG:-latest}
     container_name: syfthub-mcp
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     expose:
       - "8002"
     environment:
@@ -233,6 +253,11 @@ services:
     image: postgres:16-alpine
     container_name: syfthub-db
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     expose:
       - "5432"
     environment:
@@ -266,6 +291,11 @@ services:
     image: redis:7-alpine
     container_name: syfthub-redis
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
     expose:
       - "6379"
     volumes:
