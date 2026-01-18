@@ -84,7 +84,8 @@ function formatRelativeTime(date: Date): string {
 /**
  * Truncate email for display.
  */
-function truncateEmail(email: string, maxLength = 20): string {
+function truncateEmail(email: string | null | undefined, maxLength = 20): string {
+  if (!email) return 'Unknown';
   if (email.length <= maxLength) return email;
   const atIndex = email.indexOf('@');
   if (atIndex === -1) return email.slice(0, maxLength) + '...';
