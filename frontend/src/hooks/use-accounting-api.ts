@@ -253,27 +253,37 @@ class AccountingProxyClient {
   }
 }
 
-// Raw response type from API
+// Raw response type from API (snake_case from backend)
 interface TransactionResponse {
   id: string;
-  senderEmail: string;
-  recipientEmail: string;
+  sender_email: string;
+  recipient_email: string;
   amount: number;
-  status: 'pending' | 'completed' | 'cancelled';
-  createdBy: 'system' | 'sender' | 'recipient';
-  resolvedBy: 'system' | 'sender' | 'recipient' | null;
-  createdAt: string;
-  resolvedAt: string | null;
-  appName: string | null;
-  appEpPath: string | null;
+  status: 'pending' | 'completed' | 'cancelled' | 'PENDING' | 'COMPLETED' | 'CANCELLED';
+  created_by: 'system' | 'sender' | 'recipient' | 'SYSTEM' | 'SENDER' | 'RECIPIENT';
+  resolved_by: 'system' | 'sender' | 'recipient' | 'SYSTEM' | 'SENDER' | 'RECIPIENT' | null;
+  created_at: string;
+  resolved_at: string | null;
+  app_name: string | null;
+  app_ep_path: string | null;
 }
 
-// Parse transaction response to proper type
+// Parse transaction response to proper type (snake_case -> camelCase)
 function parseTransaction(response: TransactionResponse): AccountingTransaction {
   return {
-    ...response,
-    createdAt: new Date(response.createdAt),
-    resolvedAt: response.resolvedAt ? new Date(response.resolvedAt) : null
+    id: response.id,
+    senderEmail: response.sender_email,
+    recipientEmail: response.recipient_email,
+    amount: response.amount,
+    status: response.status.toLowerCase() as AccountingTransaction['status'],
+    createdBy: response.created_by.toLowerCase() as AccountingTransaction['createdBy'],
+    resolvedBy: response.resolved_by
+      ? (response.resolved_by.toLowerCase() as AccountingTransaction['resolvedBy'])
+      : null,
+    createdAt: new Date(response.created_at),
+    resolvedAt: response.resolved_at ? new Date(response.resolved_at) : null,
+    appName: response.app_name,
+    appEpPath: response.app_ep_path
   };
 }
 

@@ -376,7 +376,7 @@ function SourceSelector({ sources, selectedIds, onToggle }: Readonly<SourceSelec
                 >
                   {source.name}
                 </span>
-                {source.tags?.slice(0, 2).map((tag) => (
+                {source.tags.slice(0, 2).map((tag) => (
                   <span
                     key={tag}
                     className='font-inter rounded-md bg-[#f1f0f4] px-2 py-0.5 text-xs text-[#5e5a72]'
@@ -384,9 +384,9 @@ function SourceSelector({ sources, selectedIds, onToggle }: Readonly<SourceSelec
                     {tag}
                   </span>
                 ))}
-                {(source.tags?.length ?? 0) > 2 && (
+                {source.tags.length > 2 && (
                   <span className='font-inter rounded-md bg-[#f1f0f4] px-2 py-0.5 text-xs text-[#5e5a72]'>
-                    +{(source.tags?.length ?? 0) - 2}
+                    +{source.tags.length - 2}
                   </span>
                 )}
               </div>
