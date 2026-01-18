@@ -71,8 +71,34 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./syfthub.db"
     database_echo: bool = False  # Echo SQL queries for debugging
 
-    # Logging
+    # ===========================================
+    # LOGGING & OBSERVABILITY SETTINGS
+    # ===========================================
+
+    # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
     log_level: str = "INFO"
+
+    # Log format ("json" for production, "console" for development)
+    log_format: str = Field(
+        default="json",
+        description="Log output format: 'json' for structured logs, 'console' for human-readable",
+    )
+
+    # Whether to capture request/response bodies in logs
+    log_request_body: bool = Field(
+        default=False,
+        description="Include request body in logs (may contain sensitive data)",
+    )
+    log_response_body: bool = Field(
+        default=False,
+        description="Include response body in error logs",
+    )
+
+    # Error log retention
+    error_retention_days: int = Field(
+        default=30,
+        description="Number of days to retain error logs in the database",
+    )
 
     # ===========================================
     # IDENTITY PROVIDER (IdP) SETTINGS

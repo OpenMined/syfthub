@@ -45,7 +45,7 @@ dev:  ## Start development environment
 
 stop:  ## Stop all services
 	@docker compose -f docker-compose.dev.yml down 2>/dev/null || true
-	@docker compose -f docker-compose.prod.yml down 2>/dev/null || true
+	@docker compose -f docker-compose.deploy.yml down 2>/dev/null || true
 	@echo 'All services stopped'
 
 test:  ## Run all tests
