@@ -6,11 +6,11 @@ readme = "README.md"
 authors = [
     { name = "Ionesio Junior", email = "ionesiojr@gmail.com" }
 ]
-license = { text = "MIT" }
+license = { text = "Apache-2.0" }
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
