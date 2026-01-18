@@ -2,7 +2,6 @@
 
 import asyncio
 import contextlib
-import logging
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -34,6 +33,13 @@ from syfthub.database.dependencies import (
     get_user_repository,
 )
 from syfthub.jobs.health_monitor import EndpointHealthMonitor
+from syfthub.observability import (
+    CorrelationIDMiddleware,
+    RequestLoggingMiddleware,
+    configure_logging,
+    get_logger,
+)
+from syfthub.observability.handlers import register_exception_handlers
 from syfthub.repositories.endpoint import EndpointRepository
 from syfthub.repositories.organization import (
     OrganizationMemberRepository,
@@ -50,11 +56,11 @@ from syfthub.schemas.endpoint import (
 from syfthub.schemas.organization import Organization
 from syfthub.schemas.user import User
 
-# Configure logging for application logs
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+# Configure structured logging
+configure_logging(
+    log_level=settings.log_level,
+    log_format=settings.log_format if not settings.debug else "console",
+    development_mode=settings.debug,
 )
 
 # Setup Jinja2 templates
@@ -255,7 +261,7 @@ def can_access_endpoint_with_org(
     return False
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
@@ -334,6 +340,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add observability middleware (order matters - CorrelationID must be first to process)
+# Middleware executes in reverse order of addition, so add RequestLogging first
+app.add_middleware(
+    RequestLoggingMiddleware,
+    exclude_paths={"/health", "/ready", "/metrics", "/docs", "/openapi.json", "/redoc"},
+)
+app.add_middleware(CorrelationIDMiddleware)
+
+# Register global exception handlers for error capture
+register_exception_handlers(app)
 
 # Include API routes
 app.include_router(api_router, prefix=settings.api_prefix)

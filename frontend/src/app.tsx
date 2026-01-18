@@ -9,6 +9,7 @@ import { AuthProvider } from './context/auth-context';
 import { ModalProvider } from './context/modal-context';
 import { SettingsModalProvider } from './context/settings-modal-context';
 import { MainLayout } from './layouts/main-layout';
+import { ErrorBoundary } from './observability';
 
 // Lazy load all pages for code splitting
 const HomePage = lazy(() => import('./pages/home'));
@@ -42,51 +43,53 @@ const NotFoundPage = lazy(() => import('./pages/not-found'));
  */
 export default function App() {
   return (
-    <RootProvider>
-      <AuthProvider>
-        <AccountingProvider>
-          <ModalProvider>
-            <SettingsModalProvider>
-              <BrowserRouter>
-                <Routes>
-                  <Route element={<MainLayout />}>
-                    {/* Public routes */}
-                    <Route index element={<HomePage />} />
-                    <Route path='browse' element={<BrowsePage />} />
-                    <Route path='chat' element={<ChatPage />} />
-                    <Route path='build' element={<BuildPage />} />
-                    <Route path='about' element={<AboutPage />} />
+    <ErrorBoundary>
+      <RootProvider>
+        <AuthProvider>
+          <AccountingProvider>
+            <ModalProvider>
+              <SettingsModalProvider>
+                <BrowserRouter>
+                  <Routes>
+                    <Route element={<MainLayout />}>
+                      {/* Public routes */}
+                      <Route index element={<HomePage />} />
+                      <Route path='browse' element={<BrowsePage />} />
+                      <Route path='chat' element={<ChatPage />} />
+                      <Route path='build' element={<BuildPage />} />
+                      <Route path='about' element={<AboutPage />} />
 
-                    {/* Protected routes */}
-                    <Route
-                      path='profile'
-                      element={
-                        <ProtectedRoute>
-                          <ProfilePage />
-                        </ProtectedRoute>
-                      }
-                    />
-                    <Route
-                      path='endpoints'
-                      element={
-                        <ProtectedRoute>
-                          <EndpointsPage />
-                        </ProtectedRoute>
-                      }
-                    />
+                      {/* Protected routes */}
+                      <Route
+                        path='profile'
+                        element={
+                          <ProtectedRoute>
+                            <ProfilePage />
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path='endpoints'
+                        element={
+                          <ProtectedRoute>
+                            <EndpointsPage />
+                          </ProtectedRoute>
+                        }
+                      />
 
-                    {/* GitHub-style endpoint URLs: /:username/:slug */}
-                    <Route path=':username/:slug' element={<EndpointDetailPage />} />
+                      {/* GitHub-style endpoint URLs: /:username/:slug */}
+                      <Route path=':username/:slug' element={<EndpointDetailPage />} />
 
-                    {/* 404 Not Found */}
-                    <Route path='*' element={<NotFoundPage />} />
-                  </Route>
-                </Routes>
-              </BrowserRouter>
-            </SettingsModalProvider>
-          </ModalProvider>
-        </AccountingProvider>
-      </AuthProvider>
-    </RootProvider>
+                      {/* 404 Not Found */}
+                      <Route path='*' element={<NotFoundPage />} />
+                    </Route>
+                  </Routes>
+                </BrowserRouter>
+              </SettingsModalProvider>
+            </ModalProvider>
+          </AccountingProvider>
+        </AuthProvider>
+      </RootProvider>
+    </ErrorBoundary>
   );
 }

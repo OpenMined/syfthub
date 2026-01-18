@@ -2,7 +2,14 @@
 
 from fastapi import APIRouter
 
-from syfthub.api.endpoints import accounting, endpoints, organizations, token, users
+from syfthub.api.endpoints import (
+    accounting,
+    endpoints,
+    errors,
+    organizations,
+    token,
+    users,
+)
 from syfthub.auth import router as auth_router
 
 api_router = APIRouter()
@@ -20,3 +27,6 @@ api_router.include_router(accounting.router, prefix="/accounting", tags=["accoun
 
 # Identity Provider (IdP) endpoints
 api_router.include_router(token.router, tags=["identity-provider"])
+
+# Error reporting endpoint for frontend
+api_router.include_router(errors.router, tags=["observability"])

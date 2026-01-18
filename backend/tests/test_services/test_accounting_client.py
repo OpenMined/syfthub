@@ -144,14 +144,15 @@ class TestAccountingClientCreateUser:
         assert result.user.balance == 100.0
         assert result.user.organization == "test-org"
 
-        mock_http_client.post.assert_called_once_with(
-            "/user/create",
-            json={
-                "email": "test@example.com",
-                "password": "password123",
-                "organization": "test-org",
-            },
-        )
+        # Verify the call was made with correct endpoint and payload
+        mock_http_client.post.assert_called_once()
+        call_args = mock_http_client.post.call_args
+        assert call_args[0][0] == "/user/create"
+        assert call_args[1]["json"] == {
+            "email": "test@example.com",
+            "password": "password123",
+            "organization": "test-org",
+        }
 
     def test_create_user_success_without_organization(self, client, mock_http_client):
         """Test successful user creation without organization."""
@@ -172,10 +173,14 @@ class TestAccountingClientCreateUser:
         assert result.user.id == "user-456"
         assert result.user.organization is None
 
-        mock_http_client.post.assert_called_once_with(
-            "/user/create",
-            json={"email": "test@example.com", "password": "password123"},
-        )
+        # Verify the call was made with correct endpoint and payload
+        mock_http_client.post.assert_called_once()
+        call_args = mock_http_client.post.call_args
+        assert call_args[0][0] == "/user/create"
+        assert call_args[1]["json"] == {
+            "email": "test@example.com",
+            "password": "password123",
+        }
 
     def test_create_user_conflict(self, client, mock_http_client):
         """Test user creation with existing email (409 conflict)."""
@@ -260,10 +265,11 @@ class TestAccountingClientValidateCredentials:
         result = client.validate_credentials("test@example.com", "password123")
 
         assert result is True
-        mock_http_client.get.assert_called_once_with(
-            "/user/my-info",
-            auth=("test@example.com", "password123"),
-        )
+        # Verify the call was made with correct endpoint and auth
+        mock_http_client.get.assert_called_once()
+        call_args = mock_http_client.get.call_args
+        assert call_args[0][0] == "/user/my-info"
+        assert call_args[1]["auth"] == ("test@example.com", "password123")
 
     def test_validate_credentials_invalid(self, client, mock_http_client):
         """Test invalid credential validation."""

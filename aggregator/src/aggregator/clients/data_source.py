@@ -1,15 +1,16 @@
 """Client for interacting with SyftAI-Space data source endpoints."""
 
-import logging
 import time
 from typing import Any
 
 import httpx
 
+from aggregator.observability import get_correlation_id, get_logger
+from aggregator.observability.constants import CORRELATION_ID_HEADER, LogEvents
 from aggregator.schemas.internal import RetrievalResult
 from aggregator.schemas.responses import Document
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class DataSourceClient:
@@ -75,12 +76,22 @@ class DataSourceClient:
         if transaction_token:
             request_data["transaction_token"] = transaction_token
 
-        # Build headers
+        # Build headers with correlation ID for request tracing
         headers: dict[str, str] = {"Content-Type": "application/json"}
+        correlation_id = get_correlation_id()
+        if correlation_id:
+            headers[CORRELATION_ID_HEADER] = correlation_id
         if tenant_name:
             headers["X-Tenant-Name"] = tenant_name
         if authorization_token:
             headers["Authorization"] = f"Bearer {authorization_token}"
+
+        logger.debug(
+            LogEvents.DATA_SOURCE_QUERY_STARTED,
+            endpoint_path=endpoint_path,
+            query_url=query_url,
+            top_k=top_k,
+        )
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
@@ -95,7 +106,11 @@ class DataSourceClient:
                 if response.status_code == 403:
                     error_detail = self._extract_error_detail(response)
                     logger.warning(
-                        f"Data source access denied: {endpoint_path} - {error_detail}"
+                        LogEvents.DATA_SOURCE_QUERY_FAILED,
+                        endpoint_path=endpoint_path,
+                        status_code=403,
+                        error=error_detail,
+                        latency_ms=latency_ms,
                     )
                     return RetrievalResult(
                         endpoint_path=endpoint_path,
@@ -108,8 +123,11 @@ class DataSourceClient:
                 if response.status_code != 200:
                     error_detail = self._extract_error_detail(response)
                     logger.warning(
-                        f"Data source query failed: {endpoint_path} "
-                        f"status={response.status_code} - {error_detail}"
+                        LogEvents.DATA_SOURCE_QUERY_FAILED,
+                        endpoint_path=endpoint_path,
+                        status_code=response.status_code,
+                        error=error_detail,
+                        latency_ms=latency_ms,
                     )
                     return RetrievalResult(
                         endpoint_path=endpoint_path,
@@ -123,8 +141,10 @@ class DataSourceClient:
                 documents = self._parse_syftai_response(data)
 
                 logger.info(
-                    f"Data source query success: {endpoint_path} "
-                    f"docs={len(documents)} latency={latency_ms}ms"
+                    LogEvents.DATA_SOURCE_QUERY_COMPLETED,
+                    endpoint_path=endpoint_path,
+                    documents_count=len(documents),
+                    latency_ms=latency_ms,
                 )
 
                 return RetrievalResult(
@@ -136,7 +156,11 @@ class DataSourceClient:
 
             except httpx.TimeoutException:
                 latency_ms = int((time.perf_counter() - start_time) * 1000)
-                logger.warning(f"Data source query timeout: {endpoint_path}")
+                logger.warning(
+                    LogEvents.CHAT_RETRIEVAL_TIMEOUT,
+                    endpoint_path=endpoint_path,
+                    latency_ms=latency_ms,
+                )
                 return RetrievalResult(
                     endpoint_path=endpoint_path,
                     documents=[],
@@ -147,7 +171,12 @@ class DataSourceClient:
 
             except httpx.RequestError as e:
                 latency_ms = int((time.perf_counter() - start_time) * 1000)
-                logger.warning(f"Data source query error: {endpoint_path} - {e}")
+                logger.warning(
+                    LogEvents.DATA_SOURCE_QUERY_FAILED,
+                    endpoint_path=endpoint_path,
+                    error=str(e),
+                    latency_ms=latency_ms,
+                )
                 return RetrievalResult(
                     endpoint_path=endpoint_path,
                     documents=[],
@@ -158,7 +187,12 @@ class DataSourceClient:
 
             except Exception as e:
                 latency_ms = int((time.perf_counter() - start_time) * 1000)
-                logger.exception(f"Unexpected error querying data source: {endpoint_path}")
+                logger.exception(
+                    LogEvents.DATA_SOURCE_QUERY_FAILED,
+                    endpoint_path=endpoint_path,
+                    error=str(e),
+                    latency_ms=latency_ms,
+                )
                 return RetrievalResult(
                     endpoint_path=endpoint_path,
                     documents=[],

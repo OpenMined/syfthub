@@ -1,6 +1,5 @@
 """Main FastAPI application for the aggregator service."""
 
-import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -8,13 +7,23 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from aggregator.api import api_router, health_router
 from aggregator.core.config import get_settings
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+from aggregator.observability import (
+    CorrelationIDMiddleware,
+    RequestLoggingMiddleware,
+    configure_logging,
+    get_logger,
 )
-logger = logging.getLogger(__name__)
+
+# Get settings for logging configuration
+_settings = get_settings()
+
+# Configure structured logging
+configure_logging(
+    log_level=_settings.log_level,
+    log_format=_settings.log_format if not _settings.debug else "console",
+    development_mode=_settings.debug,
+)
+logger = get_logger(__name__)
 
 
 @asynccontextmanager
@@ -72,6 +81,14 @@ responses using model endpoints registered in SyftHub.
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Add observability middleware (order matters - CorrelationID must be first to process)
+    # Middleware executes in reverse order of addition, so add RequestLogging first
+    app.add_middleware(
+        RequestLoggingMiddleware,
+        exclude_paths={"/health", "/ready", "/metrics", "/docs", "/openapi.json", "/redoc"},
+    )
+    app.add_middleware(CorrelationIDMiddleware)
 
     # Include routers
     app.include_router(health_router)  # /health, /ready

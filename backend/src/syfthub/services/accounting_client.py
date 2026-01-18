@@ -12,7 +12,6 @@ Authentication: HTTP Basic Auth (email:password)
 
 from __future__ import annotations
 
-import logging
 import secrets
 import string
 from dataclasses import dataclass
@@ -20,7 +19,10 @@ from typing import Any, Optional
 
 import httpx
 
-logger = logging.getLogger(__name__)
+from syfthub.observability import get_correlation_id, get_logger
+from syfthub.observability.constants import CORRELATION_ID_HEADER
+
+logger = get_logger(__name__)
 
 # =============================================================================
 # Result Types
@@ -130,9 +132,16 @@ class AccountingClient:
             self._client = httpx.Client(
                 base_url=self.base_url,
                 timeout=self.timeout,
-                headers={"Content-Type": "application/json"},
             )
         return self._client
+
+    def _get_headers(self) -> dict[str, str]:
+        """Get headers including correlation ID for request tracing."""
+        headers = {"Content-Type": "application/json"}
+        correlation_id = get_correlation_id()
+        if correlation_id:
+            headers[CORRELATION_ID_HEADER] = correlation_id
+        return headers
 
     def close(self) -> None:
         """Close the HTTP client and release resources."""
@@ -193,17 +202,21 @@ class AccountingClient:
             payload["organization"] = organization
 
         try:
-            logger.debug(f"Creating accounting user for email: {email}")
-            response = self.client.post("/user/create", json=payload)
+            logger.debug("accounting.user.create.started", email=email)
+            response = self.client.post(
+                "/user/create",
+                json=payload,
+                headers=self._get_headers(),
+            )
 
             if response.status_code == 201:
                 data = response.json()
                 user = self._parse_user_response(data)
-                logger.info(f"Successfully created accounting user: {email}")
+                logger.info("accounting.user.create.success", email=email)
                 return AccountingUserResult(success=True, user=user)
 
             if response.status_code == 409:
-                logger.info(f"Accounting user already exists: {email}")
+                logger.info("accounting.user.create.conflict", email=email)
                 return AccountingUserResult(
                     success=False,
                     conflict=True,
@@ -213,25 +226,35 @@ class AccountingClient:
             # Other error responses
             error_detail = self._extract_error_detail(response)
             logger.warning(
-                f"Failed to create accounting user {email}: "
-                f"{response.status_code} - {error_detail}"
+                "accounting.user.create.failed",
+                email=email,
+                status_code=response.status_code,
+                error=error_detail,
             )
             return AccountingUserResult(success=False, error=error_detail)
 
         except httpx.TimeoutException:
-            logger.error(f"Timeout creating accounting user: {email}")
+            logger.error("accounting.user.create.timeout", email=email)
             return AccountingUserResult(
                 success=False,
                 error="Accounting service request timed out",
             )
         except httpx.RequestError as e:
-            logger.error(f"Network error creating accounting user {email}: {e}")
+            logger.error(
+                "accounting.user.create.network_error",
+                email=email,
+                error=str(e),
+            )
             return AccountingUserResult(
                 success=False,
                 error=f"Failed to connect to accounting service: {e}",
             )
         except Exception as e:
-            logger.exception(f"Unexpected error creating accounting user {email}: {e}")
+            logger.exception(
+                "accounting.user.create.unexpected_error",
+                email=email,
+                error=str(e),
+            )
             return AccountingUserResult(
                 success=False,
                 error=f"Unexpected error: {e}",
@@ -250,32 +273,39 @@ class AccountingClient:
             True if credentials are valid (200 response), False otherwise
         """
         try:
-            logger.debug(f"Validating accounting credentials for: {email}")
+            logger.debug("accounting.credentials.validate.started", email=email)
             response = self.client.get(
                 "/user/my-info",
                 auth=(email, password),
+                headers=self._get_headers(),
             )
 
             if response.status_code == 200:
-                logger.info(f"Accounting credentials valid for: {email}")
+                logger.info("accounting.credentials.validate.success", email=email)
                 return True
 
             logger.info(
-                f"Accounting credentials invalid for {email}: {response.status_code}"
+                "accounting.credentials.validate.invalid",
+                email=email,
+                status_code=response.status_code,
             )
             return False
 
         except httpx.TimeoutException:
-            logger.error(f"Timeout validating accounting credentials: {email}")
+            logger.error("accounting.credentials.validate.timeout", email=email)
             return False
         except httpx.RequestError as e:
             logger.error(
-                f"Network error validating accounting credentials {email}: {e}"
+                "accounting.credentials.validate.network_error",
+                email=email,
+                error=str(e),
             )
             return False
         except Exception as e:
             logger.exception(
-                f"Unexpected error validating accounting credentials {email}: {e}"
+                "accounting.credentials.validate.unexpected_error",
+                email=email,
+                error=str(e),
             )
             return False
 
@@ -293,6 +323,7 @@ class AccountingClient:
             response = self.client.get(
                 "/user/my-info",
                 auth=(email, password),
+                headers=self._get_headers(),
             )
 
             if response.status_code == 200:
@@ -302,7 +333,7 @@ class AccountingClient:
             return None
 
         except Exception as e:
-            logger.error(f"Error getting accounting user {email}: {e}")
+            logger.error("accounting.user.get.error", email=email, error=str(e))
             return None
 
     def _extract_error_detail(self, response: httpx.Response) -> str:

@@ -41,6 +41,7 @@ repos:
           alembic,
           cryptography,
           pyjwt,
+          structlog,
           types-sqlalchemy,
           types-markdown,
           types-passlib,

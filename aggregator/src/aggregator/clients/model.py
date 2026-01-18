@@ -1,17 +1,18 @@
 """Client for interacting with SyftAI-Space model endpoints."""
 
 import json
-import logging
 import time
 from collections.abc import AsyncGenerator
 from typing import Any
 
 import httpx
 
+from aggregator.observability import get_correlation_id, get_logger
+from aggregator.observability.constants import CORRELATION_ID_HEADER, LogEvents
 from aggregator.schemas.internal import GenerationResult
 from aggregator.schemas.requests import Message
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ModelClientError(Exception):
@@ -91,12 +92,22 @@ class ModelClient:
         if transaction_token:
             request_data["transaction_token"] = transaction_token
 
-        # Build headers
+        # Build headers with correlation ID for request tracing
         headers: dict[str, str] = {"Content-Type": "application/json"}
+        correlation_id = get_correlation_id()
+        if correlation_id:
+            headers[CORRELATION_ID_HEADER] = correlation_id
         if tenant_name:
             headers["X-Tenant-Name"] = tenant_name
         if authorization_token:
             headers["Authorization"] = f"Bearer {authorization_token}"
+
+        logger.debug(
+            LogEvents.MODEL_QUERY_STARTED,
+            chat_url=chat_url,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
@@ -110,6 +121,12 @@ class ModelClient:
 
                 if response.status_code == 403:
                     error_detail = self._extract_error_detail(response)
+                    logger.warning(
+                        LogEvents.MODEL_QUERY_FAILED,
+                        status_code=403,
+                        error=error_detail,
+                        latency_ms=latency_ms,
+                    )
                     raise ModelClientError(
                         f"Model access denied: {error_detail}",
                         status_code=403,
@@ -117,6 +134,12 @@ class ModelClient:
 
                 if response.status_code != 200:
                     error_detail = self._extract_error_detail(response)
+                    logger.warning(
+                        LogEvents.MODEL_QUERY_FAILED,
+                        status_code=response.status_code,
+                        error=error_detail,
+                        latency_ms=latency_ms,
+                    )
                     raise ModelClientError(
                         f"Model request failed: HTTP {response.status_code} - {error_detail}",
                         status_code=response.status_code,
@@ -126,7 +149,11 @@ class ModelClient:
                 response_text = self._extract_syftai_response(data)
                 usage = self._extract_usage(data)
 
-                logger.info(f"Model chat success: latency={latency_ms}ms")
+                logger.info(
+                    LogEvents.MODEL_QUERY_COMPLETED,
+                    latency_ms=latency_ms,
+                    usage=usage,
+                )
 
                 return GenerationResult(
                     response=response_text,
@@ -135,8 +162,12 @@ class ModelClient:
                 )
 
             except httpx.TimeoutException as e:
+                logger.warning(LogEvents.CHAT_GENERATION_TIMEOUT, chat_url=chat_url)
                 raise ModelClientError("Model request timed out") from e
             except httpx.RequestError as e:
+                logger.warning(
+                    LogEvents.MODEL_QUERY_FAILED, chat_url=chat_url, error=str(e)
+                )
                 raise ModelClientError(f"Network error: {e}") from e
 
     async def chat_stream(
@@ -193,15 +224,24 @@ class ModelClient:
         if transaction_token:
             request_data["transaction_token"] = transaction_token
 
-        # Build headers
+        # Build headers with correlation ID for request tracing
         headers: dict[str, str] = {
             "Content-Type": "application/json",
             "Accept": "text/event-stream",
         }
+        correlation_id = get_correlation_id()
+        if correlation_id:
+            headers[CORRELATION_ID_HEADER] = correlation_id
         if tenant_name:
             headers["X-Tenant-Name"] = tenant_name
         if authorization_token:
             headers["Authorization"] = f"Bearer {authorization_token}"
+
+        logger.debug(
+            LogEvents.SSE_STREAM_STARTED,
+            chat_url=chat_url,
+            max_tokens=max_tokens,
+        )
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
@@ -248,8 +288,12 @@ class ModelClient:
                             yield body.decode("utf-8")
 
             except httpx.TimeoutException as e:
+                logger.warning(LogEvents.SSE_STREAM_FAILED, chat_url=chat_url, error="timeout")
                 raise ModelClientError("Model stream timed out") from e
             except httpx.RequestError as e:
+                logger.warning(
+                    LogEvents.SSE_STREAM_FAILED, chat_url=chat_url, error=str(e)
+                )
                 raise ModelClientError(f"Network error during stream: {e}") from e
 
     def _extract_error_detail(self, response: httpx.Response) -> str:

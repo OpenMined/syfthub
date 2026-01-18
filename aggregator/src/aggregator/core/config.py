@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     service_name: str = "syfthub-aggregator"
     debug: bool = False
 
+    # Logging & Observability
+    log_level: str = "INFO"
+    log_format: str = "json"  # "json" for production, "console" for development
+
     # Server configuration
     host: str = "0.0.0.0"
     port: int = 8001

@@ -121,7 +121,9 @@ def main():
         sys.exit(0)
     else:
         failed = [
-            name for name, result in zip([c[0] for c in checks], results) if not result
+            name
+            for name, result in zip([c[0] for c in checks], results, strict=True)
+            if not result
         ]
         print(f"✗ Health checks failed: {', '.join(failed)}")
         sys.exit(1)
