@@ -196,9 +196,21 @@ async def get_transactions(
 
         transactions_data = response.json()
 
+        # Handle wrapped response (e.g., {"transactions": [...]}) or direct list
+        if isinstance(transactions_data, dict):
+            transactions_list = transactions_data.get("transactions", [])
+        elif isinstance(transactions_data, list):
+            transactions_list = transactions_data
+        else:
+            logger.warning(
+                "accounting.transactions.unexpected_format: %s",
+                type(transactions_data).__name__,
+            )
+            transactions_list = []
+
         # Transform the response to match frontend expectations
         result = []
-        for tx in transactions_data:
+        for tx in transactions_list:
             result.append(
                 AccountingTransactionResponse(
                     id=tx.get("id", ""),
