@@ -142,6 +142,16 @@ async def update_endpoint_by_slug(
     )
 
 
+@router.delete("/slug/{endpoint_slug}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_endpoint_by_slug(
+    endpoint_slug: str,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> None:
+    """Delete an endpoint by slug."""
+    endpoint_service.delete_endpoint_by_slug(endpoint_slug, current_user)
+
+
 @router.delete("/{endpoint_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_endpoint(
     endpoint_id: int,
