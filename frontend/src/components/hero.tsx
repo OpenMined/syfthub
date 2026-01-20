@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 
 import Send from 'lucide-react/dist/esm/icons/send';
 
@@ -31,19 +31,31 @@ export function Hero({
 }: Readonly<HeroProperties>) {
   const [searchValue, setSearchValue] = useState('');
 
-  const handleSearch = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (searchValue.trim() && onSearch) {
-      onSearch(searchValue);
-    }
-  };
+  // Memoized handlers for stable references - prevents re-renders of child components
+  const handleSearch = useCallback(
+    (event: React.FormEvent) => {
+      event.preventDefault();
+      if (searchValue.trim() && onSearch) {
+        onSearch(searchValue);
+      }
+    },
+    [searchValue, onSearch]
+  );
 
-  const handleSuggestionClick = (suggestion: string) => {
-    setSearchValue(suggestion);
-    if (onSearch) {
-      onSearch(suggestion);
-    }
-  };
+  const handleSuggestionClick = useCallback(
+    (suggestion: string) => {
+      setSearchValue(suggestion);
+      if (onSearch) {
+        onSearch(suggestion);
+      }
+    },
+    [onSearch]
+  );
+
+  // Memoized input handler using functional setState for stable reference
+  const handleInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchValue(event.target.value);
+  }, []);
 
   return (
     <section
@@ -90,9 +102,7 @@ export function Hero({
                 autoFocus
                 type='text'
                 value={searchValue}
-                onChange={(event) => {
-                  setSearchValue(event.target.value);
-                }}
+                onChange={handleInputChange}
                 placeholder='What are you looking for?'
                 className='font-inter border-syft-border-light text-syft-primary placeholder:text-syft-placeholder focus:ring-syft-primary w-full rounded-xl border bg-white px-6 py-4 shadow-sm transition-all focus:border-transparent focus:ring-2 focus:outline-none'
               />

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
@@ -49,13 +49,14 @@ export function SecuritySettingsTab() {
     confirm_password: ''
   });
 
-  const handleInputChange = (field: keyof PasswordFormData) => {
+  // Memoized input handler factory for stable references
+  const handleInputChange = useCallback((field: keyof PasswordFormData) => {
     return (e: React.ChangeEvent<HTMLInputElement>) => {
       setFormData((previous) => ({ ...previous, [field]: e.target.value }));
       setError(null);
       setSuccess(null);
     };
-  };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

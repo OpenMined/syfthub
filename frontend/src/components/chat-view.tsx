@@ -48,10 +48,10 @@ const AdvancedPanel = memo(function AdvancedPanel({
   isOpen: boolean;
   onClose: () => void;
   sources: ChatSource[];
-  selectedIds: string[];
+  selectedIds: Set<string>;
   selectedModel: ChatSource | null;
 }>) {
-  const activeSources = sources.filter((s) => selectedIds.includes(s.id));
+  const activeSources = sources.filter((s) => selectedIds.has(s.id));
   const [isFactual, setIsFactual] = useState(true);
   const [customSourceInput, setCustomSourceInput] = useState('');
   const [customSources, setCustomSources] = useState<string[]>([]);
@@ -343,7 +343,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
 
 interface SourceSelectorProperties {
   sources: ChatSource[];
-  selectedIds: string[];
+  selectedIds: Set<string>;
   onToggle: (id: string) => void;
 }
 
@@ -356,7 +356,7 @@ const SourceSelector = memo(function SourceSelector({
   return (
     <div className='my-4 w-full max-w-3xl space-y-3'>
       {sources.map((source) => {
-        const isSelected = selectedIds.includes(source.id);
+        const isSelected = selectedIds.has(source.id);
 
         let statusColor = 'bg-green-500';
         if (source.status === 'warning') statusColor = 'bg-yellow-500';
@@ -641,7 +641,8 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
   const [messages, setMessages] = useState<Message[]>([
     { id: '1', role: 'user', content: initialQuery, type: 'text' }
   ]);
-  const [selectedSources, setSelectedSources] = useState<string[]>([]);
+  // Use Set for O(1) lookup performance when checking source selection
+  const [selectedSources, setSelectedSources] = useState<Set<string>>(() => new Set());
   const [inputValue, setInputValue] = useState('');
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [availableSources, setAvailableSources] = useState<ChatSource[]>([]);
@@ -675,7 +676,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
 
         if (analysis.action === 'auto-select' && analysis.matchedEndpoint) {
           // Endpoint was explicitly mentioned - auto-select and proceed
-          setSelectedSources([analysis.matchedEndpoint.id]);
+          setSelectedSources(new Set([analysis.matchedEndpoint.id]));
 
           // Add a message indicating auto-selection
           const autoSelectMessage: Message = {
@@ -834,10 +835,17 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
   const allSources = availableSources;
 
   // Memoized toggleSource using functional setState for stable reference
+  // Uses Set for O(1) lookup and deletion performance
   const toggleSource = useCallback((id: string) => {
-    setSelectedSources((previous) =>
-      previous.includes(id) ? previous.filter((index) => index !== id) : [...previous, id]
-    );
+    setSelectedSources((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
   }, []);
 
   // Memoized panel handlers for stable references
@@ -926,8 +934,8 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
         return;
       }
 
-      // Build data source paths
-      const dataSourcePaths = selectedSources
+      // Build data source paths from selected sources Set
+      const dataSourcePaths = [...selectedSources]
         .map((id) => {
           const source = availableSources.find((s) => s.id === id);
           return source?.full_path;

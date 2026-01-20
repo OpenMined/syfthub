@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
@@ -44,11 +44,21 @@ export function DangerZoneTab() {
     }
   };
 
-  const handleCancelDelete = () => {
+  // Memoized handlers for stable references
+  const handleCancelDelete = useCallback(() => {
     setShowConfirmation(false);
     setConfirmText('');
     setError(null);
-  };
+  }, []);
+
+  const handleConfirmTextChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setConfirmText(e.target.value);
+    setError(null);
+  }, []);
+
+  const handleShowConfirmation = useCallback(() => {
+    setShowConfirmation(true);
+  }, []);
 
   return (
     <div className='space-y-6'>
@@ -91,9 +101,7 @@ export function DangerZoneTab() {
             <Button
               variant='outline'
               className='border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700'
-              onClick={() => {
-                setShowConfirmation(true);
-              }}
+              onClick={handleShowConfirmation}
             >
               <Trash2 className='mr-2 h-4 w-4' />
               Delete Account
@@ -135,10 +143,7 @@ export function DangerZoneTab() {
                   <Input
                     id='confirm-delete'
                     value={confirmText}
-                    onChange={(e) => {
-                      setConfirmText(e.target.value);
-                      setError(null);
-                    }}
+                    onChange={handleConfirmTextChange}
                     placeholder={expectedConfirmText}
                     disabled={isLoading}
                     className='border-red-300 focus:border-red-500 focus:ring-red-500'

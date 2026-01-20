@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { memo, useEffect, useState } from 'react';
 
 import type { ChatSource, EndpointType, Policy } from '@/lib/types';
 
@@ -225,8 +225,10 @@ function renderConfigValue(value: unknown, key: string): React.ReactNode {
   return <span className='font-mono text-[10px]'>{JSON.stringify(value)}</span>;
 }
 
-// Transaction policy specific renderer
-function TransactionPolicyContent({ config }: Readonly<{ config: Record<string, unknown> }>) {
+// Transaction policy specific renderer - memoized to prevent unnecessary re-renders
+const TransactionPolicyContent = memo(function TransactionPolicyContent({
+  config
+}: Readonly<{ config: Record<string, unknown> }>) {
   const costs = config.costs as Record<string, unknown> | undefined;
   const provider = config.provider as string | undefined;
   const pricingModel = config.pricing_model as string | undefined;
@@ -282,10 +284,12 @@ function TransactionPolicyContent({ config }: Readonly<{ config: Record<string, 
       )}
     </div>
   );
-}
+});
 
-// Generic config renderer for unknown policy types
-function GenericPolicyContent({ config }: Readonly<{ config: Record<string, unknown> }>) {
+// Generic config renderer for unknown policy types - memoized to prevent unnecessary re-renders
+const GenericPolicyContent = memo(function GenericPolicyContent({
+  config
+}: Readonly<{ config: Record<string, unknown> }>) {
   const entries = Object.entries(config).filter(
     ([, value]) => value !== null && value !== undefined && value !== ''
   );
@@ -313,10 +317,10 @@ function GenericPolicyContent({ config }: Readonly<{ config: Record<string, unkn
       </div>
     </div>
   );
-}
+});
 
-// Single policy item component
-function PolicyItem({ policy }: Readonly<{ policy: Policy }>) {
+// Single policy item component - memoized to prevent unnecessary re-renders
+const PolicyItem = memo(function PolicyItem({ policy }: Readonly<{ policy: Policy }>) {
   const config = getPolicyConfig(policy.type);
   const Icon = config.icon;
   const isTransaction = policy.type.toLowerCase() === 'transaction';
@@ -380,14 +384,16 @@ function PolicyItem({ policy }: Readonly<{ policy: Policy }>) {
       </div>
     </div>
   );
-}
+});
 
-// Access Policies Card component
+// Access Policies Card component - memoized to prevent unnecessary re-renders
 interface AccessPoliciesCardProperties {
   policies?: Policy[];
 }
 
-function AccessPoliciesCard({ policies }: Readonly<AccessPoliciesCardProperties>) {
+const AccessPoliciesCard = memo(function AccessPoliciesCard({
+  policies
+}: Readonly<AccessPoliciesCardProperties>) {
   const validPolicies = policies?.filter((p) => p.type) ?? [];
 
   return (
@@ -420,7 +426,7 @@ function AccessPoliciesCard({ policies }: Readonly<AccessPoliciesCardProperties>
       )}
     </div>
   );
-}
+});
 
 interface EndpointDetailProperties {
   slug: string;
