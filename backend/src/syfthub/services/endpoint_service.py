@@ -497,6 +497,32 @@ class EndpointService(BaseService):
 
         return True
 
+    def delete_endpoint_by_slug(self, endpoint_slug: str, current_user: User) -> bool:
+        """Delete endpoint by slug."""
+        endpoint = self.endpoint_repository.get_by_user_and_slug(
+            current_user.id, endpoint_slug
+        )
+        if not endpoint:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Endpoint not found",
+            )
+
+        if not self._can_modify_endpoint(endpoint, current_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Permission denied: insufficient permissions",
+            )
+
+        success = self.endpoint_repository.delete_endpoint(endpoint.id)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to delete endpoint",
+            )
+
+        return True
+
     def star_endpoint(self, endpoint_id: int, current_user: User) -> bool:
         """Star a endpoint."""
         # Check if endpoint exists and is accessible
