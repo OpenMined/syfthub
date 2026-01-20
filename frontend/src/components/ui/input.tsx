@@ -3,7 +3,8 @@ import * as React from 'react';
 import type { VariantProps } from 'class-variance-authority';
 
 import { cva } from 'class-variance-authority';
-import { Eye, EyeOff } from 'lucide-react';
+import Eye from 'lucide-react/dist/esm/icons/eye';
+import EyeOff from 'lucide-react/dist/esm/icons/eye-off';
 
 import { cn } from '@/lib/utils';
 
@@ -71,9 +72,9 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
     const hasError = Boolean(error);
     const currentVariant = hasError ? 'error' : variant;
 
-    const togglePasswordVisibility = () => {
-      setIsPasswordVisible(!isPasswordVisible);
-    };
+    const togglePasswordVisibility = React.useCallback(() => {
+      setIsPasswordVisible((previous) => !previous);
+    }, []);
 
     return (
       <div className='w-full space-y-1'>

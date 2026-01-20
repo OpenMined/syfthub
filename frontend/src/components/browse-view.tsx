@@ -2,17 +2,15 @@ import { useMemo, useState } from 'react';
 
 import type { ChatSource, EndpointType } from '@/lib/types';
 
-import {
-  Building,
-  Calendar,
-  ChevronRight,
-  Filter,
-  Globe,
-  Lock,
-  Package,
-  Search,
-  Star
-} from 'lucide-react';
+import Building from 'lucide-react/dist/esm/icons/building';
+import Calendar from 'lucide-react/dist/esm/icons/calendar';
+import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right';
+import Filter from 'lucide-react/dist/esm/icons/filter';
+import Globe from 'lucide-react/dist/esm/icons/globe';
+import Lock from 'lucide-react/dist/esm/icons/lock';
+import Package from 'lucide-react/dist/esm/icons/package';
+import Search from 'lucide-react/dist/esm/icons/search';
+import Star from 'lucide-react/dist/esm/icons/star';
 
 import { useAPI } from '@/hooks/use-api';
 import { getPublicEndpoints } from '@/lib/endpoint-utils';

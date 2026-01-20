@@ -8,7 +8,13 @@
 import React, { useCallback, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, Check, CreditCard, Eye, EyeOff, Loader2, Save } from 'lucide-react';
+import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
+import Check from 'lucide-react/dist/esm/icons/check';
+import CreditCard from 'lucide-react/dist/esm/icons/credit-card';
+import Eye from 'lucide-react/dist/esm/icons/eye';
+import EyeOff from 'lucide-react/dist/esm/icons/eye-off';
+import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
+import Save from 'lucide-react/dist/esm/icons/save';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

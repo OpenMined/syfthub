@@ -2,7 +2,15 @@ import React, { useState } from 'react';
 
 import type { Connection } from '@/lib/types';
 
-import { Check, Copy, Database, Globe, HardDrive, Link2, Radio, Wifi, Zap } from 'lucide-react';
+import Check from 'lucide-react/dist/esm/icons/check';
+import Copy from 'lucide-react/dist/esm/icons/copy';
+import Database from 'lucide-react/dist/esm/icons/database';
+import Globe from 'lucide-react/dist/esm/icons/globe';
+import HardDrive from 'lucide-react/dist/esm/icons/hard-drive';
+import Link2 from 'lucide-react/dist/esm/icons/link-2';
+import Radio from 'lucide-react/dist/esm/icons/radio';
+import Wifi from 'lucide-react/dist/esm/icons/wifi';
+import Zap from 'lucide-react/dist/esm/icons/zap';
 
 import { cn } from '@/lib/utils';
 

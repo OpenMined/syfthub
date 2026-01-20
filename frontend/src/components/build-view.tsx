@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
 
-import { ArrowRight, Box, Check, Code2, Copy, Terminal } from 'lucide-react';
+import ArrowRight from 'lucide-react/dist/esm/icons/arrow-right';
+import Box from 'lucide-react/dist/esm/icons/box';
+import Check from 'lucide-react/dist/esm/icons/check';
+import Code2 from 'lucide-react/dist/esm/icons/code-2';
+import Copy from 'lucide-react/dist/esm/icons/copy';
+import Terminal from 'lucide-react/dist/esm/icons/terminal';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 

@@ -1,6 +1,12 @@
 import React from 'react';
 
-import { ArrowLeft, Cpu, Database, Download, Globe, Share2, Shield } from 'lucide-react';
+import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left';
+import Cpu from 'lucide-react/dist/esm/icons/cpu';
+import Database from 'lucide-react/dist/esm/icons/database';
+import Download from 'lucide-react/dist/esm/icons/download';
+import Globe from 'lucide-react/dist/esm/icons/globe';
+import Share2 from 'lucide-react/dist/esm/icons/share-2';
+import Shield from 'lucide-react/dist/esm/icons/shield';
 
 import { Button } from './ui/button';
 

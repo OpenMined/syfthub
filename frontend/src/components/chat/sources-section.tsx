@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronDown, ChevronUp, FileText } from 'lucide-react';
+import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
+import ChevronUp from 'lucide-react/dist/esm/icons/chevron-up';
+import FileText from 'lucide-react/dist/esm/icons/file-text';
 
 // =============================================================================
 // Types
@@ -41,7 +43,7 @@ interface HoverCardProps {
  * Uses Framer Motion for smooth animations.
  * Supports mouse interaction for scrolling content.
  */
-function HoverCard({
+const HoverCard = memo(function HoverCard({
   content,
   isVisible,
   position,
@@ -87,7 +89,7 @@ function HoverCard({
       )}
     </AnimatePresence>
   );
-}
+});
 
 interface SourceItemProps {
   title: string;
@@ -102,7 +104,7 @@ const HOVER_HIDE_DELAY = 100;
  * Individual source item with hover functionality.
  * Uses hover intent to allow smooth mouse transitions to the preview card.
  */
-function SourceItem({ title, source, index }: Readonly<SourceItemProps>) {
+const SourceItem = memo(function SourceItem({ title, source, index }: Readonly<SourceItemProps>) {
   const [isItemHovered, setIsItemHovered] = useState(false);
   const [isCardHovered, setIsCardHovered] = useState(false);
   const [hoverPosition, setHoverPosition] = useState({ x: 0, y: 0 });
@@ -218,7 +220,7 @@ function SourceItem({ title, source, index }: Readonly<SourceItemProps>) {
       />
     </>
   );
-}
+});
 
 // =============================================================================
 // Main Component
@@ -239,6 +241,10 @@ interface SourcesSectionProps {
  */
 export function SourcesSection({ sources }: Readonly<SourcesSectionProps>) {
   const [isExpanded, setIsExpanded] = useState(false);
+
+  const toggleExpanded = useCallback(() => {
+    setIsExpanded((previous) => !previous);
+  }, []);
 
   // Convert sources object to array and count
   const sourceEntries = Object.entries(sources);
@@ -269,9 +275,7 @@ export function SourcesSection({ sources }: Readonly<SourcesSectionProps>) {
     >
       {/* Header / Toggle Button */}
       <button
-        onClick={() => {
-          setIsExpanded(!isExpanded);
-        }}
+        onClick={toggleExpanded}
         className='flex w-full items-center justify-between px-4 py-2.5 transition-colors hover:bg-[#f7f6f9]'
       >
         <div className='flex items-center gap-2'>

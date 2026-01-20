@@ -1,4 +1,4 @@
-import { UserPlus } from 'lucide-react';
+import UserPlus from 'lucide-react/dist/esm/icons/user-plus';
 import { useNavigate } from 'react-router-dom';
 
 import { Hero } from '@/components/hero';

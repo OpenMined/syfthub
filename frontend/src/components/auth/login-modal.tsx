@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 
-import { Mail } from 'lucide-react';
+import Mail from 'lucide-react/dist/esm/icons/mail';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

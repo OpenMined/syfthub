@@ -1,8 +1,21 @@
 import React, { useState } from 'react';
 
-import { Send } from 'lucide-react';
+import Send from 'lucide-react/dist/esm/icons/send';
 
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
+
+// Static data hoisted outside component to prevent recreation on each render
+const FEATURES = [
+  { label: 'Secure & Private', color: 'bg-syft-green' },
+  { label: 'Rare Data & Models', color: 'bg-syft-secondary' },
+  { label: 'Federated, Permissioned Access', color: 'bg-syft-purple' }
+] as const;
+
+const SEARCH_SUGGESTIONS = [
+  'Look for genomics data',
+  'Look for news in finance',
+  'Find climate research sources'
+] as const;
 
 interface HeroProperties {
   onSearch?: (query: string) => void;
@@ -31,18 +44,6 @@ export function Hero({
       onSearch(suggestion);
     }
   };
-
-  const features = [
-    { label: 'Secure & Private', color: 'bg-syft-green' },
-    { label: 'Rare Data & Models', color: 'bg-syft-secondary' },
-    { label: 'Federated, Permissioned Access', color: 'bg-syft-purple' }
-  ];
-
-  const searchSuggestions = [
-    'Look for genomics data',
-    'Look for news in finance',
-    'Find climate research sources'
-  ];
 
   return (
     <section
@@ -74,7 +75,7 @@ export function Hero({
         <div className='space-y-6'>
           {/* Feature Badges */}
           <div className='flex flex-wrap items-center justify-center gap-8'>
-            {features.map((feature, index) => (
+            {FEATURES.map((feature, index) => (
               <div key={index} className='flex items-center gap-2'>
                 <div className={`h-2 w-2 rounded-full ${feature.color}`}></div>
                 <span className='font-inter text-syft-primary text-sm'>{feature.label}</span>
@@ -110,7 +111,7 @@ export function Hero({
 
             {/* Search Suggestions Pills */}
             <div className='flex flex-wrap items-center justify-center gap-2.5'>
-              {searchSuggestions.map((suggestion, index) => (
+              {SEARCH_SUGGESTIONS.map((suggestion, index) => (
                 <button
                   key={index}
                   type='button'

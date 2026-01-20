@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 
-import { AlertCircle, Lock, Mail, User } from 'lucide-react';
+import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
+import Lock from 'lucide-react/dist/esm/icons/lock';
+import Mail from 'lucide-react/dist/esm/icons/mail';
+import User from 'lucide-react/dist/esm/icons/user';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

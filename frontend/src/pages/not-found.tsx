@@ -1,4 +1,5 @@
-import { FileQuestion, Home } from 'lucide-react';
+import FileQuestion from 'lucide-react/dist/esm/icons/file-question';
+import Home from 'lucide-react/dist/esm/icons/home';
 import { Link } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';

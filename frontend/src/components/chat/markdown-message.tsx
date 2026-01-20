@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { memo, useCallback, useState } from 'react';
 
-import { Check, Copy } from 'lucide-react';
+import Check from 'lucide-react/dist/esm/icons/check';
+import Copy from 'lucide-react/dist/esm/icons/copy';
 import Markdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -14,7 +15,7 @@ interface MarkdownMessageProps {
 }
 
 // Code block component with syntax highlighting and copy button
-function CodeBlock({
+const CodeBlock = memo(function CodeBlock({
   language,
   code
 }: Readonly<{
@@ -23,13 +24,13 @@ function CodeBlock({
 }>) {
   const [copied, setCopied] = useState(false);
 
-  const copyToClipboard = () => {
+  const copyToClipboard = useCallback(() => {
     void navigator.clipboard.writeText(code);
     setCopied(true);
     setTimeout(() => {
       setCopied(false);
     }, 2000);
-  };
+  }, [code]);
 
   // Custom style modifications for better appearance
   const customStyle = {
@@ -94,7 +95,7 @@ function CodeBlock({
       </div>
     </div>
   );
-}
+});
 
 export function MarkdownMessage({ content, className }: Readonly<MarkdownMessageProps>) {
   return (

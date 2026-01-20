@@ -3,7 +3,8 @@ import { useMemo } from 'react';
 import type { ChatSource } from '@/lib/types';
 
 import { motion } from 'framer-motion';
-import { AlertCircle, Coins } from 'lucide-react';
+import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
+import Coins from 'lucide-react/dist/esm/icons/coins';
 
 import { calculateFullCostBreakdown, formatCurrency } from '@/lib/cost-utils';
 

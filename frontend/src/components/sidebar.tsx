@@ -1,6 +1,10 @@
-import type React from 'react';
+import { useCallback } from 'react';
 
-import { FileText, Globe, Info, MessageSquare, UserPlus } from 'lucide-react';
+import FileText from 'lucide-react/dist/esm/icons/file-text';
+import Globe from 'lucide-react/dist/esm/icons/globe';
+import Info from 'lucide-react/dist/esm/icons/info';
+import MessageSquare from 'lucide-react/dist/esm/icons/message-square';
+import UserPlus from 'lucide-react/dist/esm/icons/user-plus';
 import { NavLink } from 'react-router-dom';
 
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
@@ -39,12 +43,15 @@ export function Sidebar() {
    * Handler for protected navigation items.
    * If user is not authenticated, prevents navigation and opens login modal.
    */
-  const handleProtectedClick = (e: React.MouseEvent) => {
-    if (!user) {
-      e.preventDefault();
-      openLogin();
-    }
-  };
+  const handleProtectedClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (!user) {
+        e.preventDefault();
+        openLogin();
+      }
+    },
+    [user, openLogin]
+  );
 
   return (
     <aside className='border-syft-border bg-syft-background fixed top-0 left-0 z-50 flex h-screen w-20 flex-col items-center border-r py-8'>

@@ -6,18 +6,16 @@ import type { SourcesData } from './chat/sources-section';
 import type { ProcessingStatus } from './chat/status-indicator';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import {
-  ArrowDown,
-  Brain,
-  Check,
-  Clock,
-  Cpu,
-  Database,
-  Info,
-  Loader2,
-  Settings2,
-  X
-} from 'lucide-react';
+import ArrowDown from 'lucide-react/dist/esm/icons/arrow-down';
+import Brain from 'lucide-react/dist/esm/icons/brain';
+import Check from 'lucide-react/dist/esm/icons/check';
+import Clock from 'lucide-react/dist/esm/icons/clock';
+import Cpu from 'lucide-react/dist/esm/icons/cpu';
+import Database from 'lucide-react/dist/esm/icons/database';
+import Info from 'lucide-react/dist/esm/icons/info';
+import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
+import Settings2 from 'lucide-react/dist/esm/icons/settings-2';
+import X from 'lucide-react/dist/esm/icons/x';
 
 import { useAuth } from '@/context/auth-context';
 import { triggerBalanceRefresh } from '@/hooks/use-accounting-api';
@@ -59,13 +57,13 @@ function AdvancedPanel({
 
   const handleAddSource = (event: React.KeyboardEvent) => {
     if (event.key === 'Enter' && customSourceInput.trim()) {
-      setCustomSources([...customSources, customSourceInput.trim()]);
+      setCustomSources((previous) => [...previous, customSourceInput.trim()]);
       setCustomSourceInput('');
     }
   };
 
   const removeCustomSource = (index: number) => {
-    setCustomSources(customSources.filter((_, index_) => index_ !== index));
+    setCustomSources((previous) => previous.filter((_, index_) => index_ !== index));
   };
 
   return (

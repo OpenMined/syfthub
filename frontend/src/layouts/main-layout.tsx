@@ -1,6 +1,8 @@
 import { Suspense } from 'react';
 
-import { LogOut, Settings, User } from 'lucide-react';
+import LogOut from 'lucide-react/dist/esm/icons/log-out';
+import Settings from 'lucide-react/dist/esm/icons/settings';
+import User from 'lucide-react/dist/esm/icons/user';
 import { Outlet, useNavigate } from 'react-router-dom';
 
 import { AuthModals } from '@/components/auth/auth-modals';

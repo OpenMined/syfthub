@@ -1,7 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, Check, Globe, Loader2, Save, User } from 'lucide-react';
+import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
+import Check from 'lucide-react/dist/esm/icons/check';
+import Globe from 'lucide-react/dist/esm/icons/globe';
+import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
+import Save from 'lucide-react/dist/esm/icons/save';
+import User from 'lucide-react/dist/esm/icons/user';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

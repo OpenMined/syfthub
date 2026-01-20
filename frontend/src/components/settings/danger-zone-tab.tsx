@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, AlertTriangle, Loader2, Trash2 } from 'lucide-react';
+import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
+import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
+import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
+import Trash2 from 'lucide-react/dist/esm/icons/trash-2';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

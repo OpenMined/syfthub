@@ -1,18 +1,16 @@
-import { useState } from 'react';
+import { memo, useCallback, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import {
-  AlertCircle,
-  Check,
-  ChevronDown,
-  ChevronUp,
-  Clock,
-  FileText,
-  Pencil,
-  Search,
-  Sparkles,
-  X
-} from 'lucide-react';
+import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
+import Check from 'lucide-react/dist/esm/icons/check';
+import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
+import ChevronUp from 'lucide-react/dist/esm/icons/chevron-up';
+import Clock from 'lucide-react/dist/esm/icons/clock';
+import FileText from 'lucide-react/dist/esm/icons/file-text';
+import Pencil from 'lucide-react/dist/esm/icons/pencil';
+import Search from 'lucide-react/dist/esm/icons/search';
+import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
+import X from 'lucide-react/dist/esm/icons/x';
 
 // =============================================================================
 // Types
@@ -57,7 +55,7 @@ export interface ProcessingStatus {
 /**
  * Animated dots indicator (matching the original ThinkingIndicator style)
  */
-function AnimatedDots() {
+const AnimatedDots = memo(function AnimatedDots() {
   return (
     <div className='flex items-center gap-1'>
       {[0, 1, 2].map((index) => (
@@ -78,12 +76,14 @@ function AnimatedDots() {
       ))}
     </div>
   );
-}
+});
 
 /**
  * Phase icon with appropriate animation
  */
-function PhaseIcon({ phase }: Readonly<{ phase: ProcessingStatus['phase'] }>) {
+const PhaseIcon = memo(function PhaseIcon({
+  phase
+}: Readonly<{ phase: ProcessingStatus['phase'] }>) {
   const iconClass = 'h-4 w-4';
 
   switch (phase) {
@@ -124,12 +124,14 @@ function PhaseIcon({ phase }: Readonly<{ phase: ProcessingStatus['phase'] }>) {
       return <FileText className={`${iconClass} text-[#5e5a72]`} />;
     }
   }
-}
+});
 
 /**
  * Status icon for a completed source
  */
-function SourceStatusIcon({ status }: Readonly<{ status: SourceProgressInfo['status'] }>) {
+const SourceStatusIcon = memo(function SourceStatusIcon({
+  status
+}: Readonly<{ status: SourceProgressInfo['status'] }>) {
   const iconClass = 'h-3.5 w-3.5';
 
   switch (status) {
@@ -166,12 +168,12 @@ function SourceStatusIcon({ status }: Readonly<{ status: SourceProgressInfo['sta
       return null;
     }
   }
-}
+});
 
 /**
  * Row showing status of a single source
  */
-function SourceStatusRow({
+const SourceStatusRow = memo(function SourceStatusRow({
   source,
   index
 }: Readonly<{ source: SourceProgressInfo; index: number }>) {
@@ -199,7 +201,7 @@ function SourceStatusRow({
       )}
     </motion.div>
   );
-}
+});
 
 // =============================================================================
 // Main Component
@@ -228,6 +230,10 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
     status.phase === 'retrieving' && status.retrieval
       ? status.retrieval.total - status.retrieval.completed
       : 0;
+
+  const toggleExpanded = useCallback(() => {
+    setIsExpanded((previous) => !previous);
+  }, []);
 
   return (
     <motion.div
@@ -286,9 +292,7 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.3 }}
-            onClick={() => {
-              setIsExpanded(!isExpanded);
-            }}
+            onClick={toggleExpanded}
             className='mt-2 flex items-center gap-1 pl-6 text-xs text-[#6976ae] transition-colors hover:text-[#272532]'
           >
             {isExpanded ? (

@@ -1,7 +1,12 @@
 import React, { useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, Check, Key, Loader2, Lock, Shield } from 'lucide-react';
+import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
+import Check from 'lucide-react/dist/esm/icons/check';
+import Key from 'lucide-react/dist/esm/icons/key';
+import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
+import Lock from 'lucide-react/dist/esm/icons/lock';
+import Shield from 'lucide-react/dist/esm/icons/shield';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

@@ -2,23 +2,21 @@ import React, { useEffect, useState } from 'react';
 
 import type { ChatSource, EndpointType, Policy } from '@/lib/types';
 
-import {
-  ArrowLeft,
-  Calendar,
-  Coins,
-  Gauge,
-  Globe,
-  Key,
-  Lock,
-  MapPin,
-  Package,
-  Shield,
-  ShieldCheck,
-  Star,
-  Unlock,
-  Users,
-  Zap
-} from 'lucide-react';
+import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left';
+import Calendar from 'lucide-react/dist/esm/icons/calendar';
+import Coins from 'lucide-react/dist/esm/icons/coins';
+import Gauge from 'lucide-react/dist/esm/icons/gauge';
+import Globe from 'lucide-react/dist/esm/icons/globe';
+import Key from 'lucide-react/dist/esm/icons/key';
+import Lock from 'lucide-react/dist/esm/icons/lock';
+import MapPin from 'lucide-react/dist/esm/icons/map-pin';
+import Package from 'lucide-react/dist/esm/icons/package';
+import Shield from 'lucide-react/dist/esm/icons/shield';
+import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check';
+import Star from 'lucide-react/dist/esm/icons/star';
+import Unlock from 'lucide-react/dist/esm/icons/unlock';
+import Users from 'lucide-react/dist/esm/icons/users';
+import Zap from 'lucide-react/dist/esm/icons/zap';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 

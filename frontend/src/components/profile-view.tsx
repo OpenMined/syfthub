@@ -1,19 +1,17 @@
 import React, { useEffect, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import {
-  AlertCircle,
-  Calendar,
-  Check,
-  Edit3,
-  Key,
-  Lock,
-  Mail,
-  Save,
-  Shield,
-  User as UserIcon,
-  X
-} from 'lucide-react';
+import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
+import Calendar from 'lucide-react/dist/esm/icons/calendar';
+import Check from 'lucide-react/dist/esm/icons/check';
+import Edit3 from 'lucide-react/dist/esm/icons/edit-3';
+import Key from 'lucide-react/dist/esm/icons/key';
+import Lock from 'lucide-react/dist/esm/icons/lock';
+import Mail from 'lucide-react/dist/esm/icons/mail';
+import Save from 'lucide-react/dist/esm/icons/save';
+import Shield from 'lucide-react/dist/esm/icons/shield';
+import UserIcon from 'lucide-react/dist/esm/icons/user';
+import X from 'lucide-react/dist/esm/icons/x';
 
 import { useAuth } from '@/context/auth-context';
 import { changePasswordAPI, updateUserProfileAPI } from '@/lib/sdk-client';

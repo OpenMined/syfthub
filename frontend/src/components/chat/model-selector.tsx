@@ -3,7 +3,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatSource } from '@/lib/types';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { Brain, Check, ChevronDown, ExternalLink, Loader2, Search, Star } from 'lucide-react';
+import Brain from 'lucide-react/dist/esm/icons/brain';
+import Check from 'lucide-react/dist/esm/icons/check';
+import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
+import ExternalLink from 'lucide-react/dist/esm/icons/external-link';
+import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
+import Search from 'lucide-react/dist/esm/icons/search';
+import Star from 'lucide-react/dist/esm/icons/star';
 import { useNavigate } from 'react-router-dom';
 
 interface ModelSelectorProps {
