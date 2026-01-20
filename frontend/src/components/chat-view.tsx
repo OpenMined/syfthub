@@ -227,7 +227,11 @@ function AdvancedPanel({
                   )}
 
                   <div className='relative mt-2'>
+                    <label htmlFor='custom-source-input' className='sr-only'>
+                      Add external source
+                    </label>
                     <input
+                      id='custom-source-input'
                       type='text'
                       value={customSourceInput}
                       onChange={(event) => {
@@ -236,8 +240,12 @@ function AdvancedPanel({
                       onKeyDown={handleAddSource}
                       placeholder='Add external source (e.g. hf/dataset)…'
                       className='font-inter w-full rounded-lg border border-green-200 bg-white py-2 pr-8 pl-3 text-xs transition-colors transition-shadow placeholder:text-green-700/40 focus:border-green-500 focus:ring-1 focus:ring-green-500/20 focus:outline-none'
+                      autoComplete='off'
                     />
-                    <div className='font-inter pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-[10px] text-gray-400'>
+                    <div
+                      className='font-inter pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-[10px] text-gray-400'
+                      aria-hidden='true'
+                    >
                       ↵
                     </div>
                   </div>
@@ -352,7 +360,7 @@ interface SourceSelectorProperties {
 
 function SourceSelector({ sources, selectedIds, onToggle }: Readonly<SourceSelectorProperties>) {
   return (
-    <div className='my-4 w-full max-w-3xl space-y-3'>
+    <div className='my-4 w-full max-w-3xl space-y-3' role='group' aria-label='Select data sources'>
       {sources.map((source) => {
         const isSelected = selectedIds.includes(source.id);
 
@@ -361,12 +369,14 @@ function SourceSelector({ sources, selectedIds, onToggle }: Readonly<SourceSelec
         if (source.status === 'inactive') statusColor = 'bg-red-500';
 
         return (
-          <div
+          <button
             key={source.id}
+            type='button'
             onClick={() => {
               onToggle(source.id);
             }}
-            className={`group relative flex cursor-pointer items-start gap-4 rounded-xl border p-4 transition-all ${isSelected ? 'border-[#6976ae] bg-[#f7f6f9]' : 'border-[#ecebef] bg-white hover:border-[#cfcdd6]'} `}
+            aria-pressed={isSelected}
+            className={`group relative flex w-full cursor-pointer items-start gap-4 rounded-xl border p-4 text-left transition-all focus-visible:ring-2 focus-visible:ring-[#272532]/50 focus-visible:outline-none ${isSelected ? 'border-[#6976ae] bg-[#f7f6f9]' : 'border-[#ecebef] bg-white hover:border-[#cfcdd6]'} `}
           >
             <div className='min-w-0 flex-1'>
               {/* Header */}
@@ -403,18 +413,19 @@ function SourceSelector({ sources, selectedIds, onToggle }: Readonly<SourceSelec
 
               {/* Footer */}
               <div className='font-inter flex items-center gap-1.5 text-xs text-[#b4b0bf]'>
-                <Clock className='h-3.5 w-3.5' />
+                <Clock className='h-3.5 w-3.5' aria-hidden='true' />
                 <span>Updated {source.updated}</span>
               </div>
             </div>
 
-            {/* Checkbox */}
+            {/* Checkbox indicator */}
             <div
               className={`mt-1 flex h-6 w-6 items-center justify-center rounded border transition-colors ${isSelected ? 'border-[#272532] bg-[#272532]' : 'border-[#cfcdd6] bg-white group-hover:border-[#b4b0bf]'} `}
+              aria-hidden='true'
             >
               {isSelected && <Check className='h-3.5 w-3.5 text-white' />}
             </div>
-          </div>
+          </button>
         );
       })}
     </div>
@@ -1075,7 +1086,11 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
             </button>
 
             <div className='relative flex-1'>
+              <label htmlFor='chat-followup-input' className='sr-only'>
+                Ask a follow-up question
+              </label>
               <input
+                id='chat-followup-input'
                 type='text'
                 value={inputValue}
                 onChange={(event) => {
@@ -1083,6 +1098,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                 }}
                 placeholder='Ask a follow-up question…'
                 className='font-inter w-full rounded-xl border border-[#ecebef] bg-[#fcfcfd] py-3.5 pr-12 pl-4 shadow-sm transition-colors transition-shadow placeholder:text-[#b4b0bf] focus:border-[#272532] focus:ring-2 focus:ring-[#272532]/10 focus:outline-none'
+                autoComplete='off'
               />
               <button
                 type='submit'

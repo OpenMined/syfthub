@@ -159,7 +159,7 @@ export function Modal({
                 onClick={onClose}
                 aria-label='Close modal'
               >
-                <X className='h-4 w-4' />
+                <X className='h-4 w-4' aria-hidden='true' />
               </Button>
             )}
 

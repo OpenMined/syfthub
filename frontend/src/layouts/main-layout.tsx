@@ -89,7 +89,7 @@ export function MainLayout() {
                 className='text-syft-muted hover:text-syft-primary h-6 w-6'
                 aria-label='Settings'
               >
-                <Settings className='h-3 w-3' />
+                <Settings className='h-3 w-3' aria-hidden='true' />
               </Button>
               <Button
                 variant='ghost'
@@ -98,7 +98,7 @@ export function MainLayout() {
                 className='text-syft-muted hover:text-syft-primary h-6 w-6'
                 aria-label='Logout'
               >
-                <LogOut className='h-3 w-3' />
+                <LogOut className='h-3 w-3' aria-hidden='true' />
               </Button>
             </div>
           </>

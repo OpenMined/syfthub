@@ -92,11 +92,15 @@ export function Hero({
           </div>
 
           {/* Search Bar */}
-          <form onSubmit={handleSearch} className='space-y-4'>
+          <form onSubmit={handleSearch} className='space-y-4' role='search'>
             <div className='group relative'>
+              <label htmlFor='hero-search' className='sr-only'>
+                Search for data sources, models, or topics
+              </label>
               <input
+                id='hero-search'
                 ref={inputReference}
-                type='text'
+                type='search'
                 name='search'
                 value={searchValue}
                 onChange={(event) => {
@@ -115,6 +119,7 @@ export function Hero({
                   className={`h-5 w-5 transition-colors ${
                     searchValue ? 'text-syft-primary' : 'text-syft-placeholder'
                   }`}
+                  aria-hidden='true'
                 />
               </button>
             </div>

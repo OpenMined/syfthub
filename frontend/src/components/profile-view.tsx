@@ -241,10 +241,13 @@ export function ProfileView() {
                     <img
                       src={user.avatar_url}
                       alt={user.name}
+                      width={64}
+                      height={64}
+                      loading='lazy'
                       className='h-16 w-16 rounded-full object-cover'
                     />
                   ) : (
-                    <UserIcon className='h-8 w-8 text-white' />
+                    <UserIcon className='h-8 w-8 text-white' aria-hidden='true' />
                   )}
                 </div>
                 <div>

@@ -47,7 +47,10 @@ export function RecentModels({ endpoints, isLoading }: Readonly<RecentModelsProp
           className='group flex items-center gap-1 text-xs text-[#6976ae] transition-colors hover:text-[#272532]'
         >
           View all{' '}
-          <ArrowRight className='h-3 w-3 transition-transform group-hover:translate-x-0.5' />
+          <ArrowRight
+            className='h-3 w-3 transition-transform group-hover:translate-x-0.5'
+            aria-hidden='true'
+          />
         </Link>
       </div>
       <div className='space-y-1.5'>
@@ -87,7 +90,7 @@ export function RecentModels({ endpoints, isLoading }: Readonly<RecentModelsProp
                   className='font-inter flex shrink-0 items-center gap-1 rounded-full bg-[#f1f0f4] px-3 py-1 text-xs text-black'
                   title={`${String(endpoint.stars_count)} stars`}
                 >
-                  <Star className='h-3 w-3' />
+                  <Star className='h-3 w-3' aria-hidden='true' />
                   {formatCount(endpoint.stars_count)}
                 </span>
               </Link>

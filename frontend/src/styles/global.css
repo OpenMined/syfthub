@@ -137,6 +137,19 @@
   h6 {
     font-family: 'Rubik', system-ui, sans-serif;
   }
+
+  /* Apply text-balance to headings for better typography (Web Interface Guidelines) */
+  h1,
+  h2 {
+    text-wrap: balance;
+  }
+
+  h3,
+  h4,
+  h5,
+  h6 {
+    text-wrap: pretty;
+  }
 }
 
 /* SyftHub-specific utility classes */

@@ -41,6 +41,8 @@ interface InputProperties
   isRequired?: boolean;
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
+  /** Input mode for mobile keyboard optimization */
+  inputMode?: 'none' | 'text' | 'tel' | 'url' | 'email' | 'numeric' | 'decimal' | 'search';
 }
 
 const Input = React.forwardRef<HTMLInputElement, InputProperties>(
@@ -57,10 +59,20 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
       leftIcon,
       rightIcon,
       id,
+      inputMode,
       ...properties
     },
     reference
   ) => {
+    // Auto-determine inputMode based on type if not explicitly set (Web Interface Guidelines)
+    const typeToInputMode: Record<string, InputProperties['inputMode']> = {
+      email: 'email',
+      tel: 'tel',
+      url: 'url',
+      number: 'numeric',
+      search: 'search'
+    };
+    const resolvedInputMode = inputMode ?? typeToInputMode[type];
     const [isPasswordVisible, setIsPasswordVisible] = React.useState(false);
     const inputId = id ?? React.useId();
     const errorId = `${inputId}-error`;
@@ -86,7 +98,10 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
 
         <div className='relative'>
           {leftIcon && (
-            <div className='text-syft-muted absolute top-1/2 left-3 -translate-y-1/2'>
+            <div
+              className='text-syft-muted absolute top-1/2 left-3 -translate-y-1/2'
+              aria-hidden='true'
+            >
               {leftIcon}
             </div>
           )}
@@ -94,6 +109,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
           <input
             id={inputId}
             type={inputType}
+            inputMode={resolvedInputMode}
             className={cn(
               inputVariants({ variant: currentVariant, size }),
               leftIcon && 'pl-10',
@@ -125,7 +141,10 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
           )}
 
           {rightIcon && !isPassword && (
-            <div className='text-syft-muted absolute top-1/2 right-3 -translate-y-1/2'>
+            <div
+              className='text-syft-muted absolute top-1/2 right-3 -translate-y-1/2'
+              aria-hidden='true'
+            >
               {rightIcon}
             </div>
           )}

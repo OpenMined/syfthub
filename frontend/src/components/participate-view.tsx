@@ -94,11 +94,17 @@ export function ParticipateView({
                 </p>
 
                 <div className='flex flex-wrap gap-4'>
-                  <button className='font-inter flex items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-medium text-[#272532] transition-colors hover:bg-gray-100'>
-                    <Download className='h-4 w-4' />
+                  <button
+                    type='button'
+                    className='font-inter flex items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-medium text-[#272532] transition-colors hover:bg-gray-100'
+                  >
+                    <Download className='h-4 w-4' aria-hidden='true' />
                     Download for macOS
                   </button>
-                  <button className='font-inter flex items-center gap-2 rounded-lg border border-[#4a465d] bg-[#353243] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#4a465d]'>
+                  <button
+                    type='button'
+                    className='font-inter flex items-center gap-2 rounded-lg border border-[#4a465d] bg-[#353243] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#4a465d]'
+                  >
                     Download for Windows
                   </button>
                 </div>
