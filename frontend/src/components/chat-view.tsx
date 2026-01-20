@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 
 import type { ChatStreamEvent } from '@/lib/sdk-client';
 import type { ChatSource } from '@/lib/types';
@@ -37,7 +37,8 @@ import { Badge } from './ui/badge';
 import { Label } from './ui/label';
 import { Switch } from './ui/switch';
 
-function AdvancedPanel({
+// Memoized AdvancedPanel to prevent unnecessary re-renders
+const AdvancedPanel = memo(function AdvancedPanel({
   isOpen,
   onClose,
   sources,
@@ -338,7 +339,7 @@ function AdvancedPanel({
       )}
     </AnimatePresence>
   );
-}
+});
 
 interface SourceSelectorProperties {
   sources: ChatSource[];
@@ -346,7 +347,12 @@ interface SourceSelectorProperties {
   onToggle: (id: string) => void;
 }
 
-function SourceSelector({ sources, selectedIds, onToggle }: Readonly<SourceSelectorProperties>) {
+// Memoized SourceSelector to prevent unnecessary re-renders when parent state changes
+const SourceSelector = memo(function SourceSelector({
+  sources,
+  selectedIds,
+  onToggle
+}: Readonly<SourceSelectorProperties>) {
   return (
     <div className='my-4 w-full max-w-3xl space-y-3'>
       {sources.map((source) => {
@@ -415,7 +421,7 @@ function SourceSelector({ sources, selectedIds, onToggle }: Readonly<SourceSelec
       })}
     </div>
   );
-}
+});
 
 interface Message {
   id: string;
@@ -827,160 +833,176 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
   // Use available sources for the panel (now loaded from backend)
   const allSources = availableSources;
 
-  const toggleSource = (id: string) => {
+  // Memoized toggleSource using functional setState for stable reference
+  const toggleSource = useCallback((id: string) => {
     setSelectedSources((previous) =>
       previous.includes(id) ? previous.filter((index) => index !== id) : [...previous, id]
     );
-  };
+  }, []);
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!inputValue.trim() || isProcessing) return;
+  // Memoized panel handlers for stable references
+  const handleOpenPanel = useCallback(() => {
+    setIsPanelOpen(true);
+  }, []);
 
-    // Validate model is selected
-    if (!selectedModel) {
-      setMessages((previous) => [
-        ...previous,
-        {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: 'Please select a model before sending a message.',
-          type: 'text'
-        }
-      ]);
-      return;
-    }
+  const handleClosePanel = useCallback(() => {
+    setIsPanelOpen(false);
+  }, []);
 
-    // Validate user is authenticated
-    if (!user?.email) {
-      setMessages((previous) => [
-        ...previous,
-        {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: 'Please log in to use the chat feature.',
-          type: 'text'
-        }
-      ]);
-      return;
-    }
+  // Memoized input handler using functional setState
+  const handleInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    setInputValue(event.target.value);
+  }, []);
 
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: inputValue,
-      type: 'text'
-    };
+  const handleSubmit = useCallback(
+    async (event: React.FormEvent) => {
+      event.preventDefault();
+      if (!inputValue.trim() || isProcessing) return;
 
-    setMessages((previous) => [...previous, userMessage]);
-    setInputValue('');
-    setIsProcessing(true);
-
-    // Create assistant message placeholder for streaming with thinking state
-    const assistantMessageId = (Date.now() + 1).toString();
-    setMessages((previous) => [
-      ...previous,
-      {
-        id: assistantMessageId,
-        role: 'assistant',
-        content: '',
-        type: 'text',
-        isThinking: true
-      }
-    ]);
-
-    // Build endpoint paths using "owner/slug" format
-    // The SDK will resolve these to full endpoint references internally
-    const modelPath = selectedModel.full_path;
-    if (!modelPath) {
-      setMessages((previous) =>
-        updateMessageContent(
-          previous,
-          assistantMessageId,
-          'Error: Selected model does not have a valid path configured.'
-        )
-      );
-      setIsProcessing(false);
-      return;
-    }
-
-    // Build data source paths
-    const dataSourcePaths = selectedSources
-      .map((id) => {
-        const source = availableSources.find((s) => s.id === id);
-        return source?.full_path;
-      })
-      .filter((path): path is string => path !== undefined);
-
-    // Create abort controller for cancellation
-    abortControllerReference.current = new AbortController();
-
-    // Initialize processing status
-    setProcessingStatus({
-      phase: 'retrieving',
-      message: 'Starting...',
-      completedSources: []
-    });
-
-    try {
-      let accumulatedContent = '';
-
-      // Use SDK for streaming - SDK resolves paths internally
-      for await (const event of syftClient.chat.stream({
-        prompt: inputValue,
-        model: modelPath,
-        dataSources: dataSourcePaths.length > 0 ? dataSourcePaths : undefined,
-        signal: abortControllerReference.current.signal
-      })) {
-        // Update processing status from event
-        updateStatusFromEvent(event, setProcessingStatus);
-
-        // Handle token content
-        processStreamEvent(event, (content) => {
-          accumulatedContent += content;
-          setMessages((previous) =>
-            updateMessageContent(previous, assistantMessageId, accumulatedContent)
-          );
-        });
-
-        // Capture sources from done event
-        if (event.type === 'done') {
-          const doneEvent = event;
-          if (Object.keys(doneEvent.sources).length > 0) {
-            setMessages((previous) =>
-              addAggregatorSources(previous, assistantMessageId, doneEvent.sources)
-            );
+      // Validate model is selected
+      if (!selectedModel) {
+        setMessages((previous) => [
+          ...previous,
+          {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: 'Please select a model before sending a message.',
+            type: 'text'
           }
-        }
-      }
-
-      // Refresh balance after successful chat completion (credits may have been consumed)
-      triggerBalanceRefresh();
-    } catch (error) {
-      // Don't show error if it was aborted - clean up status
-      if (error instanceof Error && error.name === 'AbortError') {
-        setProcessingStatus(null);
+        ]);
         return;
       }
 
-      const errorMessage = getChatErrorMessage(error);
-      setMessages((previous) =>
-        updateMessageContent(previous, assistantMessageId, `Error: ${errorMessage}`)
-      );
-      setProcessingStatus(null);
-    } finally {
-      setIsProcessing(false);
-      abortControllerReference.current = null;
-    }
-  };
+      // Validate user is authenticated
+      if (!user?.email) {
+        setMessages((previous) => [
+          ...previous,
+          {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: 'Please log in to use the chat feature.',
+            type: 'text'
+          }
+        ]);
+        return;
+      }
+
+      const userMessage: Message = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: inputValue,
+        type: 'text'
+      };
+
+      setMessages((previous) => [...previous, userMessage]);
+      setInputValue('');
+      setIsProcessing(true);
+
+      // Create assistant message placeholder for streaming with thinking state
+      const assistantMessageId = (Date.now() + 1).toString();
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: assistantMessageId,
+          role: 'assistant',
+          content: '',
+          type: 'text',
+          isThinking: true
+        }
+      ]);
+
+      // Build endpoint paths using "owner/slug" format
+      // The SDK will resolve these to full endpoint references internally
+      const modelPath = selectedModel.full_path;
+      if (!modelPath) {
+        setMessages((previous) =>
+          updateMessageContent(
+            previous,
+            assistantMessageId,
+            'Error: Selected model does not have a valid path configured.'
+          )
+        );
+        setIsProcessing(false);
+        return;
+      }
+
+      // Build data source paths
+      const dataSourcePaths = selectedSources
+        .map((id) => {
+          const source = availableSources.find((s) => s.id === id);
+          return source?.full_path;
+        })
+        .filter((path): path is string => path !== undefined);
+
+      // Create abort controller for cancellation
+      abortControllerReference.current = new AbortController();
+
+      // Initialize processing status
+      setProcessingStatus({
+        phase: 'retrieving',
+        message: 'Starting...',
+        completedSources: []
+      });
+
+      try {
+        let accumulatedContent = '';
+
+        // Use SDK for streaming - SDK resolves paths internally
+        for await (const event of syftClient.chat.stream({
+          prompt: inputValue,
+          model: modelPath,
+          dataSources: dataSourcePaths.length > 0 ? dataSourcePaths : undefined,
+          signal: abortControllerReference.current.signal
+        })) {
+          // Update processing status from event
+          updateStatusFromEvent(event, setProcessingStatus);
+
+          // Handle token content
+          processStreamEvent(event, (content) => {
+            accumulatedContent += content;
+            setMessages((previous) =>
+              updateMessageContent(previous, assistantMessageId, accumulatedContent)
+            );
+          });
+
+          // Capture sources from done event
+          if (event.type === 'done') {
+            const doneEvent = event;
+            if (Object.keys(doneEvent.sources).length > 0) {
+              setMessages((previous) =>
+                addAggregatorSources(previous, assistantMessageId, doneEvent.sources)
+              );
+            }
+          }
+        }
+
+        // Refresh balance after successful chat completion (credits may have been consumed)
+        triggerBalanceRefresh();
+      } catch (error) {
+        // Don't show error if it was aborted - clean up status
+        if (error instanceof Error && error.name === 'AbortError') {
+          setProcessingStatus(null);
+          return;
+        }
+
+        const errorMessage = getChatErrorMessage(error);
+        setMessages((previous) =>
+          updateMessageContent(previous, assistantMessageId, `Error: ${errorMessage}`)
+        );
+        setProcessingStatus(null);
+      } finally {
+        setIsProcessing(false);
+        abortControllerReference.current = null;
+      }
+    },
+    [inputValue, isProcessing, selectedModel, user?.email, availableSources, selectedSources]
+  );
 
   return (
     <div className='min-h-screen bg-white pb-32'>
       <AdvancedPanel
         isOpen={isPanelOpen}
-        onClose={() => {
-          setIsPanelOpen(false);
-        }}
+        onClose={handleClosePanel}
         sources={allSources}
         selectedIds={selectedSources}
         selectedModel={selectedModel}
@@ -1058,9 +1080,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
           <form onSubmit={handleSubmit} className='relative flex gap-3'>
             <button
               type='button'
-              onClick={() => {
-                setIsPanelOpen(true);
-              }}
+              onClick={handleOpenPanel}
               className='group flex items-center justify-center rounded-xl border border-[#ecebef] bg-[#fcfcfd] p-3.5 text-[#5e5a72] transition-colors hover:bg-[#f1f0f4] hover:text-[#272532]'
               title='Open Advanced Configuration'
             >
@@ -1071,9 +1091,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
               <input
                 type='text'
                 value={inputValue}
-                onChange={(event) => {
-                  setInputValue(event.target.value);
-                }}
+                onChange={handleInputChange}
                 placeholder='Ask a follow-up question...'
                 className='font-inter w-full rounded-xl border border-[#ecebef] bg-[#fcfcfd] py-3.5 pr-12 pl-4 shadow-sm transition-all placeholder:text-[#b4b0bf] focus:border-[#272532] focus:ring-2 focus:ring-[#272532]/10 focus:outline-none'
               />
