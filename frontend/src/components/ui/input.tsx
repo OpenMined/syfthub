@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 import { Button } from './button';
 
 const inputVariants = cva(
-  'flex w-full rounded-lg border px-3 py-2 text-sm transition-all file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50',
+  'flex w-full rounded-lg border px-3 py-2 text-sm transition-colors transition-shadow file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50',
   {
     variants: {
       variant: {
@@ -114,8 +114,13 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
               className='text-syft-muted hover:text-syft-primary absolute top-1/2 right-1 h-8 w-8 -translate-y-1/2'
               onClick={togglePasswordVisibility}
               tabIndex={-1}
+              aria-label={isPasswordVisible ? 'Hide password' : 'Show password'}
             >
-              {isPasswordVisible ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
+              {isPasswordVisible ? (
+                <EyeOff className='h-4 w-4' aria-hidden='true' />
+              ) : (
+                <Eye className='h-4 w-4' aria-hidden='true' />
+              )}
             </Button>
           )}
 

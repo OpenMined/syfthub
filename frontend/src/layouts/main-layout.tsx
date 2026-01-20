@@ -1,7 +1,7 @@
 import { Suspense } from 'react';
 
 import { LogOut, Settings, User } from 'lucide-react';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Link, Outlet } from 'react-router-dom';
 
 import { AuthModals } from '@/components/auth/auth-modals';
 import { BalanceIndicator } from '@/components/balance';
@@ -27,11 +27,10 @@ export function MainLayout() {
   const { user, logout, isInitializing } = useAuth();
   const { openLogin, openRegister } = useModal();
   const { openSettings } = useSettingsModal();
-  const navigate = useNavigate();
 
   // Show full-screen loading while initializing auth
   if (isInitializing) {
-    return <LoadingSpinner fullScreen size='lg' message='Loading SyftHub...' />;
+    return <LoadingSpinner fullScreen size='lg' message='Loading SyftHub…' />;
   }
 
   const handleLogout = () => {
@@ -60,21 +59,27 @@ export function MainLayout() {
 
             {/* User Info & Actions */}
             <div className='border-syft-border flex items-center gap-3 rounded-lg border bg-white/95 px-3 py-2 shadow-sm backdrop-blur-sm'>
-              <button
-                onClick={() => navigate('/profile')}
+              <Link
+                to='/profile'
                 className='flex items-center gap-2 rounded-md p-1 transition-colors hover:bg-gray-100'
               >
                 {user.avatar_url ? (
-                  <img src={user.avatar_url} alt={user.name} className='h-6 w-6 rounded-full' />
+                  <img
+                    src={user.avatar_url}
+                    alt=''
+                    width={24}
+                    height={24}
+                    className='h-6 w-6 rounded-full'
+                  />
                 ) : (
                   <div className='bg-syft-primary flex h-6 w-6 items-center justify-center rounded-full'>
-                    <User className='h-3 w-3 text-white' />
+                    <User className='h-3 w-3 text-white' aria-hidden='true' />
                   </div>
                 )}
                 <span className='font-inter text-syft-primary text-sm font-medium'>
                   {user.name || user.email}
                 </span>
-              </button>
+              </Link>
               <Button
                 variant='ghost'
                 size='icon'
@@ -114,7 +119,7 @@ export function MainLayout() {
         <Suspense
           fallback={
             <div className='flex min-h-[400px] items-center justify-center'>
-              <LoadingSpinner size='lg' message='Loading...' />
+              <LoadingSpinner size='lg' message='Loading…' />
             </div>
           }
         >

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { Send } from 'lucide-react';
 
@@ -17,6 +17,15 @@ export function Hero({
   fullHeight = false
 }: Readonly<HeroProperties>) {
   const [searchValue, setSearchValue] = useState('');
+  const inputReference = useRef<HTMLInputElement>(null);
+
+  // Auto-focus on desktop only (avoid virtual keyboard on mobile)
+  useEffect(() => {
+    const isDesktop = globalThis.matchMedia('(min-width: 1024px)').matches;
+    if (isDesktop && inputReference.current) {
+      inputReference.current.focus();
+    }
+  }, []);
 
   const handleSearch = (event: React.FormEvent) => {
     event.preventDefault();
@@ -86,14 +95,16 @@ export function Hero({
           <form onSubmit={handleSearch} className='space-y-4'>
             <div className='group relative'>
               <input
-                autoFocus
+                ref={inputReference}
                 type='text'
+                name='search'
                 value={searchValue}
                 onChange={(event) => {
                   setSearchValue(event.target.value);
                 }}
-                placeholder='What are you looking for?'
-                className='font-inter border-syft-border-light text-syft-primary placeholder:text-syft-placeholder focus:ring-syft-primary w-full rounded-xl border bg-white px-6 py-4 shadow-sm transition-all focus:border-transparent focus:ring-2 focus:outline-none'
+                placeholder='What are you looking for…'
+                className='font-inter border-syft-border-light text-syft-primary placeholder:text-syft-placeholder focus:ring-syft-primary w-full rounded-xl border bg-white px-6 py-4 shadow-sm transition-colors transition-shadow focus:border-transparent focus:ring-2 focus:outline-none'
+                autoComplete='off'
               />
               <button
                 type='submit'
@@ -117,7 +128,7 @@ export function Hero({
                   onClick={() => {
                     handleSuggestionClick(suggestion);
                   }}
-                  className='font-inter border-syft-border text-syft-primary hover:border-syft-primary hover:bg-syft-surface focus:ring-syft-primary rounded-full border bg-white px-4 py-1.5 text-sm transition-all focus:ring-2 focus:ring-offset-2 focus:outline-none'
+                  className='font-inter border-syft-border text-syft-primary hover:border-syft-primary hover:bg-syft-surface focus:ring-syft-primary rounded-full border bg-white px-4 py-1.5 text-sm transition-colors focus:ring-2 focus:ring-offset-2 focus:outline-none'
                 >
                   {suggestion}
                 </button>

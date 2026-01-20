@@ -27,7 +27,11 @@ export function LoadingSpinner({
           sizeClasses[size]
         )}
       />
-      {message && <span className='font-inter text-syft-primary'>{message}</span>}
+      {message && (
+        <span className='font-inter text-syft-primary' aria-live='polite'>
+          {message}
+        </span>
+      )}
     </div>
   );
 
