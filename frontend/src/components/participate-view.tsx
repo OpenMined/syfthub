@@ -162,16 +162,28 @@ export function ParticipateView({
               </div>
 
               <div className='flex gap-4'>
-                <div className='w-40 rounded-xl border border-[#ecebef] bg-white p-4 transition-colors hover:border-[#b4b0bf]'>
+                <a
+                  href='https://pypi.org/project/syfthub-sdk/'
+                  target='_blank'
+                  rel='noopener noreferrer'
+                  className='w-40 rounded-xl border border-[#ecebef] bg-white p-4 transition-colors hover:border-[#b4b0bf]'
+                >
                   <Cpu className='mb-3 h-6 w-6 text-[#272532]' />
                   <div className='font-inter font-medium text-[#272532]'>Python SDK</div>
-                  <div className='font-inter mt-1 text-xs text-[#5e5a72]'>pip install syft</div>
-                </div>
-                <div className='w-40 rounded-xl border border-[#ecebef] bg-white p-4 transition-colors hover:border-[#b4b0bf]'>
+                  <div className='font-inter mt-1 text-xs text-[#5e5a72]'>
+                    pip install syfthub-sdk
+                  </div>
+                </a>
+                <a
+                  href='https://www.npmjs.com/package/@syfthub/sdk'
+                  target='_blank'
+                  rel='noopener noreferrer'
+                  className='w-40 rounded-xl border border-[#ecebef] bg-white p-4 transition-colors hover:border-[#b4b0bf]'
+                >
                   <Share2 className='mb-3 h-6 w-6 text-[#272532]' />
-                  <div className='font-inter font-medium text-[#272532]'>MCP Server</div>
-                  <div className='font-inter mt-1 text-xs text-[#5e5a72]'>npx syft-mcp</div>
-                </div>
+                  <div className='font-inter font-medium text-[#272532]'>TypeScript SDK</div>
+                  <div className='font-inter mt-1 text-xs text-[#5e5a72]'>npm i @syfthub/sdk</div>
+                </a>
               </div>
             </div>
           </section>

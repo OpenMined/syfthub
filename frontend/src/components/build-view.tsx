@@ -138,9 +138,14 @@ for ep in client.my_endpoints.list():
                     <CardTitle className='text-sm font-medium'>Resources</CardTitle>
                   </CardHeader>
                   <CardContent className='grid gap-2'>
-                    <ResourceLink label='API Reference' />
-                    <ResourceLink label='Example Notebooks' />
-                    <ResourceLink label='Github Repository' />
+                    <ResourceLink
+                      label='PyPI Package'
+                      href='https://pypi.org/project/syfthub-sdk/'
+                    />
+                    <ResourceLink
+                      label='GitHub Repository'
+                      href='https://github.com/OpenMined/syfthub/tree/main/sdk/python'
+                    />
                   </CardContent>
                 </Card>
               </div>
@@ -232,9 +237,14 @@ for await (const ep of client.myEndpoints.list()) {
                     <CardTitle className='text-sm font-medium'>Resources</CardTitle>
                   </CardHeader>
                   <CardContent className='grid gap-2'>
-                    <ResourceLink label='Documentation' />
-                    <ResourceLink label='Next.js Starter' />
-                    <ResourceLink label='Github Repository' />
+                    <ResourceLink
+                      label='npm Package'
+                      href='https://www.npmjs.com/package/@syfthub/sdk'
+                    />
+                    <ResourceLink
+                      label='GitHub Repository'
+                      href='https://github.com/OpenMined/syfthub/tree/main/sdk/typescript'
+                    />
                   </CardContent>
                 </Card>
               </div>
@@ -300,8 +310,14 @@ for await (const ep of client.myEndpoints.list()) {
                     <CardTitle className='text-sm font-medium'>Resources</CardTitle>
                   </CardHeader>
                   <CardContent className='grid gap-2'>
-                    <ResourceLink label='MCP Specification' />
-                    <ResourceLink label='Setup Guide' />
+                    <ResourceLink
+                      label='MCP Specification'
+                      href='https://modelcontextprotocol.io/introduction'
+                    />
+                    <ResourceLink
+                      label='GitHub Repository'
+                      href='https://github.com/OpenMined/syfthub'
+                    />
                   </CardContent>
                 </Card>
               </div>
@@ -428,10 +444,12 @@ function InfoCard({ title, items }: Readonly<{ title: string; items: string[] }>
   );
 }
 
-function ResourceLink({ label }: Readonly<{ label: string }>) {
+function ResourceLink({ label, href }: Readonly<{ label: string; href: string }>) {
   return (
     <a
-      href='#'
+      href={href}
+      target='_blank'
+      rel='noopener noreferrer'
       className='text-syft-muted hover:bg-syft-surface hover:text-syft-primary flex items-center justify-between rounded p-2 text-sm transition-colors'
     >
       {label}
