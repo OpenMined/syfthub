@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 import pytest
 import respx
+
 from syfthub_sdk import SyftHubClient
 from syfthub_sdk.chat import (
     ChatStreamEvent,
