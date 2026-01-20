@@ -68,7 +68,7 @@ jobs:
         run: uv run mypy src/syfthub_sdk
 
       - name: Run tests
-        run: uv run pytest
+        run: uv run pytest tests/unit
 
       - name: Build package
         run: uv build

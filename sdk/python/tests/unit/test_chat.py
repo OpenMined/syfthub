@@ -8,7 +8,6 @@ from typing import Any
 import httpx
 import pytest
 import respx
-
 from syfthub_sdk import SyftHubClient
 from syfthub_sdk.chat import (
     ChatStreamEvent,
@@ -107,7 +106,7 @@ def mock_chat_response() -> dict[str, Any]:
     """Return mock chat response."""
     return {
         "response": "Machine learning is a subset of AI that enables systems to learn from data.",
-        "sources": [
+        "retrieval_info": [
             {
                 "path": "alice/docs",
                 "documents_retrieved": 3,
@@ -155,16 +154,11 @@ class TestChatComplete:
             return_value=httpx.Response(200, json=mock_satellite_token_response)
         )
 
-        # Mock hub endpoint lookup for model (hub.get uses /{owner}/{slug} path)
+        # Mock hub browse endpoint (hub.get uses browse to find endpoints)
         model_response = {**mock_endpoint_public}
-        respx.get(f"{base_url}/alice/test-model").mock(
-            return_value=httpx.Response(200, json=model_response)
-        )
-
-        # Mock hub endpoint lookup for data source
         ds_response = {**mock_endpoint_public, "slug": "docs", "type": "data_source"}
-        respx.get(f"{base_url}/alice/docs").mock(
-            return_value=httpx.Response(200, json=ds_response)
+        respx.get(f"{base_url}/api/v1/endpoints/public").mock(
+            return_value=httpx.Response(200, json=[model_response, ds_response])
         )
 
         # Mock aggregator chat endpoint
@@ -184,8 +178,8 @@ class TestChatComplete:
 
         assert isinstance(response, ChatResponse)
         assert "machine learning" in response.response.lower()
-        assert len(response.sources) == 1
-        assert response.sources[0].path == "alice/docs"
+        assert len(response.retrieval_info) == 1
+        assert response.retrieval_info[0].path == "alice/docs"
         assert response.metadata.total_time_ms == 650
 
     @respx.mock
@@ -370,8 +364,9 @@ class TestEndpointResolution:
         mock_endpoint_public: dict[str, Any],
     ) -> None:
         """Test resolving string path to EndpointRef with owner_username."""
-        respx.get(f"{base_url}/alice/test-model").mock(
-            return_value=httpx.Response(200, json=mock_endpoint_public)
+        # Mock hub browse endpoint (hub.get uses browse to find endpoints)
+        respx.get(f"{base_url}/api/v1/endpoints/public").mock(
+            return_value=httpx.Response(200, json=[mock_endpoint_public])
         )
 
         client = SyftHubClient(base_url=base_url)
