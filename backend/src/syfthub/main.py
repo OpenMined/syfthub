@@ -20,6 +20,8 @@ from syfthub.api.router import api_router
 from syfthub.auth.db_dependencies import get_optional_current_user
 from syfthub.auth.keys import key_manager
 from syfthub.core.config import settings
+from syfthub.core.html_sanitizer import sanitize_readme_html
+from syfthub.core.ssrf_protection import validate_domain_for_ssrf
 from syfthub.core.url_builder import (
     build_connection_url,
     get_first_enabled_connection,
@@ -575,12 +577,14 @@ async def get_owner_endpoint(
 
             owner_name = owner.name if isinstance(owner, Organization) else ""
 
-        # Convert README markdown to HTML
+        # Convert README markdown to HTML and sanitize to prevent XSS
         readme_html = ""
         if endpoint.readme and endpoint.readme.strip():
-            readme_html = markdown.markdown(
+            raw_html = markdown.markdown(
                 endpoint.readme, extensions=["codehilite", "fenced_code"]
             )
+            # Sanitize HTML to remove potentially dangerous tags/attributes
+            readme_html = sanitize_readme_html(raw_html)
 
         return templates.TemplateResponse(
             "endpoint.html",
@@ -695,6 +699,13 @@ async def invoke_owner_endpoint(
     query_url = build_invocation_url(
         owner, connections_data, endpoint_slug, endpoint_path
     )
+
+    # SSRF Protection: Validate owner's domain before making requests
+    # This is placed after build_invocation_url to ensure connection validation
+    # happens first (no connections, no domain errors returned before SSRF check)
+    owner_domain = getattr(owner, "domain", None)
+    if owner_domain:
+        validate_domain_for_ssrf(owner_domain)
 
     # Get the request body
     try:
