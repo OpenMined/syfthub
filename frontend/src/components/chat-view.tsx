@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ChatStreamEvent } from '@/lib/sdk-client';
 import type { ChatSource } from '@/lib/types';
@@ -658,6 +658,12 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus | null>(null);
 
+  // Build Map for O(1) source lookups by ID (avoids repeated .find() calls)
+  const availableSourcesById = useMemo(
+    () => new Map(availableSources.map((source) => [source.id, source])),
+    [availableSources]
+  );
+
   // Load real data sources from backend and analyze query for relevance
   useEffect(() => {
     let isMounted = true;
@@ -934,12 +940,9 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
         return;
       }
 
-      // Build data source paths from selected sources Set
+      // Build data source paths from selected sources Set using Map for O(1) lookups
       const dataSourcePaths = [...selectedSources]
-        .map((id) => {
-          const source = availableSources.find((s) => s.id === id);
-          return source?.full_path;
-        })
+        .map((id) => availableSourcesById.get(id)?.full_path)
         .filter((path): path is string => path !== undefined);
 
       // Create abort controller for cancellation
@@ -1003,7 +1006,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
         abortControllerReference.current = null;
       }
     },
-    [inputValue, isProcessing, selectedModel, user?.email, availableSources, selectedSources]
+    [inputValue, isProcessing, selectedModel, user?.email, availableSourcesById, selectedSources]
   );
 
   return (

@@ -549,12 +549,12 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                 <Badge variant='outline'>
                   <Package className='mr-1 h-3 w-3' />v{endpoint.version}
                 </Badge>
-                {endpoint.stars_count > 0 && (
+                {endpoint.stars_count > 0 ? (
                   <Badge variant='outline' className='border-yellow-200 text-yellow-600'>
                     <Star className='mr-1 h-3 w-3' />
                     {endpoint.stars_count}
                   </Badge>
-                )}
+                ) : null}
                 <Badge variant='outline'>
                   <Calendar className='mr-1 h-3 w-3' />
                   Updated {endpoint.updated}

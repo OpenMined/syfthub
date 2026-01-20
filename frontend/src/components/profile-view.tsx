@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
@@ -260,7 +260,7 @@ export function ProfileView() {
                       id='full_name'
                       value={editData.full_name}
                       onChange={(e) => {
-                        setEditData({ ...editData, full_name: e.target.value });
+                        setEditData((previous) => ({ ...previous, full_name: e.target.value }));
                       }}
                       placeholder='Enter your full name'
                     />
@@ -273,7 +273,7 @@ export function ProfileView() {
                       type='email'
                       value={editData.email}
                       onChange={(e) => {
-                        setEditData({ ...editData, email: e.target.value });
+                        setEditData((previous) => ({ ...previous, email: e.target.value }));
                       }}
                       placeholder='Enter your email'
                     />
@@ -370,7 +370,10 @@ export function ProfileView() {
                       type='password'
                       value={passwordData.current_password}
                       onChange={(e) => {
-                        setPasswordData({ ...passwordData, current_password: e.target.value });
+                        setPasswordData((previous) => ({
+                          ...previous,
+                          current_password: e.target.value
+                        }));
                       }}
                       placeholder='Enter your current password'
                     />
@@ -383,7 +386,10 @@ export function ProfileView() {
                       type='password'
                       value={passwordData.new_password}
                       onChange={(e) => {
-                        setPasswordData({ ...passwordData, new_password: e.target.value });
+                        setPasswordData((previous) => ({
+                          ...previous,
+                          new_password: e.target.value
+                        }));
                       }}
                       placeholder='Enter your new password'
                     />
@@ -396,7 +402,10 @@ export function ProfileView() {
                       type='password'
                       value={passwordData.confirm_password}
                       onChange={(e) => {
-                        setPasswordData({ ...passwordData, confirm_password: e.target.value });
+                        setPasswordData((previous) => ({
+                          ...previous,
+                          confirm_password: e.target.value
+                        }));
                       }}
                       placeholder='Confirm your new password'
                     />

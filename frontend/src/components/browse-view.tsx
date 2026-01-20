@@ -241,12 +241,12 @@ export function BrowseView({
                     </div>
                   </div>
                   <div className='text-syft-placeholder flex items-center gap-3 text-xs'>
-                    {endpoint.stars_count > 0 && (
+                    {endpoint.stars_count > 0 ? (
                       <div className='flex items-center gap-1'>
                         <Star className='h-3 w-3' />
                         <span>{endpoint.stars_count}</span>
                       </div>
-                    )}
+                    ) : null}
                     <div className='flex items-center gap-1'>
                       <Calendar className='h-3 w-3' />
                       <span>{endpoint.updated}</span>
