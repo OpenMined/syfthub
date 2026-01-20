@@ -78,12 +78,14 @@ Examples:
 
     # Authentication
     parser.add_argument(
-        "-u", "--username",
+        "-u",
+        "--username",
         required=True,
         help="Username or email for login",
     )
     parser.add_argument(
-        "-p", "--password",
+        "-p",
+        "--password",
         required=True,
         help="Password for login",
     )
@@ -142,9 +144,9 @@ Examples:
 
 def print_header(title: str) -> None:
     """Print a formatted section header."""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  {title}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
 
 def print_error(message: str) -> NoReturn:
@@ -161,7 +163,7 @@ def login(client: SyftHubClient, username: str, password: str) -> None:
 
     try:
         user = client.auth.login(username=username, password=password)
-        print(f"Login successful!")
+        print("Login successful!")
         print(f"  User ID: {user.id}")
         print(f"  Username: {user.username}")
         print(f"  Email: {user.email}")
@@ -209,7 +211,9 @@ def query_model_complete(
             print("\nSources Used:")
             for source in response.sources:
                 status_icon = "+" if source.status.value == "success" else "!"
-                print(f"  [{status_icon}] {source.path}: {source.documents_retrieved} docs")
+                print(
+                    f"  [{status_icon}] {source.path}: {source.documents_retrieved} docs"
+                )
                 if source.error_message:
                     print(f"      Error: {source.error_message}")
 
@@ -296,7 +300,9 @@ def query_model_stream(
             print("\nSources Used:")
             for source in sources_info:
                 status_icon = "+" if source.status.value == "success" else "!"
-                print(f"  [{status_icon}] {source.path}: {source.documents_retrieved} docs")
+                print(
+                    f"  [{status_icon}] {source.path}: {source.documents_retrieved} docs"
+                )
                 if source.error_message:
                     print(f"      Error: {source.error_message}")
 
@@ -328,13 +334,23 @@ def chat_query(
 
     if stream:
         query_model_stream(
-            client, model, data_sources, prompt,
-            top_k, max_tokens, temperature,
+            client,
+            model,
+            data_sources,
+            prompt,
+            top_k,
+            max_tokens,
+            temperature,
         )
     else:
         query_model_complete(
-            client, model, data_sources, prompt,
-            top_k, max_tokens, temperature,
+            client,
+            model,
+            data_sources,
+            prompt,
+            top_k,
+            max_tokens,
+            temperature,
         )
 
 
@@ -391,9 +407,7 @@ def main() -> None:
         )
 
     # Parse data sources
-    data_sources = [
-        ds.strip() for ds in args.data_sources.split(",") if ds.strip()
-    ]
+    data_sources = [ds.strip() for ds in args.data_sources.split(",") if ds.strip()]
 
     print(f"Connecting to: {args.base_url}")
 

@@ -75,7 +75,9 @@ class SatelliteTokenResponse(BaseModel):
     SyftHub for every request.
     """
 
-    target_token: str = Field(..., description="RS256-signed JWT for the target service")
+    target_token: str = Field(
+        ..., description="RS256-signed JWT for the target service"
+    )
     expires_in: int = Field(..., description="Seconds until the token expires")
 
     model_config = {"frozen": True}

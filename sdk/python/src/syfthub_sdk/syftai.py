@@ -171,7 +171,9 @@ class SyftAIResource:
         if response.status_code >= 400:
             try:
                 error_data = response.json()
-                message = error_data.get("detail", error_data.get("message", str(error_data)))
+                message = error_data.get(
+                    "detail", error_data.get("message", str(error_data))
+                )
             except Exception:
                 message = response.text or f"HTTP {response.status_code}"
 
@@ -238,8 +240,7 @@ class SyftAIResource:
         request_body = {
             "user_email": user_email,
             "messages": [
-                {"role": msg.role, "content": msg.content}
-                for msg in messages
+                {"role": msg.role, "content": msg.content} for msg in messages
             ],
             "max_tokens": max_tokens,
             "temperature": temperature,
@@ -262,7 +263,9 @@ class SyftAIResource:
         if response.status_code >= 400:
             try:
                 error_data = response.json()
-                message = error_data.get("detail", error_data.get("message", str(error_data)))
+                message = error_data.get(
+                    "detail", error_data.get("message", str(error_data))
+                )
             except Exception:
                 message = response.text or f"HTTP {response.status_code}"
 
@@ -318,8 +321,7 @@ class SyftAIResource:
         request_body = {
             "user_email": user_email,
             "messages": [
-                {"role": msg.role, "content": msg.content}
-                for msg in messages
+                {"role": msg.role, "content": msg.content} for msg in messages
             ],
             "max_tokens": max_tokens,
             "temperature": temperature,
@@ -340,7 +342,9 @@ class SyftAIResource:
                     response.read()
                     try:
                         error_data = json.loads(response.text)
-                        message = error_data.get("detail", error_data.get("message", str(error_data)))
+                        message = error_data.get(
+                            "detail", error_data.get("message", str(error_data))
+                        )
                     except Exception:
                         message = response.text or f"HTTP {response.status_code}"
 

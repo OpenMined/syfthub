@@ -33,7 +33,6 @@ from syfthub_sdk.models import (
     EndpointType,
 )
 
-
 # =============================================================================
 # Test Fixtures
 # =============================================================================
@@ -290,7 +289,7 @@ class TestChatStream:
             'event: retrieval_start\ndata: {"sources": 2}\n\n'
             'event: source_complete\ndata: {"path": "alice/docs", "status": "success", "documents": 3}\n\n'
             'event: retrieval_complete\ndata: {"total_documents": 3, "time_ms": 150}\n\n'
-            'event: generation_start\ndata: {}\n\n'
+            "event: generation_start\ndata: {}\n\n"
             'event: token\ndata: {"content": "Hello "}\n\n'
             'event: token\ndata: {"content": "world!"}\n\n'
             'event: done\ndata: {"sources": [], "metadata": {"retrieval_time_ms": 150, "generation_time_ms": 200, "total_time_ms": 350}}\n\n'
@@ -384,7 +383,9 @@ class TestEndpointResolution:
         assert ref.url == "http://syftai:8080"
         assert ref.slug == "test-model"
         assert ref.tenant_name == "default"
-        assert ref.owner_username == "alice"  # Verify owner is captured for satellite token
+        assert (
+            ref.owner_username == "alice"
+        )  # Verify owner is captured for satellite token
 
     def test_resolve_endpoint_ref_passthrough(
         self,
@@ -436,7 +437,9 @@ class TestEndpointResolution:
         assert isinstance(resolved, EndpointRef)
         assert resolved.url == "http://space:8080"
         assert resolved.slug == "test-model"
-        assert resolved.owner_username == "alice"  # Verify owner is captured for satellite token
+        assert (
+            resolved.owner_username == "alice"
+        )  # Verify owner is captured for satellite token
 
     def test_resolve_endpoint_no_url_raises(
         self,
