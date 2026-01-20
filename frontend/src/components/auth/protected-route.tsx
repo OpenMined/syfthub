@@ -35,7 +35,7 @@ export function ProtectedRoute({ children, redirectTo = '/' }: Readonly<Protecte
   if (isInitializing) {
     return (
       <div className='flex h-full min-h-[400px] items-center justify-center'>
-        <LoadingSpinner size='lg' message='Loading...' />
+        <LoadingSpinner size='lg' message='Loading…' />
       </div>
     );
   }

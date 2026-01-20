@@ -336,7 +336,7 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
                       <div className='h-3.5 w-3.5 rounded-full border-2 border-gray-200 border-t-[#6976ae]' />
                     </motion.div>
                     <span className='font-inter text-xs'>
-                      {pendingCount} more {pendingCount === 1 ? 'source' : 'sources'} searching...
+                      {pendingCount} more {pendingCount === 1 ? 'source' : 'sources'} searching…
                     </span>
                   </motion.div>
                 )}

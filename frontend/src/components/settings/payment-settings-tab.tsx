@@ -173,8 +173,13 @@ export function PaymentSettingsTab() {
                   setShowCurrentPassword(!showCurrentPassword);
                 }}
                 className='text-gray-400 hover:text-gray-600'
+                aria-label={showCurrentPassword ? 'Hide password' : 'Show password'}
               >
-                {showCurrentPassword ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
+                {showCurrentPassword ? (
+                  <EyeOff className='h-4 w-4' aria-hidden='true' />
+                ) : (
+                  <Eye className='h-4 w-4' aria-hidden='true' />
+                )}
               </button>
             </div>
           </div>
@@ -251,10 +256,12 @@ export function PaymentSettingsTab() {
           <Label htmlFor='accounting-url'>Accounting URL</Label>
           <Input
             id='accounting-url'
+            name='accounting_url'
             type='url'
             value={formData.url}
             onChange={handleInputChange('url')}
-            placeholder='https://accounting.example.com'
+            placeholder='https://accounting.example.com…'
+            autoComplete='url'
             disabled={isLoading}
             data-testid='accounting-url'
           />
@@ -280,10 +287,12 @@ export function PaymentSettingsTab() {
           <div className='relative'>
             <Input
               id='accounting-password'
+              name='accounting_password'
               type={showPassword ? 'text' : 'password'}
               value={formData.password}
               onChange={handleInputChange('password')}
-              placeholder='Your accounting service password'
+              placeholder='Your accounting service password…'
+              autoComplete='current-password'
               disabled={isLoading}
               className='pr-10'
               data-testid='accounting-password'
@@ -295,8 +304,13 @@ export function PaymentSettingsTab() {
               }}
               className='absolute top-1/2 right-3 -translate-y-1/2 text-gray-400 hover:text-gray-600'
               tabIndex={-1}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
             >
-              {showPassword ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
+              {showPassword ? (
+                <EyeOff className='h-4 w-4' aria-hidden='true' />
+              ) : (
+                <Eye className='h-4 w-4' aria-hidden='true' />
+              )}
             </button>
           </div>
         </div>
@@ -317,11 +331,11 @@ export function PaymentSettingsTab() {
             {isLoading ? (
               <>
                 <Loader2 className='h-4 w-4 animate-spin' />
-                Saving...
+                Saving…
               </>
             ) : (
               <>
-                <Save className='h-4 w-4' />
+                <Save className='h-4 w-4' aria-hidden='true' />
                 {isEditing ? 'Update Credentials' : 'Save Credentials'}
               </>
             )}

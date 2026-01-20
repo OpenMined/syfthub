@@ -376,7 +376,7 @@ function SourceSelector({ sources, selectedIds, onToggle }: Readonly<SourceSelec
               onToggle(source.id);
             }}
             aria-pressed={isSelected}
-            className={`group relative flex w-full cursor-pointer items-start gap-4 rounded-xl border p-4 text-left transition-all focus-visible:ring-2 focus-visible:ring-[#272532]/50 focus-visible:outline-none ${isSelected ? 'border-[#6976ae] bg-[#f7f6f9]' : 'border-[#ecebef] bg-white hover:border-[#cfcdd6]'} `}
+            className={`group relative flex w-full cursor-pointer items-start gap-4 rounded-xl border p-4 text-left transition-colors focus-visible:ring-2 focus-visible:ring-[#272532]/50 focus-visible:outline-none ${isSelected ? 'border-[#6976ae] bg-[#f7f6f9]' : 'border-[#ecebef] bg-white hover:border-[#cfcdd6]'} `}
           >
             <div className='min-w-0 flex-1'>
               {/* Header */}
@@ -691,8 +691,8 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
             id: `auto-select-${String(Date.now())}`,
             role: 'assistant',
             content: analysis.mentionedPath
-              ? `Found endpoint **${analysis.matchedEndpoint.name}** (${analysis.mentionedPath}). Processing your question...`
-              : `Found endpoint **${analysis.matchedEndpoint.name}**. Processing your question...`,
+              ? `Found endpoint **${analysis.matchedEndpoint.name}** (${analysis.mentionedPath}). Processing your question…`
+              : `Found endpoint **${analysis.matchedEndpoint.name}**. Processing your question…`,
             type: 'text'
           };
 

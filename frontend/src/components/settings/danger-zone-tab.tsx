@@ -92,7 +92,7 @@ export function DangerZoneTab() {
                 setShowConfirmation(true);
               }}
             >
-              <Trash2 className='mr-2 h-4 w-4' />
+              <Trash2 className='mr-2 h-4 w-4' aria-hidden='true' />
               Delete Account
             </Button>
           )}
@@ -131,12 +131,15 @@ export function DangerZoneTab() {
                   </Label>
                   <Input
                     id='confirm-delete'
+                    name='confirm_delete'
                     value={confirmText}
                     onChange={(e) => {
                       setConfirmText(e.target.value);
                       setError(null);
                     }}
                     placeholder={expectedConfirmText}
+                    autoComplete='off'
+                    spellCheck={false}
                     disabled={isLoading}
                     className='border-red-300 focus:border-red-500 focus:ring-red-500'
                   />
@@ -161,11 +164,11 @@ export function DangerZoneTab() {
                     {isLoading ? (
                       <>
                         <Loader2 className='h-4 w-4 animate-spin' />
-                        Deleting...
+                        Deleting…
                       </>
                     ) : (
                       <>
-                        <Trash2 className='h-4 w-4' />
+                        <Trash2 className='h-4 w-4' aria-hidden='true' />
                         Permanently Delete Account
                       </>
                     )}

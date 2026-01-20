@@ -127,7 +127,7 @@ export function ModelSelector({
         type='button'
         onClick={handleToggle}
         disabled={isLoading}
-        className={`group flex items-center gap-2 rounded-xl border px-3 py-2.5 transition-all ${
+        className={`group flex items-center gap-2 rounded-xl border px-3 py-2.5 transition-colors ${
           isOpen
             ? 'border-[#272532] bg-[#f7f6f9] text-[#272532]'
             : 'border-[#ecebef] bg-[#fcfcfd] text-[#5e5a72] hover:border-[#cfcdd6] hover:bg-[#f1f0f4] hover:text-[#272532]'
@@ -176,7 +176,7 @@ export function ModelSelector({
                   value={searchQuery}
                   onChange={handleSearchChange}
                   placeholder='Search models…'
-                  className='font-inter w-full rounded-lg border border-[#ecebef] bg-[#fcfcfd] py-2 pr-3 pl-9 text-sm transition-all placeholder:text-[#b4b0bf] focus:border-[#272532] focus:ring-2 focus:ring-[#272532]/10 focus:outline-none'
+                  className='font-inter w-full rounded-lg border border-[#ecebef] bg-[#fcfcfd] py-2 pr-3 pl-9 text-sm transition-colors transition-shadow placeholder:text-[#b4b0bf] focus:border-[#272532] focus:ring-2 focus:ring-[#272532]/10 focus:outline-none'
                   autoComplete='off'
                 />
               </div>
@@ -200,7 +200,7 @@ export function ModelSelector({
                         onClick={() => {
                           handleSelect(model);
                         }}
-                        className={`group flex w-full items-start gap-3 rounded-lg p-3 text-left transition-all ${
+                        className={`group flex w-full items-start gap-3 rounded-lg p-3 text-left transition-colors ${
                           isSelected
                             ? 'bg-[#f7f6f9] ring-1 ring-[#6976ae]/20'
                             : 'hover:bg-[#f7f6f9]'
@@ -257,7 +257,7 @@ export function ModelSelector({
 
                         {/* Selected Indicator */}
                         <div
-                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-all ${
+                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-colors ${
                             isSelected
                               ? 'bg-[#272532] text-white'
                               : 'border border-[#cfcdd6] bg-white'

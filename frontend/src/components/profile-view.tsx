@@ -290,8 +290,8 @@ export function ProfileView() {
                       disabled={isLoading}
                       className='flex items-center gap-2'
                     >
-                      <Save className='h-4 w-4' />
-                      {isLoading ? 'Saving...' : 'Save Changes'}
+                      <Save className='h-4 w-4' aria-hidden='true' />
+                      {isLoading ? 'Saving…' : 'Save Changes'}
                     </Button>
                     <Button
                       variant='outline'
@@ -357,7 +357,7 @@ export function ProfileView() {
                     }}
                     className='flex items-center gap-2'
                   >
-                    <Lock className='h-4 w-4' />
+                    <Lock className='h-4 w-4' aria-hidden='true' />
                     Change Password
                   </Button>
                 )}
@@ -413,8 +413,8 @@ export function ProfileView() {
                       disabled={isLoading}
                       className='flex items-center gap-2'
                     >
-                      <Save className='h-4 w-4' />
-                      {isLoading ? 'Changing...' : 'Change Password'}
+                      <Save className='h-4 w-4' aria-hidden='true' />
+                      {isLoading ? 'Changing…' : 'Change Password'}
                     </Button>
                     <Button
                       variant='outline'

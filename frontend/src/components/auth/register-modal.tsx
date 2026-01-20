@@ -265,7 +265,7 @@ export function RegisterModal({
                 <div className='flex items-center gap-2'>
                   <div className='h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200'>
                     <div
-                      className={`h-full transition-all duration-300 ${passwordStrength.color}`}
+                      className={`h-full transition-[width] duration-300 ${passwordStrength.color}`}
                       style={{ width: `${String((passwordStrength.score / 5) * 100)}%` }}
                     />
                   </div>

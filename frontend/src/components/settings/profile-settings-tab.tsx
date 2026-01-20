@@ -482,11 +482,11 @@ export function ProfileSettingsTab() {
             {isLoading ? (
               <>
                 <Loader2 className='h-4 w-4 animate-spin' />
-                Saving...
+                Saving…
               </>
             ) : (
               <>
-                <Save className='h-4 w-4' />
+                <Save className='h-4 w-4' aria-hidden='true' />
                 Save Changes
               </>
             )}

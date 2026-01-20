@@ -145,7 +145,7 @@ export function BrowseView({
                 setSearchQuery(e.target.value);
               }}
               placeholder='Search data sources…'
-              className='font-inter border-syft-border focus:border-syft-primary focus:ring-syft-primary/10 w-full rounded-xl border py-3 pr-4 pl-11 transition-all focus:ring-2 focus:outline-none'
+              className='font-inter border-syft-border focus:border-syft-primary focus:ring-syft-primary/10 w-full rounded-xl border py-3 pr-4 pl-11 transition-colors transition-shadow focus:ring-2 focus:outline-none'
             />
           </div>
           <button
@@ -160,7 +160,7 @@ export function BrowseView({
         {/* Content */}
         {isLoading && (
           <div className='py-16 text-center'>
-            <LoadingSpinner size='lg' message='Loading endpoints...' className='justify-center' />
+            <LoadingSpinner size='lg' message='Loading endpoints…' className='justify-center' />
           </div>
         )}
         {!isLoading && error && (
@@ -197,7 +197,7 @@ export function BrowseView({
                 <Link
                   key={endpoint.id}
                   to={href}
-                  className='group border-syft-border hover:border-syft-secondary block rounded-xl border bg-white p-5 transition-all hover:shadow-md'
+                  className='group border-syft-border hover:border-syft-secondary block rounded-xl border bg-white p-5 transition-colors transition-shadow hover:shadow-md'
                 >
                   {/* Header */}
                   <div className='mb-3 flex items-start justify-between'>

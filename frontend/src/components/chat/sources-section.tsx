@@ -49,7 +49,7 @@ function HoverCard({
   onMouseLeave
 }: Readonly<HoverCardProps>) {
   // Truncate content for preview
-  const truncatedContent = content.length > 500 ? `${content.slice(0, 500).trim()}...` : content;
+  const truncatedContent = content.length > 500 ? `${content.slice(0, 500).trim()}…` : content;
 
   return (
     <AnimatePresence>
