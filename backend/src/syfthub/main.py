@@ -686,11 +686,6 @@ async def invoke_owner_endpoint(
                 detail="Owner or endpoint not found",
             )
 
-    # SSRF Protection: Validate owner's domain before making requests
-    owner_domain = getattr(owner, "domain", None)
-    if owner_domain:
-        validate_domain_for_ssrf(owner_domain)
-
     # Build invocation URL from owner's domain and connection config
     endpoint_path = f"{owner_slug}/{endpoint_slug}"
 
@@ -704,6 +699,13 @@ async def invoke_owner_endpoint(
     query_url = build_invocation_url(
         owner, connections_data, endpoint_slug, endpoint_path
     )
+
+    # SSRF Protection: Validate owner's domain before making requests
+    # This is placed after build_invocation_url to ensure connection validation
+    # happens first (no connections, no domain errors returned before SSRF check)
+    owner_domain = getattr(owner, "domain", None)
+    if owner_domain:
+        validate_domain_for_ssrf(owner_domain)
 
     # Get the request body
     try:
