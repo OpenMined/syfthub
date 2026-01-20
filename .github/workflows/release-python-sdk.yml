@@ -1,0 +1,110 @@
+name: Release Python SDK
+
+on:
+  push:
+    tags:
+      - "python-sdk/v*"
+
+concurrency:
+  group: release-python-sdk
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and Publish to PyPI
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: write
+
+    defaults:
+      run:
+        working-directory: sdk/python
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Extract and validate version
+        id: version
+        run: |
+          # Extract version from tag (e.g., python-sdk/v0.2.0 -> 0.2.0)
+          TAG_VERSION=${GITHUB_REF#refs/tags/python-sdk/v}
+          echo "Tag version: $TAG_VERSION"
+
+          # Extract version from pyproject.toml
+          PKG_VERSION=$(grep -Po '(?<=^version = ")[^"]+' pyproject.toml)
+          echo "Package version: $PKG_VERSION"
+
+          # Validate versions match
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Version mismatch! Tag version ($TAG_VERSION) does not match pyproject.toml version ($PKG_VERSION)"
+            echo "::error::Please ensure the version in sdk/python/pyproject.toml matches your tag"
+            exit 1
+          fi
+
+          echo "version=$TAG_VERSION" >> $GITHUB_OUTPUT
+          echo "VERSION=$TAG_VERSION" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: uv sync --all-extras
+
+      - name: Run linter
+        run: uv run ruff check .
+
+      - name: Run formatter check
+        run: uv run ruff format --check .
+
+      - name: Run type checker
+        run: uv run mypy src/syfthub_sdk
+
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Build package
+        run: uv build
+
+      - name: Verify build artifacts
+        run: |
+          echo "Build artifacts:"
+          ls -la dist/
+
+          # Verify expected files exist
+          if ! ls dist/*.whl 1> /dev/null 2>&1; then
+            echo "::error::No wheel file found in dist/"
+            exit 1
+          fi
+
+          if ! ls dist/*.tar.gz 1> /dev/null 2>&1; then
+            echo "::error::No source distribution found in dist/"
+            exit 1
+          fi
+
+          echo "✓ Build artifacts verified successfully"
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdk/python/dist/
+          skip-existing: true
+          verbose: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Python SDK v${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          files: |
+            sdk/python/dist/*.whl
+            sdk/python/dist/*.tar.gz
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}

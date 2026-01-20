@@ -1,0 +1,113 @@
+name: Release TypeScript SDK
+
+on:
+  push:
+    tags:
+      - "typescript-sdk/v*"
+
+concurrency:
+  group: release-typescript-sdk
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and Publish to npm
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      id-token: write
+      contents: write
+
+    defaults:
+      run:
+        working-directory: sdk/typescript
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Verify npm version for OIDC support
+        run: |
+          NPM_VERSION=$(npm --version)
+          echo "npm version: $NPM_VERSION"
+          # npm 11.5.1+ required for OIDC trusted publishing
+          MAJOR=$(echo $NPM_VERSION | cut -d. -f1)
+          if [ "$MAJOR" -lt 10 ]; then
+            echo "::error::npm version 10+ required for trusted publishing"
+            exit 1
+          fi
+
+      - name: Extract and validate version
+        id: version
+        run: |
+          # Extract version from tag (e.g., typescript-sdk/v0.2.0 -> 0.2.0)
+          TAG_VERSION=${GITHUB_REF#refs/tags/typescript-sdk/v}
+          echo "Tag version: $TAG_VERSION"
+
+          # Extract version from package.json
+          PKG_VERSION=$(jq -r '.version' package.json)
+          echo "Package version: $PKG_VERSION"
+
+          # Validate versions match
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Version mismatch! Tag version ($TAG_VERSION) does not match package.json version ($PKG_VERSION)"
+            echo "::error::Please ensure the version in sdk/typescript/package.json matches your tag"
+            exit 1
+          fi
+
+          echo "version=$TAG_VERSION" >> $GITHUB_OUTPUT
+          echo "VERSION=$TAG_VERSION" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint
+
+      - name: Run formatter check
+        run: npm run format:check
+
+      - name: Run type checker
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm run test:run
+
+      - name: Build package
+        run: npm run build
+
+      - name: Verify build artifacts
+        run: |
+          echo "Build artifacts:"
+          ls -la dist/
+
+          # Verify expected files exist
+          for file in "index.js" "index.cjs" "index.d.ts"; do
+            if [ ! -f "dist/$file" ]; then
+              echo "::error::Expected file dist/$file not found"
+              exit 1
+            fi
+          done
+
+          echo "✓ Build artifacts verified successfully"
+
+      - name: Publish to npm (OIDC Trusted Publishing)
+        # Uses OIDC for authentication - no npm token required
+        # Requires trusted publisher configured on npmjs.com
+        run: npm publish --provenance --access public
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: TypeScript SDK v${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          files: |
+            sdk/typescript/dist/*
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
