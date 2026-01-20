@@ -166,6 +166,7 @@ class AccountingResource:
     def _get_client(self) -> httpx.Client:
         """Get or create HTTP client with Basic auth."""
         self._ensure_configured()
+        assert self._url is not None  # Guaranteed by _ensure_configured()
         if self._client is None:
             self._client = httpx.Client(
                 base_url=self._url,

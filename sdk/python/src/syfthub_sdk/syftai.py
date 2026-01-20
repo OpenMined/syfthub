@@ -279,7 +279,8 @@ class SyftAIResource:
 
         # Extract response text from message
         message = data.get("message", {})
-        return message.get("content", "")
+        content: str = message.get("content", "")
+        return content
 
     def query_model_stream(
         self,
