@@ -105,8 +105,9 @@ function AdvancedPanel({
               <button
                 onClick={onClose}
                 className='rounded-full p-2 transition-colors hover:bg-[#ecebef]'
+                aria-label='Close panel'
               >
-                <X className='h-5 w-5 text-[#b4b0bf]' />
+                <X className='h-5 w-5 text-[#b4b0bf]' aria-hidden='true' />
               </button>
             </div>
 
@@ -202,8 +203,9 @@ function AdvancedPanel({
                               removeCustomSource(index);
                             }}
                             className='absolute top-2 right-2 rounded p-1 text-red-500 opacity-0 group-hover:opacity-100 hover:bg-red-50'
+                            aria-label={`Remove source ${source}`}
                           >
-                            <X className='h-3 w-3' />
+                            <X className='h-3 w-3' aria-hidden='true' />
                           </button>
                           <div className='mb-3 flex items-center gap-3'>
                             <div className='font-inter flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-green-100 text-xs font-bold text-green-700'>
@@ -225,17 +227,25 @@ function AdvancedPanel({
                   )}
 
                   <div className='relative mt-2'>
+                    <label htmlFor='custom-source-input' className='sr-only'>
+                      Add external source
+                    </label>
                     <input
+                      id='custom-source-input'
                       type='text'
                       value={customSourceInput}
                       onChange={(event) => {
                         setCustomSourceInput(event.target.value);
                       }}
                       onKeyDown={handleAddSource}
-                      placeholder='Add external source (e.g. hf/dataset)...'
-                      className='font-inter w-full rounded-lg border border-green-200 bg-white py-2 pr-8 pl-3 text-xs transition-all placeholder:text-green-700/40 focus:border-green-500 focus:ring-1 focus:ring-green-500/20 focus:outline-none'
+                      placeholder='Add external source (e.g. hf/dataset)…'
+                      className='font-inter w-full rounded-lg border border-green-200 bg-white py-2 pr-8 pl-3 text-xs transition-colors transition-shadow placeholder:text-green-700/40 focus:border-green-500 focus:ring-1 focus:ring-green-500/20 focus:outline-none'
+                      autoComplete='off'
                     />
-                    <div className='font-inter pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-[10px] text-gray-400'>
+                    <div
+                      className='font-inter pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-[10px] text-gray-400'
+                      aria-hidden='true'
+                    >
                       ↵
                     </div>
                   </div>
@@ -350,7 +360,7 @@ interface SourceSelectorProperties {
 
 function SourceSelector({ sources, selectedIds, onToggle }: Readonly<SourceSelectorProperties>) {
   return (
-    <div className='my-4 w-full max-w-3xl space-y-3'>
+    <div className='my-4 w-full max-w-3xl space-y-3' role='group' aria-label='Select data sources'>
       {sources.map((source) => {
         const isSelected = selectedIds.includes(source.id);
 
@@ -359,12 +369,14 @@ function SourceSelector({ sources, selectedIds, onToggle }: Readonly<SourceSelec
         if (source.status === 'inactive') statusColor = 'bg-red-500';
 
         return (
-          <div
+          <button
             key={source.id}
+            type='button'
             onClick={() => {
               onToggle(source.id);
             }}
-            className={`group relative flex cursor-pointer items-start gap-4 rounded-xl border p-4 transition-all ${isSelected ? 'border-[#6976ae] bg-[#f7f6f9]' : 'border-[#ecebef] bg-white hover:border-[#cfcdd6]'} `}
+            aria-pressed={isSelected}
+            className={`group relative flex w-full cursor-pointer items-start gap-4 rounded-xl border p-4 text-left transition-colors focus-visible:ring-2 focus-visible:ring-[#272532]/50 focus-visible:outline-none ${isSelected ? 'border-[#6976ae] bg-[#f7f6f9]' : 'border-[#ecebef] bg-white hover:border-[#cfcdd6]'} `}
           >
             <div className='min-w-0 flex-1'>
               {/* Header */}
@@ -401,18 +413,19 @@ function SourceSelector({ sources, selectedIds, onToggle }: Readonly<SourceSelec
 
               {/* Footer */}
               <div className='font-inter flex items-center gap-1.5 text-xs text-[#b4b0bf]'>
-                <Clock className='h-3.5 w-3.5' />
+                <Clock className='h-3.5 w-3.5' aria-hidden='true' />
                 <span>Updated {source.updated}</span>
               </div>
             </div>
 
-            {/* Checkbox */}
+            {/* Checkbox indicator */}
             <div
               className={`mt-1 flex h-6 w-6 items-center justify-center rounded border transition-colors ${isSelected ? 'border-[#272532] bg-[#272532]' : 'border-[#cfcdd6] bg-white group-hover:border-[#b4b0bf]'} `}
+              aria-hidden='true'
             >
               {isSelected && <Check className='h-3.5 w-3.5 text-white' />}
             </div>
-          </div>
+          </button>
         );
       })}
     </div>
@@ -472,13 +485,13 @@ function updateStatusFromEvent(
         // No data sources - show preparing message
         setProcessingStatus({
           phase: 'retrieving',
-          message: 'Preparing request...',
+          message: 'Preparing request…',
           completedSources: []
         });
       } else {
         setProcessingStatus({
           phase: 'retrieving',
-          message: `Searching ${String(event.sourceCount)} data ${event.sourceCount === 1 ? 'source' : 'sources'}...`,
+          message: `Searching ${String(event.sourceCount)} data ${event.sourceCount === 1 ? 'source' : 'sources'}…`,
           retrieval: {
             completed: 0,
             total: event.sourceCount,
@@ -500,7 +513,7 @@ function updateStatusFromEvent(
 
         return {
           ...previous,
-          message: `Retrieved from ${String(newCompleted)}/${String(total)} ${total === 1 ? 'source' : 'sources'}...`,
+          message: `Retrieved from ${String(newCompleted)}/${String(total)} ${total === 1 ? 'source' : 'sources'}…`,
           retrieval: {
             completed: newCompleted,
             total,
@@ -544,7 +557,7 @@ function updateStatusFromEvent(
     case 'generation_start': {
       setProcessingStatus((previous) => ({
         phase: 'generating',
-        message: 'Generating response...',
+        message: 'Generating response…',
         completedSources: previous?.completedSources ?? [],
         retrieval: previous?.retrieval,
         timing: previous?.timing
@@ -559,7 +572,7 @@ function updateStatusFromEvent(
         return {
           ...previous,
           phase: 'streaming',
-          message: 'Writing response...'
+          message: 'Writing response…'
         };
       });
       break;
@@ -678,8 +691,8 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
             id: `auto-select-${String(Date.now())}`,
             role: 'assistant',
             content: analysis.mentionedPath
-              ? `Found endpoint **${analysis.matchedEndpoint.name}** (${analysis.mentionedPath}). Processing your question...`
-              : `Found endpoint **${analysis.matchedEndpoint.name}**. Processing your question...`,
+              ? `Found endpoint **${analysis.matchedEndpoint.name}** (${analysis.mentionedPath}). Processing your question…`
+              : `Found endpoint **${analysis.matchedEndpoint.name}**. Processing your question…`,
             type: 'text'
           };
 
@@ -920,7 +933,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
     // Initialize processing status
     setProcessingStatus({
       phase: 'retrieving',
-      message: 'Starting...',
+      message: 'Starting…',
       completedSources: []
     });
 
@@ -1064,28 +1077,37 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                 setIsPanelOpen(true);
               }}
               className='group flex items-center justify-center rounded-xl border border-[#ecebef] bg-[#fcfcfd] p-3.5 text-[#5e5a72] transition-colors hover:bg-[#f1f0f4] hover:text-[#272532]'
-              title='Open Advanced Configuration'
+              aria-label='Open advanced configuration'
             >
-              <Settings2 className='h-5 w-5 transition-transform duration-500 group-hover:rotate-45' />
+              <Settings2
+                className='h-5 w-5 transition-transform duration-500 group-hover:rotate-45'
+                aria-hidden='true'
+              />
             </button>
 
             <div className='relative flex-1'>
+              <label htmlFor='chat-followup-input' className='sr-only'>
+                Ask a follow-up question
+              </label>
               <input
+                id='chat-followup-input'
                 type='text'
                 value={inputValue}
                 onChange={(event) => {
                   setInputValue(event.target.value);
                 }}
-                placeholder='Ask a follow-up question...'
-                className='font-inter w-full rounded-xl border border-[#ecebef] bg-[#fcfcfd] py-3.5 pr-12 pl-4 shadow-sm transition-all placeholder:text-[#b4b0bf] focus:border-[#272532] focus:ring-2 focus:ring-[#272532]/10 focus:outline-none'
+                placeholder='Ask a follow-up question…'
+                className='font-inter w-full rounded-xl border border-[#ecebef] bg-[#fcfcfd] py-3.5 pr-12 pl-4 shadow-sm transition-colors transition-shadow placeholder:text-[#b4b0bf] focus:border-[#272532] focus:ring-2 focus:ring-[#272532]/10 focus:outline-none'
+                autoComplete='off'
               />
               <button
                 type='submit'
                 disabled={!inputValue.trim() || isProcessing}
                 className='absolute top-1/2 right-2 -translate-y-1/2 rounded-lg bg-[#272532] p-2 text-white transition-colors hover:bg-[#353243] disabled:cursor-not-allowed disabled:opacity-50'
+                aria-label={isProcessing ? 'Processing…' : 'Send message'}
               >
                 {isProcessing ? (
-                  <Loader2 className='h-4 w-4 animate-spin' />
+                  <Loader2 className='h-4 w-4 animate-spin' aria-hidden='true' />
                 ) : (
                   <svg
                     width='16'
@@ -1096,6 +1118,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                     strokeWidth='2'
                     strokeLinecap='round'
                     strokeLinejoin='round'
+                    aria-hidden='true'
                   >
                     <path d='M5 12h14M12 5l7 7-7 7' />
                   </svg>

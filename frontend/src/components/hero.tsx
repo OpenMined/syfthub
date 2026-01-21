@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 import { Send } from 'lucide-react';
 
@@ -17,6 +17,15 @@ export function Hero({
   fullHeight = false
 }: Readonly<HeroProperties>) {
   const [searchValue, setSearchValue] = useState('');
+  const inputReference = useRef<HTMLInputElement>(null);
+
+  // Auto-focus on desktop only (avoid virtual keyboard on mobile)
+  useEffect(() => {
+    const isDesktop = globalThis.matchMedia('(min-width: 1024px)').matches;
+    if (isDesktop && inputReference.current) {
+      inputReference.current.focus();
+    }
+  }, []);
 
   const handleSearch = (event: React.FormEvent) => {
     event.preventDefault();
@@ -83,17 +92,23 @@ export function Hero({
           </div>
 
           {/* Search Bar */}
-          <form onSubmit={handleSearch} className='space-y-4'>
+          <form onSubmit={handleSearch} className='space-y-4' role='search'>
             <div className='group relative'>
+              <label htmlFor='hero-search' className='sr-only'>
+                Search for data sources, models, or topics
+              </label>
               <input
-                autoFocus
-                type='text'
+                id='hero-search'
+                ref={inputReference}
+                type='search'
+                name='search'
                 value={searchValue}
                 onChange={(event) => {
                   setSearchValue(event.target.value);
                 }}
-                placeholder='What are you looking for?'
-                className='font-inter border-syft-border-light text-syft-primary placeholder:text-syft-placeholder focus:ring-syft-primary w-full rounded-xl border bg-white px-6 py-4 shadow-sm transition-all focus:border-transparent focus:ring-2 focus:outline-none'
+                placeholder='What are you looking for…'
+                className='font-inter border-syft-border-light text-syft-primary placeholder:text-syft-placeholder focus:ring-syft-primary w-full rounded-xl border bg-white px-6 py-4 shadow-sm transition-colors transition-shadow focus:border-transparent focus:ring-2 focus:outline-none'
+                autoComplete='off'
               />
               <button
                 type='submit'
@@ -104,6 +119,7 @@ export function Hero({
                   className={`h-5 w-5 transition-colors ${
                     searchValue ? 'text-syft-primary' : 'text-syft-placeholder'
                   }`}
+                  aria-hidden='true'
                 />
               </button>
             </div>
@@ -117,7 +133,7 @@ export function Hero({
                   onClick={() => {
                     handleSuggestionClick(suggestion);
                   }}
-                  className='font-inter border-syft-border text-syft-primary hover:border-syft-primary hover:bg-syft-surface focus:ring-syft-primary rounded-full border bg-white px-4 py-1.5 text-sm transition-all focus:ring-2 focus:ring-offset-2 focus:outline-none'
+                  className='font-inter border-syft-border text-syft-primary hover:border-syft-primary hover:bg-syft-surface focus:ring-syft-primary rounded-full border bg-white px-4 py-1.5 text-sm transition-colors focus:ring-2 focus:ring-offset-2 focus:outline-none'
                 >
                   {suggestion}
                 </button>

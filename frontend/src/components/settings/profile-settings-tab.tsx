@@ -310,6 +310,9 @@ export function ProfileSettingsTab() {
                 <img
                   src={avatarPreviewUrl}
                   alt='Avatar preview'
+                  width={64}
+                  height={64}
+                  loading='lazy'
                   className='h-16 w-16 rounded-full object-cover'
                   onError={(e) => {
                     (e.target as HTMLImageElement).src =
@@ -317,7 +320,7 @@ export function ProfileSettingsTab() {
                   }}
                 />
               ) : (
-                <User className='h-8 w-8 text-white' />
+                <User className='h-8 w-8 text-white' aria-hidden='true' />
               )}
             </div>
             <div className='flex-1'>
@@ -479,11 +482,11 @@ export function ProfileSettingsTab() {
             {isLoading ? (
               <>
                 <Loader2 className='h-4 w-4 animate-spin' />
-                Saving...
+                Saving…
               </>
             ) : (
               <>
-                <Save className='h-4 w-4' />
+                <Save className='h-4 w-4' aria-hidden='true' />
                 Save Changes
               </>
             )}

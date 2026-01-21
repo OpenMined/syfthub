@@ -216,11 +216,12 @@ export function MarkdownMessage({ content, className }: Readonly<MarkdownMessage
           // Delete (strikethrough from GFM)
           del: ({ children }) => <del className='text-[#8b8a91] line-through'>{children}</del>,
 
-          // Images
+          // Images - lazy load for better performance (Web Interface Guidelines)
           img: ({ src, alt }) => (
             <img
               src={src}
               alt={alt ?? ''}
+              loading='lazy'
               className='my-3 max-w-full rounded-lg border border-[#ecebef]'
             />
           )

@@ -180,10 +180,12 @@ export function SecuritySettingsTab() {
           <Label htmlFor='current_password'>Current Password</Label>
           <Input
             id='current_password'
+            name='current_password'
             type='password'
             value={formData.current_password}
             onChange={handleInputChange('current_password')}
-            placeholder='Enter your current password'
+            placeholder='Enter your current password…'
+            autoComplete='current-password'
             disabled={isLoading}
           />
         </div>
@@ -192,10 +194,12 @@ export function SecuritySettingsTab() {
           <Label htmlFor='new_password'>New Password</Label>
           <Input
             id='new_password'
+            name='new_password'
             type='password'
             value={formData.new_password}
             onChange={handleInputChange('new_password')}
-            placeholder='Enter a new secure password'
+            placeholder='Enter a new secure password…'
+            autoComplete='new-password'
             disabled={isLoading}
           />
 
@@ -205,7 +209,7 @@ export function SecuritySettingsTab() {
               <div className='flex items-center gap-2'>
                 <div className='h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200'>
                   <div
-                    className={`h-full transition-all duration-300 ${passwordStrength.color}`}
+                    className={`h-full transition-[width] duration-300 ${passwordStrength.color}`}
                     style={{ width: `${String((passwordStrength.score / 5) * 100)}%` }}
                   />
                 </div>
@@ -230,10 +234,12 @@ export function SecuritySettingsTab() {
           <Label htmlFor='confirm_password'>Confirm New Password</Label>
           <Input
             id='confirm_password'
+            name='confirm_password'
             type='password'
             value={formData.confirm_password}
             onChange={handleInputChange('confirm_password')}
-            placeholder='Confirm your new password'
+            placeholder='Confirm your new password…'
+            autoComplete='new-password'
             disabled={isLoading}
           />
           {formData.confirm_password && formData.new_password !== formData.confirm_password && (
@@ -260,11 +266,11 @@ export function SecuritySettingsTab() {
             {isLoading ? (
               <>
                 <Loader2 className='h-4 w-4 animate-spin' />
-                Changing...
+                Changing…
               </>
             ) : (
               <>
-                <Lock className='h-4 w-4' />
+                <Lock className='h-4 w-4' aria-hidden='true' />
                 Change Password
               </>
             )}

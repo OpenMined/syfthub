@@ -86,7 +86,7 @@ export function Sidebar() {
                       isActive ? 'bg-syft-surface' : 'group-hover:bg-syft-surface'
                     )}
                   >
-                    <Icon className='h-5 w-5' />
+                    <Icon className='h-5 w-5' aria-hidden='true' />
                   </div>
                   <span className={cn('font-inter text-[10px]', isActive && 'font-semibold')}>
                     {item.label}

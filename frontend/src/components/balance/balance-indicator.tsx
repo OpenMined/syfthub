@@ -59,7 +59,7 @@ function getBalanceStatus(balance: number): 'healthy' | 'low' | 'empty' {
  * Get display text for balance pill.
  */
 function getDisplayText(isLoading: boolean, error: string | null, balance: number): string {
-  if (isLoading) return '...';
+  if (isLoading) return '…';
   if (error) return 'Error';
   return formatBalanceCompact(balance);
 }
@@ -88,12 +88,12 @@ function truncateEmail(email: string | null | undefined, maxLength = 20): string
   if (!email) return 'Unknown';
   if (email.length <= maxLength) return email;
   const atIndex = email.indexOf('@');
-  if (atIndex === -1) return email.slice(0, maxLength) + '...';
+  if (atIndex === -1) return email.slice(0, maxLength) + '…';
   const local = email.slice(0, atIndex);
   const domain = email.slice(atIndex + 1);
-  const availableLocal = maxLength - domain.length - 4; // 4 for "...@"
-  if (availableLocal < 3) return email.slice(0, maxLength) + '...';
-  return `${local.slice(0, availableLocal)}...@${domain}`;
+  const availableLocal = maxLength - domain.length - 4; // 4 for "…@"
+  if (availableLocal < 3) return email.slice(0, maxLength) + '…';
+  return `${local.slice(0, availableLocal)}…@${domain}`;
 }
 
 /**
@@ -176,12 +176,12 @@ export function BalanceIndicator() {
       <button
         onClick={handleOpenSettings}
         className={cn(
-          'font-inter flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-all',
+          'font-inter flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-colors',
           'border-amber-200 bg-amber-50 text-amber-700',
           'hover:border-amber-300 hover:bg-amber-100'
         )}
       >
-        <Coins className='h-3.5 w-3.5' />
+        <Coins className='h-3.5 w-3.5' aria-hidden='true' />
         <span>Set up billing</span>
       </button>
     );
@@ -314,7 +314,7 @@ export function BalanceIndicator() {
         }}
         disabled={isLoading}
         className={cn(
-          'font-inter flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-all',
+          'font-inter flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors transition-shadow',
           'border-[var(--syft-border)] bg-[var(--syft-surface)]',
           'hover:border-[var(--syft-border-light)] hover:shadow-sm',
           'focus:ring-2 focus:ring-[var(--syft-primary)]/20 focus:outline-none',
@@ -325,7 +325,7 @@ export function BalanceIndicator() {
         aria-haspopup='true'
       >
         {renderStatusIcon()}
-        <span className='font-medium text-[var(--syft-text)]'>
+        <span className='font-medium text-[var(--syft-text)] tabular-nums'>
           {getDisplayText(isLoading, error, balance)}
         </span>
         <ChevronDown
@@ -374,7 +374,7 @@ export function BalanceIndicator() {
               <div className='mt-2 flex items-baseline gap-2'>
                 {error ? (
                   <div className='flex items-center gap-2 text-red-600'>
-                    <AlertCircle className='h-4 w-4' />
+                    <AlertCircle className='h-4 w-4' aria-hidden='true' />
                     <span className='text-sm'>Failed to load balance</span>
                   </div>
                 ) : (
@@ -394,7 +394,7 @@ export function BalanceIndicator() {
                         )}
                       />
                     </div>
-                    <span className='font-rubik text-2xl font-semibold text-[var(--syft-text)]'>
+                    <span className='font-rubik text-2xl font-semibold text-[var(--syft-text)] tabular-nums'>
                       {isLoading ? '---' : formatBalance(balance)}
                     </span>
                     <span className='text-sm text-[var(--syft-text-muted)]'>credits</span>

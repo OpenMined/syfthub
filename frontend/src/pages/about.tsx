@@ -228,9 +228,12 @@ export default function AboutPage() {
             <p className='font-rubik text-syft-muted mb-6'>
               The future of collective intelligence is built by its users.
             </p>
-            <button className='font-rubik bg-syft-primary hover:bg-syft-secondary text-syft-background h-12 rounded-xl px-8 text-base shadow-sm transition-all hover:shadow-md'>
+            <button
+              type='button'
+              className='font-rubik bg-syft-primary hover:bg-syft-secondary text-syft-background h-12 rounded-xl px-8 text-base shadow-sm transition-colors transition-shadow hover:shadow-md'
+            >
               Shape the Roadmap
-              <ArrowRight size={16} className='ml-2 inline' />
+              <ArrowRight size={16} className='ml-2 inline' aria-hidden='true' />
             </button>
           </div>
         </motion.div>
