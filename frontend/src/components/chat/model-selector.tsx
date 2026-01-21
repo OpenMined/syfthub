@@ -133,7 +133,7 @@ export function ModelSelector({
         type='button'
         onClick={handleToggle}
         disabled={isLoading}
-        className={`group flex items-center gap-2 rounded-xl border px-3 py-2.5 transition-all ${
+        className={`group flex items-center gap-2 rounded-xl border px-3 py-2.5 transition-colors ${
           isOpen
             ? 'border-[#272532] bg-[#f7f6f9] text-[#272532]'
             : 'border-[#ecebef] bg-[#fcfcfd] text-[#5e5a72] hover:border-[#cfcdd6] hover:bg-[#f1f0f4] hover:text-[#272532]'
@@ -142,15 +142,16 @@ export function ModelSelector({
         aria-haspopup='listbox'
       >
         {isLoading ? (
-          <Loader2 className='h-4 w-4 animate-spin text-[#6976ae]' />
+          <Loader2 className='h-4 w-4 animate-spin text-[#6976ae]' aria-hidden='true' />
         ) : (
-          <Brain className='h-4 w-4 text-[#6976ae]' />
+          <Brain className='h-4 w-4 text-[#6976ae]' aria-hidden='true' />
         )}
         <span className='font-inter max-w-[120px] truncate text-sm font-medium'>
           {selectedModel ? selectedModel.name : 'Select model'}
         </span>
         <ChevronDown
           className={`h-4 w-4 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+          aria-hidden='true'
         />
       </button>
 
@@ -167,14 +168,22 @@ export function ModelSelector({
             {/* Search Input */}
             <div className='border-b border-[#ecebef] p-3'>
               <div className='relative'>
-                <Search className='absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-[#b4b0bf]' />
+                <label htmlFor='model-search' className='sr-only'>
+                  Search models
+                </label>
+                <Search
+                  className='absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-[#b4b0bf]'
+                  aria-hidden='true'
+                />
                 <input
+                  id='model-search'
                   ref={searchInputReference}
-                  type='text'
+                  type='search'
                   value={searchQuery}
                   onChange={handleSearchChange}
-                  placeholder='Search models...'
-                  className='font-inter w-full rounded-lg border border-[#ecebef] bg-[#fcfcfd] py-2 pr-3 pl-9 text-sm transition-all placeholder:text-[#b4b0bf] focus:border-[#272532] focus:ring-2 focus:ring-[#272532]/10 focus:outline-none'
+                  placeholder='Search models…'
+                  className='font-inter w-full rounded-lg border border-[#ecebef] bg-[#fcfcfd] py-2 pr-3 pl-9 text-sm transition-colors transition-shadow placeholder:text-[#b4b0bf] focus:border-[#272532] focus:ring-2 focus:ring-[#272532]/10 focus:outline-none'
+                  autoComplete='off'
                 />
               </div>
             </div>
@@ -197,7 +206,7 @@ export function ModelSelector({
                         onClick={() => {
                           handleSelect(model);
                         }}
-                        className={`group flex w-full items-start gap-3 rounded-lg p-3 text-left transition-all ${
+                        className={`group flex w-full items-start gap-3 rounded-lg p-3 text-left transition-colors ${
                           isSelected
                             ? 'bg-[#f7f6f9] ring-1 ring-[#6976ae]/20'
                             : 'hover:bg-[#f7f6f9]'
@@ -210,6 +219,7 @@ export function ModelSelector({
                           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
                             isSelected ? 'bg-[#6976ae] text-white' : 'bg-[#f1f0f4] text-[#6976ae]'
                           }`}
+                          aria-hidden='true'
                         >
                           <Brain className='h-4 w-4' />
                         </div>
@@ -222,7 +232,7 @@ export function ModelSelector({
                             </span>
                             {model.stars_count > 0 ? (
                               <div className='flex items-center gap-0.5 text-[#b4b0bf]'>
-                                <Star className='h-3 w-3' />
+                                <Star className='h-3 w-3' aria-hidden='true' />
                                 <span className='font-inter text-xs'>{model.stars_count}</span>
                               </div>
                             ) : null}
@@ -239,7 +249,10 @@ export function ModelSelector({
                               {model.full_path ??
                                 `${model.owner_username ?? 'unknown'}/${model.slug}`}
                             </span>
-                            <ExternalLink className='h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover/link:opacity-100' />
+                            <ExternalLink
+                              className='h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover/link:opacity-100'
+                              aria-hidden='true'
+                            />
                           </button>
                           {model.version ? (
                             <span className='font-inter mt-1 inline-block rounded bg-[#f1f0f4] px-1.5 py-0.5 text-[10px] text-[#5e5a72]'>
@@ -250,11 +263,12 @@ export function ModelSelector({
 
                         {/* Selected Indicator */}
                         <div
-                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-all ${
+                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-colors ${
                             isSelected
                               ? 'bg-[#272532] text-white'
                               : 'border border-[#cfcdd6] bg-white'
                           }`}
+                          aria-hidden='true'
                         >
                           {isSelected && <Check className='h-3 w-3' />}
                         </div>

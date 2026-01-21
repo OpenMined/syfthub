@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
@@ -13,7 +12,6 @@ from syfthub_sdk import SyftHubClient
 from syfthub_sdk.exceptions import GenerationError, RetrievalError
 from syfthub_sdk.models import Document, EndpointRef, Message
 from syfthub_sdk.syftai import SyftAIResource
-
 
 # =============================================================================
 # Test Fixtures

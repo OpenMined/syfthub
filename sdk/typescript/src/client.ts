@@ -1,5 +1,5 @@
 import { HTTPClient, type AuthTokens } from './http.js';
-import { ConfigurationError, SyftHubError } from './errors.js';
+import { AuthenticationError, ConfigurationError, SyftHubError } from './errors.js';
 import { AuthResource } from './resources/auth.js';
 import { UsersResource } from './resources/users.js';
 import { MyEndpointsResource } from './resources/my-endpoints.js';
@@ -31,24 +31,6 @@ export interface SyftHubClientOptions {
    * Defaults to {baseUrl}/aggregator/api/v1
    */
   aggregatorUrl?: string;
-
-  /**
-   * Base URL for the accounting service (optional).
-   * Falls back to SYFTHUB_ACCOUNTING_URL environment variable.
-   */
-  accountingUrl?: string;
-
-  /**
-   * Email for accounting service authentication (optional).
-   * Falls back to SYFTHUB_ACCOUNTING_EMAIL environment variable.
-   */
-  accountingEmail?: string;
-
-  /**
-   * Password for accounting service authentication (optional).
-   * Falls back to SYFTHUB_ACCOUNTING_PASSWORD environment variable.
-   */
-  accountingPassword?: string;
 }
 
 /**
@@ -125,6 +107,7 @@ export class SyftHubClient {
   private _myEndpoints?: MyEndpointsResource;
   private _hub?: HubResource;
   private _accounting?: AccountingResource;
+  private _accountingInitPromise: Promise<AccountingResource> | null = null;
   private _chat?: ChatResource;
   private _syftai?: SyftAIResource;
 
@@ -224,47 +207,103 @@ export class SyftHubClient {
    * The accounting service is external and uses separate credentials
    * (email/password Basic auth) from SyftHub's JWT authentication.
    *
-   * Credentials can be provided via:
-   * - Constructor options: accountingUrl, accountingEmail, accountingPassword
-   * - Environment variables: SYFTHUB_ACCOUNTING_URL, SYFTHUB_ACCOUNTING_EMAIL, SYFTHUB_ACCOUNTING_PASSWORD
+   * Credentials are automatically retrieved from the backend after login.
+   * You must call `initAccounting()` after login to initialize this resource.
    *
-   * @throws {SyftHubError} If accounting credentials are not configured
+   * @throws {AuthenticationError} If not initialized
    *
    * @example
-   * const user = await client.accounting.getUser();
-   * console.log(`Balance: ${user.balance}`);
+   * // Login first, then initialize accounting
+   * await client.auth.login('alice', 'password');
+   * await client.initAccounting();
    *
-   * // Create a transaction
-   * const tx = await client.accounting.createTransaction({
-   *   recipientEmail: 'bob@example.com',
-   *   amount: 10.0
-   * });
+   * // Now accounting is available
+   * const user = await client.accounting.getUser();
    */
   get accounting(): AccountingResource {
-    if (!this._accounting) {
-      const url = this.options.accountingUrl ?? getEnv('SYFTHUB_ACCOUNTING_URL');
-      const email = this.options.accountingEmail ?? getEnv('SYFTHUB_ACCOUNTING_EMAIL');
-      const password = this.options.accountingPassword ?? getEnv('SYFTHUB_ACCOUNTING_PASSWORD');
-
-      if (!url || !email || !password) {
-        const missing: string[] = [];
-        if (!url) missing.push('SYFTHUB_ACCOUNTING_URL');
-        if (!email) missing.push('SYFTHUB_ACCOUNTING_EMAIL');
-        if (!password) missing.push('SYFTHUB_ACCOUNTING_PASSWORD');
-        throw new ConfigurationError(
-          `Accounting not configured. Missing: ${missing.join(', ')}. ` +
-          'Set environment variables or pass credentials to SyftHubClient.'
-        );
-      }
-
-      this._accounting = new AccountingResource({
-        url,
-        email,
-        password,
-        timeout: this.options.timeout,
-      });
+    if (this._accounting) {
+      return this._accounting;
     }
-    return this._accounting;
+
+    throw new AuthenticationError(
+      'Accounting not initialized. ' +
+      'Call `await client.initAccounting()` after login.'
+    );
+  }
+
+  /**
+   * Initialize accounting resource by fetching credentials from the backend.
+   *
+   * This method retrieves accounting credentials from the SyftHub backend
+   * and initializes the accounting resource. Requires authentication.
+   *
+   * @returns The initialized AccountingResource
+   * @throws {AuthenticationError} If not authenticated
+   * @throws {ConfigurationError} If user has no accounting service configured
+   *
+   * @example
+   * // Login first, then initialize accounting
+   * await client.auth.login('alice', 'password');
+   * await client.initAccounting();
+   *
+   * // Now accounting is available
+   * const user = await client.accounting.getUser();
+   */
+  async initAccounting(): Promise<AccountingResource> {
+    // Return cached instance
+    if (this._accounting) {
+      return this._accounting;
+    }
+
+    // Prevent concurrent initialization
+    if (this._accountingInitPromise) {
+      return this._accountingInitPromise;
+    }
+
+    this._accountingInitPromise = this._doInitAccounting();
+
+    try {
+      this._accounting = await this._accountingInitPromise;
+      return this._accounting;
+    } finally {
+      this._accountingInitPromise = null;
+    }
+  }
+
+  /**
+   * Internal method to perform accounting initialization.
+   */
+  private async _doInitAccounting(): Promise<AccountingResource> {
+    if (!this.isAuthenticated) {
+      throw new AuthenticationError(
+        'Must be logged in to use accounting. ' +
+        'Call client.auth.login() first.'
+      );
+    }
+
+    // Fetch credentials from backend
+    const creds = await this.users.getAccountingCredentials();
+
+    if (!creds.url) {
+      throw new ConfigurationError(
+        'No accounting service configured for this user. ' +
+        'Contact your administrator to set up accounting.'
+      );
+    }
+
+    if (!creds.password) {
+      throw new ConfigurationError(
+        'Accounting password not available. ' +
+        'This may indicate an issue with your account setup.'
+      );
+    }
+
+    return new AccountingResource({
+      url: creds.url,
+      email: creds.email,
+      password: creds.password,
+      timeout: this.options.timeout,
+    });
   }
 
   /**
@@ -379,23 +418,20 @@ export class SyftHubClient {
   }
 
   /**
-   * Check if accounting service is configured.
+   * Check if accounting has been initialized.
    *
-   * Use this to check if accounting credentials are available before
-   * accessing the `accounting` property, which will throw if not configured.
+   * Use this to check if accounting is available before accessing
+   * the `accounting` property, which will throw if not initialized.
    *
-   * @returns True if accounting url, email, and password are all configured
+   * @returns True if accounting has been initialized via `initAccounting()`
    *
    * @example
-   * if (client.isAccountingConfigured) {
+   * if (client.isAccountingInitialized) {
    *   const user = await client.accounting.getUser();
    * }
    */
-  get isAccountingConfigured(): boolean {
-    const url = this.options.accountingUrl ?? getEnv('SYFTHUB_ACCOUNTING_URL');
-    const email = this.options.accountingEmail ?? getEnv('SYFTHUB_ACCOUNTING_EMAIL');
-    const password = this.options.accountingPassword ?? getEnv('SYFTHUB_ACCOUNTING_PASSWORD');
-    return Boolean(url && email && password);
+  get isAccountingInitialized(): boolean {
+    return this._accounting !== undefined && this._accounting !== null;
   }
 
   /**

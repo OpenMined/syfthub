@@ -165,31 +165,38 @@ export function LoginModal({
         <form onSubmit={handleSubmit} className='space-y-4'>
           <Input
             type='email'
+            name='email'
             label='Email'
-            placeholder='name@company.com'
+            placeholder='name@company.com…'
             value={values.email}
             onChange={handleInputChange('email')}
             error={errors.email}
             leftIcon={<Mail className='h-4 w-4' />}
             isRequired
             disabled={isLoading}
+            autoComplete='email'
+            spellCheck={false}
           />
 
           <Input
             type='password'
+            name='password'
             label='Password'
-            placeholder='Enter your password'
+            placeholder='Enter your password…'
             value={values.password}
             onChange={handleInputChange('password')}
             error={errors.password}
             isRequired
             disabled={isLoading}
+            autoComplete='current-password'
           />
 
           <div className='flex items-center justify-between text-sm'>
-            <label className='flex items-center space-x-2'>
+            <label htmlFor='remember-me' className='flex cursor-pointer items-center space-x-2'>
               <input
                 type='checkbox'
+                id='remember-me'
+                name='remember-me'
                 className='border-syft-border text-syft-primary focus:ring-syft-primary rounded focus:ring-offset-0'
               />
               <span className='font-inter text-syft-muted'>Remember me</span>
@@ -203,7 +210,7 @@ export function LoginModal({
           </div>
 
           <Button type='submit' size='lg' className='font-inter w-full' disabled={isLoading}>
-            {isLoading ? 'Signing in...' : 'Sign in'}
+            {isLoading ? 'Signing in…' : 'Sign In'}
           </Button>
         </form>
 

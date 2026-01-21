@@ -318,7 +318,9 @@ class AuthResource:
                 return (aud, None)
 
         # Fetch tokens in parallel using ThreadPoolExecutor
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(unique_audiences), 10)) as executor:
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(len(unique_audiences), 10)
+        ) as executor:
             results = list(executor.map(fetch_token, unique_audiences))
 
         # Collect successful results

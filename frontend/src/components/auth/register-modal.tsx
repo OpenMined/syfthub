@@ -142,9 +142,9 @@ export function RegisterModal({
 
   // Determine submit button text based on state
   const getSubmitButtonText = () => {
-    if (isLoading) return 'Creating account...';
-    if (requiresAccountingPassword) return 'Link & Create account';
-    return 'Create account';
+    if (isLoading) return 'Creating Account…';
+    if (requiresAccountingPassword) return 'Link & Create Account';
+    return 'Create Account';
   };
 
   return (
@@ -221,38 +221,45 @@ export function RegisterModal({
         <form onSubmit={handleSubmit} className='space-y-4'>
           <Input
             type='text'
+            name='name'
             label='Full Name'
-            placeholder='John Doe'
+            placeholder='John Doe…'
             value={values.name}
             onChange={handleInputChange('name')}
             error={errors.name}
             leftIcon={<User className='h-4 w-4' />}
             isRequired
             disabled={isLoading}
+            autoComplete='name'
           />
 
           <Input
             type='email'
+            name='email'
             label='Email'
-            placeholder='name@company.com'
+            placeholder='name@company.com…'
             value={values.email}
             onChange={handleInputChange('email')}
             error={errors.email}
             leftIcon={<Mail className='h-4 w-4' />}
             isRequired
             disabled={isLoading}
+            autoComplete='email'
+            spellCheck={false}
           />
 
           <div className='space-y-2'>
             <Input
               type='password'
+              name='password'
               label='Password'
-              placeholder='Create a secure password'
+              placeholder='Create a secure password…'
               value={values.password}
               onChange={handleInputChange('password')}
               error={errors.password}
               isRequired
               disabled={isLoading}
+              autoComplete='new-password'
             />
 
             {/* Password Strength Indicator */}
@@ -261,7 +268,7 @@ export function RegisterModal({
                 <div className='flex items-center gap-2'>
                   <div className='h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200'>
                     <div
-                      className={`h-full transition-all duration-300 ${passwordStrength.color}`}
+                      className={`h-full transition-[width] duration-300 ${passwordStrength.color}`}
                       style={{ width: `${String((passwordStrength.score / 5) * 100)}%` }}
                     />
                   </div>
@@ -275,13 +282,15 @@ export function RegisterModal({
 
           <Input
             type='password'
+            name='confirmPassword'
             label='Confirm Password'
-            placeholder='Confirm your password'
+            placeholder='Confirm your password…'
             value={values.confirmPassword}
             onChange={handleInputChange('confirmPassword')}
             error={errors.confirmPassword}
             isRequired
             disabled={isLoading}
+            autoComplete='new-password'
           />
 
           {/* Accounting Password Section - Only shown when email exists in accounting service */}
@@ -298,7 +307,7 @@ export function RegisterModal({
               <Input
                 type='password'
                 label='Accounting Password'
-                placeholder='Enter your existing accounting password'
+                placeholder='Enter your existing accounting password…'
                 value={values.accountingPassword}
                 onChange={handleInputChange('accountingPassword')}
                 error={errors.accountingPassword}
@@ -310,9 +319,11 @@ export function RegisterModal({
           ) : null}
 
           <div className='space-y-2 text-sm'>
-            <label className='flex items-start space-x-2'>
+            <label htmlFor='terms-agreement' className='flex cursor-pointer items-start space-x-2'>
               <input
                 type='checkbox'
+                id='terms-agreement'
+                name='terms-agreement'
                 required
                 className='border-syft-border text-syft-primary focus:ring-syft-primary mt-0.5 rounded focus:ring-offset-0'
                 disabled={isLoading}

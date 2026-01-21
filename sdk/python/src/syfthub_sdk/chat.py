@@ -120,7 +120,9 @@ class DoneEvent:
     sources: dict[str, DocumentSource] = field(default_factory=dict)
     retrieval_info: list[SourceInfo] = field(default_factory=list)
     metadata: ChatMetadata | None = None
-    usage: TokenUsage | None = None  # Token usage if available (only from non-streaming)
+    usage: TokenUsage | None = (
+        None  # Token usage if available (only from non-streaming)
+    )
 
 
 @dataclass(frozen=True)
@@ -395,7 +397,9 @@ class ChatResource:
             detail=response.text,
         )
 
-    def _parse_sse_event(self, event_type: str, data: dict[str, Any]) -> ChatStreamEvent:
+    def _parse_sse_event(
+        self, event_type: str, data: dict[str, Any]
+    ) -> ChatStreamEvent:
         """Parse an SSE event into a typed event object."""
         if event_type == "retrieval_start":
             return RetrievalStartEvent(source_count=data.get("sources", 0))
@@ -762,8 +766,7 @@ class ChatResource:
 
             # Check if has enabled connection with URL
             has_url = any(
-                conn.enabled and conn.config.get("url")
-                for conn in endpoint.connect
+                conn.enabled and conn.config.get("url") for conn in endpoint.connect
             )
             if has_url:
                 yield endpoint
@@ -801,8 +804,7 @@ class ChatResource:
 
             # Check if has enabled connection with URL
             has_url = any(
-                conn.enabled and conn.config.get("url")
-                for conn in endpoint.connect
+                conn.enabled and conn.config.get("url") for conn in endpoint.connect
             )
             if has_url:
                 yield endpoint

@@ -27,8 +27,8 @@ export function ParticipateView({
       <div className='border-syft-border bg-syft-background/95 sticky top-0 z-30 flex w-full items-center justify-between border-b px-6 py-4 backdrop-blur-sm'>
         <div className='flex items-center gap-4'>
           {onBack ? (
-            <Button variant='ghost' size='sm' onClick={onBack} className='p-2'>
-              <ArrowLeft className='h-5 w-5' />
+            <Button variant='ghost' size='sm' onClick={onBack} className='p-2' aria-label='Go back'>
+              <ArrowLeft className='h-5 w-5' aria-hidden='true' />
             </Button>
           ) : null}
           <h2 className='font-rubik text-syft-primary text-xl font-medium'>{title}</h2>
@@ -100,11 +100,17 @@ export function ParticipateView({
                 </p>
 
                 <div className='flex flex-wrap gap-4'>
-                  <button className='font-inter flex items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-medium text-[#272532] transition-colors hover:bg-gray-100'>
-                    <Download className='h-4 w-4' />
+                  <button
+                    type='button'
+                    className='font-inter flex items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-medium text-[#272532] transition-colors hover:bg-gray-100'
+                  >
+                    <Download className='h-4 w-4' aria-hidden='true' />
                     Download for macOS
                   </button>
-                  <button className='font-inter flex items-center gap-2 rounded-lg border border-[#4a465d] bg-[#353243] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#4a465d]'>
+                  <button
+                    type='button'
+                    className='font-inter flex items-center gap-2 rounded-lg border border-[#4a465d] bg-[#353243] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#4a465d]'
+                  >
                     Download for Windows
                   </button>
                 </div>
@@ -168,16 +174,28 @@ export function ParticipateView({
               </div>
 
               <div className='flex gap-4'>
-                <div className='w-40 rounded-xl border border-[#ecebef] bg-white p-4 transition-colors hover:border-[#b4b0bf]'>
+                <a
+                  href='https://pypi.org/project/syfthub-sdk/'
+                  target='_blank'
+                  rel='noopener noreferrer'
+                  className='w-40 rounded-xl border border-[#ecebef] bg-white p-4 transition-colors hover:border-[#b4b0bf]'
+                >
                   <Cpu className='mb-3 h-6 w-6 text-[#272532]' />
                   <div className='font-inter font-medium text-[#272532]'>Python SDK</div>
-                  <div className='font-inter mt-1 text-xs text-[#5e5a72]'>pip install syft</div>
-                </div>
-                <div className='w-40 rounded-xl border border-[#ecebef] bg-white p-4 transition-colors hover:border-[#b4b0bf]'>
+                  <div className='font-inter mt-1 text-xs text-[#5e5a72]'>
+                    pip install syfthub-sdk
+                  </div>
+                </a>
+                <a
+                  href='https://www.npmjs.com/package/@syfthub/sdk'
+                  target='_blank'
+                  rel='noopener noreferrer'
+                  className='w-40 rounded-xl border border-[#ecebef] bg-white p-4 transition-colors hover:border-[#b4b0bf]'
+                >
                   <Share2 className='mb-3 h-6 w-6 text-[#272532]' />
-                  <div className='font-inter font-medium text-[#272532]'>MCP Server</div>
-                  <div className='font-inter mt-1 text-xs text-[#5e5a72]'>npx syft-mcp</div>
-                </div>
+                  <div className='font-inter font-medium text-[#272532]'>TypeScript SDK</div>
+                  <div className='font-inter mt-1 text-xs text-[#5e5a72]'>npm i @syfthub/sdk</div>
+                </a>
               </div>
             </div>
           </section>

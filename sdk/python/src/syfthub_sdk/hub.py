@@ -143,7 +143,8 @@ class HubResource:
             NotFoundError: If endpoint not found
         """
         endpoint_id = self._resolve_endpoint_id(path)
-        self._http.patch(f"/api/v1/endpoints/{endpoint_id}/star")
+        # Use POST method for starring (not PATCH)
+        self._http.post(f"/api/v1/endpoints/{endpoint_id}/star")
 
     def unstar(self, path: str) -> None:
         """Unstar an endpoint.
@@ -156,7 +157,8 @@ class HubResource:
             NotFoundError: If endpoint not found
         """
         endpoint_id = self._resolve_endpoint_id(path)
-        self._http.patch(f"/api/v1/endpoints/{endpoint_id}/unstar")
+        # Use DELETE method to /star endpoint (not PATCH to /unstar)
+        self._http.delete(f"/api/v1/endpoints/{endpoint_id}/star")
 
     def is_starred(self, path: str) -> bool:
         """Check if you have starred an endpoint.

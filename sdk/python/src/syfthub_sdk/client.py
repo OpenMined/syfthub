@@ -48,7 +48,7 @@ class SyftHubClient:
         for public_ep in client.hub.browse():
             print(public_ep.path)
 
-        # With accounting (credentials from env or explicit)
+        # Accounting (auto-retrieved from backend after login)
         user = client.accounting.get_user()
 
         # Context manager for cleanup
@@ -80,10 +80,6 @@ class SyftHubClient:
         timeout: float = 30.0,
         # Aggregator URL (optional)
         aggregator_url: str | None = None,
-        # Accounting credentials (optional)
-        accounting_url: str | None = None,
-        accounting_email: str | None = None,
-        accounting_password: str | None = None,
     ) -> None:
         """Initialize the SyftHub client.
 
@@ -92,9 +88,6 @@ class SyftHubClient:
             timeout: Request timeout in seconds (default 30)
             aggregator_url: Aggregator service URL (optional, defaults to
                 {base_url}/aggregator/api/v1 or from SYFTHUB_AGGREGATOR_URL env var)
-            accounting_url: Accounting service URL (or from env)
-            accounting_email: Accounting auth email (or from env)
-            accounting_password: Accounting auth password (or from env)
 
         Raises:
             ConfigurationError: If base_url is not provided and
@@ -115,6 +108,9 @@ class SyftHubClient:
             or f"{self._base_url.rstrip('/')}/aggregator/api/v1"
         )
 
+        # Store timeout for lazy-initialized resources
+        self._timeout = timeout
+
         # Create HTTP client
         self._http = HTTPClient(base_url=self._base_url, timeout=timeout)
 
@@ -127,14 +123,7 @@ class SyftHubClient:
         # Lazy-initialized resources
         self._chat: ChatResource | None = None
         self._syftai: SyftAIResource | None = None
-
-        # Create accounting resource (with optional explicit credentials)
-        self._accounting = AccountingResource(
-            url=accounting_url,
-            email=accounting_email,
-            password=accounting_password,
-            timeout=timeout,
-        )
+        self._accounting: AccountingResource | None = None
 
     @property
     def auth(self) -> AuthResource:
@@ -158,8 +147,57 @@ class SyftHubClient:
 
     @property
     def accounting(self) -> AccountingResource:
-        """Accounting/billing operations (balance, transactions)."""
+        """Accounting/billing operations (balance, transactions).
+
+        Credentials are automatically retrieved from the backend after login.
+        You must be authenticated to use accounting.
+
+        Raises:
+            AuthenticationError: If not logged in
+            ConfigurationError: If user has no accounting service configured
+        """
+        if self._accounting is None:
+            self._accounting = self._init_accounting()
         return self._accounting
+
+    def _init_accounting(self) -> AccountingResource:
+        """Initialize accounting resource by fetching credentials from backend.
+
+        Returns:
+            Configured AccountingResource
+
+        Raises:
+            AuthenticationError: If not authenticated
+            ConfigurationError: If user has no accounting configured in backend
+        """
+        from syfthub_sdk.exceptions import AuthenticationError
+
+        if not self.is_authenticated:
+            raise AuthenticationError(
+                "Must be logged in to use accounting. Call client.auth.login() first."
+            )
+
+        # Fetch credentials from backend
+        creds = self.users.get_accounting_credentials()
+
+        if not creds.url:
+            raise ConfigurationError(
+                "No accounting service configured for this user. "
+                "Contact your administrator to set up accounting."
+            )
+
+        if not creds.password:
+            raise ConfigurationError(
+                "Accounting password not available. "
+                "This may indicate an issue with your account setup."
+            )
+
+        return AccountingResource(
+            url=creds.url,
+            email=creds.email,
+            password=creds.password,
+            timeout=self._timeout,
+        )
 
     @property
     def chat(self) -> ChatResource:
@@ -247,7 +285,8 @@ class SyftHubClient:
     def close(self) -> None:
         """Close the client and release resources."""
         self._http.close()
-        self._accounting.close()
+        if self._accounting is not None:
+            self._accounting.close()
 
     def __enter__(self) -> Self:
         """Enter context manager."""

@@ -452,6 +452,123 @@ def test_delete_endpoint(client: TestClient, user1_token: str) -> None:
     assert response.status_code == 404
 
 
+def test_delete_endpoint_by_slug(client: TestClient, user1_token: str) -> None:
+    """Test deleting an endpoint by slug."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    # Create endpoint with custom slug
+    endpoint_data = {
+        "name": "To Delete By Slug",
+        "slug": "delete-me-by-slug",
+        "type": "model",
+        "visibility": "public",
+    }
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    assert response.status_code == 201
+    endpoint_id = response.json()["id"]
+
+    # Delete endpoint by slug
+    response = client.delete(
+        "/api/v1/endpoints/slug/delete-me-by-slug", headers=headers
+    )
+    assert response.status_code == 204
+
+    # Verify deletion
+    response = client.get(f"/api/v1/endpoints/{endpoint_id}", headers=headers)
+    assert response.status_code == 404
+
+
+def test_delete_endpoint_by_slug_not_found(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test deleting non-existent endpoint by slug returns 404."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    response = client.delete("/api/v1/endpoints/slug/nonexistent-slug", headers=headers)
+    assert response.status_code == 404
+    assert "Endpoint not found" in response.json()["detail"]
+
+
+def test_delete_endpoint_by_slug_requires_auth(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test that deleting endpoint by slug requires authentication."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    # Create endpoint
+    endpoint_data = {
+        "name": "Auth Required Delete",
+        "slug": "auth-required-delete",
+        "type": "model",
+        "visibility": "public",
+    }
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    assert response.status_code == 201
+
+    # Try to delete without auth
+    response = client.delete("/api/v1/endpoints/slug/auth-required-delete")
+    assert response.status_code == 401
+
+
+def test_delete_endpoint_by_slug_ownership(
+    client: TestClient, user1_token: str, user2_token: str
+) -> None:
+    """Test that users can only delete their own endpoints by slug."""
+    headers1 = {"Authorization": f"Bearer {user1_token}"}
+    headers2 = {"Authorization": f"Bearer {user2_token}"}
+
+    # User1 creates endpoint
+    endpoint_data = {
+        "name": "User1 Endpoint",
+        "slug": "user1-endpoint-slug",
+        "type": "model",
+        "visibility": "public",
+    }
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers1)
+    assert response.status_code == 201
+
+    # User2 tries to delete User1's endpoint by slug - should get 404
+    # (not 403, because user2 doesn't have access to user1's endpoints by slug)
+    response = client.delete(
+        "/api/v1/endpoints/slug/user1-endpoint-slug", headers=headers2
+    )
+    assert response.status_code == 404
+
+    # User1 can delete their own endpoint
+    response = client.delete(
+        "/api/v1/endpoints/slug/user1-endpoint-slug", headers=headers1
+    )
+    assert response.status_code == 204
+
+
+def test_delete_endpoint_by_slug_case_insensitive(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test that slug lookup is case insensitive for deletion."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    # Create endpoint with lowercase slug
+    endpoint_data = {
+        "name": "Case Test Endpoint",
+        "slug": "case-test-endpoint",
+        "type": "model",
+        "visibility": "public",
+    }
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    assert response.status_code == 201
+    endpoint_id = response.json()["id"]
+
+    # Delete using mixed case (should work since slug is normalized)
+    response = client.delete(
+        "/api/v1/endpoints/slug/CASE-TEST-ENDPOINT", headers=headers
+    )
+    assert response.status_code == 204
+
+    # Verify deletion
+    response = client.get(f"/api/v1/endpoints/{endpoint_id}", headers=headers)
+    assert response.status_code == 404
+
+
 def test_delete_endpoint_ownership(
     client: TestClient, user1_token: str, user2_token: str
 ) -> None:

@@ -4,22 +4,18 @@ This module connects to an external accounting/billing service for managing
 user balances and transactions. The accounting service is separate from SyftHub
 and uses its own authentication (Basic auth with email/password).
 
-Credentials can be provided via environment variables or constructor parameters.
+Credentials are automatically retrieved from the backend after login.
 
 Example usage:
     from syfthub_sdk import SyftHubClient
 
-    # Using environment variables
+    # Login first
     client = SyftHubClient()
+    client.auth.login(username="user@example.com", password="password")
+
+    # Accounting credentials are auto-retrieved from backend
     user = client.accounting.get_user()
     print(f"Balance: {user.balance}")
-
-    # Explicit credentials
-    client = SyftHubClient(
-        accounting_url="https://accounting.example.com",
-        accounting_email="user@example.com",
-        accounting_password="secret"
-    )
 
     # Create a transaction
     tx = client.accounting.create_transaction(
@@ -37,7 +33,6 @@ Example usage:
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import httpx
@@ -47,16 +42,10 @@ from syfthub_sdk.exceptions import (
     APIError,
     AuthenticationError,
     AuthorizationError,
-    ConfigurationError,
     NotFoundError,
     ValidationError,
 )
 from syfthub_sdk.models import AccountingUser, Transaction
-
-# Environment variable names
-ENV_ACCOUNTING_URL = "SYFTHUB_ACCOUNTING_URL"
-ENV_ACCOUNTING_EMAIL = "SYFTHUB_ACCOUNTING_EMAIL"
-ENV_ACCOUNTING_PASSWORD = "SYFTHUB_ACCOUNTING_PASSWORD"
 
 
 def _handle_response_error(response: httpx.Response) -> None:
@@ -104,10 +93,8 @@ class AccountingResource:
     Basic auth (email/password) for authentication, which is separate from
     SyftHub's JWT-based authentication.
 
-    Credentials are loaded from environment variables by default:
-    - SYFTHUB_ACCOUNTING_URL: Base URL of the accounting service
-    - SYFTHUB_ACCOUNTING_EMAIL: Email for authentication
-    - SYFTHUB_ACCOUNTING_PASSWORD: Password for authentication
+    Credentials are automatically retrieved from the backend after login.
+    Users don't need to configure accounting credentials manually.
 
     Transaction Workflow:
     1. Sender creates transaction (status=PENDING)
@@ -121,55 +108,37 @@ class AccountingResource:
 
     def __init__(
         self,
-        url: str | None = None,
-        email: str | None = None,
-        password: str | None = None,
+        url: str,
+        email: str,
+        password: str,
         timeout: float = 30.0,
     ) -> None:
         """Initialize accounting resource.
 
+        Note: This class is typically instantiated internally by SyftHubClient
+        after fetching credentials from the backend. Users don't need to
+        create this directly.
+
         Args:
-            url: Accounting service URL (or from SYFTHUB_ACCOUNTING_URL env)
-            email: Auth email (or from SYFTHUB_ACCOUNTING_EMAIL env)
-            password: Auth password (or from SYFTHUB_ACCOUNTING_PASSWORD env)
+            url: Accounting service URL
+            email: Auth email
+            password: Auth password
             timeout: Request timeout in seconds
         """
-        # Load from env vars if not provided
-        self._url = url or os.environ.get(ENV_ACCOUNTING_URL)
-        self._email = email or os.environ.get(ENV_ACCOUNTING_EMAIL)
-        self._password = password or os.environ.get(ENV_ACCOUNTING_PASSWORD)
+        self._url = url
+        self._email = email
+        self._password = password
         self._timeout = timeout
 
         # HTTP client (lazy initialized)
         self._client: httpx.Client | None = None
 
-    @property
-    def is_configured(self) -> bool:
-        """Check if accounting service is configured."""
-        return bool(self._url and self._email and self._password)
-
-    def _ensure_configured(self) -> None:
-        """Ensure accounting is configured, raise if not."""
-        if not self.is_configured:
-            missing = []
-            if not self._url:
-                missing.append(ENV_ACCOUNTING_URL)
-            if not self._email:
-                missing.append(ENV_ACCOUNTING_EMAIL)
-            if not self._password:
-                missing.append(ENV_ACCOUNTING_PASSWORD)
-            raise ConfigurationError(
-                f"Accounting not configured. Missing: {', '.join(missing)}. "
-                f"Set environment variables or pass credentials to SyftHubClient."
-            )
-
     def _get_client(self) -> httpx.Client:
         """Get or create HTTP client with Basic auth."""
-        self._ensure_configured()
         if self._client is None:
             self._client = httpx.Client(
                 base_url=self._url,
-                auth=(self._email, self._password),  # type: ignore[arg-type]
+                auth=(self._email, self._password),
                 timeout=self._timeout,
             )
         return self._client
@@ -231,12 +200,10 @@ class AccountingResource:
         Returns:
             Parsed JSON response
         """
-        self._ensure_configured()
-
         try:
             # Create a separate client without Basic auth
             with httpx.Client(
-                base_url=self._url,  # type: ignore[arg-type]
+                base_url=self._url,
                 timeout=self._timeout,
             ) as client:
                 response = client.request(

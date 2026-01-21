@@ -561,6 +561,109 @@ class TestEndpointServiceDelete:
             assert "Failed to delete endpoint" in str(exc_info.value.detail)
 
 
+class TestEndpointServiceDeleteBySlug:
+    """Test endpoint deletion by slug."""
+
+    def test_delete_endpoint_by_slug_success(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test successful endpoint deletion by slug."""
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_user_and_slug",
+                return_value=sample_endpoint,
+            ),
+            patch.object(endpoint_service, "_can_modify_endpoint", return_value=True),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "delete_endpoint",
+                return_value=True,
+            ),
+        ):
+            result = endpoint_service.delete_endpoint_by_slug(
+                "test-endpoint", sample_user
+            )
+
+            assert result is True
+
+    def test_delete_endpoint_by_slug_not_found(self, endpoint_service, sample_user):
+        """Test deleting non-existent endpoint by slug."""
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "get_by_user_and_slug",
+            return_value=None,
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                endpoint_service.delete_endpoint_by_slug("nonexistent", sample_user)
+
+            assert exc_info.value.status_code == 404
+            assert "Endpoint not found" in str(exc_info.value.detail)
+
+    def test_delete_endpoint_by_slug_permission_denied(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test permission denied for endpoint deletion by slug."""
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_user_and_slug",
+                return_value=sample_endpoint,
+            ),
+            patch.object(endpoint_service, "_can_modify_endpoint", return_value=False),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                endpoint_service.delete_endpoint_by_slug("test-endpoint", sample_user)
+
+            assert exc_info.value.status_code == 403
+            assert "Permission denied" in str(exc_info.value.detail)
+
+    def test_delete_endpoint_by_slug_failure(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test endpoint deletion by slug failure."""
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_user_and_slug",
+                return_value=sample_endpoint,
+            ),
+            patch.object(endpoint_service, "_can_modify_endpoint", return_value=True),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "delete_endpoint",
+                return_value=False,
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                endpoint_service.delete_endpoint_by_slug("test-endpoint", sample_user)
+
+            assert exc_info.value.status_code == 500
+            assert "Failed to delete endpoint" in str(exc_info.value.detail)
+
+    def test_delete_endpoint_by_slug_uses_correct_user_id(
+        self, endpoint_service, sample_endpoint, sample_user
+    ):
+        """Test that delete_endpoint_by_slug looks up using the current user's ID."""
+        with (
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_user_and_slug",
+                return_value=sample_endpoint,
+            ) as mock_get,
+            patch.object(endpoint_service, "_can_modify_endpoint", return_value=True),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "delete_endpoint",
+                return_value=True,
+            ),
+        ):
+            endpoint_service.delete_endpoint_by_slug("test-endpoint", sample_user)
+
+            # Verify the lookup was called with the correct user ID
+            mock_get.assert_called_once_with(sample_user.id, "test-endpoint")
+
+
 class TestEndpointServiceStar:
     """Test endpoint star functionality."""
 

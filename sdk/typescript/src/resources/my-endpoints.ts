@@ -70,27 +70,6 @@ export class MyEndpointsResource {
   }
 
   /**
-   * Resolve an endpoint path to its ID.
-   *
-   * @param path - Endpoint path in "owner/slug" format
-   * @returns The endpoint ID
-   */
-  private async resolveEndpointId(path: string): Promise<number> {
-    const [owner, slug] = this.parsePath(path);
-
-    // Get the endpoint via the public route (returns full details for owners)
-    const response = await this.http.get<{ id?: number }>(`/${owner}/${slug}`);
-
-    if (response.id === undefined) {
-      throw new Error(
-        `Could not resolve endpoint ID for '${path}'. Make sure you own this endpoint.`
-      );
-    }
-
-    return response.id;
-  }
-
-  /**
    * List the current user's endpoints.
    *
    * @param options - Filtering and pagination options
@@ -133,8 +112,23 @@ export class MyEndpointsResource {
    * @throws {AuthorizationError} If not authorized to view
    */
   async get(path: string): Promise<Endpoint> {
-    const [owner, slug] = this.parsePath(path);
-    return this.http.get<Endpoint>(`/${owner}/${slug}`);
+    const [, slug] = this.parsePath(path);
+
+    // Search user's own endpoints by slug
+    // /api/v1/endpoints returns EndpointResponse with full details including id
+    const endpoints = await this.http.get<Endpoint[]>('/api/v1/endpoints', { limit: 100 });
+
+    for (const ep of endpoints) {
+      if (ep.slug === slug) {
+        return ep;
+      }
+    }
+
+    // Import NotFoundError here to avoid circular dependency
+    const { NotFoundError } = await import('../errors.js');
+    throw new NotFoundError(
+      `Endpoint not found: '${path}'. No endpoint found with slug '${slug}' in your endpoints.`
+    );
   }
 
   /**
@@ -150,8 +144,9 @@ export class MyEndpointsResource {
    * @throws {AuthorizationError} If not owner/admin
    */
   async update(path: string, input: EndpointUpdateInput): Promise<Endpoint> {
-    const endpointId = await this.resolveEndpointId(path);
-    return this.http.patch<Endpoint>(`/api/v1/endpoints/${endpointId}`, input);
+    const [, slug] = this.parsePath(path);
+    // Use slug-based endpoint directly instead of resolving ID
+    return this.http.patch<Endpoint>(`/api/v1/endpoints/slug/${slug}`, input);
   }
 
   /**
@@ -163,7 +158,8 @@ export class MyEndpointsResource {
    * @throws {AuthorizationError} If not owner/admin
    */
   async delete(path: string): Promise<void> {
-    const endpointId = await this.resolveEndpointId(path);
-    await this.http.delete<void>(`/api/v1/endpoints/${endpointId}`);
+    const [, slug] = this.parsePath(path);
+    // Use slug-based endpoint directly instead of resolving ID
+    await this.http.delete<void>(`/api/v1/endpoints/slug/${slug}`);
   }
 }

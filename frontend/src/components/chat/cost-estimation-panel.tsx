@@ -66,7 +66,7 @@ export function CostEstimationPanel({ model, dataSources }: Readonly<CostEstimat
               key={`input-${String(breakdown.totalInputCost)}`}
               initial={{ opacity: 0, x: 10 }}
               animate={{ opacity: 1, x: 0 }}
-              className='font-mono text-sm font-medium text-gray-700'
+              className='font-mono text-sm font-medium text-gray-700 tabular-nums'
             >
               {formatCurrency(breakdown.totalInputCost)}
             </motion.span>
@@ -79,7 +79,7 @@ export function CostEstimationPanel({ model, dataSources }: Readonly<CostEstimat
               key={`output-${String(breakdown.totalOutputCost)}`}
               initial={{ opacity: 0, x: 10 }}
               animate={{ opacity: 1, x: 0 }}
-              className='font-mono text-sm font-medium text-gray-700'
+              className='font-mono text-sm font-medium text-gray-700 tabular-nums'
             >
               {formatCurrency(breakdown.totalOutputCost)}
             </motion.span>
@@ -95,7 +95,7 @@ export function CostEstimationPanel({ model, dataSources }: Readonly<CostEstimat
               key={`total-${String(breakdown.totalCost)}`}
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
-              className='font-mono text-lg font-bold text-gray-900'
+              className='font-mono text-lg font-bold text-gray-900 tabular-nums'
             >
               {formatCurrency(breakdown.totalCost)}
             </motion.span>

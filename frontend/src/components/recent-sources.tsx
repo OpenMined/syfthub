@@ -69,7 +69,7 @@ export function RecentSources({ endpoints, isLoading }: Readonly<RecentSourcesPr
                 key={endpoint.id}
                 to={href}
                 title={`View ${endpoint.name}`}
-                className={`group flex items-center gap-3 rounded-lg border-l-2 border-transparent px-4 py-3 transition-all hover:bg-[#f7f6f9] ${colors.border} hover:shadow-sm`}
+                className={`group flex items-center gap-3 rounded-lg border-l-2 border-transparent px-4 py-3 transition-colors transition-shadow hover:bg-[#f7f6f9] ${colors.border} hover:shadow-sm`}
               >
                 <div className={`h-2 w-2 rounded-full ${colors.bg} flex-shrink-0`}></div>
                 <span className='font-inter flex-1 truncate text-sm text-black transition-colors group-hover:text-black'>

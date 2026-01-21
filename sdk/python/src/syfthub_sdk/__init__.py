@@ -31,7 +31,6 @@ Example usage:
 from syfthub_sdk._pagination import PageIterator
 from syfthub_sdk.chat import (
     ChatResource,
-    # Streaming events
     ChatStreamEvent,
     DoneEvent,
     ErrorEvent,
@@ -43,8 +42,8 @@ from syfthub_sdk.chat import (
 )
 from syfthub_sdk.client import SyftHubClient
 from syfthub_sdk.exceptions import (
-    APIError,
     AggregatorError,
+    APIError,
     AuthenticationError,
     AuthorizationError,
     ChatError,
@@ -59,12 +58,9 @@ from syfthub_sdk.exceptions import (
     ValidationError,
 )
 from syfthub_sdk.models import (
-    # Accounting models
     AccountingCredentials,
     AccountingUser,
-    # Core models
     AuthTokens,
-    # Chat models
     ChatMetadata,
     ChatResponse,
     Connection,

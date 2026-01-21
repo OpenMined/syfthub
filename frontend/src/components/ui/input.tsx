@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 import { Button } from './button';
 
 const inputVariants = cva(
-  'flex w-full rounded-lg border px-3 py-2 text-sm transition-all file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50',
+  'flex w-full rounded-lg border px-3 py-2 text-sm transition-colors transition-shadow file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50',
   {
     variants: {
       variant: {
@@ -42,6 +42,8 @@ interface InputProperties
   isRequired?: boolean;
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
+  /** Input mode for mobile keyboard optimization */
+  inputMode?: 'none' | 'text' | 'tel' | 'url' | 'email' | 'numeric' | 'decimal' | 'search';
 }
 
 const Input = React.forwardRef<HTMLInputElement, InputProperties>(
@@ -58,10 +60,20 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
       leftIcon,
       rightIcon,
       id,
+      inputMode,
       ...properties
     },
     reference
   ) => {
+    // Auto-determine inputMode based on type if not explicitly set (Web Interface Guidelines)
+    const typeToInputMode: Record<string, InputProperties['inputMode']> = {
+      email: 'email',
+      tel: 'tel',
+      url: 'url',
+      number: 'numeric',
+      search: 'search'
+    };
+    const resolvedInputMode = inputMode ?? typeToInputMode[type];
     const [isPasswordVisible, setIsPasswordVisible] = React.useState(false);
     const inputId = id ?? React.useId();
     const errorId = `${inputId}-error`;
@@ -87,7 +99,10 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
 
         <div className='relative'>
           {leftIcon ? (
-            <div className='text-syft-muted absolute top-1/2 left-3 -translate-y-1/2'>
+            <div
+              className='text-syft-muted absolute top-1/2 left-3 -translate-y-1/2'
+              aria-hidden='true'
+            >
               {leftIcon}
             </div>
           ) : null}
@@ -95,6 +110,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
           <input
             id={inputId}
             type={inputType}
+            inputMode={resolvedInputMode}
             className={cn(
               inputVariants({ variant: currentVariant, size }),
               leftIcon && 'pl-10',
@@ -115,13 +131,21 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
               className='text-syft-muted hover:text-syft-primary absolute top-1/2 right-1 h-8 w-8 -translate-y-1/2'
               onClick={togglePasswordVisibility}
               tabIndex={-1}
+              aria-label={isPasswordVisible ? 'Hide password' : 'Show password'}
             >
-              {isPasswordVisible ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
+              {isPasswordVisible ? (
+                <EyeOff className='h-4 w-4' aria-hidden='true' />
+              ) : (
+                <Eye className='h-4 w-4' aria-hidden='true' />
+              )}
             </Button>
           ) : null}
 
           {rightIcon && !isPassword ? (
-            <div className='text-syft-muted absolute top-1/2 right-3 -translate-y-1/2'>
+            <div
+              className='text-syft-muted absolute top-1/2 right-3 -translate-y-1/2'
+              aria-hidden='true'
+            >
               {rightIcon}
             </div>
           ) : null}

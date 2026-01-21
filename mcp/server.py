@@ -1733,10 +1733,10 @@ def chat_with_syfthub(
             data_sources=data_sources or []
         )
 
-        # Format sources for output
+        # Format sources for output (retrieval_info contains metadata about each data source)
         sources_info = []
-        if response.sources:
-            for source in response.sources:
+        if response.retrieval_info:
+            for source in response.retrieval_info:
                 source_entry = {
                     "path": source.path,
                     "status": source.status.value if hasattr(source.status, 'value') else str(source.status),

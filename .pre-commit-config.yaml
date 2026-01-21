@@ -15,17 +15,31 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.14.4
     hooks:
+      # Backend hooks
       - id: ruff
+        name: ruff (backend)
         args: [--fix, --config=backend/pyproject.toml]
         files: ^backend/
       - id: ruff-format
+        name: ruff-format (backend)
         args: [--config=backend/pyproject.toml]
         files: ^backend/
+      # Python SDK hooks
+      - id: ruff
+        name: ruff (sdk/python)
+        args: [--fix, --config=sdk/python/pyproject.toml]
+        files: ^sdk/python/
+      - id: ruff-format
+        name: ruff-format (sdk/python)
+        args: [--config=sdk/python/pyproject.toml]
+        files: ^sdk/python/
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.18.2
     hooks:
+      # Backend mypy
       - id: mypy
+        name: mypy (backend)
         args: [--config-file=backend/pyproject.toml]
         pass_filenames: false
         entry: sh -c 'cd backend && mypy src/'
@@ -45,6 +59,17 @@ repos:
           types-sqlalchemy,
           types-markdown,
           types-passlib,
+        ]
+      # Python SDK mypy
+      - id: mypy
+        name: mypy (sdk/python)
+        args: [--config-file=sdk/python/pyproject.toml]
+        pass_filenames: false
+        entry: sh -c 'cd sdk/python && mypy src/syfthub_sdk'
+        files: ^sdk/python/.*\.py$
+        additional_dependencies: [
+          httpx,
+          pydantic,
         ]
 
   # Frontend hooks

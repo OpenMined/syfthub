@@ -149,9 +149,6 @@ client.set_tokens(tokens)
 | Variable | Description |
 |----------|-------------|
 | `SYFTHUB_URL` | SyftHub API base URL |
-| `SYFTHUB_ACCOUNTING_URL` | Accounting service URL |
-| `SYFTHUB_ACCOUNTING_EMAIL` | Accounting auth email |
-| `SYFTHUB_ACCOUNTING_PASSWORD` | Accounting auth password |
 
 ## Error Handling
 

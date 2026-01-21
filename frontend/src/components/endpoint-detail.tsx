@@ -332,7 +332,7 @@ const PolicyItem = memo(function PolicyItem({ policy }: Readonly<{ policy: Polic
   return (
     <div
       className={cn(
-        'group relative rounded-lg border p-4 transition-all duration-200',
+        'group relative rounded-lg border p-4 transition-colors transition-shadow duration-200',
         config.borderColor,
         config.bgColor,
         policy.enabled ? 'hover:shadow-md hover:shadow-black/5' : 'opacity-60 grayscale-[30%]'
@@ -486,7 +486,7 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
         <div className='flex items-center justify-center py-12'>
           <div className='text-syft-muted flex items-center gap-3'>
             <div className='border-syft-border border-t-syft-secondary h-6 w-6 animate-spin rounded-full border-2'></div>
-            <span className='font-inter'>Loading endpoint...</span>
+            <span className='font-inter'>Loading endpoint…</span>
           </div>
         </div>
       </div>
@@ -498,7 +498,7 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
       <div className='bg-syft-background min-h-screen p-8'>
         <div className='mx-auto max-w-4xl'>
           <Button variant='ghost' onClick={onBack} className='mb-4 flex items-center gap-2'>
-            <ArrowLeft className='h-4 w-4' />
+            <ArrowLeft className='h-4 w-4' aria-hidden='true' />
             Back
           </Button>
           <div className='py-12 text-center'>
@@ -524,7 +524,7 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
             onClick={onBack}
             className='text-syft-muted hover:text-syft-primary mb-4 flex items-center gap-2'
           >
-            <ArrowLeft className='h-4 w-4' />
+            <ArrowLeft className='h-4 w-4' aria-hidden='true' />
             Back to endpoints
           </Button>
 

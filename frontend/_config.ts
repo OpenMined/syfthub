@@ -1,8 +1,10 @@
 const config = {
   metadata: {
     title: 'SyftHub | Directory for Collective Intelligence',
-    description: 'Discover your peers on the Syft network. Choose and query trusted sources - with attribution, privacy, and control built in.',
-    keywords: 'syfthub, openmined, pysyft, privacy, data science, federated learning, differential privacy',
+    description:
+      'Discover your peers on the Syft network. Choose and query trusted sources - with attribution, privacy, and control built in.',
+    keywords:
+      'syfthub, openmined, pysyft, privacy, data science, federated learning, differential privacy',
     ogImage: 'https://syfthub.openmined.org/favicon/openmined-icon.svg'
   },
   server: {

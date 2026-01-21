@@ -45,10 +45,18 @@
     "typescript"
   ],
   "author": "SyftHub",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/syfthub/sdk-ts"
+    "url": "https://github.com/OpenMined/syfthub.git",
+    "directory": "sdk/typescript"
+  },
+  "homepage": "https://github.com/OpenMined/syfthub/tree/main/sdk/typescript#readme",
+  "bugs": {
+    "url": "https://github.com/OpenMined/syfthub/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "devDependencies": {
     "@types/node": "^20.17.10",

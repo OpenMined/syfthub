@@ -960,6 +960,7 @@ class TestInvokeOwnerEndpoint:
             updated_at=datetime.now(timezone.utc),
         )
 
+    @patch("syfthub.main.validate_domain_for_ssrf")
     @patch("syfthub.main.httpx.AsyncClient")
     @patch("syfthub.main.get_endpoint_by_owner_and_slug")
     @patch("syfthub.main.resolve_owner")
@@ -970,6 +971,7 @@ class TestInvokeOwnerEndpoint:
         mock_resolve,
         mock_get_endpoint,
         mock_async_client,
+        mock_ssrf_check,
         client,
         mock_endpoint_with_connection,
         mock_user,
@@ -1115,6 +1117,7 @@ class TestInvokeOwnerEndpoint:
         assert response.status_code == 400
         assert "no domain configured" in response.json()["detail"]
 
+    @patch("syfthub.main.validate_domain_for_ssrf")
     @patch("syfthub.main.httpx.AsyncClient")
     @patch("syfthub.main.get_endpoint_by_owner_and_slug")
     @patch("syfthub.main.resolve_owner")
@@ -1125,6 +1128,7 @@ class TestInvokeOwnerEndpoint:
         mock_resolve,
         mock_get_endpoint,
         mock_async_client,
+        mock_ssrf_check,
         client,
         mock_endpoint_with_connection,
         mock_user,
@@ -1147,6 +1151,7 @@ class TestInvokeOwnerEndpoint:
         assert response.status_code == 504
         assert "timed out" in response.json()["detail"]
 
+    @patch("syfthub.main.validate_domain_for_ssrf")
     @patch("syfthub.main.httpx.AsyncClient")
     @patch("syfthub.main.get_endpoint_by_owner_and_slug")
     @patch("syfthub.main.resolve_owner")
@@ -1157,6 +1162,7 @@ class TestInvokeOwnerEndpoint:
         mock_resolve,
         mock_get_endpoint,
         mock_async_client,
+        mock_ssrf_check,
         client,
         mock_endpoint_with_connection,
         mock_user,
@@ -1179,6 +1185,7 @@ class TestInvokeOwnerEndpoint:
         assert response.status_code == 502
         assert "Failed to connect" in response.json()["detail"]
 
+    @patch("syfthub.main.validate_domain_for_ssrf")
     @patch("syfthub.main.httpx.AsyncClient")
     @patch("syfthub.main.get_endpoint_by_owner_and_slug")
     @patch("syfthub.main.resolve_owner")
@@ -1189,6 +1196,7 @@ class TestInvokeOwnerEndpoint:
         mock_resolve,
         mock_get_endpoint,
         mock_async_client,
+        mock_ssrf_check,
         client,
         mock_endpoint_with_connection,
         mock_user,
@@ -1215,6 +1223,7 @@ class TestInvokeOwnerEndpoint:
         assert response.status_code == 403
         assert "denied access" in response.json()["detail"]
 
+    @patch("syfthub.main.validate_domain_for_ssrf")
     @patch("syfthub.main.httpx.AsyncClient")
     @patch("syfthub.main.get_endpoint_by_owner_and_slug")
     @patch("syfthub.main.resolve_owner")
@@ -1225,6 +1234,7 @@ class TestInvokeOwnerEndpoint:
         mock_resolve,
         mock_get_endpoint,
         mock_async_client,
+        mock_ssrf_check,
         client,
         mock_endpoint_with_connection,
         mock_user,
@@ -1252,6 +1262,7 @@ class TestInvokeOwnerEndpoint:
         assert response.status_code == 500
         assert "Target endpoint error" in response.json()["detail"]
 
+    @patch("syfthub.main.validate_domain_for_ssrf")
     @patch("syfthub.main.get_endpoint_by_owner_and_slug")
     @patch("syfthub.main.resolve_owner")
     @patch("syfthub.main.get_optional_current_user")
@@ -1260,6 +1271,7 @@ class TestInvokeOwnerEndpoint:
         mock_get_user,
         mock_resolve,
         mock_get_endpoint,
+        mock_ssrf_check,
         client,
         mock_user,
         mock_endpoint_with_connection,

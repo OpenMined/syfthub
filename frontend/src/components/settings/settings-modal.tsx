@@ -26,13 +26,13 @@ interface TabItem {
 }
 
 const TABS: TabItem[] = [
-  { id: 'profile', label: 'Profile', icon: <User className='h-4 w-4' /> },
-  { id: 'security', label: 'Security', icon: <Lock className='h-4 w-4' /> },
-  { id: 'payment', label: 'Payment', icon: <CreditCard className='h-4 w-4' /> },
+  { id: 'profile', label: 'Profile', icon: <User className='h-4 w-4' aria-hidden='true' /> },
+  { id: 'security', label: 'Security', icon: <Lock className='h-4 w-4' aria-hidden='true' /> },
+  { id: 'payment', label: 'Payment', icon: <CreditCard className='h-4 w-4' aria-hidden='true' /> },
   {
     id: 'danger-zone',
     label: 'Danger Zone',
-    icon: <AlertTriangle className='h-4 w-4' />,
+    icon: <AlertTriangle className='h-4 w-4' aria-hidden='true' />,
     danger: true
   }
 ];
@@ -206,7 +206,7 @@ export function SettingsModal() {
                 onClick={closeSettings}
                 aria-label='Close settings'
               >
-                <X className='h-4 w-4' />
+                <X className='h-4 w-4' aria-hidden='true' />
               </Button>
 
               {/* Tab Content */}

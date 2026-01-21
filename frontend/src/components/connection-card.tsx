@@ -128,7 +128,7 @@ function SingleConnection({
   return (
     <div
       className={cn(
-        'group relative rounded-lg border transition-all duration-200',
+        'group relative rounded-lg border transition-colors transition-shadow duration-200',
         config.borderColor,
         config.bgColor,
         connection.enabled ? 'hover:shadow-md hover:shadow-black/5' : 'opacity-60 grayscale-[30%]',
@@ -212,7 +212,7 @@ function SingleConnection({
               size='sm'
               onClick={handleCopySlug}
               className={cn(
-                'h-7 w-7 shrink-0 p-0 transition-all',
+                'h-7 w-7 shrink-0 p-0 transition-colors',
                 copied
                   ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-100'
                   : 'text-[#b4b0bf] hover:bg-white hover:text-[#5e5a72]'
