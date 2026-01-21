@@ -69,7 +69,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
 
   return (
     <AnimatePresence>
-      {isOpen && (
+      {isOpen ? (
         <>
           {/* Backdrop */}
           <motion.div
@@ -162,22 +162,22 @@ const AdvancedPanel = memo(function AdvancedPanel({
                             <div className='flex flex-wrap gap-2'>
                               {hasInputCost || hasOutputCost ? (
                                 <>
-                                  {hasInputCost && (
+                                  {hasInputCost ? (
                                     <Badge
                                       variant='secondary'
                                       className='font-inter h-5 border-green-200 bg-green-50 px-2 text-[10px] font-medium text-green-700'
                                     >
                                       In: {formatCostPerUnit(costs.inputPerToken, 'token')}
                                     </Badge>
-                                  )}
-                                  {hasOutputCost && (
+                                  ) : null}
+                                  {hasOutputCost ? (
                                     <Badge
                                       variant='secondary'
                                       className='font-inter h-5 border-green-200 bg-green-50 px-2 text-[10px] font-medium text-green-700'
                                     >
                                       Out: {formatCostPerUnit(costs.outputPerToken, 'token')}
                                     </Badge>
-                                  )}
+                                  ) : null}
                                 </>
                               ) : (
                                 <Badge
@@ -271,32 +271,32 @@ const AdvancedPanel = memo(function AdvancedPanel({
                               <span className='font-inter block truncate text-sm font-medium text-[#272532]'>
                                 {selectedModel.name}
                               </span>
-                              {selectedModel.version && (
+                              {selectedModel.version ? (
                                 <span className='font-inter text-xs text-[#5e5a72]'>
                                   v{selectedModel.version}
                                 </span>
-                              )}
+                              ) : null}
                             </div>
                           </div>
                           <div className='flex flex-wrap gap-2'>
                             {hasInputCost || hasOutputCost ? (
                               <>
-                                {hasInputCost && (
+                                {hasInputCost ? (
                                   <Badge
                                     variant='secondary'
                                     className='font-inter h-5 border-purple-200 bg-purple-50 px-2 text-[10px] font-medium text-purple-700'
                                   >
                                     In: {formatCostPerUnit(modelCosts.inputPerToken, 'token')}
                                   </Badge>
-                                )}
-                                {hasOutputCost && (
+                                ) : null}
+                                {hasOutputCost ? (
                                   <Badge
                                     variant='secondary'
                                     className='font-inter h-5 border-purple-200 bg-purple-50 px-2 text-[10px] font-medium text-purple-700'
                                   >
                                     Out: {formatCostPerUnit(modelCosts.outputPerToken, 'token')}
                                   </Badge>
-                                )}
+                                ) : null}
                               </>
                             ) : (
                               <Badge
@@ -336,7 +336,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
             </div>
           </motion.div>
         </>
-      )}
+      ) : null}
     </AnimatePresence>
   );
 });
@@ -388,11 +388,11 @@ const SourceSelector = memo(function SourceSelector({
                     {tag}
                   </span>
                 ))}
-                {source.tags.length > 2 && (
+                {source.tags.length > 2 ? (
                   <span className='font-inter rounded-md bg-[#f1f0f4] px-2 py-0.5 text-xs text-[#5e5a72]'>
                     +{source.tags.length - 2}
                   </span>
-                )}
+                ) : null}
               </div>
 
               {/* Description with Status Dot */}
@@ -1040,12 +1040,12 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                 className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'} max-w-full`}
               >
                 {/* Status Indicator - shows real-time progress during processing */}
-                {message.isThinking && !message.content && processingStatus && (
+                {message.isThinking && !message.content && processingStatus ? (
                   <StatusIndicator status={processingStatus} />
-                )}
+                ) : null}
 
                 {/* Text Content */}
-                {message.content && (
+                {message.content ? (
                   <div
                     className={`font-inter max-w-2xl rounded-2xl px-5 py-3 shadow-sm ${
                       message.role === 'user'
@@ -1059,25 +1059,25 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                       message.content
                     )}
                   </div>
-                )}
+                ) : null}
 
                 {/* Aggregator Sources Section - shows after assistant messages with sources */}
                 {message.role === 'assistant' &&
-                  message.aggregatorSources &&
-                  Object.keys(message.aggregatorSources).length > 0 && (
-                    <div className='mt-2 w-full max-w-2xl'>
-                      <SourcesSection sources={message.aggregatorSources} />
-                    </div>
-                  )}
+                message.aggregatorSources &&
+                Object.keys(message.aggregatorSources).length > 0 ? (
+                  <div className='mt-2 w-full max-w-2xl'>
+                    <SourcesSection sources={message.aggregatorSources} />
+                  </div>
+                ) : null}
 
                 {/* Source Selection UI */}
-                {message.type === 'source-selection' && message.sources && (
+                {message.type === 'source-selection' && message.sources ? (
                   <SourceSelector
                     sources={message.sources}
                     selectedIds={selectedSources}
                     onToggle={toggleSource}
                   />
-                )}
+                ) : null}
               </div>
             </div>
           ))}

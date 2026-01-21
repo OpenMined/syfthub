@@ -26,11 +26,11 @@ export function ParticipateView({
       {/* Sticky Header */}
       <div className='border-syft-border bg-syft-background/95 sticky top-0 z-30 flex w-full items-center justify-between border-b px-6 py-4 backdrop-blur-sm'>
         <div className='flex items-center gap-4'>
-          {onBack && (
+          {onBack ? (
             <Button variant='ghost' size='sm' onClick={onBack} className='p-2'>
               <ArrowLeft className='h-5 w-5' />
             </Button>
-          )}
+          ) : null}
           <h2 className='font-rubik text-syft-primary text-xl font-medium'>{title}</h2>
           <div className='text-syft-muted hidden font-mono text-xs opacity-60 sm:block'>
             ~/participate

@@ -132,7 +132,7 @@ export function SettingsModal() {
 
   return (
     <AnimatePresence>
-      {isOpen && (
+      {isOpen ? (
         <div
           className='fixed inset-0 z-50 flex items-center justify-center p-4'
           onKeyDown={handleKeyDown}
@@ -214,7 +214,7 @@ export function SettingsModal() {
             </div>
           </motion.div>
         </div>
-      )}
+      ) : null}
     </AnimatePresence>
   );
 }

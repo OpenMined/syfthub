@@ -78,19 +78,19 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
 
     return (
       <div className='w-full space-y-1'>
-        {label && (
+        {label ? (
           <label htmlFor={inputId} className='text-syft-primary block text-sm font-medium'>
             {label}
-            {isRequired && <span className='ml-1 text-red-500'>*</span>}
+            {isRequired ? <span className='ml-1 text-red-500'>*</span> : null}
           </label>
-        )}
+        ) : null}
 
         <div className='relative'>
-          {leftIcon && (
+          {leftIcon ? (
             <div className='text-syft-muted absolute top-1/2 left-3 -translate-y-1/2'>
               {leftIcon}
             </div>
-          )}
+          ) : null}
 
           <input
             id={inputId}
@@ -107,7 +107,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
             {...properties}
           />
 
-          {isPassword && (
+          {isPassword ? (
             <Button
               type='button'
               variant='ghost'
@@ -118,26 +118,26 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
             >
               {isPasswordVisible ? <EyeOff className='h-4 w-4' /> : <Eye className='h-4 w-4' />}
             </Button>
-          )}
+          ) : null}
 
-          {rightIcon && !isPassword && (
+          {rightIcon && !isPassword ? (
             <div className='text-syft-muted absolute top-1/2 right-3 -translate-y-1/2'>
               {rightIcon}
             </div>
-          )}
+          ) : null}
         </div>
 
-        {error && (
+        {error ? (
           <p id={errorId} className='text-xs text-red-500' role='alert'>
             {error}
           </p>
-        )}
+        ) : null}
 
-        {helperText && !error && (
+        {helperText && !error ? (
           <p id={helperTextId} className='text-syft-muted text-xs'>
             {helperText}
           </p>
-        )}
+        ) : null}
       </div>
     );
   }

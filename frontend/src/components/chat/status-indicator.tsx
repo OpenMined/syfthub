@@ -186,7 +186,7 @@ const SourceStatusRow = memo(function SourceStatusRow({
     >
       <SourceStatusIcon status={source.status} />
       <span className='font-inter text-xs font-medium text-[#272532]'>{source.displayName}</span>
-      {source.status === 'success' && source.documents > 0 && (
+      {source.status === 'success' && source.documents > 0 ? (
         <motion.span
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -194,11 +194,13 @@ const SourceStatusRow = memo(function SourceStatusRow({
         >
           {source.documents} {source.documents === 1 ? 'doc' : 'docs'}
         </motion.span>
-      )}
-      {source.status === 'error' && <span className='font-inter text-xs text-red-500'>failed</span>}
-      {source.status === 'timeout' && (
+      ) : null}
+      {source.status === 'error' ? (
+        <span className='font-inter text-xs text-red-500'>failed</span>
+      ) : null}
+      {source.status === 'timeout' ? (
         <span className='font-inter text-xs text-yellow-600'>timeout</span>
-      )}
+      ) : null}
     </motion.div>
   );
 });
@@ -261,18 +263,18 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
           </AnimatePresence>
 
           {/* Progress fraction */}
-          {status.retrieval && status.phase === 'retrieving' && (
+          {status.retrieval && status.phase === 'retrieving' ? (
             <span className='font-inter text-xs text-[#8a86a0]'>
               ({status.retrieval.completed}/{status.retrieval.total})
             </span>
-          )}
+          ) : null}
 
           {/* Animated dots (not shown for error state) */}
           {isError ? null : <AnimatedDots />}
         </div>
 
         {/* Documents found summary */}
-        {status.retrieval && status.retrieval.documentsFound > 0 && status.phase !== 'error' && (
+        {status.retrieval && status.retrieval.documentsFound > 0 && status.phase !== 'error' ? (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
@@ -284,10 +286,10 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
               {status.retrieval.documentsFound === 1 ? 'document' : 'documents'} found
             </span>
           </motion.div>
-        )}
+        ) : null}
 
         {/* Expand/Collapse button */}
-        {hasDetails && (
+        {hasDetails ? (
           <motion.button
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -307,12 +309,12 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
               </>
             )}
           </motion.button>
-        )}
+        ) : null}
       </div>
 
       {/* Expandable Details */}
       <AnimatePresence>
-        {isExpanded && hasDetails && (
+        {isExpanded && hasDetails ? (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
@@ -327,7 +329,7 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
                 ))}
 
                 {/* Show pending sources indicator */}
-                {pendingCount > 0 && (
+                {pendingCount > 0 ? (
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -343,10 +345,10 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
                       {pendingCount} more {pendingCount === 1 ? 'source' : 'sources'} searching...
                     </span>
                   </motion.div>
-                )}
+                ) : null}
 
                 {/* Timing information */}
-                {status.timing?.retrievalMs && status.phase !== 'retrieving' && (
+                {status.timing?.retrievalMs && status.phase !== 'retrieving' ? (
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -357,11 +359,11 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
                       Retrieved in {(status.timing.retrievalMs / 1000).toFixed(1)}s
                     </span>
                   </motion.div>
-                )}
+                ) : null}
               </div>
             </div>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
     </motion.div>
   );

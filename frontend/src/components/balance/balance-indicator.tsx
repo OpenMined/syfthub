@@ -338,7 +338,7 @@ export function BalanceIndicator() {
 
       {/* Dropdown */}
       <AnimatePresence>
-        {isOpen && (
+        {isOpen ? (
           <motion.div
             ref={dropdownReference}
             initial={{ opacity: 0, y: -8, scale: 0.96 }}
@@ -403,7 +403,7 @@ export function BalanceIndicator() {
               </div>
 
               {/* Low balance warning */}
-              {!error && status !== 'healthy' && (
+              {!error && status !== 'healthy' ? (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
@@ -417,7 +417,7 @@ export function BalanceIndicator() {
                     ? 'Your balance is empty. Add credits to continue using services.'
                     : 'Your balance is running low. Consider adding more credits.'}
                 </motion.div>
-              )}
+              ) : null}
             </div>
 
             {/* Recent Transactions */}
@@ -459,7 +459,7 @@ export function BalanceIndicator() {
               </div>
             </div>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
     </div>
   );

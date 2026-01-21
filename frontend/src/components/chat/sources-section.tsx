@@ -55,7 +55,7 @@ const HoverCard = memo(function HoverCard({
 
   return (
     <AnimatePresence>
-      {isVisible && (
+      {isVisible ? (
         <motion.div
           initial={{ opacity: 0, y: 8, scale: 0.96 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -86,7 +86,7 @@ const HoverCard = memo(function HoverCard({
             </p>
           </div>
         </motion.div>
-      )}
+      ) : null}
     </AnimatePresence>
   );
 });
@@ -295,7 +295,7 @@ export function SourcesSection({ sources }: Readonly<SourcesSectionProps>) {
 
       {/* Expandable Content */}
       <AnimatePresence>
-        {isExpanded && (
+        {isExpanded ? (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
@@ -316,7 +316,7 @@ export function SourcesSection({ sources }: Readonly<SourcesSectionProps>) {
               </div>
             </div>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
     </motion.div>
   );

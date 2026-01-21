@@ -280,7 +280,7 @@ export function ProfileSettingsTab() {
 
       {/* Status Messages */}
       <AnimatePresence>
-        {success && (
+        {success ? (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -290,9 +290,9 @@ export function ProfileSettingsTab() {
             <Check className='h-4 w-4 text-green-600' />
             <span className='text-sm text-green-800'>{success}</span>
           </motion.div>
-        )}
+        ) : null}
 
-        {error && (
+        {error ? (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -302,7 +302,7 @@ export function ProfileSettingsTab() {
             <AlertCircle className='h-4 w-4 text-red-600' />
             <span className='text-sm text-red-800'>{error}</span>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
 
       <form onSubmit={handleSubmit} className='space-y-5'>
@@ -360,23 +360,23 @@ export function ProfileSettingsTab() {
                 return '';
               })()}
             />
-            {usernameAvailability.checking && (
+            {usernameAvailability.checking ? (
               <div className='absolute top-1/2 right-3 -translate-y-1/2'>
                 <Loader2 className='h-4 w-4 animate-spin text-gray-400' />
               </div>
-            )}
-            {!usernameAvailability.checking && usernameAvailability.available === true && (
+            ) : null}
+            {!usernameAvailability.checking && usernameAvailability.available === true ? (
               <div className='absolute top-1/2 right-3 -translate-y-1/2'>
                 <Check className='h-4 w-4 text-green-500' />
               </div>
-            )}
-            {!usernameAvailability.checking && usernameAvailability.available === false && (
+            ) : null}
+            {!usernameAvailability.checking && usernameAvailability.available === false ? (
               <div className='absolute top-1/2 right-3 -translate-y-1/2'>
                 <AlertCircle className='h-4 w-4 text-red-500' />
               </div>
-            )}
+            ) : null}
           </div>
-          {usernameAvailability.message && (
+          {usernameAvailability.message ? (
             <p
               className={`text-xs ${
                 usernameAvailability.available === false ? 'text-red-600' : 'text-green-600'
@@ -384,7 +384,7 @@ export function ProfileSettingsTab() {
             >
               {usernameAvailability.message}
             </p>
-          )}
+          ) : null}
         </div>
 
         {/* Email */}
@@ -408,23 +408,23 @@ export function ProfileSettingsTab() {
                 return '';
               })()}
             />
-            {emailAvailability.checking && (
+            {emailAvailability.checking ? (
               <div className='absolute top-1/2 right-3 -translate-y-1/2'>
                 <Loader2 className='h-4 w-4 animate-spin text-gray-400' />
               </div>
-            )}
-            {!emailAvailability.checking && emailAvailability.available === true && (
+            ) : null}
+            {!emailAvailability.checking && emailAvailability.available === true ? (
               <div className='absolute top-1/2 right-3 -translate-y-1/2'>
                 <Check className='h-4 w-4 text-green-500' />
               </div>
-            )}
-            {!emailAvailability.checking && emailAvailability.available === false && (
+            ) : null}
+            {!emailAvailability.checking && emailAvailability.available === false ? (
               <div className='absolute top-1/2 right-3 -translate-y-1/2'>
                 <AlertCircle className='h-4 w-4 text-red-500' />
               </div>
-            )}
+            ) : null}
           </div>
-          {emailAvailability.message && (
+          {emailAvailability.message ? (
             <p
               className={`text-xs ${
                 emailAvailability.available === false ? 'text-red-600' : 'text-green-600'
@@ -432,7 +432,7 @@ export function ProfileSettingsTab() {
             >
               {emailAvailability.message}
             </p>
-          )}
+          ) : null}
         </div>
 
         {/* Full Name */}

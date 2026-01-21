@@ -237,25 +237,24 @@ const TransactionPolicyContent = memo(function TransactionPolicyContent({
   return (
     <div className='mt-3 space-y-2'>
       {/* Provider & Model Info */}
-      {/* eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- Intentional truthy check for conditional rendering */}
-      {(provider || pricingModel) && (
+      {provider || pricingModel ? (
         <div className='text-syft-muted flex flex-wrap gap-x-4 gap-y-1 text-xs'>
-          {provider && (
+          {provider ? (
             <span>
               Provider: <span className='text-syft-primary font-medium'>{provider}</span>
             </span>
-          )}
-          {pricingModel && (
+          ) : null}
+          {pricingModel ? (
             <span>
               Model:{' '}
               <span className='text-syft-primary font-medium'>{formatConfigKey(pricingModel)}</span>
             </span>
-          )}
+          ) : null}
         </div>
-      )}
+      ) : null}
 
       {/* Pricing Table */}
-      {costs && (
+      {costs ? (
         <div className='rounded-md border border-emerald-200 bg-white/60'>
           <div className='border-b border-emerald-100 px-3 py-1.5'>
             <span className='text-[10px] font-semibold tracking-wide text-emerald-700 uppercase'>
@@ -281,7 +280,7 @@ const TransactionPolicyContent = memo(function TransactionPolicyContent({
               ))}
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 });
@@ -377,9 +376,9 @@ const PolicyItem = memo(function PolicyItem({ policy }: Readonly<{ policy: Polic
             Object.keys(policy.config).length > 0 && <GenericPolicyContent config={policy.config} />
           )}
 
-          {policy.version && (
+          {policy.version ? (
             <p className='text-syft-placeholder mt-2 text-[10px]'>Version {policy.version}</p>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
@@ -401,11 +400,11 @@ const AccessPoliciesCard = memo(function AccessPoliciesCard({
       {/* Header */}
       <div className='mb-4 flex items-center justify-between'>
         <h3 className='font-rubik text-syft-primary text-sm font-medium'>Access Policies</h3>
-        {validPolicies.length > 0 && (
+        {validPolicies.length > 0 ? (
           <span className='bg-syft-surface text-syft-muted rounded-full px-2 py-0.5 text-xs font-medium'>
             {validPolicies.length}
           </span>
-        )}
+        ) : null}
       </div>
 
       {/* Policies list */}
@@ -698,7 +697,7 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                   </Badge>
                 </div>
 
-                {endpoint.tags.length > 0 && (
+                {endpoint.tags.length > 0 ? (
                   <div>
                     <p className='font-inter text-syft-muted mb-1 text-xs'>Tags</p>
                     <div className='flex flex-wrap gap-1'>
@@ -709,7 +708,7 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                       ))}
                     </div>
                   </div>
-                )}
+                ) : null}
 
                 <div>
                   <p className='font-inter text-syft-muted mb-1 text-xs'>Contributors</p>
@@ -725,14 +724,14 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
             </div>
 
             {/* Connections Card */}
-            {endpoint.connections && endpoint.connections.length > 0 && (
+            {endpoint.connections && endpoint.connections.length > 0 ? (
               <ConnectionCard
                 connections={endpoint.connections}
                 endpointSlug={
                   endpoint.full_path ?? `${endpoint.owner_username ?? 'anonymous'}/${slug}`
                 }
               />
-            )}
+            ) : null}
 
             {/* Access Policies Card */}
             <AccessPoliciesCard policies={endpoint.policies} />

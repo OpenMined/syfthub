@@ -184,7 +184,7 @@ export function ProfileView() {
 
         {/* Success/Error Messages */}
         <AnimatePresence>
-          {success && (
+          {success ? (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -194,9 +194,9 @@ export function ProfileView() {
               <Check className='h-5 w-5 text-green-600' />
               <span className='text-green-800'>{success}</span>
             </motion.div>
-          )}
+          ) : null}
 
-          {error && (
+          {error ? (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -206,7 +206,7 @@ export function ProfileView() {
               <AlertCircle className='h-5 w-5 text-red-600' />
               <span className='text-red-800'>{error}</span>
             </motion.div>
-          )}
+          ) : null}
         </AnimatePresence>
 
         <div className='grid gap-8 lg:grid-cols-2'>
@@ -215,7 +215,7 @@ export function ProfileView() {
             <div className='border-b border-gray-200 px-6 py-4'>
               <div className='flex items-center justify-between'>
                 <h2 className='text-lg font-semibold text-gray-900'>Profile Information</h2>
-                {!isEditing && (
+                {isEditing ? null : (
                   <Button
                     variant='outline'
                     size='sm'
@@ -343,7 +343,7 @@ export function ProfileView() {
             <div className='border-b border-gray-200 px-6 py-4'>
               <div className='flex items-center justify-between'>
                 <h2 className='text-lg font-semibold text-gray-900'>Security Settings</h2>
-                {!isChangingPassword && (
+                {isChangingPassword ? null : (
                   <Button
                     variant='outline'
                     size='sm'

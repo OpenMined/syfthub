@@ -147,12 +147,12 @@ export function BrowseView({
         </div>
 
         {/* Content */}
-        {isLoading && (
+        {isLoading ? (
           <div className='py-16 text-center'>
             <LoadingSpinner size='lg' message='Loading endpoints...' className='justify-center' />
           </div>
-        )}
-        {!isLoading && error && (
+        ) : null}
+        {!isLoading && error ? (
           <div className='py-16 text-center'>
             <div className='mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-50'>
               <Search className='h-8 w-8 text-red-500' />
@@ -162,8 +162,8 @@ export function BrowseView({
             </h3>
             <p className='font-inter text-syft-muted'>{error.message}</p>
           </div>
-        )}
-        {!isLoading && !error && filteredEndpoints.length === 0 && (
+        ) : null}
+        {!isLoading && !error && filteredEndpoints.length === 0 ? (
           <div className='py-16 text-center'>
             <div className='bg-syft-surface mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full'>
               <Search className='text-syft-muted h-8 w-8' />
@@ -175,8 +175,8 @@ export function BrowseView({
               {searchQuery ? `No endpoints match "${searchQuery}"` : 'No endpoints available'}
             </p>
           </div>
-        )}
-        {!isLoading && !error && filteredEndpoints.length > 0 && (
+        ) : null}
+        {!isLoading && !error && filteredEndpoints.length > 0 ? (
           <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-3'>
             {filteredEndpoints.map((endpoint) => (
               <div
@@ -190,11 +190,11 @@ export function BrowseView({
                     <h3 className='font-inter text-syft-primary group-hover:text-syft-secondary mb-1 truncate text-base font-semibold'>
                       {endpoint.name}
                     </h3>
-                    {endpoint.owner_username && (
+                    {endpoint.owner_username ? (
                       <p className='font-inter text-syft-placeholder truncate text-xs'>
                         by @{endpoint.owner_username}
                       </p>
-                    )}
+                    ) : null}
                     <p className='font-inter text-syft-muted line-clamp-2 text-sm'>
                       {endpoint.description}
                     </p>
@@ -215,11 +215,11 @@ export function BrowseView({
                       {tag}
                     </Badge>
                   ))}
-                  {endpoint.tags.length > 3 && (
+                  {endpoint.tags.length > 3 ? (
                     <Badge variant='secondary' className='font-inter text-xs'>
                       +{endpoint.tags.length - 3}
                     </Badge>
-                  )}
+                  ) : null}
                   <div className='flex items-center gap-1'>
                     <div className={`h-2 w-2 rounded-full ${getStatusColor(endpoint.status)}`} />
                     <span className='font-inter text-syft-muted text-xs capitalize'>
@@ -256,7 +256,7 @@ export function BrowseView({
               </div>
             ))}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

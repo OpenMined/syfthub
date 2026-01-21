@@ -129,7 +129,7 @@ export function PaymentSettingsTab() {
 
         {/* Success Message */}
         <AnimatePresence>
-          {success && (
+          {success ? (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -139,7 +139,7 @@ export function PaymentSettingsTab() {
               <Check className='h-4 w-4 text-green-600' />
               <span className='text-sm text-green-800'>Credentials updated successfully!</span>
             </motion.div>
-          )}
+          ) : null}
         </AnimatePresence>
 
         {/* Credentials Display */}
@@ -215,7 +215,7 @@ export function PaymentSettingsTab() {
       </div>
 
       {/* Info Banner */}
-      {!isEditing && (
+      {isEditing ? null : (
         <div className='rounded-lg border border-blue-200 bg-blue-50 p-4'>
           <div className='flex items-start gap-3'>
             <CreditCard className='mt-0.5 h-5 w-5 flex-shrink-0 text-blue-600' />
@@ -232,7 +232,7 @@ export function PaymentSettingsTab() {
 
       {/* Status Messages */}
       <AnimatePresence>
-        {displayError && (
+        {displayError ? (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -242,7 +242,7 @@ export function PaymentSettingsTab() {
             <AlertCircle className='h-4 w-4 text-red-600' />
             <span className='text-sm text-red-800'>{displayError}</span>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
 
       {/* Setup/Edit Form */}
@@ -268,7 +268,7 @@ export function PaymentSettingsTab() {
         </div>
 
         {/* Email (read-only info) */}
-        {credentials?.email && (
+        {credentials?.email ? (
           <div className='space-y-2'>
             <Label>Email</Label>
             <div className='rounded-md bg-gray-50 px-3 py-2'>
@@ -278,7 +278,7 @@ export function PaymentSettingsTab() {
               Your SyftHub email will be used for accounting service authentication
             </p>
           </div>
-        )}
+        ) : null}
 
         {/* Password */}
         <div className='space-y-2'>
@@ -309,11 +309,11 @@ export function PaymentSettingsTab() {
 
         {/* Submit Buttons */}
         <div className='flex items-center justify-end gap-2 pt-2'>
-          {isEditing && (
+          {isEditing ? (
             <Button type='button' variant='outline' onClick={handleCancelEditing}>
               Cancel
             </Button>
-          )}
+          ) : null}
           <Button
             type='submit'
             disabled={isLoading || !formData.url || !formData.password}

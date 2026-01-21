@@ -150,7 +150,7 @@ export function SecuritySettingsTab() {
 
       {/* Status Messages */}
       <AnimatePresence>
-        {success && (
+        {success ? (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -160,9 +160,9 @@ export function SecuritySettingsTab() {
             <Check className='h-4 w-4 text-green-600' />
             <span className='text-sm text-green-800'>{success}</span>
           </motion.div>
-        )}
+        ) : null}
 
-        {error && (
+        {error ? (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -172,7 +172,7 @@ export function SecuritySettingsTab() {
             <AlertCircle className='h-4 w-4 text-red-600' />
             <span className='text-sm text-red-800'>{error}</span>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
 
       {/* Password Change Form */}
@@ -206,7 +206,7 @@ export function SecuritySettingsTab() {
           />
 
           {/* Password Strength Indicator */}
-          {formData.new_password && (
+          {formData.new_password ? (
             <div className='space-y-1'>
               <div className='flex items-center gap-2'>
                 <div className='h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200'>
@@ -229,7 +229,7 @@ export function SecuritySettingsTab() {
                 </li>
               </ul>
             </div>
-          )}
+          ) : null}
         </div>
 
         <div className='space-y-2'>
@@ -242,12 +242,12 @@ export function SecuritySettingsTab() {
             placeholder='Confirm your new password'
             disabled={isLoading}
           />
-          {formData.confirm_password && formData.new_password !== formData.confirm_password && (
+          {formData.confirm_password && formData.new_password !== formData.confirm_password ? (
             <p className='text-xs text-red-600'>Passwords do not match</p>
-          )}
-          {formData.confirm_password && formData.new_password === formData.confirm_password && (
+          ) : null}
+          {formData.confirm_password && formData.new_password === formData.confirm_password ? (
             <p className='text-xs text-green-600'>Passwords match</p>
-          )}
+          ) : null}
         </div>
 
         {/* Submit Button */}
