@@ -4,14 +4,11 @@
 This script demonstrates a complete SyftHub SDK workflow:
 1. Login with username/password
 2. Query a model using data sources (RAG)
-3. Check accounting balance
+3. Check accounting balance (auto-retrieved from backend)
 
 Usage:
     # Using environment variables
     export SYFTHUB_URL="https://hub.syft.com"
-    export SYFTHUB_ACCOUNTING_URL="https://accounting.syft.com"
-    export SYFTHUB_ACCOUNTING_EMAIL="your@email.com"
-    export SYFTHUB_ACCOUNTING_PASSWORD="your-accounting-password"
 
     python demo_workflow.py --username alice --password secret123 \
         --model "owner/model-slug" \
@@ -355,14 +352,8 @@ def chat_query(
 
 
 def check_accounting(client: SyftHubClient) -> None:
-    """Check accounting balance."""
+    """Check accounting balance (auto-retrieved from backend)."""
     print_header("Step 3: Accounting Balance")
-
-    if not client.accounting.is_configured:
-        print("Accounting service not configured.")
-        print("Set SYFTHUB_ACCOUNTING_URL, SYFTHUB_ACCOUNTING_EMAIL,")
-        print("and SYFTHUB_ACCOUNTING_PASSWORD environment variables.")
-        return
 
     try:
         user = client.accounting.get_user()

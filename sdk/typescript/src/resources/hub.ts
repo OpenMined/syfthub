@@ -178,7 +178,8 @@ export class HubResource {
    */
   async star(path: string): Promise<void> {
     const endpointId = await this.resolveEndpointId(path);
-    await this.http.patch<void>(`/api/v1/endpoints/${endpointId}/star`);
+    // Use POST method for starring (not PATCH)
+    await this.http.post<void>(`/api/v1/endpoints/${endpointId}/star`);
   }
 
   /**
@@ -190,7 +191,8 @@ export class HubResource {
    */
   async unstar(path: string): Promise<void> {
     const endpointId = await this.resolveEndpointId(path);
-    await this.http.patch<void>(`/api/v1/endpoints/${endpointId}/unstar`);
+    // Use DELETE method to /star endpoint (not PATCH to /unstar)
+    await this.http.delete<void>(`/api/v1/endpoints/${endpointId}/star`);
   }
 
   /**

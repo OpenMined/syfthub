@@ -76,35 +76,6 @@ class MyEndpointsResource:
             )
         return parts[0], parts[1]
 
-    def _resolve_endpoint_id(self, path: str) -> int:
-        """Resolve an endpoint path to its ID.
-
-        Args:
-            path: Endpoint path in "owner/slug" format
-
-        Returns:
-            The endpoint ID
-
-        Raises:
-            NotFoundError: If endpoint not found
-            AuthenticationError: If not authenticated
-            ValueError: If path is invalid or ID cannot be resolved
-        """
-        owner, slug = self._parse_path(path)
-
-        # Get the endpoint via the public route (returns full details for owners)
-        response = self._http.get(f"/{owner}/{slug}")
-        data = response if isinstance(response, dict) else {}
-
-        endpoint_id = data.get("id")
-        if endpoint_id is None:
-            raise ValueError(
-                f"Could not resolve endpoint ID for '{path}'. "
-                "Make sure you own this endpoint."
-            )
-
-        return int(endpoint_id)
-
     def list(
         self,
         *,
@@ -235,10 +206,23 @@ class MyEndpointsResource:
             AuthorizationError: If not authorized to view
             ValueError: If path format is invalid
         """
+        from syfthub_sdk.exceptions import NotFoundError
+
         owner, slug = self._parse_path(path)
-        response = self._http.get(f"/{owner}/{slug}")
-        data = response if isinstance(response, dict) else {}
-        return Endpoint.model_validate(data)
+
+        # Search user's own endpoints by slug
+        # /api/v1/endpoints returns EndpointResponse with full details including id
+        response = self._http.get("/api/v1/endpoints", params={"limit": 100})
+        endpoints = response if isinstance(response, list) else []
+
+        for ep in endpoints:
+            if ep.get("slug") == slug:
+                return Endpoint.model_validate(ep)
+
+        raise NotFoundError(
+            message=f"Endpoint not found: '{path}'",
+            detail=f"No endpoint found with slug '{slug}' in your endpoints.",
+        )
 
     def update(
         self,
@@ -281,7 +265,7 @@ class MyEndpointsResource:
             AuthorizationError: If not owner/admin
             ValueError: If path format is invalid
         """
-        endpoint_id = self._resolve_endpoint_id(path)
+        _owner, slug = self._parse_path(path)
 
         payload: dict[str, Any] = {}
 
@@ -310,7 +294,8 @@ class MyEndpointsResource:
         if contributors is not None:
             payload["contributors"] = contributors
 
-        response = self._http.patch(f"/api/v1/endpoints/{endpoint_id}", json=payload)
+        # Use slug-based endpoint directly instead of resolving ID
+        response = self._http.patch(f"/api/v1/endpoints/slug/{slug}", json=payload)
         data = response if isinstance(response, dict) else {}
         return Endpoint.model_validate(data)
 
@@ -326,5 +311,6 @@ class MyEndpointsResource:
             AuthorizationError: If not owner/admin
             ValueError: If path format is invalid
         """
-        endpoint_id = self._resolve_endpoint_id(path)
-        self._http.delete(f"/api/v1/endpoints/{endpoint_id}")
+        _owner, slug = self._parse_path(path)
+        # Use slug-based endpoint directly instead of resolving ID
+        self._http.delete(f"/api/v1/endpoints/slug/{slug}")
