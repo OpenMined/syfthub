@@ -3,7 +3,8 @@ import { useMemo } from 'react';
 import type { ChatSource } from '@/lib/types';
 
 import { motion } from 'framer-motion';
-import { AlertCircle, Coins } from 'lucide-react';
+import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
+import Coins from 'lucide-react/dist/esm/icons/coins';
 
 import { calculateFullCostBreakdown, formatCurrency } from '@/lib/cost-utils';
 
@@ -101,7 +102,7 @@ export function CostEstimationPanel({ model, dataSources }: Readonly<CostEstimat
           </div>
         </div>
 
-        {!breakdown.hasAnyPricing && (
+        {breakdown.hasAnyPricing ? null : (
           <div className='mt-3 flex items-center gap-1.5 text-[10px] text-amber-600'>
             <AlertCircle className='h-3 w-3' />
             <span>Some endpoints have no pricing configured</span>

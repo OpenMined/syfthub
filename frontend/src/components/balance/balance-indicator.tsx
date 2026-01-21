@@ -1,17 +1,15 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import {
-  AlertCircle,
-  ArrowDownLeft,
-  ArrowUpRight,
-  ChevronDown,
-  Coins,
-  ExternalLink,
-  Loader2,
-  RefreshCw,
-  Settings
-} from 'lucide-react';
+import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
+import ArrowDownLeft from 'lucide-react/dist/esm/icons/arrow-down-left';
+import ArrowUpRight from 'lucide-react/dist/esm/icons/arrow-up-right';
+import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
+import Coins from 'lucide-react/dist/esm/icons/coins';
+import ExternalLink from 'lucide-react/dist/esm/icons/external-link';
+import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
+import RefreshCw from 'lucide-react/dist/esm/icons/refresh-cw';
+import Settings from 'lucide-react/dist/esm/icons/settings';
 
 import { useAccountingContext } from '@/context/accounting-context';
 import { useSettingsModal } from '@/context/settings-modal-context';
@@ -156,14 +154,18 @@ export function BalanceIndicator() {
     }
   }, [isOpen]);
 
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     await Promise.all([refetch(), refetchTransactions()]);
-  };
+  }, [refetch, refetchTransactions]);
 
-  const handleOpenSettings = () => {
+  const handleOpenSettings = useCallback(() => {
     setIsOpen(false);
     openSettings('payment');
-  };
+  }, [openSettings]);
+
+  const toggleOpen = useCallback(() => {
+    setIsOpen((previous) => !previous);
+  }, []);
 
   // Don't show if not authenticated or credentials are loading
   if (isLoadingCredentials) {
@@ -309,9 +311,7 @@ export function BalanceIndicator() {
       {/* Balance Pill Button */}
       <button
         ref={buttonReference}
-        onClick={() => {
-          setIsOpen(!isOpen);
-        }}
+        onClick={toggleOpen}
         disabled={isLoading}
         className={cn(
           'font-inter flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors transition-shadow',
@@ -338,7 +338,7 @@ export function BalanceIndicator() {
 
       {/* Dropdown */}
       <AnimatePresence>
-        {isOpen && (
+        {isOpen ? (
           <motion.div
             ref={dropdownReference}
             initial={{ opacity: 0, y: -8, scale: 0.96 }}
@@ -403,7 +403,7 @@ export function BalanceIndicator() {
               </div>
 
               {/* Low balance warning */}
-              {!error && status !== 'healthy' && (
+              {!error && status !== 'healthy' ? (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
@@ -417,7 +417,7 @@ export function BalanceIndicator() {
                     ? 'Your balance is empty. Add credits to continue using services.'
                     : 'Your balance is running low. Consider adding more credits.'}
                 </motion.div>
-              )}
+              ) : null}
             </div>
 
             {/* Recent Transactions */}
@@ -459,7 +459,7 @@ export function BalanceIndicator() {
               </div>
             </div>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
     </div>
   );

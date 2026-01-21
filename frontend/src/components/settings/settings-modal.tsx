@@ -3,7 +3,11 @@ import React from 'react';
 import type { SettingsTab } from '@/context/settings-modal-context';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertTriangle, CreditCard, Lock, User, X } from 'lucide-react';
+import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
+import CreditCard from 'lucide-react/dist/esm/icons/credit-card';
+import Lock from 'lucide-react/dist/esm/icons/lock';
+import User from 'lucide-react/dist/esm/icons/user';
+import X from 'lucide-react/dist/esm/icons/x';
 
 import { Button } from '@/components/ui/button';
 import { useSettingsModal } from '@/context/settings-modal-context';
@@ -128,7 +132,7 @@ export function SettingsModal() {
 
   return (
     <AnimatePresence>
-      {isOpen && (
+      {isOpen ? (
         <div
           className='fixed inset-0 z-50 flex items-center justify-center p-4'
           onKeyDown={handleKeyDown}
@@ -210,7 +214,7 @@ export function SettingsModal() {
             </div>
           </motion.div>
         </div>
-      )}
+      ) : null}
     </AnimatePresence>
   );
 }

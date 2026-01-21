@@ -1,4 +1,4 @@
-import { UserPlus } from 'lucide-react';
+import UserPlus from 'lucide-react/dist/esm/icons/user-plus';
 import { useNavigate } from 'react-router-dom';
 
 import { Hero } from '@/components/hero';
@@ -120,14 +120,14 @@ export default function HomePage() {
       </section>
 
       {/* Only show the recent sections if there are endpoints registered */}
-      {(isLoading || hasAnyEndpoints) && (
+      {isLoading || hasAnyEndpoints ? (
         <section className='bg-white px-6 py-6'>
           <div className='mx-auto grid max-w-4xl gap-10 md:grid-cols-2'>
             <RecentSources endpoints={recentEndpoints ?? []} isLoading={isLoadingRecent} />
             <RecentModels endpoints={trendingEndpoints ?? []} isLoading={isLoadingTrending} />
           </div>
         </section>
-      )}
+      ) : null}
     </>
   );
 }

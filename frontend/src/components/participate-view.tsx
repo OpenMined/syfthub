@@ -1,6 +1,12 @@
 import React from 'react';
 
-import { ArrowLeft, Cpu, Database, Download, Globe, Share2, Shield } from 'lucide-react';
+import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left';
+import Cpu from 'lucide-react/dist/esm/icons/cpu';
+import Database from 'lucide-react/dist/esm/icons/database';
+import Download from 'lucide-react/dist/esm/icons/download';
+import Globe from 'lucide-react/dist/esm/icons/globe';
+import Share2 from 'lucide-react/dist/esm/icons/share-2';
+import Shield from 'lucide-react/dist/esm/icons/shield';
 
 import { Button } from './ui/button';
 
@@ -20,11 +26,11 @@ export function ParticipateView({
       {/* Sticky Header */}
       <div className='border-syft-border bg-syft-background/95 sticky top-0 z-30 flex w-full items-center justify-between border-b px-6 py-4 backdrop-blur-sm'>
         <div className='flex items-center gap-4'>
-          {onBack && (
+          {onBack ? (
             <Button variant='ghost' size='sm' onClick={onBack} className='p-2' aria-label='Go back'>
               <ArrowLeft className='h-5 w-5' aria-hidden='true' />
             </Button>
-          )}
+          ) : null}
           <h2 className='font-rubik text-syft-primary text-xl font-medium'>{title}</h2>
           <div className='text-syft-muted hidden font-mono text-xs opacity-60 sm:block'>
             ~/participate

@@ -3,7 +3,8 @@ import * as React from 'react';
 import type { VariantProps } from 'class-variance-authority';
 
 import { cva } from 'class-variance-authority';
-import { Eye, EyeOff } from 'lucide-react';
+import Eye from 'lucide-react/dist/esm/icons/eye';
+import EyeOff from 'lucide-react/dist/esm/icons/eye-off';
 
 import { cn } from '@/lib/utils';
 
@@ -83,28 +84,28 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
     const hasError = Boolean(error);
     const currentVariant = hasError ? 'error' : variant;
 
-    const togglePasswordVisibility = () => {
-      setIsPasswordVisible(!isPasswordVisible);
-    };
+    const togglePasswordVisibility = React.useCallback(() => {
+      setIsPasswordVisible((previous) => !previous);
+    }, []);
 
     return (
       <div className='w-full space-y-1'>
-        {label && (
+        {label ? (
           <label htmlFor={inputId} className='text-syft-primary block text-sm font-medium'>
             {label}
-            {isRequired && <span className='ml-1 text-red-500'>*</span>}
+            {isRequired ? <span className='ml-1 text-red-500'>*</span> : null}
           </label>
-        )}
+        ) : null}
 
         <div className='relative'>
-          {leftIcon && (
+          {leftIcon ? (
             <div
               className='text-syft-muted absolute top-1/2 left-3 -translate-y-1/2'
               aria-hidden='true'
             >
               {leftIcon}
             </div>
-          )}
+          ) : null}
 
           <input
             id={inputId}
@@ -122,7 +123,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
             {...properties}
           />
 
-          {isPassword && (
+          {isPassword ? (
             <Button
               type='button'
               variant='ghost'
@@ -138,29 +139,29 @@ const Input = React.forwardRef<HTMLInputElement, InputProperties>(
                 <Eye className='h-4 w-4' aria-hidden='true' />
               )}
             </Button>
-          )}
+          ) : null}
 
-          {rightIcon && !isPassword && (
+          {rightIcon && !isPassword ? (
             <div
               className='text-syft-muted absolute top-1/2 right-3 -translate-y-1/2'
               aria-hidden='true'
             >
               {rightIcon}
             </div>
-          )}
+          ) : null}
         </div>
 
-        {error && (
+        {error ? (
           <p id={errorId} className='text-xs text-red-500' role='alert'>
             {error}
           </p>
-        )}
+        ) : null}
 
-        {helperText && !error && (
+        {helperText && !error ? (
           <p id={helperTextId} className='text-syft-muted text-xs'>
             {helperText}
           </p>
-        )}
+        ) : null}
       </div>
     );
   }

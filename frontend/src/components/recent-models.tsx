@@ -1,6 +1,7 @@
 import type { ChatSource } from '@/lib/types';
 
-import { ArrowRight, Star } from 'lucide-react';
+import ArrowRight from 'lucide-react/dist/esm/icons/arrow-right';
+import Star from 'lucide-react/dist/esm/icons/star';
 import { Link } from 'react-router-dom';
 
 // Color palette for endpoint items (warm tones for trending)

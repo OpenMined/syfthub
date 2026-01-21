@@ -3,7 +3,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatSource } from '@/lib/types';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { Brain, Check, ChevronDown, ExternalLink, Loader2, Search, Star } from 'lucide-react';
+import Brain from 'lucide-react/dist/esm/icons/brain';
+import Check from 'lucide-react/dist/esm/icons/check';
+import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
+import ExternalLink from 'lucide-react/dist/esm/icons/external-link';
+import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
+import Search from 'lucide-react/dist/esm/icons/search';
+import Star from 'lucide-react/dist/esm/icons/star';
 import { useNavigate } from 'react-router-dom';
 
 interface ModelSelectorProps {
@@ -151,7 +157,7 @@ export function ModelSelector({
 
       {/* Dropdown Panel - Opens downward from top left position */}
       <AnimatePresence>
-        {isOpen && (
+        {isOpen ? (
           <motion.div
             initial={{ opacity: 0, y: -8, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -224,12 +230,12 @@ export function ModelSelector({
                             <span className='font-inter truncate text-sm font-medium text-[#272532]'>
                               {model.name}
                             </span>
-                            {model.stars_count > 0 && (
+                            {model.stars_count > 0 ? (
                               <div className='flex items-center gap-0.5 text-[#b4b0bf]'>
                                 <Star className='h-3 w-3' aria-hidden='true' />
                                 <span className='font-inter text-xs'>{model.stars_count}</span>
                               </div>
-                            )}
+                            ) : null}
                           </div>
                           {/* Clickable path to endpoint page */}
                           <button
@@ -248,11 +254,11 @@ export function ModelSelector({
                               aria-hidden='true'
                             />
                           </button>
-                          {model.version && (
+                          {model.version ? (
                             <span className='font-inter mt-1 inline-block rounded bg-[#f1f0f4] px-1.5 py-0.5 text-[10px] text-[#5e5a72]'>
                               v{model.version}
                             </span>
-                          )}
+                          ) : null}
                         </div>
 
                         {/* Selected Indicator */}
@@ -274,15 +280,15 @@ export function ModelSelector({
             </div>
 
             {/* Footer hint */}
-            {models.length > 0 && (
+            {models.length > 0 ? (
               <div className='border-t border-[#ecebef] bg-[#fcfcfd] px-3 py-2'>
                 <p className='font-inter text-center text-[10px] text-[#b4b0bf]'>
                   {models.length} model{models.length === 1 ? '' : 's'} available
                 </p>
               </div>
-            )}
+            ) : null}
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
     </div>
   );

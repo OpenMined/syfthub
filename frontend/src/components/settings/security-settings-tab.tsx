@@ -1,7 +1,12 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, Check, Key, Loader2, Lock, Shield } from 'lucide-react';
+import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
+import Check from 'lucide-react/dist/esm/icons/check';
+import Key from 'lucide-react/dist/esm/icons/key';
+import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
+import Lock from 'lucide-react/dist/esm/icons/lock';
+import Shield from 'lucide-react/dist/esm/icons/shield';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,13 +49,14 @@ export function SecuritySettingsTab() {
     confirm_password: ''
   });
 
-  const handleInputChange = (field: keyof PasswordFormData) => {
+  // Memoized input handler factory for stable references
+  const handleInputChange = useCallback((field: keyof PasswordFormData) => {
     return (e: React.ChangeEvent<HTMLInputElement>) => {
       setFormData((previous) => ({ ...previous, [field]: e.target.value }));
       setError(null);
       setSuccess(null);
     };
-  };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -144,7 +150,7 @@ export function SecuritySettingsTab() {
 
       {/* Status Messages */}
       <AnimatePresence>
-        {success && (
+        {success ? (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -154,9 +160,9 @@ export function SecuritySettingsTab() {
             <Check className='h-4 w-4 text-green-600' />
             <span className='text-sm text-green-800'>{success}</span>
           </motion.div>
-        )}
+        ) : null}
 
-        {error && (
+        {error ? (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -166,7 +172,7 @@ export function SecuritySettingsTab() {
             <AlertCircle className='h-4 w-4 text-red-600' />
             <span className='text-sm text-red-800'>{error}</span>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
 
       {/* Password Change Form */}
@@ -204,7 +210,7 @@ export function SecuritySettingsTab() {
           />
 
           {/* Password Strength Indicator */}
-          {formData.new_password && (
+          {formData.new_password ? (
             <div className='space-y-1'>
               <div className='flex items-center gap-2'>
                 <div className='h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200'>
@@ -227,7 +233,7 @@ export function SecuritySettingsTab() {
                 </li>
               </ul>
             </div>
-          )}
+          ) : null}
         </div>
 
         <div className='space-y-2'>
@@ -242,12 +248,12 @@ export function SecuritySettingsTab() {
             autoComplete='new-password'
             disabled={isLoading}
           />
-          {formData.confirm_password && formData.new_password !== formData.confirm_password && (
+          {formData.confirm_password && formData.new_password !== formData.confirm_password ? (
             <p className='text-xs text-red-600'>Passwords do not match</p>
-          )}
-          {formData.confirm_password && formData.new_password === formData.confirm_password && (
+          ) : null}
+          {formData.confirm_password && formData.new_password === formData.confirm_password ? (
             <p className='text-xs text-green-600'>Passwords match</p>
-          )}
+          ) : null}
         </div>
 
         {/* Submit Button */}

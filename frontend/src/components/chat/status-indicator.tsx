@@ -1,18 +1,16 @@
-import { useState } from 'react';
+import { memo, useCallback, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import {
-  AlertCircle,
-  Check,
-  ChevronDown,
-  ChevronUp,
-  Clock,
-  FileText,
-  Pencil,
-  Search,
-  Sparkles,
-  X
-} from 'lucide-react';
+import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
+import Check from 'lucide-react/dist/esm/icons/check';
+import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
+import ChevronUp from 'lucide-react/dist/esm/icons/chevron-up';
+import Clock from 'lucide-react/dist/esm/icons/clock';
+import FileText from 'lucide-react/dist/esm/icons/file-text';
+import Pencil from 'lucide-react/dist/esm/icons/pencil';
+import Search from 'lucide-react/dist/esm/icons/search';
+import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
+import X from 'lucide-react/dist/esm/icons/x';
 
 // =============================================================================
 // Types
@@ -57,7 +55,7 @@ export interface ProcessingStatus {
 /**
  * Animated dots indicator (matching the original ThinkingIndicator style)
  */
-function AnimatedDots() {
+const AnimatedDots = memo(function AnimatedDots() {
   return (
     <div className='flex items-center gap-1'>
       {[0, 1, 2].map((index) => (
@@ -78,12 +76,14 @@ function AnimatedDots() {
       ))}
     </div>
   );
-}
+});
 
 /**
  * Phase icon with appropriate animation
  */
-function PhaseIcon({ phase }: Readonly<{ phase: ProcessingStatus['phase'] }>) {
+const PhaseIcon = memo(function PhaseIcon({
+  phase
+}: Readonly<{ phase: ProcessingStatus['phase'] }>) {
   const iconClass = 'h-4 w-4';
 
   switch (phase) {
@@ -124,12 +124,14 @@ function PhaseIcon({ phase }: Readonly<{ phase: ProcessingStatus['phase'] }>) {
       return <FileText className={`${iconClass} text-[#5e5a72]`} />;
     }
   }
-}
+});
 
 /**
  * Status icon for a completed source
  */
-function SourceStatusIcon({ status }: Readonly<{ status: SourceProgressInfo['status'] }>) {
+const SourceStatusIcon = memo(function SourceStatusIcon({
+  status
+}: Readonly<{ status: SourceProgressInfo['status'] }>) {
   const iconClass = 'h-3.5 w-3.5';
 
   switch (status) {
@@ -166,12 +168,12 @@ function SourceStatusIcon({ status }: Readonly<{ status: SourceProgressInfo['sta
       return null;
     }
   }
-}
+});
 
 /**
  * Row showing status of a single source
  */
-function SourceStatusRow({
+const SourceStatusRow = memo(function SourceStatusRow({
   source,
   index
 }: Readonly<{ source: SourceProgressInfo; index: number }>) {
@@ -184,7 +186,7 @@ function SourceStatusRow({
     >
       <SourceStatusIcon status={source.status} />
       <span className='font-inter text-xs font-medium text-[#272532]'>{source.displayName}</span>
-      {source.status === 'success' && source.documents > 0 && (
+      {source.status === 'success' && source.documents > 0 ? (
         <motion.span
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -192,14 +194,16 @@ function SourceStatusRow({
         >
           {source.documents} {source.documents === 1 ? 'doc' : 'docs'}
         </motion.span>
-      )}
-      {source.status === 'error' && <span className='font-inter text-xs text-red-500'>failed</span>}
-      {source.status === 'timeout' && (
+      ) : null}
+      {source.status === 'error' ? (
+        <span className='font-inter text-xs text-red-500'>failed</span>
+      ) : null}
+      {source.status === 'timeout' ? (
         <span className='font-inter text-xs text-yellow-600'>timeout</span>
-      )}
+      ) : null}
     </motion.div>
   );
-}
+});
 
 // =============================================================================
 // Main Component
@@ -229,6 +233,10 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
       ? status.retrieval.total - status.retrieval.completed
       : 0;
 
+  const toggleExpanded = useCallback(() => {
+    setIsExpanded((previous) => !previous);
+  }, []);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -255,18 +263,18 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
           </AnimatePresence>
 
           {/* Progress fraction */}
-          {status.retrieval && status.phase === 'retrieving' && (
+          {status.retrieval && status.phase === 'retrieving' ? (
             <span className='font-inter text-xs text-[#8a86a0]'>
               ({status.retrieval.completed}/{status.retrieval.total})
             </span>
-          )}
+          ) : null}
 
           {/* Animated dots (not shown for error state) */}
           {isError ? null : <AnimatedDots />}
         </div>
 
         {/* Documents found summary */}
-        {status.retrieval && status.retrieval.documentsFound > 0 && status.phase !== 'error' && (
+        {status.retrieval && status.retrieval.documentsFound > 0 && status.phase !== 'error' ? (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
@@ -278,17 +286,15 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
               {status.retrieval.documentsFound === 1 ? 'document' : 'documents'} found
             </span>
           </motion.div>
-        )}
+        ) : null}
 
         {/* Expand/Collapse button */}
-        {hasDetails && (
+        {hasDetails ? (
           <motion.button
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.3 }}
-            onClick={() => {
-              setIsExpanded(!isExpanded);
-            }}
+            onClick={toggleExpanded}
             className='mt-2 flex items-center gap-1 pl-6 text-xs text-[#6976ae] transition-colors hover:text-[#272532]'
           >
             {isExpanded ? (
@@ -303,12 +309,12 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
               </>
             )}
           </motion.button>
-        )}
+        ) : null}
       </div>
 
       {/* Expandable Details */}
       <AnimatePresence>
-        {isExpanded && hasDetails && (
+        {isExpanded && hasDetails ? (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
@@ -323,7 +329,7 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
                 ))}
 
                 {/* Show pending sources indicator */}
-                {pendingCount > 0 && (
+                {pendingCount > 0 ? (
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -339,10 +345,10 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
                       {pendingCount} more {pendingCount === 1 ? 'source' : 'sources'} searching…
                     </span>
                   </motion.div>
-                )}
+                ) : null}
 
                 {/* Timing information */}
-                {status.timing?.retrievalMs && status.phase !== 'retrieving' && (
+                {status.timing?.retrievalMs && status.phase !== 'retrieving' ? (
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
@@ -353,11 +359,11 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
                       Retrieved in {(status.timing.retrievalMs / 1000).toFixed(1)}s
                     </span>
                   </motion.div>
-                )}
+                ) : null}
               </div>
             </div>
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
     </motion.div>
   );

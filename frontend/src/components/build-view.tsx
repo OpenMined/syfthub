@@ -1,13 +1,25 @@
-import React, { useState } from 'react';
+import React, { memo, Suspense, useCallback, useState } from 'react';
 
-import { ArrowRight, Box, Check, Code2, Copy, Terminal } from 'lucide-react';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import ArrowRight from 'lucide-react/dist/esm/icons/arrow-right';
+import Box from 'lucide-react/dist/esm/icons/box';
+import Check from 'lucide-react/dist/esm/icons/check';
+import Code2 from 'lucide-react/dist/esm/icons/code-2';
+import Copy from 'lucide-react/dist/esm/icons/copy';
+import Terminal from 'lucide-react/dist/esm/icons/terminal';
 
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { PageHeader } from './ui/page-header';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+
+// Lazy load react-syntax-highlighter to reduce initial bundle size (~300KB)
+const SyntaxHighlighter = React.lazy(() => import('react-syntax-highlighter/dist/esm/prism-light'));
+
+// Lazy load the style - will be loaded alongside SyntaxHighlighter
+const loadStyle = () =>
+  import('react-syntax-highlighter/dist/esm/styles/prism/vsc-dark-plus').then(
+    (module_) => module_.default
+  );
 
 interface BuildViewProperties {
   onAuthRequired?: () => void;
@@ -329,7 +341,8 @@ for await (const ep of client.myEndpoints.list()) {
   );
 }
 
-function Section({
+// Memoized Section component to prevent unnecessary re-renders
+const Section = memo(function Section({
   title,
   description,
   icon,
@@ -354,37 +367,56 @@ function Section({
       {children}
     </div>
   );
-}
+});
 
-function CodeBlock({ code, language }: Readonly<{ code: string; language: string }>) {
+// Memoized CodeBlock component with lazy-loaded syntax highlighter
+const CodeBlock = memo(function CodeBlock({
+  code,
+  language
+}: Readonly<{ code: string; language: string }>) {
   const [copied, setCopied] = useState(false);
+  const [style, setStyle] = useState<Record<string, React.CSSProperties> | null>(null);
 
-  const copyToClipboard = () => {
+  // Load style on mount using lazy initialization
+  React.useEffect(() => {
+    let mounted = true;
+    void loadStyle().then((loadedStyle) => {
+      if (mounted) setStyle(loadedStyle);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const copyToClipboard = useCallback(() => {
     void navigator.clipboard.writeText(code);
     setCopied(true);
     setTimeout(() => {
       setCopied(false);
     }, 2000);
-  };
+  }, [code]);
 
   // Custom style to match the existing dark theme
-  const customStyle = {
-    ...vscDarkPlus,
-    'pre[class*="language-"]': {
-      ...vscDarkPlus['pre[class*="language-"]'],
-      background: 'transparent',
-      margin: 0,
-      padding: 0,
-      fontSize: '14px',
-      lineHeight: '1.5'
-    },
-    'code[class*="language-"]': {
-      ...vscDarkPlus['code[class*="language-"]'],
-      background: 'transparent',
-      fontSize: '14px',
-      lineHeight: '1.5'
-    }
-  };
+  const customStyle = React.useMemo(() => {
+    if (!style) return {};
+    return {
+      ...style,
+      'pre[class*="language-"]': {
+        ...(style['pre[class*="language-"]'] as React.CSSProperties | undefined),
+        background: 'transparent',
+        margin: 0,
+        padding: 0,
+        fontSize: '14px',
+        lineHeight: '1.5'
+      },
+      'code[class*="language-"]': {
+        ...(style['code[class*="language-"]'] as React.CSSProperties | undefined),
+        background: 'transparent',
+        fontSize: '14px',
+        lineHeight: '1.5'
+      }
+    };
+  }, [style]);
 
   return (
     <div className='group border-syft-border relative overflow-hidden rounded-xl border bg-[#1a1923]'>
@@ -402,29 +434,39 @@ function CodeBlock({ code, language }: Readonly<{ code: string; language: string
         <span className='font-mono text-xs text-gray-400'>{language}</span>
       </div>
       <div className='overflow-x-auto p-4'>
-        <SyntaxHighlighter
-          language={language}
-          style={customStyle}
-          customStyle={{
-            background: 'transparent',
-            padding: 0,
-            margin: 0
-          }}
-          codeTagProps={{
-            style: {
-              fontSize: '14px',
-              lineHeight: '1.5'
-            }
-          }}
-        >
-          {code}
-        </SyntaxHighlighter>
+        <Suspense fallback={<pre className='font-mono text-sm text-gray-300'>{code}</pre>}>
+          {style ? (
+            <SyntaxHighlighter
+              language={language}
+              style={customStyle}
+              customStyle={{
+                background: 'transparent',
+                padding: 0,
+                margin: 0
+              }}
+              codeTagProps={{
+                style: {
+                  fontSize: '14px',
+                  lineHeight: '1.5'
+                }
+              }}
+            >
+              {code}
+            </SyntaxHighlighter>
+          ) : (
+            <pre className='font-mono text-sm text-gray-300'>{code}</pre>
+          )}
+        </Suspense>
       </div>
     </div>
   );
-}
+});
 
-function InfoCard({ title, items }: Readonly<{ title: string; items: string[] }>) {
+// Memoized InfoCard component
+const InfoCard = memo(function InfoCard({
+  title,
+  items
+}: Readonly<{ title: string; items: string[] }>) {
   return (
     <Card>
       <CardHeader>
@@ -442,9 +484,13 @@ function InfoCard({ title, items }: Readonly<{ title: string; items: string[] }>
       </CardContent>
     </Card>
   );
-}
+});
 
-function ResourceLink({ label, href }: Readonly<{ label: string; href: string }>) {
+// Memoized ResourceLink component
+const ResourceLink = memo(function ResourceLink({
+  label,
+  href
+}: Readonly<{ label: string; href: string }>) {
   return (
     <a
       href={href}
@@ -456,4 +502,4 @@ function ResourceLink({ label, href }: Readonly<{ label: string; href: string }>
       <ArrowRight className='h-4 w-4 opacity-50' />
     </a>
   );
-}
+});

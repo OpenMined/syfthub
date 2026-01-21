@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, AlertTriangle, Loader2, Trash2 } from 'lucide-react';
+import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
+import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
+import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
+import Trash2 from 'lucide-react/dist/esm/icons/trash-2';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,11 +44,21 @@ export function DangerZoneTab() {
     }
   };
 
-  const handleCancelDelete = () => {
+  // Memoized handlers for stable references
+  const handleCancelDelete = useCallback(() => {
     setShowConfirmation(false);
     setConfirmText('');
     setError(null);
-  };
+  }, []);
+
+  const handleConfirmTextChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setConfirmText(e.target.value);
+    setError(null);
+  }, []);
+
+  const handleShowConfirmation = useCallback(() => {
+    setShowConfirmation(true);
+  }, []);
 
   return (
     <div className='space-y-6'>
@@ -84,13 +97,11 @@ export function DangerZoneTab() {
               <li>• Your profile information will be permanently erased</li>
             </ul>
           </div>
-          {!showConfirmation && (
+          {showConfirmation ? null : (
             <Button
               variant='outline'
               className='border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700'
-              onClick={() => {
-                setShowConfirmation(true);
-              }}
+              onClick={handleShowConfirmation}
             >
               <Trash2 className='mr-2 h-4 w-4' aria-hidden='true' />
               Delete Account
@@ -100,7 +111,7 @@ export function DangerZoneTab() {
 
         {/* Confirmation Form */}
         <AnimatePresence>
-          {showConfirmation && (
+          {showConfirmation ? (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
@@ -108,7 +119,7 @@ export function DangerZoneTab() {
               className='mt-4 overflow-hidden'
             >
               <div className='space-y-4 border-t border-red-200 pt-4'>
-                {error && (
+                {error ? (
                   <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -117,7 +128,7 @@ export function DangerZoneTab() {
                     <AlertCircle className='h-4 w-4 text-red-600' />
                     <span className='text-sm text-red-800'>{error}</span>
                   </motion.div>
-                )}
+                ) : null}
 
                 <div className='rounded-lg bg-red-100 p-3'>
                   <p className='text-sm font-medium text-red-800'>
@@ -133,10 +144,7 @@ export function DangerZoneTab() {
                     id='confirm-delete'
                     name='confirm_delete'
                     value={confirmText}
-                    onChange={(e) => {
-                      setConfirmText(e.target.value);
-                      setError(null);
-                    }}
+                    onChange={handleConfirmTextChange}
                     placeholder={expectedConfirmText}
                     autoComplete='off'
                     spellCheck={false}
@@ -176,7 +184,7 @@ export function DangerZoneTab() {
                 </div>
               </div>
             </motion.div>
-          )}
+          ) : null}
         </AnimatePresence>
       </div>
     </div>

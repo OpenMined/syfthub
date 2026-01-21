@@ -5,7 +5,7 @@
  * Uses the SyftHub SDK for all API operations.
  */
 
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import type { User as SdkUser } from '@/lib/sdk-client';
 import type { User } from '@/lib/types';
@@ -199,29 +199,34 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
     void initializeAuth();
   }, []);
 
-  const login = async (credentials: { email: string; password: string }): Promise<void> => {
-    try {
-      setIsLoading(true);
-      setError(null);
+  // Memoized login callback for stable reference
+  const login = useCallback(
+    async (credentials: { email: string; password: string }): Promise<void> => {
+      try {
+        setIsLoading(true);
+        setError(null);
 
-      // SDK auth.login takes username (email works as username)
-      const sdkUser = await syftClient.auth.login(credentials.email, credentials.password);
+        // SDK auth.login takes username (email works as username)
+        const sdkUser = await syftClient.auth.login(credentials.email, credentials.password);
 
-      // Persist tokens to localStorage
-      persistTokens();
+        // Persist tokens to localStorage
+        persistTokens();
 
-      // Update state
-      setUser(mapSdkUserToFrontend(sdkUser));
-    } catch (loginError) {
-      const message = getErrorMessage(loginError);
-      setError(message);
-      throw loginError;
-    } finally {
-      setIsLoading(false);
-    }
-  };
+        // Update state
+        setUser(mapSdkUserToFrontend(sdkUser));
+      } catch (loginError) {
+        const message = getErrorMessage(loginError);
+        setError(message);
+        throw loginError;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    []
+  );
 
-  const register = async (userData: RegisterData): Promise<void> => {
+  // Memoized register callback for stable reference
+  const register = useCallback(async (userData: RegisterData): Promise<void> => {
     try {
       setIsLoading(true);
       setError(null);
@@ -241,9 +246,10 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const loginWithGoogle = async (): Promise<void> => {
+  // Memoized loginWithGoogle callback for stable reference
+  const loginWithGoogle = useCallback(async (): Promise<void> => {
     try {
       setIsLoading(true);
       setError(null);
@@ -258,9 +264,10 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const loginWithGitHub = async (): Promise<void> => {
+  // Memoized loginWithGitHub callback for stable reference
+  const loginWithGitHub = useCallback(async (): Promise<void> => {
     try {
       setIsLoading(true);
       setError(null);
@@ -275,9 +282,10 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const logout = async (): Promise<void> => {
+  // Memoized logout callback for stable reference
+  const logout = useCallback(async (): Promise<void> => {
     try {
       setIsLoading(true);
 
@@ -300,7 +308,7 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   const clearError = useCallback(() => {
     setError(null);
@@ -324,20 +332,37 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
     setUser(updatedUser);
   }, []);
 
-  const value: AuthContextType = {
-    user,
-    isLoading,
-    isInitializing,
-    error,
-    login,
-    register,
-    loginWithGoogle,
-    loginWithGitHub,
-    logout,
-    clearError,
-    refreshUser,
-    updateUser
-  };
+  // Memoize the context value to prevent unnecessary re-renders of consumers
+  const value = useMemo<AuthContextType>(
+    () => ({
+      user,
+      isLoading,
+      isInitializing,
+      error,
+      login,
+      register,
+      loginWithGoogle,
+      loginWithGitHub,
+      logout,
+      clearError,
+      refreshUser,
+      updateUser
+    }),
+    [
+      user,
+      isLoading,
+      isInitializing,
+      error,
+      login,
+      register,
+      loginWithGoogle,
+      loginWithGitHub,
+      logout,
+      clearError,
+      refreshUser,
+      updateUser
+    ]
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

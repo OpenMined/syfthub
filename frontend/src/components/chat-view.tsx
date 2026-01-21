@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ChatStreamEvent } from '@/lib/sdk-client';
 import type { ChatSource } from '@/lib/types';
@@ -6,18 +6,16 @@ import type { SourcesData } from './chat/sources-section';
 import type { ProcessingStatus } from './chat/status-indicator';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import {
-  ArrowDown,
-  Brain,
-  Check,
-  Clock,
-  Cpu,
-  Database,
-  Info,
-  Loader2,
-  Settings2,
-  X
-} from 'lucide-react';
+import ArrowDown from 'lucide-react/dist/esm/icons/arrow-down';
+import Brain from 'lucide-react/dist/esm/icons/brain';
+import Check from 'lucide-react/dist/esm/icons/check';
+import Clock from 'lucide-react/dist/esm/icons/clock';
+import Cpu from 'lucide-react/dist/esm/icons/cpu';
+import Database from 'lucide-react/dist/esm/icons/database';
+import Info from 'lucide-react/dist/esm/icons/info';
+import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
+import Settings2 from 'lucide-react/dist/esm/icons/settings-2';
+import X from 'lucide-react/dist/esm/icons/x';
 
 import { useAuth } from '@/context/auth-context';
 import { triggerBalanceRefresh } from '@/hooks/use-accounting-api';
@@ -39,7 +37,8 @@ import { Badge } from './ui/badge';
 import { Label } from './ui/label';
 import { Switch } from './ui/switch';
 
-function AdvancedPanel({
+// Memoized AdvancedPanel to prevent unnecessary re-renders
+const AdvancedPanel = memo(function AdvancedPanel({
   isOpen,
   onClose,
   sources,
@@ -49,28 +48,28 @@ function AdvancedPanel({
   isOpen: boolean;
   onClose: () => void;
   sources: ChatSource[];
-  selectedIds: string[];
+  selectedIds: Set<string>;
   selectedModel: ChatSource | null;
 }>) {
-  const activeSources = sources.filter((s) => selectedIds.includes(s.id));
+  const activeSources = sources.filter((s) => selectedIds.has(s.id));
   const [isFactual, setIsFactual] = useState(true);
   const [customSourceInput, setCustomSourceInput] = useState('');
   const [customSources, setCustomSources] = useState<string[]>([]);
 
   const handleAddSource = (event: React.KeyboardEvent) => {
     if (event.key === 'Enter' && customSourceInput.trim()) {
-      setCustomSources([...customSources, customSourceInput.trim()]);
+      setCustomSources((previous) => [...previous, customSourceInput.trim()]);
       setCustomSourceInput('');
     }
   };
 
   const removeCustomSource = (index: number) => {
-    setCustomSources(customSources.filter((_, index_) => index_ !== index));
+    setCustomSources((previous) => previous.filter((_, index_) => index_ !== index));
   };
 
   return (
     <AnimatePresence>
-      {isOpen && (
+      {isOpen ? (
         <>
           {/* Backdrop */}
           <motion.div
@@ -164,22 +163,22 @@ function AdvancedPanel({
                             <div className='flex flex-wrap gap-2'>
                               {hasInputCost || hasOutputCost ? (
                                 <>
-                                  {hasInputCost && (
+                                  {hasInputCost ? (
                                     <Badge
                                       variant='secondary'
                                       className='font-inter h-5 border-green-200 bg-green-50 px-2 text-[10px] font-medium text-green-700'
                                     >
                                       In: {formatCostPerUnit(costs.inputPerToken, 'token')}
                                     </Badge>
-                                  )}
-                                  {hasOutputCost && (
+                                  ) : null}
+                                  {hasOutputCost ? (
                                     <Badge
                                       variant='secondary'
                                       className='font-inter h-5 border-green-200 bg-green-50 px-2 text-[10px] font-medium text-green-700'
                                     >
                                       Out: {formatCostPerUnit(costs.outputPerToken, 'token')}
                                     </Badge>
-                                  )}
+                                  ) : null}
                                 </>
                               ) : (
                                 <Badge
@@ -282,32 +281,32 @@ function AdvancedPanel({
                               <span className='font-inter block truncate text-sm font-medium text-[#272532]'>
                                 {selectedModel.name}
                               </span>
-                              {selectedModel.version && (
+                              {selectedModel.version ? (
                                 <span className='font-inter text-xs text-[#5e5a72]'>
                                   v{selectedModel.version}
                                 </span>
-                              )}
+                              ) : null}
                             </div>
                           </div>
                           <div className='flex flex-wrap gap-2'>
                             {hasInputCost || hasOutputCost ? (
                               <>
-                                {hasInputCost && (
+                                {hasInputCost ? (
                                   <Badge
                                     variant='secondary'
                                     className='font-inter h-5 border-purple-200 bg-purple-50 px-2 text-[10px] font-medium text-purple-700'
                                   >
                                     In: {formatCostPerUnit(modelCosts.inputPerToken, 'token')}
                                   </Badge>
-                                )}
-                                {hasOutputCost && (
+                                ) : null}
+                                {hasOutputCost ? (
                                   <Badge
                                     variant='secondary'
                                     className='font-inter h-5 border-purple-200 bg-purple-50 px-2 text-[10px] font-medium text-purple-700'
                                   >
                                     Out: {formatCostPerUnit(modelCosts.outputPerToken, 'token')}
                                   </Badge>
-                                )}
+                                ) : null}
                               </>
                             ) : (
                               <Badge
@@ -347,22 +346,27 @@ function AdvancedPanel({
             </div>
           </motion.div>
         </>
-      )}
+      ) : null}
     </AnimatePresence>
   );
-}
+});
 
 interface SourceSelectorProperties {
   sources: ChatSource[];
-  selectedIds: string[];
+  selectedIds: Set<string>;
   onToggle: (id: string) => void;
 }
 
-function SourceSelector({ sources, selectedIds, onToggle }: Readonly<SourceSelectorProperties>) {
+// Memoized SourceSelector to prevent unnecessary re-renders when parent state changes
+const SourceSelector = memo(function SourceSelector({
+  sources,
+  selectedIds,
+  onToggle
+}: Readonly<SourceSelectorProperties>) {
   return (
     <div className='my-4 w-full max-w-3xl space-y-3' role='group' aria-label='Select data sources'>
       {sources.map((source) => {
-        const isSelected = selectedIds.includes(source.id);
+        const isSelected = selectedIds.has(source.id);
 
         let statusColor = 'bg-green-500';
         if (source.status === 'warning') statusColor = 'bg-yellow-500';
@@ -396,11 +400,11 @@ function SourceSelector({ sources, selectedIds, onToggle }: Readonly<SourceSelec
                     {tag}
                   </span>
                 ))}
-                {source.tags.length > 2 && (
+                {source.tags.length > 2 ? (
                   <span className='font-inter rounded-md bg-[#f1f0f4] px-2 py-0.5 text-xs text-[#5e5a72]'>
                     +{source.tags.length - 2}
                   </span>
-                )}
+                ) : null}
               </div>
 
               {/* Description with Status Dot */}
@@ -430,7 +434,7 @@ function SourceSelector({ sources, selectedIds, onToggle }: Readonly<SourceSelec
       })}
     </div>
   );
-}
+});
 
 interface Message {
   id: string;
@@ -650,7 +654,8 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
   const [messages, setMessages] = useState<Message[]>([
     { id: '1', role: 'user', content: initialQuery, type: 'text' }
   ]);
-  const [selectedSources, setSelectedSources] = useState<string[]>([]);
+  // Use Set for O(1) lookup performance when checking source selection
+  const [selectedSources, setSelectedSources] = useState<Set<string>>(() => new Set());
   const [inputValue, setInputValue] = useState('');
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [availableSources, setAvailableSources] = useState<ChatSource[]>([]);
@@ -665,6 +670,12 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
   // Chat processing state
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus | null>(null);
+
+  // Build Map for O(1) source lookups by ID (avoids repeated .find() calls)
+  const availableSourcesById = useMemo(
+    () => new Map(availableSources.map((source) => [source.id, source])),
+    [availableSources]
+  );
 
   // Load real data sources from backend and analyze query for relevance
   useEffect(() => {
@@ -684,7 +695,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
 
         if (analysis.action === 'auto-select' && analysis.matchedEndpoint) {
           // Endpoint was explicitly mentioned - auto-select and proceed
-          setSelectedSources([analysis.matchedEndpoint.id]);
+          setSelectedSources(new Set([analysis.matchedEndpoint.id]));
 
           // Add a message indicating auto-selection
           const autoSelectMessage: Message = {
@@ -842,160 +853,180 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
   // Use available sources for the panel (now loaded from backend)
   const allSources = availableSources;
 
-  const toggleSource = (id: string) => {
-    setSelectedSources((previous) =>
-      previous.includes(id) ? previous.filter((index) => index !== id) : [...previous, id]
-    );
-  };
-
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!inputValue.trim() || isProcessing) return;
-
-    // Validate model is selected
-    if (!selectedModel) {
-      setMessages((previous) => [
-        ...previous,
-        {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: 'Please select a model before sending a message.',
-          type: 'text'
-        }
-      ]);
-      return;
-    }
-
-    // Validate user is authenticated
-    if (!user?.email) {
-      setMessages((previous) => [
-        ...previous,
-        {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: 'Please log in to use the chat feature.',
-          type: 'text'
-        }
-      ]);
-      return;
-    }
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: inputValue,
-      type: 'text'
-    };
-
-    setMessages((previous) => [...previous, userMessage]);
-    setInputValue('');
-    setIsProcessing(true);
-
-    // Create assistant message placeholder for streaming with thinking state
-    const assistantMessageId = (Date.now() + 1).toString();
-    setMessages((previous) => [
-      ...previous,
-      {
-        id: assistantMessageId,
-        role: 'assistant',
-        content: '',
-        type: 'text',
-        isThinking: true
+  // Memoized toggleSource using functional setState for stable reference
+  // Uses Set for O(1) lookup and deletion performance
+  const toggleSource = useCallback((id: string) => {
+    setSelectedSources((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
       }
-    ]);
-
-    // Build endpoint paths using "owner/slug" format
-    // The SDK will resolve these to full endpoint references internally
-    const modelPath = selectedModel.full_path;
-    if (!modelPath) {
-      setMessages((previous) =>
-        updateMessageContent(
-          previous,
-          assistantMessageId,
-          'Error: Selected model does not have a valid path configured.'
-        )
-      );
-      setIsProcessing(false);
-      return;
-    }
-
-    // Build data source paths
-    const dataSourcePaths = selectedSources
-      .map((id) => {
-        const source = availableSources.find((s) => s.id === id);
-        return source?.full_path;
-      })
-      .filter((path): path is string => path !== undefined);
-
-    // Create abort controller for cancellation
-    abortControllerReference.current = new AbortController();
-
-    // Initialize processing status
-    setProcessingStatus({
-      phase: 'retrieving',
-      message: 'Starting…',
-      completedSources: []
+      return next;
     });
+  }, []);
 
-    try {
-      let accumulatedContent = '';
+  // Memoized panel handlers for stable references
+  const handleOpenPanel = useCallback(() => {
+    setIsPanelOpen(true);
+  }, []);
 
-      // Use SDK for streaming - SDK resolves paths internally
-      for await (const event of syftClient.chat.stream({
-        prompt: inputValue,
-        model: modelPath,
-        dataSources: dataSourcePaths.length > 0 ? dataSourcePaths : undefined,
-        signal: abortControllerReference.current.signal
-      })) {
-        // Update processing status from event
-        updateStatusFromEvent(event, setProcessingStatus);
+  const handleClosePanel = useCallback(() => {
+    setIsPanelOpen(false);
+  }, []);
 
-        // Handle token content
-        processStreamEvent(event, (content) => {
-          accumulatedContent += content;
-          setMessages((previous) =>
-            updateMessageContent(previous, assistantMessageId, accumulatedContent)
-          );
-        });
+  // Memoized input handler using functional setState
+  const handleInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    setInputValue(event.target.value);
+  }, []);
 
-        // Capture sources from done event
-        if (event.type === 'done') {
-          const doneEvent = event;
-          if (Object.keys(doneEvent.sources).length > 0) {
-            setMessages((previous) =>
-              addAggregatorSources(previous, assistantMessageId, doneEvent.sources)
-            );
+  const handleSubmit = useCallback(
+    async (event: React.FormEvent) => {
+      event.preventDefault();
+      if (!inputValue.trim() || isProcessing) return;
+
+      // Validate model is selected
+      if (!selectedModel) {
+        setMessages((previous) => [
+          ...previous,
+          {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: 'Please select a model before sending a message.',
+            type: 'text'
           }
-        }
-      }
-
-      // Refresh balance after successful chat completion (credits may have been consumed)
-      triggerBalanceRefresh();
-    } catch (error) {
-      // Don't show error if it was aborted - clean up status
-      if (error instanceof Error && error.name === 'AbortError') {
-        setProcessingStatus(null);
+        ]);
         return;
       }
 
-      const errorMessage = getChatErrorMessage(error);
-      setMessages((previous) =>
-        updateMessageContent(previous, assistantMessageId, `Error: ${errorMessage}`)
-      );
-      setProcessingStatus(null);
-    } finally {
-      setIsProcessing(false);
-      abortControllerReference.current = null;
-    }
-  };
+      // Validate user is authenticated
+      if (!user?.email) {
+        setMessages((previous) => [
+          ...previous,
+          {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: 'Please log in to use the chat feature.',
+            type: 'text'
+          }
+        ]);
+        return;
+      }
+
+      const userMessage: Message = {
+        id: Date.now().toString(),
+        role: 'user',
+        content: inputValue,
+        type: 'text'
+      };
+
+      setMessages((previous) => [...previous, userMessage]);
+      setInputValue('');
+      setIsProcessing(true);
+
+      // Create assistant message placeholder for streaming with thinking state
+      const assistantMessageId = (Date.now() + 1).toString();
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: assistantMessageId,
+          role: 'assistant',
+          content: '',
+          type: 'text',
+          isThinking: true
+        }
+      ]);
+
+      // Build endpoint paths using "owner/slug" format
+      // The SDK will resolve these to full endpoint references internally
+      const modelPath = selectedModel.full_path;
+      if (!modelPath) {
+        setMessages((previous) =>
+          updateMessageContent(
+            previous,
+            assistantMessageId,
+            'Error: Selected model does not have a valid path configured.'
+          )
+        );
+        setIsProcessing(false);
+        return;
+      }
+
+      // Build data source paths from selected sources Set using Map for O(1) lookups
+      const dataSourcePaths = [...selectedSources]
+        .map((id) => availableSourcesById.get(id)?.full_path)
+        .filter((path): path is string => path !== undefined);
+
+      // Create abort controller for cancellation
+      abortControllerReference.current = new AbortController();
+
+      // Initialize processing status
+      setProcessingStatus({
+        phase: 'retrieving',
+        message: 'Starting...',
+        completedSources: []
+      });
+
+      try {
+        let accumulatedContent = '';
+
+        // Use SDK for streaming - SDK resolves paths internally
+        for await (const event of syftClient.chat.stream({
+          prompt: inputValue,
+          model: modelPath,
+          dataSources: dataSourcePaths.length > 0 ? dataSourcePaths : undefined,
+          signal: abortControllerReference.current.signal
+        })) {
+          // Update processing status from event
+          updateStatusFromEvent(event, setProcessingStatus);
+
+          // Handle token content
+          processStreamEvent(event, (content) => {
+            accumulatedContent += content;
+            setMessages((previous) =>
+              updateMessageContent(previous, assistantMessageId, accumulatedContent)
+            );
+          });
+
+          // Capture sources from done event
+          if (event.type === 'done') {
+            const doneEvent = event;
+            if (Object.keys(doneEvent.sources).length > 0) {
+              setMessages((previous) =>
+                addAggregatorSources(previous, assistantMessageId, doneEvent.sources)
+              );
+            }
+          }
+        }
+
+        // Refresh balance after successful chat completion (credits may have been consumed)
+        triggerBalanceRefresh();
+      } catch (error) {
+        // Don't show error if it was aborted - clean up status
+        if (error instanceof Error && error.name === 'AbortError') {
+          setProcessingStatus(null);
+          return;
+        }
+
+        const errorMessage = getChatErrorMessage(error);
+        setMessages((previous) =>
+          updateMessageContent(previous, assistantMessageId, `Error: ${errorMessage}`)
+        );
+        setProcessingStatus(null);
+      } finally {
+        setIsProcessing(false);
+        abortControllerReference.current = null;
+      }
+    },
+    [inputValue, isProcessing, selectedModel, user?.email, availableSourcesById, selectedSources]
+  );
 
   return (
     <div className='min-h-screen bg-white pb-32'>
       <AdvancedPanel
         isOpen={isPanelOpen}
-        onClose={() => {
-          setIsPanelOpen(false);
-        }}
+        onClose={handleClosePanel}
         sources={allSources}
         selectedIds={selectedSources}
         selectedModel={selectedModel}
@@ -1022,12 +1053,12 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                 className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'} max-w-full`}
               >
                 {/* Status Indicator - shows real-time progress during processing */}
-                {message.isThinking && !message.content && processingStatus && (
+                {message.isThinking && !message.content && processingStatus ? (
                   <StatusIndicator status={processingStatus} />
-                )}
+                ) : null}
 
                 {/* Text Content */}
-                {message.content && (
+                {message.content ? (
                   <div
                     className={`font-inter max-w-2xl rounded-2xl px-5 py-3 shadow-sm ${
                       message.role === 'user'
@@ -1041,25 +1072,25 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                       message.content
                     )}
                   </div>
-                )}
+                ) : null}
 
                 {/* Aggregator Sources Section - shows after assistant messages with sources */}
                 {message.role === 'assistant' &&
-                  message.aggregatorSources &&
-                  Object.keys(message.aggregatorSources).length > 0 && (
-                    <div className='mt-2 w-full max-w-2xl'>
-                      <SourcesSection sources={message.aggregatorSources} />
-                    </div>
-                  )}
+                message.aggregatorSources &&
+                Object.keys(message.aggregatorSources).length > 0 ? (
+                  <div className='mt-2 w-full max-w-2xl'>
+                    <SourcesSection sources={message.aggregatorSources} />
+                  </div>
+                ) : null}
 
                 {/* Source Selection UI */}
-                {message.type === 'source-selection' && message.sources && (
+                {message.type === 'source-selection' && message.sources ? (
                   <SourceSelector
                     sources={message.sources}
                     selectedIds={selectedSources}
                     onToggle={toggleSource}
                   />
-                )}
+                ) : null}
               </div>
             </div>
           ))}
@@ -1073,9 +1104,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
           <form onSubmit={handleSubmit} className='relative flex gap-3'>
             <button
               type='button'
-              onClick={() => {
-                setIsPanelOpen(true);
-              }}
+              onClick={handleOpenPanel}
               className='group flex items-center justify-center rounded-xl border border-[#ecebef] bg-[#fcfcfd] p-3.5 text-[#5e5a72] transition-colors hover:bg-[#f1f0f4] hover:text-[#272532]'
               aria-label='Open advanced configuration'
             >
@@ -1093,9 +1122,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                 id='chat-followup-input'
                 type='text'
                 value={inputValue}
-                onChange={(event) => {
-                  setInputValue(event.target.value);
-                }}
+                onChange={handleInputChange}
                 placeholder='Ask a follow-up question…'
                 className='font-inter w-full rounded-xl border border-[#ecebef] bg-[#fcfcfd] py-3.5 pr-12 pl-4 shadow-sm transition-colors transition-shadow placeholder:text-[#b4b0bf] focus:border-[#272532] focus:ring-2 focus:ring-[#272532]/10 focus:outline-none'
                 autoComplete='off'

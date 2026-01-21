@@ -2,17 +2,15 @@ import { useMemo, useState } from 'react';
 
 import type { ChatSource, EndpointType } from '@/lib/types';
 
-import {
-  Building,
-  Calendar,
-  ChevronRight,
-  Filter,
-  Globe,
-  Lock,
-  Package,
-  Search,
-  Star
-} from 'lucide-react';
+import Building from 'lucide-react/dist/esm/icons/building';
+import Calendar from 'lucide-react/dist/esm/icons/calendar';
+import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right';
+import Filter from 'lucide-react/dist/esm/icons/filter';
+import Globe from 'lucide-react/dist/esm/icons/globe';
+import Lock from 'lucide-react/dist/esm/icons/lock';
+import Package from 'lucide-react/dist/esm/icons/package';
+import Search from 'lucide-react/dist/esm/icons/search';
+import Star from 'lucide-react/dist/esm/icons/star';
 import { Link } from 'react-router-dom';
 
 import { useAPI } from '@/hooks/use-api';
@@ -158,12 +156,12 @@ export function BrowseView({
         </div>
 
         {/* Content */}
-        {isLoading && (
+        {isLoading ? (
           <div className='py-16 text-center'>
             <LoadingSpinner size='lg' message='Loading endpoints…' className='justify-center' />
           </div>
-        )}
-        {!isLoading && error && (
+        ) : null}
+        {!isLoading && error ? (
           <div className='py-16 text-center'>
             <div className='mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-50'>
               <Search className='h-8 w-8 text-red-500' />
@@ -173,8 +171,8 @@ export function BrowseView({
             </h3>
             <p className='font-inter text-syft-muted'>{error.message}</p>
           </div>
-        )}
-        {!isLoading && !error && filteredEndpoints.length === 0 && (
+        ) : null}
+        {!isLoading && !error && filteredEndpoints.length === 0 ? (
           <div className='py-16 text-center'>
             <div className='bg-syft-surface mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full'>
               <Search className='text-syft-muted h-8 w-8' />
@@ -186,8 +184,8 @@ export function BrowseView({
               {searchQuery ? `No endpoints match "${searchQuery}"` : 'No endpoints available'}
             </p>
           </div>
-        )}
-        {!isLoading && !error && filteredEndpoints.length > 0 && (
+        ) : null}
+        {!isLoading && !error && filteredEndpoints.length > 0 ? (
           <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-3'>
             {filteredEndpoints.map((endpoint) => {
               const href = endpoint.owner_username
@@ -205,11 +203,11 @@ export function BrowseView({
                       <h3 className='font-inter text-syft-primary group-hover:text-syft-secondary mb-1 truncate text-base font-semibold'>
                         {endpoint.name}
                       </h3>
-                      {endpoint.owner_username && (
+                      {endpoint.owner_username ? (
                         <p className='font-inter text-syft-placeholder truncate text-xs'>
                           by @{endpoint.owner_username}
                         </p>
-                      )}
+                      ) : null}
                       <p className='font-inter text-syft-muted line-clamp-2 text-sm'>
                         {endpoint.description}
                       </p>
@@ -233,11 +231,11 @@ export function BrowseView({
                         {tag}
                       </Badge>
                     ))}
-                    {endpoint.tags.length > 3 && (
+                    {endpoint.tags.length > 3 ? (
                       <Badge variant='secondary' className='font-inter text-xs'>
                         +{endpoint.tags.length - 3}
                       </Badge>
-                    )}
+                    ) : null}
                     <div className='flex items-center gap-1'>
                       <div className={`h-2 w-2 rounded-full ${getStatusColor(endpoint.status)}`} />
                       <span className='font-inter text-syft-muted text-xs capitalize'>
@@ -259,12 +257,12 @@ export function BrowseView({
                       </div>
                     </div>
                     <div className='text-syft-placeholder flex items-center gap-3 text-xs'>
-                      {endpoint.stars_count > 0 && (
+                      {endpoint.stars_count > 0 ? (
                         <div className='flex items-center gap-1'>
                           <Star className='h-3 w-3' aria-hidden='true' />
                           <span>{endpoint.stars_count}</span>
                         </div>
-                      )}
+                      ) : null}
                       <div className='flex items-center gap-1'>
                         <Calendar className='h-3 w-3' aria-hidden='true' />
                         <span>{endpoint.updated}</span>
@@ -275,7 +273,7 @@ export function BrowseView({
               );
             })}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

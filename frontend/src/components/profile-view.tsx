@@ -1,19 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import {
-  AlertCircle,
-  Calendar,
-  Check,
-  Edit3,
-  Key,
-  Lock,
-  Mail,
-  Save,
-  Shield,
-  User as UserIcon,
-  X
-} from 'lucide-react';
+import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
+import Calendar from 'lucide-react/dist/esm/icons/calendar';
+import Check from 'lucide-react/dist/esm/icons/check';
+import Edit3 from 'lucide-react/dist/esm/icons/edit-3';
+import Key from 'lucide-react/dist/esm/icons/key';
+import Lock from 'lucide-react/dist/esm/icons/lock';
+import Mail from 'lucide-react/dist/esm/icons/mail';
+import Save from 'lucide-react/dist/esm/icons/save';
+import Shield from 'lucide-react/dist/esm/icons/shield';
+import UserIcon from 'lucide-react/dist/esm/icons/user';
+import X from 'lucide-react/dist/esm/icons/x';
 
 import { useAuth } from '@/context/auth-context';
 import { changePasswordAPI, updateUserProfileAPI } from '@/lib/sdk-client';
@@ -186,7 +184,7 @@ export function ProfileView() {
 
         {/* Success/Error Messages */}
         <AnimatePresence>
-          {success && (
+          {success ? (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -196,9 +194,9 @@ export function ProfileView() {
               <Check className='h-5 w-5 text-green-600' />
               <span className='text-green-800'>{success}</span>
             </motion.div>
-          )}
+          ) : null}
 
-          {error && (
+          {error ? (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -208,7 +206,7 @@ export function ProfileView() {
               <AlertCircle className='h-5 w-5 text-red-600' />
               <span className='text-red-800'>{error}</span>
             </motion.div>
-          )}
+          ) : null}
         </AnimatePresence>
 
         <div className='grid gap-8 lg:grid-cols-2'>
@@ -217,7 +215,7 @@ export function ProfileView() {
             <div className='border-b border-gray-200 px-6 py-4'>
               <div className='flex items-center justify-between'>
                 <h2 className='text-lg font-semibold text-gray-900'>Profile Information</h2>
-                {!isEditing && (
+                {isEditing ? null : (
                   <Button
                     variant='outline'
                     size='sm'
@@ -265,7 +263,7 @@ export function ProfileView() {
                       id='full_name'
                       value={editData.full_name}
                       onChange={(e) => {
-                        setEditData({ ...editData, full_name: e.target.value });
+                        setEditData((previous) => ({ ...previous, full_name: e.target.value }));
                       }}
                       placeholder='Enter your full name'
                     />
@@ -278,7 +276,7 @@ export function ProfileView() {
                       type='email'
                       value={editData.email}
                       onChange={(e) => {
-                        setEditData({ ...editData, email: e.target.value });
+                        setEditData((previous) => ({ ...previous, email: e.target.value }));
                       }}
                       placeholder='Enter your email'
                     />
@@ -348,7 +346,7 @@ export function ProfileView() {
             <div className='border-b border-gray-200 px-6 py-4'>
               <div className='flex items-center justify-between'>
                 <h2 className='text-lg font-semibold text-gray-900'>Security Settings</h2>
-                {!isChangingPassword && (
+                {isChangingPassword ? null : (
                   <Button
                     variant='outline'
                     size='sm'
@@ -375,7 +373,10 @@ export function ProfileView() {
                       type='password'
                       value={passwordData.current_password}
                       onChange={(e) => {
-                        setPasswordData({ ...passwordData, current_password: e.target.value });
+                        setPasswordData((previous) => ({
+                          ...previous,
+                          current_password: e.target.value
+                        }));
                       }}
                       placeholder='Enter your current password'
                     />
@@ -388,7 +389,10 @@ export function ProfileView() {
                       type='password'
                       value={passwordData.new_password}
                       onChange={(e) => {
-                        setPasswordData({ ...passwordData, new_password: e.target.value });
+                        setPasswordData((previous) => ({
+                          ...previous,
+                          new_password: e.target.value
+                        }));
                       }}
                       placeholder='Enter your new password'
                     />
@@ -401,7 +405,10 @@ export function ProfileView() {
                       type='password'
                       value={passwordData.confirm_password}
                       onChange={(e) => {
-                        setPasswordData({ ...passwordData, confirm_password: e.target.value });
+                        setPasswordData((previous) => ({
+                          ...previous,
+                          confirm_password: e.target.value
+                        }));
                       }}
                       placeholder='Confirm your new password'
                     />

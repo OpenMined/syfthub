@@ -1,24 +1,22 @@
-import React, { useEffect, useState } from 'react';
+import React, { memo, useEffect, useState } from 'react';
 
 import type { ChatSource, EndpointType, Policy } from '@/lib/types';
 
-import {
-  ArrowLeft,
-  Calendar,
-  Coins,
-  Gauge,
-  Globe,
-  Key,
-  Lock,
-  MapPin,
-  Package,
-  Shield,
-  ShieldCheck,
-  Star,
-  Unlock,
-  Users,
-  Zap
-} from 'lucide-react';
+import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left';
+import Calendar from 'lucide-react/dist/esm/icons/calendar';
+import Coins from 'lucide-react/dist/esm/icons/coins';
+import Gauge from 'lucide-react/dist/esm/icons/gauge';
+import Globe from 'lucide-react/dist/esm/icons/globe';
+import Key from 'lucide-react/dist/esm/icons/key';
+import Lock from 'lucide-react/dist/esm/icons/lock';
+import MapPin from 'lucide-react/dist/esm/icons/map-pin';
+import Package from 'lucide-react/dist/esm/icons/package';
+import Shield from 'lucide-react/dist/esm/icons/shield';
+import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check';
+import Star from 'lucide-react/dist/esm/icons/star';
+import Unlock from 'lucide-react/dist/esm/icons/unlock';
+import Users from 'lucide-react/dist/esm/icons/users';
+import Zap from 'lucide-react/dist/esm/icons/zap';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -227,8 +225,10 @@ function renderConfigValue(value: unknown, key: string): React.ReactNode {
   return <span className='font-mono text-[10px]'>{JSON.stringify(value)}</span>;
 }
 
-// Transaction policy specific renderer
-function TransactionPolicyContent({ config }: Readonly<{ config: Record<string, unknown> }>) {
+// Transaction policy specific renderer - memoized to prevent unnecessary re-renders
+const TransactionPolicyContent = memo(function TransactionPolicyContent({
+  config
+}: Readonly<{ config: Record<string, unknown> }>) {
   const costs = config.costs as Record<string, unknown> | undefined;
   const provider = config.provider as string | undefined;
   const pricingModel = config.pricing_model as string | undefined;
@@ -237,25 +237,24 @@ function TransactionPolicyContent({ config }: Readonly<{ config: Record<string, 
   return (
     <div className='mt-3 space-y-2'>
       {/* Provider & Model Info */}
-      {/* eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- Intentional truthy check for conditional rendering */}
-      {(provider || pricingModel) && (
+      {provider || pricingModel ? (
         <div className='text-syft-muted flex flex-wrap gap-x-4 gap-y-1 text-xs'>
-          {provider && (
+          {provider ? (
             <span>
               Provider: <span className='text-syft-primary font-medium'>{provider}</span>
             </span>
-          )}
-          {pricingModel && (
+          ) : null}
+          {pricingModel ? (
             <span>
               Model:{' '}
               <span className='text-syft-primary font-medium'>{formatConfigKey(pricingModel)}</span>
             </span>
-          )}
+          ) : null}
         </div>
-      )}
+      ) : null}
 
       {/* Pricing Table */}
-      {costs && (
+      {costs ? (
         <div className='rounded-md border border-emerald-200 bg-white/60'>
           <div className='border-b border-emerald-100 px-3 py-1.5'>
             <span className='text-[10px] font-semibold tracking-wide text-emerald-700 uppercase'>
@@ -281,13 +280,15 @@ function TransactionPolicyContent({ config }: Readonly<{ config: Record<string, 
               ))}
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
-}
+});
 
-// Generic config renderer for unknown policy types
-function GenericPolicyContent({ config }: Readonly<{ config: Record<string, unknown> }>) {
+// Generic config renderer for unknown policy types - memoized to prevent unnecessary re-renders
+const GenericPolicyContent = memo(function GenericPolicyContent({
+  config
+}: Readonly<{ config: Record<string, unknown> }>) {
   const entries = Object.entries(config).filter(
     ([, value]) => value !== null && value !== undefined && value !== ''
   );
@@ -315,10 +316,10 @@ function GenericPolicyContent({ config }: Readonly<{ config: Record<string, unkn
       </div>
     </div>
   );
-}
+});
 
-// Single policy item component
-function PolicyItem({ policy }: Readonly<{ policy: Policy }>) {
+// Single policy item component - memoized to prevent unnecessary re-renders
+const PolicyItem = memo(function PolicyItem({ policy }: Readonly<{ policy: Policy }>) {
   const config = getPolicyConfig(policy.type);
   const Icon = config.icon;
   const isTransaction = policy.type.toLowerCase() === 'transaction';
@@ -375,21 +376,23 @@ function PolicyItem({ policy }: Readonly<{ policy: Policy }>) {
             Object.keys(policy.config).length > 0 && <GenericPolicyContent config={policy.config} />
           )}
 
-          {policy.version && (
+          {policy.version ? (
             <p className='text-syft-placeholder mt-2 text-[10px]'>Version {policy.version}</p>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
   );
-}
+});
 
-// Access Policies Card component
+// Access Policies Card component - memoized to prevent unnecessary re-renders
 interface AccessPoliciesCardProperties {
   policies?: Policy[];
 }
 
-function AccessPoliciesCard({ policies }: Readonly<AccessPoliciesCardProperties>) {
+const AccessPoliciesCard = memo(function AccessPoliciesCard({
+  policies
+}: Readonly<AccessPoliciesCardProperties>) {
   const validPolicies = policies?.filter((p) => p.type) ?? [];
 
   return (
@@ -397,11 +400,11 @@ function AccessPoliciesCard({ policies }: Readonly<AccessPoliciesCardProperties>
       {/* Header */}
       <div className='mb-4 flex items-center justify-between'>
         <h3 className='font-rubik text-syft-primary text-sm font-medium'>Access Policies</h3>
-        {validPolicies.length > 0 && (
+        {validPolicies.length > 0 ? (
           <span className='bg-syft-surface text-syft-muted rounded-full px-2 py-0.5 text-xs font-medium'>
             {validPolicies.length}
           </span>
-        )}
+        ) : null}
       </div>
 
       {/* Policies list */}
@@ -422,7 +425,7 @@ function AccessPoliciesCard({ policies }: Readonly<AccessPoliciesCardProperties>
       )}
     </div>
   );
-}
+});
 
 interface EndpointDetailProperties {
   slug: string;
@@ -545,12 +548,12 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                 <Badge variant='outline'>
                   <Package className='mr-1 h-3 w-3' />v{endpoint.version}
                 </Badge>
-                {endpoint.stars_count > 0 && (
+                {endpoint.stars_count > 0 ? (
                   <Badge variant='outline' className='border-yellow-200 text-yellow-600'>
                     <Star className='mr-1 h-3 w-3' />
                     {endpoint.stars_count}
                   </Badge>
-                )}
+                ) : null}
                 <Badge variant='outline'>
                   <Calendar className='mr-1 h-3 w-3' />
                   Updated {endpoint.updated}
@@ -694,7 +697,7 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                   </Badge>
                 </div>
 
-                {endpoint.tags.length > 0 && (
+                {endpoint.tags.length > 0 ? (
                   <div>
                     <p className='font-inter text-syft-muted mb-1 text-xs'>Tags</p>
                     <div className='flex flex-wrap gap-1'>
@@ -705,7 +708,7 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                       ))}
                     </div>
                   </div>
-                )}
+                ) : null}
 
                 <div>
                   <p className='font-inter text-syft-muted mb-1 text-xs'>Contributors</p>
@@ -721,14 +724,14 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
             </div>
 
             {/* Connections Card */}
-            {endpoint.connections && endpoint.connections.length > 0 && (
+            {endpoint.connections && endpoint.connections.length > 0 ? (
               <ConnectionCard
                 connections={endpoint.connections}
                 endpointSlug={
                   endpoint.full_path ?? `${endpoint.owner_username ?? 'anonymous'}/${slug}`
                 }
               />
-            )}
+            ) : null}
 
             {/* Access Policies Card */}
             <AccessPoliciesCard policies={endpoint.policies} />

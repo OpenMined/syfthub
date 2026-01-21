@@ -1,7 +1,7 @@
 import * as React from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { X } from 'lucide-react';
+import X from 'lucide-react/dist/esm/icons/x';
 
 import { cn } from '@/lib/utils';
 
@@ -120,7 +120,7 @@ export function Modal({
 
   return (
     <AnimatePresence>
-      {isOpen && (
+      {isOpen ? (
         <div
           className='fixed inset-0 z-50 flex items-center justify-center p-4'
           onKeyDown={handleKeyDown}
@@ -151,7 +151,7 @@ export function Modal({
             aria-describedby={description ? 'modal-description' : undefined}
           >
             {/* Close Button */}
-            {showCloseButton && (
+            {showCloseButton ? (
               <Button
                 variant='ghost'
                 size='icon'
@@ -161,23 +161,23 @@ export function Modal({
               >
                 <X className='h-4 w-4' aria-hidden='true' />
               </Button>
-            )}
+            ) : null}
 
             {/* Header */}
-            {(title ?? description) && (
+            {(title ?? description) ? (
               <div className='px-6 pt-6 pb-2'>
-                {title && (
+                {title ? (
                   <h2 id='modal-title' className='font-rubik text-syft-primary text-xl font-medium'>
                     {title}
                   </h2>
-                )}
-                {description && (
+                ) : null}
+                {description ? (
                   <p id='modal-description' className='font-inter text-syft-muted mt-1 text-sm'>
                     {description}
                   </p>
-                )}
+                ) : null}
               </div>
-            )}
+            ) : null}
 
             {/* Content */}
             <div className={cn('px-6', Boolean(title ?? description) ? 'pb-6' : 'py-6')}>
@@ -185,7 +185,7 @@ export function Modal({
             </div>
           </motion.div>
         </div>
-      )}
+      ) : null}
     </AnimatePresence>
   );
 }

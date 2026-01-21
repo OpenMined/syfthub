@@ -1,8 +1,21 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
-import { Send } from 'lucide-react';
+import Send from 'lucide-react/dist/esm/icons/send';
 
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
+
+// Static data hoisted outside component to prevent recreation on each render
+const FEATURES = [
+  { label: 'Secure & Private', color: 'bg-syft-green' },
+  { label: 'Rare Data & Models', color: 'bg-syft-secondary' },
+  { label: 'Federated, Permissioned Access', color: 'bg-syft-purple' }
+] as const;
+
+const SEARCH_SUGGESTIONS = [
+  'Look for genomics data',
+  'Look for news in finance',
+  'Find climate research sources'
+] as const;
 
 interface HeroProperties {
   onSearch?: (query: string) => void;
@@ -27,31 +40,31 @@ export function Hero({
     }
   }, []);
 
-  const handleSearch = (event: React.FormEvent) => {
-    event.preventDefault();
-    if (searchValue.trim() && onSearch) {
-      onSearch(searchValue);
-    }
-  };
+  // Memoized handlers for stable references - prevents re-renders of child components
+  const handleSearch = useCallback(
+    (event: React.FormEvent) => {
+      event.preventDefault();
+      if (searchValue.trim() && onSearch) {
+        onSearch(searchValue);
+      }
+    },
+    [searchValue, onSearch]
+  );
 
-  const handleSuggestionClick = (suggestion: string) => {
-    setSearchValue(suggestion);
-    if (onSearch) {
-      onSearch(suggestion);
-    }
-  };
+  const handleSuggestionClick = useCallback(
+    (suggestion: string) => {
+      setSearchValue(suggestion);
+      if (onSearch) {
+        onSearch(suggestion);
+      }
+    },
+    [onSearch]
+  );
 
-  const features = [
-    { label: 'Secure & Private', color: 'bg-syft-green' },
-    { label: 'Rare Data & Models', color: 'bg-syft-secondary' },
-    { label: 'Federated, Permissioned Access', color: 'bg-syft-purple' }
-  ];
-
-  const searchSuggestions = [
-    'Look for genomics data',
-    'Look for news in finance',
-    'Find climate research sources'
-  ];
+  // Memoized input handler using functional setState for stable reference
+  const handleInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchValue(event.target.value);
+  }, []);
 
   return (
     <section
@@ -83,7 +96,7 @@ export function Hero({
         <div className='space-y-6'>
           {/* Feature Badges */}
           <div className='flex flex-wrap items-center justify-center gap-8'>
-            {features.map((feature, index) => (
+            {FEATURES.map((feature, index) => (
               <div key={index} className='flex items-center gap-2'>
                 <div className={`h-2 w-2 rounded-full ${feature.color}`}></div>
                 <span className='font-inter text-syft-primary text-sm'>{feature.label}</span>
@@ -103,9 +116,7 @@ export function Hero({
                 type='search'
                 name='search'
                 value={searchValue}
-                onChange={(event) => {
-                  setSearchValue(event.target.value);
-                }}
+                onChange={handleInputChange}
                 placeholder='What are you looking for…'
                 className='font-inter border-syft-border-light text-syft-primary placeholder:text-syft-placeholder focus:ring-syft-primary w-full rounded-xl border bg-white px-6 py-4 shadow-sm transition-colors transition-shadow focus:border-transparent focus:ring-2 focus:outline-none'
                 autoComplete='off'
@@ -126,7 +137,7 @@ export function Hero({
 
             {/* Search Suggestions Pills */}
             <div className='flex flex-wrap items-center justify-center gap-2.5'>
-              {searchSuggestions.map((suggestion, index) => (
+              {SEARCH_SUGGESTIONS.map((suggestion, index) => (
                 <button
                   key={index}
                   type='button'

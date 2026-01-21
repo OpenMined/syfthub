@@ -1,12 +1,23 @@
-import React, { useState } from 'react';
+import React, { memo, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 
-import { Check, Copy } from 'lucide-react';
+import Check from 'lucide-react/dist/esm/icons/check';
+import Copy from 'lucide-react/dist/esm/icons/copy';
 import Markdown from 'react-markdown';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import remarkGfm from 'remark-gfm';
 
 import { cn } from '@/lib/utils';
+
+// Lazy load react-syntax-highlighter to reduce initial bundle size (~300KB)
+const SyntaxHighlighter = React.lazy(() => import('react-syntax-highlighter/dist/esm/prism-light'));
+
+// Lazy load the style
+const loadStyle = () =>
+  import('react-syntax-highlighter/dist/esm/styles/prism/one-dark').then(
+    (module_) => module_.default
+  );
+
+// Module-level style cache to avoid reloading
+let cachedStyle: Record<string, React.CSSProperties> | null = null;
 
 interface MarkdownMessageProps {
   content: string;
@@ -14,7 +25,7 @@ interface MarkdownMessageProps {
 }
 
 // Code block component with syntax highlighting and copy button
-function CodeBlock({
+const CodeBlock = memo(function CodeBlock({
   language,
   code
 }: Readonly<{
@@ -22,33 +33,54 @@ function CodeBlock({
   code: string;
 }>) {
   const [copied, setCopied] = useState(false);
+  const [style, setStyle] = useState<Record<string, React.CSSProperties> | null>(cachedStyle);
 
-  const copyToClipboard = () => {
+  // Load style on mount using lazy initialization with caching
+  useEffect(() => {
+    if (cachedStyle) {
+      setStyle(cachedStyle);
+      return;
+    }
+
+    let mounted = true;
+    void loadStyle().then((loadedStyle) => {
+      cachedStyle = loadedStyle;
+      if (mounted) setStyle(loadedStyle);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const copyToClipboard = useCallback(() => {
     void navigator.clipboard.writeText(code);
     setCopied(true);
     setTimeout(() => {
       setCopied(false);
     }, 2000);
-  };
+  }, [code]);
 
-  // Custom style modifications for better appearance
-  const customStyle = {
-    ...oneDark,
-    'pre[class*="language-"]': {
-      ...oneDark['pre[class*="language-"]'],
-      background: 'transparent',
-      margin: 0,
-      padding: 0,
-      fontSize: '13px',
-      lineHeight: '1.5'
-    },
-    'code[class*="language-"]': {
-      ...oneDark['code[class*="language-"]'],
-      background: 'transparent',
-      fontSize: '13px',
-      lineHeight: '1.5'
-    }
-  };
+  // Custom style modifications for better appearance - memoized to prevent recreation
+  const customStyle = useMemo(() => {
+    if (!style) return {};
+    return {
+      ...style,
+      'pre[class*="language-"]': {
+        ...(style['pre[class*="language-"]'] as React.CSSProperties | undefined),
+        background: 'transparent',
+        margin: 0,
+        padding: 0,
+        fontSize: '13px',
+        lineHeight: '1.5'
+      },
+      'code[class*="language-"]': {
+        ...(style['code[class*="language-"]'] as React.CSSProperties | undefined),
+        background: 'transparent',
+        fontSize: '13px',
+        lineHeight: '1.5'
+      }
+    };
+  }, [style]);
 
   return (
     <div className='group relative my-3 overflow-hidden rounded-lg border border-[#3a3847] bg-[#1e1d2a]'>
@@ -74,29 +106,39 @@ function CodeBlock({
       </div>
       {/* Code content */}
       <div className='overflow-x-auto p-3'>
-        <SyntaxHighlighter
-          language={language ?? 'text'}
-          style={customStyle}
-          customStyle={{
-            background: 'transparent',
-            padding: 0,
-            margin: 0
-          }}
-          codeTagProps={{
-            style: {
-              fontSize: '13px',
-              lineHeight: '1.5'
-            }
-          }}
-        >
-          {code}
-        </SyntaxHighlighter>
+        <Suspense fallback={<pre className='font-mono text-[13px] text-gray-300'>{code}</pre>}>
+          {style ? (
+            <SyntaxHighlighter
+              language={language ?? 'text'}
+              style={customStyle}
+              customStyle={{
+                background: 'transparent',
+                padding: 0,
+                margin: 0
+              }}
+              codeTagProps={{
+                style: {
+                  fontSize: '13px',
+                  lineHeight: '1.5'
+                }
+              }}
+            >
+              {code}
+            </SyntaxHighlighter>
+          ) : (
+            <pre className='font-mono text-[13px] text-gray-300'>{code}</pre>
+          )}
+        </Suspense>
       </div>
     </div>
   );
-}
+});
 
-export function MarkdownMessage({ content, className }: Readonly<MarkdownMessageProps>) {
+// Memoized MarkdownMessage component to prevent re-renders when content hasn't changed
+export const MarkdownMessage = memo(function MarkdownMessage({
+  content,
+  className
+}: Readonly<MarkdownMessageProps>) {
   return (
     <div className={cn('markdown-message font-inter text-[15px] leading-relaxed', className)}>
       <Markdown
@@ -231,4 +273,4 @@ export function MarkdownMessage({ content, className }: Readonly<MarkdownMessage
       </Markdown>
     </div>
   );
-}
+});

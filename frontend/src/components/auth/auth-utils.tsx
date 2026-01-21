@@ -27,7 +27,7 @@ export function AuthErrorAlert({ error, onDismiss }: Readonly<AuthErrorAlertProp
       <div className='min-w-0 flex-1'>
         <p className='font-inter text-sm text-red-700'>{error}</p>
       </div>
-      {onDismiss && (
+      {onDismiss ? (
         <button
           type='button'
           onClick={onDismiss}
@@ -36,7 +36,7 @@ export function AuthErrorAlert({ error, onDismiss }: Readonly<AuthErrorAlertProp
           <span className='sr-only'>Dismiss</span>
           <div className='flex h-4 w-4 items-center justify-center'>×</div>
         </button>
-      )}
+      ) : null}
     </div>
   );
 }

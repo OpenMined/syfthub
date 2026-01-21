@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 
-import { AlertCircle, Lock, Mail, User } from 'lucide-react';
+import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
+import Lock from 'lucide-react/dist/esm/icons/lock';
+import Mail from 'lucide-react/dist/esm/icons/mail';
+import User from 'lucide-react/dist/esm/icons/user';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -156,7 +159,7 @@ export function RegisterModal({
         {isLoading && <AuthLoadingOverlay />}
 
         {/* Global Error */}
-        {error && <AuthErrorAlert error={error} onDismiss={clearError} />}
+        {error ? <AuthErrorAlert error={error} onDismiss={clearError} /> : null}
 
         {/* OAuth Buttons - Hidden for v1, uncomment when OAuth is implemented
         <div className='space-y-2'>
@@ -260,7 +263,7 @@ export function RegisterModal({
             />
 
             {/* Password Strength Indicator */}
-            {values.password && (
+            {values.password ? (
               <div className='space-y-1'>
                 <div className='flex items-center gap-2'>
                   <div className='h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200'>
@@ -274,7 +277,7 @@ export function RegisterModal({
                   </span>
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
 
           <Input
@@ -291,7 +294,7 @@ export function RegisterModal({
           />
 
           {/* Accounting Password Section - Only shown when email exists in accounting service */}
-          {requiresAccountingPassword && (
+          {requiresAccountingPassword ? (
             <div className='space-y-3 rounded-lg border border-amber-400 bg-amber-50 p-4'>
               <div className='flex items-start gap-2'>
                 <AlertCircle className='mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600' />
@@ -313,7 +316,7 @@ export function RegisterModal({
                 isRequired
               />
             </div>
-          )}
+          ) : null}
 
           <div className='space-y-2 text-sm'>
             <label htmlFor='terms-agreement' className='flex cursor-pointer items-start space-x-2'>

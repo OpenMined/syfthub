@@ -2,7 +2,15 @@ import React, { useState } from 'react';
 
 import type { Connection } from '@/lib/types';
 
-import { Check, Copy, Database, Globe, HardDrive, Link2, Radio, Wifi, Zap } from 'lucide-react';
+import Check from 'lucide-react/dist/esm/icons/check';
+import Copy from 'lucide-react/dist/esm/icons/copy';
+import Database from 'lucide-react/dist/esm/icons/database';
+import Globe from 'lucide-react/dist/esm/icons/globe';
+import HardDrive from 'lucide-react/dist/esm/icons/hard-drive';
+import Link2 from 'lucide-react/dist/esm/icons/link-2';
+import Radio from 'lucide-react/dist/esm/icons/radio';
+import Wifi from 'lucide-react/dist/esm/icons/wifi';
+import Zap from 'lucide-react/dist/esm/icons/zap';
 
 import { cn } from '@/lib/utils';
 
@@ -147,14 +155,14 @@ function SingleConnection({
               <span className={cn('text-sm font-semibold', config.color)}>{config.label}</span>
               {/* Status indicator with pulse animation for enabled */}
               <span className='relative flex h-2 w-2'>
-                {connection.enabled && (
+                {connection.enabled ? (
                   <span
                     className={cn(
                       'absolute inline-flex h-full w-full animate-ping rounded-full opacity-75',
                       config.dotColor
                     )}
                   />
-                )}
+                ) : null}
                 <span
                   className={cn(
                     'relative inline-flex h-2 w-2 rounded-full',
@@ -163,11 +171,11 @@ function SingleConnection({
                 />
               </span>
             </div>
-            {!isCompact && connection.description && (
+            {!isCompact && connection.description ? (
               <p className='font-inter mt-0.5 line-clamp-1 text-xs text-[#5e5a72]'>
                 {connection.description}
               </p>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -186,7 +194,7 @@ function SingleConnection({
       </div>
 
       {/* Endpoint slug section */}
-      {endpointSlug && (
+      {endpointSlug ? (
         <div className='mt-3'>
           <div className='flex items-center gap-2'>
             <code
@@ -215,7 +223,7 @@ function SingleConnection({
             </Button>
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -245,11 +253,11 @@ export function ConnectionCard({
       {/* Header */}
       <div className='mb-4 flex items-center justify-between'>
         <h3 className='font-rubik text-sm font-medium text-[#272532]'>{title}</h3>
-        {validConnections.length > 0 && (
+        {validConnections.length > 0 ? (
           <span className='rounded-full bg-[#f1f0f4] px-2 py-0.5 text-xs font-medium text-[#5e5a72]'>
             {validConnections.length}
           </span>
-        )}
+        ) : null}
       </div>
 
       {/* Connections list */}
