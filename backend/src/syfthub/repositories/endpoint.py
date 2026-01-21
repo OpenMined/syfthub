@@ -94,11 +94,14 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         visibility: Optional[EndpointVisibility] = None,
         search: Optional[str] = None,
     ) -> List[Endpoint]:
-        """Get all endpoints for a user with optional search."""
+        """Get all endpoints for a user with optional search.
+
+        Note: This returns ALL user endpoints including inactive ones,
+        so owners can always see and manage their own endpoints regardless
+        of health status or soft-delete state.
+        """
         try:
-            stmt = select(self.model).where(
-                and_(self.model.user_id == user_id, self.model.is_active)
-            )
+            stmt = select(self.model).where(self.model.user_id == user_id)
 
             if visibility:
                 stmt = stmt.where(self.model.visibility == visibility.value)
@@ -126,11 +129,14 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         limit: int = 10,
         visibility: Optional[EndpointVisibility] = None,
     ) -> List[Endpoint]:
-        """Get all endpoints for an organization."""
+        """Get all endpoints for an organization.
+
+        Note: This returns ALL organization endpoints including inactive ones,
+        so members can always see and manage their org's endpoints regardless
+        of health status or soft-delete state.
+        """
         try:
-            stmt = select(self.model).where(
-                and_(self.model.organization_id == org_id, self.model.is_active)
-            )
+            stmt = select(self.model).where(self.model.organization_id == org_id)
 
             if visibility:
                 stmt = stmt.where(self.model.visibility == visibility.value)
@@ -527,19 +533,29 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         return self.get_user_endpoints(user_id)
 
     def get_public_endpoints_by_user_id(self, user_id: int) -> list[Endpoint]:
-        """Get public endpoints by user ID (alias for test compatibility)."""
-        # Filter user's endpoints to only include public ones
+        """Get public endpoints by user ID (alias for test compatibility).
+
+        Note: This is for PUBLIC browsing, so it filters to only active + public endpoints.
+        For owner management view, use get_user_endpoints() instead.
+        """
         user_endpoints = self.get_user_endpoints(user_id)
         return [
-            ds for ds in user_endpoints if ds.visibility == EndpointVisibility.PUBLIC
+            ds
+            for ds in user_endpoints
+            if ds.visibility == EndpointVisibility.PUBLIC and ds.is_active
         ]
 
     def get_public_by_user_id(self, user_id: int) -> list[Endpoint]:
-        """Get public endpoints by user ID (alias for test compatibility)."""
-        # Filter user's endpoints to only include public ones
+        """Get public endpoints by user ID (alias for test compatibility).
+
+        Note: This is for PUBLIC browsing, so it filters to only active + public endpoints.
+        For owner management view, use get_user_endpoints() instead.
+        """
         user_endpoints = self.get_user_endpoints(user_id)
         return [
-            ds for ds in user_endpoints if ds.visibility == EndpointVisibility.PUBLIC
+            ds
+            for ds in user_endpoints
+            if ds.visibility == EndpointVisibility.PUBLIC and ds.is_active
         ]
 
 
