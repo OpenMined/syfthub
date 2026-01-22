@@ -533,15 +533,32 @@ async def oauth_authorize(request: Request):
     if redirect_uri not in client["redirect_uris"]:
         return JSONResponse({"error": "invalid_request"}, status_code=400)
 
-    # Return SyftHub authentication form (email + password)
+    # Return SyftHub authentication form (email + password) - matching frontend design
     return HTMLResponse(f"""
     <!DOCTYPE html>
     <html lang="en">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>SyftHub Authentication</title>
+            <title>Welcome back - SyftHub</title>
+            <link rel="preconnect" href="https://fonts.googleapis.com">
+            <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+            <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
             <style>
+                :root {{
+                    /* SyftHub Design System Colors */
+                    --syft-primary: #272532;
+                    --syft-secondary: #6976ae;
+                    --syft-background: #fcfcfd;
+                    --syft-surface: #f7f6f9;
+                    --syft-border: #ecebef;
+                    --syft-border-light: #cfcdd6;
+                    --syft-text: #272532;
+                    --syft-text-muted: #5e5a72;
+                    --syft-text-placeholder: #b4b0bf;
+                    --destructive: #ef4444;
+                }}
+
                 * {{
                     margin: 0;
                     padding: 0;
@@ -549,111 +566,251 @@ async def oauth_authorize(request: Request):
                 }}
 
                 body {{
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-                    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+                    font-family: 'Inter', system-ui, sans-serif;
+                    background: var(--syft-background);
                     min-height: 100vh;
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    padding: 20px;
-                    color: #333;
+                    padding: 16px;
+                    color: var(--syft-text);
                 }}
 
-                .auth-container {{
-                    background: rgba(255, 255, 255, 0.95);
-                    backdrop-filter: blur(10px);
-                    border-radius: 16px;
-                    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-                    padding: 40px;
+                /* Backdrop overlay */
+                .backdrop {{
+                    position: fixed;
+                    inset: 0;
+                    background: rgba(0, 0, 0, 0.5);
+                    backdrop-filter: blur(4px);
+                    z-index: 1;
+                }}
+
+                /* Modal container */
+                .modal {{
+                    position: relative;
+                    background: #ffffff;
+                    border-radius: 12px;
+                    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
                     width: 100%;
-                    max-width: 440px;
-                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    max-width: 448px;
+                    border: 1px solid var(--syft-border);
+                    z-index: 10;
+                    animation: modalIn 0.3s ease-out;
                 }}
 
-                .logo {{
-                    text-align: center;
-                    margin-bottom: 32px;
+                @keyframes modalIn {{
+                    from {{
+                        opacity: 0;
+                        transform: scale(0.95) translateY(20px);
+                    }}
+                    to {{
+                        opacity: 1;
+                        transform: scale(1) translateY(0);
+                    }}
                 }}
 
-                .logo-icon {{
-                    width: 64px;
-                    height: 64px;
-                    background: linear-gradient(135deg, #2d3748, #1a202c);
-                    border-radius: 16px;
-                    display: inline-flex;
+                /* Close button */
+                .close-btn {{
+                    position: absolute;
+                    top: 16px;
+                    right: 16px;
+                    width: 32px;
+                    height: 32px;
+                    display: flex;
                     align-items: center;
                     justify-content: center;
-                    font-size: 28px;
-                    margin-bottom: 16px;
-                    box-shadow: 0 8px 20px rgba(45, 55, 72, 0.3);
+                    background: transparent;
+                    border: none;
+                    border-radius: 6px;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                    color: var(--syft-text-muted);
+                    z-index: 10;
                 }}
 
-                .title {{
-                    font-size: 24px;
-                    font-weight: 600;
-                    color: #1a202c;
-                    margin-bottom: 8px;
-                    text-align: center;
+                .close-btn:hover {{
+                    background: var(--syft-surface);
+                    color: var(--syft-primary);
                 }}
 
-                .subtitle {{
-                    color: #718096;
-                    text-align: center;
-                    font-size: 15px;
-                    line-height: 1.5;
+                .close-btn svg {{
+                    width: 16px;
+                    height: 16px;
                 }}
 
+                /* Modal header */
+                .modal-header {{
+                    padding: 24px 24px 8px;
+                }}
+
+                .modal-title {{
+                    font-family: 'Rubik', system-ui, sans-serif;
+                    font-size: 20px;
+                    font-weight: 500;
+                    color: var(--syft-primary);
+                    margin-bottom: 4px;
+                }}
+
+                .modal-description {{
+                    font-family: 'Inter', system-ui, sans-serif;
+                    font-size: 14px;
+                    color: var(--syft-text-muted);
+                }}
+
+                /* Modal body */
+                .modal-body {{
+                    padding: 0 24px 24px;
+                }}
+
+                /* Form styles */
                 .form-group {{
-                    margin-bottom: 20px;
+                    margin-bottom: 16px;
                 }}
 
                 .input-label {{
                     display: block;
                     font-size: 14px;
                     font-weight: 500;
-                    color: #4a5568;
-                    margin-bottom: 8px;
+                    color: var(--syft-primary);
+                    margin-bottom: 4px;
+                }}
+
+                .required-asterisk {{
+                    color: var(--destructive);
+                    margin-left: 4px;
                 }}
 
                 .input-wrapper {{
                     position: relative;
                 }}
 
+                .input-icon {{
+                    position: absolute;
+                    top: 50%;
+                    left: 12px;
+                    transform: translateY(-50%);
+                    color: var(--syft-text-muted);
+                    pointer-events: none;
+                }}
+
+                .input-icon svg {{
+                    width: 16px;
+                    height: 16px;
+                }}
+
                 input {{
                     width: 100%;
-                    padding: 16px 20px;
-                    border: 2px solid #e2e8f0;
-                    border-radius: 12px;
-                    font-size: 16px;
+                    height: 40px;
+                    padding: 8px 12px;
+                    padding-left: 40px;
+                    border: 1px solid var(--syft-border-light);
+                    border-radius: 8px;
+                    font-family: 'Inter', system-ui, sans-serif;
+                    font-size: 14px;
                     transition: all 0.2s ease;
                     background: #ffffff;
-                    color: #2d3748;
+                    color: var(--syft-text);
+                }}
+
+                input[type="password"] {{
+                    padding-right: 40px;
                 }}
 
                 input:focus {{
                     outline: none;
-                    border-color: #667eea;
-                    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-                    transform: translateY(-1px);
+                    border-color: var(--syft-primary);
+                    box-shadow: 0 0 0 2px rgba(39, 37, 50, 0.1);
                 }}
 
                 input::placeholder {{
-                    color: #a0aec0;
+                    color: var(--syft-text-placeholder);
                 }}
 
+                input:disabled {{
+                    cursor: not-allowed;
+                    opacity: 0.5;
+                }}
+
+                /* Password toggle button */
+                .password-toggle {{
+                    position: absolute;
+                    top: 50%;
+                    right: 4px;
+                    transform: translateY(-50%);
+                    width: 32px;
+                    height: 32px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: transparent;
+                    border: none;
+                    border-radius: 6px;
+                    cursor: pointer;
+                    color: var(--syft-text-muted);
+                    transition: all 0.2s ease;
+                }}
+
+                .password-toggle:hover {{
+                    color: var(--syft-primary);
+                }}
+
+                .password-toggle svg {{
+                    width: 16px;
+                    height: 16px;
+                }}
+
+                /* Remember me & Forgot password */
+                .form-options {{
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    margin-bottom: 16px;
+                }}
+
+                .remember-label {{
+                    display: flex;
+                    align-items: center;
+                    cursor: pointer;
+                    font-size: 14px;
+                    color: var(--syft-text-muted);
+                }}
+
+                .remember-label input[type="checkbox"] {{
+                    width: 16px;
+                    height: 16px;
+                    margin-right: 8px;
+                    border: 1px solid var(--syft-border);
+                    border-radius: 4px;
+                    accent-color: var(--syft-primary);
+                }}
+
+                .forgot-link {{
+                    font-family: 'Inter', system-ui, sans-serif;
+                    font-size: 14px;
+                    font-weight: 500;
+                    color: var(--syft-primary);
+                    text-decoration: none;
+                    transition: color 0.2s ease;
+                }}
+
+                .forgot-link:hover {{
+                    color: var(--syft-secondary);
+                }}
+
+                /* Submit button */
                 .btn {{
                     width: 100%;
-                    padding: 16px 20px;
-                    background: linear-gradient(135deg, #2d3748, #1a202c);
-                    color: white;
+                    height: 40px;
+                    padding: 8px 16px;
+                    background: var(--syft-primary);
+                    color: #fcfcfd;
                     border: none;
-                    border-radius: 12px;
-                    font-size: 16px;
-                    font-weight: 600;
+                    border-radius: 8px;
+                    font-family: 'Inter', system-ui, sans-serif;
+                    font-size: 14px;
+                    font-weight: 500;
                     cursor: pointer;
                     transition: all 0.2s ease;
-                    text-transform: none;
-                    letter-spacing: 0.025em;
                     display: flex;
                     align-items: center;
                     justify-content: center;
@@ -661,8 +818,9 @@ async def oauth_authorize(request: Request):
                 }}
 
                 .btn:hover {{
+                    background: rgba(39, 37, 50, 0.9);
                     transform: translateY(-2px);
-                    box-shadow: 0 10px 25px rgba(45, 55, 72, 0.3);
+                    box-shadow: 0 4px 12px rgba(39, 37, 50, 0.15);
                 }}
 
                 .btn:active {{
@@ -670,177 +828,335 @@ async def oauth_authorize(request: Request):
                 }}
 
                 .btn:disabled {{
-                    opacity: 0.6;
+                    opacity: 0.5;
                     cursor: not-allowed;
                     transform: none;
                 }}
 
-                .btn .spinner {{
+                /* Loading spinner */
+                .spinner {{
                     display: none;
                     width: 16px;
                     height: 16px;
-                    border: 2px solid #ffffff;
+                    border: 2px solid var(--syft-primary);
                     border-radius: 50%;
                     border-top-color: transparent;
                     animation: spin 1s ease-in-out infinite;
                 }}
 
-                .btn.loading .spinner {{
-                    display: inline-block;
-                }}
-
-                .btn.loading .btn-text {{
+                .loading-overlay {{
                     display: none;
-                }}
-
-                .btn .loading-text {{
-                    display: none;
-                }}
-
-                .btn.loading .loading-text {{
-                    display: inline;
-                }}
-
-                .status {{
-                    margin: 16px 0;
-                    padding: 12px 16px;
+                    position: absolute;
+                    inset: 0;
+                    background: rgba(255, 255, 255, 0.8);
+                    backdrop-filter: blur(4px);
                     border-radius: 8px;
+                    z-index: 10;
+                    align-items: center;
+                    justify-content: center;
+                }}
+
+                .loading-overlay.show {{
+                    display: flex;
+                }}
+
+                .loading-content {{
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    color: var(--syft-primary);
+                }}
+
+                .loading-content .spinner {{
+                    display: block;
+                }}
+
+                .loading-text {{
+                    font-family: 'Inter', system-ui, sans-serif;
                     font-size: 14px;
-                    font-weight: 500;
-                    text-align: center;
-                    opacity: 0;
-                    transform: translateY(-10px);
-                    transition: all 0.3s ease;
-                }}
-
-                .status.show {{
-                    opacity: 1;
-                    transform: translateY(0);
-                }}
-
-                .status.error {{
-                    background: #fed7d7;
-                    color: #c53030;
-                    border: 1px solid #feb2b2;
-                }}
-
-                .status.success {{
-                    background: #c6f6d5;
-                    color: #2f855a;
-                    border: 1px solid #9ae6b4;
                 }}
 
                 @keyframes spin {{
                     to {{ transform: rotate(360deg); }}
                 }}
 
-                .register-link {{
-                    text-align: center;
-                    margin-top: 24px;
-                    padding-top: 24px;
-                    border-top: 1px solid #e2e8f0;
+                /* Error alert */
+                .error-alert {{
+                    display: none;
+                    margin-bottom: 16px;
+                    padding: 12px;
+                    border: 1px solid #fca5a5;
+                    border-radius: 8px;
+                    background: #fef2f2;
                 }}
 
-                .register-link p {{
-                    color: #718096;
+                .error-alert.show {{
+                    display: flex;
+                    align-items: start;
+                    gap: 12px;
+                }}
+
+                .error-icon {{
+                    flex-shrink: 0;
+                    width: 20px;
+                    height: 20px;
+                    margin-top: 2px;
+                    background: var(--destructive);
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }}
+
+                .error-icon::after {{
+                    content: '';
+                    width: 8px;
+                    height: 8px;
+                    background: white;
+                    border-radius: 50%;
+                }}
+
+                .error-message {{
+                    flex: 1;
+                    font-family: 'Inter', system-ui, sans-serif;
                     font-size: 14px;
+                    color: #b91c1c;
                 }}
 
-                .register-link a {{
-                    color: #667eea;
-                    text-decoration: none;
-                    font-weight: 500;
+                .error-dismiss {{
+                    flex-shrink: 0;
+                    background: transparent;
+                    border: none;
+                    color: #f87171;
+                    cursor: pointer;
+                    font-size: 20px;
+                    line-height: 1;
+                    padding: 0;
+                    width: 16px;
+                    height: 16px;
                     transition: color 0.2s ease;
                 }}
 
-                .register-link a:hover {{
-                    color: #5a67d8;
+                .error-dismiss:hover {{
+                    color: #dc2626;
+                }}
+
+                /* Register link */
+                .register-section {{
+                    margin-top: 16px;
+                    padding-top: 16px;
+                    border-top: 1px solid var(--syft-border);
+                    text-align: center;
+                }}
+
+                .register-text {{
+                    font-family: 'Inter', system-ui, sans-serif;
+                    font-size: 14px;
+                    color: var(--syft-text-muted);
+                }}
+
+                .register-link {{
+                    color: var(--syft-primary);
+                    font-weight: 500;
                     text-decoration: underline;
+                    transition: color 0.2s ease;
+                    background: none;
+                    border: none;
+                    cursor: pointer;
+                }}
+
+                .register-link:hover {{
+                    color: var(--syft-secondary);
+                }}
+
+                .register-link:disabled {{
+                    cursor: not-allowed;
+                    opacity: 0.5;
+                }}
+
+                /* Accessibility */
+                .sr-only {{
+                    position: absolute;
+                    width: 1px;
+                    height: 1px;
+                    padding: 0;
+                    margin: -1px;
+                    overflow: hidden;
+                    clip: rect(0,0,0,0);
+                    border: 0;
                 }}
 
                 @media (max-width: 480px) {{
-                    .auth-container {{
-                        padding: 24px;
+                    .modal {{
                         margin: 10px;
-                    }}
-
-                    .title {{
-                        font-size: 20px;
-                    }}
-
-                    input, .btn {{
-                        padding: 14px 16px;
-                        font-size: 15px;
                     }}
                 }}
             </style>
         </head>
         <body>
-            <div class="auth-container">
-                <div class="logo">
-                    <div class="logo-icon">&#128274;</div>
-                    <h1 class="title">SyftHub Authentication</h1>
-                    <p class="subtitle">Sign in with your SyftHub account</p>
+            <!-- Backdrop -->
+            <div class="backdrop"></div>
+
+            <!-- Modal -->
+            <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" aria-describedby="modal-description">
+                <!-- Close button -->
+                <button type="button" class="close-btn" aria-label="Close modal" onclick="window.history.back()">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+
+                <!-- Modal header -->
+                <div class="modal-header">
+                    <h1 id="modal-title" class="modal-title">Welcome back</h1>
+                    <p id="modal-description" class="modal-description">Sign in to your SyftHub account</p>
                 </div>
 
-                <form id="loginForm" onsubmit="return false;">
-                    <div class="form-group">
-                        <label class="input-label" for="email">Email</label>
-                        <div class="input-wrapper">
-                            <input type="email" id="email" placeholder="your-email@example.com" autocomplete="email" required>
+                <!-- Modal body -->
+                <div class="modal-body">
+                    <!-- Loading overlay -->
+                    <div class="loading-overlay" id="loadingOverlay">
+                        <div class="loading-content">
+                            <div class="spinner"></div>
+                            <span class="loading-text">Please wait…</span>
                         </div>
                     </div>
 
-                    <div class="form-group">
-                        <label class="input-label" for="password">Password</label>
-                        <div class="input-wrapper">
-                            <input type="password" id="password" placeholder="Enter your password" autocomplete="current-password" required>
-                        </div>
+                    <!-- Error alert -->
+                    <div class="error-alert" id="errorAlert">
+                        <div class="error-icon"></div>
+                        <div class="error-message" id="errorMessage"></div>
+                        <button type="button" class="error-dismiss" onclick="hideError()" aria-label="Dismiss error">×</button>
                     </div>
 
-                    <button class="btn" id="loginBtn" type="button">
-                        <span class="spinner"></span>
-                        <span class="btn-text">Sign In</span>
-                        <span class="loading-text">Signing in...</span>
-                    </button>
+                    <!-- Form -->
+                    <form id="loginForm" onsubmit="return false;">
+                        <div class="form-group">
+                            <label class="input-label" for="email">
+                                Email<span class="required-asterisk">*</span>
+                            </label>
+                            <div class="input-wrapper">
+                                <div class="input-icon">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                    </svg>
+                                </div>
+                                <input
+                                    type="email"
+                                    id="email"
+                                    name="email"
+                                    placeholder="name@company.com…"
+                                    autocomplete="email"
+                                    spellcheck="false"
+                                    required
+                                    aria-required="true"
+                                    aria-invalid="false"
+                                >
+                            </div>
+                        </div>
 
-                    <div id="status" class="status"></div>
-                </form>
+                        <div class="form-group">
+                            <label class="input-label" for="password">
+                                Password<span class="required-asterisk">*</span>
+                            </label>
+                            <div class="input-wrapper">
+                                <input
+                                    type="password"
+                                    id="password"
+                                    name="password"
+                                    placeholder="Enter your password…"
+                                    autocomplete="current-password"
+                                    required
+                                    aria-required="true"
+                                    aria-invalid="false"
+                                >
+                                <button type="button" class="password-toggle" id="passwordToggle" tabindex="-1" aria-label="Show password">
+                                    <svg id="eyeIcon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    </svg>
+                                    <svg id="eyeOffIcon" style="display:none;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </div>
 
-                <div class="register-link">
-                    <p>Don't have an account? <a href="{SYFTHUB_PUBLIC_URL}" target="_blank">Register on SyftHub</a></p>
+                        <div class="form-options">
+                            <label class="remember-label">
+                                <input type="checkbox" id="remember-me" name="remember-me">
+                                <span>Remember me</span>
+                            </label>
+                            <a href="#" class="forgot-link">Forgot password?</a>
+                        </div>
+
+                        <button type="submit" class="btn" id="loginBtn">
+                            Sign In
+                        </button>
+                    </form>
+
+                    <!-- Register link -->
+                    <div class="register-section">
+                        <p class="register-text">
+                            Don't have an account?
+                            <a href="{SYFTHUB_PUBLIC_URL}" target="_blank" class="register-link" id="registerLink">Sign up</a>
+                        </p>
+                    </div>
                 </div>
             </div>
 
             <script>
-                // Email validation function
-                function isValidEmail(email) {{
-                    const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
-                    return emailRegex.test(email);
+                // Password visibility toggle
+                let passwordVisible = false;
+                const passwordInput = document.getElementById('password');
+                const passwordToggle = document.getElementById('passwordToggle');
+                const eyeIcon = document.getElementById('eyeIcon');
+                const eyeOffIcon = document.getElementById('eyeOffIcon');
+
+                passwordToggle.addEventListener('click', function() {{
+                    passwordVisible = !passwordVisible;
+                    passwordInput.type = passwordVisible ? 'text' : 'password';
+                    eyeIcon.style.display = passwordVisible ? 'none' : 'block';
+                    eyeOffIcon.style.display = passwordVisible ? 'block' : 'none';
+                    passwordToggle.setAttribute('aria-label', passwordVisible ? 'Hide password' : 'Show password');
+                }});
+
+                // Error handling
+                function showError(message) {{
+                    const errorAlert = document.getElementById('errorAlert');
+                    const errorMessage = document.getElementById('errorMessage');
+                    errorMessage.textContent = message;
+                    errorAlert.classList.add('show');
                 }}
 
-                // Button state management using CSS classes (no innerHTML)
-                function setButtonLoading(loading) {{
+                function hideError() {{
+                    const errorAlert = document.getElementById('errorAlert');
+                    errorAlert.classList.remove('show');
+                }}
+
+                // Clear error when typing
+                document.getElementById('email').addEventListener('input', hideError);
+                document.getElementById('password').addEventListener('input', hideError);
+
+                // Loading state management
+                function setLoading(loading) {{
                     const button = document.getElementById('loginBtn');
+                    const overlay = document.getElementById('loadingOverlay');
+                    const inputs = document.querySelectorAll('input, button');
+
                     if (loading) {{
-                        button.disabled = true;
-                        button.classList.add('loading');
+                        overlay.classList.add('show');
+                        inputs.forEach(el => el.disabled = true);
                     }} else {{
-                        button.disabled = false;
-                        button.classList.remove('loading');
+                        overlay.classList.remove('show');
+                        inputs.forEach(el => el.disabled = false);
                     }}
                 }}
 
-                // Status display using textContent (safe)
-                function showStatus(message, type) {{
-                    const el = document.getElementById('status');
-                    el.textContent = message;
-                    el.className = 'status ' + type + ' show';
-                }}
-
-                function hideStatus() {{
-                    const el = document.getElementById('status');
-                    el.className = 'status';
+                // Email validation
+                function isValidEmail(email) {{
+                    const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
+                    return emailRegex.test(email);
                 }}
 
                 // Login function
@@ -850,25 +1166,30 @@ async def oauth_authorize(request: Request):
 
                     // Validation
                     if (!email) {{
-                        showStatus('Please enter your email address', 'error');
+                        showError('Please enter your email address');
                         document.getElementById('email').focus();
+                        document.getElementById('email').setAttribute('aria-invalid', 'true');
                         return;
                     }}
 
                     if (!isValidEmail(email)) {{
-                        showStatus('Please enter a valid email address', 'error');
+                        showError('Please enter a valid email address');
                         document.getElementById('email').focus();
+                        document.getElementById('email').setAttribute('aria-invalid', 'true');
                         return;
                     }}
 
                     if (!password) {{
-                        showStatus('Please enter your password', 'error');
+                        showError('Please enter your password');
                         document.getElementById('password').focus();
+                        document.getElementById('password').setAttribute('aria-invalid', 'true');
                         return;
                     }}
 
-                    hideStatus();
-                    setButtonLoading(true);
+                    hideError();
+                    document.getElementById('email').setAttribute('aria-invalid', 'false');
+                    document.getElementById('password').setAttribute('aria-invalid', 'false');
+                    setLoading(true);
 
                     try {{
                         const response = await fetch('/mcp/auth/syfthub/login', {{
@@ -888,11 +1209,8 @@ async def oauth_authorize(request: Request):
 
                         if (response.ok) {{
                             const result = await response.json();
-                            showStatus('Authentication successful! Redirecting...', 'success');
-                            setButtonLoading(false);
-                            setTimeout(() => {{
-                                window.location.href = result.redirect_url;
-                            }}, 1000);
+                            // Success - redirect immediately without showing success message
+                            window.location.href = result.redirect_url;
                         }} else {{
                             let errorMessage = 'Invalid email or password';
                             try {{
@@ -903,41 +1221,56 @@ async def oauth_authorize(request: Request):
                             }} catch (e) {{
                                 // Use default error message
                             }}
-                            showStatus(errorMessage, 'error');
-                            setButtonLoading(false);
+                            showError(errorMessage);
+                            setLoading(false);
                         }}
                     }} catch (err) {{
-                        showStatus('Network error. Please check your connection and try again.', 'error');
-                        setButtonLoading(false);
+                        showError('Network error. Please check your connection and try again.');
+                        setLoading(false);
                     }}
                 }}
 
-                // Keyboard navigation and button click handler
+                // Form submission
+                document.getElementById('loginForm').addEventListener('submit', function(e) {{
+                    e.preventDefault();
+                    login();
+                }});
+
+                // Keyboard navigation
                 document.addEventListener('DOMContentLoaded', function() {{
-                    // Button click handler
-                    document.getElementById('loginBtn').addEventListener('click', function(e) {{
-                        e.preventDefault();
-                        login();
-                    }});
+                    // Focus trap within modal
+                    const modal = document.querySelector('.modal');
+                    const focusableElements = modal.querySelectorAll(
+                        'button:not([disabled]), input:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+                    );
+                    const firstFocusable = focusableElements[0];
+                    const lastFocusable = focusableElements[focusableElements.length - 1];
 
-                    // Enter key on email -> focus password
-                    document.getElementById('email').addEventListener('keypress', function(e) {{
-                        if (e.key === 'Enter') {{
+                    modal.addEventListener('keydown', function(e) {{
+                        if (e.key === 'Tab') {{
+                            if (e.shiftKey) {{
+                                if (document.activeElement === firstFocusable) {{
+                                    e.preventDefault();
+                                    lastFocusable.focus();
+                                }}
+                            }} else {{
+                                if (document.activeElement === lastFocusable) {{
+                                    e.preventDefault();
+                                    firstFocusable.focus();
+                                }}
+                            }}
+                        }}
+
+                        if (e.key === 'Escape') {{
                             e.preventDefault();
-                            document.getElementById('password').focus();
+                            window.history.back();
                         }}
                     }});
 
-                    // Enter key on password -> submit
-                    document.getElementById('password').addEventListener('keypress', function(e) {{
-                        if (e.key === 'Enter') {{
-                            e.preventDefault();
-                            login();
-                        }}
-                    }});
-
-                    // Focus email input on page load
-                    document.getElementById('email').focus();
+                    // Auto-focus email input on page load
+                    setTimeout(() => {{
+                        document.getElementById('email').focus();
+                    }}, 50);
                 }});
             </script>
         </body>
