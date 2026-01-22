@@ -3,12 +3,42 @@ import React, { memo, Suspense, useCallback, useEffect, useMemo, useState } from
 import Check from 'lucide-react/dist/esm/icons/check';
 import Copy from 'lucide-react/dist/esm/icons/copy';
 import Markdown from 'react-markdown';
+import { PrismLight as SyntaxHighlighterBase } from 'react-syntax-highlighter';
+import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash';
+import css from 'react-syntax-highlighter/dist/esm/languages/prism/css';
+import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
+import json from 'react-syntax-highlighter/dist/esm/languages/prism/json';
+import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown';
+import python from 'react-syntax-highlighter/dist/esm/languages/prism/python';
+import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql';
+import tsx from 'react-syntax-highlighter/dist/esm/languages/prism/tsx';
+import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
+import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml';
 import remarkGfm from 'remark-gfm';
 
 import { cn } from '@/lib/utils';
 
-// Lazy load react-syntax-highlighter to reduce initial bundle size (~300KB)
-const SyntaxHighlighter = React.lazy(() => import('react-syntax-highlighter/dist/esm/prism-light'));
+// Register common languages for syntax highlighting (prism-light requires explicit registration)
+SyntaxHighlighterBase.registerLanguage('bash', bash);
+SyntaxHighlighterBase.registerLanguage('shell', bash);
+SyntaxHighlighterBase.registerLanguage('sh', bash);
+SyntaxHighlighterBase.registerLanguage('css', css);
+SyntaxHighlighterBase.registerLanguage('javascript', javascript);
+SyntaxHighlighterBase.registerLanguage('js', javascript);
+SyntaxHighlighterBase.registerLanguage('json', json);
+SyntaxHighlighterBase.registerLanguage('markdown', markdown);
+SyntaxHighlighterBase.registerLanguage('md', markdown);
+SyntaxHighlighterBase.registerLanguage('python', python);
+SyntaxHighlighterBase.registerLanguage('py', python);
+SyntaxHighlighterBase.registerLanguage('sql', sql);
+SyntaxHighlighterBase.registerLanguage('tsx', tsx);
+SyntaxHighlighterBase.registerLanguage('typescript', typescript);
+SyntaxHighlighterBase.registerLanguage('ts', typescript);
+SyntaxHighlighterBase.registerLanguage('yaml', yaml);
+SyntaxHighlighterBase.registerLanguage('yml', yaml);
+
+// Wrap in lazy for code-splitting
+const SyntaxHighlighter = React.lazy(() => Promise.resolve({ default: SyntaxHighlighterBase }));
 
 // Lazy load the style
 const loadStyle = () =>

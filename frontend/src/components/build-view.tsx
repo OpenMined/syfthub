@@ -6,14 +6,25 @@ import Check from 'lucide-react/dist/esm/icons/check';
 import Code2 from 'lucide-react/dist/esm/icons/code-2';
 import Copy from 'lucide-react/dist/esm/icons/copy';
 import Terminal from 'lucide-react/dist/esm/icons/terminal';
+import { PrismLight as SyntaxHighlighterBase } from 'react-syntax-highlighter';
+import bash from 'react-syntax-highlighter/dist/esm/languages/prism/bash';
+import json from 'react-syntax-highlighter/dist/esm/languages/prism/json';
+import python from 'react-syntax-highlighter/dist/esm/languages/prism/python';
+import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
 
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { PageHeader } from './ui/page-header';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
-// Lazy load react-syntax-highlighter to reduce initial bundle size (~300KB)
-const SyntaxHighlighter = React.lazy(() => import('react-syntax-highlighter/dist/esm/prism-light'));
+// Register languages for syntax highlighting (prism-light requires explicit registration)
+SyntaxHighlighterBase.registerLanguage('bash', bash);
+SyntaxHighlighterBase.registerLanguage('python', python);
+SyntaxHighlighterBase.registerLanguage('typescript', typescript);
+SyntaxHighlighterBase.registerLanguage('json', json);
+
+// Wrap in lazy for code-splitting (the component itself is small, languages are registered above)
+const SyntaxHighlighter = React.lazy(() => Promise.resolve({ default: SyntaxHighlighterBase }));
 
 // Lazy load the style - will be loaded alongside SyntaxHighlighter
 const loadStyle = () =>
