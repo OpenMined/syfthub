@@ -394,7 +394,9 @@ export class ChatResource {
       }
     );
 
-    const url = `${this.aggregatorUrl}/chat`;
+    // Use custom aggregator URL if provided, otherwise use default
+    const effectiveAggregatorUrl = (options.aggregatorUrl ?? this.aggregatorUrl).replace(/\/+$/, '');
+    const url = `${effectiveAggregatorUrl}/chat`;
 
     const response = await fetch(url, {
       method: 'POST',
@@ -483,7 +485,9 @@ export class ChatResource {
       }
     );
 
-    const url = `${this.aggregatorUrl}/chat/stream`;
+    // Use custom aggregator URL if provided, otherwise use default
+    const effectiveAggregatorUrl = (options.aggregatorUrl ?? this.aggregatorUrl).replace(/\/+$/, '');
+    const url = `${effectiveAggregatorUrl}/chat/stream`;
 
     const response = await fetch(url, {
       method: 'POST',

@@ -143,6 +143,8 @@ export interface ChatOptions {
   similarityThreshold?: number;
   /** AbortSignal for request cancellation */
   signal?: AbortSignal;
+  /** Custom aggregator URL to use instead of the default */
+  aggregatorUrl?: string;
 }
 
 /**

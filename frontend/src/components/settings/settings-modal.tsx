@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
 import CreditCard from 'lucide-react/dist/esm/icons/credit-card';
 import Lock from 'lucide-react/dist/esm/icons/lock';
+import Server from 'lucide-react/dist/esm/icons/server';
 import User from 'lucide-react/dist/esm/icons/user';
 import X from 'lucide-react/dist/esm/icons/x';
 
@@ -13,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { useSettingsModal } from '@/context/settings-modal-context';
 import { cn } from '@/lib/utils';
 
+import { AggregatorSettingsTab } from './aggregator-settings-tab';
 import { DangerZoneTab } from './danger-zone-tab';
 import { PaymentSettingsTab } from './payment-settings-tab';
 import { ProfileSettingsTab } from './profile-settings-tab';
@@ -29,6 +31,11 @@ const TABS: TabItem[] = [
   { id: 'profile', label: 'Profile', icon: <User className='h-4 w-4' aria-hidden='true' /> },
   { id: 'security', label: 'Security', icon: <Lock className='h-4 w-4' aria-hidden='true' /> },
   { id: 'payment', label: 'Payment', icon: <CreditCard className='h-4 w-4' aria-hidden='true' /> },
+  {
+    id: 'aggregator',
+    label: 'Aggregator',
+    icon: <Server className='h-4 w-4' aria-hidden='true' />
+  },
   {
     id: 'danger-zone',
     label: 'Danger Zone',
@@ -120,6 +127,9 @@ export function SettingsModal() {
       }
       case 'payment': {
         return <PaymentSettingsTab />;
+      }
+      case 'aggregator': {
+        return <AggregatorSettingsTab />;
       }
       case 'danger-zone': {
         return <DangerZoneTab />;

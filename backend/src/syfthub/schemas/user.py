@@ -51,6 +51,10 @@ class User(UserBase):
     domain: Optional[str] = Field(
         None, max_length=253, description="Domain for endpoint URL construction"
     )
+    # Custom aggregator URL for RAG/chat workflows
+    aggregator_url: Optional[str] = Field(
+        None, description="Custom aggregator URL for RAG/chat workflows"
+    )
 
     model_config = {"from_attributes": True}
 
@@ -74,6 +78,10 @@ class UserResponse(BaseModel):
     # Domain for dynamic endpoint URL construction
     domain: Optional[str] = Field(
         None, description="Domain for endpoint URL construction"
+    )
+    # Custom aggregator URL for RAG/chat workflows
+    aggregator_url: Optional[str] = Field(
+        None, description="Custom aggregator URL for RAG/chat workflows"
     )
 
     model_config = {"from_attributes": True}
@@ -105,6 +113,12 @@ class UserUpdate(BaseModel):
         None,
         max_length=253,
         description="Domain for endpoint URL construction (no protocol)",
+    )
+    # Custom aggregator URL for RAG/chat workflows
+    aggregator_url: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="Custom aggregator URL for RAG/chat workflows",
     )
 
 

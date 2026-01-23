@@ -39,6 +39,11 @@ class UserModel(BaseModel, TimestampMixin):
         String(253), nullable=True, default=None
     )
 
+    # Custom aggregator URL for RAG/chat workflows
+    aggregator_url: Mapped[Optional[str]] = mapped_column(
+        String(500), nullable=True, default=None
+    )
+
     # Relationships
     endpoints: Mapped[List["EndpointModel"]] = relationship(
         "EndpointModel", back_populates="user", cascade="all, delete-orphan"
