@@ -972,10 +972,12 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
         let accumulatedContent = '';
 
         // Use SDK for streaming - SDK resolves paths internally
+        // Pass custom aggregator URL if user has configured one
         for await (const event of syftClient.chat.stream({
           prompt: inputValue,
           model: modelPath,
           dataSources: dataSourcePaths.length > 0 ? dataSourcePaths : undefined,
+          aggregatorUrl: user?.aggregator_url || undefined,
           signal: abortControllerReference.current.signal
         })) {
           // Update processing status from event

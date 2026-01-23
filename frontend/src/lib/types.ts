@@ -45,6 +45,8 @@ export interface User {
   updated_at: string;
   /** Domain for endpoint URL construction (e.g., "api.example.com:8080") */
   domain?: string;
+  /** Custom aggregator URL for RAG/chat workflows */
+  aggregator_url?: string;
 }
 
 // Authentication request schemas
@@ -95,6 +97,8 @@ export interface UserUpdate {
   avatar_url?: string;
   /** Domain for endpoint URL construction (no protocol) */
   domain?: string;
+  /** Custom aggregator URL for RAG/chat workflows */
+  aggregator_url?: string;
 }
 
 // Availability check responses

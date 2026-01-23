@@ -490,6 +490,7 @@ class ChatResource:
         max_tokens: int = 1024,
         temperature: float = 0.7,
         similarity_threshold: float = 0.5,
+        aggregator_url: str | None = None,
     ) -> ChatResponse:
         """Send a chat request and get the complete response.
 
@@ -506,6 +507,7 @@ class ChatResource:
             max_tokens: Maximum tokens to generate (default: 1024)
             temperature: Generation temperature (default: 0.7)
             similarity_threshold: Minimum similarity for retrieved docs (default: 0.5)
+            aggregator_url: Custom aggregator URL (optional, uses default if not provided)
 
         Returns:
             ChatResponse with response text, sources, and metadata
@@ -524,6 +526,9 @@ class ChatResource:
             print(response.response)
             print(f"Used {len(response.sources)} sources")
         """
+        # Use custom aggregator URL if provided, otherwise use default
+        effective_aggregator_url = (aggregator_url or self._aggregator_url).rstrip("/")
+
         model_ref = self._resolve_endpoint_ref(model, expected_type="model")
 
         ds_refs = []
@@ -550,7 +555,7 @@ class ChatResource:
 
         try:
             response = self._agg_client.post(
-                f"{self._aggregator_url}/chat",
+                f"{effective_aggregator_url}/chat",
                 json=request_body,
                 headers={"Content-Type": "application/json"},
             )
@@ -624,6 +629,7 @@ class ChatResource:
         max_tokens: int = 1024,
         temperature: float = 0.7,
         similarity_threshold: float = 0.5,
+        aggregator_url: str | None = None,
     ) -> Iterator[ChatStreamEvent]:
         """Send a chat request and stream response events.
 
@@ -640,6 +646,7 @@ class ChatResource:
             max_tokens: Maximum tokens to generate (default: 1024)
             temperature: Generation temperature (default: 0.7)
             similarity_threshold: Minimum similarity for retrieved docs (default: 0.5)
+            aggregator_url: Custom aggregator URL (optional, uses default if not provided)
 
         Yields:
             ChatStreamEvent objects as they arrive
@@ -663,6 +670,9 @@ class ChatResource:
                 elif event.type == "done":
                     print(f"\\nCompleted in {event.metadata.total_time_ms}ms")
         """
+        # Use custom aggregator URL if provided, otherwise use default
+        effective_aggregator_url = (aggregator_url or self._aggregator_url).rstrip("/")
+
         model_ref = self._resolve_endpoint_ref(model, expected_type="model")
 
         ds_refs = []
@@ -690,7 +700,7 @@ class ChatResource:
         try:
             with self._agg_client.stream(
                 "POST",
-                f"{self._aggregator_url}/chat/stream",
+                f"{effective_aggregator_url}/chat/stream",
                 json=request_body,
                 headers={
                     "Content-Type": "application/json",

@@ -324,3 +324,271 @@ def test_access_users_without_auth(client: TestClient) -> None:
     for endpoint in endpoints:
         response = client.get(endpoint)
         assert response.status_code == 401
+
+
+def test_get_accounting_credentials(
+    client: TestClient, regular_user_token: str
+) -> None:
+    """Test getting current user's accounting credentials."""
+    headers = {"Authorization": f"Bearer {regular_user_token}"}
+    response = client.get("/api/v1/users/me/accounting", headers=headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "url" in data
+    assert "email" in data
+    assert "password" in data
+    assert data["email"] == "regular@example.com"
+
+
+def test_check_username_availability(client: TestClient) -> None:
+    """Test checking username availability."""
+    # Check availability of a new username (should be available)
+    response = client.get("/api/v1/users/check-username/newuser123")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["available"] is True
+    assert data["username"] == "newuser123"
+
+
+def test_check_username_availability_taken(
+    client: TestClient, regular_user_token: str
+) -> None:
+    """Test checking availability of a taken username."""
+    # The regular_user_token fixture creates 'regularuser'
+    response = client.get("/api/v1/users/check-username/regularuser")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["available"] is False
+    assert data["username"] == "regularuser"
+
+
+def test_check_email_availability(client: TestClient) -> None:
+    """Test checking email availability."""
+    # Check availability of a new email (should be available)
+    response = client.get("/api/v1/users/check-email/newemail@example.com")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["available"] is True
+    assert data["email"] == "newemail@example.com"
+
+
+def test_check_email_availability_taken(
+    client: TestClient, regular_user_token: str
+) -> None:
+    """Test checking availability of a taken email."""
+    # The regular_user_token fixture creates 'regular@example.com'
+    response = client.get("/api/v1/users/check-email/regular@example.com")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["available"] is False
+    assert data["email"] == "regular@example.com"
+
+
+def test_get_user_not_found(client: TestClient, admin_user_token: str) -> None:
+    """Test getting a non-existent user returns 404."""
+    headers = {"Authorization": f"Bearer {admin_user_token}"}
+    response = client.get("/api/v1/users/99999", headers=headers)
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"].lower()
+
+
+def test_update_user_with_aggregator_url(
+    client: TestClient, regular_user_token: str
+) -> None:
+    """Test updating user profile with aggregator_url."""
+    update_data = {
+        "aggregator_url": "https://my-aggregator.example.com/api/v1",
+    }
+
+    headers = {"Authorization": f"Bearer {regular_user_token}"}
+    response = client.put("/api/v1/users/me", json=update_data, headers=headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["aggregator_url"] == "https://my-aggregator.example.com/api/v1"
+
+    # Test updating to a different aggregator_url
+    update_data2 = {"aggregator_url": "https://another-aggregator.example.com"}
+    response = client.put("/api/v1/users/me", json=update_data2, headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["aggregator_url"] == "https://another-aggregator.example.com"
+
+
+def test_delete_nonexistent_user(client: TestClient, admin_user_token: str) -> None:
+    """Test deleting a non-existent user returns 404."""
+    headers = {"Authorization": f"Bearer {admin_user_token}"}
+    response = client.delete("/api/v1/users/99999", headers=headers)
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"].lower()
+
+
+def test_update_user_by_id_not_found(client: TestClient, admin_user_token: str) -> None:
+    """Test updating a non-existent user by ID returns 404."""
+    headers = {"Authorization": f"Bearer {admin_user_token}"}
+    update_data = {"full_name": "New Name"}
+    response = client.put("/api/v1/users/99999", json=update_data, headers=headers)
+    assert response.status_code == 404
+
+
+def test_deactivate_nonexistent_user(client: TestClient, admin_user_token: str) -> None:
+    """Test deactivating a non-existent user returns 404."""
+    headers = {"Authorization": f"Bearer {admin_user_token}"}
+    response = client.patch("/api/v1/users/99999/deactivate", headers=headers)
+    assert response.status_code == 404
+
+
+def test_activate_nonexistent_user(client: TestClient, admin_user_token: str) -> None:
+    """Test activating a non-existent user returns 404."""
+    headers = {"Authorization": f"Bearer {admin_user_token}"}
+    response = client.patch("/api/v1/users/99999/activate", headers=headers)
+    assert response.status_code == 404
+
+
+def test_regular_user_cannot_activate(
+    client: TestClient, regular_user_token: str, admin_user_token: str
+) -> None:
+    """Test that regular users cannot activate other users."""
+    # Get admin user ID
+    admin_headers = {"Authorization": f"Bearer {admin_user_token}"}
+    admin_me = client.get("/api/v1/users/me", headers=admin_headers)
+    admin_id = admin_me.json()["id"]
+
+    # Regular user tries to activate
+    regular_headers = {"Authorization": f"Bearer {regular_user_token}"}
+    response = client.patch(
+        f"/api/v1/users/{admin_id}/activate", headers=regular_headers
+    )
+    assert response.status_code == 403
+
+
+def test_regular_user_cannot_delete_other(
+    client: TestClient, regular_user_token: str, admin_user_token: str
+) -> None:
+    """Test that regular users cannot delete other users."""
+    # Get admin user ID
+    admin_headers = {"Authorization": f"Bearer {admin_user_token}"}
+    admin_me = client.get("/api/v1/users/me", headers=admin_headers)
+    admin_id = admin_me.json()["id"]
+
+    # Regular user tries to delete admin
+    regular_headers = {"Authorization": f"Bearer {regular_user_token}"}
+    response = client.delete(f"/api/v1/users/{admin_id}", headers=regular_headers)
+    assert response.status_code == 403
+
+
+def test_update_profile_duplicate_username(
+    client: TestClient, regular_user_token: str, admin_user_token: str
+) -> None:
+    """Test that updating profile with existing username fails."""
+    # Regular user tries to change username to admin's username
+    headers = {"Authorization": f"Bearer {regular_user_token}"}
+    update_data = {"username": "adminuser"}  # This username exists
+    response = client.put("/api/v1/users/me", json=update_data, headers=headers)
+    assert response.status_code == 400
+    assert "username" in response.json()["detail"].lower()
+
+
+def test_update_profile_duplicate_email(
+    client: TestClient, regular_user_token: str, admin_user_token: str
+) -> None:
+    """Test that updating profile with existing email fails."""
+    # Regular user tries to change email to admin's email
+    headers = {"Authorization": f"Bearer {regular_user_token}"}
+    update_data = {"email": "admin@example.com"}  # This email exists
+    response = client.put("/api/v1/users/me", json=update_data, headers=headers)
+    assert response.status_code == 400
+    assert "email" in response.json()["detail"].lower()
+
+
+def test_update_profile_with_own_username(
+    client: TestClient, regular_user_token: str
+) -> None:
+    """Test that updating profile with own username is allowed."""
+    headers = {"Authorization": f"Bearer {regular_user_token}"}
+    # Update with current username should not fail
+    update_data = {"username": "regularuser", "full_name": "Still Regular User"}
+    response = client.put("/api/v1/users/me", json=update_data, headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["username"] == "regularuser"
+    assert data["full_name"] == "Still Regular User"
+
+
+def test_update_profile_with_own_email(
+    client: TestClient, regular_user_token: str
+) -> None:
+    """Test that updating profile with own email is allowed."""
+    headers = {"Authorization": f"Bearer {regular_user_token}"}
+    # Update with current email should not fail
+    update_data = {"email": "regular@example.com", "full_name": "Updated Name"}
+    response = client.put("/api/v1/users/me", json=update_data, headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["email"] == "regular@example.com"
+    assert data["full_name"] == "Updated Name"
+
+
+def test_admin_can_update_other_user(
+    client: TestClient, regular_user_token: str, admin_user_token: str
+) -> None:
+    """Test that admin can update another user's profile."""
+    # Get regular user ID
+    regular_headers = {"Authorization": f"Bearer {regular_user_token}"}
+    me_response = client.get("/api/v1/users/me", headers=regular_headers)
+    user_id = me_response.json()["id"]
+
+    # Admin updates regular user's profile
+    admin_headers = {"Authorization": f"Bearer {admin_user_token}"}
+    update_data = {"full_name": "Admin Updated Name"}
+    response = client.put(
+        f"/api/v1/users/{user_id}", json=update_data, headers=admin_headers
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["full_name"] == "Admin Updated Name"
+
+
+def test_list_users_returns_both_active_and_inactive(
+    client: TestClient, admin_user_token: str
+) -> None:
+    """Test that listing users returns both active and inactive users for admin."""
+    admin_headers = {"Authorization": f"Bearer {admin_user_token}"}
+
+    # Create a user
+    user_data = {
+        "username": "inactiveuser",
+        "email": "inactive@example.com",
+        "full_name": "Inactive User",
+        "password": "testpass123",
+    }
+    register_response = client.post("/api/v1/auth/register", json=user_data)
+    user_id = register_response.json()["user"]["id"]
+
+    # Deactivate the user
+    client.patch(f"/api/v1/users/{user_id}/deactivate", headers=admin_headers)
+
+    # List all users - should include both active and inactive
+    response = client.get("/api/v1/users/", headers=admin_headers)
+    assert response.status_code == 200
+    users = response.json()
+    usernames = [u["username"] for u in users]
+    assert "inactiveuser" in usernames
+    assert "adminuser" in usernames
+
+
+def test_update_user_full_profile(client: TestClient, regular_user_token: str) -> None:
+    """Test updating multiple fields at once."""
+    headers = {"Authorization": f"Bearer {regular_user_token}"}
+    update_data = {
+        "full_name": "Completely New Name",
+        "avatar_url": "https://example.com/new-avatar.jpg",
+        "domain": "example.com",
+    }
+    response = client.put("/api/v1/users/me", json=update_data, headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["full_name"] == "Completely New Name"
+    assert data["avatar_url"] == "https://example.com/new-avatar.jpg"
+    assert data["domain"] == "example.com"

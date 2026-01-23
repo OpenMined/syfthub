@@ -110,6 +110,9 @@ class UserRepository(BaseRepository[UserModel]):
                 user_model.accounting_password = user_data.accounting_password
             if user_data.domain is not None:
                 user_model.domain = user_data.domain
+            # Aggregator URL
+            if user_data.aggregator_url is not None:
+                user_model.aggregator_url = user_data.aggregator_url
 
             self.session.commit()
             self.session.refresh(user_model)
