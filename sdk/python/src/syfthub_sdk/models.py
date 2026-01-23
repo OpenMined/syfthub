@@ -53,6 +53,7 @@ class User(BaseModel):
     created_at: datetime
     updated_at: datetime | None = None  # Some endpoints don't return this
     domain: str | None = None  # Domain for endpoint URL construction
+    aggregator_url: str | None = None  # Custom aggregator URL for RAG/chat workflows
 
     model_config = {"frozen": True}
 

@@ -15,6 +15,8 @@ export interface User {
   readonly updatedAt: Date | null;
   /** Domain for endpoint URL construction (e.g., "api.example.com" or "api.example.com:8080") */
   readonly domain: string | null;
+  /** Custom aggregator URL for RAG/chat workflows */
+  readonly aggregatorUrl: string | null;
 }
 
 /**
@@ -60,6 +62,8 @@ export interface UserUpdateInput {
   avatarUrl?: string;
   /** Domain for endpoint URL construction (no protocol, e.g., "api.example.com:8080") */
   domain?: string;
+  /** Custom aggregator URL for RAG/chat workflows */
+  aggregatorUrl?: string;
 }
 
 /**
