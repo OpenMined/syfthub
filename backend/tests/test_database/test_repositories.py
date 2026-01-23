@@ -661,10 +661,10 @@ class TestEndpointRepository:
         updated = endpoint_repo.get_by_id(created.id)
         assert updated.stars_count == 0
 
-    def test_soft_delete_endpoint(
+    def test_hard_delete_endpoint(
         self, test_session: Session, sample_user_data: dict, sample_endpoint_data: dict
     ):
-        """Test soft deleting a endpoint (setting is_active=False)."""
+        """Test hard deleting an endpoint (removes from database)."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
@@ -673,16 +673,16 @@ class TestEndpointRepository:
         endpoint_data["user_id"] = user.id
         created = endpoint_repo.create(endpoint_data)
 
-        # Soft delete
+        # Hard delete
         result = endpoint_repo.delete_endpoint(created.id)
         assert result is True
 
-        # Should not be found by get_by_id (which filters is_active)
+        # Should not be found by get_by_id (endpoint no longer exists)
         found = endpoint_repo.get_by_id(created.id)
         assert found is None
 
-    def test_soft_delete_endpoint_not_found(self, test_session: Session):
-        """Test soft deleting non-existent endpoint."""
+    def test_hard_delete_endpoint_not_found(self, test_session: Session):
+        """Test hard deleting non-existent endpoint."""
         endpoint_repo = EndpointRepository(test_session)
         result = endpoint_repo.delete_endpoint(999)
         assert result is False

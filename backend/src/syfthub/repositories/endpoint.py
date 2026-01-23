@@ -373,13 +373,13 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             return None
 
     def delete_endpoint(self, endpoint_id: int) -> bool:
-        """Delete a endpoint (soft delete by setting is_active=False)."""
+        """Delete an endpoint (hard delete - removes from database)."""
         try:
             endpoint_model = self.session.get(self.model, endpoint_id)
             if not endpoint_model:
                 return False
 
-            endpoint_model.is_active = False
+            self.session.delete(endpoint_model)
             self.session.commit()
             return True
         except SQLAlchemyError:
