@@ -131,7 +131,8 @@ function mapSdkUserToFrontend(sdkUser: SdkUser): User {
     is_active: sdkUser.isActive,
     created_at: sdkUser.createdAt.toISOString(),
     updated_at: sdkUser.updatedAt?.toISOString() ?? sdkUser.createdAt.toISOString(),
-    domain: sdkUser.domain ?? undefined
+    domain: sdkUser.domain ?? undefined,
+    aggregator_url: sdkUser.aggregatorUrl ?? undefined
   };
 }
 
