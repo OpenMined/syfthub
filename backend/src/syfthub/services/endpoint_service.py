@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from fastapi import HTTPException, status
 
@@ -24,6 +25,8 @@ from syfthub.schemas.endpoint import (
     EndpointType,
     EndpointUpdate,
     EndpointVisibility,
+    SyncEndpointsResponse,
+    SyncValidationError,
     generate_slug_from_name,
 )
 from syfthub.services.base import BaseService
@@ -32,6 +35,8 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from syfthub.schemas.user import User
+
+logger = logging.getLogger(__name__)
 
 
 class EndpointService(BaseService):
@@ -638,3 +643,236 @@ class EndpointService(BaseService):
             return member_role in [OrganizationRole.OWNER, OrganizationRole.ADMIN]
 
         return False
+
+    # ===========================================
+    # SYNC OPERATIONS
+    # ===========================================
+
+    def _generate_unique_slug_for_batch(
+        self,
+        name: str,
+        used_slugs: set[str],
+    ) -> str:
+        """Generate unique slug within a batch (no DB check needed).
+
+        For sync operations, we're replacing all endpoints, so we only need
+        to ensure uniqueness within the batch itself.
+
+        Args:
+            name: The endpoint name to generate slug from
+            used_slugs: Set of slugs already used in this batch
+
+        Returns:
+            A unique slug for this batch
+        """
+        base_slug = generate_slug_from_name(name)
+
+        # If base slug is available and not reserved, use it
+        if base_slug not in used_slugs and base_slug not in RESERVED_SLUGS:
+            return base_slug
+
+        # Append counter until unique
+        counter = 1
+        while counter < 1000:
+            new_slug = f"{base_slug}-{counter}"
+            if (
+                len(new_slug) <= 63
+                and new_slug not in used_slugs
+                and new_slug not in RESERVED_SLUGS
+            ):
+                return new_slug
+            counter += 1
+
+        # Fallback: timestamp suffix
+        timestamp = str(int(datetime.now(timezone.utc).timestamp()))[-6:]
+        return f"{base_slug[:50]}-{timestamp}"
+
+    def _validate_sync_batch(
+        self,
+        endpoints_data: List[EndpointCreate],
+        current_user: User,
+    ) -> tuple[List[dict[str, Any]], List[SyncValidationError]]:
+        """Validate a batch of endpoints for sync operation.
+
+        Performs all validation BEFORE any database changes:
+        - Generates slugs for endpoints without explicit slugs
+        - Checks for duplicate slugs within the batch
+        - Checks for reserved slugs
+        - Validates contributors
+
+        Args:
+            endpoints_data: List of EndpointCreate objects to validate
+            current_user: The user performing the sync
+
+        Returns:
+            Tuple of (validated_endpoints, validation_errors)
+            - validated_endpoints: List of dicts ready for database insertion
+            - validation_errors: List of SyncValidationError objects
+        """
+        validation_errors: List[SyncValidationError] = []
+        validated_endpoints: List[dict[str, Any]] = []
+        used_slugs: set[str] = set()
+
+        for index, endpoint_data in enumerate(endpoints_data):
+            # Determine the slug
+            if endpoint_data.slug:
+                slug = endpoint_data.slug.lower()
+
+                # Check reserved slugs
+                if slug in RESERVED_SLUGS:
+                    validation_errors.append(
+                        SyncValidationError(
+                            index=index,
+                            field="slug",
+                            error=f"'{slug}' is a reserved slug and cannot be used",
+                        )
+                    )
+                    continue
+            else:
+                # Auto-generate slug
+                slug = self._generate_unique_slug_for_batch(
+                    endpoint_data.name, used_slugs
+                )
+
+            # Check for duplicate within batch
+            if slug in used_slugs:
+                validation_errors.append(
+                    SyncValidationError(
+                        index=index,
+                        field="slug",
+                        error=f"Duplicate slug '{slug}' in batch (first occurrence takes precedence)",
+                    )
+                )
+                continue
+
+            # Mark slug as used
+            used_slugs.add(slug)
+
+            # Validate contributors
+            valid_contributors = self._validate_contributors(
+                endpoint_data.contributors or []
+            )
+            # Always add current user as contributor
+            if current_user.id not in valid_contributors:
+                valid_contributors.append(current_user.id)
+
+            # Prepare the validated endpoint data
+            validated_endpoint = {
+                "name": endpoint_data.name,
+                "slug": slug,
+                "description": endpoint_data.description or "",
+                "type": endpoint_data.type.value,
+                "visibility": endpoint_data.visibility.value,
+                "version": endpoint_data.version,
+                "readme": endpoint_data.readme or "",
+                "tags": endpoint_data.tags or [],
+                "contributors": valid_contributors,
+                "policies": [p.model_dump() for p in endpoint_data.policies],
+                "connect": [c.model_dump() for c in endpoint_data.connect],
+            }
+            validated_endpoints.append(validated_endpoint)
+
+        return validated_endpoints, validation_errors
+
+    def sync_user_endpoints(
+        self,
+        endpoints_data: List[EndpointCreate],
+        current_user: User,
+    ) -> SyncEndpointsResponse:
+        """Synchronize user's endpoints with provided list.
+
+        This operation is ATOMIC: either all endpoints are synced, or none are.
+        It replaces ALL user-owned endpoints with the provided list.
+
+        Organization endpoints are NOT affected.
+
+        Flow:
+        1. Validate all endpoints in the batch (no DB changes)
+        2. If validation fails, return 400 with ALL errors
+        3. Delete all existing user endpoints
+        4. Create all new endpoints
+        5. Commit transaction
+        6. Return sync results
+
+        Args:
+            endpoints_data: List of endpoint specifications to sync
+            current_user: The authenticated user performing the sync
+
+        Returns:
+            SyncEndpointsResponse with sync results
+
+        Raises:
+            HTTPException: 400 if validation fails, 500 if database error
+        """
+        logger.info(
+            f"Sync requested by user {current_user.id} ({current_user.username}) "
+            f"with {len(endpoints_data)} endpoints"
+        )
+
+        # Phase 1: Validation (no DB changes)
+        validated_endpoints, validation_errors = self._validate_sync_batch(
+            endpoints_data, current_user
+        )
+
+        if validation_errors:
+            logger.warning(
+                f"Sync validation failed for user {current_user.id}: "
+                f"{len(validation_errors)} errors"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "VALIDATION_ERROR",
+                    "message": f"Batch validation failed with {len(validation_errors)} error(s)",
+                    "errors": [e.model_dump() for e in validation_errors],
+                },
+            )
+
+        # Phase 2: Atomic database operation
+        try:
+            # Delete all existing user endpoints
+            deleted_count = self.endpoint_repository.delete_all_user_endpoints(
+                current_user.id
+            )
+
+            # Create all new endpoints
+            if validated_endpoints:
+                created_endpoints = self.endpoint_repository.bulk_create_endpoints(
+                    validated_endpoints, current_user.id
+                )
+            else:
+                created_endpoints = []
+
+            # Commit the transaction (delete + creates)
+            self.session.commit()
+
+            logger.info(
+                f"Sync completed for user {current_user.id}: "
+                f"deleted={deleted_count}, created={len(created_endpoints)}"
+            )
+
+            # Transform URLs for response
+            response_endpoints = [
+                self._to_response_with_urls(ep) for ep in created_endpoints
+            ]
+
+            return SyncEndpointsResponse(
+                synced=len(created_endpoints),
+                deleted=deleted_count,
+                endpoints=response_endpoints,
+            )
+
+        except Exception as e:
+            # Rollback on any error
+            self.session.rollback()
+            logger.error(
+                f"Sync failed for user {current_user.id}: {e}",
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "code": "SYNC_FAILED",
+                    "message": "Failed to sync endpoints. Transaction rolled back.",
+                },
+            ) from e

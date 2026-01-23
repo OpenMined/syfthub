@@ -77,6 +77,7 @@ from syfthub_sdk.models import (
     SatelliteTokenResponse,
     SourceInfo,
     SourceStatus,
+    SyncEndpointsResponse,
     TokenUsage,
     Transaction,
     TransactionStatus,
@@ -131,6 +132,8 @@ __all__ = [
     "Transaction",
     "TransactionStatus",
     "CreatorType",
+    # Sync models
+    "SyncEndpointsResponse",
     # Exceptions
     "SyftHubError",
     "AuthenticationError",

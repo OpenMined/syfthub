@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, delete, func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from syfthub.core.url_builder import transform_connection_urls
@@ -385,6 +385,81 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         except SQLAlchemyError:
             self.session.rollback()
             return False
+
+    def delete_all_user_endpoints(self, user_id: int) -> int:
+        """Delete all endpoints owned by a user (for sync operation).
+
+        This method does NOT commit the transaction - caller must commit.
+        This allows atomic operations when combined with other database changes.
+
+        Args:
+            user_id: The user ID whose endpoints should be deleted
+
+        Returns:
+            Number of endpoints deleted
+        """
+        # First count how many we're deleting (for the response)
+        count_stmt = (
+            select(func.count())
+            .select_from(self.model)
+            .where(self.model.user_id == user_id)
+        )
+        count_result = self.session.execute(count_stmt)
+        deleted_count = count_result.scalar() or 0
+
+        # Bulk delete all user endpoints
+        delete_stmt = delete(self.model).where(self.model.user_id == user_id)
+        self.session.execute(delete_stmt)
+
+        # Note: No commit here - caller manages transaction
+        return deleted_count
+
+    def bulk_create_endpoints(
+        self,
+        endpoints_data: List[dict],
+        user_id: int,
+    ) -> List[Endpoint]:
+        """Create multiple endpoints in a single transaction (for sync operation).
+
+        This method does NOT commit the transaction - caller must commit.
+        This allows atomic operations when combined with other database changes.
+
+        Args:
+            endpoints_data: List of dicts with endpoint data (pre-validated)
+                Each dict should have: name, slug, description, type, visibility,
+                version, readme, tags, contributors, policies, connect
+            user_id: The user ID who owns these endpoints
+
+        Returns:
+            List of created Endpoint objects
+        """
+        created_endpoints = []
+
+        for data in endpoints_data:
+            endpoint_model = EndpointModel(
+                user_id=user_id,
+                organization_id=None,
+                name=data["name"],
+                slug=data["slug"].lower(),
+                description=data.get("description", ""),
+                type=data["type"],
+                visibility=data.get("visibility", "public"),
+                version=data.get("version", "0.1.0"),
+                readme=data.get("readme", ""),
+                tags=data.get("tags", []),
+                contributors=data.get("contributors", []),
+                policies=data.get("policies", []),
+                connect=data.get("connect", []),
+                is_active=True,
+            )
+            self.session.add(endpoint_model)
+            created_endpoints.append(endpoint_model)
+
+        # Flush to get IDs assigned (but don't commit)
+        self.session.flush()
+
+        # Convert to schema objects
+        return [Endpoint.model_validate(model) for model in created_endpoints]
 
     def slug_exists_for_user(
         self, user_id: int, slug: str, exclude_endpoint_id: Optional[int] = None

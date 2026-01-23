@@ -10,7 +10,14 @@ import builtins
 from typing import TYPE_CHECKING, Any
 
 from syfthub_sdk._pagination import PageIterator
-from syfthub_sdk.models import Connection, Endpoint, EndpointType, Policy, Visibility
+from syfthub_sdk.models import (
+    Connection,
+    Endpoint,
+    EndpointType,
+    Policy,
+    SyncEndpointsResponse,
+    Visibility,
+)
 
 if TYPE_CHECKING:
     from syfthub_sdk._http import HTTPClient
@@ -314,3 +321,50 @@ class MyEndpointsResource:
         _owner, slug = self._parse_path(path)
         # Use slug-based endpoint directly instead of resolving ID
         self._http.delete(f"/api/v1/endpoints/slug/{slug}")
+
+    def sync(
+        self,
+        endpoints: builtins.list[dict[str, Any]] | None = None,
+    ) -> SyncEndpointsResponse:
+        """Synchronize user's endpoints with provided list.
+
+        This is a DESTRUCTIVE operation that:
+        1. Deletes ALL existing endpoints owned by the current user
+        2. Creates ALL endpoints from the provided list
+        3. Is ATOMIC: either all endpoints sync successfully, or none do
+
+        Important Notes:
+        - Organization endpoints are NOT affected
+        - Stars on existing endpoints will be lost (reset to 0)
+        - Endpoint IDs will change (new IDs assigned)
+        - Maximum 100 endpoints per sync request
+
+        Args:
+            endpoints: List of endpoint specifications to sync. Each dict should contain
+                      the same fields as create() (name, type, visibility, etc.).
+                      Pass an empty list or None to delete ALL user endpoints.
+
+        Returns:
+            SyncEndpointsResponse with synced count, deleted count, and created endpoints
+
+        Raises:
+            AuthenticationError: If not authenticated
+            ValidationError: If any endpoint fails validation (entire batch rejected)
+
+        Example:
+            # Sync with new endpoints
+            result = client.my_endpoints.sync([
+                {"name": "Model A", "type": "model", "visibility": "public"},
+                {"name": "Data Source B", "type": "data_source", "visibility": "private"},
+            ])
+            print(f"Deleted {result.deleted}, created {result.synced} endpoints")
+
+            # Clear all endpoints
+            result = client.my_endpoints.sync([])
+            print(f"Deleted {result.deleted} endpoints")
+        """
+        payload: dict[str, Any] = {"endpoints": endpoints or []}
+
+        response = self._http.post("/api/v1/endpoints/sync", json=payload)
+        data = response if isinstance(response, dict) else {}
+        return SyncEndpointsResponse.model_validate(data)

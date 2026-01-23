@@ -19,6 +19,8 @@ from syfthub.schemas.endpoint import (
     EndpointType,
     EndpointUpdate,
     EndpointVisibility,
+    SyncEndpointsRequest,
+    SyncEndpointsResponse,
 )
 from syfthub.schemas.user import User
 from syfthub.services.endpoint_service import EndpointService
@@ -95,6 +97,90 @@ async def list_trending_endpoints(
     """List trending public endpoints."""
     return endpoint_service.list_trending_endpoints(
         skip=skip, limit=limit, min_stars=min_stars, endpoint_type=endpoint_type
+    )
+
+
+@router.post(
+    "/sync",
+    response_model=SyncEndpointsResponse,
+    status_code=status.HTTP_200_OK,
+    responses={
+        200: {
+            "description": "Sync completed successfully",
+            "model": SyncEndpointsResponse,
+        },
+        400: {
+            "description": "Validation error - batch contains invalid endpoints",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": {
+                            "code": "VALIDATION_ERROR",
+                            "message": "Batch validation failed with 2 error(s)",
+                            "errors": [
+                                {
+                                    "index": 0,
+                                    "field": "slug",
+                                    "error": "'api' is a reserved slug",
+                                },
+                                {
+                                    "index": 2,
+                                    "field": "slug",
+                                    "error": "Duplicate slug 'my-model' in batch",
+                                },
+                            ],
+                        }
+                    }
+                }
+            },
+        },
+        500: {
+            "description": "Internal server error - sync failed",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detail": {
+                            "code": "SYNC_FAILED",
+                            "message": "Failed to sync endpoints. Transaction rolled back.",
+                        }
+                    }
+                }
+            },
+        },
+    },
+    summary="Sync User Endpoints",
+    description="""
+Synchronize user's endpoints with the provided list.
+
+**This is a DESTRUCTIVE operation** that:
+1. Deletes ALL existing endpoints owned by the current user
+2. Creates ALL endpoints from the provided list
+3. Is ATOMIC: either all endpoints sync successfully, or none do
+
+**Important Notes:**
+- Organization endpoints are NOT affected
+- Stars on existing endpoints will be lost (reset to 0)
+- Endpoint IDs will change (new IDs assigned)
+- Maximum 100 endpoints per sync request
+
+**Validation:**
+- All endpoints are validated BEFORE any database changes
+- If ANY endpoint fails validation, the entire batch is rejected
+- All validation errors are returned together (not just the first)
+
+**Empty Payload:**
+- Sending an empty list `{"endpoints": []}` will delete ALL user endpoints
+""",
+)
+async def sync_user_endpoints(
+    sync_request: SyncEndpointsRequest,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> SyncEndpointsResponse:
+    """Sync user's endpoints with provided list (atomic operation)."""
+    return endpoint_service.sync_user_endpoints(
+        endpoints_data=sync_request.endpoints,
+        current_user=current_user,
     )
 
 

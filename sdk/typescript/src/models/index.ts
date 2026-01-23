@@ -24,6 +24,7 @@ export type {
   EndpointPublic,
   EndpointCreateInput,
   EndpointUpdateInput,
+  SyncEndpointsResponse,
 } from './endpoint.js';
 
 // Endpoint helpers
