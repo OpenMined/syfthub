@@ -423,3 +423,24 @@ class Message(BaseModel):
     content: str = Field(..., description="Message content")
 
     model_config = {"frozen": True}
+
+
+# =============================================================================
+# Sync Endpoints Models
+# =============================================================================
+
+
+class SyncEndpointsResponse(BaseModel):
+    """Response from the sync endpoints operation.
+
+    Contains details about the sync operation including how many endpoints
+    were deleted, how many were created, and the full list of created endpoints.
+    """
+
+    synced: int = Field(..., ge=0, description="Number of endpoints created")
+    deleted: int = Field(..., ge=0, description="Number of endpoints deleted")
+    endpoints: list[Endpoint] = Field(
+        ..., description="List of created endpoints with full details"
+    )
+
+    model_config = {"frozen": True}

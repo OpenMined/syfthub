@@ -106,6 +106,7 @@ export type {
   EndpointPublic,
   EndpointCreateInput,
   EndpointUpdateInput,
+  SyncEndpointsResponse,
   // Accounting types
   AccountingUser,
   Transaction,

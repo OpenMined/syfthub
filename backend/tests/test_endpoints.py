@@ -1590,3 +1590,468 @@ def test_complex_connection_configurations(
     assert config["auth"]["type"] == "oauth2"
     assert config["features"]["max_connections"] == 100
     assert config["metadata"]["region"] == "us-east-1"
+
+
+# ===========================================
+# SYNC ENDPOINT TESTS
+# ===========================================
+
+
+def test_sync_endpoints_requires_auth(client: TestClient) -> None:
+    """Test that sync endpoint requires authentication."""
+    sync_data = {"endpoints": []}
+
+    response = client.post("/api/v1/endpoints/sync", json=sync_data)
+    assert response.status_code == 401
+
+
+def test_sync_endpoints_success(client: TestClient, user1_token: str) -> None:
+    """Test basic sync operation with valid endpoints."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    sync_data = {
+        "endpoints": [
+            {
+                "name": "Synced Model 1",
+                "type": "model",
+                "visibility": "public",
+                "description": "First synced model",
+            },
+            {
+                "name": "Synced Model 2",
+                "type": "data_source",
+                "visibility": "private",
+                "description": "Second synced model",
+            },
+        ]
+    }
+
+    response = client.post("/api/v1/endpoints/sync", json=sync_data, headers=headers)
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["synced"] == 2
+    assert data["deleted"] == 0  # No existing endpoints
+    assert len(data["endpoints"]) == 2
+    assert data["endpoints"][0]["name"] == "Synced Model 1"
+    assert data["endpoints"][1]["name"] == "Synced Model 2"
+
+
+def test_sync_endpoints_empty_payload_clears_all(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test that syncing with empty list deletes all endpoints."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    # First create some endpoints
+    for i in range(3):
+        endpoint_data = {
+            "name": f"Endpoint {i}",
+            "type": "model",
+            "visibility": "public",
+        }
+        response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+        assert response.status_code == 201
+
+    # Verify endpoints exist
+    response = client.get("/api/v1/endpoints", headers=headers)
+    assert len(response.json()) == 3
+
+    # Sync with empty list
+    sync_data = {"endpoints": []}
+    response = client.post("/api/v1/endpoints/sync", json=sync_data, headers=headers)
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["synced"] == 0
+    assert data["deleted"] == 3
+    assert len(data["endpoints"]) == 0
+
+    # Verify all endpoints are deleted
+    response = client.get("/api/v1/endpoints", headers=headers)
+    assert len(response.json()) == 0
+
+
+def test_sync_endpoints_replaces_existing(client: TestClient, user1_token: str) -> None:
+    """Test that sync replaces existing endpoints."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    # Create some initial endpoints
+    for i in range(3):
+        endpoint_data = {
+            "name": f"Old Endpoint {i}",
+            "type": "model",
+            "visibility": "public",
+        }
+        response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+        assert response.status_code == 201
+
+    # Sync with new endpoints
+    sync_data = {
+        "endpoints": [
+            {"name": "New Endpoint A", "type": "model", "visibility": "public"},
+            {"name": "New Endpoint B", "type": "data_source", "visibility": "private"},
+        ]
+    }
+    response = client.post("/api/v1/endpoints/sync", json=sync_data, headers=headers)
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["synced"] == 2
+    assert data["deleted"] == 3
+
+    # Verify only new endpoints exist
+    response = client.get("/api/v1/endpoints", headers=headers)
+    endpoints = response.json()
+    assert len(endpoints) == 2
+    names = [ep["name"] for ep in endpoints]
+    assert "New Endpoint A" in names
+    assert "New Endpoint B" in names
+    assert "Old Endpoint 0" not in names
+
+
+def test_sync_endpoints_duplicate_slug_rejected(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test that duplicate slugs in batch are rejected."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    sync_data = {
+        "endpoints": [
+            {
+                "name": "Model One",
+                "slug": "my-model",
+                "type": "model",
+                "visibility": "public",
+            },
+            {
+                "name": "Model Two",
+                "slug": "my-model",
+                "type": "model",
+                "visibility": "public",
+            },
+        ]
+    }
+
+    response = client.post("/api/v1/endpoints/sync", json=sync_data, headers=headers)
+    assert response.status_code == 400
+
+    data = response.json()
+    assert data["detail"]["code"] == "VALIDATION_ERROR"
+    assert len(data["detail"]["errors"]) == 1
+    assert data["detail"]["errors"][0]["index"] == 1
+    assert data["detail"]["errors"][0]["field"] == "slug"
+    assert "Duplicate slug" in data["detail"]["errors"][0]["error"]
+
+
+def test_sync_endpoints_reserved_slug_rejected(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test that reserved slugs are rejected at Pydantic validation level."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    sync_data = {
+        "endpoints": [
+            {
+                "name": "API Endpoint",
+                "slug": "api",
+                "type": "model",
+                "visibility": "public",
+            },
+        ]
+    }
+
+    response = client.post("/api/v1/endpoints/sync", json=sync_data, headers=headers)
+    # Reserved slugs are caught by Pydantic validation (422) not service validation (400)
+    assert response.status_code == 422
+
+
+def test_sync_endpoints_auto_generates_unique_slugs(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test that auto-generated slugs are unique within batch."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    # Same name twice - should get different auto-generated slugs
+    sync_data = {
+        "endpoints": [
+            {"name": "My Model", "type": "model", "visibility": "public"},
+            {"name": "My Model", "type": "model", "visibility": "public"},
+        ]
+    }
+
+    response = client.post("/api/v1/endpoints/sync", json=sync_data, headers=headers)
+    assert response.status_code == 200
+
+    data = response.json()
+    assert data["synced"] == 2
+    slugs = [ep["slug"] for ep in data["endpoints"]]
+    assert slugs[0] != slugs[1]
+    assert slugs[0] == "my-model"
+    assert slugs[1] == "my-model-1"
+
+
+def test_sync_endpoints_validation_returns_all_errors(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test that all Pydantic validation errors are returned together."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    # Reserved slugs are caught by Pydantic validation (422)
+    sync_data = {
+        "endpoints": [
+            {"name": "Valid Endpoint", "type": "model", "visibility": "public"},
+            {
+                "name": "Reserved Slug",
+                "slug": "api",
+                "type": "model",
+                "visibility": "public",
+            },
+            {"name": "Another Valid", "type": "model", "visibility": "public"},
+            {
+                "name": "Also Reserved",
+                "slug": "auth",
+                "type": "model",
+                "visibility": "public",
+            },
+        ]
+    }
+
+    response = client.post("/api/v1/endpoints/sync", json=sync_data, headers=headers)
+    # Pydantic validation errors return 422
+    assert response.status_code == 422
+
+    data = response.json()
+    # Pydantic returns all validation errors
+    assert "detail" in data
+    # Check that multiple errors are present
+    assert len(data["detail"]) >= 2
+
+
+def test_sync_endpoints_is_atomic(client: TestClient, user1_token: str) -> None:
+    """Test that sync is atomic - validation failure doesn't delete existing."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    # Create initial endpoints
+    for i in range(2):
+        endpoint_data = {
+            "name": f"Existing Endpoint {i}",
+            "type": "model",
+            "visibility": "public",
+        }
+        client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+
+    # Try to sync with invalid data (reserved slug caught by Pydantic -> 422)
+    sync_data = {
+        "endpoints": [
+            {"name": "Valid One", "type": "model", "visibility": "public"},
+            {
+                "name": "Invalid",
+                "slug": "api",
+                "type": "model",
+                "visibility": "public",
+            },  # Reserved
+        ]
+    }
+
+    response = client.post("/api/v1/endpoints/sync", json=sync_data, headers=headers)
+    # Reserved slugs are caught by Pydantic validation (422)
+    assert response.status_code == 422
+
+    # Verify existing endpoints are still there (atomicity preserved)
+    response = client.get("/api/v1/endpoints", headers=headers)
+    endpoints = response.json()
+    assert len(endpoints) == 2
+    names = [ep["name"] for ep in endpoints]
+    assert "Existing Endpoint 0" in names
+    assert "Existing Endpoint 1" in names
+
+
+def test_sync_endpoints_does_not_affect_other_users(
+    client: TestClient, user1_token: str, user2_token: str
+) -> None:
+    """Test that sync only affects the current user's endpoints."""
+    headers1 = {"Authorization": f"Bearer {user1_token}"}
+    headers2 = {"Authorization": f"Bearer {user2_token}"}
+
+    # User 1 creates endpoints
+    for i in range(2):
+        client.post(
+            "/api/v1/endpoints",
+            json={
+                "name": f"User1 Endpoint {i}",
+                "type": "model",
+                "visibility": "public",
+            },
+            headers=headers1,
+        )
+
+    # User 2 creates endpoints
+    for i in range(2):
+        client.post(
+            "/api/v1/endpoints",
+            json={
+                "name": f"User2 Endpoint {i}",
+                "type": "model",
+                "visibility": "public",
+            },
+            headers=headers2,
+        )
+
+    # User 1 syncs to empty
+    response = client.post(
+        "/api/v1/endpoints/sync",
+        json={"endpoints": []},
+        headers=headers1,
+    )
+    assert response.status_code == 200
+    assert response.json()["deleted"] == 2
+
+    # Verify User 1 has no endpoints
+    response = client.get("/api/v1/endpoints", headers=headers1)
+    assert len(response.json()) == 0
+
+    # Verify User 2 still has their endpoints
+    response = client.get("/api/v1/endpoints", headers=headers2)
+    assert len(response.json()) == 2
+
+
+def test_sync_endpoints_user_added_as_contributor(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test that current user is always added as contributor."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    sync_data = {
+        "endpoints": [
+            {
+                "name": "Endpoint Without Contributors",
+                "type": "model",
+                "visibility": "public",
+                # No contributors specified
+            },
+        ]
+    }
+
+    response = client.post("/api/v1/endpoints/sync", json=sync_data, headers=headers)
+    assert response.status_code == 200
+
+    data = response.json()
+    # User should be automatically added as contributor
+    assert len(data["endpoints"][0]["contributors"]) >= 1
+
+
+def test_sync_endpoints_with_full_endpoint_data(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test sync with fully specified endpoint data."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    sync_data = {
+        "endpoints": [
+            {
+                "name": "Full Endpoint",
+                "slug": "full-endpoint",
+                "description": "A fully specified endpoint",
+                "type": "model",
+                "visibility": "public",
+                "version": "1.2.3",
+                "readme": "# Full Endpoint\n\nWith readme.",
+                "tags": ["ml", "nlp", "transformer"],
+                "policies": [
+                    {
+                        "type": "rate_limit",
+                        "version": "1.0",
+                        "enabled": True,
+                        "config": {"requests_per_minute": 100},
+                    }
+                ],
+                "connect": [
+                    {
+                        "type": "rest_api",
+                        "enabled": True,
+                        "config": {"url": "api/v1"},
+                    }
+                ],
+            }
+        ]
+    }
+
+    response = client.post("/api/v1/endpoints/sync", json=sync_data, headers=headers)
+    assert response.status_code == 200
+
+    data = response.json()
+    endpoint = data["endpoints"][0]
+    assert endpoint["name"] == "Full Endpoint"
+    assert endpoint["slug"] == "full-endpoint"
+    assert endpoint["description"] == "A fully specified endpoint"
+    assert endpoint["version"] == "1.2.3"
+    assert "ml" in endpoint["tags"]
+    assert len(endpoint["policies"]) == 1
+    assert endpoint["policies"][0]["type"] == "rate_limit"
+    assert len(endpoint["connect"]) == 1
+    assert endpoint["connect"][0]["type"] == "rest_api"
+
+
+def test_sync_endpoints_max_batch_size(client: TestClient, user1_token: str) -> None:
+    """Test that batch size limit is enforced."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    # Try to sync 101 endpoints (over limit of 100)
+    sync_data = {
+        "endpoints": [
+            {"name": f"Endpoint {i}", "type": "model", "visibility": "public"}
+            for i in range(101)
+        ]
+    }
+
+    response = client.post("/api/v1/endpoints/sync", json=sync_data, headers=headers)
+    assert response.status_code == 422  # Pydantic validation error
+
+
+def test_sync_endpoints_stars_reset(client: TestClient, user1_token: str) -> None:
+    """Test that stars are reset when endpoints are recreated."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    # Create an endpoint
+    client.post(
+        "/api/v1/endpoints",
+        json={
+            "name": "Popular Endpoint",
+            "slug": "popular",
+            "type": "model",
+            "visibility": "public",
+        },
+        headers=headers,
+    )
+
+    # Simulate stars by updating directly
+    from syfthub.database.connection import get_db_session
+    from syfthub.repositories.endpoint import EndpointRepository
+
+    session = next(get_db_session())
+    try:
+        endpoint_repo = EndpointRepository(session)
+        endpoints = endpoint_repo.get_user_endpoints(1)  # Assuming user 1
+        if endpoints:
+            endpoint_repo.update(endpoints[0].id, stars_count=50)
+    finally:
+        session.close()
+
+    # Sync with same slug
+    sync_data = {
+        "endpoints": [
+            {
+                "name": "Popular Endpoint",
+                "slug": "popular",
+                "type": "model",
+                "visibility": "public",
+            }
+        ]
+    }
+    response = client.post("/api/v1/endpoints/sync", json=sync_data, headers=headers)
+    assert response.status_code == 200
+
+    # Stars should be reset to 0
+    data = response.json()
+    assert data["endpoints"][0]["stars_count"] == 0

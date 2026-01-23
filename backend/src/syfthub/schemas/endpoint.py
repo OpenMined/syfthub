@@ -453,6 +453,47 @@ class EndpointPublicResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ===========================================
+# SYNC ENDPOINT SCHEMAS
+# ===========================================
+
+
+class SyncValidationError(BaseModel):
+    """Validation error for a specific endpoint in sync batch."""
+
+    index: int = Field(..., ge=0, description="Index of endpoint in batch (0-based)")
+    field: str = Field(..., description="Field that failed validation")
+    error: str = Field(..., description="Error message")
+
+
+class SyncEndpointsRequest(BaseModel):
+    """Request schema for syncing user endpoints.
+
+    This operation replaces ALL user-owned endpoints with the provided list.
+    It is atomic: either all endpoints are synced, or none are (on validation failure).
+
+    Organization endpoints are NOT affected by this operation.
+    """
+
+    endpoints: List[EndpointCreate] = Field(
+        default_factory=list,
+        max_length=100,
+        description="List of endpoint specifications to sync (max 100)",
+    )
+
+
+class SyncEndpointsResponse(BaseModel):
+    """Response schema for sync operation."""
+
+    synced: int = Field(..., ge=0, description="Number of endpoints created")
+    deleted: int = Field(..., ge=0, description="Number of endpoints deleted")
+    endpoints: List[EndpointResponse] = Field(
+        ..., description="Created endpoints with full details"
+    )
+
+    model_config = {"from_attributes": True}
+
+
 def generate_slug_from_name(name: str) -> str:
     """Generate a URL-safe slug from endpoint name."""
     # Convert to lowercase and replace spaces/special chars with hyphens

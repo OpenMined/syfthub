@@ -117,3 +117,18 @@ export function getEndpointOwnerType(endpoint: Endpoint): 'user' | 'organization
 export function getEndpointPublicPath(endpoint: EndpointPublic): string {
   return `${endpoint.ownerUsername}/${endpoint.slug}`;
 }
+
+/**
+ * Response from the sync endpoints operation.
+ *
+ * Contains details about the sync operation including how many endpoints
+ * were deleted, how many were created, and the full list of created endpoints.
+ */
+export interface SyncEndpointsResponse {
+  /** Number of endpoints created */
+  readonly synced: number;
+  /** Number of endpoints deleted */
+  readonly deleted: number;
+  /** List of created endpoints with full details */
+  readonly endpoints: readonly Endpoint[];
+}

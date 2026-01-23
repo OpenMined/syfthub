@@ -3,6 +3,7 @@ import type {
   Endpoint,
   EndpointCreateInput,
   EndpointUpdateInput,
+  SyncEndpointsResponse,
   Visibility,
 } from '../models/index.js';
 import { PageIterator } from '../pagination.js';
@@ -161,5 +162,42 @@ export class MyEndpointsResource {
     const [, slug] = this.parsePath(path);
     // Use slug-based endpoint directly instead of resolving ID
     await this.http.delete<void>(`/api/v1/endpoints/slug/${slug}`);
+  }
+
+  /**
+   * Synchronize user's endpoints with provided list.
+   *
+   * This is a DESTRUCTIVE operation that:
+   * 1. Deletes ALL existing endpoints owned by the current user
+   * 2. Creates ALL endpoints from the provided list
+   * 3. Is ATOMIC: either all endpoints sync successfully, or none do
+   *
+   * Important Notes:
+   * - Organization endpoints are NOT affected
+   * - Stars on existing endpoints will be lost (reset to 0)
+   * - Endpoint IDs will change (new IDs assigned)
+   * - Maximum 100 endpoints per sync request
+   *
+   * @param endpoints - List of endpoint specifications to sync.
+   *                    Pass an empty array to delete ALL user endpoints.
+   * @returns SyncEndpointsResponse with synced count, deleted count, and created endpoints
+   * @throws {AuthenticationError} If not authenticated
+   * @throws {ValidationError} If any endpoint fails validation (entire batch rejected)
+   *
+   * @example
+   * // Sync with new endpoints
+   * const result = await client.myEndpoints.sync([
+   *   { name: 'Model A', type: 'model', visibility: 'public' },
+   *   { name: 'Data Source B', type: 'data_source', visibility: 'private' },
+   * ]);
+   * console.log(`Deleted ${result.deleted}, created ${result.synced} endpoints`);
+   *
+   * @example
+   * // Clear all endpoints
+   * const result = await client.myEndpoints.sync([]);
+   * console.log(`Deleted ${result.deleted} endpoints`);
+   */
+  async sync(endpoints: EndpointCreateInput[] = []): Promise<SyncEndpointsResponse> {
+    return this.http.post<SyncEndpointsResponse>('/api/v1/endpoints/sync', { endpoints });
   }
 }
