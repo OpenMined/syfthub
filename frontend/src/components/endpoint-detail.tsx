@@ -255,7 +255,7 @@ const TransactionPolicyContent = memo(function TransactionPolicyContent({
 
       {/* Pricing Table */}
       {costs ? (
-        <div className='rounded-md border border-emerald-200 bg-white/60'>
+        <div className='bg-card/60 rounded-md border border-emerald-200'>
           <div className='border-b border-emerald-100 px-3 py-1.5'>
             <span className='text-[10px] font-semibold tracking-wide text-emerald-700 uppercase'>
               Pricing
@@ -297,7 +297,7 @@ const GenericPolicyContent = memo(function GenericPolicyContent({
 
   return (
     <div className='mt-3'>
-      <div className='border-syft-border rounded-md border bg-white/60'>
+      <div className='border-syft-border bg-card/60 rounded-md border'>
         <div className='border-syft-border border-b px-3 py-1.5'>
           <span className='text-syft-muted text-[10px] font-semibold tracking-wide uppercase'>
             Configuration
@@ -361,7 +361,7 @@ const PolicyItem = memo(function PolicyItem({ policy }: Readonly<{ policy: Polic
                 'shrink-0 text-[10px] font-medium',
                 policy.enabled
                   ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                  : 'border-gray-200 bg-gray-50 text-gray-500'
+                  : 'border-border bg-muted text-muted-foreground'
               )}
             >
               {policy.enabled ? 'Active' : 'Disabled'}
@@ -396,7 +396,7 @@ const AccessPoliciesCard = memo(function AccessPoliciesCard({
   const validPolicies = policies?.filter((p) => p.type) ?? [];
 
   return (
-    <div className='border-syft-border rounded-xl border bg-white p-6'>
+    <div className='border-syft-border bg-card rounded-xl border p-6'>
       {/* Header */}
       <div className='mb-4 flex items-center justify-between'>
         <h3 className='font-rubik text-syft-primary text-sm font-medium'>Access Policies</h3>
@@ -517,7 +517,7 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
   return (
     <div className='bg-syft-background min-h-screen'>
       {/* Header */}
-      <div className='border-syft-border border-b bg-white'>
+      <div className='border-syft-border bg-card border-b'>
         <div className='mx-auto max-w-5xl px-6 py-4'>
           <Button
             variant='ghost'
@@ -570,7 +570,7 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
           {/* Main content */}
           <div className='space-y-6 lg:col-span-2'>
             {/* README Section */}
-            <div className='border-syft-border rounded-xl border bg-white p-6'>
+            <div className='border-syft-border bg-card rounded-xl border p-6'>
               <div className='prose prose-sm text-syft-muted max-w-none'>
                 {endpoint.readme ? (
                   <Markdown
@@ -650,7 +650,7 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
                         <thead className='bg-syft-surface'>{children}</thead>
                       ),
                       tbody: ({ children }) => (
-                        <tbody className='divide-syft-border divide-y bg-white'>{children}</tbody>
+                        <tbody className='divide-syft-border bg-card divide-y'>{children}</tbody>
                       ),
                       tr: ({ children }) => <tr>{children}</tr>,
                       th: ({ children }) => (
@@ -677,7 +677,7 @@ export function EndpointDetail({ slug, owner, onBack }: Readonly<EndpointDetailP
           {/* Sidebar */}
           <div className='space-y-6'>
             {/* Info Card */}
-            <div className='border-syft-border rounded-xl border bg-white p-6'>
+            <div className='border-syft-border bg-card rounded-xl border p-6'>
               <h3 className='font-rubik text-syft-primary mb-4 text-sm font-medium'>About</h3>
               <div className='space-y-4'>
                 <div>

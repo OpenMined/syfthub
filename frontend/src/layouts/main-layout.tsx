@@ -11,6 +11,7 @@ import { SettingsModal } from '@/components/settings/settings-modal';
 import { Sidebar } from '@/components/sidebar';
 import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { ModeToggle } from '@/components/ui/mode-toggle';
 import { useAuth } from '@/context/auth-context';
 import { useModal } from '@/context/modal-context';
 import { useSettingsModal } from '@/context/settings-modal-context';
@@ -44,7 +45,7 @@ export function MainLayout() {
       {/* Skip link for accessibility */}
       <a
         href='#main-content'
-        className='focus:text-syft-primary focus:ring-syft-primary sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[60] focus:rounded-md focus:bg-white focus:px-4 focus:py-2 focus:shadow-lg focus:ring-2 focus:outline-none'
+        className='focus:text-syft-primary focus:ring-syft-primary focus:bg-card sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[60] focus:rounded-md focus:px-4 focus:py-2 focus:shadow-lg focus:ring-2 focus:outline-none'
       >
         Skip to main content
       </a>
@@ -60,10 +61,10 @@ export function MainLayout() {
             <BalanceIndicator />
 
             {/* User Info & Actions */}
-            <div className='border-syft-border flex items-center gap-3 rounded-lg border bg-white/95 px-3 py-2 shadow-sm backdrop-blur-sm'>
+            <div className='border-syft-border bg-card/95 flex items-center gap-3 rounded-lg border px-3 py-2 shadow-sm backdrop-blur-sm'>
               <Link
                 to='/profile'
-                className='flex items-center gap-2 rounded-md p-1 transition-colors hover:bg-gray-100'
+                className='hover:bg-accent flex items-center gap-2 rounded-md p-1 transition-colors'
               >
                 {user.avatar_url ? (
                   <img
@@ -93,6 +94,7 @@ export function MainLayout() {
               >
                 <Settings className='h-3 w-3' aria-hidden='true' />
               </Button>
+              <ModeToggle />
               <Button
                 variant='ghost'
                 size='icon'
@@ -106,6 +108,7 @@ export function MainLayout() {
           </>
         ) : (
           <div className='flex items-center gap-2'>
+            <ModeToggle />
             <Button variant='ghost' size='sm' onClick={openLogin} className='font-inter'>
               Sign in
             </Button>

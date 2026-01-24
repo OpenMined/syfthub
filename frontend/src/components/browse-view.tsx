@@ -33,7 +33,7 @@ function getStatusColor(status: 'active' | 'warning' | 'inactive') {
       return 'bg-red-500';
     }
     default: {
-      return 'bg-gray-500';
+      return 'bg-muted-foreground';
     }
   }
 }
@@ -47,7 +47,7 @@ function getTypeStyles(type: EndpointType) {
       return 'bg-emerald-100 text-emerald-800 border-emerald-200';
     }
     default: {
-      return 'bg-gray-100 text-gray-800 border-gray-200';
+      return 'bg-muted text-muted-foreground border-border';
     }
   }
 }
@@ -166,7 +166,7 @@ export function BrowseView({
             <div className='mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-50'>
               <Search className='h-8 w-8 text-red-500' />
             </div>
-            <h3 className='font-inter mb-2 text-lg font-medium text-gray-900'>
+            <h3 className='font-inter text-foreground mb-2 text-lg font-medium'>
               Error Loading Endpoints
             </h3>
             <p className='font-inter text-syft-muted'>{error.message}</p>
@@ -195,7 +195,7 @@ export function BrowseView({
                 <Link
                   key={endpoint.id}
                   to={href}
-                  className='group border-syft-border hover:border-syft-secondary block rounded-xl border bg-white p-5 transition-colors transition-shadow hover:shadow-md'
+                  className='group border-syft-border hover:border-syft-secondary bg-card block rounded-xl border p-5 transition-colors transition-shadow hover:shadow-md'
                 >
                   {/* Header */}
                   <div className='mb-3 flex items-start justify-between'>

@@ -32,11 +32,13 @@ export function RecentSources({ endpoints, isLoading }: Readonly<RecentSourcesPr
       <div className='mb-5 flex items-center justify-between'>
         <div className='flex items-center gap-2'>
           <div className='h-6 w-1 rounded-full bg-gradient-to-b from-[#6976ae] via-[#937098] to-[#52a8c5]'></div>
-          <h4 className='font-rubik text-sm tracking-wide text-black uppercase'>Recent Sources</h4>
+          <h4 className='font-rubik text-foreground text-sm tracking-wide uppercase'>
+            Recent Sources
+          </h4>
         </div>
         <Link
           to='/browse'
-          className='group flex items-center gap-1 text-xs text-[#6976ae] transition-colors hover:text-[#272532]'
+          className='group text-secondary hover:text-foreground flex items-center gap-1 text-xs transition-colors'
         >
           View all{' '}
           <ArrowRight className='h-3 w-3 transition-transform group-hover:translate-x-0.5' />
@@ -51,9 +53,9 @@ export function RecentSources({ endpoints, isLoading }: Readonly<RecentSourcesPr
                 key={index}
                 className='flex animate-pulse items-center gap-3 rounded-lg px-4 py-3'
               >
-                <div className='h-2 w-2 rounded-full bg-gray-200'></div>
-                <div className='h-4 flex-1 rounded bg-gray-200'></div>
-                <div className='h-6 w-12 rounded-full bg-gray-200'></div>
+                <div className='bg-muted h-2 w-2 rounded-full'></div>
+                <div className='bg-muted h-4 flex-1 rounded'></div>
+                <div className='bg-muted h-6 w-12 rounded-full'></div>
               </div>
             ))}
           </>
@@ -69,14 +71,14 @@ export function RecentSources({ endpoints, isLoading }: Readonly<RecentSourcesPr
                 key={endpoint.id}
                 to={href}
                 title={`View ${endpoint.name}`}
-                className={`group flex items-center gap-3 rounded-lg border-l-2 border-transparent px-4 py-3 transition-colors transition-shadow hover:bg-[#f7f6f9] ${colors.border} hover:shadow-sm`}
+                className={`group hover:bg-syft-surface flex items-center gap-3 rounded-lg border-l-2 border-transparent px-4 py-3 transition-colors transition-shadow ${colors.border} hover:shadow-sm`}
               >
                 <div className={`h-2 w-2 rounded-full ${colors.bg} flex-shrink-0`}></div>
-                <span className='font-inter flex-1 truncate text-sm text-black transition-colors group-hover:text-black'>
+                <span className='font-inter text-foreground group-hover:text-foreground flex-1 truncate text-sm transition-colors'>
                   {endpoint.name}
                 </span>
                 <span
-                  className='font-inter shrink-0 rounded-full bg-[#f1f0f4] px-3 py-1 text-xs text-black'
+                  className='font-inter bg-accent text-foreground shrink-0 rounded-full px-3 py-1 text-xs'
                   title={`Updated ${endpoint.updated}`}
                 >
                   {endpoint.updated}

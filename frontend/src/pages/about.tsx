@@ -168,7 +168,7 @@ export default function AboutPage() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.5 }}
-          className='border-syft-border rounded-xl border bg-white p-8 shadow-sm md:p-12'
+          className='border-syft-border bg-card rounded-xl border p-8 shadow-sm md:p-12'
         >
           <div className='mb-8 flex items-center gap-3'>
             <h2 className='font-rubik text-syft-primary text-3xl font-medium'>Roadmap</h2>
@@ -177,7 +177,7 @@ export default function AboutPage() {
           <div className='before:bg-syft-border relative space-y-12 before:absolute before:top-4 before:bottom-4 before:left-[19px] before:w-[2px]'>
             {/* Upcoming / Current */}
             <div className='relative pl-12'>
-              <div className='border-syft-green absolute top-1 left-0 z-10 flex h-10 w-10 items-center justify-center rounded-full border-4 bg-white'>
+              <div className='border-syft-green bg-card absolute top-1 left-0 z-10 flex h-10 w-10 items-center justify-center rounded-full border-4'>
                 <div className='bg-syft-green h-2 w-2 rounded-full'></div>
               </div>
               <h3 className='font-rubik text-syft-primary mb-4 text-xl font-medium'>
@@ -201,7 +201,7 @@ export default function AboutPage() {
 
             {/* Q2 */}
             <div className='relative pl-12'>
-              <div className='border-syft-purple absolute top-1 left-0 z-10 flex h-10 w-10 items-center justify-center rounded-full border-4 bg-white'>
+              <div className='border-syft-purple bg-card absolute top-1 left-0 z-10 flex h-10 w-10 items-center justify-center rounded-full border-4'>
                 <div className='bg-syft-purple h-2 w-2 rounded-full'></div>
               </div>
               <h3 className='font-rubik text-syft-primary mb-4 text-xl font-medium'>

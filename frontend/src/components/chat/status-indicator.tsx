@@ -61,7 +61,7 @@ const AnimatedDots = memo(function AnimatedDots() {
       {[0, 1, 2].map((index) => (
         <motion.span
           key={index}
-          className='inline-block h-1.5 w-1.5 rounded-full bg-[#6976ae]'
+          className='bg-secondary inline-block h-1.5 w-1.5 rounded-full'
           animate={{
             opacity: [0.3, 1, 0.3],
             scale: [0.85, 1, 0.85]
@@ -93,7 +93,7 @@ const PhaseIcon = memo(function PhaseIcon({
           animate={{ scale: [1, 1.1, 1] }}
           transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
         >
-          <Search className={`${iconClass} text-[#6976ae]`} />
+          <Search className={`${iconClass} text-secondary`} />
         </motion.div>
       );
     }
@@ -103,7 +103,7 @@ const PhaseIcon = memo(function PhaseIcon({
           animate={{ rotate: [0, 10, -10, 0] }}
           transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
         >
-          <Sparkles className={`${iconClass} text-[#6976ae]`} />
+          <Sparkles className={`${iconClass} text-secondary`} />
         </motion.div>
       );
     }
@@ -113,7 +113,7 @@ const PhaseIcon = memo(function PhaseIcon({
           animate={{ y: [0, -2, 0] }}
           transition={{ duration: 0.8, repeat: Infinity, ease: 'easeInOut' }}
         >
-          <Pencil className={`${iconClass} text-[#6976ae]`} />
+          <Pencil className={`${iconClass} text-secondary`} />
         </motion.div>
       );
     }
@@ -121,7 +121,7 @@ const PhaseIcon = memo(function PhaseIcon({
       return <AlertCircle className={`${iconClass} text-red-500`} />;
     }
     default: {
-      return <FileText className={`${iconClass} text-[#5e5a72]`} />;
+      return <FileText className={`${iconClass} text-muted-foreground`} />;
     }
   }
 });
@@ -158,9 +158,7 @@ const SourceStatusIcon = memo(function SourceStatusIcon({
           animate={{ rotate: 360 }}
           transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
         >
-          <div
-            className={`${iconClass} rounded-full border-2 border-gray-300 border-t-[#6976ae]`}
-          />
+          <div className={`${iconClass} border-muted border-t-secondary rounded-full border-2`} />
         </motion.div>
       );
     }
@@ -185,12 +183,12 @@ const SourceStatusRow = memo(function SourceStatusRow({
       className='flex items-center gap-2 py-1.5'
     >
       <SourceStatusIcon status={source.status} />
-      <span className='font-inter text-xs font-medium text-[#272532]'>{source.displayName}</span>
+      <span className='font-inter text-foreground text-xs font-medium'>{source.displayName}</span>
       {source.status === 'success' && source.documents > 0 ? (
         <motion.span
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className='font-inter text-xs text-[#5e5a72]'
+          className='font-inter text-muted-foreground text-xs'
         >
           {source.documents} {source.documents === 1 ? 'doc' : 'docs'}
         </motion.span>
@@ -242,7 +240,7 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
-      className='rounded-2xl rounded-bl-none border border-[#ecebef] bg-[#f7f6f9] shadow-sm'
+      className='border-border bg-syft-surface rounded-2xl rounded-bl-none border shadow-sm'
     >
       {/* Main Status Line */}
       <div className='px-5 py-3'>
@@ -256,7 +254,7 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -5 }}
               transition={{ duration: 0.2 }}
-              className={`font-inter text-sm ${isError ? 'text-red-600' : 'text-[#5e5a72]'}`}
+              className={`font-inter text-sm ${isError ? 'text-red-600' : 'text-muted-foreground'}`}
             >
               {status.message}
             </motion.span>
@@ -264,7 +262,7 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
 
           {/* Progress fraction */}
           {status.retrieval && status.phase === 'retrieving' ? (
-            <span className='font-inter text-xs text-[#8a86a0]'>
+            <span className='font-inter text-syft-placeholder text-xs'>
               ({status.retrieval.completed}/{status.retrieval.total})
             </span>
           ) : null}
@@ -280,8 +278,8 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
             animate={{ opacity: 1, height: 'auto' }}
             className='mt-1 flex items-center gap-1.5 pl-6'
           >
-            <FileText className='h-3 w-3 text-[#8a86a0]' />
-            <span className='font-inter text-xs text-[#8a86a0]'>
+            <FileText className='text-syft-placeholder h-3 w-3' />
+            <span className='font-inter text-syft-placeholder text-xs'>
               {status.retrieval.documentsFound}{' '}
               {status.retrieval.documentsFound === 1 ? 'document' : 'documents'} found
             </span>
@@ -295,7 +293,7 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
             animate={{ opacity: 1 }}
             transition={{ delay: 0.3 }}
             onClick={toggleExpanded}
-            className='mt-2 flex items-center gap-1 pl-6 text-xs text-[#6976ae] transition-colors hover:text-[#272532]'
+            className='text-secondary hover:text-foreground mt-2 flex items-center gap-1 pl-6 text-xs transition-colors'
           >
             {isExpanded ? (
               <>
@@ -322,7 +320,7 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
             transition={{ duration: 0.2 }}
             className='overflow-hidden'
           >
-            <div className='border-t border-[#ecebef] bg-white/50 px-5 py-3'>
+            <div className='border-border bg-card/50 border-t px-5 py-3'>
               <div className='space-y-0.5 pl-1'>
                 {status.completedSources.map((source, index) => (
                   <SourceStatusRow key={source.path} source={source} index={index} />
@@ -333,13 +331,13 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className='flex items-center gap-2 py-1.5 text-[#8a86a0]'
+                    className='text-syft-placeholder flex items-center gap-2 py-1.5'
                   >
                     <motion.div
                       animate={{ rotate: 360 }}
                       transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
                     >
-                      <div className='h-3.5 w-3.5 rounded-full border-2 border-gray-200 border-t-[#6976ae]' />
+                      <div className='border-muted border-t-secondary h-3.5 w-3.5 rounded-full border-2' />
                     </motion.div>
                     <span className='font-inter text-xs'>
                       {pendingCount} more {pendingCount === 1 ? 'source' : 'sources'} searching…
@@ -352,7 +350,7 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className='mt-2 flex items-center gap-1.5 border-t border-[#ecebef] pt-2 text-[#8a86a0]'
+                    className='border-border text-syft-placeholder mt-2 flex items-center gap-1.5 border-t pt-2'
                   >
                     <Clock className='h-3 w-3' />
                     <span className='font-inter text-xs'>

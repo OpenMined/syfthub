@@ -119,7 +119,7 @@ const CodeBlock = memo(function CodeBlock({
         <span className='font-mono text-[11px] text-[#8b8a91]'>{language ?? 'text'}</span>
         <button
           onClick={copyToClipboard}
-          className='flex items-center gap-1.5 rounded px-2 py-1 text-[11px] text-[#8b8a91] transition-colors hover:bg-white/10 hover:text-white'
+          className='hover:bg-card/10 flex items-center gap-1.5 rounded px-2 py-1 text-[11px] text-[#8b8a91] transition-colors hover:text-white'
         >
           {copied ? (
             <>
@@ -136,7 +136,9 @@ const CodeBlock = memo(function CodeBlock({
       </div>
       {/* Code content */}
       <div className='overflow-x-auto p-3'>
-        <Suspense fallback={<pre className='font-mono text-[13px] text-gray-300'>{code}</pre>}>
+        <Suspense
+          fallback={<pre className='text-muted-foreground font-mono text-[13px]'>{code}</pre>}
+        >
           {style ? (
             <SyntaxHighlighter
               language={language ?? 'text'}
@@ -156,7 +158,7 @@ const CodeBlock = memo(function CodeBlock({
               {code}
             </SyntaxHighlighter>
           ) : (
-            <pre className='font-mono text-[13px] text-gray-300'>{code}</pre>
+            <pre className='text-muted-foreground font-mono text-[13px]'>{code}</pre>
           )}
         </Suspense>
       </div>
@@ -176,22 +178,22 @@ export const MarkdownMessage = memo(function MarkdownMessage({
         components={{
           // Headings
           h1: ({ children }) => (
-            <h1 className='mt-5 mb-3 text-xl font-semibold text-[#272532] first:mt-0'>
+            <h1 className='text-foreground mt-5 mb-3 text-xl font-semibold first:mt-0'>
               {children}
             </h1>
           ),
           h2: ({ children }) => (
-            <h2 className='mt-4 mb-2 text-lg font-semibold text-[#272532] first:mt-0'>
+            <h2 className='text-foreground mt-4 mb-2 text-lg font-semibold first:mt-0'>
               {children}
             </h2>
           ),
           h3: ({ children }) => (
-            <h3 className='mt-3 mb-2 text-base font-semibold text-[#272532] first:mt-0'>
+            <h3 className='text-foreground mt-3 mb-2 text-base font-semibold first:mt-0'>
               {children}
             </h3>
           ),
           h4: ({ children }) => (
-            <h4 className='mt-3 mb-1.5 text-sm font-semibold text-[#272532] first:mt-0'>
+            <h4 className='text-foreground mt-3 mb-1.5 text-sm font-semibold first:mt-0'>
               {children}
             </h4>
           ),
@@ -202,7 +204,7 @@ export const MarkdownMessage = memo(function MarkdownMessage({
           // Lists
           ul: ({ children }) => <ul className='mb-3 list-disc space-y-1 pl-5'>{children}</ul>,
           ol: ({ children }) => <ol className='mb-3 list-decimal space-y-1 pl-5'>{children}</ol>,
-          li: ({ children }) => <li className='text-[#272532]'>{children}</li>,
+          li: ({ children }) => <li className='text-foreground'>{children}</li>,
 
           // Code - handle both inline and block
           code: ({ className, children, ...props }) => {
@@ -230,7 +232,7 @@ export const MarkdownMessage = memo(function MarkdownMessage({
             // Inline code
             return (
               <code
-                className='rounded bg-[#e8e7ec] px-1.5 py-0.5 font-mono text-[13px] text-[#272532]'
+                className='bg-muted text-foreground rounded px-1.5 py-0.5 font-mono text-[13px]'
                 {...props}
               >
                 {children}
@@ -245,7 +247,7 @@ export const MarkdownMessage = memo(function MarkdownMessage({
           a: ({ href, children }) => (
             <a
               href={href}
-              className='text-[#6976ae] underline decoration-[#6976ae]/30 underline-offset-2 transition-colors hover:text-[#4d5a8c] hover:decoration-[#4d5a8c]/50'
+              className='text-secondary decoration-secondary/30 hover:text-secondary/80 hover:decoration-secondary/50 underline underline-offset-2 transition-colors'
               target='_blank'
               rel='noopener noreferrer'
             >
@@ -255,33 +257,37 @@ export const MarkdownMessage = memo(function MarkdownMessage({
 
           // Blockquotes
           blockquote: ({ children }) => (
-            <blockquote className='my-3 border-l-3 border-[#cfcdd6] bg-[#f1f0f4]/50 py-1 pl-4 text-[#5e5a72] italic'>
+            <blockquote className='border-border bg-accent/50 text-muted-foreground my-3 border-l-3 py-1 pl-4 italic'>
               {children}
             </blockquote>
           ),
 
           // Horizontal rule
-          hr: () => <hr className='my-4 border-[#ecebef]' />,
+          hr: () => <hr className='border-border my-4' />,
 
           // Tables (GFM)
           table: ({ children }) => (
-            <div className='my-3 overflow-x-auto rounded-lg border border-[#ecebef]'>
-              <table className='min-w-full divide-y divide-[#ecebef]'>{children}</table>
+            <div className='border-border my-3 overflow-x-auto rounded-lg border'>
+              <table className='divide-border min-w-full divide-y'>{children}</table>
             </div>
           ),
-          thead: ({ children }) => <thead className='bg-[#f7f6f9]'>{children}</thead>,
+          thead: ({ children }) => <thead className='bg-syft-surface'>{children}</thead>,
           tbody: ({ children }) => (
-            <tbody className='divide-y divide-[#ecebef] bg-white'>{children}</tbody>
+            <tbody className='divide-border bg-card divide-y'>{children}</tbody>
           ),
           tr: ({ children }) => <tr>{children}</tr>,
           th: ({ children }) => (
-            <th className='px-3 py-2 text-left text-xs font-semibold text-[#272532]'>{children}</th>
+            <th className='text-foreground px-3 py-2 text-left text-xs font-semibold'>
+              {children}
+            </th>
           ),
-          td: ({ children }) => <td className='px-3 py-2 text-sm text-[#5e5a72]'>{children}</td>,
+          td: ({ children }) => (
+            <td className='text-muted-foreground px-3 py-2 text-sm'>{children}</td>
+          ),
 
           // Strong and emphasis
           strong: ({ children }) => (
-            <strong className='font-semibold text-[#272532]'>{children}</strong>
+            <strong className='text-foreground font-semibold'>{children}</strong>
           ),
           em: ({ children }) => <em className='italic'>{children}</em>,
 
@@ -294,7 +300,7 @@ export const MarkdownMessage = memo(function MarkdownMessage({
               src={src}
               alt={alt ?? ''}
               loading='lazy'
-              className='my-3 max-w-full rounded-lg border border-[#ecebef]'
+              className='border-border my-3 max-w-full rounded-lg border'
             />
           )
         }}

@@ -86,27 +86,27 @@ const AdvancedPanel = memo(function AdvancedPanel({
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className='fixed top-0 right-0 z-50 flex h-full w-[400px] flex-col border-l border-[#ecebef] bg-white shadow-2xl'
+            className='border-border bg-card fixed top-0 right-0 z-50 flex h-full w-[400px] flex-col border-l shadow-2xl'
           >
             {/* Header */}
-            <div className='flex items-center justify-between border-b border-[#ecebef] bg-[#fcfcfd] p-6'>
+            <div className='border-border bg-syft-background flex items-center justify-between border-b p-6'>
               <div className='flex items-center gap-3'>
-                <div className='flex h-10 w-10 items-center justify-center rounded-lg bg-[#272532]'>
+                <div className='bg-primary flex h-10 w-10 items-center justify-center rounded-lg'>
                   <Settings2 className='h-5 w-5 text-white' />
                 </div>
                 <div>
-                  <h2 className='font-rubik text-lg font-medium text-[#272532]'>
+                  <h2 className='font-rubik text-foreground text-lg font-medium'>
                     Execution Layout
                   </h2>
-                  <p className='font-inter text-xs text-[#5e5a72]'>Pipeline configuration</p>
+                  <p className='font-inter text-muted-foreground text-xs'>Pipeline configuration</p>
                 </div>
               </div>
               <button
                 onClick={onClose}
-                className='rounded-full p-2 transition-colors hover:bg-[#ecebef]'
+                className='hover:bg-accent rounded-full p-2 transition-colors'
                 aria-label='Close panel'
               >
-                <X className='h-5 w-5 text-[#b4b0bf]' aria-hidden='true' />
+                <X className='text-syft-placeholder h-5 w-5' aria-hidden='true' />
               </button>
             </div>
 
@@ -138,7 +138,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
 
                 <div className='space-y-3'>
                   {activeSources.length === 0 && customSources.length === 0 ? (
-                    <div className='font-inter rounded-lg border border-dashed border-green-200 bg-white/50 py-8 text-center text-sm text-green-700/50'>
+                    <div className='font-inter bg-card/50 rounded-lg border border-dashed border-green-200 py-8 text-center text-sm text-green-700/50'>
                       No sources selected
                     </div>
                   ) : (
@@ -150,13 +150,13 @@ const AdvancedPanel = memo(function AdvancedPanel({
                         return (
                           <div
                             key={source.id}
-                            className='rounded-lg border border-green-100 bg-white p-3 shadow-sm'
+                            className='bg-card rounded-lg border border-green-100 p-3 shadow-sm'
                           >
                             <div className='mb-3 flex items-center gap-3'>
                               <div className='font-inter flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-green-100 text-xs font-bold text-green-700'>
                                 {source.name.slice(0, 2).toUpperCase()}
                               </div>
-                              <span className='font-inter truncate text-sm font-medium text-[#272532]'>
+                              <span className='font-inter text-foreground truncate text-sm font-medium'>
                                 {source.name}
                               </span>
                             </div>
@@ -183,7 +183,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
                               ) : (
                                 <Badge
                                   variant='secondary'
-                                  className='font-inter h-5 border-gray-200 bg-gray-50 px-2 text-[10px] font-normal text-gray-500'
+                                  className='font-inter border-border bg-muted text-muted-foreground h-5 px-2 text-[10px] font-normal'
                                 >
                                   No pricing
                                 </Badge>
@@ -195,7 +195,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
                       {customSources.map((source, index) => (
                         <div
                           key={index}
-                          className='group relative rounded-lg border border-green-100 bg-white p-3 shadow-sm'
+                          className='group bg-card relative rounded-lg border border-green-100 p-3 shadow-sm'
                         >
                           <button
                             onClick={() => {
@@ -210,13 +210,13 @@ const AdvancedPanel = memo(function AdvancedPanel({
                             <div className='font-inter flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-green-100 text-xs font-bold text-green-700'>
                               EXT
                             </div>
-                            <span className='font-inter truncate text-sm font-medium text-[#272532]'>
+                            <span className='font-inter text-foreground truncate text-sm font-medium'>
                               {source}
                             </span>
                           </div>
                           <Badge
                             variant='secondary'
-                            className='font-inter h-5 border-gray-200 bg-gray-100 px-2 text-[10px] font-normal text-gray-600'
+                            className='font-inter border-border bg-muted text-muted-foreground h-5 px-2 text-[10px] font-normal'
                           >
                             External Source
                           </Badge>
@@ -238,11 +238,11 @@ const AdvancedPanel = memo(function AdvancedPanel({
                       }}
                       onKeyDown={handleAddSource}
                       placeholder='Add external source (e.g. hf/dataset)…'
-                      className='font-inter w-full rounded-lg border border-green-200 bg-white py-2 pr-8 pl-3 text-xs transition-colors transition-shadow placeholder:text-green-700/40 focus:border-green-500 focus:ring-1 focus:ring-green-500/20 focus:outline-none'
+                      className='font-inter bg-card w-full rounded-lg border border-green-200 py-2 pr-8 pl-3 text-xs transition-colors transition-shadow placeholder:text-green-700/40 focus:border-green-500 focus:ring-1 focus:ring-green-500/20 focus:outline-none'
                       autoComplete='off'
                     />
                     <div
-                      className='font-inter pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-[10px] text-gray-400'
+                      className='font-inter text-muted-foreground pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-[10px]'
                       aria-hidden='true'
                     >
                       ↵
@@ -252,7 +252,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
               </div>
 
               {/* Arrow */}
-              <div className='flex justify-center text-[#b4b0bf]'>
+              <div className='text-syft-placeholder flex justify-center'>
                 <ArrowDown className='h-5 w-5' />
               </div>
 
@@ -265,7 +265,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
                   </div>
                 </div>
 
-                <div className='space-y-3 rounded-lg border border-purple-100 bg-white p-3 shadow-sm'>
+                <div className='bg-card space-y-3 rounded-lg border border-purple-100 p-3 shadow-sm'>
                   {selectedModel ? (
                     (() => {
                       const modelCosts = getCostsFromSource(selectedModel);
@@ -278,11 +278,11 @@ const AdvancedPanel = memo(function AdvancedPanel({
                               <Brain className='h-4 w-4' />
                             </div>
                             <div className='min-w-0 flex-1'>
-                              <span className='font-inter block truncate text-sm font-medium text-[#272532]'>
+                              <span className='font-inter text-foreground block truncate text-sm font-medium'>
                                 {selectedModel.name}
                               </span>
                               {selectedModel.version ? (
-                                <span className='font-inter text-xs text-[#5e5a72]'>
+                                <span className='font-inter text-muted-foreground text-xs'>
                                   v{selectedModel.version}
                                 </span>
                               ) : null}
@@ -311,7 +311,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
                             ) : (
                               <Badge
                                 variant='secondary'
-                                className='font-inter h-5 border-gray-200 bg-gray-50 px-2 text-[10px] font-normal text-gray-500'
+                                className='font-inter border-border bg-muted text-muted-foreground h-5 px-2 text-[10px] font-normal'
                               >
                                 No pricing
                               </Badge>
@@ -321,12 +321,12 @@ const AdvancedPanel = memo(function AdvancedPanel({
                       );
                     })()
                   ) : (
-                    <div className='font-inter rounded-lg border border-dashed border-purple-200 bg-white/50 py-6 text-center text-sm text-purple-700/50'>
+                    <div className='font-inter bg-card/50 rounded-lg border border-dashed border-purple-200 py-6 text-center text-sm text-purple-700/50'>
                       No model selected
                     </div>
                   )}
 
-                  <div className='font-inter mt-2 flex items-start gap-2 border-t border-purple-50 pt-2 text-xs text-gray-500'>
+                  <div className='font-inter text-muted-foreground mt-2 flex items-start gap-2 border-t border-purple-50 pt-2 text-xs'>
                     <Info className='mt-0.5 h-3 w-3 shrink-0' />
                     {isFactual
                       ? 'Strict mode enabled. Results will be grounded in retrieved data only.'
@@ -336,7 +336,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
               </div>
 
               {/* Arrow */}
-              <div className='flex flex-col items-center gap-1 text-[#b4b0bf]'>
+              <div className='text-syft-placeholder flex flex-col items-center gap-1'>
                 <ArrowDown className='h-5 w-5' />
                 <span className='font-inter text-[10px] font-medium'>Process & Combine</span>
               </div>
@@ -380,14 +380,14 @@ const SourceSelector = memo(function SourceSelector({
               onToggle(source.id);
             }}
             aria-pressed={isSelected}
-            className={`group relative flex w-full cursor-pointer items-start gap-4 rounded-xl border p-4 text-left transition-colors focus-visible:ring-2 focus-visible:ring-[#272532]/50 focus-visible:outline-none ${isSelected ? 'border-[#6976ae] bg-[#f7f6f9]' : 'border-[#ecebef] bg-white hover:border-[#cfcdd6]'} `}
+            className={`group relative flex w-full cursor-pointer items-start gap-4 rounded-xl border p-4 text-left transition-colors focus-visible:ring-2 focus-visible:ring-[#272532]/50 focus-visible:outline-none ${isSelected ? 'border-secondary bg-syft-surface' : 'border-border bg-card hover:border-input'} `}
           >
             <div className='min-w-0 flex-1'>
               {/* Header */}
               <div className='mb-1 flex flex-wrap items-center gap-2'>
                 <span
                   className={`font-inter font-medium transition-colors ${
-                    isSelected ? 'text-[#272532]' : 'text-[#272532] group-hover:text-[#6976ae]'
+                    isSelected ? 'text-foreground' : 'text-foreground group-hover:text-secondary'
                   }`}
                 >
                   {source.name}
@@ -395,13 +395,13 @@ const SourceSelector = memo(function SourceSelector({
                 {source.tags.slice(0, 2).map((tag) => (
                   <span
                     key={tag}
-                    className='font-inter rounded-md bg-[#f1f0f4] px-2 py-0.5 text-xs text-[#5e5a72]'
+                    className='font-inter bg-accent text-muted-foreground rounded-md px-2 py-0.5 text-xs'
                   >
                     {tag}
                   </span>
                 ))}
                 {source.tags.length > 2 ? (
-                  <span className='font-inter rounded-md bg-[#f1f0f4] px-2 py-0.5 text-xs text-[#5e5a72]'>
+                  <span className='font-inter bg-accent text-muted-foreground rounded-md px-2 py-0.5 text-xs'>
                     +{source.tags.length - 2}
                   </span>
                 ) : null}
@@ -410,13 +410,13 @@ const SourceSelector = memo(function SourceSelector({
               {/* Description with Status Dot */}
               <div className='mb-2 flex items-start gap-2'>
                 <div className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${statusColor}`} />
-                <p className='font-inter text-sm leading-relaxed text-[#5e5a72]'>
+                <p className='font-inter text-muted-foreground text-sm leading-relaxed'>
                   {source.description}
                 </p>
               </div>
 
               {/* Footer */}
-              <div className='font-inter flex items-center gap-1.5 text-xs text-[#b4b0bf]'>
+              <div className='font-inter text-syft-placeholder flex items-center gap-1.5 text-xs'>
                 <Clock className='h-3.5 w-3.5' aria-hidden='true' />
                 <span>Updated {source.updated}</span>
               </div>
@@ -424,7 +424,7 @@ const SourceSelector = memo(function SourceSelector({
 
             {/* Checkbox indicator */}
             <div
-              className={`mt-1 flex h-6 w-6 items-center justify-center rounded border transition-colors ${isSelected ? 'border-[#272532] bg-[#272532]' : 'border-[#cfcdd6] bg-white group-hover:border-[#b4b0bf]'} `}
+              className={`mt-1 flex h-6 w-6 items-center justify-center rounded border transition-colors ${isSelected ? 'border-foreground bg-primary' : 'border-input bg-card group-hover:border-muted-foreground'} `}
               aria-hidden='true'
             >
               {isSelected && <Check className='h-3.5 w-3.5 text-white' />}
@@ -1025,7 +1025,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
   );
 
   return (
-    <div className='min-h-screen bg-white pb-32'>
+    <div className='bg-card min-h-screen pb-32'>
       <AdvancedPanel
         isOpen={isPanelOpen}
         onClose={handleClosePanel}
@@ -1064,8 +1064,8 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                   <div
                     className={`font-inter max-w-2xl rounded-2xl px-5 py-3 shadow-sm ${
                       message.role === 'user'
-                        ? 'rounded-br-none bg-[#272532] text-[15px] leading-relaxed text-white'
-                        : 'rounded-bl-none border border-[#ecebef] bg-[#f7f6f9] text-[#272532]'
+                        ? 'bg-primary rounded-br-none text-[15px] leading-relaxed text-white'
+                        : 'border-border bg-syft-surface text-foreground rounded-bl-none border'
                     } `}
                   >
                     {message.role === 'assistant' ? (
@@ -1101,13 +1101,13 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
       </div>
 
       {/* Input Area */}
-      <div className='fixed bottom-0 left-0 z-40 w-full border-t border-[#ecebef] bg-white p-4 pl-24'>
+      <div className='border-border bg-card fixed bottom-0 left-0 z-40 w-full border-t p-4 pl-24'>
         <div className='mx-auto max-w-3xl'>
           <form onSubmit={handleSubmit} className='relative flex gap-3'>
             <button
               type='button'
               onClick={handleOpenPanel}
-              className='group flex items-center justify-center rounded-xl border border-[#ecebef] bg-[#fcfcfd] p-3.5 text-[#5e5a72] transition-colors hover:bg-[#f1f0f4] hover:text-[#272532]'
+              className='group border-border bg-syft-background text-muted-foreground hover:bg-accent hover:text-foreground flex items-center justify-center rounded-xl border p-3.5 transition-colors'
               aria-label='Open advanced configuration'
             >
               <Settings2
@@ -1126,13 +1126,13 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                 value={inputValue}
                 onChange={handleInputChange}
                 placeholder='Ask a follow-up question…'
-                className='font-inter w-full rounded-xl border border-[#ecebef] bg-[#fcfcfd] py-3.5 pr-12 pl-4 shadow-sm transition-colors transition-shadow placeholder:text-[#b4b0bf] focus:border-[#272532] focus:ring-2 focus:ring-[#272532]/10 focus:outline-none'
+                className='font-inter border-border bg-syft-background placeholder:text-syft-placeholder focus:border-foreground focus:ring-foreground/10 w-full rounded-xl border py-3.5 pr-12 pl-4 shadow-sm transition-colors transition-shadow focus:ring-2 focus:outline-none'
                 autoComplete='off'
               />
               <button
                 type='submit'
                 disabled={!inputValue.trim() || isProcessing}
-                className='absolute top-1/2 right-2 -translate-y-1/2 rounded-lg bg-[#272532] p-2 text-white transition-colors hover:bg-[#353243] disabled:cursor-not-allowed disabled:opacity-50'
+                className='bg-primary hover:bg-primary/90 absolute top-1/2 right-2 -translate-y-1/2 rounded-lg p-2 text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50'
                 aria-label={isProcessing ? 'Processing…' : 'Send message'}
               >
                 {isProcessing ? (

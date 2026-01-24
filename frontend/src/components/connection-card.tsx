@@ -166,13 +166,13 @@ function SingleConnection({
                 <span
                   className={cn(
                     'relative inline-flex h-2 w-2 rounded-full',
-                    connection.enabled ? config.dotColor : 'bg-[#b4b0bf]'
+                    connection.enabled ? config.dotColor : 'bg-syft-placeholder'
                   )}
                 />
               </span>
             </div>
             {!isCompact && connection.description ? (
-              <p className='font-inter mt-0.5 line-clamp-1 text-xs text-[#5e5a72]'>
+              <p className='font-inter text-muted-foreground mt-0.5 line-clamp-1 text-xs'>
                 {connection.description}
               </p>
             ) : null}
@@ -186,7 +186,7 @@ function SingleConnection({
             'shrink-0 text-[10px] font-medium',
             connection.enabled
               ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-              : 'border-gray-200 bg-gray-50 text-gray-500'
+              : 'border-border bg-muted text-muted-foreground'
           )}
         >
           {connection.enabled ? 'Active' : 'Disabled'}
@@ -200,8 +200,8 @@ function SingleConnection({
             <code
               className={cn(
                 'flex-1 truncate rounded-lg px-2.5 py-1.5 font-mono text-xs',
-                'bg-white/80 text-[#5e5a72] ring-1 ring-[#ecebef] ring-inset',
-                'transition-colors group-hover:bg-white group-hover:ring-[#cfcdd6]'
+                'bg-card/80 text-muted-foreground ring-border ring-1 ring-inset',
+                'group-hover:bg-card group-hover:ring-input transition-colors'
               )}
               title={endpointSlug}
             >
@@ -215,7 +215,7 @@ function SingleConnection({
                 'h-7 w-7 shrink-0 p-0 transition-colors',
                 copied
                   ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-100'
-                  : 'text-[#b4b0bf] hover:bg-white hover:text-[#5e5a72]'
+                  : 'text-syft-placeholder hover:bg-card hover:text-muted-foreground'
               )}
               title={copied ? 'Copied!' : 'Copy slug'}
             >
@@ -249,12 +249,12 @@ export function ConnectionCard({
   }
 
   return (
-    <div className='rounded-xl border border-[#ecebef] bg-white p-6'>
+    <div className='border-border bg-card rounded-xl border p-6'>
       {/* Header */}
       <div className='mb-4 flex items-center justify-between'>
-        <h3 className='font-rubik text-sm font-medium text-[#272532]'>{title}</h3>
+        <h3 className='font-rubik text-foreground text-sm font-medium'>{title}</h3>
         {validConnections.length > 0 ? (
-          <span className='rounded-full bg-[#f1f0f4] px-2 py-0.5 text-xs font-medium text-[#5e5a72]'>
+          <span className='bg-accent text-muted-foreground rounded-full px-2 py-0.5 text-xs font-medium'>
             {validConnections.length}
           </span>
         ) : null}
@@ -273,10 +273,10 @@ export function ConnectionCard({
           ))}
         </div>
       ) : (
-        <div className='rounded-xl border border-dashed border-[#ecebef] py-6 text-center'>
-          <Link2 className='mx-auto h-8 w-8 text-[#b4b0bf]' />
-          <p className='font-inter mt-2 text-sm text-[#5e5a72]'>No connections configured</p>
-          <p className='font-inter mt-1 text-xs text-[#b4b0bf]'>
+        <div className='border-border rounded-xl border border-dashed py-6 text-center'>
+          <Link2 className='text-syft-placeholder mx-auto h-8 w-8' />
+          <p className='font-inter text-muted-foreground mt-2 text-sm'>No connections configured</p>
+          <p className='font-inter text-syft-placeholder mt-1 text-xs'>
             Add a connection to enable external access to this endpoint
           </p>
         </div>

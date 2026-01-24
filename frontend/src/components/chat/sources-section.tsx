@@ -61,7 +61,7 @@ const HoverCard = memo(function HoverCard({
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 8, scale: 0.96 }}
           transition={{ duration: 0.15, ease: 'easeOut' }}
-          className='fixed z-50 max-h-[280px] w-[360px] overflow-hidden rounded-xl border border-[#ecebef] bg-white shadow-xl'
+          className='border-border bg-card fixed z-50 max-h-[280px] w-[360px] overflow-hidden rounded-xl border shadow-xl'
           style={{
             left: position.x,
             top: position.y
@@ -70,10 +70,10 @@ const HoverCard = memo(function HoverCard({
           onMouseLeave={onMouseLeave}
         >
           {/* Header */}
-          <div className='border-b border-[#ecebef] bg-[#fcfcfd] px-4 py-2.5'>
+          <div className='border-border bg-card border-b px-4 py-2.5'>
             <div className='flex items-center gap-2'>
-              <FileText className='h-3.5 w-3.5 text-[#6976ae]' />
-              <span className='font-inter text-xs font-medium text-[#5e5a72]'>
+              <FileText className='text-secondary h-3.5 w-3.5' />
+              <span className='font-inter text-muted-foreground text-xs font-medium'>
                 Document Preview
               </span>
             </div>
@@ -81,7 +81,7 @@ const HoverCard = memo(function HoverCard({
 
           {/* Content */}
           <div className='max-h-[220px] overflow-y-auto p-4'>
-            <p className='font-inter text-xs leading-relaxed whitespace-pre-wrap text-[#272532]'>
+            <p className='font-inter text-foreground text-xs leading-relaxed whitespace-pre-wrap'>
               {truncatedContent}
             </p>
           </div>
@@ -195,7 +195,7 @@ const SourceItem = memo(function SourceItem({ title, source, index }: Readonly<S
         transition={{ delay: index * 0.03 }}
         onMouseEnter={handleItemMouseEnter}
         onMouseLeave={handleItemMouseLeave}
-        className='group flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-[#f1f0f4]'
+        className='group hover:bg-accent flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 transition-colors'
       >
         {/* Endpoint slug (green) */}
         <span className='font-inter shrink-0 text-xs font-medium text-green-600'>
@@ -203,10 +203,10 @@ const SourceItem = memo(function SourceItem({ title, source, index }: Readonly<S
         </span>
 
         {/* Separator */}
-        <span className='font-inter text-xs text-[#b4b0bf]'>:</span>
+        <span className='font-inter text-syft-placeholder text-xs'>:</span>
 
         {/* Document title */}
-        <span className='font-inter truncate text-xs text-[#5e5a72] group-hover:text-[#272532]'>
+        <span className='font-inter text-muted-foreground group-hover:text-foreground truncate text-xs'>
           {title}
         </span>
       </motion.div>
@@ -271,25 +271,25 @@ export function SourcesSection({ sources }: Readonly<SourcesSectionProps>) {
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.2 }}
-      className='mt-3 rounded-xl border border-[#ecebef] bg-[#fcfcfd]'
+      className='border-border bg-card mt-3 rounded-xl border'
     >
       {/* Header / Toggle Button */}
       <button
         onClick={toggleExpanded}
-        className='flex w-full items-center justify-between px-4 py-2.5 transition-colors hover:bg-[#f7f6f9]'
+        className='hover:bg-syft-surface flex w-full items-center justify-between px-4 py-2.5 transition-colors'
       >
         <div className='flex items-center gap-2'>
-          <FileText className='h-4 w-4 text-[#6976ae]' />
-          <span className='font-inter text-sm font-medium text-[#5e5a72]'>Sources</span>
-          <span className='font-inter rounded-full bg-[#6976ae]/10 px-2 py-0.5 text-xs font-medium text-[#6976ae]'>
+          <FileText className='text-secondary h-4 w-4' />
+          <span className='font-inter text-muted-foreground text-sm font-medium'>Sources</span>
+          <span className='font-inter bg-secondary/10 text-secondary rounded-full px-2 py-0.5 text-xs font-medium'>
             {documentCount} {documentCount === 1 ? 'document' : 'documents'}
           </span>
         </div>
 
         {isExpanded ? (
-          <ChevronUp className='h-4 w-4 text-[#b4b0bf]' />
+          <ChevronUp className='text-syft-placeholder h-4 w-4' />
         ) : (
-          <ChevronDown className='h-4 w-4 text-[#b4b0bf]' />
+          <ChevronDown className='text-syft-placeholder h-4 w-4' />
         )}
       </button>
 
@@ -303,7 +303,7 @@ export function SourcesSection({ sources }: Readonly<SourcesSectionProps>) {
             transition={{ duration: 0.2 }}
             className='overflow-hidden'
           >
-            <div className='border-t border-[#ecebef] px-4 py-3'>
+            <div className='border-border border-t px-4 py-3'>
               <div className='space-y-0.5'>
                 {sourceEntries.map(([title, source], index) => (
                   <SourceItem

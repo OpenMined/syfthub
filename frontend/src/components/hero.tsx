@@ -68,7 +68,7 @@ export function Hero({
 
   return (
     <section
-      className={`flex items-center justify-center bg-white px-6 ${
+      className={`bg-background flex items-center justify-center px-6 ${
         fullHeight ? 'min-h-[calc(100vh-2rem)]' : 'min-h-[50vh]'
       }`}
     >
@@ -118,7 +118,7 @@ export function Hero({
                 value={searchValue}
                 onChange={handleInputChange}
                 placeholder='What are you looking for…'
-                className='font-inter border-syft-border-light text-syft-primary placeholder:text-syft-placeholder focus:ring-syft-primary w-full rounded-xl border bg-white px-6 py-4 shadow-sm transition-colors transition-shadow focus:border-transparent focus:ring-2 focus:outline-none'
+                className='font-inter border-syft-border-light text-syft-primary placeholder:text-syft-placeholder focus:ring-syft-primary bg-background w-full rounded-xl border px-6 py-4 shadow-sm transition-colors transition-shadow focus:border-transparent focus:ring-2 focus:outline-none'
                 autoComplete='off'
               />
               <button
@@ -144,7 +144,7 @@ export function Hero({
                   onClick={() => {
                     handleSuggestionClick(suggestion);
                   }}
-                  className='font-inter border-syft-border text-syft-primary hover:border-syft-primary hover:bg-syft-surface focus:ring-syft-primary rounded-full border bg-white px-4 py-1.5 text-sm transition-colors focus:ring-2 focus:ring-offset-2 focus:outline-none'
+                  className='font-inter border-syft-border text-syft-primary hover:border-syft-primary hover:bg-syft-surface focus:ring-syft-primary bg-background rounded-full border px-4 py-1.5 text-sm transition-colors focus:ring-2 focus:ring-offset-2 focus:outline-none'
                 >
                   {suggestion}
                 </button>

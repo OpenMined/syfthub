@@ -64,19 +64,19 @@ export function BuildView({ onAuthRequired: _onAuthRequired }: Readonly<BuildVie
             <TabsList className='border-syft-border bg-syft-surface h-auto flex-shrink-0 border p-1'>
               <TabsTrigger
                 value='python'
-                className='text-syft-muted data-[state=active]:text-syft-primary px-4 py-2 data-[state=active]:bg-white'
+                className='text-syft-muted data-[state=active]:text-syft-primary data-[state=active]:bg-card px-4 py-2'
               >
                 Python SDK
               </TabsTrigger>
               <TabsTrigger
                 value='javascript'
-                className='text-syft-muted data-[state=active]:text-syft-primary px-4 py-2 data-[state=active]:bg-white'
+                className='text-syft-muted data-[state=active]:text-syft-primary data-[state=active]:bg-card px-4 py-2'
               >
                 JavaScript SDK
               </TabsTrigger>
               <TabsTrigger
                 value='mcp'
-                className='text-syft-muted data-[state=active]:text-syft-primary px-4 py-2 data-[state=active]:bg-white'
+                className='text-syft-muted data-[state=active]:text-syft-primary data-[state=active]:bg-card px-4 py-2'
               >
                 MCP Integration
               </TabsTrigger>
@@ -367,7 +367,7 @@ const Section = memo(function Section({
   return (
     <div className='space-y-4'>
       <div className='flex items-start gap-3'>
-        <div className='border-syft-border text-syft-primary rounded-lg border bg-white p-2'>
+        <div className='border-syft-border text-syft-primary bg-card rounded-lg border p-2'>
           {icon}
         </div>
         <div>
@@ -435,17 +435,17 @@ const CodeBlock = memo(function CodeBlock({
         <Button
           variant='ghost'
           size='icon'
-          className='h-8 w-8 text-gray-400 hover:bg-white/10 hover:text-white'
+          className='text-muted-foreground h-8 w-8 hover:bg-white/10 hover:text-white'
           onClick={copyToClipboard}
         >
           {copied ? <Check className='h-4 w-4' /> : <Copy className='h-4 w-4' />}
         </Button>
       </div>
       <div className='flex items-center justify-between border-b border-white/5 bg-[#131219] px-4 py-2'>
-        <span className='font-mono text-xs text-gray-400'>{language}</span>
+        <span className='text-muted-foreground font-mono text-xs'>{language}</span>
       </div>
       <div className='overflow-x-auto p-4'>
-        <Suspense fallback={<pre className='font-mono text-sm text-gray-300'>{code}</pre>}>
+        <Suspense fallback={<pre className='text-muted-foreground font-mono text-sm'>{code}</pre>}>
           {style ? (
             <SyntaxHighlighter
               language={language}
@@ -465,7 +465,7 @@ const CodeBlock = memo(function CodeBlock({
               {code}
             </SyntaxHighlighter>
           ) : (
-            <pre className='font-mono text-sm text-gray-300'>{code}</pre>
+            <pre className='text-muted-foreground font-mono text-sm'>{code}</pre>
           )}
         </Suspense>
       </div>

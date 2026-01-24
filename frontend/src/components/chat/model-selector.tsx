@@ -135,16 +135,16 @@ export function ModelSelector({
         disabled={isLoading}
         className={`group flex items-center gap-2 rounded-xl border px-3 py-2.5 transition-colors ${
           isOpen
-            ? 'border-[#272532] bg-[#f7f6f9] text-[#272532]'
-            : 'border-[#ecebef] bg-[#fcfcfd] text-[#5e5a72] hover:border-[#cfcdd6] hover:bg-[#f1f0f4] hover:text-[#272532]'
+            ? 'border-foreground bg-syft-surface text-foreground'
+            : 'border-border bg-card text-muted-foreground hover:border-input hover:bg-accent hover:text-foreground'
         } ${isLoading ? 'cursor-wait opacity-70' : ''}`}
         aria-expanded={isOpen}
         aria-haspopup='listbox'
       >
         {isLoading ? (
-          <Loader2 className='h-4 w-4 animate-spin text-[#6976ae]' aria-hidden='true' />
+          <Loader2 className='text-secondary h-4 w-4 animate-spin' aria-hidden='true' />
         ) : (
-          <Brain className='h-4 w-4 text-[#6976ae]' aria-hidden='true' />
+          <Brain className='text-secondary h-4 w-4' aria-hidden='true' />
         )}
         <span className='font-inter max-w-[120px] truncate text-sm font-medium'>
           {selectedModel ? selectedModel.name : 'Select model'}
@@ -163,16 +163,16 @@ export function ModelSelector({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.96 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            className='absolute top-full left-0 z-50 mt-2 w-[320px] overflow-hidden rounded-xl border border-[#ecebef] bg-white shadow-lg'
+            className='border-border bg-card absolute top-full left-0 z-50 mt-2 w-[320px] overflow-hidden rounded-xl border shadow-lg'
           >
             {/* Search Input */}
-            <div className='border-b border-[#ecebef] p-3'>
+            <div className='border-border border-b p-3'>
               <div className='relative'>
                 <label htmlFor='model-search' className='sr-only'>
                   Search models
                 </label>
                 <Search
-                  className='absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-[#b4b0bf]'
+                  className='text-syft-placeholder absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2'
                   aria-hidden='true'
                 />
                 <input
@@ -182,7 +182,7 @@ export function ModelSelector({
                   value={searchQuery}
                   onChange={handleSearchChange}
                   placeholder='Search models…'
-                  className='font-inter w-full rounded-lg border border-[#ecebef] bg-[#fcfcfd] py-2 pr-3 pl-9 text-sm transition-colors transition-shadow placeholder:text-[#b4b0bf] focus:border-[#272532] focus:ring-2 focus:ring-[#272532]/10 focus:outline-none'
+                  className='font-inter border-border bg-card placeholder:text-syft-placeholder focus:border-foreground focus:ring-foreground/10 w-full rounded-lg border py-2 pr-3 pl-9 text-sm transition-colors transition-shadow focus:ring-2 focus:outline-none'
                   autoComplete='off'
                 />
               </div>
@@ -191,7 +191,7 @@ export function ModelSelector({
             {/* Model List */}
             <div className='max-h-[280px] overflow-y-auto p-2'>
               {filteredModels.length === 0 ? (
-                <div className='font-inter py-8 text-center text-sm text-[#b4b0bf]'>
+                <div className='font-inter text-syft-placeholder py-8 text-center text-sm'>
                   {searchQuery ? 'No models found' : 'No models available'}
                 </div>
               ) : (
@@ -208,8 +208,8 @@ export function ModelSelector({
                         }}
                         className={`group flex w-full items-start gap-3 rounded-lg p-3 text-left transition-colors ${
                           isSelected
-                            ? 'bg-[#f7f6f9] ring-1 ring-[#6976ae]/20'
-                            : 'hover:bg-[#f7f6f9]'
+                            ? 'bg-syft-surface ring-secondary/20 ring-1'
+                            : 'hover:bg-syft-surface'
                         }`}
                         role='option'
                         aria-selected={isSelected}
@@ -217,7 +217,7 @@ export function ModelSelector({
                         {/* Model Icon */}
                         <div
                           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-                            isSelected ? 'bg-[#6976ae] text-white' : 'bg-[#f1f0f4] text-[#6976ae]'
+                            isSelected ? 'bg-secondary text-white' : 'bg-accent text-secondary'
                           }`}
                           aria-hidden='true'
                         >
@@ -227,11 +227,11 @@ export function ModelSelector({
                         {/* Model Info */}
                         <div className='min-w-0 flex-1'>
                           <div className='mb-0.5 flex items-center gap-2'>
-                            <span className='font-inter truncate text-sm font-medium text-[#272532]'>
+                            <span className='font-inter text-foreground truncate text-sm font-medium'>
                               {model.name}
                             </span>
                             {model.stars_count > 0 ? (
-                              <div className='flex items-center gap-0.5 text-[#b4b0bf]'>
+                              <div className='text-syft-placeholder flex items-center gap-0.5'>
                                 <Star className='h-3 w-3' aria-hidden='true' />
                                 <span className='font-inter text-xs'>{model.stars_count}</span>
                               </div>
@@ -243,7 +243,7 @@ export function ModelSelector({
                             onClick={(event) => {
                               handleNavigateToEndpoint(event, model);
                             }}
-                            className='font-inter group/link flex items-center gap-1 text-xs text-[#6976ae] transition-colors hover:text-[#272532] hover:underline'
+                            className='font-inter group/link text-secondary hover:text-foreground flex items-center gap-1 text-xs transition-colors hover:underline'
                           >
                             <span className='truncate'>
                               {model.full_path ??
@@ -255,7 +255,7 @@ export function ModelSelector({
                             />
                           </button>
                           {model.version ? (
-                            <span className='font-inter mt-1 inline-block rounded bg-[#f1f0f4] px-1.5 py-0.5 text-[10px] text-[#5e5a72]'>
+                            <span className='font-inter bg-accent text-muted-foreground mt-1 inline-block rounded px-1.5 py-0.5 text-[10px]'>
                               v{model.version}
                             </span>
                           ) : null}
@@ -265,8 +265,8 @@ export function ModelSelector({
                         <div
                           className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-colors ${
                             isSelected
-                              ? 'bg-[#272532] text-white'
-                              : 'border border-[#cfcdd6] bg-white'
+                              ? 'bg-foreground text-background'
+                              : 'border-input bg-card border'
                           }`}
                           aria-hidden='true'
                         >
@@ -281,8 +281,8 @@ export function ModelSelector({
 
             {/* Footer hint */}
             {models.length > 0 ? (
-              <div className='border-t border-[#ecebef] bg-[#fcfcfd] px-3 py-2'>
-                <p className='font-inter text-center text-[10px] text-[#b4b0bf]'>
+              <div className='border-border bg-card border-t px-3 py-2'>
+                <p className='font-inter text-syft-placeholder text-center text-[10px]'>
                   {models.length} model{models.length === 1 ? '' : 's'} available
                 </p>
               </div>

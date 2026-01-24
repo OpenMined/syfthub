@@ -32,9 +32,9 @@ export function CostEstimationPanel({ model, dataSources }: Readonly<CostEstimat
   // Empty state
   if (!hasModel && !hasDataSources) {
     return (
-      <div className='rounded-lg border border-dashed border-gray-200 bg-gray-50/50 py-6 text-center'>
-        <Coins className='mx-auto h-6 w-6 text-gray-300' />
-        <p className='font-inter mt-2 text-xs text-gray-400'>
+      <div className='border-border bg-muted/50 rounded-lg border border-dashed py-6 text-center'>
+        <Coins className='text-muted-foreground mx-auto h-6 w-6' />
+        <p className='font-inter text-muted-foreground mt-2 text-xs'>
           Select a model and data sources to see cost estimates
         </p>
       </div>
@@ -61,12 +61,12 @@ export function CostEstimationPanel({ model, dataSources }: Readonly<CostEstimat
         <div className='space-y-2'>
           {/* Input Cost */}
           <div className='flex items-center justify-between'>
-            <span className='font-inter text-xs text-gray-600'>Input</span>
+            <span className='font-inter text-muted-foreground text-xs'>Input</span>
             <motion.span
               key={`input-${String(breakdown.totalInputCost)}`}
               initial={{ opacity: 0, x: 10 }}
               animate={{ opacity: 1, x: 0 }}
-              className='font-mono text-sm font-medium text-gray-700 tabular-nums'
+              className='text-foreground font-mono text-sm font-medium tabular-nums'
             >
               {formatCurrency(breakdown.totalInputCost)}
             </motion.span>
@@ -74,12 +74,12 @@ export function CostEstimationPanel({ model, dataSources }: Readonly<CostEstimat
 
           {/* Output Cost */}
           <div className='flex items-center justify-between'>
-            <span className='font-inter text-xs text-gray-600'>Output</span>
+            <span className='font-inter text-muted-foreground text-xs'>Output</span>
             <motion.span
               key={`output-${String(breakdown.totalOutputCost)}`}
               initial={{ opacity: 0, x: 10 }}
               animate={{ opacity: 1, x: 0 }}
-              className='font-mono text-sm font-medium text-gray-700 tabular-nums'
+              className='text-foreground font-mono text-sm font-medium tabular-nums'
             >
               {formatCurrency(breakdown.totalOutputCost)}
             </motion.span>
@@ -90,12 +90,12 @@ export function CostEstimationPanel({ model, dataSources }: Readonly<CostEstimat
 
           {/* Total */}
           <div className='flex items-center justify-between'>
-            <span className='font-inter text-xs font-semibold text-gray-800'>Total</span>
+            <span className='font-inter text-foreground text-xs font-semibold'>Total</span>
             <motion.span
               key={`total-${String(breakdown.totalCost)}`}
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
-              className='font-mono text-lg font-bold text-gray-900 tabular-nums'
+              className='text-foreground font-mono text-lg font-bold tabular-nums'
             >
               {formatCurrency(breakdown.totalCost)}
             </motion.span>
