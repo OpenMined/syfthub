@@ -41,10 +41,10 @@ function getStatusColor(status: 'active' | 'warning' | 'inactive') {
 function getTypeStyles(type: EndpointType) {
   switch (type) {
     case 'model': {
-      return 'bg-purple-100 text-purple-800 border-purple-200';
+      return 'bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-200';
     }
     case 'data_source': {
-      return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+      return 'bg-emerald-100 text-emerald-800 border-emerald-200 hover:bg-emerald-200';
     }
     default: {
       return 'bg-muted text-muted-foreground border-border';

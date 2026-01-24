@@ -89,7 +89,7 @@ export function ParticipateView({
           </section>
 
           {/* Install Syft Space */}
-          <section className='bg-primary relative overflow-hidden rounded-2xl p-8 text-white shadow-lg'>
+          <section className='bg-primary text-primary-foreground relative overflow-hidden rounded-2xl p-8 shadow-lg'>
             <div className='relative z-10 flex flex-col items-start justify-between gap-8 md:flex-row md:items-center'>
               <div className='max-w-lg'>
                 <h2 className='font-rubik mb-3 text-2xl font-medium'>Install Syft Space</h2>
