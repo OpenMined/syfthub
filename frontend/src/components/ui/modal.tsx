@@ -142,7 +142,7 @@ export function Modal({
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: 'spring', duration: 0.3 }}
             className={cn(
-              'border-syft-border relative w-full rounded-xl border bg-white shadow-xl',
+              'border-syft-border bg-card relative w-full rounded-xl border shadow-xl',
               sizeClasses[size]
             )}
             role='dialog'

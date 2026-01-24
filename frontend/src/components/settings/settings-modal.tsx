@@ -163,17 +163,17 @@ export function SettingsModal() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: 'spring', duration: 0.3 }}
-            className='border-syft-border relative flex h-[600px] w-full max-w-3xl overflow-hidden rounded-xl border bg-white shadow-xl'
+            className='border-syft-border bg-card relative flex h-[600px] w-full max-w-3xl overflow-hidden rounded-xl border shadow-xl'
             role='dialog'
             aria-modal='true'
             aria-labelledby='settings-modal-title'
           >
             {/* Sidebar */}
-            <div className='flex w-48 flex-col border-r border-gray-200 bg-gray-50'>
-              <div className='border-b border-gray-200 p-4'>
+            <div className='border-border bg-muted flex w-48 flex-col border-r'>
+              <div className='border-border border-b p-4'>
                 <h2
                   id='settings-modal-title'
-                  className='font-rubik text-lg font-semibold text-gray-900'
+                  className='font-rubik text-foreground text-lg font-semibold'
                 >
                   Settings
                 </h2>
@@ -195,7 +195,7 @@ export function SettingsModal() {
                         }
                         return tab.danger
                           ? 'text-red-600 hover:bg-red-50'
-                          : 'text-gray-700 hover:bg-gray-100';
+                          : 'text-muted-foreground hover:bg-accent';
                       })()
                     )}
                   >

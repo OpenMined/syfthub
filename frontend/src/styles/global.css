@@ -1,6 +1,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
 @import 'tailwindcss';
 
+/* Enable dark mode variant for Tailwind v4 */
+@custom-variant dark (&:is(.dark *));
+
 :root {
   --radius: 0.5rem;
 
@@ -53,6 +56,58 @@
   --sidebar-accent-foreground: #272532;
   --sidebar-border: #ecebef;
   --sidebar-ring: #272532;
+}
+
+/* Dark mode color overrides */
+.dark {
+  --border: #3a3748;
+  --input: #4a4759;
+  --ring: #f4f4f6;
+
+  --background: #0f0e13;
+  --foreground: #f4f4f6;
+  --primary: #f4f4f6;
+  --primary-foreground: #0f0e13;
+  --secondary: #8892c4;
+  --secondary-foreground: #0f0e13;
+  --muted: #1a1820;
+  --muted-foreground: #9e99ad;
+  --accent: #252330;
+  --accent-foreground: #f4f4f6;
+  --destructive: #f87171;
+
+  --card: #151419;
+  --card-foreground: #f4f4f6;
+  --popover: #151419;
+  --popover-foreground: #f4f4f6;
+
+  /* SyftHub specific colors - dark mode */
+  --syft-primary: #f4f4f6;
+  --syft-secondary: #8892c4;
+  --syft-green: #6fcf6a;
+  --syft-purple: #a885ad;
+  --syft-background: #0f0e13;
+  --syft-surface: #1a1820;
+  --syft-border: #3a3748;
+  --syft-border-light: #4a4759;
+  --syft-text: #f4f4f6;
+  --syft-text-muted: #9e99ad;
+  --syft-text-placeholder: #6b6678;
+
+  --chart-1: #6fcf6a;
+  --chart-2: #8892c4;
+  --chart-3: #a885ad;
+  --chart-4: #f4f4f6;
+  --chart-5: #6b6678;
+
+  --sidebar: #0f0e13;
+  --sidebar-foreground: #f4f4f6;
+  --sidebar-primary: #f4f4f6;
+  --sidebar-primary-foreground: #0f0e13;
+  --sidebar-accent: #252330;
+  --sidebar-accent-foreground: #f4f4f6;
+  --sidebar-border: #3a3748;
+  --sidebar-ring: #f4f4f6;
 }
 
 @theme inline {

@@ -16,9 +16,9 @@ const inputVariants = cva(
     variants: {
       variant: {
         default:
-          'border-syft-border-light bg-white shadow-sm focus:border-syft-primary focus:ring-2 focus:ring-syft-primary/10',
+          'border-syft-border-light bg-background shadow-sm focus:border-syft-primary focus:ring-2 focus:ring-syft-primary/10',
         error:
-          'border-red-500 bg-white shadow-sm focus:border-red-500 focus:ring-2 focus:ring-red-500/10'
+          'border-red-500 bg-background shadow-sm focus:border-red-500 focus:ring-2 focus:ring-red-500/10'
       },
       size: {
         default: 'h-10 px-3',

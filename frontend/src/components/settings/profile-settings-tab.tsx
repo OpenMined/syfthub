@@ -272,8 +272,8 @@ export function ProfileSettingsTab() {
   return (
     <div className='space-y-6'>
       <div>
-        <h3 className='text-lg font-semibold text-gray-900'>Profile Settings</h3>
-        <p className='mt-1 text-sm text-gray-500'>
+        <h3 className='text-foreground text-lg font-semibold'>Profile Settings</h3>
+        <p className='text-muted-foreground mt-1 text-sm'>
           Update your personal information and how others see you on SyftHub.
         </p>
       </div>
@@ -336,7 +336,7 @@ export function ProfileSettingsTab() {
                 placeholder='https://example.com/your-avatar.png'
                 disabled={isLoading}
               />
-              <p className='mt-1 text-xs text-gray-500'>
+              <p className='text-muted-foreground mt-1 text-xs'>
                 Enter a URL to your profile picture. Leave blank to use an auto-generated avatar.
               </p>
             </div>
@@ -365,7 +365,7 @@ export function ProfileSettingsTab() {
             />
             {usernameAvailability.checking ? (
               <div className='absolute top-1/2 right-3 -translate-y-1/2'>
-                <Loader2 className='h-4 w-4 animate-spin text-gray-400' />
+                <Loader2 className='text-muted-foreground h-4 w-4 animate-spin' />
               </div>
             ) : null}
             {!usernameAvailability.checking && usernameAvailability.available === true ? (
@@ -413,7 +413,7 @@ export function ProfileSettingsTab() {
             />
             {emailAvailability.checking ? (
               <div className='absolute top-1/2 right-3 -translate-y-1/2'>
-                <Loader2 className='h-4 w-4 animate-spin text-gray-400' />
+                <Loader2 className='text-muted-foreground h-4 w-4 animate-spin' />
               </div>
             ) : null}
             {!emailAvailability.checking && emailAvailability.available === true ? (
@@ -451,12 +451,12 @@ export function ProfileSettingsTab() {
         </div>
 
         {/* Endpoint Configuration Section */}
-        <div className='mt-6 border-t border-gray-200 pt-6'>
+        <div className='border-border mt-6 border-t pt-6'>
           <div className='mb-4 flex items-center gap-2'>
-            <Globe className='h-4 w-4 text-gray-500' />
-            <h4 className='text-sm font-medium text-gray-700'>Endpoint Configuration</h4>
+            <Globe className='text-muted-foreground h-4 w-4' />
+            <h4 className='text-muted-foreground text-sm font-medium'>Endpoint Configuration</h4>
           </div>
-          <p className='mb-4 text-xs text-gray-500'>
+          <p className='text-muted-foreground mb-4 text-xs'>
             Configure the domain where your endpoints are hosted. This is used to construct full
             URLs for your endpoints.
           </p>
@@ -471,7 +471,7 @@ export function ProfileSettingsTab() {
               placeholder='api.example.com or api.example.com:8080'
               disabled={isLoading}
             />
-            <p className='text-xs text-gray-500'>
+            <p className='text-muted-foreground text-xs'>
               Enter the base domain for your endpoints without the protocol (https:// will be added
               automatically).
             </p>
@@ -479,7 +479,7 @@ export function ProfileSettingsTab() {
         </div>
 
         {/* Submit Button */}
-        <div className='flex justify-end gap-3 border-t border-gray-200 pt-4'>
+        <div className='border-border flex justify-end gap-3 border-t pt-4'>
           <Button type='button' variant='outline' onClick={closeSettings} disabled={isLoading}>
             Cancel
           </Button>

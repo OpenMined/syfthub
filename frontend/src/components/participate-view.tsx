@@ -43,7 +43,7 @@ export function ParticipateView({
         <div className='mx-auto max-w-5xl space-y-8 px-6 py-8'>
           {/* Intro Text */}
           <div>
-            <p className='font-inter max-w-2xl text-lg leading-relaxed text-[#5e5a72]'>
+            <p className='font-inter text-muted-foreground max-w-2xl text-lg leading-relaxed'>
               Publish data sources, models, and collectives to the Federated AI Network while
               maintaining full control and privacy.
             </p>
@@ -51,36 +51,36 @@ export function ParticipateView({
 
           {/* How it works cards */}
           <section>
-            <h2 className='font-rubik mb-6 text-lg font-medium text-[#272532]'>How it works</h2>
+            <h2 className='font-rubik text-foreground mb-6 text-lg font-medium'>How it works</h2>
             <div className='grid gap-6 md:grid-cols-3'>
-              <div className='rounded-xl border border-[#ecebef] bg-white p-6 shadow-sm transition-colors hover:border-[#b4b0bf]'>
-                <div className='mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-[#f1f0f4]'>
-                  <Database className='h-6 w-6 text-[#6976ae]' />
+              <div className='border-border bg-card hover:border-input rounded-xl border p-6 shadow-sm transition-colors'>
+                <div className='bg-accent mb-4 flex h-12 w-12 items-center justify-center rounded-lg'>
+                  <Database className='text-secondary h-6 w-6' />
                 </div>
-                <h3 className='font-inter mb-2 font-medium text-[#272532]'>Publish Assets</h3>
-                <p className='font-inter text-sm leading-relaxed text-[#5e5a72]'>
+                <h3 className='font-inter text-foreground mb-2 font-medium'>Publish Assets</h3>
+                <p className='font-inter text-muted-foreground text-sm leading-relaxed'>
                   Connect your data sources or models. You define the access policies, privacy
                   budget, and metadata.
                 </p>
               </div>
 
-              <div className='rounded-xl border border-[#ecebef] bg-white p-6 shadow-sm transition-colors hover:border-[#b4b0bf]'>
-                <div className='mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-[#f1f0f4]'>
+              <div className='border-border bg-card hover:border-input rounded-xl border p-6 shadow-sm transition-colors'>
+                <div className='bg-accent mb-4 flex h-12 w-12 items-center justify-center rounded-lg'>
                   <Shield className='h-6 w-6 text-[#53bea9]' />
                 </div>
-                <h3 className='font-inter mb-2 font-medium text-[#272532]'>Stay in Control</h3>
-                <p className='font-inter text-sm leading-relaxed text-[#5e5a72]'>
+                <h3 className='font-inter text-foreground mb-2 font-medium'>Stay in Control</h3>
+                <p className='font-inter text-muted-foreground text-sm leading-relaxed'>
                   Your data never leaves your server. Users submit queries which are executed
                   locally within your privacy constraints.
                 </p>
               </div>
 
-              <div className='rounded-xl border border-[#ecebef] bg-white p-6 shadow-sm transition-colors hover:border-[#b4b0bf]'>
-                <div className='mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-[#f1f0f4]'>
+              <div className='border-border bg-card hover:border-input rounded-xl border p-6 shadow-sm transition-colors'>
+                <div className='bg-accent mb-4 flex h-12 w-12 items-center justify-center rounded-lg'>
                   <Globe className='h-6 w-6 text-[#937098]' />
                 </div>
-                <h3 className='font-inter mb-2 font-medium text-[#272532]'>Join the Network</h3>
-                <p className='font-inter text-sm leading-relaxed text-[#5e5a72]'>
+                <h3 className='font-inter text-foreground mb-2 font-medium'>Join the Network</h3>
+                <p className='font-inter text-muted-foreground text-sm leading-relaxed'>
                   Your endpoints become discoverable on SyftHub, allowing researchers and developers
                   to attribute and query them.
                 </p>
@@ -89,11 +89,11 @@ export function ParticipateView({
           </section>
 
           {/* Install Syft Space */}
-          <section className='relative overflow-hidden rounded-2xl bg-[#272532] p-8 text-white shadow-lg'>
+          <section className='bg-primary relative overflow-hidden rounded-2xl p-8 text-white shadow-lg'>
             <div className='relative z-10 flex flex-col items-start justify-between gap-8 md:flex-row md:items-center'>
               <div className='max-w-lg'>
                 <h2 className='font-rubik mb-3 text-2xl font-medium'>Install Syft Space</h2>
-                <p className='font-inter mb-6 text-sm leading-relaxed text-gray-300'>
+                <p className='font-inter text-primary-foreground/80 mb-6 text-sm leading-relaxed'>
                   Syft Space is your local control center for the Federated AI Network. Bring your
                   data or models, manage permissions, and publish your sources securely in a few
                   minutes
@@ -102,7 +102,7 @@ export function ParticipateView({
                 <div className='flex flex-wrap gap-4'>
                   <button
                     type='button'
-                    className='font-inter flex items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-medium text-[#272532] transition-colors hover:bg-gray-100'
+                    className='font-inter bg-card text-foreground hover:bg-accent flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium transition-colors'
                   >
                     <Download className='h-4 w-4' aria-hidden='true' />
                     Download for macOS
@@ -114,7 +114,7 @@ export function ParticipateView({
                     Download for Windows
                   </button>
                 </div>
-                <p className='font-inter mt-4 text-xs text-gray-400'>
+                <p className='font-inter text-primary-foreground/60 mt-4 text-xs'>
                   v0.8.2 • Requires Docker Desktop
                 </p>
               </div>
@@ -133,7 +133,7 @@ export function ParticipateView({
                     <div className='h-2 w-5/6 rounded bg-[#4a465d]' />
                   </div>
                   <div className='mt-auto flex justify-end'>
-                    <div className='font-inter rounded bg-[#53bea9] px-3 py-1 text-xs font-medium text-[#272532]'>
+                    <div className='font-inter text-foreground rounded bg-[#53bea9] px-3 py-1 text-xs font-medium'>
                       Active Node
                     </div>
                   </div>
@@ -143,19 +143,19 @@ export function ParticipateView({
           </section>
 
           {/* Developers */}
-          <section className='border-t border-[#ecebef] pt-12 pb-12'>
+          <section className='border-border border-t pt-12 pb-12'>
             <div className='flex flex-col items-start justify-between gap-8 md:flex-row'>
               <div>
-                <h2 className='font-rubik mb-2 text-lg font-medium text-[#272532]'>
+                <h2 className='font-rubik text-foreground mb-2 text-lg font-medium'>
                   For Developers
                 </h2>
-                <p className='font-inter mb-4 max-w-md text-sm text-[#5e5a72]'>
+                <p className='font-inter text-muted-foreground mb-4 max-w-md text-sm'>
                   Integrate SyftHub endpoints into your applications using our SDKs or the Model
                   Context Protocol (MCP).
                 </p>
                 <a
                   href='#'
-                  className='font-inter inline-flex items-center gap-1 text-sm font-medium text-[#6976ae] hover:underline'
+                  className='font-inter text-secondary inline-flex items-center gap-1 text-sm font-medium hover:underline'
                 >
                   Read the documentation
                   <svg
@@ -178,11 +178,11 @@ export function ParticipateView({
                   href='https://pypi.org/project/syfthub-sdk/'
                   target='_blank'
                   rel='noopener noreferrer'
-                  className='w-40 rounded-xl border border-[#ecebef] bg-white p-4 transition-colors hover:border-[#b4b0bf]'
+                  className='border-border bg-card hover:border-input w-40 rounded-xl border p-4 transition-colors'
                 >
-                  <Cpu className='mb-3 h-6 w-6 text-[#272532]' />
-                  <div className='font-inter font-medium text-[#272532]'>Python SDK</div>
-                  <div className='font-inter mt-1 text-xs text-[#5e5a72]'>
+                  <Cpu className='text-foreground mb-3 h-6 w-6' />
+                  <div className='font-inter text-foreground font-medium'>Python SDK</div>
+                  <div className='font-inter text-muted-foreground mt-1 text-xs'>
                     pip install syfthub-sdk
                   </div>
                 </a>
@@ -190,11 +190,13 @@ export function ParticipateView({
                   href='https://www.npmjs.com/package/@syfthub/sdk'
                   target='_blank'
                   rel='noopener noreferrer'
-                  className='w-40 rounded-xl border border-[#ecebef] bg-white p-4 transition-colors hover:border-[#b4b0bf]'
+                  className='border-border bg-card hover:border-input w-40 rounded-xl border p-4 transition-colors'
                 >
-                  <Share2 className='mb-3 h-6 w-6 text-[#272532]' />
-                  <div className='font-inter font-medium text-[#272532]'>TypeScript SDK</div>
-                  <div className='font-inter mt-1 text-xs text-[#5e5a72]'>npm i @syfthub/sdk</div>
+                  <Share2 className='text-foreground mb-3 h-6 w-6' />
+                  <div className='font-inter text-foreground font-medium'>TypeScript SDK</div>
+                  <div className='font-inter text-muted-foreground mt-1 text-xs'>
+                    npm i @syfthub/sdk
+                  </div>
                 </a>
               </div>
             </div>

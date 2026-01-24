@@ -177,8 +177,8 @@ export function AggregatorSettingsTab() {
       <div className='space-y-6'>
         {/* Header */}
         <div>
-          <h3 className='text-lg font-semibold text-gray-900'>Aggregator Settings</h3>
-          <p className='mt-1 text-sm text-gray-500'>
+          <h3 className='text-foreground text-lg font-semibold'>Aggregator Settings</h3>
+          <p className='text-muted-foreground mt-1 text-sm'>
             You have a custom aggregator configured for chat operations.
           </p>
         </div>
@@ -215,22 +215,22 @@ export function AggregatorSettingsTab() {
 
         {/* Current Configuration Display */}
         <div className='space-y-4' data-testid='aggregator-view'>
-          <div className='flex items-center gap-2 border-b border-gray-200 pb-3'>
-            <Server className='h-4 w-4 text-gray-500' />
-            <h4 className='font-medium text-gray-900'>Custom Aggregator</h4>
+          <div className='border-border flex items-center gap-2 border-b pb-3'>
+            <Server className='text-muted-foreground h-4 w-4' />
+            <h4 className='text-foreground font-medium'>Custom Aggregator</h4>
           </div>
 
           {/* URL */}
           <div className='space-y-1'>
-            <Label className='text-xs text-gray-500'>Aggregator URL</Label>
-            <div className='rounded-md bg-gray-50 px-3 py-2'>
-              <span className='text-sm break-all text-gray-900'>{currentUrl}</span>
+            <Label className='text-muted-foreground text-xs'>Aggregator URL</Label>
+            <div className='bg-muted rounded-md px-3 py-2'>
+              <span className='text-foreground text-sm break-all'>{currentUrl}</span>
             </div>
           </div>
         </div>
 
         {/* Action Buttons */}
-        <div className='flex items-center justify-between border-t border-gray-200 pt-4'>
+        <div className='border-border flex items-center justify-between border-t pt-4'>
           <Button
             type='button'
             variant='outline'
@@ -263,8 +263,8 @@ export function AggregatorSettingsTab() {
     <div className='space-y-6'>
       {/* Header */}
       <div>
-        <h3 className='text-lg font-semibold text-gray-900'>Aggregator Settings</h3>
-        <p className='mt-1 text-sm text-gray-500'>
+        <h3 className='text-foreground text-lg font-semibold'>Aggregator Settings</h3>
+        <p className='text-muted-foreground mt-1 text-sm'>
           {isEditing
             ? 'Update your custom aggregator URL.'
             : 'Configure a custom aggregator for chat operations.'}
@@ -319,9 +319,9 @@ export function AggregatorSettingsTab() {
 
       {/* Setup/Edit Form */}
       <form onSubmit={handleSubmit} className='space-y-5'>
-        <div className='flex items-center gap-2 border-b border-gray-200 pb-3'>
-          <Server className='h-4 w-4 text-gray-500' />
-          <h4 className='font-medium text-gray-900'>Aggregator Service</h4>
+        <div className='border-border flex items-center gap-2 border-b pb-3'>
+          <Server className='text-muted-foreground h-4 w-4' />
+          <h4 className='text-foreground font-medium'>Aggregator Service</h4>
         </div>
 
         {/* URL */}
@@ -338,7 +338,7 @@ export function AggregatorSettingsTab() {
             disabled={isLoading}
             data-testid='aggregator-url'
           />
-          <p className='text-xs text-gray-500'>
+          <p className='text-muted-foreground text-xs'>
             The base URL of your aggregator service API. Leave empty to use the default.
           </p>
         </div>

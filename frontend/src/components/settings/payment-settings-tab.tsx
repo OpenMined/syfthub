@@ -123,8 +123,10 @@ export function PaymentSettingsTab() {
       <div className='space-y-6'>
         {/* Header */}
         <div>
-          <h3 className='text-lg font-semibold text-gray-900'>Payment Settings</h3>
-          <p className='mt-1 text-sm text-gray-500'>Your accounting service is configured.</p>
+          <h3 className='text-foreground text-lg font-semibold'>Payment Settings</h3>
+          <p className='text-muted-foreground mt-1 text-sm'>
+            Your accounting service is configured.
+          </p>
         </div>
 
         {/* Success Message */}
@@ -144,33 +146,33 @@ export function PaymentSettingsTab() {
 
         {/* Credentials Display */}
         <div className='space-y-4' data-testid='credentials-view'>
-          <div className='flex items-center gap-2 border-b border-gray-200 pb-3'>
-            <CreditCard className='h-4 w-4 text-gray-500' />
-            <h4 className='font-medium text-gray-900'>Accounting Service Credentials</h4>
+          <div className='border-border flex items-center gap-2 border-b pb-3'>
+            <CreditCard className='text-muted-foreground h-4 w-4' />
+            <h4 className='text-foreground font-medium'>Accounting Service Credentials</h4>
           </div>
 
           {/* URL */}
           <div className='space-y-1'>
-            <Label className='text-xs text-gray-500'>URL</Label>
-            <div className='rounded-md bg-gray-50 px-3 py-2'>
-              <span className='text-sm text-gray-900'>{credentials?.url}</span>
+            <Label className='text-muted-foreground text-xs'>URL</Label>
+            <div className='bg-muted rounded-md px-3 py-2'>
+              <span className='text-foreground text-sm'>{credentials?.url}</span>
             </div>
           </div>
 
           {/* Email */}
           <div className='space-y-1'>
-            <Label className='text-xs text-gray-500'>Email</Label>
-            <div className='rounded-md bg-gray-50 px-3 py-2'>
-              <span className='text-sm text-gray-900'>{credentials?.email}</span>
+            <Label className='text-muted-foreground text-xs'>Email</Label>
+            <div className='bg-muted rounded-md px-3 py-2'>
+              <span className='text-foreground text-sm'>{credentials?.email}</span>
             </div>
-            <p className='text-xs text-gray-500'>Same as your SyftHub account email</p>
+            <p className='text-muted-foreground text-xs'>Same as your SyftHub account email</p>
           </div>
 
           {/* Password */}
           <div className='space-y-1'>
-            <Label className='text-xs text-gray-500'>Password</Label>
-            <div className='flex items-center gap-2 rounded-md bg-gray-50 px-3 py-2'>
-              <span className='flex-1 text-sm text-gray-900'>
+            <Label className='text-muted-foreground text-xs'>Password</Label>
+            <div className='bg-muted flex items-center gap-2 rounded-md px-3 py-2'>
+              <span className='text-foreground flex-1 text-sm'>
                 {showCurrentPassword ? credentials?.password : '••••••••••••'}
               </span>
               <button
@@ -178,7 +180,7 @@ export function PaymentSettingsTab() {
                 onClick={() => {
                   setShowCurrentPassword(!showCurrentPassword);
                 }}
-                className='text-gray-400 hover:text-gray-600'
+                className='text-muted-foreground hover:text-muted-foreground'
                 aria-label={showCurrentPassword ? 'Hide password' : 'Show password'}
               >
                 {showCurrentPassword ? (
@@ -192,7 +194,7 @@ export function PaymentSettingsTab() {
         </div>
 
         {/* Edit Button */}
-        <div className='flex justify-end border-t border-gray-200 pt-4'>
+        <div className='border-border flex justify-end border-t pt-4'>
           <Button
             type='button'
             variant='outline'
@@ -211,8 +213,8 @@ export function PaymentSettingsTab() {
     <div className='space-y-6'>
       {/* Header */}
       <div>
-        <h3 className='text-lg font-semibold text-gray-900'>Payment Settings</h3>
-        <p className='mt-1 text-sm text-gray-500'>
+        <h3 className='text-foreground text-lg font-semibold'>Payment Settings</h3>
+        <p className='text-muted-foreground mt-1 text-sm'>
           {isEditing
             ? 'Update your accounting service credentials.'
             : 'Configure your accounting service for payment processing.'}
@@ -252,9 +254,9 @@ export function PaymentSettingsTab() {
 
       {/* Setup/Edit Form */}
       <form onSubmit={handleSubmit} className='space-y-5'>
-        <div className='flex items-center gap-2 border-b border-gray-200 pb-3'>
-          <CreditCard className='h-4 w-4 text-gray-500' />
-          <h4 className='font-medium text-gray-900'>Accounting Service</h4>
+        <div className='border-border flex items-center gap-2 border-b pb-3'>
+          <CreditCard className='text-muted-foreground h-4 w-4' />
+          <h4 className='text-foreground font-medium'>Accounting Service</h4>
         </div>
 
         {/* URL */}
@@ -271,17 +273,19 @@ export function PaymentSettingsTab() {
             disabled={isLoading}
             data-testid='accounting-url'
           />
-          <p className='text-xs text-gray-500'>The base URL of your accounting service API</p>
+          <p className='text-muted-foreground text-xs'>
+            The base URL of your accounting service API
+          </p>
         </div>
 
         {/* Email (read-only info) */}
         {credentials?.email ? (
           <div className='space-y-2'>
             <Label>Email</Label>
-            <div className='rounded-md bg-gray-50 px-3 py-2'>
-              <span className='text-sm text-gray-600'>{credentials.email}</span>
+            <div className='bg-muted rounded-md px-3 py-2'>
+              <span className='text-muted-foreground text-sm'>{credentials.email}</span>
             </div>
-            <p className='text-xs text-gray-500'>
+            <p className='text-muted-foreground text-xs'>
               Your SyftHub email will be used for accounting service authentication
             </p>
           </div>
@@ -308,7 +312,7 @@ export function PaymentSettingsTab() {
               onClick={() => {
                 setShowPassword(!showPassword);
               }}
-              className='absolute top-1/2 right-3 -translate-y-1/2 text-gray-400 hover:text-gray-600'
+              className='text-muted-foreground hover:text-muted-foreground absolute top-1/2 right-3 -translate-y-1/2'
               tabIndex={-1}
               aria-label={showPassword ? 'Hide password' : 'Show password'}
             >

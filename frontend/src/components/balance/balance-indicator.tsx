@@ -241,12 +241,12 @@ export function BalanceIndicator() {
         <div className='space-y-2'>
           {[0, 1, 2].map((index) => (
             <div key={index} className='flex animate-pulse items-center gap-3'>
-              <div className='h-6 w-6 rounded-full bg-gray-100' />
+              <div className='bg-muted h-6 w-6 rounded-full' />
               <div className='flex-1'>
-                <div className='h-3 w-24 rounded bg-gray-100' />
-                <div className='mt-1 h-2 w-16 rounded bg-gray-100' />
+                <div className='bg-muted h-3 w-24 rounded' />
+                <div className='bg-muted mt-1 h-2 w-16 rounded' />
               </div>
-              <div className='h-3 w-12 rounded bg-gray-100' />
+              <div className='bg-muted h-3 w-12 rounded' />
             </div>
           ))}
         </div>
@@ -347,7 +347,7 @@ export function BalanceIndicator() {
             transition={{ duration: 0.15, ease: 'easeOut' }}
             className={cn(
               'absolute top-full right-0 z-50 mt-2 w-72',
-              'rounded-xl border border-[var(--syft-border)] bg-white shadow-lg'
+              'bg-card rounded-xl border border-[var(--syft-border)] shadow-lg'
             )}
           >
             {/* Header */}

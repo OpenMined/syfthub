@@ -64,7 +64,7 @@ export function DangerZoneTab() {
     <div className='space-y-6'>
       <div>
         <h3 className='text-lg font-semibold text-red-600'>Danger Zone</h3>
-        <p className='mt-1 text-sm text-gray-500'>
+        <p className='text-muted-foreground mt-1 text-sm'>
           Irreversible and destructive actions for your account.
         </p>
       </div>
@@ -87,11 +87,11 @@ export function DangerZoneTab() {
       <div className='rounded-lg border border-red-300 p-4'>
         <div className='flex items-start justify-between gap-4'>
           <div className='flex-1'>
-            <h4 className='font-medium text-gray-900'>Delete Account</h4>
-            <p className='mt-1 text-sm text-gray-500'>
+            <h4 className='text-foreground font-medium'>Delete Account</h4>
+            <p className='text-muted-foreground mt-1 text-sm'>
               Permanently delete your account and all associated data. This action cannot be undone.
             </p>
-            <ul className='mt-2 text-xs text-gray-500'>
+            <ul className='text-muted-foreground mt-2 text-xs'>
               <li>• All your endpoints will be deleted</li>
               <li>• Your organization memberships will be removed</li>
               <li>• Your profile information will be permanently erased</li>

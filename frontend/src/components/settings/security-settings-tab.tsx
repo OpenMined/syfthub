@@ -130,8 +130,10 @@ export function SecuritySettingsTab() {
   return (
     <div className='space-y-6'>
       <div>
-        <h3 className='text-lg font-semibold text-gray-900'>Security Settings</h3>
-        <p className='mt-1 text-sm text-gray-500'>Manage your password and account security.</p>
+        <h3 className='text-foreground text-lg font-semibold'>Security Settings</h3>
+        <p className='text-muted-foreground mt-1 text-sm'>
+          Manage your password and account security.
+        </p>
       </div>
 
       {/* Account Info Card */}
@@ -177,9 +179,9 @@ export function SecuritySettingsTab() {
 
       {/* Password Change Form */}
       <form onSubmit={handleSubmit} className='space-y-5'>
-        <div className='flex items-center gap-2 border-b border-gray-200 pb-3'>
-          <Key className='h-4 w-4 text-gray-500' />
-          <h4 className='font-medium text-gray-900'>Change Password</h4>
+        <div className='border-border flex items-center gap-2 border-b pb-3'>
+          <Key className='text-muted-foreground h-4 w-4' />
+          <h4 className='text-foreground font-medium'>Change Password</h4>
         </div>
 
         <div className='space-y-2'>
@@ -213,15 +215,17 @@ export function SecuritySettingsTab() {
           {formData.new_password ? (
             <div className='space-y-1'>
               <div className='flex items-center gap-2'>
-                <div className='h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200'>
+                <div className='bg-muted h-1.5 flex-1 overflow-hidden rounded-full'>
                   <div
                     className={`h-full transition-[width] duration-300 ${passwordStrength.color}`}
                     style={{ width: `${String((passwordStrength.score / 5) * 100)}%` }}
                   />
                 </div>
-                <span className='min-w-0 text-xs text-gray-500'>{passwordStrength.label}</span>
+                <span className='text-muted-foreground min-w-0 text-xs'>
+                  {passwordStrength.label}
+                </span>
               </div>
-              <ul className='text-xs text-gray-500'>
+              <ul className='text-muted-foreground text-xs'>
                 <li className={formData.new_password.length >= 8 ? 'text-green-600' : ''}>
                   {formData.new_password.length >= 8 ? '✓' : '○'} At least 8 characters
                 </li>

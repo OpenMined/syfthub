@@ -39,10 +39,10 @@ function getRoleBadgeColor(role: string) {
       return 'bg-blue-100 text-blue-800 border-blue-200';
     }
     case 'guest': {
-      return 'bg-gray-100 text-gray-800 border-gray-200';
+      return 'bg-muted text-muted-foreground border-border';
     }
     default: {
-      return 'bg-gray-100 text-gray-800 border-gray-200';
+      return 'bg-muted text-muted-foreground border-border';
     }
   }
 }
@@ -94,8 +94,8 @@ export function ProfileView() {
       <div className='flex min-h-screen items-center justify-center'>
         <div className='text-center'>
           <AlertCircle className='mx-auto mb-4 h-12 w-12 text-red-500' />
-          <h2 className='mb-2 text-xl font-semibold text-gray-900'>Access Denied</h2>
-          <p className='text-gray-600'>You need to be logged in to view your profile.</p>
+          <h2 className='text-foreground mb-2 text-xl font-semibold'>Access Denied</h2>
+          <p className='text-muted-foreground'>You need to be logged in to view your profile.</p>
         </div>
       </div>
     );
@@ -172,12 +172,12 @@ export function ProfileView() {
   };
 
   return (
-    <div className='min-h-screen bg-gray-50 py-8'>
+    <div className='bg-muted min-h-screen py-8'>
       <div className='mx-auto max-w-4xl px-6'>
         {/* Header */}
         <div className='mb-8'>
-          <h1 className='text-3xl font-bold text-gray-900'>Profile Settings</h1>
-          <p className='mt-2 text-gray-600'>
+          <h1 className='text-foreground text-3xl font-bold'>Profile Settings</h1>
+          <p className='text-muted-foreground mt-2'>
             Manage your account information and security settings.
           </p>
         </div>
@@ -211,10 +211,10 @@ export function ProfileView() {
 
         <div className='grid gap-8 lg:grid-cols-2'>
           {/* Profile Information */}
-          <div className='rounded-lg border border-gray-200 bg-white shadow-sm'>
-            <div className='border-b border-gray-200 px-6 py-4'>
+          <div className='border-border bg-card rounded-lg border shadow-sm'>
+            <div className='border-border border-b px-6 py-4'>
               <div className='flex items-center justify-between'>
-                <h2 className='text-lg font-semibold text-gray-900'>Profile Information</h2>
+                <h2 className='text-foreground text-lg font-semibold'>Profile Information</h2>
                 {isEditing ? null : (
                   <Button
                     variant='outline'
@@ -249,8 +249,8 @@ export function ProfileView() {
                   )}
                 </div>
                 <div>
-                  <h3 className='text-lg font-medium text-gray-900'>{user.name}</h3>
-                  <p className='text-sm text-gray-500'>@{user.username}</p>
+                  <h3 className='text-foreground text-lg font-medium'>{user.name}</h3>
+                  <p className='text-muted-foreground text-sm'>@{user.username}</p>
                 </div>
               </div>
 
@@ -310,30 +310,30 @@ export function ProfileView() {
                 /* View Mode */
                 <div className='space-y-4'>
                   <div className='flex items-center gap-3'>
-                    <Mail className='h-5 w-5 text-gray-400' />
+                    <Mail className='text-muted-foreground h-5 w-5' />
                     <div>
-                      <p className='text-sm font-medium text-gray-900'>{user.email}</p>
-                      <p className='text-xs text-gray-500'>Email address</p>
+                      <p className='text-foreground text-sm font-medium'>{user.email}</p>
+                      <p className='text-muted-foreground text-xs'>Email address</p>
                     </div>
                   </div>
 
                   <div className='flex items-center gap-3'>
-                    <Shield className='h-5 w-5 text-gray-400' />
+                    <Shield className='text-muted-foreground h-5 w-5' />
                     <div>
                       <Badge className={getRoleBadgeColor(user.role)}>
                         {user.role.charAt(0).toUpperCase() + user.role.slice(1)}
                       </Badge>
-                      <p className='mt-1 text-xs text-gray-500'>Account role</p>
+                      <p className='text-muted-foreground mt-1 text-xs'>Account role</p>
                     </div>
                   </div>
 
                   <div className='flex items-center gap-3'>
-                    <Calendar className='h-5 w-5 text-gray-400' />
+                    <Calendar className='text-muted-foreground h-5 w-5' />
                     <div>
-                      <p className='text-sm font-medium text-gray-900'>
+                      <p className='text-foreground text-sm font-medium'>
                         {formatDate(user.created_at)}
                       </p>
-                      <p className='text-xs text-gray-500'>Member since</p>
+                      <p className='text-muted-foreground text-xs'>Member since</p>
                     </div>
                   </div>
                 </div>
@@ -342,10 +342,10 @@ export function ProfileView() {
           </div>
 
           {/* Security Settings */}
-          <div className='rounded-lg border border-gray-200 bg-white shadow-sm'>
-            <div className='border-b border-gray-200 px-6 py-4'>
+          <div className='border-border bg-card rounded-lg border shadow-sm'>
+            <div className='border-border border-b px-6 py-4'>
               <div className='flex items-center justify-between'>
-                <h2 className='text-lg font-semibold text-gray-900'>Security Settings</h2>
+                <h2 className='text-foreground text-lg font-semibold'>Security Settings</h2>
                 {isChangingPassword ? null : (
                   <Button
                     variant='outline'
@@ -443,10 +443,10 @@ export function ProfileView() {
                 /* Security Info */
                 <div className='space-y-4'>
                   <div className='flex items-center gap-3'>
-                    <Key className='h-5 w-5 text-gray-400' />
+                    <Key className='text-muted-foreground h-5 w-5' />
                     <div>
-                      <p className='text-sm font-medium text-gray-900'>Password</p>
-                      <p className='text-xs text-gray-500'>
+                      <p className='text-foreground text-sm font-medium'>Password</p>
+                      <p className='text-muted-foreground text-xs'>
                         Last updated: {formatDate(user.updated_at)}
                       </p>
                     </div>
