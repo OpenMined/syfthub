@@ -27,11 +27,7 @@ import {
   EndpointResolutionError,
   syftClient
 } from '@/lib/sdk-client';
-import {
-  filterSourcesForAutocomplete,
-  isDuplicateEndpointPath,
-  validateEndpointPath
-} from '@/lib/validation';
+import { filterSourcesForAutocomplete, validateEndpointPath } from '@/lib/validation';
 
 import { CostEstimationPanel } from './chat/cost-estimation-panel';
 import { MarkdownMessage } from './chat/markdown-message';
@@ -1172,17 +1168,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
     setIsPanelOpen(false);
   }, []);
 
-  // Get selected source paths for duplicate checking (memoized)
-  const selectedSourcePaths = useMemo(
-    () =>
-      availableSources
-        .filter((s) => selectedSources.has(s.id))
-        .map((s) => s.full_path)
-        .filter((p): p is string => p !== undefined),
-    [availableSources, selectedSources]
-  );
-
-  // Handler for adding custom sources with validation
+  // Handler for adding sources by path - validates against available backend sources
   const handleAddCustomSource = useCallback(
     (path: string) => {
       // Validate the path format
@@ -1194,17 +1180,27 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
 
       const normalizedPath = validation.normalizedPath ?? path.toLowerCase();
 
-      // Check for duplicates
-      if (isDuplicateEndpointPath(normalizedPath, customSources, selectedSourcePaths)) {
-        setCustomSourceError('This source is already added');
+      // Check if the source exists in available sources from the backend
+      const matchingSource = availableSources.find(
+        (source) => source.full_path?.toLowerCase() === normalizedPath
+      );
+
+      if (!matchingSource) {
+        setCustomSourceError('Data source not found. Please select from available sources.');
         return;
       }
 
-      // Add the custom source
-      setCustomSources((previous) => [...previous, normalizedPath]);
+      // Check if already selected
+      if (selectedSources.has(matchingSource.id)) {
+        setCustomSourceError('This source is already selected');
+        return;
+      }
+
+      // Select the matching source
+      toggleSource(matchingSource.id);
       setCustomSourceError(null);
     },
-    [customSources, selectedSourcePaths]
+    [availableSources, selectedSources, toggleSource]
   );
 
   // Handler for removing custom sources
