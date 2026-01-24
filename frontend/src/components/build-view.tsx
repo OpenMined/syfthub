@@ -301,15 +301,15 @@ for await (const ep of client.myEndpoints.list()) {
                   />
                 </Section>
 
-                <div className='flex gap-4 rounded-lg border border-blue-100 bg-blue-50 p-4'>
+                <div className='flex gap-4 rounded-lg border border-blue-200 bg-blue-50 p-4'>
                   <div className='min-w-[24px] pt-1'>
                     <div className='flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-600'>
                       i
                     </div>
                   </div>
                   <div>
-                    <h4 className='text-syft-primary mb-1 font-medium'>What is MCP?</h4>
-                    <p className='text-syft-muted text-sm'>
+                    <h4 className='mb-1 font-medium text-blue-900'>What is MCP?</h4>
+                    <p className='text-sm text-blue-700'>
                       The Model Context Protocol (MCP) allows AI assistants like Claude to directly
                       browse and interact with SyftHub endpoints during conversation. Once
                       configured, you can ask your AI to explore available models and data sources

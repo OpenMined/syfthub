@@ -31,13 +31,13 @@ import { Button } from './ui/button';
 function getStatusBadgeColor(status: 'active' | 'warning' | 'inactive') {
   switch (status) {
     case 'active': {
-      return 'bg-green-100 text-green-800 border-green-200';
+      return 'bg-green-100 text-green-800 border-green-200 hover:bg-green-200';
     }
     case 'warning': {
-      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      return 'bg-yellow-100 text-yellow-800 border-yellow-200 hover:bg-yellow-200';
     }
     case 'inactive': {
-      return 'bg-red-100 text-red-800 border-red-200';
+      return 'bg-red-100 text-red-800 border-red-200 hover:bg-red-200';
     }
     default: {
       return 'bg-syft-surface text-syft-primary border-syft-border';
@@ -48,10 +48,10 @@ function getStatusBadgeColor(status: 'active' | 'warning' | 'inactive') {
 function getTypeStyles(type: EndpointType) {
   switch (type) {
     case 'model': {
-      return 'bg-purple-100 text-purple-800 border-purple-200';
+      return 'bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-200';
     }
     case 'data_source': {
-      return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+      return 'bg-emerald-100 text-emerald-800 border-emerald-200 hover:bg-emerald-200';
     }
     default: {
       return 'bg-syft-surface text-syft-primary border-syft-border';
