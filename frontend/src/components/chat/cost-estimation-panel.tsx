@@ -11,6 +11,8 @@ import { calculateFullCostBreakdown, formatCurrency } from '@/lib/cost-utils';
 interface CostEstimationPanelProps {
   model: ChatSource | null;
   dataSources: ChatSource[];
+  /** Number of custom sources added (pricing unknown) */
+  customSourceCount?: number;
 }
 
 // Fixed estimation: 1K tokens for input and output
@@ -20,14 +22,31 @@ const FIXED_ESTIMATION = {
   queriesPerSource: 1
 };
 
-export function CostEstimationPanel({ model, dataSources }: Readonly<CostEstimationPanelProps>) {
+export function CostEstimationPanel({
+  model,
+  dataSources,
+  customSourceCount = 0
+}: Readonly<CostEstimationPanelProps>) {
   const breakdown = useMemo(
     () => calculateFullCostBreakdown(model, dataSources, FIXED_ESTIMATION),
     [model, dataSources]
   );
 
   const hasModel = Boolean(model);
-  const hasDataSources = dataSources.length > 0;
+  const hasDataSources = dataSources.length > 0 || customSourceCount > 0;
+
+  // Compute warning message to avoid nested ternary in JSX
+  const getWarningMessage = (): string | null => {
+    if (breakdown.hasAnyPricing && customSourceCount === 0) {
+      return null;
+    }
+    if (customSourceCount > 0) {
+      const plural = customSourceCount > 1 ? 's' : '';
+      return `${String(customSourceCount)} custom source${plural} with unknown pricing`;
+    }
+    return 'Some endpoints have no pricing configured';
+  };
+  const warningMessage = getWarningMessage();
 
   // Empty state
   if (!hasModel && !hasDataSources) {
@@ -102,12 +121,12 @@ export function CostEstimationPanel({ model, dataSources }: Readonly<CostEstimat
           </div>
         </div>
 
-        {breakdown.hasAnyPricing ? null : (
+        {warningMessage ? (
           <div className='mt-3 flex items-center gap-1.5 text-[10px] text-amber-600'>
             <AlertCircle className='h-3 w-3' />
-            <span>Some endpoints have no pricing configured</span>
+            <span>{warningMessage}</span>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

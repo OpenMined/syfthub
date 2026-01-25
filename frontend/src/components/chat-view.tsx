@@ -27,6 +27,7 @@ import {
   EndpointResolutionError,
   syftClient
 } from '@/lib/sdk-client';
+import { filterSourcesForAutocomplete, validateEndpointPath } from '@/lib/validation';
 
 import { CostEstimationPanel } from './chat/cost-estimation-panel';
 import { MarkdownMessage } from './chat/markdown-message';
@@ -37,35 +38,380 @@ import { Badge } from './ui/badge';
 import { Label } from './ui/label';
 import { Switch } from './ui/switch';
 
+// AdvancedPanel Props Interface
+interface AdvancedPanelProps {
+  isOpen: boolean;
+  onClose: () => void;
+  // Data sources
+  availableSources: ChatSource[];
+  selectedSourceIds: Set<string>;
+  onToggleSource: (id: string) => void;
+  // Custom sources (lifted state)
+  customSources: string[];
+  onAddCustomSource: (path: string) => void;
+  onRemoveCustomSource: (path: string) => void;
+  customSourceError: string | null;
+  onCustomSourceErrorClear: () => void;
+  // Mode (lifted state)
+  isFactualMode: boolean;
+  onModeChange: (isFactual: boolean) => void;
+  // Model
+  selectedModel: ChatSource | null;
+  availableModels: ChatSource[];
+  onModelSelect: (model: ChatSource) => void;
+  isLoadingModels: boolean;
+}
+
+// ============================================================================
+// Sub-components to reduce AdvancedPanel cognitive complexity
+// ============================================================================
+
+interface CostBadgesProps {
+  inputPerToken: number;
+  outputPerToken: number;
+  colorScheme: 'green' | 'purple';
+}
+
+/** Renders cost badges or "No pricing" badge */
+function CostBadges({ inputPerToken, outputPerToken, colorScheme }: Readonly<CostBadgesProps>) {
+  const hasInputCost = inputPerToken > 0;
+  const hasOutputCost = outputPerToken > 0;
+
+  const colorClasses =
+    colorScheme === 'green'
+      ? 'border-green-200 bg-green-50 text-green-700'
+      : 'border-purple-200 bg-purple-50 text-purple-700';
+
+  if (!hasInputCost && !hasOutputCost) {
+    return (
+      <Badge
+        variant='secondary'
+        className='font-inter border-border bg-muted text-muted-foreground h-5 px-2 text-[10px] font-normal'
+      >
+        No pricing
+      </Badge>
+    );
+  }
+
+  return (
+    <>
+      {hasInputCost ? (
+        <Badge
+          variant='secondary'
+          className={`font-inter h-5 px-2 text-[10px] font-medium ${colorClasses}`}
+        >
+          In: {formatCostPerUnit(inputPerToken, 'token')}
+        </Badge>
+      ) : null}
+      {hasOutputCost ? (
+        <Badge
+          variant='secondary'
+          className={`font-inter h-5 px-2 text-[10px] font-medium ${colorClasses}`}
+        >
+          Out: {formatCostPerUnit(outputPerToken, 'token')}
+        </Badge>
+      ) : null}
+    </>
+  );
+}
+
+interface SourceCardProps {
+  source: ChatSource;
+  onRemove: () => void;
+}
+
+/** Renders a single data source card with remove button */
+function SourceCard({ source, onRemove }: Readonly<SourceCardProps>) {
+  const costs = getCostsFromSource(source);
+
+  return (
+    <div className='group bg-card relative rounded-lg border border-green-100 p-3 shadow-sm'>
+      <button
+        onClick={onRemove}
+        className='absolute top-2 right-2 rounded p-1 text-red-500 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-50'
+        aria-label={`Remove ${source.name}`}
+      >
+        <X className='h-3 w-3' aria-hidden='true' />
+      </button>
+      <div className='mb-3 flex items-center gap-3'>
+        <div className='font-inter flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-green-100 text-xs font-bold text-green-700'>
+          {source.name.slice(0, 2).toUpperCase() || '??'}
+        </div>
+        <div className='min-w-0 flex-1'>
+          <span
+            className='font-inter text-foreground block truncate text-sm font-medium'
+            title={source.name}
+          >
+            {source.name}
+          </span>
+          {source.full_path ? (
+            <span className='font-inter text-muted-foreground truncate text-xs'>
+              {source.full_path}
+            </span>
+          ) : null}
+        </div>
+      </div>
+      <div className='flex flex-wrap gap-2'>
+        <CostBadges
+          inputPerToken={costs.inputPerToken}
+          outputPerToken={costs.outputPerToken}
+          colorScheme='green'
+        />
+      </div>
+    </div>
+  );
+}
+
+interface CustomSourceCardProps {
+  sourcePath: string;
+  onRemove: () => void;
+}
+
+/** Renders a custom source card */
+function CustomSourceCard({ sourcePath, onRemove }: Readonly<CustomSourceCardProps>) {
+  return (
+    <div className='group bg-card relative rounded-lg border border-amber-200 p-3 shadow-sm'>
+      <button
+        onClick={onRemove}
+        className='absolute top-2 right-2 rounded p-1 text-red-500 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-50'
+        aria-label={`Remove custom source ${sourcePath}`}
+      >
+        <X className='h-3 w-3' aria-hidden='true' />
+      </button>
+      <div className='mb-3 flex items-center gap-3'>
+        <div className='font-inter flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-xs font-bold text-amber-700'>
+          EXT
+        </div>
+        <div className='min-w-0 flex-1'>
+          <span
+            className='font-inter text-foreground block truncate text-sm font-medium'
+            title={sourcePath}
+          >
+            {sourcePath}
+          </span>
+        </div>
+      </div>
+      <Badge
+        variant='secondary'
+        className='font-inter h-5 border-amber-200 bg-amber-50 px-2 text-[10px] font-medium text-amber-700'
+      >
+        Custom Source (pricing unknown)
+      </Badge>
+    </div>
+  );
+}
+
+interface SuggestionItemProps {
+  source: ChatSource;
+  isSelected: boolean;
+  onSelect: () => void;
+}
+
+/** Renders an autocomplete suggestion item */
+function SuggestionItem({ source, isSelected, onSelect }: Readonly<SuggestionItemProps>) {
+  return (
+    <button
+      type='button'
+      onClick={onSelect}
+      className='hover:bg-accent flex w-full items-center gap-2 px-3 py-2 text-left first:rounded-t-lg last:rounded-b-lg'
+    >
+      <div className='font-inter flex h-6 w-6 shrink-0 items-center justify-center rounded bg-green-100 text-[10px] font-bold text-green-700'>
+        {source.name.slice(0, 2).toUpperCase()}
+      </div>
+      <div className='min-w-0 flex-1'>
+        <span className='font-inter text-foreground block truncate text-xs font-medium'>
+          {source.name}
+        </span>
+        <span className='font-inter text-muted-foreground truncate text-[10px]'>
+          {source.full_path}
+        </span>
+      </div>
+      {isSelected ? <Check className='h-3 w-3 text-green-600' /> : null}
+    </button>
+  );
+}
+
+interface ModelDisplayProps {
+  model: ChatSource | null;
+  modelCosts: { inputPerToken: number; outputPerToken: number } | null;
+  isFactualMode: boolean;
+}
+
+/** Renders the model display section */
+function ModelDisplay({ model, modelCosts, isFactualMode }: Readonly<ModelDisplayProps>) {
+  if (!model) {
+    return (
+      <div className='font-inter bg-card/50 rounded-lg border border-dashed border-purple-200 py-6 text-center text-sm text-purple-700/50'>
+        <p>No model selected</p>
+        <p className='mt-1 text-xs'>Select a model from the dropdown above</p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className='flex items-center gap-3'>
+        <div className='flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple-100 text-purple-700'>
+          <Brain className='h-4 w-4' />
+        </div>
+        <div className='min-w-0 flex-1'>
+          <span
+            className='font-inter text-foreground block truncate text-sm font-medium'
+            title={model.name}
+          >
+            {model.name}
+          </span>
+          <span className='font-inter text-muted-foreground text-xs'>
+            {model.version ? `v${model.version}` : 'latest'}
+          </span>
+        </div>
+      </div>
+      <div className='flex flex-wrap gap-2'>
+        <CostBadges
+          inputPerToken={modelCosts?.inputPerToken ?? 0}
+          outputPerToken={modelCosts?.outputPerToken ?? 0}
+          colorScheme='purple'
+        />
+      </div>
+      <div
+        id='mode-description'
+        className='font-inter text-muted-foreground mt-2 flex items-start gap-2 border-t border-purple-50 pt-2 text-xs'
+      >
+        <Info className='mt-0.5 h-3 w-3 shrink-0' aria-hidden='true' />
+        {isFactualMode
+          ? 'Strict mode: Results will be grounded in retrieved data only.'
+          : 'Nuanced mode: Model can infer and synthesize broader context.'}
+      </div>
+    </>
+  );
+}
+
+// ============================================================================
+// AdvancedPanel Component
+// ============================================================================
+
 // Memoized AdvancedPanel to prevent unnecessary re-renders
 const AdvancedPanel = memo(function AdvancedPanel({
   isOpen,
   onClose,
-  sources,
-  selectedIds,
-  selectedModel
-}: Readonly<{
-  isOpen: boolean;
-  onClose: () => void;
-  sources: ChatSource[];
-  selectedIds: Set<string>;
-  selectedModel: ChatSource | null;
-}>) {
-  const activeSources = sources.filter((s) => selectedIds.has(s.id));
-  const [isFactual, setIsFactual] = useState(true);
+  availableSources,
+  selectedSourceIds,
+  onToggleSource,
+  customSources,
+  onAddCustomSource,
+  onRemoveCustomSource,
+  customSourceError,
+  onCustomSourceErrorClear,
+  isFactualMode,
+  onModeChange,
+  selectedModel,
+  availableModels,
+  onModelSelect,
+  isLoadingModels
+}: Readonly<AdvancedPanelProps>) {
+  // Memoize active sources for performance
+  const activeSources = useMemo(
+    () => availableSources.filter((s) => selectedSourceIds.has(s.id)),
+    [availableSources, selectedSourceIds]
+  );
+
+  // Local state for custom source input
   const [customSourceInput, setCustomSourceInput] = useState('');
-  const [customSources, setCustomSources] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const inputReference = useRef<HTMLInputElement>(null);
+  const panelReference = useRef<HTMLDivElement>(null);
 
-  const handleAddSource = (event: React.KeyboardEvent) => {
-    if (event.key === 'Enter' && customSourceInput.trim()) {
-      setCustomSources((previous) => [...previous, customSourceInput.trim()]);
-      setCustomSourceInput('');
+  // Memoize model costs for performance
+  const modelCosts = useMemo(
+    () => (selectedModel ? getCostsFromSource(selectedModel) : null),
+    [selectedModel]
+  );
+
+  // Filter suggestions based on input
+  const suggestions = useMemo(() => {
+    if (!customSourceInput.trim()) return [];
+    return filterSourcesForAutocomplete(availableSources, customSourceInput, 5);
+  }, [availableSources, customSourceInput]);
+
+  // Handle keyboard events for accessibility
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isOpen, onClose]);
+
+  // Focus trap - focus panel when opened
+  useEffect(() => {
+    if (isOpen && panelReference.current) {
+      // Focus the panel for accessibility
+      const timer = setTimeout(() => {
+        panelReference.current?.focus();
+      }, 100);
+      return () => {
+        clearTimeout(timer);
+      };
     }
-  };
+  }, [isOpen]);
 
-  const removeCustomSource = (index: number) => {
-    setCustomSources((previous) => previous.filter((_, index_) => index_ !== index));
-  };
+  // Handle adding custom source with validation
+  const handleAddSource = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (event.key === 'Enter' && customSourceInput.trim()) {
+        event.preventDefault();
+        onAddCustomSource(customSourceInput.trim());
+        setCustomSourceInput('');
+        setShowSuggestions(false);
+      }
+    },
+    [customSourceInput, onAddCustomSource]
+  );
+
+  // Handle selecting a suggestion
+  const handleSelectSuggestion = useCallback(
+    (source: ChatSource) => {
+      if (source.full_path) {
+        // If the source is already available, toggle it instead of adding as custom
+        if (availableSources.some((s) => s.id === source.id)) {
+          onToggleSource(source.id);
+        } else {
+          onAddCustomSource(source.full_path);
+        }
+      }
+      setCustomSourceInput('');
+      setShowSuggestions(false);
+    },
+    [availableSources, onToggleSource, onAddCustomSource]
+  );
+
+  // Handle input change
+  const handleInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      setCustomSourceInput(event.target.value);
+      setShowSuggestions(event.target.value.trim().length > 0);
+      // Clear error when user starts typing
+      if (customSourceError) {
+        onCustomSourceErrorClear();
+      }
+    },
+    [customSourceError, onCustomSourceErrorClear]
+  );
+
+  // Handle input blur
+  const handleInputBlur = useCallback(() => {
+    // Delay hiding suggestions to allow click events
+    setTimeout(() => {
+      setShowSuggestions(false);
+    }, 200);
+  }, []);
 
   return (
     <AnimatePresence>
@@ -78,15 +424,21 @@ const AdvancedPanel = memo(function AdvancedPanel({
             exit={{ opacity: 0 }}
             onClick={onClose}
             className='fixed inset-0 z-50 bg-black/20 backdrop-blur-sm'
+            aria-hidden='true'
           />
 
           {/* Panel */}
           <motion.div
+            ref={panelReference}
             initial={{ x: '100%' }}
             animate={{ x: 0 }}
             exit={{ x: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
             className='border-border bg-card fixed top-0 right-0 z-50 flex h-full w-[400px] flex-col border-l shadow-2xl'
+            role='dialog'
+            aria-modal='true'
+            aria-labelledby='panel-title'
+            tabIndex={-1}
           >
             {/* Header */}
             <div className='border-border bg-syft-background flex items-center justify-between border-b p-6'>
@@ -95,7 +447,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
                   <Settings2 className='h-5 w-5 text-white' />
                 </div>
                 <div>
-                  <h2 className='font-rubik text-foreground text-lg font-medium'>
+                  <h2 id='panel-title' className='font-rubik text-foreground text-lg font-medium'>
                     Execution Layout
                   </h2>
                   <p className='font-inter text-muted-foreground text-xs'>Pipeline configuration</p>
@@ -117,21 +469,25 @@ const AdvancedPanel = memo(function AdvancedPanel({
                   <div className='font-inter flex items-center gap-2 font-medium text-green-800'>
                     <Database className='h-4 w-4' />
                     <h3>Data Sources</h3>
+                    <span className='text-xs font-normal text-green-600/60'>
+                      ({activeSources.length + customSources.length} selected)
+                    </span>
                   </div>
                   <div className='flex items-center gap-2'>
                     <Label
                       htmlFor='mode-toggle'
                       className='font-inter cursor-pointer text-[10px] font-medium text-green-800'
                     >
-                      {isFactual ? 'Factual' : 'Nuanced'}
+                      {isFactualMode ? 'Factual' : 'Nuanced'}
                     </Label>
                     <Switch
                       id='mode-toggle'
-                      checked={!isFactual}
+                      checked={!isFactualMode}
                       onCheckedChange={(checked) => {
-                        setIsFactual(!checked);
+                        onModeChange(!checked);
                       }}
                       className='h-4 w-8 data-[state=checked]:bg-purple-600 data-[state=unchecked]:bg-green-600'
+                      aria-describedby='mode-description'
                     />
                   </div>
                 </div>
@@ -139,107 +495,59 @@ const AdvancedPanel = memo(function AdvancedPanel({
                 <div className='space-y-3'>
                   {activeSources.length === 0 && customSources.length === 0 ? (
                     <div className='font-inter bg-card/50 rounded-lg border border-dashed border-green-200 py-8 text-center text-sm text-green-700/50'>
-                      No sources selected
+                      <p>No sources selected</p>
+                      <p className='mt-1 text-xs'>Select sources from the chat or add below</p>
                     </div>
                   ) : (
                     <>
-                      {activeSources.map((source) => {
-                        const costs = getCostsFromSource(source);
-                        const hasInputCost = costs.inputPerToken > 0;
-                        const hasOutputCost = costs.outputPerToken > 0;
-                        return (
-                          <div
-                            key={source.id}
-                            className='bg-card rounded-lg border border-green-100 p-3 shadow-sm'
-                          >
-                            <div className='mb-3 flex items-center gap-3'>
-                              <div className='font-inter flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-green-100 text-xs font-bold text-green-700'>
-                                {source.name.slice(0, 2).toUpperCase()}
-                              </div>
-                              <span className='font-inter text-foreground truncate text-sm font-medium'>
-                                {source.name}
-                              </span>
-                            </div>
-                            <div className='flex flex-wrap gap-2'>
-                              {hasInputCost || hasOutputCost ? (
-                                <>
-                                  {hasInputCost ? (
-                                    <Badge
-                                      variant='secondary'
-                                      className='font-inter h-5 border-green-200 bg-green-50 px-2 text-[10px] font-medium text-green-700'
-                                    >
-                                      In: {formatCostPerUnit(costs.inputPerToken, 'token')}
-                                    </Badge>
-                                  ) : null}
-                                  {hasOutputCost ? (
-                                    <Badge
-                                      variant='secondary'
-                                      className='font-inter h-5 border-green-200 bg-green-50 px-2 text-[10px] font-medium text-green-700'
-                                    >
-                                      Out: {formatCostPerUnit(costs.outputPerToken, 'token')}
-                                    </Badge>
-                                  ) : null}
-                                </>
-                              ) : (
-                                <Badge
-                                  variant='secondary'
-                                  className='font-inter border-border bg-muted text-muted-foreground h-5 px-2 text-[10px] font-normal'
-                                >
-                                  No pricing
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {customSources.map((source, index) => (
-                        <div
-                          key={index}
-                          className='group bg-card relative rounded-lg border border-green-100 p-3 shadow-sm'
-                        >
-                          <button
-                            onClick={() => {
-                              removeCustomSource(index);
-                            }}
-                            className='absolute top-2 right-2 rounded p-1 text-red-500 opacity-0 group-hover:opacity-100 hover:bg-red-50'
-                            aria-label={`Remove source ${source}`}
-                          >
-                            <X className='h-3 w-3' aria-hidden='true' />
-                          </button>
-                          <div className='mb-3 flex items-center gap-3'>
-                            <div className='font-inter flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-green-100 text-xs font-bold text-green-700'>
-                              EXT
-                            </div>
-                            <span className='font-inter text-foreground truncate text-sm font-medium'>
-                              {source}
-                            </span>
-                          </div>
-                          <Badge
-                            variant='secondary'
-                            className='font-inter border-border bg-muted text-muted-foreground h-5 px-2 text-[10px] font-normal'
-                          >
-                            External Source
-                          </Badge>
-                        </div>
+                      {/* Selected sources from available list */}
+                      {activeSources.map((source) => (
+                        <SourceCard
+                          key={source.id}
+                          source={source}
+                          onRemove={() => {
+                            onToggleSource(source.id);
+                          }}
+                        />
+                      ))}
+                      {/* Custom sources */}
+                      {customSources.map((sourcePath) => (
+                        <CustomSourceCard
+                          key={sourcePath}
+                          sourcePath={sourcePath}
+                          onRemove={() => {
+                            onRemoveCustomSource(sourcePath);
+                          }}
+                        />
                       ))}
                     </>
                   )}
 
+                  {/* Custom source input with autocomplete */}
                   <div className='relative mt-2'>
                     <label htmlFor='custom-source-input' className='sr-only'>
-                      Add external source
+                      Add source (owner/endpoint-name)
                     </label>
                     <input
+                      ref={inputReference}
                       id='custom-source-input'
                       type='text'
                       value={customSourceInput}
-                      onChange={(event) => {
-                        setCustomSourceInput(event.target.value);
-                      }}
+                      onChange={handleInputChange}
                       onKeyDown={handleAddSource}
-                      placeholder='Add external source (e.g. hf/dataset)…'
-                      className='font-inter bg-card w-full rounded-lg border border-green-200 py-2 pr-8 pl-3 text-xs transition-colors transition-shadow placeholder:text-green-700/40 focus:border-green-500 focus:ring-1 focus:ring-green-500/20 focus:outline-none'
+                      onFocus={() => {
+                        setShowSuggestions(customSourceInput.trim().length > 0);
+                      }}
+                      onBlur={handleInputBlur}
+                      placeholder='Add source (owner/endpoint-name)…'
+                      className={`font-inter bg-card w-full rounded-lg border py-2 pr-8 pl-3 text-xs transition-colors transition-shadow placeholder:text-green-700/40 focus:ring-1 focus:outline-none ${
+                        customSourceError
+                          ? 'border-red-400 focus:border-red-500 focus:ring-red-500/20'
+                          : 'border-green-200 focus:border-green-500 focus:ring-green-500/20'
+                      }`}
                       autoComplete='off'
+                      aria-invalid={!!customSourceError}
+                      aria-describedby={customSourceError ? 'custom-source-error' : undefined}
                     />
                     <div
                       className='font-inter text-muted-foreground pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-[10px]'
@@ -247,102 +555,79 @@ const AdvancedPanel = memo(function AdvancedPanel({
                     >
                       ↵
                     </div>
+
+                    {/* Error message */}
+                    {customSourceError ? (
+                      <p
+                        id='custom-source-error'
+                        className='font-inter mt-1 text-xs text-red-600'
+                        role='alert'
+                      >
+                        {customSourceError}
+                      </p>
+                    ) : null}
+
+                    {/* Autocomplete suggestions */}
+                    {showSuggestions && suggestions.length > 0 ? (
+                      <div className='border-border bg-card absolute top-full left-0 z-10 mt-1 w-full rounded-lg border shadow-lg'>
+                        {suggestions.map((source) => (
+                          <SuggestionItem
+                            key={source.id}
+                            source={source}
+                            isSelected={selectedSourceIds.has(source.id)}
+                            onSelect={() => {
+                              handleSelectSuggestion(source);
+                            }}
+                          />
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>
 
               {/* Arrow */}
               <div className='text-syft-placeholder flex justify-center'>
-                <ArrowDown className='h-5 w-5' />
+                <ArrowDown className='h-5 w-5' aria-hidden='true' />
               </div>
 
-              {/* Synthesizers Section */}
+              {/* Model Section with inline selector */}
               <div className='rounded-xl border border-purple-200 bg-purple-50/30 p-4'>
                 <div className='mb-4 flex items-center justify-between'>
                   <div className='font-inter flex items-center gap-2 font-medium text-purple-800'>
                     <Cpu className='h-4 w-4' />
                     <h3>Model</h3>
                   </div>
+                  {/* Inline model selector */}
+                  <ModelSelector
+                    selectedModel={selectedModel}
+                    onModelSelect={onModelSelect}
+                    models={availableModels}
+                    isLoading={isLoadingModels}
+                  />
                 </div>
 
                 <div className='bg-card space-y-3 rounded-lg border border-purple-100 p-3 shadow-sm'>
-                  {selectedModel ? (
-                    (() => {
-                      const modelCosts = getCostsFromSource(selectedModel);
-                      const hasInputCost = modelCosts.inputPerToken > 0;
-                      const hasOutputCost = modelCosts.outputPerToken > 0;
-                      return (
-                        <>
-                          <div className='flex items-center gap-3'>
-                            <div className='flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple-100 text-purple-700'>
-                              <Brain className='h-4 w-4' />
-                            </div>
-                            <div className='min-w-0 flex-1'>
-                              <span className='font-inter text-foreground block truncate text-sm font-medium'>
-                                {selectedModel.name}
-                              </span>
-                              {selectedModel.version ? (
-                                <span className='font-inter text-muted-foreground text-xs'>
-                                  v{selectedModel.version}
-                                </span>
-                              ) : null}
-                            </div>
-                          </div>
-                          <div className='flex flex-wrap gap-2'>
-                            {hasInputCost || hasOutputCost ? (
-                              <>
-                                {hasInputCost ? (
-                                  <Badge
-                                    variant='secondary'
-                                    className='font-inter h-5 border-purple-200 bg-purple-50 px-2 text-[10px] font-medium text-purple-700'
-                                  >
-                                    In: {formatCostPerUnit(modelCosts.inputPerToken, 'token')}
-                                  </Badge>
-                                ) : null}
-                                {hasOutputCost ? (
-                                  <Badge
-                                    variant='secondary'
-                                    className='font-inter h-5 border-purple-200 bg-purple-50 px-2 text-[10px] font-medium text-purple-700'
-                                  >
-                                    Out: {formatCostPerUnit(modelCosts.outputPerToken, 'token')}
-                                  </Badge>
-                                ) : null}
-                              </>
-                            ) : (
-                              <Badge
-                                variant='secondary'
-                                className='font-inter border-border bg-muted text-muted-foreground h-5 px-2 text-[10px] font-normal'
-                              >
-                                No pricing
-                              </Badge>
-                            )}
-                          </div>
-                        </>
-                      );
-                    })()
-                  ) : (
-                    <div className='font-inter bg-card/50 rounded-lg border border-dashed border-purple-200 py-6 text-center text-sm text-purple-700/50'>
-                      No model selected
-                    </div>
-                  )}
-
-                  <div className='font-inter text-muted-foreground mt-2 flex items-start gap-2 border-t border-purple-50 pt-2 text-xs'>
-                    <Info className='mt-0.5 h-3 w-3 shrink-0' />
-                    {isFactual
-                      ? 'Strict mode enabled. Results will be grounded in retrieved data only.'
-                      : 'Nuanced mode enabled. Model can infer and synthesize broader context.'}
-                  </div>
+                  <ModelDisplay
+                    model={selectedModel}
+                    modelCosts={modelCosts}
+                    isFactualMode={isFactualMode}
+                  />
                 </div>
               </div>
 
               {/* Arrow */}
               <div className='text-syft-placeholder flex flex-col items-center gap-1'>
-                <ArrowDown className='h-5 w-5' />
+                <ArrowDown className='h-5 w-5' aria-hidden='true' />
                 <span className='font-inter text-[10px] font-medium'>Process & Combine</span>
               </div>
 
               {/* Cost Estimation Section */}
-              <CostEstimationPanel model={selectedModel} dataSources={activeSources} />
+              <CostEstimationPanel
+                model={selectedModel}
+                dataSources={activeSources}
+                customSourceCount={customSources.length}
+              />
             </div>
           </motion.div>
         </>
@@ -671,6 +956,13 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus | null>(null);
 
+  // Custom sources state (lifted from AdvancedPanel)
+  const [customSources, setCustomSources] = useState<string[]>([]);
+  const [customSourceError, setCustomSourceError] = useState<string | null>(null);
+
+  // Factual/Nuanced mode state (lifted from AdvancedPanel)
+  const [isFactualMode, setIsFactualMode] = useState(true);
+
   // Build Map for O(1) source lookups by ID (avoids repeated .find() calls)
   const availableSourcesById = useMemo(
     () => new Map(availableSources.map((source) => [source.id, source])),
@@ -876,6 +1168,56 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
     setIsPanelOpen(false);
   }, []);
 
+  // Handler for adding sources by path - validates against available backend sources
+  const handleAddCustomSource = useCallback(
+    (path: string) => {
+      // Validate the path format
+      const validation = validateEndpointPath(path);
+      if (!validation.isValid) {
+        setCustomSourceError(validation.error ?? 'Invalid path format');
+        return;
+      }
+
+      const normalizedPath = validation.normalizedPath ?? path.toLowerCase();
+
+      // Check if the source exists in available sources from the backend
+      const matchingSource = availableSources.find(
+        (source) => source.full_path?.toLowerCase() === normalizedPath
+      );
+
+      if (!matchingSource) {
+        setCustomSourceError('Data source not found. Please select from available sources.');
+        return;
+      }
+
+      // Check if already selected
+      if (selectedSources.has(matchingSource.id)) {
+        setCustomSourceError('This source is already selected');
+        return;
+      }
+
+      // Select the matching source
+      toggleSource(matchingSource.id);
+      setCustomSourceError(null);
+    },
+    [availableSources, selectedSources, toggleSource]
+  );
+
+  // Handler for removing custom sources
+  const handleRemoveCustomSource = useCallback((path: string) => {
+    setCustomSources((previous) => previous.filter((p) => p !== path));
+  }, []);
+
+  // Handler for clearing custom source error
+  const handleClearCustomSourceError = useCallback(() => {
+    setCustomSourceError(null);
+  }, []);
+
+  // Handler for mode change
+  const handleModeChange = useCallback((isFactual: boolean) => {
+    setIsFactualMode(isFactual);
+  }, []);
+
   // Memoized input handler using functional setState
   const handleInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(event.target.value);
@@ -954,17 +1296,23 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
       }
 
       // Build data source paths from selected sources Set using Map for O(1) lookups
-      const dataSourcePaths = [...selectedSources]
+      const selectedSourcePaths = [...selectedSources]
         .map((id) => availableSourcesById.get(id)?.full_path)
         .filter((path): path is string => path !== undefined);
+
+      // Combine with custom sources (already validated) and deduplicate
+      const allDataSourcePaths = [...new Set([...selectedSourcePaths, ...customSources])];
 
       // Create abort controller for cancellation
       abortControllerReference.current = new AbortController();
 
+      // Calculate total source count for status message
+      const totalSourceCount = allDataSourcePaths.length;
+
       // Initialize processing status
       setProcessingStatus({
         phase: 'retrieving',
-        message: 'Starting...',
+        message: totalSourceCount > 0 ? 'Starting...' : 'Preparing request...',
         completedSources: []
       });
 
@@ -973,11 +1321,12 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
 
         // Use SDK for streaming - SDK resolves paths internally
         // Pass custom aggregator URL if user has configured one
+        // Note: isFactualMode could be passed to SDK if/when supported
         for await (const event of syftClient.chat.stream({
           prompt: inputValue,
           model: modelPath,
-          dataSources: dataSourcePaths.length > 0 ? dataSourcePaths : undefined,
-          aggregatorUrl: user?.aggregator_url || undefined,
+          dataSources: allDataSourcePaths.length > 0 ? allDataSourcePaths : undefined,
+          aggregatorUrl: user.aggregator_url ?? undefined,
           signal: abortControllerReference.current.signal
         })) {
           // Update processing status from event
@@ -1021,7 +1370,16 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
         abortControllerReference.current = null;
       }
     },
-    [inputValue, isProcessing, selectedModel, user?.email, availableSourcesById, selectedSources]
+    [
+      inputValue,
+      isProcessing,
+      selectedModel,
+      user?.email,
+      user?.aggregator_url,
+      availableSourcesById,
+      selectedSources,
+      customSources
+    ]
   );
 
   return (
@@ -1029,9 +1387,20 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
       <AdvancedPanel
         isOpen={isPanelOpen}
         onClose={handleClosePanel}
-        sources={allSources}
-        selectedIds={selectedSources}
+        availableSources={allSources}
+        selectedSourceIds={selectedSources}
+        onToggleSource={toggleSource}
+        customSources={customSources}
+        onAddCustomSource={handleAddCustomSource}
+        onRemoveCustomSource={handleRemoveCustomSource}
+        customSourceError={customSourceError}
+        onCustomSourceErrorClear={handleClearCustomSourceError}
+        isFactualMode={isFactualMode}
+        onModeChange={handleModeChange}
         selectedModel={selectedModel}
+        availableModels={availableModels}
+        onModelSelect={setSelectedModel}
+        isLoadingModels={isLoadingModels}
       />
 
       {/* Model Selector - Fixed top left */}
