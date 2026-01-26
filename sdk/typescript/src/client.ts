@@ -1,5 +1,6 @@
 import { HTTPClient, type AuthTokens } from './http.js';
 import { AuthenticationError, ConfigurationError, SyftHubError } from './errors.js';
+import { APITokensResource } from './resources/api-tokens.js';
 import { AuthResource } from './resources/auth.js';
 import { UsersResource } from './resources/users.js';
 import { MyEndpointsResource } from './resources/my-endpoints.js';
@@ -31,6 +32,14 @@ export interface SyftHubClientOptions {
    * Defaults to {baseUrl}/aggregator/api/v1
    */
   aggregatorUrl?: string;
+
+  /**
+   * API token for authentication (alternative to username/password login).
+   * If provided, the client will be authenticated immediately without needing to call login().
+   * Falls back to SYFTHUB_API_TOKEN environment variable.
+   * @example 'syft_pat_xxxxx...'
+   */
+  apiToken?: string;
 }
 
 /**
@@ -110,6 +119,7 @@ export class SyftHubClient {
   private _accountingInitPromise: Promise<AccountingResource> | null = null;
   private _chat?: ChatResource;
   private _syftai?: SyftAIResource;
+  private _apiTokens?: APITokensResource;
 
   /**
    * Create a new SyftHub client.
@@ -142,6 +152,12 @@ export class SyftHubClient {
       options.aggregatorUrl ??
       getEnv('SYFTHUB_AGGREGATOR_URL') ??
       `${normalizedUrl}/aggregator/api/v1`;
+
+    // Initialize with API token if provided
+    const apiToken = options.apiToken ?? getEnv('SYFTHUB_API_TOKEN');
+    if (apiToken) {
+      this.http.setApiToken(apiToken);
+    }
   }
 
   /**
@@ -372,6 +388,42 @@ export class SyftHubClient {
       this._syftai = new SyftAIResource();
     }
     return this._syftai;
+  }
+
+  /**
+   * API Tokens resource for managing personal access tokens.
+   *
+   * API tokens provide an alternative to username/password authentication.
+   * They are ideal for CI/CD pipelines, scripts, and programmatic access.
+   *
+   * @example
+   * // Create a new token
+   * const result = await client.apiTokens.create({
+   *   name: 'CI/CD Pipeline',
+   *   scopes: ['write'],
+   * });
+   * console.log('Save this token:', result.token);
+   *
+   * // List all tokens
+   * const { tokens } = await client.apiTokens.list();
+   *
+   * // Revoke a token
+   * await client.apiTokens.revoke(tokenId);
+   */
+  get apiTokens(): APITokensResource {
+    if (!this._apiTokens) {
+      this._apiTokens = new APITokensResource(this.http);
+    }
+    return this._apiTokens;
+  }
+
+  /**
+   * Check if the client is using API token authentication.
+   *
+   * @returns True if authenticated with an API token (vs JWT)
+   */
+  get isUsingApiToken(): boolean {
+    return this.http.isUsingApiToken();
   }
 
   /**

@@ -6,6 +6,16 @@ export {
   OrganizationRole,
 } from './common.js';
 
+// API Token types
+export type {
+  APIToken,
+  APITokenScope,
+  APITokenCreateResponse,
+  CreateAPITokenInput,
+  UpdateAPITokenInput,
+  APITokenListResponse,
+} from './api-token.js';
+
 // User types
 export type {
   User,

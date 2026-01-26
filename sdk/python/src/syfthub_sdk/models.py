@@ -426,6 +426,79 @@ class Message(BaseModel):
 
 
 # =============================================================================
+# API Token Models
+# =============================================================================
+
+
+class APITokenScope(str, Enum):
+    """API token permission scopes."""
+
+    READ = "read"
+    WRITE = "write"
+    FULL = "full"
+
+
+class APIToken(BaseModel):
+    """API token metadata (without the actual token value).
+
+    The full token value is only returned once during creation.
+    """
+
+    id: int
+    name: str
+    token_prefix: str = Field(
+        ..., description="First 12 chars of the token for identification"
+    )
+    scopes: list[APITokenScope] = Field(default_factory=lambda: [APITokenScope.FULL])
+    expires_at: datetime | None = None
+    last_used_at: datetime | None = None
+    last_used_ip: str | None = None
+    is_active: bool = True
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"frozen": True}
+
+
+class APITokenCreateResponse(APIToken):
+    """Response from creating an API token.
+
+    IMPORTANT: The `token` field is only returned ONCE during creation.
+    Store it securely - it cannot be retrieved later.
+    """
+
+    token: str = Field(..., description="The full token value (shown only once)")
+
+
+class CreateAPITokenInput(BaseModel):
+    """Input for creating a new API token."""
+
+    name: str = Field(..., min_length=1, max_length=100, description="Token name")
+    scopes: list[APITokenScope] = Field(
+        default_factory=lambda: [APITokenScope.FULL],
+        description="Permission scopes",
+    )
+    expires_at: datetime | None = Field(
+        default=None, description="Optional expiration date"
+    )
+
+
+class UpdateAPITokenInput(BaseModel):
+    """Input for updating an API token (only name can be changed)."""
+
+    name: str = Field(..., min_length=1, max_length=100, description="New token name")
+
+
+class APITokenListResponse(BaseModel):
+    """Response from listing API tokens."""
+
+    tokens: list[APIToken] = Field(default_factory=list)
+    total: int = 0
+
+    model_config = {"frozen": True}
+
+
+# =============================================================================
 # Sync Endpoints Models
 # =============================================================================
 

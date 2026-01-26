@@ -5,6 +5,7 @@ import type { SettingsTab } from '@/context/settings-modal-context';
 import { AnimatePresence, motion } from 'framer-motion';
 import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
 import CreditCard from 'lucide-react/dist/esm/icons/credit-card';
+import Key from 'lucide-react/dist/esm/icons/key';
 import Lock from 'lucide-react/dist/esm/icons/lock';
 import Server from 'lucide-react/dist/esm/icons/server';
 import User from 'lucide-react/dist/esm/icons/user';
@@ -15,6 +16,7 @@ import { useSettingsModal } from '@/context/settings-modal-context';
 import { cn } from '@/lib/utils';
 
 import { AggregatorSettingsTab } from './aggregator-settings-tab';
+import { APITokensSettingsTab } from './api-tokens-settings-tab';
 import { DangerZoneTab } from './danger-zone-tab';
 import { PaymentSettingsTab } from './payment-settings-tab';
 import { ProfileSettingsTab } from './profile-settings-tab';
@@ -30,6 +32,7 @@ interface TabItem {
 const TABS: TabItem[] = [
   { id: 'profile', label: 'Profile', icon: <User className='h-4 w-4' aria-hidden='true' /> },
   { id: 'security', label: 'Security', icon: <Lock className='h-4 w-4' aria-hidden='true' /> },
+  { id: 'api-tokens', label: 'API Tokens', icon: <Key className='h-4 w-4' aria-hidden='true' /> },
   { id: 'payment', label: 'Payment', icon: <CreditCard className='h-4 w-4' aria-hidden='true' /> },
   {
     id: 'aggregator',
@@ -124,6 +127,9 @@ export function SettingsModal() {
       }
       case 'security': {
         return <SecuritySettingsTab />;
+      }
+      case 'api-tokens': {
+        return <APITokensSettingsTab />;
       }
       case 'payment': {
         return <PaymentSettingsTab />;

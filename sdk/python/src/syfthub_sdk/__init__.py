@@ -29,6 +29,7 @@ Example usage:
 """
 
 from syfthub_sdk._pagination import PageIterator
+from syfthub_sdk.api_tokens import APITokensResource
 from syfthub_sdk.chat import (
     ChatResource,
     ChatStreamEvent,
@@ -60,10 +61,15 @@ from syfthub_sdk.exceptions import (
 from syfthub_sdk.models import (
     AccountingCredentials,
     AccountingUser,
+    APIToken,
+    APITokenCreateResponse,
+    APITokenListResponse,
+    APITokenScope,
     AuthTokens,
     ChatMetadata,
     ChatResponse,
     Connection,
+    CreateAPITokenInput,
     CreatorType,
     Document,
     DocumentSource,
@@ -81,6 +87,7 @@ from syfthub_sdk.models import (
     TokenUsage,
     Transaction,
     TransactionStatus,
+    UpdateAPITokenInput,
     User,
     UserRole,
     Visibility,
@@ -104,6 +111,13 @@ __all__ = [
     "Visibility",
     "Policy",
     "Connection",
+    # API Token models
+    "APIToken",
+    "APITokenScope",
+    "APITokenCreateResponse",
+    "APITokenListResponse",
+    "CreateAPITokenInput",
+    "UpdateAPITokenInput",
     # Chat models
     "EndpointRef",
     "Document",
@@ -124,6 +138,7 @@ __all__ = [
     "DoneEvent",
     "ErrorEvent",
     # Resources (for type hints)
+    "APITokensResource",
     "ChatResource",
     "SyftAIResource",
     # Accounting models
