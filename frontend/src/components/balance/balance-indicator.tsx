@@ -211,7 +211,7 @@ export function BalanceIndicator() {
   // Render status icon based on loading/error/success state
   const renderStatusIcon = () => {
     if (isLoading) {
-      return <Loader2 className='h-3.5 w-3.5 animate-spin text-[var(--syft-text-muted)]' />;
+      return <Loader2 className='text-muted-foreground h-3.5 w-3.5 animate-spin' />;
     }
 
     if (error) {
@@ -255,9 +255,7 @@ export function BalanceIndicator() {
 
     if (recentTransactions.length === 0) {
       return (
-        <div className='py-4 text-center text-xs text-[var(--syft-text-muted)]'>
-          No recent transactions
-        </div>
+        <div className='text-muted-foreground py-4 text-center text-xs'>No recent transactions</div>
       );
     }
 
@@ -282,11 +280,11 @@ export function BalanceIndicator() {
                 )}
               </div>
               <div className='min-w-0 flex-1'>
-                <div className='truncate text-xs font-medium text-[var(--syft-text)]'>
+                <div className='text-foreground truncate text-xs font-medium'>
                   {isIncoming ? 'From ' : 'To '}
                   {truncateEmail(otherParty)}
                 </div>
-                <div className='text-[10px] text-[var(--syft-text-muted)]'>
+                <div className='text-muted-foreground text-[10px]'>
                   {formatRelativeTime(tx.createdAt)}
                 </div>
               </div>
@@ -315,9 +313,9 @@ export function BalanceIndicator() {
         disabled={isLoading}
         className={cn(
           'font-inter flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors transition-shadow',
-          'border-[var(--syft-border)] bg-[var(--syft-surface)]',
-          'hover:border-[var(--syft-border-light)] hover:shadow-sm',
-          'focus:ring-2 focus:ring-[var(--syft-primary)]/20 focus:outline-none',
+          'border-border bg-muted',
+          'hover:border-input hover:shadow-sm',
+          'focus:ring-ring/20 focus:ring-2 focus:outline-none',
           'disabled:cursor-not-allowed disabled:opacity-50'
         )}
         aria-label={`Account balance: ${formatBalance(balance)} credits`}
@@ -325,12 +323,12 @@ export function BalanceIndicator() {
         aria-haspopup='true'
       >
         {renderStatusIcon()}
-        <span className='font-medium text-[var(--syft-text)] tabular-nums'>
+        <span className='text-foreground font-medium tabular-nums'>
           {getDisplayText(isLoading, error, balance)}
         </span>
         <ChevronDown
           className={cn(
-            'h-3 w-3 text-[var(--syft-text-muted)] transition-transform',
+            'text-muted-foreground h-3 w-3 transition-transform',
             isOpen && 'rotate-180'
           )}
         />
@@ -347,21 +345,21 @@ export function BalanceIndicator() {
             transition={{ duration: 0.15, ease: 'easeOut' }}
             className={cn(
               'absolute top-full right-0 z-50 mt-2 w-72',
-              'bg-card rounded-xl border border-[var(--syft-border)] shadow-lg'
+              'bg-card border-border rounded-xl border shadow-lg'
             )}
           >
             {/* Header */}
-            <div className='border-b border-[var(--syft-border)] px-4 py-3'>
+            <div className='border-border border-b px-4 py-3'>
               <div className='flex items-center justify-between'>
-                <span className='font-inter text-xs font-medium tracking-wide text-[var(--syft-text-muted)] uppercase'>
+                <span className='font-inter text-muted-foreground text-xs font-medium tracking-wide uppercase'>
                   Available Credits
                 </span>
                 <button
                   onClick={() => void handleRefresh()}
                   disabled={isLoading}
                   className={cn(
-                    'rounded-md p-1 text-[var(--syft-text-muted)] transition-colors',
-                    'hover:bg-[var(--syft-surface)] hover:text-[var(--syft-text)]',
+                    'text-muted-foreground rounded-md p-1 transition-colors',
+                    'hover:bg-muted hover:text-foreground',
                     'disabled:cursor-not-allowed disabled:opacity-50'
                   )}
                   aria-label='Refresh balance'
@@ -394,10 +392,10 @@ export function BalanceIndicator() {
                         )}
                       />
                     </div>
-                    <span className='font-rubik text-2xl font-semibold text-[var(--syft-text)] tabular-nums'>
+                    <span className='font-rubik text-foreground text-2xl font-semibold tabular-nums'>
                       {isLoading ? '---' : formatBalance(balance)}
                     </span>
-                    <span className='text-sm text-[var(--syft-text-muted)]'>credits</span>
+                    <span className='text-muted-foreground text-sm'>credits</span>
                   </>
                 )}
               </div>
@@ -423,7 +421,7 @@ export function BalanceIndicator() {
             {/* Recent Transactions */}
             <div className='px-4 py-3'>
               <div className='mb-2 flex items-center justify-between'>
-                <span className='font-inter text-xs font-medium text-[var(--syft-text-muted)]'>
+                <span className='font-inter text-muted-foreground text-xs font-medium'>
                   Recent Activity
                 </span>
               </div>
@@ -432,14 +430,14 @@ export function BalanceIndicator() {
             </div>
 
             {/* Footer Actions */}
-            <div className='border-t border-[var(--syft-border)] px-4 py-3'>
+            <div className='border-border border-t px-4 py-3'>
               <div className='flex gap-2'>
                 <button
                   onClick={handleOpenSettings}
                   className={cn(
                     'font-inter flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors',
-                    'bg-[var(--syft-surface)] text-[var(--syft-text)]',
-                    'hover:bg-[var(--syft-border)]'
+                    'bg-muted text-foreground',
+                    'hover:bg-border'
                   )}
                 >
                   <Settings className='h-3.5 w-3.5' />
@@ -449,8 +447,8 @@ export function BalanceIndicator() {
                   onClick={handleOpenSettings}
                   className={cn(
                     'font-inter flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors',
-                    'bg-[var(--syft-primary)] text-white',
-                    'hover:bg-[var(--syft-primary)]/90'
+                    'bg-primary text-white',
+                    'hover:bg-primary/90'
                   )}
                 >
                   <ExternalLink className='h-3.5 w-3.5' />

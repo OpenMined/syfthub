@@ -81,7 +81,7 @@ export function RecentModels({ endpoints, isLoading }: Readonly<RecentModelsProp
                 key={endpoint.id}
                 to={href}
                 title={`View ${endpoint.name}`}
-                className={`group hover:bg-syft-surface flex items-center gap-3 rounded-lg border-l-2 border-transparent px-4 py-3 transition-colors transition-shadow ${colors.border} hover:shadow-sm`}
+                className={`group hover:bg-muted flex items-center gap-3 rounded-lg border-l-2 border-transparent px-4 py-3 transition-colors transition-shadow ${colors.border} hover:shadow-sm`}
               >
                 <div className={`h-2 w-2 rounded-full ${colors.bg} flex-shrink-0`}></div>
                 <span className='font-inter text-foreground group-hover:text-foreground flex-1 truncate text-sm transition-colors'>

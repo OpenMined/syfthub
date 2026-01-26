@@ -23,12 +23,12 @@ export function LoadingSpinner({
     <div className={cn('flex items-center gap-3', className)}>
       <div
         className={cn(
-          'border-syft-primary animate-spin rounded-full border-t-transparent',
+          'border-primary animate-spin rounded-full border-t-transparent',
           sizeClasses[size]
         )}
       />
       {message && (
-        <span className='font-inter text-syft-primary' aria-live='polite'>
+        <span className='font-inter text-foreground' aria-live='polite'>
           {message}
         </span>
       )}
@@ -37,9 +37,7 @@ export function LoadingSpinner({
 
   if (fullScreen) {
     return (
-      <div className='bg-syft-background flex min-h-screen items-center justify-center'>
-        {spinner}
-      </div>
+      <div className='bg-background flex min-h-screen items-center justify-center'>{spinner}</div>
     );
   }
 

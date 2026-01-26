@@ -292,14 +292,14 @@ class TestGetEndpointsForHealthCheck:
         assert len(endpoints) == 1
         assert endpoints[0].id == 3
 
-    def test_get_endpoints_filters_no_domain(self, monitor):
-        """Test that endpoints without domain are filtered out."""
+    def test_get_endpoints_includes_no_domain(self, monitor):
+        """Test that endpoints without domain are included (will be marked unhealthy)."""
         mock_session = MagicMock()
 
         user_results = [
-            (1, True, [{"type": "rest_api"}], None),  # No domain
-            (2, True, [{"type": "rest_api"}], ""),  # Empty domain (falsy)
-            (3, True, [{"type": "rest_api"}], "valid.com"),  # Has domain
+            (1, True, [{"type": "rest_api"}], None),  # No domain - included
+            (2, True, [{"type": "rest_api"}], ""),  # Empty domain - included
+            (3, True, [{"type": "rest_api"}], "valid.com"),  # Has domain - included
         ]
         org_results = []
 
@@ -307,9 +307,14 @@ class TestGetEndpointsForHealthCheck:
 
         endpoints = monitor._get_endpoints_for_health_check(mock_session)
 
-        # Only endpoint 3 should be included
-        assert len(endpoints) == 1
-        assert endpoints[0].id == 3
+        # All 3 endpoints should be included (no domain filtering)
+        assert len(endpoints) == 3
+        assert endpoints[0].id == 1
+        assert endpoints[0].owner_domain is None
+        assert endpoints[1].id == 2
+        assert endpoints[1].owner_domain == ""
+        assert endpoints[2].id == 3
+        assert endpoints[2].owner_domain == "valid.com"
 
 
 class TestCheckEndpointHealth:
@@ -511,6 +516,74 @@ class TestCheckEndpointHealth:
 
         _endpoint_id, is_healthy, _state_changed = result
         assert is_healthy is False
+
+    @pytest.mark.asyncio
+    async def test_check_health_no_owner_domain_none(self, monitor):
+        """Test health check when endpoint has no owner domain (None)."""
+        endpoint_no_domain = EndpointHealthInfo(
+            id=1,
+            is_active=True,  # Currently active
+            connect=[{"type": "rest_api", "enabled": True, "config": {"url": "/test"}}],
+            owner_domain=None,  # No domain configured
+        )
+        semaphore = asyncio.Semaphore(10)
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+
+        result = await monitor._check_endpoint_health(
+            endpoint_no_domain, semaphore, mock_client
+        )
+
+        endpoint_id, is_healthy, state_changed = result
+        assert endpoint_id == 1
+        assert is_healthy is False  # Should be unhealthy
+        assert state_changed is True  # Was active, now unhealthy
+        # Should not have made any HTTP requests
+        mock_client.get.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_check_health_no_owner_domain_empty_string(self, monitor):
+        """Test health check when endpoint has empty owner domain."""
+        endpoint_empty_domain = EndpointHealthInfo(
+            id=2,
+            is_active=True,  # Currently active
+            connect=[{"type": "rest_api", "enabled": True, "config": {"url": "/test"}}],
+            owner_domain="",  # Empty domain
+        )
+        semaphore = asyncio.Semaphore(10)
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+
+        result = await monitor._check_endpoint_health(
+            endpoint_empty_domain, semaphore, mock_client
+        )
+
+        endpoint_id, is_healthy, state_changed = result
+        assert endpoint_id == 2
+        assert is_healthy is False  # Should be unhealthy
+        assert state_changed is True  # Was active, now unhealthy
+        # Should not have made any HTTP requests
+        mock_client.get.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_check_health_no_owner_domain_already_inactive(self, monitor):
+        """Test health check when endpoint without domain is already inactive."""
+        endpoint_no_domain_inactive = EndpointHealthInfo(
+            id=3,
+            is_active=False,  # Already inactive
+            connect=[{"type": "rest_api", "enabled": True, "config": {"url": "/test"}}],
+            owner_domain=None,
+        )
+        semaphore = asyncio.Semaphore(10)
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+
+        result = await monitor._check_endpoint_health(
+            endpoint_no_domain_inactive, semaphore, mock_client
+        )
+
+        endpoint_id, is_healthy, state_changed = result
+        assert endpoint_id == 3
+        assert is_healthy is False
+        assert state_changed is False  # Was inactive, still unhealthy - no change
+        mock_client.get.assert_not_called()
 
 
 class TestUpdateEndpointStatus:

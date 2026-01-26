@@ -54,7 +54,7 @@ export function Sidebar() {
   );
 
   return (
-    <aside className='border-syft-border bg-syft-background fixed top-0 left-0 z-50 flex h-screen w-20 flex-col items-center border-r py-8'>
+    <aside className='border-border bg-background fixed top-0 left-0 z-50 flex h-screen w-20 flex-col items-center border-r py-8'>
       {/* Logo at top */}
       <NavLink
         to='/'
@@ -79,7 +79,7 @@ export function Sidebar() {
               className={({ isActive }) =>
                 cn(
                   'group flex w-full flex-col items-center gap-1 transition-colors',
-                  isActive ? 'text-syft-primary' : 'text-syft-muted hover:text-syft-primary'
+                  isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
                 )
               }
               title={item.label}
@@ -90,7 +90,7 @@ export function Sidebar() {
                   <div
                     className={cn(
                       'rounded-lg p-2 transition-colors',
-                      isActive ? 'bg-syft-surface' : 'group-hover:bg-syft-surface'
+                      isActive ? 'bg-muted' : 'group-hover:bg-muted'
                     )}
                   >
                     <Icon className='h-5 w-5' aria-hidden='true' />

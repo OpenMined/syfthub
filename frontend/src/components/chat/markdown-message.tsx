@@ -271,7 +271,7 @@ export const MarkdownMessage = memo(function MarkdownMessage({
               <table className='divide-border min-w-full divide-y'>{children}</table>
             </div>
           ),
-          thead: ({ children }) => <thead className='bg-syft-surface'>{children}</thead>,
+          thead: ({ children }) => <thead className='bg-muted'>{children}</thead>,
           tbody: ({ children }) => (
             <tbody className='divide-border bg-card divide-y'>{children}</tbody>
           ),

@@ -38,21 +38,21 @@ interface BuildViewProperties {
 
 export function BuildView({ onAuthRequired: _onAuthRequired }: Readonly<BuildViewProperties>) {
   return (
-    <div className='bg-syft-background min-h-screen'>
+    <div className='bg-background min-h-screen'>
       <PageHeader title='Build' path='~/build' />
 
       {/* Main Content */}
       <div className='mx-auto max-w-5xl space-y-8 px-6 py-8'>
         {/* Hero / Intro Section */}
         <div className='max-w-3xl space-y-4'>
-          <div className='bg-syft-surface text-syft-muted inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium'>
+          <div className='bg-muted text-muted-foreground inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium'>
             <Code2 className='h-3 w-3' />
             Developer Portal
           </div>
-          <h1 className='font-rubik text-syft-primary text-3xl font-medium'>
+          <h1 className='font-rubik text-foreground text-3xl font-medium'>
             Build privacy-first AI apps
           </h1>
-          <p className='font-inter text-syft-muted text-lg leading-relaxed'>
+          <p className='font-inter text-muted-foreground text-lg leading-relaxed'>
             Access high-value data and models you don't own through a unified, permissioned API.
             Choose your stack and start building in minutes.
           </p>
@@ -61,22 +61,22 @@ export function BuildView({ onAuthRequired: _onAuthRequired }: Readonly<BuildVie
         {/* Tabs Section */}
         <Tabs defaultValue='python' className='space-y-8'>
           <div className='flex items-center justify-between overflow-x-auto pb-2'>
-            <TabsList className='border-syft-border bg-syft-surface h-auto flex-shrink-0 border p-1'>
+            <TabsList className='border-border bg-muted h-auto flex-shrink-0 border p-1'>
               <TabsTrigger
                 value='python'
-                className='text-syft-muted data-[state=active]:text-syft-primary data-[state=active]:bg-card px-4 py-2'
+                className='text-muted-foreground data-[state=active]:text-foreground data-[state=active]:bg-card px-4 py-2'
               >
                 Python SDK
               </TabsTrigger>
               <TabsTrigger
                 value='javascript'
-                className='text-syft-muted data-[state=active]:text-syft-primary data-[state=active]:bg-card px-4 py-2'
+                className='text-muted-foreground data-[state=active]:text-foreground data-[state=active]:bg-card px-4 py-2'
               >
                 JavaScript SDK
               </TabsTrigger>
               <TabsTrigger
                 value='mcp'
-                className='text-syft-muted data-[state=active]:text-syft-primary data-[state=active]:bg-card px-4 py-2'
+                className='text-muted-foreground data-[state=active]:text-foreground data-[state=active]:bg-card px-4 py-2'
               >
                 MCP Integration
               </TabsTrigger>
@@ -376,12 +376,10 @@ const Section = memo(function Section({
   return (
     <div className='space-y-4'>
       <div className='flex items-start gap-3'>
-        <div className='border-syft-border text-syft-primary bg-card rounded-lg border p-2'>
-          {icon}
-        </div>
+        <div className='border-border text-foreground bg-card rounded-lg border p-2'>{icon}</div>
         <div>
-          <h3 className='text-syft-primary text-lg font-medium'>{title}</h3>
-          <p className='text-syft-muted text-sm'>{description}</p>
+          <h3 className='text-foreground text-lg font-medium'>{title}</h3>
+          <p className='text-muted-foreground text-sm'>{description}</p>
         </div>
       </div>
       {children}
@@ -439,7 +437,7 @@ const CodeBlock = memo(function CodeBlock({
   }, [style]);
 
   return (
-    <div className='group border-syft-border relative overflow-hidden rounded-xl border bg-[#1a1923]'>
+    <div className='group border-border relative overflow-hidden rounded-xl border bg-[#1a1923]'>
       <div className='absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100'>
         <Button
           variant='ghost'
@@ -495,7 +493,7 @@ const InfoCard = memo(function InfoCard({
       <CardContent>
         <ul className='space-y-2'>
           {items.map((item, index) => (
-            <li key={index} className='text-syft-muted flex items-center gap-2 text-sm'>
+            <li key={index} className='text-muted-foreground flex items-center gap-2 text-sm'>
               <Check className='h-4 w-4 text-green-500' />
               {item}
             </li>
@@ -516,7 +514,7 @@ const ResourceLink = memo(function ResourceLink({
       href={href}
       target='_blank'
       rel='noopener noreferrer'
-      className='text-syft-muted hover:bg-syft-surface hover:text-syft-primary flex items-center justify-between rounded p-2 text-sm transition-colors'
+      className='text-muted-foreground hover:bg-muted hover:text-foreground flex items-center justify-between rounded p-2 text-sm transition-colors'
     >
       {label}
       <ArrowRight className='h-4 w-4 opacity-50' />

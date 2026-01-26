@@ -203,7 +203,7 @@ const SourceItem = memo(function SourceItem({ title, source, index }: Readonly<S
         </span>
 
         {/* Separator */}
-        <span className='font-inter text-syft-placeholder text-xs'>:</span>
+        <span className='font-inter text-muted-foreground text-xs'>:</span>
 
         {/* Document title */}
         <span className='font-inter text-muted-foreground group-hover:text-foreground truncate text-xs'>
@@ -276,7 +276,7 @@ export function SourcesSection({ sources }: Readonly<SourcesSectionProps>) {
       {/* Header / Toggle Button */}
       <button
         onClick={toggleExpanded}
-        className='hover:bg-syft-surface flex w-full items-center justify-between px-4 py-2.5 transition-colors'
+        className='hover:bg-muted flex w-full items-center justify-between px-4 py-2.5 transition-colors'
       >
         <div className='flex items-center gap-2'>
           <FileText className='text-secondary h-4 w-4' />
@@ -287,9 +287,9 @@ export function SourcesSection({ sources }: Readonly<SourcesSectionProps>) {
         </div>
 
         {isExpanded ? (
-          <ChevronUp className='text-syft-placeholder h-4 w-4' />
+          <ChevronUp className='text-muted-foreground h-4 w-4' />
         ) : (
-          <ChevronDown className='text-syft-placeholder h-4 w-4' />
+          <ChevronDown className='text-muted-foreground h-4 w-4' />
         )}
       </button>
 

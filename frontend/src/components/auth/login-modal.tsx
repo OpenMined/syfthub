@@ -153,10 +153,10 @@ export function LoginModal({
 
         <div className='relative'>
           <div className='absolute inset-0 flex items-center'>
-            <span className='border-syft-border w-full border-t' />
+            <span className='border-border w-full border-t' />
           </div>
           <div className='relative flex justify-center text-xs uppercase'>
-            <span className='font-inter text-syft-muted bg-white px-2'>Or continue with</span>
+            <span className='font-inter text-muted-foreground bg-white px-2'>Or continue with</span>
           </div>
         </div>
         End of OAuth section */}
@@ -197,14 +197,11 @@ export function LoginModal({
                 type='checkbox'
                 id='remember-me'
                 name='remember-me'
-                className='border-syft-border text-syft-primary focus:ring-syft-primary rounded focus:ring-offset-0'
+                className='border-border text-foreground focus:ring-ring rounded focus:ring-offset-0'
               />
-              <span className='font-inter text-syft-muted'>Remember me</span>
+              <span className='font-inter text-muted-foreground'>Remember me</span>
             </label>
-            <a
-              href='#'
-              className='font-inter text-syft-primary hover:text-syft-secondary font-medium'
-            >
+            <a href='#' className='font-inter text-foreground hover:text-secondary font-medium'>
               Forgot password?
             </a>
           </div>
@@ -215,13 +212,13 @@ export function LoginModal({
         </form>
 
         {/* Switch to Register */}
-        <div className='border-syft-border border-t pt-4 text-center text-sm'>
-          <p className='font-inter text-syft-muted'>
+        <div className='border-border border-t pt-4 text-center text-sm'>
+          <p className='font-inter text-muted-foreground'>
             Don't have an account?{' '}
             <button
               type='button'
               onClick={onSwitchToRegister}
-              className='text-syft-primary hover:text-syft-secondary font-medium underline'
+              className='text-foreground hover:text-secondary font-medium underline'
               disabled={isLoading}
             >
               Sign up
