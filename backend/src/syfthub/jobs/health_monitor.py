@@ -40,7 +40,7 @@ class EndpointHealthInfo:
     id: int
     is_active: bool
     connect: list[dict[str, Any]]
-    owner_domain: str
+    owner_domain: Optional[str]  # None if owner has no domain configured
 
 
 class EndpointHealthMonitor:
@@ -103,6 +103,9 @@ class EndpointHealthMonitor:
         This method performs a query that joins endpoints with their owners
         (either users or organizations) to get the domain needed for URL building.
 
+        Endpoints without owner domains are included and will be marked as
+        unhealthy (is_active=False) during the health check cycle.
+
         Args:
             session: Database session to use for the query
 
@@ -110,31 +113,22 @@ class EndpointHealthMonitor:
             List of EndpointHealthInfo objects containing endpoint data and owner domain
         """
         # Query endpoints with user domain (user-owned endpoints)
-        # Use != None which SQLAlchemy translates to IS NOT NULL
-        user_endpoints_stmt = (
-            select(
-                EndpointModel.id,
-                EndpointModel.is_active,
-                EndpointModel.connect,
-                UserModel.domain,
-            )
-            .join(UserModel, EndpointModel.user_id == UserModel.id)
-            .where(UserModel.domain != None)  # noqa: E711
-        )
+        # Include all user-owned endpoints regardless of domain status
+        user_endpoints_stmt = select(
+            EndpointModel.id,
+            EndpointModel.is_active,
+            EndpointModel.connect,
+            UserModel.domain,
+        ).join(UserModel, EndpointModel.user_id == UserModel.id)
 
         # Query endpoints with organization domain (org-owned endpoints)
-        org_endpoints_stmt = (
-            select(
-                EndpointModel.id,
-                EndpointModel.is_active,
-                EndpointModel.connect,
-                OrganizationModel.domain,
-            )
-            .join(
-                OrganizationModel, EndpointModel.organization_id == OrganizationModel.id
-            )
-            .where(OrganizationModel.domain != None)  # noqa: E711
-        )
+        # Include all org-owned endpoints regardless of domain status
+        org_endpoints_stmt = select(
+            EndpointModel.id,
+            EndpointModel.is_active,
+            EndpointModel.connect,
+            OrganizationModel.domain,
+        ).join(OrganizationModel, EndpointModel.organization_id == OrganizationModel.id)
 
         endpoints: list[EndpointHealthInfo] = []
 
@@ -142,13 +136,15 @@ class EndpointHealthMonitor:
         user_results = session.execute(user_endpoints_stmt).all()
         for row in user_results:
             endpoint_id, is_active, connect, domain = row
-            if connect and domain:
+            # Include endpoints with connections (even if domain is None)
+            # Endpoints without domain will be marked unhealthy in health check
+            if connect:
                 endpoints.append(
                     EndpointHealthInfo(
                         id=endpoint_id,
                         is_active=is_active,
                         connect=connect,
-                        owner_domain=domain,
+                        owner_domain=domain,  # May be None
                     )
                 )
 
@@ -156,13 +152,15 @@ class EndpointHealthMonitor:
         org_results = session.execute(org_endpoints_stmt).all()
         for row in org_results:
             endpoint_id, is_active, connect, domain = row
-            if connect and domain:
+            # Include endpoints with connections (even if domain is None)
+            # Endpoints without domain will be marked unhealthy in health check
+            if connect:
                 endpoints.append(
                     EndpointHealthInfo(
                         id=endpoint_id,
                         is_active=is_active,
                         connect=connect,
-                        owner_domain=domain,
+                        owner_domain=domain,  # May be None
                     )
                 )
 
@@ -179,6 +177,8 @@ class EndpointHealthMonitor:
         Makes an HTTP GET request to the endpoint's connection URL
         to determine if the server is reachable.
 
+        Endpoints without an owner domain are automatically considered unhealthy.
+
         Args:
             endpoint: The endpoint information to check
             semaphore: Semaphore to limit concurrent requests
@@ -188,9 +188,20 @@ class EndpointHealthMonitor:
             Tuple of (endpoint_id, is_healthy, state_changed)
         """
         async with semaphore:
+            # Check if owner has a domain configured
+            if not endpoint.owner_domain:
+                # No domain configured - endpoint cannot be reached
+                is_healthy = False
+                logger.debug(
+                    f"Endpoint {endpoint.id} health check: no owner domain configured "
+                    f"(unhealthy)"
+                )
+                state_changed = endpoint.is_active != is_healthy
+                return (endpoint.id, is_healthy, state_changed)
+
             url = self._build_health_check_url(endpoint.owner_domain, endpoint.connect)
             if not url:
-                # No valid URL to check, don't change status
+                # No valid URL to check (no enabled connections), don't change status
                 return (endpoint.id, endpoint.is_active, False)
 
             try:
