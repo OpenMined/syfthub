@@ -45,7 +45,7 @@ export function MainLayout() {
       {/* Skip link for accessibility */}
       <a
         href='#main-content'
-        className='focus:text-syft-primary focus:ring-syft-primary focus:bg-card sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[60] focus:rounded-md focus:px-4 focus:py-2 focus:shadow-lg focus:ring-2 focus:outline-none'
+        className='focus:text-foreground focus:ring-ring focus:bg-card sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[60] focus:rounded-md focus:px-4 focus:py-2 focus:shadow-lg focus:ring-2 focus:outline-none'
       >
         Skip to main content
       </a>
@@ -61,7 +61,7 @@ export function MainLayout() {
             <BalanceIndicator />
 
             {/* User Info & Actions */}
-            <div className='border-syft-border bg-card/95 flex items-center gap-3 rounded-lg border px-3 py-2 shadow-sm backdrop-blur-sm'>
+            <div className='border-border bg-card/95 flex items-center gap-3 rounded-lg border px-3 py-2 shadow-sm backdrop-blur-sm'>
               <Link
                 to='/profile'
                 className='hover:bg-accent flex items-center gap-2 rounded-md p-1 transition-colors'
@@ -75,11 +75,11 @@ export function MainLayout() {
                     className='h-6 w-6 rounded-full'
                   />
                 ) : (
-                  <div className='bg-syft-primary flex h-6 w-6 items-center justify-center rounded-full'>
+                  <div className='bg-primary flex h-6 w-6 items-center justify-center rounded-full'>
                     <User className='h-3 w-3 text-white' aria-hidden='true' />
                   </div>
                 )}
-                <span className='font-inter text-syft-primary text-sm font-medium'>
+                <span className='font-inter text-foreground text-sm font-medium'>
                   {user.name || user.email}
                 </span>
               </Link>
@@ -89,7 +89,7 @@ export function MainLayout() {
                 onClick={() => {
                   openSettings();
                 }}
-                className='text-syft-muted hover:text-syft-primary h-6 w-6'
+                className='text-muted-foreground hover:text-foreground h-6 w-6'
                 aria-label='Settings'
               >
                 <Settings className='h-3 w-3' aria-hidden='true' />
@@ -99,7 +99,7 @@ export function MainLayout() {
                 variant='ghost'
                 size='icon'
                 onClick={handleLogout}
-                className='text-syft-muted hover:text-syft-primary h-6 w-6'
+                className='text-muted-foreground hover:text-foreground h-6 w-6'
                 aria-label='Logout'
               >
                 <LogOut className='h-3 w-3' aria-hidden='true' />

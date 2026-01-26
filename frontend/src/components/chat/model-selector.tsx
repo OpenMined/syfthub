@@ -135,7 +135,7 @@ export function ModelSelector({
         disabled={isLoading}
         className={`group flex items-center gap-2 rounded-xl border px-3 py-2.5 transition-colors ${
           isOpen
-            ? 'border-foreground bg-syft-surface text-foreground'
+            ? 'border-foreground bg-muted text-foreground'
             : 'border-border bg-card text-muted-foreground hover:border-input hover:bg-accent hover:text-foreground'
         } ${isLoading ? 'cursor-wait opacity-70' : ''}`}
         aria-expanded={isOpen}
@@ -172,7 +172,7 @@ export function ModelSelector({
                   Search models
                 </label>
                 <Search
-                  className='text-syft-placeholder absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2'
+                  className='text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2'
                   aria-hidden='true'
                 />
                 <input
@@ -182,7 +182,7 @@ export function ModelSelector({
                   value={searchQuery}
                   onChange={handleSearchChange}
                   placeholder='Search models…'
-                  className='font-inter border-border bg-card placeholder:text-syft-placeholder focus:border-foreground focus:ring-foreground/10 w-full rounded-lg border py-2 pr-3 pl-9 text-sm transition-colors transition-shadow focus:ring-2 focus:outline-none'
+                  className='font-inter border-border bg-card placeholder:text-muted-foreground focus:border-foreground focus:ring-foreground/10 w-full rounded-lg border py-2 pr-3 pl-9 text-sm transition-colors transition-shadow focus:ring-2 focus:outline-none'
                   autoComplete='off'
                 />
               </div>
@@ -191,7 +191,7 @@ export function ModelSelector({
             {/* Model List */}
             <div className='max-h-[280px] overflow-y-auto p-2'>
               {filteredModels.length === 0 ? (
-                <div className='font-inter text-syft-placeholder py-8 text-center text-sm'>
+                <div className='font-inter text-muted-foreground py-8 text-center text-sm'>
                   {searchQuery ? 'No models found' : 'No models available'}
                 </div>
               ) : (
@@ -207,9 +207,7 @@ export function ModelSelector({
                           handleSelect(model);
                         }}
                         className={`group flex w-full items-start gap-3 rounded-lg p-3 text-left transition-colors ${
-                          isSelected
-                            ? 'bg-syft-surface ring-secondary/20 ring-1'
-                            : 'hover:bg-syft-surface'
+                          isSelected ? 'bg-muted ring-secondary/20 ring-1' : 'hover:bg-muted'
                         }`}
                         role='option'
                         aria-selected={isSelected}
@@ -231,7 +229,7 @@ export function ModelSelector({
                               {model.name}
                             </span>
                             {model.stars_count > 0 ? (
-                              <div className='text-syft-placeholder flex items-center gap-0.5'>
+                              <div className='text-muted-foreground flex items-center gap-0.5'>
                                 <Star className='h-3 w-3' aria-hidden='true' />
                                 <span className='font-inter text-xs'>{model.stars_count}</span>
                               </div>
@@ -282,7 +280,7 @@ export function ModelSelector({
             {/* Footer hint */}
             {models.length > 0 ? (
               <div className='border-border bg-card border-t px-3 py-2'>
-                <p className='font-inter text-syft-placeholder text-center text-[10px]'>
+                <p className='font-inter text-muted-foreground text-center text-[10px]'>
                   {models.length} model{models.length === 1 ? '' : 's'} available
                 </p>
               </div>

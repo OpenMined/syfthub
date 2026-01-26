@@ -6,9 +6,9 @@ import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 
 // Static data hoisted outside component to prevent recreation on each render
 const FEATURES = [
-  { label: 'Secure & Private', color: 'bg-syft-green' },
-  { label: 'Rare Data & Models', color: 'bg-syft-secondary' },
-  { label: 'Federated, Permissioned Access', color: 'bg-syft-purple' }
+  { label: 'Secure & Private', color: 'bg-chart-1' },
+  { label: 'Rare Data & Models', color: 'bg-secondary' },
+  { label: 'Federated, Permissioned Access', color: 'bg-chart-3' }
 ] as const;
 
 const SEARCH_SUGGESTIONS = [
@@ -76,18 +76,18 @@ export function Hero({
         {/* Logo */}
         <div className='flex items-center justify-center gap-3'>
           <OpenMinedIcon className='h-7 w-7' />
-          <span className='font-rubik text-syft-primary text-xl font-normal'>SyftHub</span>
+          <span className='font-rubik text-foreground text-xl font-normal'>SyftHub</span>
         </div>
 
         {/* Tagline */}
         <div className='space-y-4 pb-4 text-center'>
-          <h1 className='font-rubik text-syft-primary text-3xl font-medium'>
+          <h1 className='font-rubik text-foreground text-3xl font-medium'>
             Access the World's{' '}
-            <span className='from-syft-secondary via-syft-purple to-syft-green bg-gradient-to-r bg-clip-text text-transparent'>
+            <span className='from-secondary via-chart-3 to-chart-1 bg-gradient-to-r bg-clip-text text-transparent'>
               Collective Intelligence
             </span>
           </h1>
-          <p className='font-inter text-syft-primary text-base'>
+          <p className='font-inter text-foreground text-base'>
             Query trusted data sources — public, copyrighted, or private — directly from source.
           </p>
         </div>
@@ -99,7 +99,7 @@ export function Hero({
             {FEATURES.map((feature, index) => (
               <div key={index} className='flex items-center gap-2'>
                 <div className={`h-2 w-2 rounded-full ${feature.color}`}></div>
-                <span className='font-inter text-syft-primary text-sm'>{feature.label}</span>
+                <span className='font-inter text-foreground text-sm'>{feature.label}</span>
               </div>
             ))}
           </div>
@@ -118,17 +118,17 @@ export function Hero({
                 value={searchValue}
                 onChange={handleInputChange}
                 placeholder='What are you looking for…'
-                className='font-inter border-syft-border-light text-syft-primary placeholder:text-syft-placeholder focus:ring-syft-primary bg-background w-full rounded-xl border px-6 py-4 shadow-sm transition-colors transition-shadow focus:border-transparent focus:ring-2 focus:outline-none'
+                className='font-inter border-input text-foreground placeholder:text-muted-foreground focus:ring-ring bg-background w-full rounded-xl border px-6 py-4 shadow-sm transition-colors transition-shadow focus:border-transparent focus:ring-2 focus:outline-none'
                 autoComplete='off'
               />
               <button
                 type='submit'
                 aria-label='Search'
-                className='group-focus-within:text-syft-primary hover:bg-syft-surface absolute top-1/2 right-3 -translate-y-1/2 rounded-lg p-2 transition-colors'
+                className='group-focus-within:text-foreground hover:bg-muted absolute top-1/2 right-3 -translate-y-1/2 rounded-lg p-2 transition-colors'
               >
                 <Send
                   className={`h-5 w-5 transition-colors ${
-                    searchValue ? 'text-syft-primary' : 'text-syft-placeholder'
+                    searchValue ? 'text-foreground' : 'text-muted-foreground'
                   }`}
                   aria-hidden='true'
                 />
@@ -144,7 +144,7 @@ export function Hero({
                   onClick={() => {
                     handleSuggestionClick(suggestion);
                   }}
-                  className='font-inter border-syft-border text-syft-primary hover:border-syft-primary hover:bg-syft-surface focus:ring-syft-primary bg-background rounded-full border px-4 py-1.5 text-sm transition-colors focus:ring-2 focus:ring-offset-2 focus:outline-none'
+                  className='font-inter border-border text-foreground hover:border-primary hover:bg-muted focus:ring-ring bg-background rounded-full border px-4 py-1.5 text-sm transition-colors focus:ring-2 focus:ring-offset-2 focus:outline-none'
                 >
                   {suggestion}
                 </button>

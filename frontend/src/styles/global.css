@@ -7,7 +7,7 @@
 :root {
   --radius: 0.5rem;
 
-  /* SyftHub Design System Colors */
+  /* Core Design System Colors - tweakcn compatible */
   --border: #ecebef;
   --input: #cfcdd6;
   --ring: #272532;
@@ -28,19 +28,6 @@
   --card-foreground: #272532;
   --popover: #ffffff;
   --popover-foreground: #272532;
-
-  /* SyftHub specific colors */
-  --syft-primary: #272532;
-  --syft-secondary: #6976ae;
-  --syft-green: #64bb62;
-  --syft-purple: #937098;
-  --syft-background: #fcfcfd;
-  --syft-surface: #f7f6f9;
-  --syft-border: #ecebef;
-  --syft-border-light: #cfcdd6;
-  --syft-text: #272532;
-  --syft-text-muted: #5e5a72;
-  --syft-text-placeholder: #b4b0bf;
 
   --chart-1: #64bb62;
   --chart-2: #6976ae;
@@ -80,19 +67,6 @@
   --card-foreground: #f4f4f6;
   --popover: #151419;
   --popover-foreground: #f4f4f6;
-
-  /* SyftHub specific colors - dark mode */
-  --syft-primary: #f4f4f6;
-  --syft-secondary: #8892c4;
-  --syft-green: #6fcf6a;
-  --syft-purple: #a885ad;
-  --syft-background: #0f0e13;
-  --syft-surface: #1a1820;
-  --syft-border: #3a3748;
-  --syft-border-light: #4a4759;
-  --syft-text: #f4f4f6;
-  --syft-text-muted: #9e99ad;
-  --syft-text-placeholder: #6b6678;
 
   --chart-1: #6fcf6a;
   --chart-2: #8892c4;
@@ -150,19 +124,6 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-
-  /* SyftHub color utilities */
-  --color-syft-primary: var(--syft-primary);
-  --color-syft-secondary: var(--syft-secondary);
-  --color-syft-green: var(--syft-green);
-  --color-syft-purple: var(--syft-purple);
-  --color-syft-background: var(--syft-background);
-  --color-syft-surface: var(--syft-surface);
-  --color-syft-border: var(--syft-border);
-  --color-syft-border-light: var(--syft-border-light);
-  --color-syft-text: var(--syft-text);
-  --color-syft-text-muted: var(--syft-text-muted);
-  --color-syft-text-placeholder: var(--syft-text-placeholder);
 }
 
 @layer base {
@@ -204,43 +165,6 @@
   h5,
   h6 {
     text-wrap: pretty;
-  }
-}
-
-/* SyftHub-specific utility classes */
-@layer utilities {
-  .text-syft-primary {
-    color: var(--color-syft-primary);
-  }
-  .text-syft-secondary {
-    color: var(--color-syft-secondary);
-  }
-  .text-syft-muted {
-    color: var(--color-syft-text-muted);
-  }
-  .text-syft-placeholder {
-    color: var(--color-syft-text-placeholder);
-  }
-  .bg-syft-background {
-    background-color: var(--color-syft-background);
-  }
-  .bg-syft-surface {
-    background-color: var(--color-syft-surface);
-  }
-  .border-syft {
-    border-color: var(--color-syft-border);
-  }
-  .border-syft-light {
-    border-color: var(--color-syft-border-light);
-  }
-  .border-syft-border {
-    border-color: var(--color-syft-border);
-  }
-  .border-syft-primary {
-    border-color: var(--color-syft-primary);
-  }
-  .border-syft-secondary {
-    border-color: var(--color-syft-secondary);
   }
 }
 
