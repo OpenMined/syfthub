@@ -4,8 +4,8 @@ import React from 'react';
 export function AuthLoadingOverlay() {
   return (
     <div className='bg-card/80 absolute inset-0 z-10 flex items-center justify-center rounded-lg backdrop-blur-sm'>
-      <div className='text-syft-primary flex items-center gap-2'>
-        <div className='border-syft-primary h-4 w-4 animate-spin rounded-full border-2 border-t-transparent'></div>
+      <div className='text-foreground flex items-center gap-2'>
+        <div className='border-primary h-4 w-4 animate-spin rounded-full border-2 border-t-transparent'></div>
         <span className='font-inter text-sm'>Please wait…</span>
       </div>
     </div>

@@ -441,7 +441,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
             tabIndex={-1}
           >
             {/* Header */}
-            <div className='border-border bg-syft-background flex items-center justify-between border-b p-6'>
+            <div className='border-border bg-background flex items-center justify-between border-b p-6'>
               <div className='flex items-center gap-3'>
                 <div className='bg-primary flex h-10 w-10 items-center justify-center rounded-lg'>
                   <Settings2 className='h-5 w-5 text-white' />
@@ -458,7 +458,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
                 className='hover:bg-accent rounded-full p-2 transition-colors'
                 aria-label='Close panel'
               >
-                <X className='text-syft-placeholder h-5 w-5' aria-hidden='true' />
+                <X className='text-muted-foreground h-5 w-5' aria-hidden='true' />
               </button>
             </div>
 
@@ -587,7 +587,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
               </div>
 
               {/* Arrow */}
-              <div className='text-syft-placeholder flex justify-center'>
+              <div className='text-muted-foreground flex justify-center'>
                 <ArrowDown className='h-5 w-5' aria-hidden='true' />
               </div>
 
@@ -617,7 +617,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
               </div>
 
               {/* Arrow */}
-              <div className='text-syft-placeholder flex flex-col items-center gap-1'>
+              <div className='text-muted-foreground flex flex-col items-center gap-1'>
                 <ArrowDown className='h-5 w-5' aria-hidden='true' />
                 <span className='font-inter text-[10px] font-medium'>Process & Combine</span>
               </div>
@@ -665,7 +665,7 @@ const SourceSelector = memo(function SourceSelector({
               onToggle(source.id);
             }}
             aria-pressed={isSelected}
-            className={`group relative flex w-full cursor-pointer items-start gap-4 rounded-xl border p-4 text-left transition-colors focus-visible:ring-2 focus-visible:ring-[#272532]/50 focus-visible:outline-none ${isSelected ? 'border-secondary bg-syft-surface' : 'border-border bg-card hover:border-input'} `}
+            className={`group relative flex w-full cursor-pointer items-start gap-4 rounded-xl border p-4 text-left transition-colors focus-visible:ring-2 focus-visible:ring-[#272532]/50 focus-visible:outline-none ${isSelected ? 'border-secondary bg-muted' : 'border-border bg-card hover:border-input'} `}
           >
             <div className='min-w-0 flex-1'>
               {/* Header */}
@@ -701,7 +701,7 @@ const SourceSelector = memo(function SourceSelector({
               </div>
 
               {/* Footer */}
-              <div className='font-inter text-syft-placeholder flex items-center gap-1.5 text-xs'>
+              <div className='font-inter text-muted-foreground flex items-center gap-1.5 text-xs'>
                 <Clock className='h-3.5 w-3.5' aria-hidden='true' />
                 <span>Updated {source.updated}</span>
               </div>
@@ -1434,7 +1434,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                     className={`font-inter max-w-2xl rounded-2xl px-5 py-3 shadow-sm ${
                       message.role === 'user'
                         ? 'bg-primary rounded-br-none text-[15px] leading-relaxed text-white'
-                        : 'border-border bg-syft-surface text-foreground rounded-bl-none border'
+                        : 'border-border bg-muted text-foreground rounded-bl-none border'
                     } `}
                   >
                     {message.role === 'assistant' ? (
@@ -1476,7 +1476,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
             <button
               type='button'
               onClick={handleOpenPanel}
-              className='group border-border bg-syft-background text-muted-foreground hover:bg-accent hover:text-foreground flex items-center justify-center rounded-xl border p-3.5 transition-colors'
+              className='group border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground flex items-center justify-center rounded-xl border p-3.5 transition-colors'
               aria-label='Open advanced configuration'
             >
               <Settings2
@@ -1495,7 +1495,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                 value={inputValue}
                 onChange={handleInputChange}
                 placeholder='Ask a follow-up question…'
-                className='font-inter border-border bg-syft-background placeholder:text-syft-placeholder focus:border-foreground focus:ring-foreground/10 w-full rounded-xl border py-3.5 pr-12 pl-4 shadow-sm transition-colors transition-shadow focus:ring-2 focus:outline-none'
+                className='font-inter border-border bg-background placeholder:text-muted-foreground focus:border-foreground focus:ring-foreground/10 w-full rounded-xl border py-3.5 pr-12 pl-4 shadow-sm transition-colors transition-shadow focus:ring-2 focus:outline-none'
                 autoComplete='off'
               />
               <button

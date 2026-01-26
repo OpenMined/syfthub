@@ -240,7 +240,7 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
-      className='border-border bg-syft-surface rounded-2xl rounded-bl-none border shadow-sm'
+      className='border-border bg-muted rounded-2xl rounded-bl-none border shadow-sm'
     >
       {/* Main Status Line */}
       <div className='px-5 py-3'>
@@ -262,7 +262,7 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
 
           {/* Progress fraction */}
           {status.retrieval && status.phase === 'retrieving' ? (
-            <span className='font-inter text-syft-placeholder text-xs'>
+            <span className='font-inter text-muted-foreground text-xs'>
               ({status.retrieval.completed}/{status.retrieval.total})
             </span>
           ) : null}
@@ -278,8 +278,8 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
             animate={{ opacity: 1, height: 'auto' }}
             className='mt-1 flex items-center gap-1.5 pl-6'
           >
-            <FileText className='text-syft-placeholder h-3 w-3' />
-            <span className='font-inter text-syft-placeholder text-xs'>
+            <FileText className='text-muted-foreground h-3 w-3' />
+            <span className='font-inter text-muted-foreground text-xs'>
               {status.retrieval.documentsFound}{' '}
               {status.retrieval.documentsFound === 1 ? 'document' : 'documents'} found
             </span>
@@ -331,7 +331,7 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className='text-syft-placeholder flex items-center gap-2 py-1.5'
+                    className='text-muted-foreground flex items-center gap-2 py-1.5'
                   >
                     <motion.div
                       animate={{ rotate: 360 }}
@@ -350,7 +350,7 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className='border-border text-syft-placeholder mt-2 flex items-center gap-1.5 border-t pt-2'
+                    className='border-border text-muted-foreground mt-2 flex items-center gap-1.5 border-t pt-2'
                   >
                     <Clock className='h-3 w-3' />
                     <span className='font-inter text-xs'>

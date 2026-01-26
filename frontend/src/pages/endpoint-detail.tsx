@@ -19,7 +19,7 @@ export default function EndpointDetailPage() {
   if (!slug) {
     return (
       <div className='flex min-h-[400px] items-center justify-center'>
-        <p className='text-syft-muted'>Invalid endpoint URL</p>
+        <p className='text-muted-foreground'>Invalid endpoint URL</p>
       </div>
     );
   }

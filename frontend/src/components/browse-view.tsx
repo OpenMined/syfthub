@@ -110,17 +110,17 @@ export function BrowseView({
   };
 
   return (
-    <div className='bg-syft-background min-h-screen'>
+    <div className='bg-background min-h-screen'>
       <PageHeader title='Browse' path='~/browse' />
 
       {/* Main Content */}
       <div className='mx-auto max-w-6xl px-6 py-8'>
         {/* Header */}
         <div className='mb-8'>
-          <h1 className='font-rubik text-syft-primary mb-2 text-3xl font-semibold'>
+          <h1 className='font-rubik text-foreground mb-2 text-3xl font-semibold'>
             Browse Data Sources & Models
           </h1>
-          <p className='font-inter text-syft-muted'>
+          <p className='font-inter text-muted-foreground'>
             Discover and explore trusted data sources and models from the community
           </p>
         </div>
@@ -132,7 +132,7 @@ export function BrowseView({
               Search endpoints
             </label>
             <Search
-              className='text-syft-placeholder absolute top-1/2 left-3 h-5 w-5 -translate-y-1/2'
+              className='text-muted-foreground absolute top-1/2 left-3 h-5 w-5 -translate-y-1/2'
               aria-hidden='true'
             />
             <input
@@ -143,12 +143,12 @@ export function BrowseView({
                 setSearchQuery(e.target.value);
               }}
               placeholder='Search data sources…'
-              className='font-inter border-syft-border focus:border-syft-primary focus:ring-syft-primary/10 w-full rounded-xl border py-3 pr-4 pl-11 transition-colors transition-shadow focus:ring-2 focus:outline-none'
+              className='font-inter border-border focus:border-primary focus:ring-ring/10 w-full rounded-xl border py-3 pr-4 pl-11 transition-colors transition-shadow focus:ring-2 focus:outline-none'
             />
           </div>
           <button
             type='button'
-            className='font-inter border-syft-border text-syft-muted hover:bg-syft-surface flex items-center gap-2 rounded-xl border px-4 py-3 transition-colors'
+            className='font-inter border-border text-muted-foreground hover:bg-muted flex items-center gap-2 rounded-xl border px-4 py-3 transition-colors'
           >
             <Filter className='h-5 w-5' aria-hidden='true' />
             Filter
@@ -169,18 +169,18 @@ export function BrowseView({
             <h3 className='font-inter text-foreground mb-2 text-lg font-medium'>
               Error Loading Endpoints
             </h3>
-            <p className='font-inter text-syft-muted'>{error.message}</p>
+            <p className='font-inter text-muted-foreground'>{error.message}</p>
           </div>
         ) : null}
         {!isLoading && !error && filteredEndpoints.length === 0 ? (
           <div className='py-16 text-center'>
-            <div className='bg-syft-surface mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full'>
-              <Search className='text-syft-muted h-8 w-8' />
+            <div className='bg-muted mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full'>
+              <Search className='text-muted-foreground h-8 w-8' />
             </div>
-            <h3 className='font-inter text-syft-primary mb-2 text-lg font-medium'>
+            <h3 className='font-inter text-foreground mb-2 text-lg font-medium'>
               No Results Found
             </h3>
-            <p className='font-inter text-syft-muted'>
+            <p className='font-inter text-muted-foreground'>
               {searchQuery ? `No endpoints match "${searchQuery}"` : 'No endpoints available'}
             </p>
           </div>
@@ -195,25 +195,25 @@ export function BrowseView({
                 <Link
                   key={endpoint.id}
                   to={href}
-                  className='group border-syft-border hover:border-syft-secondary bg-card block rounded-xl border p-5 transition-colors transition-shadow hover:shadow-md'
+                  className='group border-border hover:border-secondary bg-card block rounded-xl border p-5 transition-colors transition-shadow hover:shadow-md'
                 >
                   {/* Header */}
                   <div className='mb-3 flex items-start justify-between'>
                     <div className='min-w-0 flex-1'>
-                      <h3 className='font-inter text-syft-primary group-hover:text-syft-secondary mb-1 truncate text-base font-semibold'>
+                      <h3 className='font-inter text-foreground group-hover:text-secondary mb-1 truncate text-base font-semibold'>
                         {endpoint.name}
                       </h3>
                       {endpoint.owner_username ? (
-                        <p className='font-inter text-syft-placeholder truncate text-xs'>
+                        <p className='font-inter text-muted-foreground truncate text-xs'>
                           by @{endpoint.owner_username}
                         </p>
                       ) : null}
-                      <p className='font-inter text-syft-muted line-clamp-2 text-sm'>
+                      <p className='font-inter text-muted-foreground line-clamp-2 text-sm'>
                         {endpoint.description}
                       </p>
                     </div>
                     <ChevronRight
-                      className='text-syft-placeholder group-hover:text-syft-secondary ml-2 h-5 w-5 shrink-0 transition-transform group-hover:translate-x-1'
+                      className='text-muted-foreground group-hover:text-secondary ml-2 h-5 w-5 shrink-0 transition-transform group-hover:translate-x-1'
                       aria-hidden='true'
                     />
                   </div>
@@ -238,15 +238,15 @@ export function BrowseView({
                     ) : null}
                     <div className='flex items-center gap-1'>
                       <div className={`h-2 w-2 rounded-full ${getStatusColor(endpoint.status)}`} />
-                      <span className='font-inter text-syft-muted text-xs capitalize'>
+                      <span className='font-inter text-muted-foreground text-xs capitalize'>
                         {endpoint.status}
                       </span>
                     </div>
                   </div>
 
                   {/* Footer Info */}
-                  <div className='border-syft-surface flex items-center justify-between border-t pt-3'>
-                    <div className='text-syft-placeholder flex items-center gap-3 text-xs'>
+                  <div className='border-muted flex items-center justify-between border-t pt-3'>
+                    <div className='text-muted-foreground flex items-center gap-3 text-xs'>
                       <div className='flex items-center gap-1'>
                         {getVisibilityIcon(endpoint)}
                         <span>Public</span>
@@ -256,7 +256,7 @@ export function BrowseView({
                         <span>v{endpoint.version}</span>
                       </div>
                     </div>
-                    <div className='text-syft-placeholder flex items-center gap-3 text-xs'>
+                    <div className='text-muted-foreground flex items-center gap-3 text-xs'>
                       {endpoint.stars_count > 0 ? (
                         <div className='flex items-center gap-1'>
                           <Star className='h-3 w-3' aria-hidden='true' />

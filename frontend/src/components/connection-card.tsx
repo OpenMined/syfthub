@@ -166,7 +166,7 @@ function SingleConnection({
                 <span
                   className={cn(
                     'relative inline-flex h-2 w-2 rounded-full',
-                    connection.enabled ? config.dotColor : 'bg-syft-placeholder'
+                    connection.enabled ? config.dotColor : 'bg-muted-foreground'
                   )}
                 />
               </span>
@@ -215,7 +215,7 @@ function SingleConnection({
                 'h-7 w-7 shrink-0 p-0 transition-colors',
                 copied
                   ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-100'
-                  : 'text-syft-placeholder hover:bg-card hover:text-muted-foreground'
+                  : 'text-muted-foreground hover:bg-card hover:text-muted-foreground'
               )}
               title={copied ? 'Copied!' : 'Copy slug'}
             >
@@ -274,9 +274,9 @@ export function ConnectionCard({
         </div>
       ) : (
         <div className='border-border rounded-xl border border-dashed py-6 text-center'>
-          <Link2 className='text-syft-placeholder mx-auto h-8 w-8' />
+          <Link2 className='text-muted-foreground mx-auto h-8 w-8' />
           <p className='font-inter text-muted-foreground mt-2 text-sm'>No connections configured</p>
-          <p className='font-inter text-syft-placeholder mt-1 text-xs'>
+          <p className='font-inter text-muted-foreground mt-1 text-xs'>
             Add a connection to enable external access to this endpoint
           </p>
         </div>

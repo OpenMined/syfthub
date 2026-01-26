@@ -22,17 +22,17 @@ export function ParticipateView({
   onBack
 }: Readonly<ParticipateViewProperties>) {
   return (
-    <div className='bg-syft-background min-h-screen'>
+    <div className='bg-background min-h-screen'>
       {/* Sticky Header */}
-      <div className='border-syft-border bg-syft-background/95 sticky top-0 z-30 flex w-full items-center justify-between border-b px-6 py-4 backdrop-blur-sm'>
+      <div className='border-border bg-background/95 sticky top-0 z-30 flex w-full items-center justify-between border-b px-6 py-4 backdrop-blur-sm'>
         <div className='flex items-center gap-4'>
           {onBack ? (
             <Button variant='ghost' size='sm' onClick={onBack} className='p-2' aria-label='Go back'>
               <ArrowLeft className='h-5 w-5' aria-hidden='true' />
             </Button>
           ) : null}
-          <h2 className='font-rubik text-syft-primary text-xl font-medium'>{title}</h2>
-          <div className='text-syft-muted hidden font-mono text-xs opacity-60 sm:block'>
+          <h2 className='font-rubik text-foreground text-xl font-medium'>{title}</h2>
+          <div className='text-muted-foreground hidden font-mono text-xs opacity-60 sm:block'>
             ~/participate
           </div>
         </div>

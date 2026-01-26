@@ -142,7 +142,7 @@ export function Modal({
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: 'spring', duration: 0.3 }}
             className={cn(
-              'border-syft-border bg-card relative w-full rounded-xl border shadow-xl',
+              'border-border bg-card relative w-full rounded-xl border shadow-xl',
               sizeClasses[size]
             )}
             role='dialog'
@@ -155,7 +155,7 @@ export function Modal({
               <Button
                 variant='ghost'
                 size='icon'
-                className='text-syft-muted hover:text-syft-primary absolute top-4 right-4 z-10 h-8 w-8'
+                className='text-muted-foreground hover:text-foreground absolute top-4 right-4 z-10 h-8 w-8'
                 onClick={onClose}
                 aria-label='Close modal'
               >
@@ -167,12 +167,15 @@ export function Modal({
             {(title ?? description) ? (
               <div className='px-6 pt-6 pb-2'>
                 {title ? (
-                  <h2 id='modal-title' className='font-rubik text-syft-primary text-xl font-medium'>
+                  <h2 id='modal-title' className='font-rubik text-foreground text-xl font-medium'>
                     {title}
                   </h2>
                 ) : null}
                 {description ? (
-                  <p id='modal-description' className='font-inter text-syft-muted mt-1 text-sm'>
+                  <p
+                    id='modal-description'
+                    className='font-inter text-muted-foreground mt-1 text-sm'
+                  >
                     {description}
                   </p>
                 ) : null}
