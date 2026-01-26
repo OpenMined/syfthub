@@ -32,68 +32,68 @@ const CONNECTION_TYPE_CONFIG: Record<
   rest_api: {
     icon: Globe,
     label: 'REST API',
-    color: 'text-sky-600',
-    bgColor: 'bg-sky-50',
-    borderColor: 'border-sky-200',
-    dotColor: 'bg-sky-500'
+    color: 'text-sky-600 dark:text-sky-400',
+    bgColor: 'bg-sky-50 dark:bg-sky-950',
+    borderColor: 'border-sky-200 dark:border-sky-800',
+    dotColor: 'bg-sky-500 dark:bg-sky-400'
   },
   graphql: {
     icon: Radio,
     label: 'GraphQL',
-    color: 'text-pink-600',
-    bgColor: 'bg-pink-50',
-    borderColor: 'border-pink-200',
-    dotColor: 'bg-pink-500'
+    color: 'text-pink-600 dark:text-pink-400',
+    bgColor: 'bg-pink-50 dark:bg-pink-950',
+    borderColor: 'border-pink-200 dark:border-pink-800',
+    dotColor: 'bg-pink-500 dark:bg-pink-400'
   },
   websocket: {
     icon: Wifi,
     label: 'WebSocket',
-    color: 'text-emerald-600',
-    bgColor: 'bg-emerald-50',
-    borderColor: 'border-emerald-200',
-    dotColor: 'bg-emerald-500'
+    color: 'text-emerald-600 dark:text-emerald-400',
+    bgColor: 'bg-emerald-50 dark:bg-emerald-950',
+    borderColor: 'border-emerald-200 dark:border-emerald-800',
+    dotColor: 'bg-emerald-500 dark:bg-emerald-400'
   },
   grpc: {
     icon: Zap,
     label: 'gRPC',
-    color: 'text-orange-600',
-    bgColor: 'bg-orange-50',
-    borderColor: 'border-orange-200',
-    dotColor: 'bg-orange-500'
+    color: 'text-orange-600 dark:text-orange-400',
+    bgColor: 'bg-orange-50 dark:bg-orange-950',
+    borderColor: 'border-orange-200 dark:border-orange-800',
+    dotColor: 'bg-orange-500 dark:bg-orange-400'
   },
   database: {
     icon: Database,
     label: 'Database',
-    color: 'text-indigo-600',
-    bgColor: 'bg-indigo-50',
-    borderColor: 'border-indigo-200',
-    dotColor: 'bg-indigo-500'
+    color: 'text-indigo-600 dark:text-indigo-400',
+    bgColor: 'bg-indigo-50 dark:bg-indigo-950',
+    borderColor: 'border-indigo-200 dark:border-indigo-800',
+    dotColor: 'bg-indigo-500 dark:bg-indigo-400'
   },
   s3: {
     icon: HardDrive,
     label: 'S3 Storage',
-    color: 'text-amber-600',
-    bgColor: 'bg-amber-50',
-    borderColor: 'border-amber-200',
-    dotColor: 'bg-amber-500'
+    color: 'text-amber-600 dark:text-amber-400',
+    bgColor: 'bg-amber-50 dark:bg-amber-950',
+    borderColor: 'border-amber-200 dark:border-amber-800',
+    dotColor: 'bg-amber-500 dark:bg-amber-400'
   },
   storage: {
     icon: HardDrive,
     label: 'Storage',
-    color: 'text-amber-600',
-    bgColor: 'bg-amber-50',
-    borderColor: 'border-amber-200',
-    dotColor: 'bg-amber-500'
+    color: 'text-amber-600 dark:text-amber-400',
+    bgColor: 'bg-amber-50 dark:bg-amber-950',
+    borderColor: 'border-amber-200 dark:border-amber-800',
+    dotColor: 'bg-amber-500 dark:bg-amber-400'
   }
 };
 
 const DEFAULT_CONFIG = {
   icon: Link2,
   label: 'Connection',
-  color: 'text-slate-600',
-  bgColor: 'bg-slate-50',
-  borderColor: 'border-slate-200',
-  dotColor: 'bg-slate-500'
+  color: 'text-slate-600 dark:text-slate-400',
+  bgColor: 'bg-slate-50 dark:bg-slate-950',
+  borderColor: 'border-slate-200 dark:border-slate-800',
+  dotColor: 'bg-slate-500 dark:bg-slate-400'
 };
 
 function getConnectionConfig(type: string) {

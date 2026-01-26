@@ -79,8 +79,8 @@ function CostBadges({ inputPerToken, outputPerToken, colorScheme }: Readonly<Cos
 
   const colorClasses =
     colorScheme === 'green'
-      ? 'border-green-200 bg-green-50 text-green-700'
-      : 'border-purple-200 bg-purple-50 text-purple-700';
+      ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300'
+      : 'border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-800 dark:bg-purple-950 dark:text-purple-300';
 
   if (!hasInputCost && !hasOutputCost) {
     return (
@@ -100,7 +100,7 @@ function CostBadges({ inputPerToken, outputPerToken, colorScheme }: Readonly<Cos
           variant='secondary'
           className={`font-inter h-5 px-2 text-[10px] font-medium ${colorClasses}`}
         >
-          In: {formatCostPerUnit(inputPerToken, 'token')}
+          In: {formatCostPerUnit(inputPerToken, 'request')}
         </Badge>
       ) : null}
       {hasOutputCost ? (
@@ -108,7 +108,7 @@ function CostBadges({ inputPerToken, outputPerToken, colorScheme }: Readonly<Cos
           variant='secondary'
           className={`font-inter h-5 px-2 text-[10px] font-medium ${colorClasses}`}
         >
-          Out: {formatCostPerUnit(outputPerToken, 'token')}
+          Out: {formatCostPerUnit(outputPerToken, 'request')}
         </Badge>
       ) : null}
     </>
@@ -125,16 +125,16 @@ function SourceCard({ source, onRemove }: Readonly<SourceCardProps>) {
   const costs = getCostsFromSource(source);
 
   return (
-    <div className='group bg-card relative rounded-lg border border-green-100 p-3 shadow-sm'>
+    <div className='group bg-card relative rounded-lg border border-green-100 p-3 shadow-sm dark:border-green-800'>
       <button
         onClick={onRemove}
-        className='absolute top-2 right-2 rounded p-1 text-red-500 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-50'
+        className='absolute top-2 right-2 rounded p-1 text-red-500 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-50 dark:hover:bg-red-950'
         aria-label={`Remove ${source.name}`}
       >
         <X className='h-3 w-3' aria-hidden='true' />
       </button>
       <div className='mb-3 flex items-center gap-3'>
-        <div className='font-inter flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-green-100 text-xs font-bold text-green-700'>
+        <div className='font-inter flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-green-100 text-xs font-bold text-green-700 dark:bg-green-900 dark:text-green-300'>
           {source.name.slice(0, 2).toUpperCase() || '??'}
         </div>
         <div className='min-w-0 flex-1'>
@@ -170,16 +170,16 @@ interface CustomSourceCardProps {
 /** Renders a custom source card */
 function CustomSourceCard({ sourcePath, onRemove }: Readonly<CustomSourceCardProps>) {
   return (
-    <div className='group bg-card relative rounded-lg border border-amber-200 p-3 shadow-sm'>
+    <div className='group bg-card relative rounded-lg border border-amber-200 p-3 shadow-sm dark:border-amber-800'>
       <button
         onClick={onRemove}
-        className='absolute top-2 right-2 rounded p-1 text-red-500 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-50'
+        className='absolute top-2 right-2 rounded p-1 text-red-500 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-50 dark:hover:bg-red-950'
         aria-label={`Remove custom source ${sourcePath}`}
       >
         <X className='h-3 w-3' aria-hidden='true' />
       </button>
       <div className='mb-3 flex items-center gap-3'>
-        <div className='font-inter flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-xs font-bold text-amber-700'>
+        <div className='font-inter flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-xs font-bold text-amber-700 dark:bg-amber-900 dark:text-amber-300'>
           EXT
         </div>
         <div className='min-w-0 flex-1'>
@@ -193,7 +193,7 @@ function CustomSourceCard({ sourcePath, onRemove }: Readonly<CustomSourceCardPro
       </div>
       <Badge
         variant='secondary'
-        className='font-inter h-5 border-amber-200 bg-amber-50 px-2 text-[10px] font-medium text-amber-700'
+        className='font-inter h-5 border-amber-200 bg-amber-50 px-2 text-[10px] font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300'
       >
         Custom Source (pricing unknown)
       </Badge>
@@ -241,7 +241,7 @@ interface ModelDisplayProps {
 function ModelDisplay({ model, modelCosts, isFactualMode }: Readonly<ModelDisplayProps>) {
   if (!model) {
     return (
-      <div className='font-inter bg-card/50 rounded-lg border border-dashed border-purple-200 py-6 text-center text-sm text-purple-700/50'>
+      <div className='font-inter bg-card/50 rounded-lg border border-dashed border-purple-200 py-6 text-center text-sm text-purple-700/50 dark:border-purple-800 dark:text-purple-400/50'>
         <p>No model selected</p>
         <p className='mt-1 text-xs'>Select a model from the dropdown above</p>
       </div>
@@ -251,7 +251,7 @@ function ModelDisplay({ model, modelCosts, isFactualMode }: Readonly<ModelDispla
   return (
     <>
       <div className='flex items-center gap-3'>
-        <div className='flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple-100 text-purple-700'>
+        <div className='flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'>
           <Brain className='h-4 w-4' />
         </div>
         <div className='min-w-0 flex-1'>
@@ -275,7 +275,7 @@ function ModelDisplay({ model, modelCosts, isFactualMode }: Readonly<ModelDispla
       </div>
       <div
         id='mode-description'
-        className='font-inter text-muted-foreground mt-2 flex items-start gap-2 border-t border-purple-50 pt-2 text-xs'
+        className='font-inter text-muted-foreground mt-2 flex items-start gap-2 border-t border-purple-50 pt-2 text-xs dark:border-purple-900'
       >
         <Info className='mt-0.5 h-3 w-3 shrink-0' aria-hidden='true' />
         {isFactualMode
@@ -464,9 +464,9 @@ const AdvancedPanel = memo(function AdvancedPanel({
 
             <div className='flex-1 space-y-4 overflow-y-auto p-6'>
               {/* Data Sources Section */}
-              <div className='rounded-xl border border-green-200 bg-green-50/30 p-4'>
+              <div className='rounded-xl border border-green-200 bg-green-50/30 p-4 dark:border-green-800 dark:bg-green-950/30'>
                 <div className='mb-4 flex items-center justify-between'>
-                  <div className='font-inter flex items-center gap-2 font-medium text-green-800'>
+                  <div className='font-inter flex items-center gap-2 font-medium text-green-800 dark:text-green-300'>
                     <Database className='h-4 w-4' />
                     <h3>Data Sources</h3>
                     <span className='text-xs font-normal text-green-600/60'>
@@ -476,7 +476,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
                   <div className='flex items-center gap-2'>
                     <Label
                       htmlFor='mode-toggle'
-                      className='font-inter cursor-pointer text-[10px] font-medium text-green-800'
+                      className='font-inter cursor-pointer text-[10px] font-medium text-green-800 dark:text-green-300'
                     >
                       {isFactualMode ? 'Factual' : 'Nuanced'}
                     </Label>
@@ -486,7 +486,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
                       onCheckedChange={(checked) => {
                         onModeChange(!checked);
                       }}
-                      className='h-4 w-8 data-[state=checked]:bg-purple-600 data-[state=unchecked]:bg-green-600'
+                      className='h-4 w-8 data-[state=checked]:bg-purple-600 data-[state=unchecked]:bg-green-600 dark:data-[state=checked]:bg-purple-500 dark:data-[state=unchecked]:bg-green-500'
                       aria-describedby='mode-description'
                     />
                   </div>
@@ -494,7 +494,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
 
                 <div className='space-y-3'>
                   {activeSources.length === 0 && customSources.length === 0 ? (
-                    <div className='font-inter bg-card/50 rounded-lg border border-dashed border-green-200 py-8 text-center text-sm text-green-700/50'>
+                    <div className='font-inter bg-card/50 rounded-lg border border-dashed border-green-200 py-8 text-center text-sm text-green-700/50 dark:border-green-800 dark:text-green-400/50'>
                       <p>No sources selected</p>
                       <p className='mt-1 text-xs'>Select sources from the chat or add below</p>
                     </div>
@@ -540,10 +540,10 @@ const AdvancedPanel = memo(function AdvancedPanel({
                       }}
                       onBlur={handleInputBlur}
                       placeholder='Add source (owner/endpoint-name)…'
-                      className={`font-inter bg-card w-full rounded-lg border py-2 pr-8 pl-3 text-xs transition-colors transition-shadow placeholder:text-green-700/40 focus:ring-1 focus:outline-none ${
+                      className={`font-inter bg-card w-full rounded-lg border py-2 pr-8 pl-3 text-xs transition-colors transition-shadow placeholder:text-green-700/40 focus:ring-1 focus:outline-none dark:placeholder:text-green-400/40 ${
                         customSourceError
                           ? 'border-red-400 focus:border-red-500 focus:ring-red-500/20'
-                          : 'border-green-200 focus:border-green-500 focus:ring-green-500/20'
+                          : 'border-green-200 focus:border-green-500 focus:ring-green-500/20 dark:border-green-800'
                       }`}
                       autoComplete='off'
                       aria-invalid={!!customSourceError}
@@ -592,9 +592,9 @@ const AdvancedPanel = memo(function AdvancedPanel({
               </div>
 
               {/* Model Section with inline selector */}
-              <div className='rounded-xl border border-purple-200 bg-purple-50/30 p-4'>
+              <div className='rounded-xl border border-purple-200 bg-purple-50/30 p-4 dark:border-purple-800 dark:bg-purple-950/30'>
                 <div className='mb-4 flex items-center justify-between'>
-                  <div className='font-inter flex items-center gap-2 font-medium text-purple-800'>
+                  <div className='font-inter flex items-center gap-2 font-medium text-purple-800 dark:text-purple-300'>
                     <Cpu className='h-4 w-4' />
                     <h3>Model</h3>
                   </div>
@@ -607,7 +607,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
                   />
                 </div>
 
-                <div className='bg-card space-y-3 rounded-lg border border-purple-100 p-3 shadow-sm'>
+                <div className='bg-card space-y-3 rounded-lg border border-purple-100 p-3 shadow-sm dark:border-purple-800'>
                   <ModelDisplay
                     model={selectedModel}
                     modelCosts={modelCosts}
@@ -1433,7 +1433,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                   <div
                     className={`font-inter max-w-2xl rounded-2xl px-5 py-3 shadow-sm ${
                       message.role === 'user'
-                        ? 'bg-primary rounded-br-none text-[15px] leading-relaxed text-white'
+                        ? 'bg-primary text-primary-foreground rounded-br-none text-[15px] leading-relaxed'
                         : 'border-border bg-muted text-foreground rounded-bl-none border'
                     } `}
                   >

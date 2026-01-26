@@ -150,10 +150,10 @@ for ep in client.my_endpoints.list():
                 <InfoCard
                   title='Python SDK Features'
                   items={[
-                    'Full type hints support',
-                    'Lazy pagination iterators',
-                    'Context manager support',
-                    'Automatic token refresh'
+                    'Browse and search endpoints',
+                    'Manage your endpoints',
+                    'Make distributed RAG queries',
+                    'Authenticate and track usage'
                   ]}
                 />
                 <Card>
@@ -249,10 +249,10 @@ for await (const ep of client.myEndpoints.list()) {
                 <InfoCard
                   title='TypeScript SDK Features'
                   items={[
-                    'Full TypeScript support',
-                    'Async iterators for pagination',
-                    'Runs on Node.js & browsers',
-                    'Automatic token refresh'
+                    'Browse and search endpoints',
+                    'Manage your endpoints',
+                    'Make distributed RAG queries',
+                    'Authenticate and track usage'
                   ]}
                 />
                 <Card>
@@ -281,19 +281,15 @@ for await (const ep of client.myEndpoints.list()) {
             <div className='grid grid-cols-1 gap-8 lg:grid-cols-3'>
               <div className='space-y-6 lg:col-span-2'>
                 <Section
-                  title='Configuration'
-                  description='Add SyftHub to your MCP settings file.'
+                  title='Claude Desktop Configuration'
+                  description='Add SyftHub remote MCP server to your Claude Desktop settings.'
                   icon={<Box className='h-5 w-5' />}
                 >
                   <CodeBlock
                     code={`{
   "mcpServers": {
     "syfthub": {
-      "command": "npx",
-      "args": ["-y", "@syfthub/mcp-server"],
-      "env": {
-        "SYFTHUB_URL": "https://hub.syft.com"
-      }
+      "url": "https://syfthub.openmined.org/mcp"
     }
   }
 }`}
@@ -301,19 +297,32 @@ for await (const ep of client.myEndpoints.list()) {
                   />
                 </Section>
 
-                <div className='flex gap-4 rounded-lg border border-blue-200 bg-blue-50 p-4'>
+                <Section
+                  title='Claude Code MCP Installation'
+                  description='Install SyftHub MCP server for Claude Code CLI.'
+                  icon={<Terminal className='h-5 w-5' />}
+                >
+                  <CodeBlock
+                    code={`claude mcp install https://syfthub.openmined.org/mcp`}
+                    language='bash'
+                  />
+                </Section>
+
+                <div className='flex gap-4 rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/30'>
                   <div className='min-w-[24px] pt-1'>
-                    <div className='flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-600'>
+                    <div className='flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-600 dark:bg-blue-900 dark:text-blue-300'>
                       i
                     </div>
                   </div>
                   <div>
-                    <h4 className='mb-1 font-medium text-blue-900'>What is MCP?</h4>
-                    <p className='text-sm text-blue-700'>
+                    <h4 className='mb-1 font-medium text-blue-900 dark:text-blue-300'>
+                      What is MCP?
+                    </h4>
+                    <p className='text-sm text-blue-700 dark:text-blue-400'>
                       The Model Context Protocol (MCP) allows AI assistants like Claude to directly
                       browse and interact with SyftHub endpoints during conversation. Once
                       configured, you can ask your AI to explore available models and data sources
-                      in real-time.
+                      in real-time using our remote MCP server at https://syfthub.openmined.org
                     </p>
                   </div>
                 </div>

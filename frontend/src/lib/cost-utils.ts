@@ -241,9 +241,9 @@ export function formatCurrency(value: number, currency = 'USD'): string {
 }
 
 /**
- * Formats cost per unit (e.g., per million tokens)
+ * Formats cost per unit (e.g., per million tokens, per request)
  */
-export function formatCostPerUnit(value: number, unit: 'token' | 'query'): string {
+export function formatCostPerUnit(value: number, unit: 'token' | 'query' | 'request'): string {
   if (value === 0) return '—';
 
   if (unit === 'token') {
@@ -252,6 +252,17 @@ export function formatCostPerUnit(value: number, unit: 'token' | 'query'): strin
       return `$${(perMillion * 1000).toFixed(2)} / 1B`;
     }
     return `$${perMillion.toFixed(2)} / 1M`;
+  }
+
+  if (unit === 'request') {
+    // Per request - show cost for each individual request
+    if (value < 0.000_001) {
+      return `$${value.toExponential(2)} / request`;
+    }
+    if (value < 0.01) {
+      return `$${value.toFixed(6)} / request`;
+    }
+    return `$${value.toFixed(4)} / request`;
   }
 
   // Per query
