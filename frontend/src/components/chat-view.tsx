@@ -168,7 +168,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
                                       variant='secondary'
                                       className='font-inter h-5 border-green-200 bg-green-50 px-2 text-[10px] font-medium text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300'
                                     >
-                                      In: {formatCostPerUnit(costs.inputPerToken, 'token')}
+                                      In: {formatCostPerUnit(costs.inputPerToken, 'request')}
                                     </Badge>
                                   ) : null}
                                   {hasOutputCost ? (
@@ -176,7 +176,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
                                       variant='secondary'
                                       className='font-inter h-5 border-green-200 bg-green-50 px-2 text-[10px] font-medium text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300'
                                     >
-                                      Out: {formatCostPerUnit(costs.outputPerToken, 'token')}
+                                      Out: {formatCostPerUnit(costs.outputPerToken, 'request')}
                                     </Badge>
                                   ) : null}
                                 </>
@@ -296,7 +296,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
                                     variant='secondary'
                                     className='font-inter h-5 border-purple-200 bg-purple-50 px-2 text-[10px] font-medium text-purple-700 dark:border-purple-800 dark:bg-purple-950 dark:text-purple-300'
                                   >
-                                    In: {formatCostPerUnit(modelCosts.inputPerToken, 'token')}
+                                    In: {formatCostPerUnit(modelCosts.inputPerToken, 'request')}
                                   </Badge>
                                 ) : null}
                                 {hasOutputCost ? (
@@ -304,7 +304,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
                                     variant='secondary'
                                     className='font-inter h-5 border-purple-200 bg-purple-50 px-2 text-[10px] font-medium text-purple-700 dark:border-purple-800 dark:bg-purple-950 dark:text-purple-300'
                                   >
-                                    Out: {formatCostPerUnit(modelCosts.outputPerToken, 'token')}
+                                    Out: {formatCostPerUnit(modelCosts.outputPerToken, 'request')}
                                   </Badge>
                                 ) : null}
                               </>
