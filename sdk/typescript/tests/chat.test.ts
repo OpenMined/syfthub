@@ -124,8 +124,18 @@ describe('ChatResource', () => {
 
     it('should complete chat with string endpoint path', async () => {
       // Create mock endpoints for browse to return (use camelCase as HTTP client transforms responses)
-      const mockModelEndpoint = { ...mockEndpointPublic, ownerUsername: 'alice', slug: 'test-model', type: 'model' };
-      const mockDataSourceEndpoint = { ...mockEndpointPublic, ownerUsername: 'alice', slug: 'docs', type: 'data_source' };
+      const mockModelEndpoint = {
+        ...mockEndpointPublic,
+        ownerUsername: 'alice',
+        slug: 'test-model',
+        type: 'model',
+      };
+      const mockDataSourceEndpoint = {
+        ...mockEndpointPublic,
+        ownerUsername: 'alice',
+        slug: 'docs',
+        type: 'data_source',
+      };
 
       mockFetch.mockImplementation(async (url: string) => {
         if (url.includes('/api/v1/auth/me')) {
@@ -136,10 +146,10 @@ describe('ChatResource', () => {
         }
         // Hub.get uses browse() which calls /api/v1/endpoints/public - returns array directly
         if (url.includes('/api/v1/endpoints/public')) {
-          return new Response(
-            JSON.stringify([mockModelEndpoint, mockDataSourceEndpoint]),
-            { status: 200, headers: { 'content-type': 'application/json' } }
-          );
+          return new Response(JSON.stringify([mockModelEndpoint, mockDataSourceEndpoint]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
         }
         if (url.includes('/chat') && !url.includes('/stream')) {
           return new Response(JSON.stringify(mockChatResponse), {
