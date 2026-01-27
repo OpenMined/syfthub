@@ -9,6 +9,7 @@ from collections.abc import Generator
 
 import httpx
 import pytest
+
 from syfthub_sdk import EndpointType, SyftHubClient
 from syfthub_sdk.exceptions import SyftHubError
 

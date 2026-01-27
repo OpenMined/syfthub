@@ -48,6 +48,9 @@ target-version = "py310"
 select = ["E", "W", "F", "I", "B", "C4", "UP", "ARG", "SIM"]
 ignore = ["E501"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["syfthub_sdk"]
+
 [tool.ruff.format]
 quote-style = "double"
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+
 from syfthub_sdk import EndpointPublic, SyftHubClient
 from syfthub_sdk.exceptions import AuthenticationError, NotFoundError
 
