@@ -38,6 +38,14 @@ class OrganizationModel(BaseModel, TimestampMixin):
         String(253), nullable=True, default=None
     )
 
+    # Heartbeat tracking fields for push-based health monitoring
+    last_heartbeat_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+    heartbeat_expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+
     # Relationships
     members: Mapped[List["OrganizationMemberModel"]] = relationship(
         "OrganizationMemberModel",
@@ -53,6 +61,7 @@ class OrganizationModel(BaseModel, TimestampMixin):
         Index("idx_organizations_slug", "slug"),
         Index("idx_organizations_name", "name"),
         Index("idx_organizations_is_active", "is_active"),
+        Index("idx_organizations_heartbeat_expires_at", "heartbeat_expires_at"),
     )
 
     def __repr__(self) -> str:

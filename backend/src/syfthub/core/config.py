@@ -248,6 +248,28 @@ class Settings(BaseSettings):
     )
 
     # ===========================================
+    # HEARTBEAT SETTINGS
+    # ===========================================
+
+    # Maximum TTL that clients can request for heartbeats
+    heartbeat_max_ttl_seconds: int = Field(
+        default=600,
+        description="Maximum TTL clients can request for heartbeats (10 min cap)",
+    )
+
+    # Default TTL if client doesn't specify
+    heartbeat_default_ttl_seconds: int = Field(
+        default=300,
+        description="Default heartbeat TTL if not specified (5 min)",
+    )
+
+    # Grace period added when HTTP verification succeeds for stale heartbeat
+    heartbeat_grace_period_seconds: int = Field(
+        default=60,
+        description="Grace period after successful HTTP verification (1 min)",
+    )
+
+    # ===========================================
     # RAG / OPENAI VECTOR STORE SETTINGS
     # ===========================================
 

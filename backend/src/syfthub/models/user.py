@@ -1,8 +1,9 @@
 """User database model."""
 
+from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, Index, String
+from sqlalchemy import Boolean, DateTime, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from syfthub.models.base import BaseModel, TimestampMixin
@@ -44,6 +45,14 @@ class UserModel(BaseModel, TimestampMixin):
         String(500), nullable=True, default=None
     )
 
+    # Heartbeat tracking fields for push-based health monitoring
+    last_heartbeat_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+    heartbeat_expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+
     # Relationships
     endpoints: Mapped[List["EndpointModel"]] = relationship(
         "EndpointModel", back_populates="user", cascade="all, delete-orphan"
@@ -58,6 +67,7 @@ class UserModel(BaseModel, TimestampMixin):
         Index("idx_users_email", "email"),
         Index("idx_users_role", "role"),
         Index("idx_users_is_active", "is_active"),
+        Index("idx_users_heartbeat_expires_at", "heartbeat_expires_at"),
     )
 
     def __repr__(self) -> str:

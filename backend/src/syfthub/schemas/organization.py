@@ -159,6 +159,13 @@ class Organization(BaseModel):
     domain: Optional[str] = Field(
         None, description="Domain for endpoint URL construction"
     )
+    # Heartbeat tracking fields
+    last_heartbeat_at: Optional[datetime] = Field(
+        None, description="When the last heartbeat was received"
+    )
+    heartbeat_expires_at: Optional[datetime] = Field(
+        None, description="When the heartbeat expires"
+    )
     created_at: datetime = Field(..., description="When the organization was created")
     updated_at: datetime = Field(
         ..., description="When the organization was last updated"
@@ -181,6 +188,13 @@ class OrganizationResponse(BaseModel):
     # Domain for dynamic endpoint URL construction
     domain: Optional[str] = Field(
         None, description="Domain for endpoint URL construction"
+    )
+    # Heartbeat tracking fields
+    last_heartbeat_at: Optional[datetime] = Field(
+        None, description="When the last heartbeat was received"
+    )
+    heartbeat_expires_at: Optional[datetime] = Field(
+        None, description="When the heartbeat expires"
     )
     created_at: datetime = Field(..., description="When the organization was created")
     updated_at: datetime = Field(
