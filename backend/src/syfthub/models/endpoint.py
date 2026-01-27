@@ -61,6 +61,11 @@ class EndpointModel(BaseModel, TimestampMixin):
         JSON, nullable=False, default=lambda: []
     )
 
+    # RAG integration - OpenAI vector store file ID
+    rag_file_id: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True, default=None
+    )
+
     # Relationships
     user: Mapped[Optional["UserModel"]] = relationship(
         "UserModel", back_populates="endpoints"
@@ -88,6 +93,7 @@ class EndpointModel(BaseModel, TimestampMixin):
         Index("idx_endpoints_is_active", "is_active"),
         Index("idx_endpoints_version", "version"),
         Index("idx_endpoints_stars_count", "stars_count"),
+        Index("idx_endpoints_rag_file_id", "rag_file_id"),
     )
 
     def __repr__(self) -> str:

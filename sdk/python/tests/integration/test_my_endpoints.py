@@ -6,7 +6,6 @@ import contextlib
 from typing import Any
 
 import pytest
-
 from syfthub_sdk import Endpoint, EndpointType, SyftHubClient, Visibility
 from syfthub_sdk.exceptions import (
     AuthenticationError,

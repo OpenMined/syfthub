@@ -247,6 +247,49 @@ class Settings(BaseSettings):
         description="Maximum concurrent health check requests",
     )
 
+    # ===========================================
+    # RAG / OPENAI VECTOR STORE SETTINGS
+    # ===========================================
+
+    # OpenAI API key for vector store operations
+    openai_api_key: Optional[str] = Field(
+        default=None,
+        description="OpenAI API key for RAG vector store operations",
+    )
+
+    # Vector store name - used to identify or create the store
+    openai_vector_store_name: str = Field(
+        default="syfthub-endpoints-v1",
+        description="Name for the OpenAI vector store",
+    )
+
+    # Feature flag to enable/disable RAG functionality
+    rag_enabled: bool = Field(
+        default=True,
+        description="Enable RAG-based semantic search for endpoints",
+    )
+
+    # Timeout for OpenAI API requests
+    rag_request_timeout: float = Field(
+        default=30.0,
+        description="Timeout in seconds for OpenAI API requests",
+    )
+
+    # Maximum results to request from vector store (before filtering)
+    rag_max_results: int = Field(
+        default=50,
+        description="Maximum results to request from vector store search",
+    )
+
+    @property
+    def rag_available(self) -> bool:
+        """Check if RAG functionality is available and configured."""
+        return (
+            self.rag_enabled
+            and self.openai_api_key is not None
+            and len(self.openai_api_key.strip()) > 0
+        )
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -1,7 +1,7 @@
 """Tests for EndpointService."""
 
 from datetime import datetime, timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -976,3 +976,159 @@ class TestEndpointServicePermissions:
 
         result = endpoint_service._can_modify_endpoint(sample_endpoint, sample_user)
         assert result is False
+
+
+class TestEndpointServiceSearch:
+    """Test endpoint search functionality."""
+
+    def test_search_endpoints_rag_not_available(self, endpoint_service):
+        """Test search returns empty when RAG is not available."""
+        # Replace rag_service with a mock that has is_available=False
+        mock_rag = MagicMock()
+        mock_rag.is_available = False
+        endpoint_service.rag_service = mock_rag
+
+        result = endpoint_service.search_endpoints("test query")
+
+        assert result.results == []
+        assert result.total == 0
+        assert result.query == "test query"
+
+    def test_search_endpoints_empty_results(self, endpoint_service):
+        """Test search with no matching results."""
+        mock_rag = MagicMock()
+        mock_rag.is_available = True
+        mock_rag.search.return_value = []
+        endpoint_service.rag_service = mock_rag
+
+        result = endpoint_service.search_endpoints("no match query")
+
+        assert result.results == []
+        assert result.total == 0
+        assert result.query == "no match query"
+
+    def test_search_endpoints_with_results(self, endpoint_service):
+        """Test successful search with results."""
+        mock_public_response = EndpointPublicResponse(
+            name="Test Endpoint",
+            slug="test-endpoint",
+            description="A test endpoint",
+            type=EndpointType.MODEL,
+            owner_username="testuser",
+            contributors_count=1,
+            version="1.0.0",
+            readme="# Test",
+            tags=["test"],
+            stars_count=5,
+            policies=[],
+            connect=[],
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        mock_rag = MagicMock()
+        mock_rag.is_available = True
+        mock_rag.search.return_value = [(1, 0.95)]
+        endpoint_service.rag_service = mock_rag
+
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "get_public_endpoints_by_ids",
+            return_value=[mock_public_response],
+        ):
+            result = endpoint_service.search_endpoints("test query", top_k=5)
+
+            assert len(result.results) == 1
+            assert result.results[0].name == "Test Endpoint"
+            assert result.results[0].relevance_score == 0.95
+            assert result.query == "test query"
+
+    def test_search_endpoints_filter_by_type(self, endpoint_service):
+        """Test search with endpoint type filter."""
+        model_response = EndpointPublicResponse(
+            name="Model Endpoint",
+            slug="model-endpoint",
+            description="A model endpoint",
+            type=EndpointType.MODEL,
+            owner_username="testuser",
+            contributors_count=1,
+            version="1.0.0",
+            readme="# Model",
+            tags=["model"],
+            stars_count=5,
+            policies=[],
+            connect=[],
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        datasource_response = EndpointPublicResponse(
+            name="Data Source Endpoint",
+            slug="datasource-endpoint",
+            description="A data source endpoint",
+            type=EndpointType.DATA_SOURCE,
+            owner_username="testuser",
+            contributors_count=1,
+            version="1.0.0",
+            readme="# Data Source",
+            tags=["data"],
+            stars_count=3,
+            policies=[],
+            connect=[],
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        mock_rag = MagicMock()
+        mock_rag.is_available = True
+        mock_rag.search.return_value = [(1, 0.95), (2, 0.85)]
+        endpoint_service.rag_service = mock_rag
+
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "get_public_endpoints_by_ids",
+            return_value=[model_response, datasource_response],
+        ):
+            # Filter by MODEL type
+            result = endpoint_service.search_endpoints(
+                "test query", endpoint_type=EndpointType.MODEL
+            )
+
+            assert len(result.results) == 1
+            assert result.results[0].type == EndpointType.MODEL
+
+    def test_search_endpoints_respects_top_k(self, endpoint_service):
+        """Test search respects top_k limit."""
+        responses = [
+            EndpointPublicResponse(
+                name=f"Endpoint {i}",
+                slug=f"endpoint-{i}",
+                description=f"Endpoint {i} description",
+                type=EndpointType.MODEL,
+                owner_username="testuser",
+                contributors_count=1,
+                version="1.0.0",
+                readme=f"# Endpoint {i}",
+                tags=["test"],
+                stars_count=i,
+                policies=[],
+                connect=[],
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            for i in range(5)
+        ]
+
+        mock_rag = MagicMock()
+        mock_rag.is_available = True
+        mock_rag.search.return_value = [(i, 0.9 - i * 0.1) for i in range(5)]
+        endpoint_service.rag_service = mock_rag
+
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "get_public_endpoints_by_ids",
+            return_value=responses,
+        ):
+            # Limit to 2 results
+            result = endpoint_service.search_endpoints("test query", top_k=2)
+
+            assert len(result.results) == 2
