@@ -299,11 +299,11 @@ for await (const ep of client.myEndpoints.list()) {
 
                 <Section
                   title='Claude Code MCP Installation'
-                  description='Install SyftHub MCP server for Claude Code CLI.'
+                  description='Add SyftHub MCP server to Claude Code CLI.'
                   icon={<Terminal className='h-5 w-5' />}
                 >
                   <CodeBlock
-                    code={`claude mcp install https://syfthub.openmined.org/mcp`}
+                    code={`claude mcp add --transport http syfthub https://syfthub.openmined.org/mcp`}
                     language='bash'
                   />
                 </Section>
