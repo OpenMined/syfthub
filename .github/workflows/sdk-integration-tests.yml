@@ -1,0 +1,176 @@
+name: SDK Integration Tests
+
+on:
+  # Run on pushes to main (after deploy completes)
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+    branches: [main]
+  # Allow manual trigger for testing
+  workflow_dispatch:
+    inputs:
+      test_url:
+        description: 'SyftHub URL to test against'
+        required: false
+        default: 'https://syfthub-dev.openmined.org'
+  # Run on PRs that modify SDK code
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'sdk/typescript/**'
+      - 'sdk/python/**'
+      - '.github/workflows/sdk-integration-tests.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SYFTHUB_TEST_URL: ${{ github.event.inputs.test_url || 'https://syfthub-dev.openmined.org' }}
+
+jobs:
+  # Check if the dev server is available before running tests
+  check-server:
+    name: Check Dev Server
+    runs-on: ubuntu-latest
+    outputs:
+      available: ${{ steps.check.outputs.available }}
+    steps:
+      - name: Check server health
+        id: check
+        env:
+          TEST_URL: ${{ github.event.inputs.test_url || 'https://syfthub-dev.openmined.org' }}
+        run: |
+          echo "Checking server at $TEST_URL..."
+          if curl -sf "$TEST_URL/health" > /dev/null 2>&1; then
+            echo "available=true" >> $GITHUB_OUTPUT
+            echo "Server is available"
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+            echo "Server is not available"
+          fi
+
+  typescript-integration:
+    name: TypeScript SDK Integration Tests
+    needs: check-server
+    if: needs.check-server.outputs.available == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/typescript
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: 'npm'
+          cache-dependency-path: sdk/typescript/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build SDK
+        run: npm run build
+
+      - name: Run integration tests
+        env:
+          SYFTHUB_URL: ${{ env.SYFTHUB_TEST_URL }}
+        run: npx vitest run tests/integration --reporter=verbose
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: typescript-integration-test-results
+          path: sdk/typescript/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  python-integration:
+    name: Python SDK Integration Tests
+    needs: check-server
+    if: needs.check-server.outputs.available == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+    defaults:
+      run:
+        working-directory: sdk/python
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "sdk/python/uv.lock"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          uv python pin ${{ matrix.python-version }}
+          uv sync --all-extras --dev
+
+      - name: Run integration tests
+        env:
+          SYFTHUB_TEST_URL: ${{ env.SYFTHUB_TEST_URL }}
+        run: uv run pytest tests/integration -v --tb=short
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-integration-test-results-${{ matrix.python-version }}
+          path: sdk/python/.pytest_cache/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  summary:
+    name: Integration Tests Summary
+    needs: [check-server, typescript-integration, python-integration]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        env:
+          SERVER_AVAILABLE: ${{ needs.check-server.outputs.available }}
+          TS_RESULT: ${{ needs.typescript-integration.result }}
+          PY_RESULT: ${{ needs.python-integration.result }}
+          TEST_URL: ${{ github.event.inputs.test_url || 'https://syfthub-dev.openmined.org' }}
+        run: |
+          echo "## SDK Integration Tests Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Test URL:** $TEST_URL" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$SERVER_AVAILABLE" != "true" ]; then
+            echo "Server was not available. Integration tests were skipped." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
+
+          echo "| SDK | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$TS_RESULT" == "success" ]; then
+            echo "| TypeScript | Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| TypeScript | Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "$PY_RESULT" == "success" ]; then
+            echo "| Python | Passed |" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "| Python | Failed |" >> $GITHUB_STEP_SUMMARY
+          fi
