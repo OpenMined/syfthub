@@ -65,11 +65,8 @@ export interface SearchOptions {
 // Constants
 // ============================================================================
 
-/** Minimum relevance score for "high confidence" results */
+/** Minimum relevance score for results to be shown (0.5 threshold) */
 export const HIGH_RELEVANCE_THRESHOLD = 0.5;
-
-/** Minimum relevance score for "loose match" results */
-export const LOOSE_RELEVANCE_THRESHOLD = 0.3;
 
 /** Minimum query length to trigger search */
 export const MIN_QUERY_LENGTH = 3;
@@ -204,27 +201,23 @@ export function filterByRelevance(
 }
 
 /**
- * Categorize search results into high/loose relevance groups.
+ * Filter search results to only include high relevance matches (>= 0.5 threshold).
+ *
+ * Results below the threshold are filtered out completely - they are not shown
+ * to the user. If no results meet the threshold, the UI should show a "no match"
+ * message instead.
  *
  * @param results - Search results with relevance scores
- * @returns Object with high and loose relevance result arrays
+ * @returns Object with high relevance result array (only results >= 0.5)
  */
 export function categorizeResults(results: SearchableChatSource[]): {
   highRelevance: SearchableChatSource[];
-  looseRelevance: SearchableChatSource[];
 } {
-  const highRelevance: SearchableChatSource[] = [];
-  const looseRelevance: SearchableChatSource[] = [];
+  const highRelevance = results.filter(
+    (result) => result.relevance_score >= HIGH_RELEVANCE_THRESHOLD
+  );
 
-  for (const result of results) {
-    if (result.relevance_score >= HIGH_RELEVANCE_THRESHOLD) {
-      highRelevance.push(result);
-    } else if (result.relevance_score >= LOOSE_RELEVANCE_THRESHOLD) {
-      looseRelevance.push(result);
-    }
-  }
-
-  return { highRelevance, looseRelevance };
+  return { highRelevance };
 }
 
 /**

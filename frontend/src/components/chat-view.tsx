@@ -733,8 +733,6 @@ interface Message {
   isThinking?: boolean;
   /** Sources from aggregator response (document titles -> endpoint slug & content) */
   aggregatorSources?: SourcesData;
-  /** Loose matches for no-match messages (relevance 0.3-0.5) */
-  looseMatches?: ChatSource[];
   /** Original query for no-match messages */
   searchQuery?: string;
 }
@@ -1059,8 +1057,8 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
           // Guard against state updates after unmount
           if (!isMounted) return;
 
-          // Categorize results by relevance
-          const { highRelevance, looseRelevance } = categorizeResults(searchResults);
+          // Filter results by relevance threshold (>= 0.5)
+          const { highRelevance } = categorizeResults(searchResults);
 
           if (highRelevance.length > 0) {
             // High relevance results found - show top 3
@@ -1076,49 +1074,16 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
             };
 
             updateMessagesWithFilter(relevanceMessage, hasSourceSelectionMessage);
-          } else if (looseRelevance.length > 0) {
-            // Only loose matches - show no-match message with suggestions
+          } else {
+            // No results meet the threshold - show AI assistant no-match message
             const noMatchMessage: Message = {
               id: `no-match-${String(Date.now())}`,
               role: 'assistant',
               type: 'no-match',
-              searchQuery: initialQuery,
-              looseMatches: looseRelevance.slice(0, 3)
+              searchQuery: initialQuery
             };
 
             updateMessagesWithFilter(noMatchMessage, hasSourceRelatedMessage);
-          } else {
-            // No semantic matches - fall back to keyword analysis or show top sources
-            const fallbackSources =
-              analysis.relevantSources.length > 0
-                ? analysis.relevantSources.slice(0, 3)
-                : sources.slice(0, 3);
-
-            if (fallbackSources.length > 0) {
-              const fallbackMessage: Message = {
-                id: `source-selection-${String(Date.now())}`,
-                role: 'assistant',
-                content:
-                  analysis.relevantSources.length > 0
-                    ? `Here are some data sources that might be relevant:`
-                    : `No sources matched your query. Here are popular sources to explore:`,
-                type: 'source-selection',
-                sources: fallbackSources
-              };
-
-              updateMessagesWithFilter(fallbackMessage, hasSourceSelectionMessage);
-            } else {
-              // No sources at all
-              const noSourcesMessage: Message = {
-                id: `no-match-${String(Date.now())}`,
-                role: 'assistant',
-                type: 'no-match',
-                searchQuery: initialQuery,
-                looseMatches: []
-              };
-
-              updateMessagesWithFilter(noSourcesMessage, hasSourceRelatedMessage);
-            }
           }
         } else {
           // Query too short for semantic search - use keyword analysis
@@ -1551,16 +1516,11 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                 {/* Search Loading Indicator */}
                 {message.type === 'source-search' ? <SourceSearchLoader /> : null}
 
-                {/* No Match Message with loose suggestions */}
+                {/* No Match Message - AI assistant response when no relevant endpoints found */}
                 {message.type === 'no-match' ? (
                   <NoMatchMessage
                     query={message.searchQuery ?? ''}
-                    looseMatches={message.looseMatches}
-                    onSelectLooseMatch={(source) => {
-                      toggleSource(source.id);
-                    }}
                     onBrowseCatalog={() => {
-                      // Navigate to browse page or open a modal
                       window.open('/browse', '_blank');
                     }}
                     onAddCustomSource={handleOpenPanel}
