@@ -739,6 +739,8 @@ interface Message {
 
 interface ChatViewProperties {
   initialQuery: string;
+  /** Pre-selected model from navigation state (e.g., from home page) */
+  initialModel?: ChatSource | null;
 }
 
 // Helper function to process SDK streaming events (handles token content)
@@ -942,7 +944,7 @@ function getChatErrorMessage(error: unknown): string {
   return 'An unexpected error occurred';
 }
 
-export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
+export function ChatView({ initialQuery, initialModel = null }: Readonly<ChatViewProperties>) {
   const { user } = useAuth();
 
   const [messages, setMessages] = useState<Message[]>([
@@ -956,8 +958,8 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
   const messagesEndReference = useRef<HTMLDivElement>(null);
   const abortControllerReference = useRef<AbortController | null>(null);
 
-  // Model selection state
-  const [selectedModel, setSelectedModel] = useState<ChatSource | null>(null);
+  // Model selection state - use initialModel if provided (from navigation state)
+  const [selectedModel, setSelectedModel] = useState<ChatSource | null>(initialModel);
   const [availableModels, setAvailableModels] = useState<ChatSource[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(true);
 

@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { ChatSource } from '@/lib/types';
+
 import Send from 'lucide-react/dist/esm/icons/send';
 
+import { ModelSelector } from '@/components/chat/model-selector';
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 
 // Static data hoisted outside component to prevent recreation on each render
@@ -22,12 +25,24 @@ interface HeroProperties {
   onAuthRequired?: () => void;
   /** When true, Hero takes full viewport height and centers content (use when no other content below) */
   fullHeight?: boolean;
+  /** Currently selected model for chat */
+  selectedModel?: ChatSource | null;
+  /** Callback when user selects a model */
+  onModelSelect?: (model: ChatSource) => void;
+  /** Available models for the model selector dropdown */
+  availableModels?: ChatSource[];
+  /** Whether models are being loaded */
+  isLoadingModels?: boolean;
 }
 
 export function Hero({
   onSearch,
   onAuthRequired: _onAuthRequired,
-  fullHeight = false
+  fullHeight = false,
+  selectedModel = null,
+  onModelSelect,
+  availableModels = [],
+  isLoadingModels = false
 }: Readonly<HeroProperties>) {
   const [searchValue, setSearchValue] = useState('');
   const inputReference = useRef<HTMLInputElement>(null);
@@ -103,6 +118,18 @@ export function Hero({
               </div>
             ))}
           </div>
+
+          {/* Model Selector */}
+          {onModelSelect ? (
+            <div className='flex items-center justify-center'>
+              <ModelSelector
+                selectedModel={selectedModel}
+                onModelSelect={onModelSelect}
+                models={availableModels}
+                isLoading={isLoadingModels}
+              />
+            </div>
+          ) : null}
 
           {/* Search Bar */}
           <form onSubmit={handleSearch} className='space-y-4' role='search'>

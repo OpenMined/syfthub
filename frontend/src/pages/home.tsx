@@ -1,3 +1,7 @@
+import { useState } from 'react';
+
+import type { ChatSource } from '@/lib/types';
+
 import UserPlus from 'lucide-react/dist/esm/icons/user-plus';
 import { useNavigate } from 'react-router-dom';
 
@@ -8,6 +12,7 @@ import { useAuth } from '@/context/auth-context';
 import { useModal } from '@/context/modal-context';
 import { useAPI } from '@/hooks/use-api';
 import {
+  getChatModels,
   getPublicEndpoints,
   getTotalEndpointsCount,
   getTrendingEndpoints
@@ -39,10 +44,18 @@ export default function HomePage() {
     { immediate: true }
   );
 
+  // Fetch available models for the model selector
+  const { data: availableModels, isLoading: isLoadingModels } = useAPI(() => getChatModels(20), {
+    immediate: true
+  });
+
+  // Model selection state
+  const [selectedModel, setSelectedModel] = useState<ChatSource | null>(null);
+
   const handleSearch = (query: string) => {
-    // Navigate to chat with the search query in state
+    // Navigate to chat with the search query and selected model in state
     // eslint-disable-next-line @typescript-eslint/no-floating-promises -- Navigation is fire-and-forget
-    navigate('/chat', { state: { query } });
+    navigate('/chat', { state: { query, selectedModel } });
   };
 
   const handleJoinNetwork = () => {
@@ -69,6 +82,10 @@ export default function HomePage() {
         onSearch={handleSearch}
         onAuthRequired={user ? undefined : openLogin}
         fullHeight={shouldCenterHero}
+        selectedModel={selectedModel}
+        onModelSelect={setSelectedModel}
+        availableModels={availableModels ?? []}
+        isLoadingModels={isLoadingModels}
       />
 
       {/* Active Nodes Count and Action Buttons */}
