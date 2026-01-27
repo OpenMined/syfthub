@@ -100,17 +100,17 @@ describe('AuthResource', () => {
       await client.auth.register(userData);
       await client.auth.logout();
 
-      await expect(
-        client.auth.login(userData.username, 'wrongpassword')
-      ).rejects.toThrow(AuthenticationError);
+      await expect(client.auth.login(userData.username, 'wrongpassword')).rejects.toThrow(
+        AuthenticationError
+      );
     });
 
     it('should fail with non-existent user', async () => {
       const client = createTestClient();
 
-      await expect(
-        client.auth.login('nonexistent_user_12345', 'password123')
-      ).rejects.toThrow(AuthenticationError);
+      await expect(client.auth.login('nonexistent_user_12345', 'password123')).rejects.toThrow(
+        AuthenticationError
+      );
     });
   });
 

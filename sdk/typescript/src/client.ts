@@ -47,9 +47,11 @@ function getEnv(key: string): string | undefined {
  * Check if running in a browser environment.
  */
 function isBrowser(): boolean {
-  return typeof globalThis !== 'undefined' &&
-         typeof (globalThis as { window?: unknown }).window !== 'undefined' &&
-         typeof (globalThis as { document?: unknown }).document !== 'undefined';
+  return (
+    typeof globalThis !== 'undefined' &&
+    typeof (globalThis as { window?: unknown }).window !== 'undefined' &&
+    typeof (globalThis as { document?: unknown }).document !== 'undefined'
+  );
 }
 
 /**
@@ -225,8 +227,7 @@ export class SyftHubClient {
     }
 
     throw new AuthenticationError(
-      'Accounting not initialized. ' +
-      'Call `await client.initAccounting()` after login.'
+      'Accounting not initialized. ' + 'Call `await client.initAccounting()` after login.'
     );
   }
 
@@ -275,8 +276,7 @@ export class SyftHubClient {
   private async _doInitAccounting(): Promise<AccountingResource> {
     if (!this.isAuthenticated) {
       throw new AuthenticationError(
-        'Must be logged in to use accounting. ' +
-        'Call client.auth.login() first.'
+        'Must be logged in to use accounting. ' + 'Call client.auth.login() first.'
       );
     }
 
@@ -286,14 +286,14 @@ export class SyftHubClient {
     if (!creds.url) {
       throw new ConfigurationError(
         'No accounting service configured for this user. ' +
-        'Contact your administrator to set up accounting.'
+          'Contact your administrator to set up accounting.'
       );
     }
 
     if (!creds.password) {
       throw new ConfigurationError(
         'Accounting password not available. ' +
-        'This may indicate an issue with your account setup.'
+          'This may indicate an issue with your account setup.'
       );
     }
 
@@ -333,11 +333,7 @@ export class SyftHubClient {
    */
   get chat(): ChatResource {
     if (!this._chat) {
-      this._chat = new ChatResource(
-        this.hub,
-        this.auth,
-        this.aggregatorUrl
-      );
+      this._chat = new ChatResource(this.hub, this.auth, this.aggregatorUrl);
     }
     return this._chat;
   }

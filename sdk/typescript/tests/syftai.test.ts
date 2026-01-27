@@ -56,9 +56,7 @@ describe('SyftAIResource', () => {
         ],
       };
 
-      mockFetch.mockResolvedValueOnce(
-        new Response(JSON.stringify(mockResponse), { status: 200 })
-      );
+      mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(mockResponse), { status: 200 }));
 
       const docs = await client.syftai.queryDataSource({
         endpoint: dataSourceEndpoint,
@@ -144,9 +142,7 @@ describe('SyftAIResource', () => {
         },
       };
 
-      mockFetch.mockResolvedValueOnce(
-        new Response(JSON.stringify(mockResponse), { status: 200 })
-      );
+      mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(mockResponse), { status: 200 }));
 
       const messages: Message[] = [{ role: 'user', content: 'Hello!' }];
 

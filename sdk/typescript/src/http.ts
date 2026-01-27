@@ -308,9 +308,7 @@ export class HTTPClient {
    * Extract error code and detail from API response.
    * Used for accounting-specific error handling.
    */
-  private extractErrorCodeAndDetail(
-    data: unknown
-  ): { code?: string; detail?: unknown } {
+  private extractErrorCodeAndDetail(data: unknown): { code?: string; detail?: unknown } {
     if (!data || typeof data !== 'object') {
       return {};
     }

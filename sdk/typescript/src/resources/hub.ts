@@ -107,7 +107,7 @@ export class HubResource {
     const { NotFoundError } = await import('../errors.js');
     throw new NotFoundError(
       `Could not resolve endpoint ID for '${path}'. ` +
-        'Endpoint not found or you don\'t have access to get its ID.'
+        "Endpoint not found or you don't have access to get its ID."
     );
   }
 
@@ -143,11 +143,9 @@ export class HubResource {
       if (options?.minStars !== undefined) {
         params['minStars'] = options.minStars;
       }
-      return this.http.get<EndpointPublic[]>(
-        '/api/v1/endpoints/trending',
-        params,
-        { includeAuth: false }
-      );
+      return this.http.get<EndpointPublic[]>('/api/v1/endpoints/trending', params, {
+        includeAuth: false,
+      });
     }, pageSize);
   }
 
@@ -204,9 +202,7 @@ export class HubResource {
       );
 
       // Filter by minScore and return results
-      return (response.results ?? []).filter(
-        (result) => result.relevanceScore >= minScore
-      );
+      return (response.results ?? []).filter((result) => result.relevanceScore >= minScore);
     } catch {
       // Return empty array on any error (e.g., RAG not configured)
       return [];

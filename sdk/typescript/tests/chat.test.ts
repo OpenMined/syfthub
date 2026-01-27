@@ -5,11 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SyftHubClient } from '../src/client.js';
 import type { EndpointRef } from '../src/models/index.js';
-import {
-  AggregatorError,
-  EndpointResolutionError,
-  AuthenticationError,
-} from '../src/index.js';
+import { AggregatorError, EndpointResolutionError, AuthenticationError } from '../src/index.js';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -186,19 +182,19 @@ describe('ChatResource', () => {
           });
         }
         if (url.includes('/chat')) {
-          return new Response(
-            JSON.stringify({ message: 'Internal server error' }),
-            { status: 500, headers: { 'content-type': 'application/json' } }
-          );
+          return new Response(JSON.stringify({ message: 'Internal server error' }), {
+            status: 500,
+            headers: { 'content-type': 'application/json' },
+          });
         }
         return new Response('Not found', { status: 404 });
       });
 
       const modelRef: EndpointRef = { url: 'http://syftai:8080', slug: 'model' };
 
-      await expect(
-        client.chat.complete({ prompt: 'Hello', model: modelRef })
-      ).rejects.toThrow(AggregatorError);
+      await expect(client.chat.complete({ prompt: 'Hello', model: modelRef })).rejects.toThrow(
+        AggregatorError
+      );
     });
 
     it('should throw EndpointResolutionError when endpoint not found', async () => {
