@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from syfthub.models.user import UserModel
 from syfthub.repositories.base import BaseRepository
@@ -175,6 +177,39 @@ class UserRepository(BaseRepository[UserModel]):
             self.session.commit()
             return True
         except Exception:
+            self.session.rollback()
+            return False
+
+    def update_heartbeat(
+        self,
+        user_id: int,
+        domain: str,
+        last_heartbeat_at: datetime,
+        heartbeat_expires_at: datetime,
+    ) -> bool:
+        """Update user heartbeat information.
+
+        Args:
+            user_id: ID of the user to update
+            domain: Normalized domain from the heartbeat URL
+            last_heartbeat_at: When the heartbeat was received
+            heartbeat_expires_at: When the heartbeat expires
+
+        Returns:
+            True if update was successful, False otherwise
+        """
+        try:
+            user_model = self.session.get(self.model, user_id)
+            if not user_model:
+                return False
+
+            user_model.domain = domain
+            user_model.last_heartbeat_at = last_heartbeat_at
+            user_model.heartbeat_expires_at = heartbeat_expires_at
+
+            self.session.commit()
+            return True
+        except SQLAlchemyError:
             self.session.rollback()
             return False
 
