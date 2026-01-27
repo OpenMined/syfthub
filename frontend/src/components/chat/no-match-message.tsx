@@ -166,11 +166,10 @@ export function NoMatchMessage({
           </div>
           <div className='min-w-0 flex-1'>
             <h3 className='font-inter text-foreground text-sm font-medium'>
-              No closely matching sources found
+              No relevant endpoints found
             </h3>
             <p className='font-inter text-muted-foreground mt-0.5 text-xs'>
-              Your query &ldquo;{truncatedQuery}&rdquo; didn&apos;t match any data sources with high
-              confidence.
+              We couldn&apos;t find any data sources related to &ldquo;{truncatedQuery}&rdquo;.
             </p>
           </div>
         </div>
@@ -237,7 +236,7 @@ export function NoMatchMessageInline({
     >
       <AlertCircle className='h-4 w-4 text-amber-500' />
       <span>
-        No matches found for &ldquo;{query.slice(0, 30)}
+        No relevant endpoints found for &ldquo;{query.slice(0, 30)}
         {query.length > 30 ? '...' : ''}&rdquo;
       </span>
       {onRefineQuery ? (

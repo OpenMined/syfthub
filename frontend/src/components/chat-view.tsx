@@ -996,7 +996,8 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
       setMessages((previous) => {
         // eslint-disable-next-line unicorn/no-array-callback-reference -- Using named predicate to reduce nesting depth
         const filtered = previous.filter(isNotSearchPlaceholder);
-        return newMessage && !checkFn(previous) ? [...filtered, newMessage] : filtered;
+        // Check against filtered array, not previous, since we've removed the search placeholder
+        return newMessage && !checkFn(filtered) ? [...filtered, newMessage] : filtered;
       });
     };
 
