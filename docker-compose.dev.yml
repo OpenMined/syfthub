@@ -54,10 +54,14 @@ services:
       - DEFAULT_ACCOUNTING_URL=
       # RAG/OpenAI configuration (optional - semantic search disabled if not set)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # Redis for message queue
+      - REDIS_URL=redis://redis:6379/0
     networks:
       - syfthub-network
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
