@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from syfthub.models.user import UserModel
 from syfthub.repositories.base import BaseRepository
@@ -208,7 +209,7 @@ class UserRepository(BaseRepository[UserModel]):
 
             self.session.commit()
             return True
-        except Exception:
+        except SQLAlchemyError:
             self.session.rollback()
             return False
 

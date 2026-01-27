@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
@@ -164,10 +165,29 @@ class HeartbeatRequest(BaseModel):
     @field_validator("url")
     @classmethod
     def validate_url(cls, v: str) -> str:
-        """Validate URL format."""
+        """Validate URL format and structure.
+
+        Ensures the URL:
+        - Starts with http:// or https://
+        - Is parseable
+        - Has a valid hostname (netloc)
+        """
         v = v.strip()
         if not v.startswith(("http://", "https://")):
             raise ValueError("URL must start with http:// or https://")
+
+        # Parse the URL to validate structure
+        parsed = urlparse(v)
+
+        # Ensure netloc (host:port) exists
+        if not parsed.netloc:
+            raise ValueError("URL must contain a valid hostname")
+
+        # Extract hostname (without port) and validate it's not empty
+        hostname = parsed.netloc.split(":")[0]
+        if not hostname:
+            raise ValueError("URL must contain a valid hostname, not just a port")
+
         return v
 
 

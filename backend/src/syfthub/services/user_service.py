@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, List, Optional
+from urllib.parse import urlparse
 
 from fastapi import HTTPException, status
 
+from syfthub.core.config import settings
 from syfthub.repositories.user import UserRepository
-from syfthub.schemas.user import User, UserResponse, UserUpdate
+from syfthub.schemas.user import HeartbeatResponse, User, UserResponse, UserUpdate
 from syfthub.services.base import BaseService
 
 if TYPE_CHECKING:
@@ -169,3 +172,63 @@ class UserService(BaseService):
     def email_available(self, email: str) -> bool:
         """Check if email is available."""
         return not self.user_repository.email_exists(email)
+
+    def send_heartbeat(
+        self, user_id: int, url: str, ttl_seconds: Optional[int] = None
+    ) -> HeartbeatResponse:
+        """Send heartbeat to indicate user's domain is online.
+
+        This method:
+        - Extracts domain (host + port) from the provided URL
+        - Calculates effective TTL (capped at server max, defaults if not specified)
+        - Updates user's heartbeat information in the database
+
+        Args:
+            user_id: ID of the user sending the heartbeat
+            url: Full URL of the domain (e.g., 'https://api.example.com')
+            ttl_seconds: Requested TTL in seconds (optional, will use default if not provided)
+
+        Returns:
+            HeartbeatResponse with status, timestamps, domain, and effective TTL
+
+        Raises:
+            HTTPException: If URL is invalid or heartbeat update fails
+        """
+        now = datetime.now(timezone.utc)
+
+        # Calculate effective TTL (cap at max, use default if not specified)
+        requested_ttl = ttl_seconds or settings.heartbeat_default_ttl_seconds
+        effective_ttl = min(requested_ttl, settings.heartbeat_max_ttl_seconds)
+
+        # Extract domain (host + port) from URL
+        parsed = urlparse(url)
+        domain = parsed.netloc
+        if not domain:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid URL: could not extract domain",
+            )
+
+        expires_at = now + timedelta(seconds=effective_ttl)
+
+        # Update user record
+        success = self.user_repository.update_heartbeat(
+            user_id=user_id,
+            domain=domain,
+            last_heartbeat_at=now,
+            heartbeat_expires_at=expires_at,
+        )
+
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update heartbeat",
+            )
+
+        return HeartbeatResponse(
+            status="ok",
+            received_at=now,
+            expires_at=expires_at,
+            domain=domain,
+            ttl_seconds=effective_ttl,
+        )

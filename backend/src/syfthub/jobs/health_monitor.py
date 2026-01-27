@@ -281,7 +281,7 @@ class EndpointHealthMonitor:
 
     def _refresh_heartbeat_expiry(
         self, session: Session, owner_id: int, owner_type: str
-    ) -> None:
+    ) -> bool:
         """Refresh heartbeat expiry with grace period after successful HTTP check.
 
         This is called when HTTP verification succeeds for a user or organization
@@ -292,6 +292,9 @@ class EndpointHealthMonitor:
             session: Database session to use for the update
             owner_id: ID of the owner (user or organization) to refresh
             owner_type: Type of owner ("user" or "organization")
+
+        Returns:
+            True if the heartbeat was successfully refreshed, False otherwise
         """
         try:
             if owner_type == "user":
@@ -299,16 +302,23 @@ class EndpointHealthMonitor:
             else:
                 owner = session.get(OrganizationModel, owner_id)
 
-            if owner:
-                owner.heartbeat_expires_at = datetime.now(timezone.utc) + timedelta(
-                    seconds=self.grace_period
+            if not owner:
+                logger.warning(
+                    f"Cannot refresh heartbeat: {owner_type} {owner_id} not found"
                 )
-                session.commit()
+                return False
+
+            owner.heartbeat_expires_at = datetime.now(timezone.utc) + timedelta(
+                seconds=self.grace_period
+            )
+            session.commit()
+            return True
         except Exception as e:
             logger.error(
                 f"Failed to refresh heartbeat for {owner_type} {owner_id}: {e}"
             )
             session.rollback()
+            return False
 
     def _update_endpoint_status(
         self, session: Session, endpoint_id: int, is_active: bool
