@@ -8,7 +8,7 @@ import {
   generateTestEndpoint,
   isTestServerAvailable,
 } from '../setup.js';
-import { EndpointType, Visibility, NotFoundError } from '../../src/index.js';
+import { Visibility, NotFoundError } from '../../src/index.js';
 
 describe('MyEndpointsResource', () => {
   beforeAll(async () => {
@@ -20,7 +20,7 @@ describe('MyEndpointsResource', () => {
 
   describe('create', () => {
     it('should create a new endpoint', async () => {
-      const { client, credentials } = await createAuthenticatedClient();
+      const { client, credentials: _credentials } = await createAuthenticatedClient();
       const endpointData = generateTestEndpoint();
 
       const endpoint = await client.myEndpoints.create(endpointData);
@@ -118,7 +118,7 @@ describe('MyEndpointsResource', () => {
 
       // Count using async iteration
       let count = 0;
-      for await (const _ of client.myEndpoints.list({ pageSize: 2 })) {
+      for await (const _endpoint of client.myEndpoints.list({ pageSize: 2 })) {
         count++;
       }
 

@@ -17,7 +17,7 @@ vi.stubGlobal('fetch', mockFetch);
 
 describe('ChatResource', () => {
   const baseUrl = 'https://test.syfthub.com';
-  const aggregatorUrl = `${baseUrl}/aggregator/api/v1`;
+  const _aggregatorUrl = `${baseUrl}/aggregator/api/v1`;
   let client: SyftHubClient;
 
   const mockUserResponse = {
@@ -229,7 +229,7 @@ describe('ChatResource', () => {
       const unauthClient = new SyftHubClient({ baseUrl });
 
       await expect(async () => {
-        for await (const _ of unauthClient.chat.stream({
+        for await (const _event of unauthClient.chat.stream({
           prompt: 'Hello',
           model: { url: 'http://test', slug: 'model' },
         })) {

@@ -2,7 +2,7 @@
  * Integration tests for AuthResource.
  */
 
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import {
   createTestClient,
   createAuthenticatedClient,
@@ -116,7 +116,7 @@ describe('AuthResource', () => {
 
   describe('me', () => {
     it('should return current user', async () => {
-      const { client, user: registeredUser, credentials } = await createAuthenticatedClient();
+      const { client, user: _registeredUser, credentials } = await createAuthenticatedClient();
 
       const me = await client.auth.me();
 

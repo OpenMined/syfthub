@@ -6,7 +6,6 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import {
   createTestClient,
   createAuthenticatedClient,
-  generateTestUser,
   isTestServerAvailable,
   randomString,
 } from '../setup.js';

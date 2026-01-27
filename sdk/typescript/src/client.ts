@@ -47,7 +47,6 @@ function getEnv(key: string): string | undefined {
  * Check if running in a browser environment.
  */
 function isBrowser(): boolean {
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   return typeof globalThis !== 'undefined' &&
          typeof (globalThis as { window?: unknown }).window !== 'undefined' &&
          typeof (globalThis as { document?: unknown }).document !== 'undefined';
