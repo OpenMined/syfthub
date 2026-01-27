@@ -25,12 +25,17 @@ export type {
   EndpointCreateInput,
   EndpointUpdateInput,
   SyncEndpointsResponse,
+  // Search types
+  EndpointSearchResult,
+  EndpointSearchResponse,
+  SearchOptions,
 } from './endpoint.js';
 
 // Endpoint helpers
 export {
   getEndpointOwnerType,
   getEndpointPublicPath,
+  getSearchResultPath,
 } from './endpoint.js';
 
 // Accounting types

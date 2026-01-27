@@ -67,6 +67,63 @@ export interface EndpointPublic {
 }
 
 /**
+ * Search result with relevance score from semantic search.
+ *
+ * Extends the public endpoint fields with a relevance score indicating
+ * how well the endpoint matches the search query.
+ */
+export interface EndpointSearchResult {
+  readonly name: string;
+  readonly slug: string;
+  readonly description: string;
+  readonly type: EndpointType;
+  readonly ownerUsername: string;
+  /** Number of contributors (user IDs not exposed for privacy) */
+  readonly contributorsCount: number;
+  readonly version: string;
+  readonly readme: string;
+  readonly tags: readonly string[];
+  readonly starsCount: number;
+  readonly policies: readonly Policy[];
+  readonly connect: readonly Connection[];
+  readonly createdAt: Date;
+  readonly updatedAt: Date;
+  /** Relevance score from semantic search (0.0-1.0) */
+  readonly relevanceScore: number;
+}
+
+/**
+ * Response from the endpoint search API.
+ */
+export interface EndpointSearchResponse {
+  readonly results: readonly EndpointSearchResult[];
+  readonly total: number;
+  readonly query: string;
+}
+
+/**
+ * Options for semantic search.
+ */
+export interface SearchOptions {
+  /** Maximum number of results to return (default: 10) */
+  topK?: number;
+  /** Filter by endpoint type */
+  type?: EndpointType;
+  /** Minimum relevance score threshold (0.0-1.0, default: 0.0) */
+  minScore?: number;
+}
+
+/**
+ * Get the full path for a search result (owner/slug format).
+ *
+ * @param result - The search result
+ * @returns The path in "owner/slug" format
+ */
+export function getSearchResultPath(result: EndpointSearchResult): string {
+  return `${result.ownerUsername}/${result.slug}`;
+}
+
+/**
  * Input for creating a new endpoint.
  */
 export interface EndpointCreateInput {

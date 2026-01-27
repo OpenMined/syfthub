@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from syfthub_sdk._pagination import PageIterator
-from syfthub_sdk.models import EndpointPublic
+from syfthub_sdk.models import EndpointPublic, EndpointSearchResult, EndpointType
 
 if TYPE_CHECKING:
     from syfthub_sdk._http import HTTPClient
@@ -26,6 +26,11 @@ class HubResource:
         # Get trending endpoints
         for endpoint in client.hub.trending(min_stars=10):
             print(f"{endpoint.name} - {endpoint.stars_count} stars")
+
+        # Semantic search for endpoints
+        results = client.hub.search("machine learning for images")
+        for result in results:
+            print(f"{result.path}: {result.relevance_score:.2f}")
 
         # Get a specific endpoint by path
         endpoint = client.hub.get("alice/cool-api")
@@ -98,6 +103,77 @@ class HubResource:
             return response if isinstance(response, list) else []
 
         return PageIterator(fetch_fn, EndpointPublic, page_size=page_size)
+
+    def search(
+        self,
+        query: str,
+        *,
+        top_k: int = 10,
+        type: EndpointType | None = None,
+        min_score: float = 0.0,
+    ) -> list[EndpointSearchResult]:
+        """Search for endpoints using semantic search.
+
+        Uses RAG-powered semantic search to find endpoints that match the
+        natural language query. Returns results sorted by relevance score.
+
+        Note: If RAG is not configured on the server (no OpenAI API key),
+        this method returns an empty list.
+
+        Args:
+            query: Natural language search query (e.g., "machine learning models for image classification")
+            top_k: Maximum number of results to return (default: 10)
+            type: Filter by endpoint type (model, data_source) - optional
+            min_score: Minimum relevance score threshold (0.0-1.0, default: 0.0)
+
+        Returns:
+            List of EndpointSearchResult with relevance scores, sorted by score descending.
+            Returns empty list if query is too short (<3 chars) or no matches found.
+
+        Example:
+            # Search for machine learning models
+            results = client.hub.search("image classification models")
+            for result in results:
+                print(f"{result.path}: {result.relevance_score:.2f}")
+
+            # Filter by type and minimum score
+            data_sources = client.hub.search(
+                "customer data",
+                type=EndpointType.DATA_SOURCE,
+                min_score=0.5,
+            )
+        """
+        # Skip search for very short queries
+        if not query or len(query.strip()) < 3:
+            return []
+
+        payload: dict[str, Any] = {
+            "query": query.strip(),
+            "top_k": top_k,
+        }
+        if type is not None:
+            payload["type"] = type.value if isinstance(type, EndpointType) else type
+
+        try:
+            response = self._http.post(
+                "/api/v1/endpoints/search",
+                json=payload,
+                include_auth=False,
+            )
+            data = response if isinstance(response, dict) else {}
+
+            # Parse results and filter by min_score
+            results: list[EndpointSearchResult] = []
+            for item in data.get("results", []):
+                result = EndpointSearchResult.model_validate(item)
+                if result.relevance_score >= min_score:
+                    results.append(result)
+
+            return results
+
+        except Exception:
+            # Return empty list on any error (e.g., RAG not configured)
+            return []
 
     def get(self, path: str) -> EndpointPublic:
         """Get an endpoint by its path (owner/slug format).
