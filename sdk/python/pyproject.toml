@@ -1,6 +1,6 @@
 [project]
 name = "syfthub-sdk"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python SDK for interacting with SyftHub API"
 readme = "README.md"
 license = { text = "Apache-2.0" }
