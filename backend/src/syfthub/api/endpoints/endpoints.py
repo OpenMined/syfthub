@@ -22,6 +22,7 @@ from syfthub.schemas.endpoint import (
     SyncEndpointsRequest,
     SyncEndpointsResponse,
 )
+from syfthub.schemas.search import EndpointSearchRequest, EndpointSearchResponse
 from syfthub.schemas.user import User
 from syfthub.services.endpoint_service import EndpointService
 
@@ -97,6 +98,41 @@ async def list_trending_endpoints(
     """List trending public endpoints."""
     return endpoint_service.list_trending_endpoints(
         skip=skip, limit=limit, min_stars=min_stars, endpoint_type=endpoint_type
+    )
+
+
+@router.post(
+    "/search",
+    response_model=EndpointSearchResponse,
+    summary="Semantic Search Endpoints",
+    description="""
+Search for public endpoints using natural language queries.
+
+This endpoint uses semantic search (RAG) to find the most relevant endpoints
+based on their name, description, readme, and tags. Results are ordered by
+relevance.
+
+**Features:**
+- Natural language queries (e.g., "machine learning model for text classification")
+- Returns endpoints in order of semantic relevance
+- Filters by endpoint type (model or data_source)
+- Returns up to 50 results per query
+
+**Notes:**
+- Only searches public, active endpoints
+- Returns the same endpoint format as `/endpoints/public`
+- If RAG is not configured, returns empty results
+""",
+)
+async def search_endpoints(
+    search_request: EndpointSearchRequest,
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> EndpointSearchResponse:
+    """Search endpoints using semantic search (RAG)."""
+    return endpoint_service.search_endpoints(
+        query=search_request.query,
+        top_k=search_request.top_k,
+        endpoint_type=search_request.type,
     )
 
 

@@ -7,7 +7,6 @@ import json
 import httpx
 import pytest
 import respx
-
 from syfthub_sdk import SyftHubClient
 from syfthub_sdk.exceptions import GenerationError, RetrievalError
 from syfthub_sdk.models import Document, EndpointRef, Message

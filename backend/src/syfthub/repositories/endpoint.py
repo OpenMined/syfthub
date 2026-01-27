@@ -206,6 +206,79 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         except SQLAlchemyError:
             return []
 
+    def get_public_endpoints_by_ids(
+        self,
+        endpoint_ids: List[int],
+    ) -> List[EndpointPublicResponse]:
+        """Get public endpoints by IDs with owner usernames and transformed URLs.
+
+        This method is optimized for RAG search results - it fetches endpoints
+        by their IDs while preserving the input order (for ranking).
+
+        Args:
+            endpoint_ids: List of endpoint IDs to fetch (order is preserved).
+
+        Returns:
+            List of EndpointPublicResponse objects in the same order as input IDs.
+            Only returns endpoints that are public and active.
+        """
+        if not endpoint_ids:
+            return []
+
+        try:
+            # Fetch all matching endpoints in one query
+            stmt = (
+                select(self.model, UserModel.username, UserModel.domain)
+                .join(UserModel, self.model.user_id == UserModel.id)
+                .where(
+                    and_(
+                        self.model.id.in_(endpoint_ids),
+                        self.model.visibility == EndpointVisibility.PUBLIC.value,
+                        self.model.is_active,
+                    )
+                )
+            )
+
+            result = self.session.execute(stmt)
+            rows = result.all()
+
+            # Build a map of id -> endpoint response
+            id_to_endpoint: dict[int, EndpointPublicResponse] = {}
+            for endpoint_model, username, domain in rows:
+                # Transform connection URLs using owner's domain
+                transformed_connect = transform_connection_urls(
+                    domain, endpoint_model.connect or []
+                )
+
+                endpoint_dict = {
+                    "name": endpoint_model.name,
+                    "slug": endpoint_model.slug,
+                    "description": endpoint_model.description,
+                    "type": endpoint_model.type,
+                    "owner_username": username,
+                    "contributors_count": len(endpoint_model.contributors or []),
+                    "version": endpoint_model.version,
+                    "readme": endpoint_model.readme,
+                    "tags": endpoint_model.tags or [],
+                    "stars_count": endpoint_model.stars_count,
+                    "policies": endpoint_model.policies,
+                    "connect": transformed_connect,
+                    "created_at": endpoint_model.created_at,
+                    "updated_at": endpoint_model.updated_at,
+                }
+                id_to_endpoint[endpoint_model.id] = EndpointPublicResponse(
+                    **endpoint_dict
+                )
+
+            # Return in the original order (preserves RAG ranking)
+            ordered_endpoints = [
+                id_to_endpoint[eid] for eid in endpoint_ids if eid in id_to_endpoint
+            ]
+
+            return ordered_endpoints
+        except SQLAlchemyError:
+            return []
+
     def get_trending_endpoints(
         self,
         skip: int = 0,
@@ -632,6 +705,84 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             for ds in user_endpoints
             if ds.visibility == EndpointVisibility.PUBLIC and ds.is_active
         ]
+
+    # ===========================================
+    # RAG INTEGRATION METHODS
+    # ===========================================
+
+    def update_rag_file_id(self, endpoint_id: int, file_id: Optional[str]) -> bool:
+        """Update the RAG file ID for an endpoint.
+
+        Args:
+            endpoint_id: The endpoint ID to update.
+            file_id: The OpenAI file ID, or None to clear.
+
+        Returns:
+            True if updated successfully, False otherwise.
+        """
+        try:
+            endpoint_model = self.session.get(self.model, endpoint_id)
+            if not endpoint_model:
+                return False
+
+            endpoint_model.rag_file_id = file_id
+            self.session.commit()
+            return True
+        except SQLAlchemyError:
+            self.session.rollback()
+            return False
+
+    def get_rag_file_id(self, endpoint_id: int) -> Optional[str]:
+        """Get the RAG file ID for an endpoint.
+
+        Args:
+            endpoint_id: The endpoint ID.
+
+        Returns:
+            The file ID if set, None otherwise.
+        """
+        try:
+            endpoint_model = self.session.get(self.model, endpoint_id)
+            if endpoint_model:
+                return endpoint_model.rag_file_id
+            return None
+        except SQLAlchemyError:
+            return None
+
+    def get_user_rag_file_ids(self, user_id: int) -> List[tuple[int, str]]:
+        """Get all RAG file IDs for a user's endpoints.
+
+        Args:
+            user_id: The user ID.
+
+        Returns:
+            List of (endpoint_id, file_id) tuples for endpoints with RAG files.
+        """
+        try:
+            stmt = select(self.model.id, self.model.rag_file_id).where(
+                and_(
+                    self.model.user_id == user_id,
+                    self.model.rag_file_id.isnot(None),
+                )
+            )
+            result = self.session.execute(stmt)
+            return [(row[0], row[1]) for row in result.all()]
+        except SQLAlchemyError:
+            return []
+
+    def get_endpoint_model(self, endpoint_id: int) -> Optional[EndpointModel]:
+        """Get the raw endpoint model (for RAG operations).
+
+        Args:
+            endpoint_id: The endpoint ID.
+
+        Returns:
+            The EndpointModel if found, None otherwise.
+        """
+        try:
+            return self.session.get(self.model, endpoint_id)
+        except SQLAlchemyError:
+            return None
 
 
 class EndpointStarRepository(BaseRepository[EndpointStarModel]):

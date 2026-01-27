@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from syfthub_sdk import SyftHubClient, User
 from syfthub_sdk.exceptions import APIError, AuthenticationError, ValidationError
 

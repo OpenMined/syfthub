@@ -27,11 +27,14 @@ import {
   EndpointResolutionError,
   syftClient
 } from '@/lib/sdk-client';
+import { categorizeResults, MIN_QUERY_LENGTH, searchDataSources } from '@/lib/search-service';
 import { filterSourcesForAutocomplete, validateEndpointPath } from '@/lib/validation';
 
 import { CostEstimationPanel } from './chat/cost-estimation-panel';
 import { MarkdownMessage } from './chat/markdown-message';
 import { ModelSelector } from './chat/model-selector';
+import { NoMatchMessage } from './chat/no-match-message';
+import { SourceSearchLoader } from './chat/source-search-loader';
 import { SourcesSection } from './chat/sources-section';
 import { StatusIndicator } from './chat/status-indicator';
 import { Badge } from './ui/badge';
@@ -725,11 +728,15 @@ interface Message {
   id: string;
   role: 'user' | 'assistant';
   content?: string;
-  type?: 'text' | 'source-selection';
+  type?: 'text' | 'source-selection' | 'source-search' | 'no-match';
   sources?: ChatSource[];
   isThinking?: boolean;
   /** Sources from aggregator response (document titles -> endpoint slug & content) */
   aggregatorSources?: SourcesData;
+  /** Loose matches for no-match messages (relevance 0.3-0.5) */
+  looseMatches?: ChatSource[];
+  /** Original query for no-match messages */
+  searchQuery?: string;
 }
 
 interface ChatViewProperties {
@@ -909,10 +916,14 @@ function hasSourceSelectionMessage(messages: Message[]): boolean {
   return messages.some((m) => m.type === 'source-selection');
 }
 
-// Helper to check if we already have a source-related message (error or source-selection)
+// Helper to check if we already have a source-related message (error, source-selection, no-match, or search)
 function hasSourceRelatedMessage(messages: Message[]): boolean {
   return messages.some(
-    (m) => m.type === 'source-selection' || (m.role === 'assistant' && m.id.startsWith('source-'))
+    (m) =>
+      m.type === 'source-selection' ||
+      m.type === 'source-search' ||
+      m.type === 'no-match' ||
+      (m.role === 'assistant' && m.id.startsWith('source-'))
   );
 }
 
@@ -969,27 +980,43 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
     [availableSources]
   );
 
-  // Load real data sources from backend and analyze query for relevance
+  // Load real data sources from backend and use RAG search for relevance
   useEffect(() => {
     let isMounted = true;
+    const searchMessageId = `source-search-${String(Date.now())}`;
+
+    // Filter predicate defined at useEffect level to avoid nesting depth issues
+    const isNotSearchPlaceholder = (m: Message) => m.id !== searchMessageId;
+
+    // Helper to update messages: filters out search placeholder and optionally adds new message
+    const updateMessagesWithFilter = (
+      newMessage: Message | null,
+      checkFn: (msgs: Message[]) => boolean
+    ) => {
+      setMessages((previous) => {
+        // eslint-disable-next-line unicorn/no-array-callback-reference -- Using named predicate to reduce nesting depth
+        const filtered = previous.filter(isNotSearchPlaceholder);
+        return newMessage && !checkFn(previous) ? [...filtered, newMessage] : filtered;
+      });
+    };
 
     const loadDataSources = async () => {
       try {
-        const sources = await getChatDataSources(100); // Load up to 100 endpoints for comprehensive search
+        // First, load available sources for the source panel
+        const sources = await getChatDataSources(100);
 
         // Guard against state updates after unmount
         if (!isMounted) return;
 
         setAvailableSources(sources);
 
-        // Analyze the initial query to determine the best action
+        // Check for exact path mentions first (e.g., "owner/endpoint-name")
         const analysis = analyzeQueryForSources(initialQuery, sources);
 
         if (analysis.action === 'auto-select' && analysis.matchedEndpoint) {
           // Endpoint was explicitly mentioned - auto-select and proceed
           setSelectedSources(new Set([analysis.matchedEndpoint.id]));
 
-          // Add a message indicating auto-selection
           const autoSelectMessage: Message = {
             id: `auto-select-${String(Date.now())}`,
             role: 'assistant',
@@ -1005,68 +1032,131 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
             }
             return [...previous, autoSelectMessage];
           });
-        } else if (sources.length === 0) {
-          // No sources available
-          const noSourcesMessage: Message = {
-            id: `source-selection-${String(Date.now())}`,
-            role: 'assistant',
-            content:
-              'No data sources are currently available. You can add external sources manually in the advanced configuration panel.',
-            type: 'source-selection',
-            sources: []
-          };
+          return;
+        }
 
+        // Use RAG semantic search if query is long enough
+        if (initialQuery.trim().length >= MIN_QUERY_LENGTH) {
+          // Show searching indicator
           setMessages((previous) => {
-            if (hasSourceSelectionMessage(previous)) {
+            if (hasSourceRelatedMessage(previous)) {
               return previous;
             }
-            return [...previous, noSourcesMessage];
+            return [
+              ...previous,
+              {
+                id: searchMessageId,
+                role: 'assistant',
+                type: 'source-search'
+              }
+            ];
           });
-        } else if (analysis.relevantSources.length === 0) {
-          // Sources exist but none are relevant - show top sources as fallback
-          const MAX_SOURCES_TO_SHOW = 3;
-          const sourcesToShow = sources.slice(0, MAX_SOURCES_TO_SHOW);
 
-          const noRelevantMessage: Message = {
-            id: `source-selection-${String(Date.now())}`,
-            role: 'assistant',
-            content: `No sources matched your query directly. Here are the top ${String(sourcesToShow.length)} popular sources (${String(sources.length)} total available):`,
-            type: 'source-selection',
-            sources: sourcesToShow
-          };
+          // Perform semantic search
+          const searchResults = await searchDataSources(initialQuery, { top_k: 5 });
 
-          setMessages((previous) => {
-            if (hasSourceSelectionMessage(previous)) {
-              return previous;
+          // Guard against state updates after unmount
+          if (!isMounted) return;
+
+          // Categorize results by relevance
+          const { highRelevance, looseRelevance } = categorizeResults(searchResults);
+
+          if (highRelevance.length > 0) {
+            // High relevance results found - show top 3
+            const MAX_SOURCES_TO_SHOW = 3;
+            const sourcesToShow = highRelevance.slice(0, MAX_SOURCES_TO_SHOW);
+
+            const relevanceMessage: Message = {
+              id: `source-selection-${String(Date.now())}`,
+              role: 'assistant',
+              content: `Based on your question, I found ${String(highRelevance.length)} highly relevant data source${highRelevance.length === 1 ? '' : 's'}:`,
+              type: 'source-selection',
+              sources: sourcesToShow
+            };
+
+            updateMessagesWithFilter(relevanceMessage, hasSourceSelectionMessage);
+          } else if (looseRelevance.length > 0) {
+            // Only loose matches - show no-match message with suggestions
+            const noMatchMessage: Message = {
+              id: `no-match-${String(Date.now())}`,
+              role: 'assistant',
+              type: 'no-match',
+              searchQuery: initialQuery,
+              looseMatches: looseRelevance.slice(0, 3)
+            };
+
+            updateMessagesWithFilter(noMatchMessage, hasSourceRelatedMessage);
+          } else {
+            // No semantic matches - fall back to keyword analysis or show top sources
+            const fallbackSources =
+              analysis.relevantSources.length > 0
+                ? analysis.relevantSources.slice(0, 3)
+                : sources.slice(0, 3);
+
+            if (fallbackSources.length > 0) {
+              const fallbackMessage: Message = {
+                id: `source-selection-${String(Date.now())}`,
+                role: 'assistant',
+                content:
+                  analysis.relevantSources.length > 0
+                    ? `Here are some data sources that might be relevant:`
+                    : `No sources matched your query. Here are popular sources to explore:`,
+                type: 'source-selection',
+                sources: fallbackSources
+              };
+
+              updateMessagesWithFilter(fallbackMessage, hasSourceSelectionMessage);
+            } else {
+              // No sources at all
+              const noSourcesMessage: Message = {
+                id: `no-match-${String(Date.now())}`,
+                role: 'assistant',
+                type: 'no-match',
+                searchQuery: initialQuery,
+                looseMatches: []
+              };
+
+              updateMessagesWithFilter(noSourcesMessage, hasSourceRelatedMessage);
             }
-            return [...previous, noRelevantMessage];
-          });
+          }
         } else {
-          // Show relevant sources (top 3)
-          const MAX_SOURCES_TO_SHOW = 3;
-          const relevantSources = analysis.relevantSources;
-          const sourcesToShow = relevantSources.slice(0, MAX_SOURCES_TO_SHOW);
-          const isFiltered =
-            analysis.action === 'show-relevant' && relevantSources.length < sources.length;
+          // Query too short for semantic search - use keyword analysis
+          if (sources.length === 0) {
+            const noSourcesMessage: Message = {
+              id: `source-selection-${String(Date.now())}`,
+              role: 'assistant',
+              content:
+                'No data sources are currently available. You can add external sources manually in the advanced configuration panel.',
+              type: 'source-selection',
+              sources: []
+            };
 
-          const messageContent = isFiltered
-            ? `Based on your question, here are the top ${String(sourcesToShow.length)} most relevant data sources (${String(relevantSources.length)} matched, ${String(sources.length)} total):`
-            : `Select data sources to get started (showing top ${String(sourcesToShow.length)} of ${String(sources.length)} available):`;
+            setMessages((previous) => {
+              if (hasSourceSelectionMessage(previous)) {
+                return previous;
+              }
+              return [...previous, noSourcesMessage];
+            });
+          } else {
+            // Show top sources for short queries
+            const MAX_SOURCES_TO_SHOW = 3;
+            const sourcesToShow = sources.slice(0, MAX_SOURCES_TO_SHOW);
 
-          const sourceSelectionMessage: Message = {
-            id: `source-selection-${String(Date.now())}`,
-            role: 'assistant',
-            content: messageContent,
-            type: 'source-selection',
-            sources: sourcesToShow
-          };
+            const sourceSelectionMessage: Message = {
+              id: `source-selection-${String(Date.now())}`,
+              role: 'assistant',
+              content: `Select data sources to get started (showing top ${String(sourcesToShow.length)} of ${String(sources.length)} available):`,
+              type: 'source-selection',
+              sources: sourcesToShow
+            };
 
-          setMessages((previous) => {
-            if (hasSourceSelectionMessage(previous)) {
-              return previous;
-            }
-            return [...previous, sourceSelectionMessage];
-          });
+            setMessages((previous) => {
+              if (hasSourceSelectionMessage(previous)) {
+                return previous;
+              }
+              return [...previous, sourceSelectionMessage];
+            });
+          }
         }
       } catch (error) {
         // Guard against state updates after unmount
@@ -1074,22 +1164,16 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
 
         console.error('Failed to load data sources:', error);
 
-        // Add error message - ATOMIC check to prevent duplicates
-        const errorMessageId = `source-error-${String(Date.now())}`;
+        // Add error message
         const errorMessage: Message = {
-          id: errorMessageId,
+          id: `source-error-${String(Date.now())}`,
           role: 'assistant',
           content:
             'Unable to load data sources from the server. You can still add external sources manually using the advanced configuration panel.',
           type: 'text'
         };
 
-        setMessages((previous) => {
-          if (hasSourceRelatedMessage(previous)) {
-            return previous;
-          }
-          return [...previous, errorMessage];
-        });
+        updateMessagesWithFilter(errorMessage, hasSourceRelatedMessage);
       }
     };
 
@@ -1460,6 +1544,25 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                     sources={message.sources}
                     selectedIds={selectedSources}
                     onToggle={toggleSource}
+                  />
+                ) : null}
+
+                {/* Search Loading Indicator */}
+                {message.type === 'source-search' ? <SourceSearchLoader /> : null}
+
+                {/* No Match Message with loose suggestions */}
+                {message.type === 'no-match' ? (
+                  <NoMatchMessage
+                    query={message.searchQuery ?? ''}
+                    looseMatches={message.looseMatches}
+                    onSelectLooseMatch={(source) => {
+                      toggleSource(source.id);
+                    }}
+                    onBrowseCatalog={() => {
+                      // Navigate to browse page or open a modal
+                      window.open('/browse', '_blank');
+                    }}
+                    onAddCustomSource={handleOpenPanel}
                   />
                 ) : null}
               </div>

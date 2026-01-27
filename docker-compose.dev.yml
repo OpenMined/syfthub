@@ -18,7 +18,7 @@ services:
       - aggregator
       - mcp
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -52,6 +52,8 @@ services:
       - CORS_ORIGINS=http://localhost:8080
       # Disable accounting service for local development
       - DEFAULT_ACCOUNTING_URL=
+      # RAG/OpenAI configuration (optional - semantic search disabled if not set)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     networks:
       - syfthub-network
     depends_on:
