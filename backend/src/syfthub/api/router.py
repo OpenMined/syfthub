@@ -6,6 +6,7 @@ from syfthub.api.endpoints import (
     accounting,
     endpoints,
     errors,
+    mq,
     organizations,
     token,
     users,
@@ -30,3 +31,6 @@ api_router.include_router(token.router, tags=["identity-provider"])
 
 # Error reporting endpoint for frontend
 api_router.include_router(errors.router, tags=["observability"])
+
+# Message queue endpoints (Redis-backed user message queues)
+api_router.include_router(mq.router, prefix="/mq", tags=["message-queue"])
