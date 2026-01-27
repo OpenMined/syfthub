@@ -141,6 +141,16 @@ class AuthResource:
         )
         # Response contains user and tokens
         data = response if isinstance(response, dict) else {}
+
+        # Store tokens if present (auto-login after registration)
+        if "access_token" in data and "refresh_token" in data:
+            tokens = AuthTokens(
+                access_token=data["access_token"],
+                refresh_token=data["refresh_token"],
+                token_type=data.get("token_type", "bearer"),
+            )
+            self._http.set_tokens(tokens)
+
         return User.model_validate(data.get("user", data))
 
     def login(self, *, username: str, password: str) -> User:
