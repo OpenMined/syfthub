@@ -21,6 +21,7 @@ from syfthub.auth.db_dependencies import get_optional_current_user
 from syfthub.auth.keys import key_manager
 from syfthub.core.config import settings
 from syfthub.core.html_sanitizer import sanitize_readme_html
+from syfthub.core.redis_client import close_redis_client
 from syfthub.core.ssrf_protection import validate_domain_for_ssrf
 from syfthub.core.url_builder import (
     build_connection_url,
@@ -318,6 +319,11 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         with contextlib.suppress(asyncio.CancelledError):
             await health_monitor_task
         logger.info("Endpoint Health Monitor stopped")
+
+    # Close Redis connection
+    logger.info("Closing Redis connection...")
+    await close_redis_client()
+    logger.info("Redis connection closed")
 
     logger.info("Shutting down Syfthub API")
 
