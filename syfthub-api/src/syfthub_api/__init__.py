@@ -25,7 +25,8 @@ Example:
 """
 
 from .app import SyftAPI
-from .config import Settings, load_settings
+from .config import Settings, load_settings, TUNNELING_PREFIX
+from .heartbeat import HeartbeatManager
 from .exceptions import (
     AuthenticationError,
     ConfigurationError,
@@ -51,6 +52,14 @@ from .schemas import (
     References,
     ResponseMessage,
     TokenUsage,
+    # Tunnel protocol schemas
+    TUNNEL_PROTOCOL_VERSION,
+    TunnelEndpointInfo,
+    TunnelError,
+    TunnelErrorCode,
+    TunnelRequest,
+    TunnelResponse,
+    TunnelTiming,
 )
 
 __version__ = "0.1.0"
@@ -58,9 +67,12 @@ __version__ = "0.1.0"
 __all__ = [
     # Core
     "SyftAPI",
+    # Heartbeat
+    "HeartbeatManager",
     # Configuration
     "Settings",
     "load_settings",
+    "TUNNELING_PREFIX",
     # Logging
     "setup_logging",
     "get_logger",
@@ -72,6 +84,7 @@ __all__ = [
     "SyncError",
     # Enums
     "EndpointType",
+    "TunnelErrorCode",
     # Request schemas
     "DataSourceQueryRequest",
     "Message",
@@ -86,6 +99,13 @@ __all__ = [
     "References",
     "ResponseMessage",
     "TokenUsage",
+    # Tunnel protocol
+    "TUNNEL_PROTOCOL_VERSION",
+    "TunnelEndpointInfo",
+    "TunnelError",
+    "TunnelRequest",
+    "TunnelResponse",
+    "TunnelTiming",
     # Metadata
     "__version__",
 ]

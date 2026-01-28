@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import urlparse
@@ -9,6 +10,12 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from syfthub.schemas.auth import UserRole
+
+# Tunneling URL prefix for spaces behind firewalls/NAT
+TUNNELING_PREFIX = "tunneling:"
+
+# Pattern for valid tunneling usernames (alphanumeric, underscore, hyphen, 1-50 chars)
+TUNNELING_USERNAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,50}$")
 
 
 class UserBase(BaseModel):
@@ -168,13 +175,30 @@ class HeartbeatRequest(BaseModel):
         """Validate URL format and structure.
 
         Ensures the URL:
-        - Starts with http:// or https://
-        - Is parseable
-        - Has a valid hostname (netloc)
+        - Starts with http://, https://, or tunneling:<username>
+        - Is parseable (for HTTP URLs)
+        - Has a valid hostname (netloc) for HTTP URLs
+        - Has a valid username for tunneling URLs
         """
         v = v.strip()
+
+        # Handle tunneling URLs (for spaces behind firewalls/NAT)
+        if v.startswith(TUNNELING_PREFIX):
+            username = v[len(TUNNELING_PREFIX) :]
+            if not username:
+                raise ValueError("Tunneling URL must include a username")
+            if not TUNNELING_USERNAME_PATTERN.match(username):
+                raise ValueError(
+                    "Tunneling username must be 1-50 characters, "
+                    "alphanumeric with underscores and hyphens only"
+                )
+            return v
+
+        # Handle HTTP/HTTPS URLs
         if not v.startswith(("http://", "https://")):
-            raise ValueError("URL must start with http:// or https://")
+            raise ValueError(
+                f"URL must start with http://, https://, or {TUNNELING_PREFIX}"
+            )
 
         # Parse the URL to validate structure
         parsed = urlparse(v)
