@@ -160,6 +160,80 @@ def get_allowed_audiences(
     return settings.allowed_audiences
 
 
+def create_guest_satellite_token(
+    audience: str,
+    key_manager: RSAKeyManager,
+    user_repo: Optional[UserRepository] = None,
+) -> str:
+    """Create an audience-bound satellite token for a guest (unauthenticated) user.
+
+    This function creates a short-lived, RS256-signed JWT for guest users who
+    don't have a Hub account. Guest tokens allow unauthenticated access to
+    policy-free endpoints.
+
+    Token Claims:
+    - sub: "guest" (special identifier for guests)
+    - iss: Issuer URL (e.g., 'https://hub.syft.com')
+    - aud: Target service identifier (username of target user/service)
+    - exp: Expiration timestamp (short-lived, e.g., 60s)
+    - iat: Issued at timestamp
+    - role: "guest" (indicates unauthenticated user)
+
+    Args:
+        audience: Target service identifier (username of target user/service)
+        key_manager: RSA key manager for signing
+        user_repo: User repository for audience validation. If provided,
+                   validates that audience is an active user's username.
+
+    Returns:
+        RS256-signed JWT string
+
+    Raises:
+        AudienceNotFoundError: If audience is not a registered user
+        AudienceInactiveError: If audience user is inactive
+        KeyNotConfiguredError: If RSA keys are not configured
+    """
+    # Validate audience against database (dynamic) or config (deprecated)
+    validation_result = validate_audience(audience, user_repo)
+    if not validation_result.valid:
+        if validation_result.error_code == "audience_inactive":
+            raise AudienceInactiveError(audience)
+        else:
+            raise AudienceNotFoundError(audience)
+
+    # Check that key manager is configured
+    if not key_manager.is_configured:
+        raise KeyNotConfiguredError()
+
+    # Build token payload for guest user
+    now = datetime.now(timezone.utc)
+    expire = now + timedelta(seconds=settings.satellite_token_expire_seconds)
+
+    payload = {
+        "sub": "guest",  # Special identifier for guest users
+        "iss": settings.issuer_url,  # Issuer URL
+        "aud": audience.strip().lower(),  # Target service (normalized)
+        "exp": expire,  # Expiration
+        "iat": now,  # Issued at
+        "role": "guest",  # Guest role for unauthenticated users
+    }
+
+    # Build JWT headers with key ID
+    headers = {
+        "kid": key_manager.current_key_id,
+    }
+
+    # Sign token with RS256 using private key
+    token: str = jwt.encode(
+        payload,
+        key_manager.private_key,
+        algorithm="RS256",
+        headers=headers,
+    )
+
+    return token
+
+
 def create_satellite_token(
     user: User,
     audience: str,

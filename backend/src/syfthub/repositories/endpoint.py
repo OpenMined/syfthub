@@ -279,6 +279,79 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         except SQLAlchemyError:
             return []
 
+    def get_guest_accessible_endpoints(
+        self,
+        skip: int = 0,
+        limit: int = 10,
+        endpoint_type: Optional[EndpointType] = None,
+    ) -> List[EndpointPublicResponse]:
+        """Get all public endpoints that have no policies attached (guest-accessible).
+
+        Guest users can only access endpoints that are:
+        - Public visibility
+        - Active (is_active=True)
+        - Have no policies attached (policies is empty list)
+
+        Args:
+            skip: Number of endpoints to skip (pagination)
+            limit: Maximum number of endpoints to return
+            endpoint_type: Optional filter by endpoint type (model or data_source)
+
+        Returns:
+            List of EndpointPublicResponse objects for guest-accessible endpoints
+        """
+        try:
+            stmt = (
+                select(self.model, UserModel.username, UserModel.domain)
+                .join(UserModel, self.model.user_id == UserModel.id)
+                .where(
+                    and_(
+                        self.model.visibility == EndpointVisibility.PUBLIC.value,
+                        self.model.is_active,
+                        # Filter for empty policies array (JSON empty array)
+                        # SQLAlchemy handles JSON comparison - empty list [] in JSON
+                        func.json_array_length(self.model.policies) == 0,
+                    )
+                )
+            )
+
+            if endpoint_type:
+                stmt = stmt.where(self.model.type == endpoint_type.value)
+
+            stmt = stmt.order_by(self.model.updated_at.desc()).offset(skip).limit(limit)
+
+            result = self.session.execute(stmt)
+            rows = result.all()
+
+            endpoints = []
+            for endpoint_model, username, domain in rows:
+                # Transform connection URLs using owner's domain
+                transformed_connect = transform_connection_urls(
+                    domain, endpoint_model.connect or []
+                )
+
+                endpoint_dict = {
+                    "name": endpoint_model.name,
+                    "slug": endpoint_model.slug,
+                    "description": endpoint_model.description,
+                    "type": endpoint_model.type,
+                    "owner_username": username,
+                    "contributors_count": len(endpoint_model.contributors or []),
+                    "version": endpoint_model.version,
+                    "readme": endpoint_model.readme,
+                    "tags": endpoint_model.tags or [],
+                    "stars_count": endpoint_model.stars_count,
+                    "policies": endpoint_model.policies,
+                    "connect": transformed_connect,
+                    "created_at": endpoint_model.created_at,
+                    "updated_at": endpoint_model.updated_at,
+                }
+                endpoints.append(EndpointPublicResponse(**endpoint_dict))
+
+            return endpoints
+        except SQLAlchemyError:
+            return []
+
     def get_trending_endpoints(
         self,
         skip: int = 0,

@@ -1132,3 +1132,115 @@ class TestEndpointServiceSearch:
             result = endpoint_service.search_endpoints("test query", top_k=2)
 
             assert len(result.results) == 2
+
+
+class TestEndpointServiceGuestAccessible:
+    """Test guest-accessible endpoint listing."""
+
+    def test_list_guest_accessible_endpoints_success(self, endpoint_service):
+        """Test successful listing of guest-accessible endpoints."""
+        # Create mock responses - endpoints with NO policies (guest accessible)
+        responses = [
+            EndpointPublicResponse(
+                name="Free Model",
+                slug="free-model",
+                description="A free model with no policies",
+                type=EndpointType.MODEL,
+                owner_username="testuser",
+                contributors_count=1,
+                version="1.0.0",
+                readme="# Free Model",
+                tags=["free"],
+                stars_count=10,
+                policies=[],  # No policies - guest accessible
+                connect=[],
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            ),
+            EndpointPublicResponse(
+                name="Free Data Source",
+                slug="free-data-source",
+                description="A free data source with no policies",
+                type=EndpointType.DATA_SOURCE,
+                owner_username="testuser",
+                contributors_count=0,
+                version="1.0.0",
+                readme="# Free Data Source",
+                tags=["free"],
+                stars_count=5,
+                policies=[],  # No policies - guest accessible
+                connect=[],
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            ),
+        ]
+
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "get_guest_accessible_endpoints",
+            return_value=responses,
+        ):
+            result = endpoint_service.list_guest_accessible_endpoints()
+
+            assert len(result) == 2
+            assert all(ep.policies == [] for ep in result)
+
+    def test_list_guest_accessible_endpoints_empty_when_all_have_policies(
+        self, endpoint_service
+    ):
+        """Test that guest-accessible list is empty when all endpoints have policies."""
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "get_guest_accessible_endpoints",
+            return_value=[],  # No guest-accessible endpoints
+        ):
+            result = endpoint_service.list_guest_accessible_endpoints()
+
+            assert len(result) == 0
+
+    def test_list_guest_accessible_endpoints_with_type_filter(self, endpoint_service):
+        """Test filtering guest-accessible endpoints by type."""
+        model_response = [
+            EndpointPublicResponse(
+                name="Free Model",
+                slug="free-model",
+                description="A free model",
+                type=EndpointType.MODEL,
+                owner_username="testuser",
+                contributors_count=1,
+                version="1.0.0",
+                readme="# Free Model",
+                tags=["free"],
+                stars_count=10,
+                policies=[],
+                connect=[],
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            ),
+        ]
+
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "get_guest_accessible_endpoints",
+            return_value=model_response,
+        ) as mock_method:
+            result = endpoint_service.list_guest_accessible_endpoints(
+                endpoint_type=EndpointType.MODEL
+            )
+
+            mock_method.assert_called_once_with(
+                skip=0, limit=10, endpoint_type=EndpointType.MODEL
+            )
+            assert len(result) == 1
+            assert result[0].type == EndpointType.MODEL
+
+    def test_list_guest_accessible_endpoints_with_pagination(self, endpoint_service):
+        """Test pagination for guest-accessible endpoints."""
+        with patch.object(
+            endpoint_service.endpoint_repository,
+            "get_guest_accessible_endpoints",
+            return_value=[],
+        ) as mock_method:
+            endpoint_service.list_guest_accessible_endpoints(skip=10, limit=20)
+
+            mock_method.assert_called_once_with(skip=10, limit=20, endpoint_type=None)

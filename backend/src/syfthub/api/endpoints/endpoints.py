@@ -101,6 +101,50 @@ async def list_trending_endpoints(
     )
 
 
+@router.get(
+    "/guest-accessible",
+    response_model=list[EndpointPublicResponse],
+    summary="List Guest-Accessible Endpoints",
+    description="""
+List endpoints that are accessible to guest (unauthenticated) users.
+
+**No Authentication Required** - This endpoint is public.
+
+**Filtering Criteria:**
+Guest-accessible endpoints must meet ALL of the following criteria:
+- **Public visibility**: The endpoint's visibility is set to "public"
+- **Active**: The endpoint is active (not disabled or deleted)
+- **No policies**: The endpoint has NO policies attached (policies array is empty)
+
+**Use Cases:**
+- Allows unauthenticated users to discover free, policy-free endpoints
+- Used in conjunction with `/api/v1/token/guest` for guest access flow
+- Ensures guests can only see endpoints they are actually allowed to use
+
+**Note:**
+Endpoints with any policies attached (rate limits, authentication requirements, etc.)
+are NOT included in this list, even if they are public. This ensures guests only see
+endpoints they can actually use without additional authorization.
+""",
+)
+async def list_guest_accessible_endpoints(
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100),
+    endpoint_type: Optional[EndpointType] = Query(
+        None, description="Filter by endpoint type (model or data_source)"
+    ),
+) -> list[EndpointPublicResponse]:
+    """List endpoints accessible to guest (unauthenticated) users.
+
+    Returns only public, active endpoints that have no policies attached.
+    This ensures guests can only discover and use truly free endpoints.
+    """
+    return endpoint_service.list_guest_accessible_endpoints(
+        skip=skip, limit=limit, endpoint_type=endpoint_type
+    )
+
+
 @router.post(
     "/search",
     response_model=EndpointSearchResponse,

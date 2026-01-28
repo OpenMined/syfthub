@@ -481,6 +481,33 @@ class EndpointService(BaseService):
             skip, limit, min_stars, endpoint_type
         )
 
+    def list_guest_accessible_endpoints(
+        self,
+        skip: int = 0,
+        limit: int = 10,
+        endpoint_type: Optional[EndpointType] = None,
+    ) -> List[EndpointPublicResponse]:
+        """List endpoints accessible to guest (unauthenticated) users.
+
+        Guest users can only access endpoints that are:
+        - Public visibility
+        - Active (is_active=True)
+        - Have no policies attached (policies is empty list)
+
+        This ensures guests can only use free, unrestricted endpoints.
+
+        Args:
+            skip: Number of endpoints to skip (pagination)
+            limit: Maximum number of endpoints to return
+            endpoint_type: Optional filter by endpoint type (model or data_source)
+
+        Returns:
+            List of EndpointPublicResponse objects for guest-accessible endpoints
+        """
+        return self.endpoint_repository.get_guest_accessible_endpoints(
+            skip=skip, limit=limit, endpoint_type=endpoint_type
+        )
+
     # ===========================================
     # RAG INTEGRATION METHODS
     # ===========================================
