@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom';
 
 import { ProtectedRoute } from './components/auth/protected-route';
 import RootProvider from './components/providers/root';
+import { ScrollToTop } from './components/scroll-to-top';
 import { AccountingProvider } from './context/accounting-context';
 import { AuthProvider } from './context/auth-context';
 import { ModalProvider } from './context/modal-context';
@@ -50,6 +51,7 @@ export default function App() {
             <ModalProvider>
               <SettingsModalProvider>
                 <BrowserRouter>
+                  <ScrollToTop />
                   <Routes>
                     <Route element={<MainLayout />}>
                       {/* Public routes */}
