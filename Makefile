@@ -1,10 +1,11 @@
-.PHONY: help dev stop test check logs
+.PHONY: help setup dev stop test check logs
 
 # =============================================================================
 # SyftHub Development Commands
 # =============================================================================
 #
 # Quick Start:
+#   make setup   - Install dev dependencies (pre-commit, etc.)
 #   make dev     - Start development environment
 #   make logs    - View logs (debug issues)
 #   make test    - Run tests
@@ -18,6 +19,7 @@ help:  ## Show available commands
 	@echo ''
 	@echo 'SyftHub Development Commands:'
 	@echo ''
+	@echo '  make setup   Install dev dependencies (pre-commit, etc.)'
 	@echo '  make dev     Start development environment (http://localhost)'
 	@echo '  make stop    Stop all services'
 	@echo '  make test    Run all tests'
@@ -26,6 +28,16 @@ help:  ## Show available commands
 	@echo ''
 	@echo 'Production deployment:'
 	@echo '  docker compose -f docker-compose.prod.yml up -d'
+	@echo ''
+
+setup:  ## Install dev dependencies (pre-commit, etc.)
+	@echo 'Setting up development environment...'
+	@test -d .venv || uv venv .venv
+	@. .venv/bin/activate && uv pip install pre-commit
+	@. .venv/bin/activate && pre-commit install
+	@echo ''
+	@echo 'Setup complete! Activate the virtualenv with:'
+	@echo '  source .venv/bin/activate'
 	@echo ''
 
 dev:  ## Start development environment
