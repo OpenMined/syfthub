@@ -1,6 +1,12 @@
 import React, { createContext, useCallback, useContext, useState } from 'react';
 
-export type SettingsTab = 'profile' | 'security' | 'payment' | 'aggregator' | 'danger-zone';
+export type SettingsTab =
+  | 'profile'
+  | 'security'
+  | 'api-tokens'
+  | 'payment'
+  | 'aggregator'
+  | 'danger-zone';
 
 interface SettingsModalContextType {
   isOpen: boolean;

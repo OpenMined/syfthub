@@ -9,12 +9,14 @@ from sqlalchemy.orm import Session
 from syfthub.core.redis_client import get_redis_client
 from syfthub.database.connection import get_db_session
 from syfthub.repositories import (
+    APITokenRepository,
     EndpointRepository,
     OrganizationRepository,
     UserRepository,
 )
 from syfthub.repositories.endpoint import EndpointStarRepository
 from syfthub.repositories.organization import OrganizationMemberRepository
+from syfthub.services.api_token_service import APITokenService
 from syfthub.services.auth_service import AuthService
 from syfthub.services.endpoint_service import EndpointService
 from syfthub.services.mq_service import MessageQueueService
@@ -27,6 +29,13 @@ def get_user_repository(
 ) -> UserRepository:
     """Get UserRepository dependency."""
     return UserRepository(session)
+
+
+def get_api_token_repository(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> APITokenRepository:
+    """Get APITokenRepository dependency."""
+    return APITokenRepository(session)
 
 
 def get_endpoint_repository(
@@ -84,6 +93,13 @@ def get_organization_service(
 ) -> OrganizationService:
     """Get OrganizationService dependency."""
     return OrganizationService(session)
+
+
+def get_api_token_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> APITokenService:
+    """Get APITokenService dependency."""
+    return APITokenService(session)
 
 
 async def get_mq_service(

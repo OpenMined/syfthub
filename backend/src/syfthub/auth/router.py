@@ -13,12 +13,19 @@ from syfthub.auth.db_dependencies import (
     security,
 )
 from syfthub.auth.security import blacklist_token
-from syfthub.database.dependencies import get_auth_service
+from syfthub.database.dependencies import get_api_token_service, get_auth_service
 from syfthub.domain.exceptions import (
     AccountingAccountExistsError,
     AccountingServiceUnavailableError,
     InvalidAccountingPasswordError,
     UserAlreadyExistsError,
+)
+from syfthub.schemas.api_token import (
+    APIToken,
+    APITokenCreate,
+    APITokenCreateResponse,
+    APITokenListResponse,
+    APITokenUpdate,
 )
 from syfthub.schemas.auth import (
     AuthResponse,
@@ -29,6 +36,7 @@ from syfthub.schemas.auth import (
     UserRegister,
 )
 from syfthub.schemas.user import User, UserResponse
+from syfthub.services.api_token_service import APITokenService
 from syfthub.services.auth_service import AuthService
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -210,3 +218,132 @@ async def change_password(
     auth_service.change_password(
         current_user, password_data.current_password, password_data.new_password
     )
+
+
+# =============================================================================
+# API Token Management Endpoints
+# =============================================================================
+
+
+@router.post(
+    "/tokens",
+    response_model=APITokenCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create API token",
+    responses={
+        201: {
+            "description": "API token created successfully. "
+            "IMPORTANT: Save the token immediately - it will not be shown again!",
+        },
+        400: {"description": "Token limit exceeded"},
+    },
+)
+async def create_api_token(
+    token_data: APITokenCreate,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    api_token_service: Annotated[APITokenService, Depends(get_api_token_service)],
+) -> APITokenCreateResponse:
+    """Create a new API token for authentication.
+
+    API tokens provide an alternative to username/password authentication.
+    They are ideal for CI/CD pipelines, scripts, and programmatic access.
+
+    **IMPORTANT**: The full token is only shown ONCE in this response.
+    Make sure to save it immediately - it cannot be retrieved later.
+
+    The token can be used in the Authorization header:
+    ```
+    Authorization: Bearer syft_pat_xxxxx...
+    ```
+    """
+    return api_token_service.create_token(current_user, token_data)
+
+
+@router.get(
+    "/tokens",
+    response_model=APITokenListResponse,
+    summary="List API tokens",
+)
+async def list_api_tokens(
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    api_token_service: Annotated[APITokenService, Depends(get_api_token_service)],
+    include_inactive: bool = False,
+    skip: int = 0,
+    limit: int = 100,
+) -> APITokenListResponse:
+    """List all API tokens for the current user.
+
+    By default, only active tokens are returned. Use `include_inactive=true`
+    to also include revoked tokens.
+
+    Note: The full token value is never returned - only the prefix for identification.
+    """
+    return api_token_service.list_tokens(
+        current_user,
+        include_inactive=include_inactive,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.get(
+    "/tokens/{token_id}",
+    response_model=APIToken,
+    summary="Get API token",
+    responses={
+        404: {"description": "Token not found"},
+    },
+)
+async def get_api_token(
+    token_id: int,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    api_token_service: Annotated[APITokenService, Depends(get_api_token_service)],
+) -> APIToken:
+    """Get details of a specific API token.
+
+    Note: The full token value is never returned - only the prefix for identification.
+    """
+    return api_token_service.get_token(current_user, token_id)
+
+
+@router.patch(
+    "/tokens/{token_id}",
+    response_model=APIToken,
+    summary="Update API token",
+    responses={
+        404: {"description": "Token not found"},
+    },
+)
+async def update_api_token(
+    token_id: int,
+    token_data: APITokenUpdate,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    api_token_service: Annotated[APITokenService, Depends(get_api_token_service)],
+) -> APIToken:
+    """Update an API token's name.
+
+    Only the name can be updated. Scopes and expiration cannot be changed
+    after creation for security reasons.
+    """
+    return api_token_service.update_token(current_user, token_id, token_data)
+
+
+@router.delete(
+    "/tokens/{token_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke API token",
+    responses={
+        404: {"description": "Token not found"},
+    },
+)
+async def revoke_api_token(
+    token_id: int,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    api_token_service: Annotated[APITokenService, Depends(get_api_token_service)],
+) -> None:
+    """Revoke an API token.
+
+    The token becomes immediately unusable. The record is kept for audit purposes.
+    This action cannot be undone.
+    """
+    api_token_service.revoke_token(current_user, token_id)
