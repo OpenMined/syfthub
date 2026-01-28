@@ -101,6 +101,7 @@ def get_api_token_service(
     """Get APITokenService dependency."""
     return APITokenService(session)
 
+
 async def get_mq_service(
     session: Annotated[Session, Depends(get_db_session)],
     redis: Annotated[Redis, Depends(get_redis_client)],
