@@ -1,11 +1,9 @@
 """Tests for the HTML sanitizer module."""
 
-import pytest
-
 from syfthub.core.html_sanitizer import (
-    ALLOWED_TAGS,
     ALLOWED_ATTRIBUTES,
     ALLOWED_PROTOCOLS,
+    ALLOWED_TAGS,
     sanitize_readme_html,
 )
 
@@ -208,7 +206,9 @@ class TestSanitizeReadmeHtml:
 
     def test_details_summary_preserved(self):
         """Test that details/summary elements are preserved."""
-        safe_html = "<details><summary>Click to expand</summary><p>Content</p></details>"
+        safe_html = (
+            "<details><summary>Click to expand</summary><p>Content</p></details>"
+        )
         result = sanitize_readme_html(safe_html)
         assert "<details>" in result
         assert "<summary>" in result

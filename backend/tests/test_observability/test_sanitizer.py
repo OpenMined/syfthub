@@ -1,14 +1,12 @@
 """Tests for the observability sanitizer module."""
 
-import pytest
-
+from syfthub.observability.constants import REDACTED_VALUE
 from syfthub.observability.sanitizer import (
     _is_sensitive_field,
     sanitize,
     sanitize_headers,
     truncate_body,
 )
-from syfthub.observability.constants import REDACTED_VALUE
 
 
 class TestIsSensitiveField:

@@ -1,8 +1,8 @@
 """Tests for the SSRF protection module."""
 
 import ipaddress
-from unittest.mock import patch, MagicMock
 import socket
+from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
@@ -187,9 +187,7 @@ class TestValidateDomainForSsrf:
 
     def test_domain_resolving_to_blocked_ip(self):
         """Test that domain resolving to blocked IP is rejected."""
-        with patch(
-            "syfthub.core.ssrf_protection.resolve_domain_to_ip"
-        ) as mock_resolve:
+        with patch("syfthub.core.ssrf_protection.resolve_domain_to_ip") as mock_resolve:
             mock_resolve.return_value = "127.0.0.1"
             with pytest.raises(HTTPException) as exc_info:
                 validate_domain_for_ssrf("malicious-domain.com")
@@ -197,9 +195,7 @@ class TestValidateDomainForSsrf:
 
     def test_domain_resolving_to_public_ip_allowed(self):
         """Test that domain resolving to public IP is allowed."""
-        with patch(
-            "syfthub.core.ssrf_protection.resolve_domain_to_ip"
-        ) as mock_resolve:
+        with patch("syfthub.core.ssrf_protection.resolve_domain_to_ip") as mock_resolve:
             mock_resolve.return_value = "93.184.216.34"
             # Should not raise
             validate_domain_for_ssrf("example.com")
@@ -218,9 +214,7 @@ class TestValidateDomainForSsrf:
 
     def test_invalid_resolved_ip_raises_error(self):
         """Test that invalid resolved IP raises HTTPException."""
-        with patch(
-            "syfthub.core.ssrf_protection.resolve_domain_to_ip"
-        ) as mock_resolve:
+        with patch("syfthub.core.ssrf_protection.resolve_domain_to_ip") as mock_resolve:
             mock_resolve.return_value = "invalid-ip"
             with pytest.raises(HTTPException) as exc_info:
                 validate_domain_for_ssrf("example.com")
