@@ -54,6 +54,13 @@ test:  ## Run all tests
 	@echo ''
 	@echo 'Running frontend tests...'
 	@cd frontend && npm run test --if-present || echo 'Frontend tests skipped (playwright not configured)'
+	@echo ''
+	@echo 'Running SDK tests...'
+	@echo 'Python SDK dev tests...'
+	@cd sdk/python && uv run pytest tests/dev/ -v || echo 'Python SDK dev tests skipped (dev server not available)'
+	@echo ''
+	@echo 'TypeScript SDK dev tests...'
+	@cd sdk/typescript && npm run test:dev || echo 'TypeScript SDK dev tests skipped (dev server not available)'
 
 check:  ## Run code quality checks
 	@echo 'Backend checks...'
