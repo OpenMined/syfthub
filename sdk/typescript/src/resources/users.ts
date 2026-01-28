@@ -1,5 +1,11 @@
 import type { HTTPClient } from '../http.js';
-import type { AccountingCredentials, User, UserUpdateInput } from '../models/index.js';
+import type {
+  AccountingCredentials,
+  HeartbeatInput,
+  HeartbeatResponse,
+  User,
+  UserUpdateInput,
+} from '../models/index.js';
 
 /**
  * Users resource for profile management and availability checks.
@@ -83,5 +89,57 @@ export class UsersResource {
    */
   async getAccountingCredentials(): Promise<AccountingCredentials> {
     return this.http.get<AccountingCredentials>('/api/v1/users/me/accounting');
+  }
+
+  /**
+   * Send a heartbeat to indicate this SyftAI Space is alive.
+   *
+   * The heartbeat mechanism allows SyftAI Spaces to signal their availability
+   * to SyftHub. This should be called periodically (before the TTL expires)
+   * to maintain the "active" status.
+   *
+   * @param input - Heartbeat parameters
+   * @param input.url - Full URL of this space (e.g., "https://myspace.example.com").
+   *                    The server extracts the domain from this URL.
+   * @param input.ttlSeconds - Time-to-live in seconds (1-3600). The server caps this
+   *                           at a maximum of 600 seconds (10 minutes). Default is 300
+   *                           seconds (5 minutes).
+   * @returns HeartbeatResponse containing status, expiry time, domain, and effective TTL
+   * @throws {AuthenticationError} If not authenticated
+   * @throws {ValidationError} If URL or TTL is invalid
+   *
+   * @example
+   * // Send heartbeat with default TTL (300 seconds)
+   * const response = await client.users.sendHeartbeat({
+   *   url: 'https://myspace.example.com'
+   * });
+   * console.log(`Next heartbeat before: ${response.expiresAt}`);
+   *
+   * @example
+   * // Send heartbeat with custom TTL
+   * const response = await client.users.sendHeartbeat({
+   *   url: 'https://myspace.example.com',
+   *   ttlSeconds: 600  // Maximum allowed
+   * });
+   */
+  async sendHeartbeat(input: HeartbeatInput): Promise<HeartbeatResponse> {
+    const response = await this.http.post<{
+      status: string;
+      received_at: string;
+      expires_at: string;
+      domain: string;
+      ttl_seconds: number;
+    }>('/api/v1/users/me/heartbeat', {
+      url: input.url,
+      ttl_seconds: input.ttlSeconds ?? 300,
+    });
+
+    return {
+      status: response.status,
+      receivedAt: new Date(response.received_at),
+      expiresAt: new Date(response.expires_at),
+      domain: response.domain,
+      ttlSeconds: response.ttl_seconds,
+    };
   }
 }

@@ -19,6 +19,8 @@ export type {
   UserUpdateInput,
   PasswordChangeInput,
   AccountingCredentials,
+  HeartbeatInput,
+  HeartbeatResponse,
 } from './user.js';
 
 // Endpoint types
@@ -83,3 +85,16 @@ export type {
   DoneEvent,
   ErrorEvent,
 } from './chat.js';
+
+// MQ types
+export type {
+  MQMessage,
+  PublishResponse,
+  ConsumeResponse,
+  QueueStatusResponse,
+  PeekResponse,
+  ClearResponse,
+  PublishInput,
+  ConsumeOptions,
+  PeekOptions,
+} from './mq.js';

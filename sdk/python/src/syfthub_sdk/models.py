@@ -563,3 +563,35 @@ class SyncEndpointsResponse(BaseModel):
     )
 
     model_config = {"frozen": True}
+
+
+# =============================================================================
+# Heartbeat Models
+# =============================================================================
+
+
+class HeartbeatResponse(BaseModel):
+    """Response from the heartbeat endpoint.
+
+    The heartbeat mechanism allows SyftAI Spaces to signal their availability
+    to SyftHub. The server returns the effective TTL (which may be capped)
+    and the expiration time.
+
+    Example:
+        response = client.users.send_heartbeat(
+            url="https://myspace.example.com",
+            ttl_seconds=300
+        )
+        print(f"Heartbeat expires at: {response.expires_at}")
+        print(f"Effective TTL: {response.ttl_seconds}s")
+    """
+
+    status: str = Field(..., description="Status of the heartbeat (typically 'ok')")
+    received_at: datetime = Field(..., description="When the heartbeat was received")
+    expires_at: datetime = Field(..., description="When the heartbeat will expire")
+    domain: str = Field(..., description="Extracted domain from the URL")
+    ttl_seconds: int = Field(
+        ..., description="Effective TTL applied (may be capped by server)"
+    )
+
+    model_config = {"frozen": True}

@@ -7,6 +7,7 @@ import { MyEndpointsResource } from './resources/my-endpoints.js';
 import { HubResource } from './resources/hub.js';
 import { AccountingResource } from './resources/accounting.js';
 import { ChatResource } from './resources/chat.js';
+import { MQResource } from './resources/mq.js';
 import { SyftAIResource } from './resources/syftai.js';
 
 /**
@@ -121,6 +122,7 @@ export class SyftHubClient {
   private _chat?: ChatResource;
   private _syftai?: SyftAIResource;
   private _apiTokens?: APITokensResource;
+  private _mq?: MQResource;
 
   /**
    * Create a new SyftHub client.
@@ -410,6 +412,36 @@ export class SyftHubClient {
       this._apiTokens = new APITokensResource(this.http);
     }
     return this._apiTokens;
+  }
+
+  /**
+   * Message Queue resource for pub/consume messaging.
+   *
+   * This resource provides access to the Redis-backed message queue system
+   * for asynchronous user-to-user messaging.
+   *
+   * @example
+   * // Publish a message to another user
+   * await client.mq.publish({
+   *   targetUsername: 'bob',
+   *   message: JSON.stringify({ type: 'request', data: '...' }),
+   * });
+   *
+   * // Consume messages from your queue
+   * const response = await client.mq.consume({ limit: 10 });
+   * for (const msg of response.messages) {
+   *   console.log(`From ${msg.fromUsername}: ${msg.message}`);
+   * }
+   *
+   * // Check queue status
+   * const status = await client.mq.status();
+   * console.log(`You have ${status.queueLength} messages waiting`);
+   */
+  get mq(): MQResource {
+    if (!this._mq) {
+      this._mq = new MQResource(this.http);
+    }
+    return this._mq;
   }
 
   /**

@@ -79,6 +79,7 @@ from syfthub_sdk.models import (
     EndpointSearchResponse,
     EndpointSearchResult,
     EndpointType,
+    HeartbeatResponse,
     Message,
     OrganizationRole,
     Policy,
@@ -93,6 +94,15 @@ from syfthub_sdk.models import (
     User,
     UserRole,
     Visibility,
+)
+from syfthub_sdk.mq import (
+    ClearResponse,
+    ConsumeResponse,
+    MQMessage,
+    MQResource,
+    PeekResponse,
+    PublishResponse,
+    QueueStatusResponse,
 )
 from syfthub_sdk.syftai import SyftAIResource
 
@@ -144,7 +154,15 @@ __all__ = [
     # Resources (for type hints)
     "APITokensResource",
     "ChatResource",
+    "MQResource",
     "SyftAIResource",
+    # MQ models
+    "MQMessage",
+    "PublishResponse",
+    "ConsumeResponse",
+    "QueueStatusResponse",
+    "PeekResponse",
+    "ClearResponse",
     # Accounting models
     "AccountingCredentials",
     "AccountingUser",
@@ -153,6 +171,8 @@ __all__ = [
     "CreatorType",
     # Sync models
     "SyncEndpointsResponse",
+    # Heartbeat models
+    "HeartbeatResponse",
     # Exceptions
     "SyftHubError",
     "AuthenticationError",

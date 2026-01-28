@@ -10,7 +10,13 @@ from fastapi import HTTPException, status
 
 from syfthub.core.config import settings
 from syfthub.repositories.user import UserRepository
-from syfthub.schemas.user import HeartbeatResponse, User, UserResponse, UserUpdate
+from syfthub.schemas.user import (
+    TUNNELING_PREFIX,
+    HeartbeatResponse,
+    User,
+    UserResponse,
+    UserUpdate,
+)
 from syfthub.services.base import BaseService
 
 if TYPE_CHECKING:
@@ -179,13 +185,14 @@ class UserService(BaseService):
         """Send heartbeat to indicate user's domain is online.
 
         This method:
-        - Extracts domain (host + port) from the provided URL
+        - Extracts domain from the provided URL (or uses full tunneling URL as domain)
         - Calculates effective TTL (capped at server max, defaults if not specified)
         - Updates user's heartbeat information in the database
 
         Args:
             user_id: ID of the user sending the heartbeat
-            url: Full URL of the domain (e.g., 'https://api.example.com')
+            url: Full URL of the domain (e.g., 'https://api.example.com' or
+                 'tunneling:username' for spaces behind firewalls)
             ttl_seconds: Requested TTL in seconds (optional, will use default if not provided)
 
         Returns:
@@ -200,14 +207,21 @@ class UserService(BaseService):
         requested_ttl = ttl_seconds or settings.heartbeat_default_ttl_seconds
         effective_ttl = min(requested_ttl, settings.heartbeat_max_ttl_seconds)
 
-        # Extract domain (host + port) from URL
-        parsed = urlparse(url)
-        domain = parsed.netloc
-        if not domain:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Invalid URL: could not extract domain",
-            )
+        # Extract domain from URL
+        # For tunneling URLs (tunneling:<username>), use the full URL as domain
+        # For HTTP URLs, extract host+port from netloc
+        if url.startswith(TUNNELING_PREFIX):
+            # For tunneling, the domain is the full URL (e.g., "tunneling:username")
+            domain = url
+        else:
+            # For HTTP URLs, extract netloc (host:port)
+            parsed = urlparse(url)
+            domain = parsed.netloc
+            if not domain:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Invalid URL: could not extract domain",
+                )
 
         expires_at = now + timedelta(seconds=effective_ttl)
 

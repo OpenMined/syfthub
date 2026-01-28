@@ -86,3 +86,33 @@ export interface AccountingCredentials {
   /** Password for authenticating with the accounting service (null if not configured) */
   readonly password: string | null;
 }
+
+/**
+ * Input for sending a heartbeat.
+ */
+export interface HeartbeatInput {
+  /** Full URL of this space (e.g., "https://myspace.example.com") */
+  url: string;
+  /** Time-to-live in seconds (1-3600, server caps at 600). Default is 300. */
+  ttlSeconds?: number;
+}
+
+/**
+ * Response from the heartbeat endpoint.
+ *
+ * The heartbeat mechanism allows SyftAI Spaces to signal their availability
+ * to SyftHub. The server returns the effective TTL (which may be capped)
+ * and the expiration time.
+ */
+export interface HeartbeatResponse {
+  /** Status of the heartbeat (typically 'ok') */
+  readonly status: string;
+  /** When the heartbeat was received (ISO 8601 string) */
+  readonly receivedAt: Date;
+  /** When the heartbeat will expire (ISO 8601 string) */
+  readonly expiresAt: Date;
+  /** Extracted domain from the URL */
+  readonly domain: string;
+  /** Effective TTL applied (may be capped by server) */
+  readonly ttlSeconds: number;
+}

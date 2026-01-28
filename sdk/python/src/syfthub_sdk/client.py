@@ -19,6 +19,7 @@ from syfthub_sdk.chat import ChatResource
 from syfthub_sdk.exceptions import ConfigurationError
 from syfthub_sdk.hub import HubResource
 from syfthub_sdk.models import AuthTokens, User
+from syfthub_sdk.mq import MQResource
 from syfthub_sdk.my_endpoints import MyEndpointsResource
 from syfthub_sdk.syftai import SyftAIResource
 from syfthub_sdk.users import UsersResource
@@ -146,6 +147,7 @@ class SyftHubClient:
         self._syftai: SyftAIResource | None = None
         self._accounting: AccountingResource | None = None
         self._api_tokens: APITokensResource | None = None
+        self._mq: MQResource | None = None
 
     @property
     def auth(self) -> AuthResource:
@@ -309,6 +311,33 @@ class SyftHubClient:
         if self._api_tokens is None:
             self._api_tokens = APITokensResource(self._http)
         return self._api_tokens
+
+    @property
+    def mq(self) -> MQResource:
+        """Message queue operations (publish, consume, peek, clear).
+
+        This resource provides access to the Redis-backed message queue
+        for asynchronous user-to-user messaging.
+
+        Example:
+            # Publish a message
+            client.mq.publish(
+                target_username="bob",
+                message='{"type": "request", "data": "..."}'
+            )
+
+            # Consume messages
+            response = client.mq.consume(limit=10)
+            for msg in response.messages:
+                print(f"From {msg.from_username}: {msg.message}")
+
+            # Check queue status
+            status = client.mq.status()
+            print(f"Queue has {status.queue_length} messages")
+        """
+        if self._mq is None:
+            self._mq = MQResource(self._http)
+        return self._mq
 
     @property
     def is_authenticated(self) -> bool:
