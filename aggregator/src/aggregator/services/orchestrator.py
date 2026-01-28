@@ -4,7 +4,9 @@ import json
 import logging
 import time
 from collections.abc import AsyncGenerator
+from typing import Any
 
+from aggregator.clients.tunnel import TunnelClient
 from aggregator.core.config import get_settings
 from aggregator.schemas import (
     ChatRequest,
@@ -16,6 +18,7 @@ from aggregator.schemas import (
     TokenUsage,
 )
 from aggregator.schemas.internal import AggregatedContext, ResolvedEndpoint
+from aggregator.schemas.requests import ResponseQueue
 from aggregator.services.generation import GenerationError, GenerationService
 from aggregator.services.prompt_builder import PromptBuilder
 from aggregator.services.retrieval import RetrievalService
@@ -41,6 +44,11 @@ class Orchestrator:
     2. Parallel retrieval from SyftAI-Space data source endpoints
     3. Prompt construction with retrieved context
     4. Model generation via SyftAI-Space model endpoints
+
+    Tunneling Support:
+    When syfthub_client is provided and a request includes response_queue
+    credentials, the orchestrator can communicate with tunneled endpoints
+    (endpoints behind firewalls that are accessible via MQ).
     """
 
     def __init__(
@@ -48,10 +56,39 @@ class Orchestrator:
         retrieval_service: RetrievalService,
         generation_service: GenerationService,
         prompt_builder: PromptBuilder,
+        syfthub_client: Any | None = None,
+        tunnel_timeout: float = 30.0,
     ):
         self.retrieval_service = retrieval_service
         self.generation_service = generation_service
         self.prompt_builder = prompt_builder
+        self.syfthub_client = syfthub_client
+        self.tunnel_timeout = tunnel_timeout
+
+    def _create_tunnel_client(
+        self, response_queue: ResponseQueue
+    ) -> TunnelClient | None:
+        """Create a TunnelClient for the request if tunneling is available.
+
+        Args:
+            response_queue: Response queue credentials from the request
+
+        Returns:
+            TunnelClient instance or None if tunneling is not configured
+        """
+        if self.syfthub_client is None:
+            logger.warning(
+                "Tunneled endpoint requested but syfthub_client not configured. "
+                "Set AGGREGATOR_SYFTHUB_SERVICE_USERNAME and AGGREGATOR_SYFTHUB_SERVICE_PASSWORD."
+            )
+            return None
+
+        return TunnelClient(
+            syfthub_client=self.syfthub_client,
+            response_queue_id=response_queue.queue_id,
+            response_queue_token=response_queue.token,
+            timeout=self.tunnel_timeout,
+        )
 
     def _endpoint_ref_to_resolved(
         self, ref: EndpointRef, endpoint_type: str
@@ -154,6 +191,11 @@ class Orchestrator:
         endpoint_tokens = request.endpoint_tokens
         transaction_tokens = request.transaction_tokens
 
+        # Create TunnelClient if response_queue credentials are provided
+        tunnel_client = None
+        if request.response_queue:
+            tunnel_client = self._create_tunnel_client(request.response_queue)
+
         # 1. Convert model EndpointRef to ResolvedEndpoint
         model_endpoint = self._endpoint_ref_to_resolved(request.model, "model")
         logger.info(
@@ -177,6 +219,7 @@ class Orchestrator:
             similarity_threshold=request.similarity_threshold,
             endpoint_tokens=endpoint_tokens,
             transaction_tokens=transaction_tokens,
+            tunnel_client=tunnel_client,
         )
         retrieval_time_ms = int((time.perf_counter() - retrieval_start) * 1000)
 
@@ -197,6 +240,7 @@ class Orchestrator:
                 temperature=request.temperature,
                 endpoint_tokens=endpoint_tokens,
                 transaction_tokens=transaction_tokens,
+                tunnel_client=tunnel_client,
             )
         except GenerationError as e:
             raise OrchestratorError(f"Generation failed: {e}") from e
@@ -264,6 +308,11 @@ class Orchestrator:
         endpoint_tokens = request.endpoint_tokens
         transaction_tokens = request.transaction_tokens
 
+        # Create TunnelClient if response_queue credentials are provided
+        tunnel_client = None
+        if request.response_queue:
+            tunnel_client = self._create_tunnel_client(request.response_queue)
+
         # 1. Convert model EndpointRef to ResolvedEndpoint
         model_endpoint = self._endpoint_ref_to_resolved(request.model, "model")
         logger.info(
@@ -293,6 +342,7 @@ class Orchestrator:
                 similarity_threshold=request.similarity_threshold,
                 endpoint_tokens=endpoint_tokens,
                 transaction_tokens=transaction_tokens,
+                tunnel_client=tunnel_client,
             ):
                 retrieval_results.append(result)
                 yield self._sse_event(
@@ -358,6 +408,7 @@ class Orchestrator:
                     temperature=request.temperature,
                     endpoint_tokens=endpoint_tokens,
                     transaction_tokens=transaction_tokens,
+                    tunnel_client=tunnel_client,
                 ):
                     full_response.append(chunk)
                     yield self._sse_event("token", {"content": chunk})
@@ -371,6 +422,7 @@ class Orchestrator:
                     temperature=request.temperature,
                     endpoint_tokens=endpoint_tokens,
                     transaction_tokens=transaction_tokens,
+                    tunnel_client=tunnel_client,
                 )
                 full_response.append(result.response)
                 usage_data = result.usage  # Capture usage from non-streaming response
