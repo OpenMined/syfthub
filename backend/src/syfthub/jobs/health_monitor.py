@@ -155,20 +155,19 @@ class EndpointHealthMonitor:
             endpoint_id, is_active, connect, domain, owner_id, heartbeat_expires_at = (
                 row
             )
-            # Include endpoints with connections (even if domain is None)
-            # Endpoints without domain will be marked unhealthy in health check
-            if connect:
-                endpoints.append(
-                    EndpointHealthInfo(
-                        id=endpoint_id,
-                        is_active=is_active,
-                        connect=connect,
-                        owner_domain=domain,  # May be None
-                        owner_id=owner_id,
-                        owner_type="user",
-                        heartbeat_expires_at=heartbeat_expires_at,
-                    )
+            # Include ALL endpoints for health checking
+            # Endpoints without domain or connect will be marked unhealthy
+            endpoints.append(
+                EndpointHealthInfo(
+                    id=endpoint_id,
+                    is_active=is_active,
+                    connect=connect or [],  # Ensure it's always a list
+                    owner_domain=domain,  # May be None
+                    owner_id=owner_id,
+                    owner_type="user",
+                    heartbeat_expires_at=heartbeat_expires_at,
                 )
+            )
 
         # Execute organization endpoints query
         org_results = session.execute(org_endpoints_stmt).all()
@@ -176,20 +175,19 @@ class EndpointHealthMonitor:
             endpoint_id, is_active, connect, domain, owner_id, heartbeat_expires_at = (
                 row
             )
-            # Include endpoints with connections (even if domain is None)
-            # Endpoints without domain will be marked unhealthy in health check
-            if connect:
-                endpoints.append(
-                    EndpointHealthInfo(
-                        id=endpoint_id,
-                        is_active=is_active,
-                        connect=connect,
-                        owner_domain=domain,  # May be None
-                        owner_id=owner_id,
-                        owner_type="organization",
-                        heartbeat_expires_at=heartbeat_expires_at,
-                    )
+            # Include ALL endpoints for health checking
+            # Endpoints without domain or connect will be marked unhealthy
+            endpoints.append(
+                EndpointHealthInfo(
+                    id=endpoint_id,
+                    is_active=is_active,
+                    connect=connect or [],  # Ensure it's always a list
+                    owner_domain=domain,  # May be None
+                    owner_id=owner_id,
+                    owner_type="organization",
+                    heartbeat_expires_at=heartbeat_expires_at,
                 )
+            )
 
         return endpoints
 
@@ -243,8 +241,14 @@ class EndpointHealthMonitor:
             # Heartbeat is stale/missing -> need HTTP verification
             url = self._build_health_check_url(endpoint.owner_domain, endpoint.connect)
             if not url:
-                # No valid URL to check (no enabled connections), don't change status
-                return (endpoint.id, endpoint.is_active, False)
+                # No valid URL to check (no enabled connections) - mark as unhealthy
+                is_healthy = False
+                logger.debug(
+                    f"Endpoint {endpoint.id} health check: no valid connection URL "
+                    f"(unhealthy)"
+                )
+                state_changed = endpoint.is_active != is_healthy
+                return (endpoint.id, is_healthy, state_changed)
 
             try:
                 # Make a simple GET request to check connectivity
