@@ -852,6 +852,7 @@ export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProper
   const [availableSources, setAvailableSources] = useState<ChatSource[]>([]);
   const messagesEndReference = useRef<HTMLDivElement>(null);
   const abortControllerReference = useRef<AbortController | null>(null);
+  const hasProcessedInitialQuery = useRef(false);
 
   // Model selection state - initialize with initialModel if provided
   const [selectedModel, setSelectedModel] = useState<ChatSource | null>(initialModel ?? null);
@@ -953,6 +954,46 @@ export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProper
   useEffect(() => {
     messagesEndReference.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Auto-trigger endpoint confirmation for initial query from navigation (e.g., hero search)
+  useEffect(() => {
+    // Only process once - ref prevents re-triggering even if deps change
+    if (hasProcessedInitialQuery.current) return;
+
+    // Need all conditions met before triggering
+    if (!initialQuery.trim()) return;
+    if (!selectedModel) return;
+    if (!user?.email) return;
+
+    // Mark as processed BEFORE async operation to prevent race conditions
+    hasProcessedInitialQuery.current = true;
+
+    // Trigger endpoint confirmation flow (same logic as handleSubmit)
+    const triggerInitialQuery = async () => {
+      setPendingQuery(initialQuery);
+      setShowEndpointConfirmation(true);
+      setSelectedSources(new Set());
+
+      // Search for relevant endpoints
+      setIsSearchingEndpoints(true);
+      try {
+        if (initialQuery.length >= MIN_QUERY_LENGTH) {
+          const results = await searchDataSources(initialQuery, { top_k: 10 });
+          const { highRelevance } = categorizeResults(results);
+          setSuggestedEndpoints(highRelevance);
+        } else {
+          setSuggestedEndpoints([]);
+        }
+      } catch (error) {
+        console.error('Failed to search endpoints for initial query:', error);
+        setSuggestedEndpoints([]);
+      } finally {
+        setIsSearchingEndpoints(false);
+      }
+    };
+
+    void triggerInitialQuery();
+  }, [initialQuery, selectedModel, user?.email]);
 
   // Use available sources for the panel (now loaded from backend)
   const allSources = availableSources;
