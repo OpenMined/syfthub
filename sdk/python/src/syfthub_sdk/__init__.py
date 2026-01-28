@@ -95,6 +95,15 @@ from syfthub_sdk.models import (
     UserRole,
     Visibility,
 )
+from syfthub_sdk.mq import (
+    ClearResponse,
+    ConsumeResponse,
+    MQMessage,
+    MQResource,
+    PeekResponse,
+    PublishResponse,
+    QueueStatusResponse,
+)
 from syfthub_sdk.syftai import SyftAIResource
 
 __version__ = "0.1.0"
@@ -145,7 +154,15 @@ __all__ = [
     # Resources (for type hints)
     "APITokensResource",
     "ChatResource",
+    "MQResource",
     "SyftAIResource",
+    # MQ models
+    "MQMessage",
+    "PublishResponse",
+    "ConsumeResponse",
+    "QueueStatusResponse",
+    "PeekResponse",
+    "ClearResponse",
     # Accounting models
     "AccountingCredentials",
     "AccountingUser",
