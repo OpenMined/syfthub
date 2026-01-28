@@ -24,10 +24,16 @@ class Settings(BaseSettings):
     syfthub_url: str = "http://localhost:8000"
     syfthub_jwks_cache_ttl: int = 3600  # seconds (1 hour)
 
+    # SyftHub service account for tunneling (optional)
+    # When set, enables tunneling support for endpoints behind firewalls
+    syfthub_service_username: str | None = None
+    syfthub_service_password: str | None = None
+
     # Timeouts (seconds)
     retrieval_timeout: float = 30.0
     generation_timeout: float = 120.0
     total_timeout: float = 180.0
+    tunnel_timeout: float = 30.0  # Timeout for tunneled requests
 
     # Retrieval configuration
     default_top_k: int = 5

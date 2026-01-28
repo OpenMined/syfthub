@@ -129,6 +129,7 @@ export type {
   ChatOptions,
   QueryDataSourceOptions,
   QueryModelOptions,
+  ResponseQueueCredentials,
   // Chat streaming events
   ChatStreamEvent,
   RetrievalStartEvent,
@@ -148,6 +149,11 @@ export type {
   PublishInput,
   ConsumeOptions,
   PeekOptions,
+  // Reserved Queue types
+  ReserveQueueOptions,
+  ReserveQueueResponse,
+  ReleaseQueueInput,
+  ReleaseQueueResponse,
 } from './models/index.js';
 
 // Model helpers

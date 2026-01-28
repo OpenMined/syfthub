@@ -16,8 +16,9 @@ See also:
 - syfthub backend token endpoint - generates satellite tokens
 """
 
+import logging
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, Header
 
@@ -29,6 +30,8 @@ from aggregator.services import (
     PromptBuilder,
     RetrievalService,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @lru_cache
@@ -48,6 +51,47 @@ def get_model_client() -> ModelClient:
 def get_prompt_builder() -> PromptBuilder:
     """Get a prompt builder instance."""
     return PromptBuilder()
+
+
+@lru_cache
+def get_syfthub_client() -> Any | None:
+    """Get a SyftHubClient for tunneling, if configured.
+
+    Returns None if service account credentials are not configured.
+    The client is cached as a singleton.
+    """
+    settings = get_settings()
+
+    if not settings.syfthub_service_username or not settings.syfthub_service_password:
+        logger.info(
+            "SyftHub service account not configured - tunneling support disabled. "
+            "Set AGGREGATOR_SYFTHUB_SERVICE_USERNAME and AGGREGATOR_SYFTHUB_SERVICE_PASSWORD "
+            "to enable tunneling."
+        )
+        return None
+
+    try:
+        from syfthub_sdk import SyftHubClient
+
+        client = SyftHubClient(base_url=settings.syfthub_url)
+        client.auth.login(
+            username=settings.syfthub_service_username,
+            password=settings.syfthub_service_password,
+        )
+        logger.info(
+            f"SyftHub service account authenticated as {settings.syfthub_service_username} "
+            "- tunneling support enabled"
+        )
+        return client
+    except ImportError:
+        logger.warning(
+            "syfthub_sdk not installed - tunneling support disabled. "
+            "Install with: pip install syfthub-sdk"
+        )
+        return None
+    except Exception as e:
+        logger.error(f"Failed to authenticate SyftHub service account: {e}")
+        return None
 
 
 def get_retrieval_service(
@@ -70,10 +114,13 @@ def get_orchestrator(
     prompt_builder: Annotated[PromptBuilder, Depends(get_prompt_builder)],
 ) -> Orchestrator:
     """Get the orchestrator service."""
+    settings = get_settings()
     return Orchestrator(
         retrieval_service=retrieval_service,
         generation_service=generation_service,
         prompt_builder=prompt_builder,
+        syfthub_client=get_syfthub_client(),
+        tunnel_timeout=settings.tunnel_timeout,
     )
 
 

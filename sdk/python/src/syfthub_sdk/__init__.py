@@ -36,6 +36,7 @@ from syfthub_sdk.chat import (
     DoneEvent,
     ErrorEvent,
     GenerationStartEvent,
+    ResponseQueueCredentials,
     RetrievalCompleteEvent,
     RetrievalStartEvent,
     SourceCompleteEvent,
@@ -103,6 +104,8 @@ from syfthub_sdk.mq import (
     PeekResponse,
     PublishResponse,
     QueueStatusResponse,
+    ReleaseQueueResponse,
+    ReserveQueueResponse,
 )
 from syfthub_sdk.syftai import SyftAIResource
 
@@ -142,6 +145,7 @@ __all__ = [
     "ChatResponse",
     "TokenUsage",
     "Message",
+    "ResponseQueueCredentials",
     # Chat streaming events
     "ChatStreamEvent",
     "RetrievalStartEvent",
@@ -163,6 +167,9 @@ __all__ = [
     "QueueStatusResponse",
     "PeekResponse",
     "ClearResponse",
+    # Reserved Queue models
+    "ReserveQueueResponse",
+    "ReleaseQueueResponse",
     # Accounting models
     "AccountingCredentials",
     "AccountingUser",

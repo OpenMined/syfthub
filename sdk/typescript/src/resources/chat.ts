@@ -31,6 +31,7 @@ import type {
   ChatStreamEvent,
   DocumentSource,
   EndpointRef,
+  ResponseQueueCredentials,
   SourceInfo,
   SourceStatus,
   TokenUsage,
@@ -240,9 +241,10 @@ export class ChatResource {
       temperature?: number;
       similarityThreshold?: number;
       stream?: boolean;
+      responseQueue?: ResponseQueueCredentials;
     }
   ): Record<string, unknown> {
-    return {
+    const body: Record<string, unknown> = {
       prompt,
       model: {
         url: modelRef.url,
@@ -266,6 +268,16 @@ export class ChatResource {
       similarity_threshold: options.similarityThreshold ?? 0.5,
       stream: options.stream ?? false,
     };
+
+    // Add response_queue for tunneling support
+    if (options.responseQueue) {
+      body['response_queue'] = {
+        queue_id: options.responseQueue.queueId,
+        token: options.responseQueue.token,
+      };
+    }
+
+    return body;
   }
 
   /**
@@ -382,6 +394,7 @@ export class ChatResource {
         temperature: options.temperature,
         similarityThreshold: options.similarityThreshold,
         stream: false,
+        responseQueue: options.responseQueue,
       }
     );
 
@@ -476,6 +489,7 @@ export class ChatResource {
         temperature: options.temperature,
         similarityThreshold: options.similarityThreshold,
         stream: true,
+        responseQueue: options.responseQueue,
       }
     );
 

@@ -64,6 +64,26 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# Helper Types
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class ResponseQueueCredentials:
+    """Credentials for a reserved response queue (for tunneling support).
+
+    Used when communicating with tunneled endpoints (URL format: "tunneling:username").
+    Reserve a queue with client.mq.reserve_queue() before calling chat methods.
+    """
+
+    queue_id: str
+    """Reserved queue identifier (e.g., 'rq_abc123')"""
+
+    token: str
+    """Secret token for consuming from the queue"""
+
+
+# =============================================================================
 # Streaming Event Types
 # =============================================================================
 
@@ -348,6 +368,7 @@ class ChatResource:
         temperature: float = 0.7,
         similarity_threshold: float = 0.5,
         stream: bool = False,
+        response_queue: ResponseQueueCredentials | None = None,
     ) -> dict[str, Any]:
         """Build the request body for the aggregator.
 
@@ -355,7 +376,7 @@ class ChatResource:
         and transaction_tokens for billing authorization.
         User identity is derived from satellite tokens, not passed in request body.
         """
-        return {
+        body: dict[str, Any] = {
             "prompt": prompt,
             "model": {
                 "url": model_ref.url,
@@ -382,6 +403,15 @@ class ChatResource:
             "similarity_threshold": similarity_threshold,
             "stream": stream,
         }
+
+        # Add response_queue for tunneling support
+        if response_queue:
+            body["response_queue"] = {
+                "queue_id": response_queue.queue_id,
+                "token": response_queue.token,
+            }
+
+        return body
 
     def _handle_aggregator_error(self, response: httpx.Response) -> None:
         """Handle error responses from the aggregator."""
@@ -491,6 +521,7 @@ class ChatResource:
         temperature: float = 0.7,
         similarity_threshold: float = 0.5,
         aggregator_url: str | None = None,
+        response_queue: ResponseQueueCredentials | None = None,
     ) -> ChatResponse:
         """Send a chat request and get the complete response.
 
@@ -508,6 +539,9 @@ class ChatResource:
             temperature: Generation temperature (default: 0.7)
             similarity_threshold: Minimum similarity for retrieved docs (default: 0.5)
             aggregator_url: Custom aggregator URL (optional, uses default if not provided)
+            response_queue: Response queue credentials for tunneling (optional).
+                Required when using tunneled endpoints (URL format: "tunneling:username").
+                Reserve a queue with client.mq.reserve_queue() before calling this method.
 
         Returns:
             ChatResponse with response text, sources, and metadata
@@ -551,6 +585,7 @@ class ChatResource:
             temperature=temperature,
             similarity_threshold=similarity_threshold,
             stream=False,
+            response_queue=response_queue,
         )
 
         try:
@@ -630,6 +665,7 @@ class ChatResource:
         temperature: float = 0.7,
         similarity_threshold: float = 0.5,
         aggregator_url: str | None = None,
+        response_queue: ResponseQueueCredentials | None = None,
     ) -> Iterator[ChatStreamEvent]:
         """Send a chat request and stream response events.
 
@@ -647,6 +683,9 @@ class ChatResource:
             temperature: Generation temperature (default: 0.7)
             similarity_threshold: Minimum similarity for retrieved docs (default: 0.5)
             aggregator_url: Custom aggregator URL (optional, uses default if not provided)
+            response_queue: Response queue credentials for tunneling (optional).
+                Required when using tunneled endpoints (URL format: "tunneling:username").
+                Reserve a queue with client.mq.reserve_queue() before calling this method.
 
         Yields:
             ChatStreamEvent objects as they arrive
@@ -695,6 +734,7 @@ class ChatResource:
             temperature=temperature,
             similarity_threshold=similarity_threshold,
             stream=True,
+            response_queue=response_queue,
         )
 
         try:
