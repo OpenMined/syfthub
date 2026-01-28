@@ -52,6 +52,9 @@ test:  ## Run all tests
 	@echo 'Running backend tests...'
 	@cd backend && uv run python -m pytest
 	@echo ''
+	@echo 'Running syfthub-api tests...'
+	@cd syfthub-api && uv run pytest tests/ -v
+	@echo ''
 	@echo 'Running frontend tests...'
 	@cd frontend && npm run test --if-present || echo 'Frontend tests skipped (playwright not configured)'
 	@echo ''
@@ -67,6 +70,11 @@ check:  ## Run code quality checks
 	@cd backend && uv run ruff check src/ tests/
 	@cd backend && uv run ruff format --check src/ tests/
 	@cd backend && uv run python -m mypy src/ || true
+	@echo ''
+	@echo 'SyftHub API checks...'
+	@cd syfthub-api && uv run ruff check src/ tests/
+	@cd syfthub-api && uv run ruff format --check src/ tests/
+	@cd syfthub-api && uv run mypy src/syfthub_api/ --ignore-missing-imports
 	@echo ''
 	@echo 'Frontend checks...'
 	@cd frontend && npm run lint --if-present || true
