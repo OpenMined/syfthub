@@ -44,6 +44,12 @@ class LogEvents:
     MODEL_QUERY_COMPLETED = "model.query.completed"
     MODEL_QUERY_FAILED = "model.query.failed"
 
+    # Model chat events (for tunnel transport)
+    MODEL_CHAT_STARTED = "model.chat.started"
+    MODEL_CHAT_COMPLETED = "model.chat.completed"
+    MODEL_CHAT_FAILED = "model.chat.failed"
+    MODEL_CHAT_TIMEOUT = "model.chat.timeout"
+
     # Request lifecycle events
     REQUEST_STARTED = "request.started"
     REQUEST_COMPLETED = "request.completed"

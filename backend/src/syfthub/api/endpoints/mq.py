@@ -14,6 +14,10 @@ from syfthub.schemas.mq import (
     PublishRequest,
     PublishResponse,
     QueueStatusResponse,
+    ReleaseQueueRequest,
+    ReleaseQueueResponse,
+    ReserveQueueRequest,
+    ReserveQueueResponse,
 )
 from syfthub.schemas.user import User
 from syfthub.services.mq_service import MessageQueueService
@@ -27,12 +31,14 @@ async def publish_message(
     current_user: Annotated[User, Depends(get_current_active_user)],
     mq_service: Annotated[MessageQueueService, Depends(get_mq_service)],
 ) -> PublishResponse:
-    """Publish a message to another user's queue.
+    """Publish a message to another user's queue or a reserved queue.
 
-    Sends a message to the specified target user's message queue.
-    The message will be available for the target user to consume.
+    Sends a message to either a user's message queue or a reserved ephemeral queue.
+    The target is auto-detected by prefix:
+    - Regular username (e.g., "alice") - publishes to user's queue
+    - Reserved queue ID (e.g., "rq_abc123") - publishes to reserved queue
 
-    - **target_username**: The username of the recipient
+    - **target_username**: The recipient (username or reserved queue ID with rq_ prefix)
     - **message**: The message payload (can be a JSON string for structured data)
     """
     return await mq_service.publish(
@@ -48,16 +54,22 @@ async def consume_messages(
     current_user: Annotated[User, Depends(get_current_active_user)],
     mq_service: Annotated[MessageQueueService, Depends(get_mq_service)],
 ) -> ConsumeResponse:
-    """Consume messages from own queue.
+    """Consume messages from own queue or a reserved queue.
 
-    Retrieves and removes messages from the authenticated user's queue.
+    By default, retrieves and removes messages from the authenticated user's queue.
+    If queue_id is provided with rq_ prefix, consumes from that reserved queue
+    using the provided token for authentication.
     Messages are returned in FIFO order (oldest first).
 
     - **limit**: Maximum number of messages to retrieve (1-100, default 10)
+    - **queue_id**: Optional reserved queue ID (must start with 'rq_')
+    - **token**: Required when queue_id is provided
     """
     return await mq_service.consume(
         user=current_user,
         limit=request.limit,
+        queue_id=request.queue_id,
+        token=request.token,
     )
 
 
@@ -106,3 +118,53 @@ async def clear_queue(
     """
     count = await mq_service.clear_queue(user=current_user)
     return {"status": "ok", "cleared": count}
+
+
+# ==============================================================================
+# Reserved Queue Endpoints (for ephemeral queues used by aggregator/tunneling)
+# ==============================================================================
+
+
+@router.post("/reserve-queue", response_model=ReserveQueueResponse)
+async def reserve_queue(
+    request: ReserveQueueRequest,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    mq_service: Annotated[MessageQueueService, Depends(get_mq_service)],
+) -> ReserveQueueResponse:
+    """Reserve an ephemeral queue for receiving messages.
+
+    Creates a temporary queue with a unique ID and secret token.
+    The queue will automatically expire after the specified TTL.
+
+    This is used for tunneling workflows where a client needs to receive
+    responses from endpoint owners via the aggregator.
+
+    - **ttl**: Time-to-live in seconds (30-3600, default 300)
+
+    Returns the queue_id and token needed to consume from the queue.
+    """
+    return await mq_service.reserve_queue(
+        user=current_user,
+        ttl=request.ttl,
+    )
+
+
+@router.post("/release-queue", response_model=ReleaseQueueResponse)
+async def release_queue(
+    request: ReleaseQueueRequest,
+    mq_service: Annotated[MessageQueueService, Depends(get_mq_service)],
+) -> ReleaseQueueResponse:
+    """Release (delete) a reserved queue.
+
+    Immediately deletes the reserved queue and all pending messages.
+    Authentication is via the token provided in the request body.
+
+    - **queue_id**: The reserved queue identifier
+    - **token**: The secret token for this queue
+
+    Returns the number of messages that were in the queue.
+    """
+    return await mq_service.release_queue(
+        queue_id=request.queue_id,
+        token=request.token,
+    )

@@ -364,7 +364,8 @@ class HTTPClient:
         self,
         path: str,
         *,
+        json: dict[str, Any] | None = None,
         include_auth: bool = True,
     ) -> dict[str, Any] | list[Any]:
         """Make a DELETE request."""
-        return self.request("DELETE", path, include_auth=include_auth)
+        return self.request("DELETE", path, json=json, include_auth=include_auth)
