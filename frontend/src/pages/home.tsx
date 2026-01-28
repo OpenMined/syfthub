@@ -111,7 +111,7 @@ export default function HomePage() {
               </button>
               <button
                 onClick={handleJoinNetwork}
-                className='from-syft-secondary to-syft-purple hover:from-syft-purple hover:to-syft-green font-inter flex items-center gap-2 rounded-lg bg-gradient-to-r px-4 py-2 text-sm text-white transition-colors'
+                className='from-secondary to-chart-3 hover:from-chart-3 hover:to-chart-1 font-inter flex items-center gap-2 rounded-lg bg-gradient-to-r px-4 py-2 text-sm text-white transition-colors'
               >
                 <UserPlus className='h-4 w-4' />
                 Join the Network

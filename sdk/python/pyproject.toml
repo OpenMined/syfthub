@@ -1,6 +1,6 @@
 [project]
 name = "syfthub-sdk"
-version = "0.1.0"
+version = "0.1.1"
 description = "Python SDK for interacting with SyftHub API"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -47,6 +47,9 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "C4", "UP", "ARG", "SIM"]
 ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["syfthub_sdk"]
 
 [tool.ruff.format]
 quote-style = "double"

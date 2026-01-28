@@ -27,7 +27,7 @@ from syfthub.schemas.organization import (
     OrganizationRole,
     OrganizationUpdate,
 )
-from syfthub.schemas.user import User
+from syfthub.schemas.user import HeartbeatRequest, HeartbeatResponse, User
 from syfthub.services.organization_service import OrganizationService
 
 router = APIRouter()
@@ -407,6 +407,33 @@ async def remove_organization_member(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to remove member from organization",
         )
+
+
+@router.post("/{org_id}/heartbeat", response_model=HeartbeatResponse)
+async def send_organization_heartbeat(
+    org_id: int,
+    heartbeat_data: HeartbeatRequest,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    org_service: Annotated[OrganizationService, Depends(get_organization_service)],
+) -> HeartbeatResponse:
+    """Send heartbeat to indicate organization domain is online.
+
+    This endpoint is called periodically by domain clients to indicate the
+    organization's domain is online and reachable. The heartbeat updates:
+    - Organization's domain (extracted from URL)
+    - last_heartbeat_at timestamp
+    - heartbeat_expires_at timestamp
+
+    The TTL is capped at the server's maximum TTL setting.
+
+    Requires admin or owner role in the organization.
+    """
+    return org_service.send_heartbeat(
+        org_id=org_id,
+        url=heartbeat_data.url,
+        current_user=current_user,
+        ttl_seconds=heartbeat_data.ttl_seconds,
+    )
 
 
 # Admin-only endpoints

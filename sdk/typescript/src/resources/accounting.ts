@@ -86,7 +86,7 @@ async function handleResponseError(response: Response): Promise<void> {
 
   let detail: string;
   try {
-    const body = await response.json() as { detail?: string; message?: string };
+    const body = (await response.json()) as { detail?: string; message?: string };
     detail = body.detail ?? body.message ?? JSON.stringify(body);
   } catch {
     detail = (await response.text()) || `HTTP ${response.status}`;
@@ -112,9 +112,8 @@ async function handleResponseError(response: Response): Promise<void> {
 function createBasicAuth(email: string, password: string): string {
   const credentials = `${email}:${password}`;
   // Use btoa for browser, Buffer for Node.js
-  const encoded = typeof btoa !== 'undefined'
-    ? btoa(credentials)
-    : Buffer.from(credentials).toString('base64');
+  const encoded =
+    typeof btoa !== 'undefined' ? btoa(credentials) : Buffer.from(credentials).toString('base64');
   return `Basic ${encoded}`;
 }
 
@@ -183,9 +182,9 @@ export class AccountingResource {
       const response = await fetch(url.toString(), {
         method,
         headers: {
-          'Authorization': this.authHeader,
+          Authorization: this.authHeader,
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
+          Accept: 'application/json',
         },
         body: options?.body ? JSON.stringify(options.body) : undefined,
         signal: controller.signal,
@@ -197,7 +196,7 @@ export class AccountingResource {
         return {} as T;
       }
 
-      return await response.json() as T;
+      return (await response.json()) as T;
     } catch (error) {
       if (error instanceof SyftHubError) {
         throw error;
@@ -205,7 +204,10 @@ export class AccountingResource {
       if (error instanceof Error && error.name === 'AbortError') {
         throw new APIError('Request timeout', 408);
       }
-      throw new APIError(`Accounting request failed: ${error instanceof Error ? error.message : 'Unknown error'}`, 0);
+      throw new APIError(
+        `Accounting request failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        0
+      );
     } finally {
       clearTimeout(timeoutId);
     }
@@ -231,9 +233,9 @@ export class AccountingResource {
       const response = await fetch(url.toString(), {
         method,
         headers: {
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
-          'Accept': 'application/json',
+          Accept: 'application/json',
         },
         body: options?.body ? JSON.stringify(options.body) : undefined,
         signal: controller.signal,
@@ -245,7 +247,7 @@ export class AccountingResource {
         return {} as T;
       }
 
-      return await response.json() as T;
+      return (await response.json()) as T;
     } catch (error) {
       if (error instanceof SyftHubError) {
         throw error;
@@ -253,7 +255,10 @@ export class AccountingResource {
       if (error instanceof Error && error.name === 'AbortError') {
         throw new APIError('Request timeout', 408);
       }
-      throw new APIError(`Accounting request failed: ${error instanceof Error ? error.message : 'Unknown error'}`, 0);
+      throw new APIError(
+        `Accounting request failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        0
+      );
     } finally {
       clearTimeout(timeoutId);
     }
@@ -349,15 +354,12 @@ export class AccountingResource {
   getTransactions(options?: TransactionsOptions): PageIterator<Transaction> {
     const pageSize = options?.pageSize ?? 20;
 
-    return new PageIterator<Transaction>(
-      async (skip, limit) => {
-        const response = await this.request<TransactionResponse[]>('GET', '/transactions', {
-          params: { skip, limit },
-        });
-        return response.map(parseTransaction);
-      },
-      pageSize
-    );
+    return new PageIterator<Transaction>(async (skip, limit) => {
+      const response = await this.request<TransactionResponse[]>('GET', '/transactions', {
+        params: { skip, limit },
+      });
+      return response.map(parseTransaction);
+    }, pageSize);
   }
 
   /**
@@ -581,8 +583,6 @@ export class AccountingResource {
  * });
  * ```
  */
-export function createAccountingResource(
-  options: AccountingResourceOptions
-): AccountingResource {
+export function createAccountingResource(options: AccountingResourceOptions): AccountingResource {
   return new AccountingResource(options);
 }

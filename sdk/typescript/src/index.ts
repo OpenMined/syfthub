@@ -67,14 +67,8 @@ export {
 } from './errors.js';
 
 // Chat-specific errors
-export {
-  AggregatorError,
-  EndpointResolutionError,
-} from './resources/chat.js';
-export {
-  RetrievalError,
-  GenerationError,
-} from './resources/syftai.js';
+export { AggregatorError, EndpointResolutionError } from './resources/chat.js';
+export { RetrievalError, GenerationError } from './resources/syftai.js';
 
 // Pagination
 export { PageIterator } from './pagination.js';
@@ -156,14 +150,8 @@ export {
 } from './models/index.js';
 
 // Accounting Resource (standalone client for external accounting service)
-export {
-  AccountingResource,
-  createAccountingResource,
-} from './resources/accounting.js';
-export type {
-  AccountingResourceOptions,
-  TransactionsOptions,
-} from './resources/accounting.js';
+export { AccountingResource, createAccountingResource } from './resources/accounting.js';
+export type { AccountingResourceOptions, TransactionsOptions } from './resources/accounting.js';
 
 // Chat Resource (for type hints)
 export { ChatResource } from './resources/chat.js';

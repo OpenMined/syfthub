@@ -27,11 +27,14 @@ import {
   EndpointResolutionError,
   syftClient
 } from '@/lib/sdk-client';
+import { categorizeResults, MIN_QUERY_LENGTH, searchDataSources } from '@/lib/search-service';
 import { filterSourcesForAutocomplete, validateEndpointPath } from '@/lib/validation';
 
 import { CostEstimationPanel } from './chat/cost-estimation-panel';
 import { MarkdownMessage } from './chat/markdown-message';
 import { ModelSelector } from './chat/model-selector';
+import { NoMatchMessage } from './chat/no-match-message';
+import { SourceSearchLoader } from './chat/source-search-loader';
 import { SourcesSection } from './chat/sources-section';
 import { StatusIndicator } from './chat/status-indicator';
 import { Badge } from './ui/badge';
@@ -79,8 +82,8 @@ function CostBadges({ inputPerToken, outputPerToken, colorScheme }: Readonly<Cos
 
   const colorClasses =
     colorScheme === 'green'
-      ? 'border-green-200 bg-green-50 text-green-700'
-      : 'border-purple-200 bg-purple-50 text-purple-700';
+      ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300'
+      : 'border-purple-200 bg-purple-50 text-purple-700 dark:border-purple-800 dark:bg-purple-950 dark:text-purple-300';
 
   if (!hasInputCost && !hasOutputCost) {
     return (
@@ -100,7 +103,7 @@ function CostBadges({ inputPerToken, outputPerToken, colorScheme }: Readonly<Cos
           variant='secondary'
           className={`font-inter h-5 px-2 text-[10px] font-medium ${colorClasses}`}
         >
-          In: {formatCostPerUnit(inputPerToken, 'token')}
+          In: {formatCostPerUnit(inputPerToken, 'request')}
         </Badge>
       ) : null}
       {hasOutputCost ? (
@@ -108,7 +111,7 @@ function CostBadges({ inputPerToken, outputPerToken, colorScheme }: Readonly<Cos
           variant='secondary'
           className={`font-inter h-5 px-2 text-[10px] font-medium ${colorClasses}`}
         >
-          Out: {formatCostPerUnit(outputPerToken, 'token')}
+          Out: {formatCostPerUnit(outputPerToken, 'request')}
         </Badge>
       ) : null}
     </>
@@ -125,16 +128,16 @@ function SourceCard({ source, onRemove }: Readonly<SourceCardProps>) {
   const costs = getCostsFromSource(source);
 
   return (
-    <div className='group bg-card relative rounded-lg border border-green-100 p-3 shadow-sm'>
+    <div className='group bg-card relative rounded-lg border border-green-100 p-3 shadow-sm dark:border-green-800'>
       <button
         onClick={onRemove}
-        className='absolute top-2 right-2 rounded p-1 text-red-500 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-50'
+        className='absolute top-2 right-2 rounded p-1 text-red-500 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-50 dark:hover:bg-red-950'
         aria-label={`Remove ${source.name}`}
       >
         <X className='h-3 w-3' aria-hidden='true' />
       </button>
       <div className='mb-3 flex items-center gap-3'>
-        <div className='font-inter flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-green-100 text-xs font-bold text-green-700'>
+        <div className='font-inter flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-green-100 text-xs font-bold text-green-700 dark:bg-green-900 dark:text-green-300'>
           {source.name.slice(0, 2).toUpperCase() || '??'}
         </div>
         <div className='min-w-0 flex-1'>
@@ -170,16 +173,16 @@ interface CustomSourceCardProps {
 /** Renders a custom source card */
 function CustomSourceCard({ sourcePath, onRemove }: Readonly<CustomSourceCardProps>) {
   return (
-    <div className='group bg-card relative rounded-lg border border-amber-200 p-3 shadow-sm'>
+    <div className='group bg-card relative rounded-lg border border-amber-200 p-3 shadow-sm dark:border-amber-800'>
       <button
         onClick={onRemove}
-        className='absolute top-2 right-2 rounded p-1 text-red-500 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-50'
+        className='absolute top-2 right-2 rounded p-1 text-red-500 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-50 dark:hover:bg-red-950'
         aria-label={`Remove custom source ${sourcePath}`}
       >
         <X className='h-3 w-3' aria-hidden='true' />
       </button>
       <div className='mb-3 flex items-center gap-3'>
-        <div className='font-inter flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-xs font-bold text-amber-700'>
+        <div className='font-inter flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-xs font-bold text-amber-700 dark:bg-amber-900 dark:text-amber-300'>
           EXT
         </div>
         <div className='min-w-0 flex-1'>
@@ -193,7 +196,7 @@ function CustomSourceCard({ sourcePath, onRemove }: Readonly<CustomSourceCardPro
       </div>
       <Badge
         variant='secondary'
-        className='font-inter h-5 border-amber-200 bg-amber-50 px-2 text-[10px] font-medium text-amber-700'
+        className='font-inter h-5 border-amber-200 bg-amber-50 px-2 text-[10px] font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300'
       >
         Custom Source (pricing unknown)
       </Badge>
@@ -241,7 +244,7 @@ interface ModelDisplayProps {
 function ModelDisplay({ model, modelCosts, isFactualMode }: Readonly<ModelDisplayProps>) {
   if (!model) {
     return (
-      <div className='font-inter bg-card/50 rounded-lg border border-dashed border-purple-200 py-6 text-center text-sm text-purple-700/50'>
+      <div className='font-inter bg-card/50 rounded-lg border border-dashed border-purple-200 py-6 text-center text-sm text-purple-700/50 dark:border-purple-800 dark:text-purple-400/50'>
         <p>No model selected</p>
         <p className='mt-1 text-xs'>Select a model from the dropdown above</p>
       </div>
@@ -251,7 +254,7 @@ function ModelDisplay({ model, modelCosts, isFactualMode }: Readonly<ModelDispla
   return (
     <>
       <div className='flex items-center gap-3'>
-        <div className='flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple-100 text-purple-700'>
+        <div className='flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'>
           <Brain className='h-4 w-4' />
         </div>
         <div className='min-w-0 flex-1'>
@@ -275,7 +278,7 @@ function ModelDisplay({ model, modelCosts, isFactualMode }: Readonly<ModelDispla
       </div>
       <div
         id='mode-description'
-        className='font-inter text-muted-foreground mt-2 flex items-start gap-2 border-t border-purple-50 pt-2 text-xs'
+        className='font-inter text-muted-foreground mt-2 flex items-start gap-2 border-t border-purple-50 pt-2 text-xs dark:border-purple-900'
       >
         <Info className='mt-0.5 h-3 w-3 shrink-0' aria-hidden='true' />
         {isFactualMode
@@ -441,7 +444,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
             tabIndex={-1}
           >
             {/* Header */}
-            <div className='border-border bg-syft-background flex items-center justify-between border-b p-6'>
+            <div className='border-border bg-background flex items-center justify-between border-b p-6'>
               <div className='flex items-center gap-3'>
                 <div className='bg-primary flex h-10 w-10 items-center justify-center rounded-lg'>
                   <Settings2 className='h-5 w-5 text-white' />
@@ -458,15 +461,15 @@ const AdvancedPanel = memo(function AdvancedPanel({
                 className='hover:bg-accent rounded-full p-2 transition-colors'
                 aria-label='Close panel'
               >
-                <X className='text-syft-placeholder h-5 w-5' aria-hidden='true' />
+                <X className='text-muted-foreground h-5 w-5' aria-hidden='true' />
               </button>
             </div>
 
             <div className='flex-1 space-y-4 overflow-y-auto p-6'>
               {/* Data Sources Section */}
-              <div className='rounded-xl border border-green-200 bg-green-50/30 p-4'>
+              <div className='rounded-xl border border-green-200 bg-green-50/30 p-4 dark:border-green-800 dark:bg-green-950/30'>
                 <div className='mb-4 flex items-center justify-between'>
-                  <div className='font-inter flex items-center gap-2 font-medium text-green-800'>
+                  <div className='font-inter flex items-center gap-2 font-medium text-green-800 dark:text-green-300'>
                     <Database className='h-4 w-4' />
                     <h3>Data Sources</h3>
                     <span className='text-xs font-normal text-green-600/60'>
@@ -476,7 +479,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
                   <div className='flex items-center gap-2'>
                     <Label
                       htmlFor='mode-toggle'
-                      className='font-inter cursor-pointer text-[10px] font-medium text-green-800'
+                      className='font-inter cursor-pointer text-[10px] font-medium text-green-800 dark:text-green-300'
                     >
                       {isFactualMode ? 'Factual' : 'Nuanced'}
                     </Label>
@@ -486,7 +489,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
                       onCheckedChange={(checked) => {
                         onModeChange(!checked);
                       }}
-                      className='h-4 w-8 data-[state=checked]:bg-purple-600 data-[state=unchecked]:bg-green-600'
+                      className='h-4 w-8 data-[state=checked]:bg-purple-600 data-[state=unchecked]:bg-green-600 dark:data-[state=checked]:bg-purple-500 dark:data-[state=unchecked]:bg-green-500'
                       aria-describedby='mode-description'
                     />
                   </div>
@@ -494,7 +497,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
 
                 <div className='space-y-3'>
                   {activeSources.length === 0 && customSources.length === 0 ? (
-                    <div className='font-inter bg-card/50 rounded-lg border border-dashed border-green-200 py-8 text-center text-sm text-green-700/50'>
+                    <div className='font-inter bg-card/50 rounded-lg border border-dashed border-green-200 py-8 text-center text-sm text-green-700/50 dark:border-green-800 dark:text-green-400/50'>
                       <p>No sources selected</p>
                       <p className='mt-1 text-xs'>Select sources from the chat or add below</p>
                     </div>
@@ -540,10 +543,10 @@ const AdvancedPanel = memo(function AdvancedPanel({
                       }}
                       onBlur={handleInputBlur}
                       placeholder='Add source (owner/endpoint-name)…'
-                      className={`font-inter bg-card w-full rounded-lg border py-2 pr-8 pl-3 text-xs transition-colors transition-shadow placeholder:text-green-700/40 focus:ring-1 focus:outline-none ${
+                      className={`font-inter bg-card w-full rounded-lg border py-2 pr-8 pl-3 text-xs transition-colors transition-shadow placeholder:text-green-700/40 focus:ring-1 focus:outline-none dark:placeholder:text-green-400/40 ${
                         customSourceError
                           ? 'border-red-400 focus:border-red-500 focus:ring-red-500/20'
-                          : 'border-green-200 focus:border-green-500 focus:ring-green-500/20'
+                          : 'border-green-200 focus:border-green-500 focus:ring-green-500/20 dark:border-green-800'
                       }`}
                       autoComplete='off'
                       aria-invalid={!!customSourceError}
@@ -587,14 +590,14 @@ const AdvancedPanel = memo(function AdvancedPanel({
               </div>
 
               {/* Arrow */}
-              <div className='text-syft-placeholder flex justify-center'>
+              <div className='text-muted-foreground flex justify-center'>
                 <ArrowDown className='h-5 w-5' aria-hidden='true' />
               </div>
 
               {/* Model Section with inline selector */}
-              <div className='rounded-xl border border-purple-200 bg-purple-50/30 p-4'>
+              <div className='rounded-xl border border-purple-200 bg-purple-50/30 p-4 dark:border-purple-800 dark:bg-purple-950/30'>
                 <div className='mb-4 flex items-center justify-between'>
-                  <div className='font-inter flex items-center gap-2 font-medium text-purple-800'>
+                  <div className='font-inter flex items-center gap-2 font-medium text-purple-800 dark:text-purple-300'>
                     <Cpu className='h-4 w-4' />
                     <h3>Model</h3>
                   </div>
@@ -607,7 +610,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
                   />
                 </div>
 
-                <div className='bg-card space-y-3 rounded-lg border border-purple-100 p-3 shadow-sm'>
+                <div className='bg-card space-y-3 rounded-lg border border-purple-100 p-3 shadow-sm dark:border-purple-800'>
                   <ModelDisplay
                     model={selectedModel}
                     modelCosts={modelCosts}
@@ -617,7 +620,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
               </div>
 
               {/* Arrow */}
-              <div className='text-syft-placeholder flex flex-col items-center gap-1'>
+              <div className='text-muted-foreground flex flex-col items-center gap-1'>
                 <ArrowDown className='h-5 w-5' aria-hidden='true' />
                 <span className='font-inter text-[10px] font-medium'>Process & Combine</span>
               </div>
@@ -665,7 +668,7 @@ const SourceSelector = memo(function SourceSelector({
               onToggle(source.id);
             }}
             aria-pressed={isSelected}
-            className={`group relative flex w-full cursor-pointer items-start gap-4 rounded-xl border p-4 text-left transition-colors focus-visible:ring-2 focus-visible:ring-[#272532]/50 focus-visible:outline-none ${isSelected ? 'border-secondary bg-syft-surface' : 'border-border bg-card hover:border-input'} `}
+            className={`group relative flex w-full cursor-pointer items-start gap-4 rounded-xl border p-4 text-left transition-colors focus-visible:ring-2 focus-visible:ring-[#272532]/50 focus-visible:outline-none ${isSelected ? 'border-secondary bg-muted' : 'border-border bg-card hover:border-input'} `}
           >
             <div className='min-w-0 flex-1'>
               {/* Header */}
@@ -701,7 +704,7 @@ const SourceSelector = memo(function SourceSelector({
               </div>
 
               {/* Footer */}
-              <div className='font-inter text-syft-placeholder flex items-center gap-1.5 text-xs'>
+              <div className='font-inter text-muted-foreground flex items-center gap-1.5 text-xs'>
                 <Clock className='h-3.5 w-3.5' aria-hidden='true' />
                 <span>Updated {source.updated}</span>
               </div>
@@ -725,11 +728,13 @@ interface Message {
   id: string;
   role: 'user' | 'assistant';
   content?: string;
-  type?: 'text' | 'source-selection';
+  type?: 'text' | 'source-selection' | 'source-search' | 'no-match';
   sources?: ChatSource[];
   isThinking?: boolean;
   /** Sources from aggregator response (document titles -> endpoint slug & content) */
   aggregatorSources?: SourcesData;
+  /** Original query for no-match messages */
+  searchQuery?: string;
 }
 
 interface ChatViewProperties {
@@ -909,10 +914,14 @@ function hasSourceSelectionMessage(messages: Message[]): boolean {
   return messages.some((m) => m.type === 'source-selection');
 }
 
-// Helper to check if we already have a source-related message (error or source-selection)
+// Helper to check if we already have a source-related message (error, source-selection, no-match, or search)
 function hasSourceRelatedMessage(messages: Message[]): boolean {
   return messages.some(
-    (m) => m.type === 'source-selection' || (m.role === 'assistant' && m.id.startsWith('source-'))
+    (m) =>
+      m.type === 'source-selection' ||
+      m.type === 'source-search' ||
+      m.type === 'no-match' ||
+      (m.role === 'assistant' && m.id.startsWith('source-'))
   );
 }
 
@@ -969,27 +978,44 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
     [availableSources]
   );
 
-  // Load real data sources from backend and analyze query for relevance
+  // Load real data sources from backend and use RAG search for relevance
   useEffect(() => {
     let isMounted = true;
+    const searchMessageId = `source-search-${String(Date.now())}`;
+
+    // Filter predicate defined at useEffect level to avoid nesting depth issues
+    const isNotSearchPlaceholder = (m: Message) => m.id !== searchMessageId;
+
+    // Helper to update messages: filters out search placeholder and optionally adds new message
+    const updateMessagesWithFilter = (
+      newMessage: Message | null,
+      checkFn: (msgs: Message[]) => boolean
+    ) => {
+      setMessages((previous) => {
+        // eslint-disable-next-line unicorn/no-array-callback-reference -- Using named predicate to reduce nesting depth
+        const filtered = previous.filter(isNotSearchPlaceholder);
+        // Check against filtered array, not previous, since we've removed the search placeholder
+        return newMessage && !checkFn(filtered) ? [...filtered, newMessage] : filtered;
+      });
+    };
 
     const loadDataSources = async () => {
       try {
-        const sources = await getChatDataSources(100); // Load up to 100 endpoints for comprehensive search
+        // First, load available sources for the source panel
+        const sources = await getChatDataSources(100);
 
         // Guard against state updates after unmount
         if (!isMounted) return;
 
         setAvailableSources(sources);
 
-        // Analyze the initial query to determine the best action
+        // Check for exact path mentions first (e.g., "owner/endpoint-name")
         const analysis = analyzeQueryForSources(initialQuery, sources);
 
         if (analysis.action === 'auto-select' && analysis.matchedEndpoint) {
           // Endpoint was explicitly mentioned - auto-select and proceed
           setSelectedSources(new Set([analysis.matchedEndpoint.id]));
 
-          // Add a message indicating auto-selection
           const autoSelectMessage: Message = {
             id: `auto-select-${String(Date.now())}`,
             role: 'assistant',
@@ -1005,68 +1031,98 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
             }
             return [...previous, autoSelectMessage];
           });
-        } else if (sources.length === 0) {
-          // No sources available
-          const noSourcesMessage: Message = {
-            id: `source-selection-${String(Date.now())}`,
-            role: 'assistant',
-            content:
-              'No data sources are currently available. You can add external sources manually in the advanced configuration panel.',
-            type: 'source-selection',
-            sources: []
-          };
+          return;
+        }
 
+        // Use RAG semantic search if query is long enough
+        if (initialQuery.trim().length >= MIN_QUERY_LENGTH) {
+          // Show searching indicator
           setMessages((previous) => {
-            if (hasSourceSelectionMessage(previous)) {
+            if (hasSourceRelatedMessage(previous)) {
               return previous;
             }
-            return [...previous, noSourcesMessage];
+            return [
+              ...previous,
+              {
+                id: searchMessageId,
+                role: 'assistant',
+                type: 'source-search'
+              }
+            ];
           });
-        } else if (analysis.relevantSources.length === 0) {
-          // Sources exist but none are relevant - show top sources as fallback
-          const MAX_SOURCES_TO_SHOW = 3;
-          const sourcesToShow = sources.slice(0, MAX_SOURCES_TO_SHOW);
 
-          const noRelevantMessage: Message = {
-            id: `source-selection-${String(Date.now())}`,
-            role: 'assistant',
-            content: `No sources matched your query directly. Here are the top ${String(sourcesToShow.length)} popular sources (${String(sources.length)} total available):`,
-            type: 'source-selection',
-            sources: sourcesToShow
-          };
+          // Perform semantic search
+          const searchResults = await searchDataSources(initialQuery, { top_k: 5 });
 
-          setMessages((previous) => {
-            if (hasSourceSelectionMessage(previous)) {
-              return previous;
-            }
-            return [...previous, noRelevantMessage];
-          });
+          // Guard against state updates after unmount
+          if (!isMounted) return;
+
+          // Filter results by relevance threshold (>= 0.5)
+          const { highRelevance } = categorizeResults(searchResults);
+
+          if (highRelevance.length > 0) {
+            // High relevance results found - show top 3
+            const MAX_SOURCES_TO_SHOW = 3;
+            const sourcesToShow = highRelevance.slice(0, MAX_SOURCES_TO_SHOW);
+
+            const relevanceMessage: Message = {
+              id: `source-selection-${String(Date.now())}`,
+              role: 'assistant',
+              content: `Based on your question, I found ${String(highRelevance.length)} highly relevant data source${highRelevance.length === 1 ? '' : 's'}:`,
+              type: 'source-selection',
+              sources: sourcesToShow
+            };
+
+            updateMessagesWithFilter(relevanceMessage, hasSourceSelectionMessage);
+          } else {
+            // No results meet the threshold - show AI assistant no-match message
+            const noMatchMessage: Message = {
+              id: `no-match-${String(Date.now())}`,
+              role: 'assistant',
+              type: 'no-match',
+              searchQuery: initialQuery
+            };
+
+            updateMessagesWithFilter(noMatchMessage, hasSourceRelatedMessage);
+          }
         } else {
-          // Show relevant sources (top 3)
-          const MAX_SOURCES_TO_SHOW = 3;
-          const relevantSources = analysis.relevantSources;
-          const sourcesToShow = relevantSources.slice(0, MAX_SOURCES_TO_SHOW);
-          const isFiltered =
-            analysis.action === 'show-relevant' && relevantSources.length < sources.length;
+          // Query too short for semantic search - use keyword analysis
+          if (sources.length === 0) {
+            const noSourcesMessage: Message = {
+              id: `source-selection-${String(Date.now())}`,
+              role: 'assistant',
+              content:
+                'No data sources are currently available. You can add external sources manually in the advanced configuration panel.',
+              type: 'source-selection',
+              sources: []
+            };
 
-          const messageContent = isFiltered
-            ? `Based on your question, here are the top ${String(sourcesToShow.length)} most relevant data sources (${String(relevantSources.length)} matched, ${String(sources.length)} total):`
-            : `Select data sources to get started (showing top ${String(sourcesToShow.length)} of ${String(sources.length)} available):`;
+            setMessages((previous) => {
+              if (hasSourceSelectionMessage(previous)) {
+                return previous;
+              }
+              return [...previous, noSourcesMessage];
+            });
+          } else {
+            // Show top sources for short queries
+            const MAX_SOURCES_TO_SHOW = 3;
+            const sourcesToShow = sources.slice(0, MAX_SOURCES_TO_SHOW);
 
-          const sourceSelectionMessage: Message = {
-            id: `source-selection-${String(Date.now())}`,
-            role: 'assistant',
-            content: messageContent,
-            type: 'source-selection',
-            sources: sourcesToShow
-          };
+            const sourceSelectionMessage: Message = {
+              id: `source-selection-${String(Date.now())}`,
+              role: 'assistant',
+              content: `Select data sources to get started (showing top ${String(sourcesToShow.length)} of ${String(sources.length)} available):`,
+              type: 'source-selection',
+              sources: sourcesToShow
+            };
 
-          setMessages((previous) => {
-            if (hasSourceSelectionMessage(previous)) {
-              return previous;
-            }
-            return [...previous, sourceSelectionMessage];
-          });
+            setMessages((previous) => {
+              if (hasSourceSelectionMessage(previous)) {
+                return previous;
+              }
+              return [...previous, sourceSelectionMessage];
+            });
+          }
         }
       } catch (error) {
         // Guard against state updates after unmount
@@ -1074,22 +1130,16 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
 
         console.error('Failed to load data sources:', error);
 
-        // Add error message - ATOMIC check to prevent duplicates
-        const errorMessageId = `source-error-${String(Date.now())}`;
+        // Add error message
         const errorMessage: Message = {
-          id: errorMessageId,
+          id: `source-error-${String(Date.now())}`,
           role: 'assistant',
           content:
             'Unable to load data sources from the server. You can still add external sources manually using the advanced configuration panel.',
           type: 'text'
         };
 
-        setMessages((previous) => {
-          if (hasSourceRelatedMessage(previous)) {
-            return previous;
-          }
-          return [...previous, errorMessage];
-        });
+        updateMessagesWithFilter(errorMessage, hasSourceRelatedMessage);
       }
     };
 
@@ -1433,8 +1483,8 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                   <div
                     className={`font-inter max-w-2xl rounded-2xl px-5 py-3 shadow-sm ${
                       message.role === 'user'
-                        ? 'bg-primary rounded-br-none text-[15px] leading-relaxed text-white'
-                        : 'border-border bg-syft-surface text-foreground rounded-bl-none border'
+                        ? 'bg-primary text-primary-foreground rounded-br-none text-[15px] leading-relaxed'
+                        : 'border-border bg-muted text-foreground rounded-bl-none border'
                     } `}
                   >
                     {message.role === 'assistant' ? (
@@ -1462,6 +1512,20 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                     onToggle={toggleSource}
                   />
                 ) : null}
+
+                {/* Search Loading Indicator */}
+                {message.type === 'source-search' ? <SourceSearchLoader /> : null}
+
+                {/* No Match Message - AI assistant response when no relevant endpoints found */}
+                {message.type === 'no-match' ? (
+                  <NoMatchMessage
+                    query={message.searchQuery ?? ''}
+                    onBrowseCatalog={() => {
+                      window.open('/browse', '_blank');
+                    }}
+                    onAddCustomSource={handleOpenPanel}
+                  />
+                ) : null}
               </div>
             </div>
           ))}
@@ -1476,7 +1540,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
             <button
               type='button'
               onClick={handleOpenPanel}
-              className='group border-border bg-syft-background text-muted-foreground hover:bg-accent hover:text-foreground flex items-center justify-center rounded-xl border p-3.5 transition-colors'
+              className='group border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground flex items-center justify-center rounded-xl border p-3.5 transition-colors'
               aria-label='Open advanced configuration'
             >
               <Settings2
@@ -1495,7 +1559,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
                 value={inputValue}
                 onChange={handleInputChange}
                 placeholder='Ask a follow-up question…'
-                className='font-inter border-border bg-syft-background placeholder:text-syft-placeholder focus:border-foreground focus:ring-foreground/10 w-full rounded-xl border py-3.5 pr-12 pl-4 shadow-sm transition-colors transition-shadow focus:ring-2 focus:outline-none'
+                className='font-inter border-border bg-background placeholder:text-muted-foreground focus:border-foreground focus:ring-foreground/10 w-full rounded-xl border py-3.5 pr-12 pl-4 shadow-sm transition-colors transition-shadow focus:ring-2 focus:outline-none'
                 autoComplete='off'
               />
               <button

@@ -12,6 +12,9 @@
 #   - RSA_PRIVATE_KEY_PEM: Base64-encoded RSA private key for satellite tokens
 #   - RSA_PUBLIC_KEY_PEM: Base64-encoded RSA public key for satellite tokens
 #
+# Optional environment variables:
+#   - OPENAI_API_KEY: OpenAI API key for RAG semantic search (optional)
+#
 # RSA Key Generation (required for satellite token signing):
 #   openssl genrsa -out private.pem 2048
 #   openssl rsa -in private.pem -pubout -out public.pem
@@ -111,6 +114,8 @@ services:
       # RSA keys for satellite token signing (required for multi-worker deployment)
       - RSA_PRIVATE_KEY_PEM=${RSA_PRIVATE_KEY_PEM}
       - RSA_PUBLIC_KEY_PEM=${RSA_PUBLIC_KEY_PEM}
+      # RAG/OpenAI configuration (optional - semantic search disabled if not set)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     networks:
       - syfthub-network
     depends_on:

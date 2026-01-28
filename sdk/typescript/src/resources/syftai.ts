@@ -23,11 +23,7 @@
  * });
  */
 
-import type {
-  Document,
-  QueryDataSourceOptions,
-  QueryModelOptions,
-} from '../models/chat.js';
+import type { Document, QueryDataSourceOptions, QueryModelOptions } from '../models/chat.js';
 import { SyftHubError } from '../errors.js';
 
 /**

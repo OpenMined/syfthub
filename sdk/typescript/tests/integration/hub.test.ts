@@ -22,7 +22,7 @@ describe('HubResource', () => {
   describe('browse', () => {
     it('should browse public endpoints without auth', async () => {
       // First, create some public endpoints
-      const { client: authClient, credentials } = await createAuthenticatedClient();
+      const { client: authClient, credentials: _credentials } = await createAuthenticatedClient();
       await authClient.myEndpoints.create({
         ...generateTestEndpoint(),
         visibility: Visibility.PUBLIC,

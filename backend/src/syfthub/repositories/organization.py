@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import and_, select
@@ -121,6 +122,39 @@ class OrganizationRepository(BaseRepository[OrganizationModel]):
         except SQLAlchemyError:
             self.session.rollback()
             return None
+
+    def update_heartbeat(
+        self,
+        org_id: int,
+        domain: str,
+        last_heartbeat_at: datetime,
+        heartbeat_expires_at: datetime,
+    ) -> bool:
+        """Update organization heartbeat information.
+
+        Args:
+            org_id: ID of the organization to update
+            domain: Normalized domain from the heartbeat URL
+            last_heartbeat_at: When the heartbeat was received
+            heartbeat_expires_at: When the heartbeat expires
+
+        Returns:
+            True if update was successful, False otherwise
+        """
+        try:
+            org_model = self.session.get(self.model, org_id)
+            if not org_model:
+                return False
+
+            org_model.domain = domain
+            org_model.last_heartbeat_at = last_heartbeat_at
+            org_model.heartbeat_expires_at = heartbeat_expires_at
+
+            self.session.commit()
+            return True
+        except SQLAlchemyError:
+            self.session.rollback()
+            return False
 
     def slug_exists(self, slug: str, exclude_org_id: Optional[int] = None) -> bool:
         """Check if slug already exists."""

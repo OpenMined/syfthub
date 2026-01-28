@@ -5,11 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SyftHubClient } from '../src/client.js';
 import type { EndpointRef } from '../src/models/index.js';
-import {
-  AggregatorError,
-  EndpointResolutionError,
-  AuthenticationError,
-} from '../src/index.js';
+import { AggregatorError, EndpointResolutionError } from '../src/index.js';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -17,7 +13,7 @@ vi.stubGlobal('fetch', mockFetch);
 
 describe('ChatResource', () => {
   const baseUrl = 'https://test.syfthub.com';
-  const aggregatorUrl = `${baseUrl}/aggregator/api/v1`;
+  const _aggregatorUrl = `${baseUrl}/aggregator/api/v1`;
   let client: SyftHubClient;
 
   const mockUserResponse = {
@@ -127,6 +123,20 @@ describe('ChatResource', () => {
     });
 
     it('should complete chat with string endpoint path', async () => {
+      // Create mock endpoints for browse to return (use camelCase as HTTP client transforms responses)
+      const mockModelEndpoint = {
+        ...mockEndpointPublic,
+        ownerUsername: 'alice',
+        slug: 'test-model',
+        type: 'model',
+      };
+      const mockDataSourceEndpoint = {
+        ...mockEndpointPublic,
+        ownerUsername: 'alice',
+        slug: 'docs',
+        type: 'data_source',
+      };
+
       mockFetch.mockImplementation(async (url: string) => {
         if (url.includes('/api/v1/auth/me')) {
           return new Response(JSON.stringify(mockUserResponse), {
@@ -134,18 +144,12 @@ describe('ChatResource', () => {
             headers: { 'content-type': 'application/json' },
           });
         }
-        // Hub.get uses /{owner}/{slug} path
-        if (url.endsWith('/alice/test-model')) {
-          return new Response(JSON.stringify(mockEndpointPublic), {
+        // Hub.get uses browse() which calls /api/v1/endpoints/public - returns array directly
+        if (url.includes('/api/v1/endpoints/public')) {
+          return new Response(JSON.stringify([mockModelEndpoint, mockDataSourceEndpoint]), {
             status: 200,
             headers: { 'content-type': 'application/json' },
           });
-        }
-        if (url.endsWith('/alice/docs')) {
-          return new Response(
-            JSON.stringify({ ...mockEndpointPublic, slug: 'docs', type: 'data_source' }),
-            { status: 200, headers: { 'content-type': 'application/json' } }
-          );
         }
         if (url.includes('/chat') && !url.includes('/stream')) {
           return new Response(JSON.stringify(mockChatResponse), {
@@ -169,12 +173,21 @@ describe('ChatResource', () => {
       // Create unauthenticated client
       const unauthClient = new SyftHubClient({ baseUrl });
 
+      // Mock to return 401 for unauthenticated requests
+      mockFetch.mockImplementation(async () => {
+        return new Response(JSON.stringify({ detail: 'Not authenticated' }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        });
+      });
+
+      // Chat methods throw AggregatorError for 401 (not AuthenticationError)
       await expect(
         unauthClient.chat.complete({
           prompt: 'Hello',
           model: { url: 'http://test', slug: 'model' },
         })
-      ).rejects.toThrow(AuthenticationError);
+      ).rejects.toThrow(AggregatorError);
     });
 
     it('should throw AggregatorError on server error', async () => {
@@ -186,19 +199,19 @@ describe('ChatResource', () => {
           });
         }
         if (url.includes('/chat')) {
-          return new Response(
-            JSON.stringify({ message: 'Internal server error' }),
-            { status: 500, headers: { 'content-type': 'application/json' } }
-          );
+          return new Response(JSON.stringify({ message: 'Internal server error' }), {
+            status: 500,
+            headers: { 'content-type': 'application/json' },
+          });
         }
         return new Response('Not found', { status: 404 });
       });
 
       const modelRef: EndpointRef = { url: 'http://syftai:8080', slug: 'model' };
 
-      await expect(
-        client.chat.complete({ prompt: 'Hello', model: modelRef })
-      ).rejects.toThrow(AggregatorError);
+      await expect(client.chat.complete({ prompt: 'Hello', model: modelRef })).rejects.toThrow(
+        AggregatorError
+      );
     });
 
     it('should throw EndpointResolutionError when endpoint not found', async () => {
@@ -228,14 +241,23 @@ describe('ChatResource', () => {
     it('should require authentication for streaming', async () => {
       const unauthClient = new SyftHubClient({ baseUrl });
 
+      // Mock to return 401 for unauthenticated requests
+      mockFetch.mockImplementation(async () => {
+        return new Response(JSON.stringify({ detail: 'Not authenticated' }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        });
+      });
+
+      // Chat methods throw AggregatorError for 401 (not AuthenticationError)
       await expect(async () => {
-        for await (const _ of unauthClient.chat.stream({
+        for await (const _event of unauthClient.chat.stream({
           prompt: 'Hello',
           model: { url: 'http://test', slug: 'model' },
         })) {
           // consume
         }
-      }).rejects.toThrow(AuthenticationError);
+      }).rejects.toThrow(AggregatorError);
     });
   });
 

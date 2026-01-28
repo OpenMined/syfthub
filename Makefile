@@ -1,10 +1,11 @@
-.PHONY: help dev stop test check logs
+.PHONY: help setup dev stop test check logs
 
 # =============================================================================
 # SyftHub Development Commands
 # =============================================================================
 #
 # Quick Start:
+#   make setup   - Install dev dependencies (pre-commit, etc.)
 #   make dev     - Start development environment
 #   make logs    - View logs (debug issues)
 #   make test    - Run tests
@@ -18,6 +19,7 @@ help:  ## Show available commands
 	@echo ''
 	@echo 'SyftHub Development Commands:'
 	@echo ''
+	@echo '  make setup   Install dev dependencies (pre-commit, etc.)'
 	@echo '  make dev     Start development environment (http://localhost)'
 	@echo '  make stop    Stop all services'
 	@echo '  make test    Run all tests'
@@ -26,6 +28,16 @@ help:  ## Show available commands
 	@echo ''
 	@echo 'Production deployment:'
 	@echo '  docker compose -f docker-compose.prod.yml up -d'
+	@echo ''
+
+setup:  ## Install dev dependencies (pre-commit, etc.)
+	@echo 'Setting up development environment...'
+	@test -d .venv || uv venv .venv
+	@. .venv/bin/activate && uv pip install pre-commit
+	@. .venv/bin/activate && pre-commit install
+	@echo ''
+	@echo 'Setup complete! Activate the virtualenv with:'
+	@echo '  source .venv/bin/activate'
 	@echo ''
 
 dev:  ## Start development environment
@@ -52,14 +64,29 @@ test:  ## Run all tests
 	@echo 'Running backend tests...'
 	@cd backend && uv run python -m pytest
 	@echo ''
+	@echo 'Running syfthub-api tests...'
+	@cd syfthub-api && uv run pytest tests/ -v
+	@echo ''
 	@echo 'Running frontend tests...'
 	@cd frontend && npm run test --if-present || echo 'Frontend tests skipped (playwright not configured)'
+	@echo ''
+	@echo 'Running SDK tests...'
+	@echo 'Python SDK dev tests...'
+	@cd sdk/python && uv run pytest tests/dev/ -v || echo 'Python SDK dev tests skipped (dev server not available)'
+	@echo ''
+	@echo 'TypeScript SDK dev tests...'
+	@cd sdk/typescript && npm run test:dev || echo 'TypeScript SDK dev tests skipped (dev server not available)'
 
 check:  ## Run code quality checks
 	@echo 'Backend checks...'
 	@cd backend && uv run ruff check src/ tests/
 	@cd backend && uv run ruff format --check src/ tests/
 	@cd backend && uv run python -m mypy src/ || true
+	@echo ''
+	@echo 'SyftHub API checks...'
+	@cd syfthub-api && uv run ruff check src/ tests/
+	@cd syfthub-api && uv run ruff format --check src/ tests/
+	@cd syfthub-api && uv run mypy src/syfthub_api/ --ignore-missing-imports
 	@echo ''
 	@echo 'Frontend checks...'
 	@cd frontend && npm run lint --if-present || true

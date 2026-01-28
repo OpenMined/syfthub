@@ -61,18 +61,19 @@ export function CostEstimationPanel({
   }
 
   return (
-    <div className='relative overflow-hidden rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-4'>
+    <div className='relative overflow-hidden rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-4 dark:border-blue-800 dark:from-blue-950/40 dark:via-indigo-950/40 dark:to-purple-950/40'>
       {/* Decorative elements */}
-      <div className='absolute top-0 right-0 h-20 w-20 translate-x-6 -translate-y-6 rounded-full bg-blue-200/30 blur-2xl' />
-      <div className='absolute bottom-0 left-0 h-16 w-16 -translate-x-4 translate-y-4 rounded-full bg-purple-200/30 blur-xl' />
+      <div className='absolute top-0 right-0 h-20 w-20 translate-x-6 -translate-y-6 rounded-full bg-blue-200/30 blur-2xl dark:bg-blue-800/30' />
+      <div className='absolute bottom-0 left-0 h-16 w-16 -translate-x-4 translate-y-4 rounded-full bg-purple-200/30 blur-xl dark:bg-purple-800/30' />
 
       <div className='relative'>
         <div className='mb-3 flex items-center gap-2'>
-          <div className='flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25'>
+          <div className='flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/25 dark:from-blue-600 dark:to-indigo-700 dark:shadow-blue-600/20'>
             <Coins className='h-3.5 w-3.5 text-white' />
           </div>
-          <span className='font-inter text-xs font-semibold text-blue-900'>
-            Estimated Cost <span className='font-normal text-blue-700'>(per 1K tokens)</span>
+          <span className='font-inter text-xs font-semibold text-blue-900 dark:text-blue-300'>
+            Estimated Cost{' '}
+            <span className='font-normal text-blue-700 dark:text-blue-400'>(per 1K tokens)</span>
           </span>
         </div>
 
@@ -105,7 +106,7 @@ export function CostEstimationPanel({
           </div>
 
           {/* Divider */}
-          <div className='border-t border-blue-200/50' />
+          <div className='border-t border-blue-200/50 dark:border-blue-800/50' />
 
           {/* Total */}
           <div className='flex items-center justify-between'>
@@ -122,7 +123,7 @@ export function CostEstimationPanel({
         </div>
 
         {warningMessage ? (
-          <div className='mt-3 flex items-center gap-1.5 text-[10px] text-amber-600'>
+          <div className='mt-3 flex items-center gap-1.5 text-[10px] text-amber-600 dark:text-amber-400'>
             <AlertCircle className='h-3 w-3' />
             <span>{warningMessage}</span>
           </div>

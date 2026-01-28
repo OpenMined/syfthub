@@ -169,7 +169,7 @@ export function SettingsModal() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: 'spring', duration: 0.3 }}
-            className='border-syft-border bg-card relative flex h-[600px] w-full max-w-3xl overflow-hidden rounded-xl border shadow-xl'
+            className='border-border bg-card relative flex h-[600px] w-full max-w-3xl overflow-hidden rounded-xl border shadow-xl'
             role='dialog'
             aria-modal='true'
             aria-labelledby='settings-modal-title'
@@ -218,7 +218,7 @@ export function SettingsModal() {
               <Button
                 variant='ghost'
                 size='icon'
-                className='text-syft-muted hover:text-syft-primary absolute top-3 right-3 z-10 h-8 w-8'
+                className='text-muted-foreground hover:text-foreground absolute top-3 right-3 z-10 h-8 w-8'
                 onClick={closeSettings}
                 aria-label='Close settings'
               >

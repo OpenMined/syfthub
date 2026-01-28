@@ -144,10 +144,7 @@ export class ChatResource {
    * Collect unique owner usernames from all endpoints.
    * Used to determine which satellite tokens need to be fetched.
    */
-  private collectUniqueOwners(
-    modelRef: EndpointRef,
-    dataSourceRefs: EndpointRef[]
-  ): string[] {
+  private collectUniqueOwners(modelRef: EndpointRef, dataSourceRefs: EndpointRef[]): string[] {
     const owners = new Set<string>();
 
     if (modelRef.ownerUsername) {
@@ -167,9 +164,7 @@ export class ChatResource {
    * Get satellite tokens for all unique endpoint owners.
    * Returns a map of owner username to satellite token.
    */
-  private async getSatelliteTokensForOwners(
-    owners: string[]
-  ): Promise<Record<string, string>> {
+  private async getSatelliteTokensForOwners(owners: string[]): Promise<Record<string, string>> {
     if (owners.length === 0) {
       return {};
     }
@@ -191,9 +186,7 @@ export class ChatResource {
    * Transaction tokens are used for billing - they authorize the endpoint
    * owner to charge the current user for usage.
    */
-  private async getTransactionTokensForOwners(
-    owners: string[]
-  ): Promise<Record<string, string>> {
+  private async getTransactionTokensForOwners(owners: string[]): Promise<Record<string, string>> {
     if (owners.length === 0) {
       return {};
     }
@@ -336,9 +329,7 @@ export class ChatResource {
   /**
    * Parse retrieval info (SourceInfo array) from raw data.
    */
-  private parseRetrievalInfo(
-    data: Record<string, unknown>[] | undefined
-  ): SourceInfo[] {
+  private parseRetrievalInfo(data: Record<string, unknown>[] | undefined): SourceInfo[] {
     const retrievalInfo: SourceInfo[] = [];
     if (!Array.isArray(data)) {
       return retrievalInfo;
@@ -395,7 +386,10 @@ export class ChatResource {
     );
 
     // Use custom aggregator URL if provided, otherwise use default
-    const effectiveAggregatorUrl = (options.aggregatorUrl ?? this.aggregatorUrl).replace(/\/+$/, '');
+    const effectiveAggregatorUrl = (options.aggregatorUrl ?? this.aggregatorUrl).replace(
+      /\/+$/,
+      ''
+    );
     const url = `${effectiveAggregatorUrl}/chat`;
 
     const response = await fetch(url, {
@@ -486,7 +480,10 @@ export class ChatResource {
     );
 
     // Use custom aggregator URL if provided, otherwise use default
-    const effectiveAggregatorUrl = (options.aggregatorUrl ?? this.aggregatorUrl).replace(/\/+$/, '');
+    const effectiveAggregatorUrl = (options.aggregatorUrl ?? this.aggregatorUrl).replace(
+      /\/+$/,
+      ''
+    );
     const url = `${effectiveAggregatorUrl}/chat/stream`;
 
     const response = await fetch(url, {
@@ -565,10 +562,7 @@ export class ChatResource {
   /**
    * Parse an SSE event into a typed event object.
    */
-  private parseSSEEvent(
-    eventType: string,
-    data: Record<string, unknown>
-  ): ChatStreamEvent | null {
+  private parseSSEEvent(eventType: string, data: Record<string, unknown>): ChatStreamEvent | null {
     switch (eventType) {
       case 'retrieval_start':
         return {
@@ -647,9 +641,7 @@ export class ChatResource {
 
       if (endpoint.type !== EndpointType.MODEL) continue;
 
-      const hasUrl = endpoint.connect.some(
-        (conn) => conn.enabled && conn.config['url']
-      );
+      const hasUrl = endpoint.connect.some((conn) => conn.enabled && conn.config['url']);
 
       if (hasUrl) {
         results.push(endpoint);
@@ -673,9 +665,7 @@ export class ChatResource {
 
       if (endpoint.type !== EndpointType.DATA_SOURCE) continue;
 
-      const hasUrl = endpoint.connect.some(
-        (conn) => conn.enabled && conn.config['url']
-      );
+      const hasUrl = endpoint.connect.some((conn) => conn.enabled && conn.config['url']);
 
       if (hasUrl) {
         results.push(endpoint);

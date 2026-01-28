@@ -173,11 +173,7 @@ export class AuthResource {
     const response = await this.http.post<{
       accessToken: string;
       refreshToken: string;
-    }>(
-      '/api/v1/auth/refresh',
-      { refreshToken: tokens.refreshToken },
-      { includeAuth: false }
-    );
+    }>('/api/v1/auth/refresh', { refreshToken: tokens.refreshToken }, { includeAuth: false });
 
     this.http.setTokens(response.accessToken, response.refreshToken);
   }

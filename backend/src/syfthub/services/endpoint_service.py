@@ -29,7 +29,9 @@ from syfthub.schemas.endpoint import (
     SyncValidationError,
     generate_slug_from_name,
 )
+from syfthub.schemas.search import EndpointSearchResponse, EndpointSearchResult
 from syfthub.services.base import BaseService
+from syfthub.services.rag_service import RAGService, get_rag_service
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -50,6 +52,7 @@ class EndpointService(BaseService):
         self.org_member_repository = OrganizationMemberRepository(session)
         self.org_repository = OrganizationRepository(session)
         self.user_repository = UserRepository(session)
+        self.rag_service: RAGService = get_rag_service()
 
     def _get_owner_domain(self, endpoint: Endpoint) -> str | None:
         """Get the domain for an endpoint's owner (user or organization)."""
@@ -230,6 +233,10 @@ class EndpointService(BaseService):
                 detail="Failed to create endpoint",
             )
 
+        # Ingest to RAG if public (best effort - non-blocking)
+        if endpoint.visibility == EndpointVisibility.PUBLIC:
+            self._ingest_to_rag(endpoint.id)
+
         return self._to_response_with_urls(endpoint)
 
     def get_endpoint_by_user_and_slug(
@@ -317,6 +324,9 @@ class EndpointService(BaseService):
                 detail="Permission denied: insufficient permissions",
             )
 
+        # Track old visibility for RAG update
+        old_visibility = endpoint.visibility.value
+
         # Validate contributors if they are being updated
         if endpoint_data.contributors is not None:
             valid_contributors = self._validate_contributors(endpoint_data.contributors)
@@ -339,6 +349,12 @@ class EndpointService(BaseService):
                 detail="Failed to update endpoint",
             )
 
+        # Handle RAG update based on visibility change or content change
+        new_visibility = updated_endpoint.visibility.value
+        self._update_rag_on_visibility_change(
+            endpoint_id, old_visibility, new_visibility
+        )
+
         return self._to_response_with_urls(updated_endpoint)
 
     def update_endpoint_by_slug(
@@ -359,6 +375,9 @@ class EndpointService(BaseService):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Permission denied: insufficient permissions",
             )
+
+        # Track old visibility for RAG update
+        old_visibility = endpoint.visibility.value
 
         # Validate contributors if they are being updated
         if endpoint_data.contributors is not None:
@@ -381,6 +400,12 @@ class EndpointService(BaseService):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to update endpoint",
             )
+
+        # Handle RAG update based on visibility change or content change
+        new_visibility = updated_endpoint.visibility.value
+        self._update_rag_on_visibility_change(
+            endpoint.id, old_visibility, new_visibility
+        )
 
         return self._to_response_with_urls(updated_endpoint)
 
@@ -456,6 +481,203 @@ class EndpointService(BaseService):
             skip, limit, min_stars, endpoint_type
         )
 
+    # ===========================================
+    # RAG INTEGRATION METHODS
+    # ===========================================
+
+    def _ingest_to_rag(self, endpoint_id: int) -> None:
+        """Ingest endpoint to RAG vector store (best effort).
+
+        This is a non-blocking operation - failures are logged but don't
+        affect the main operation.
+
+        Args:
+            endpoint_id: The endpoint ID to ingest.
+        """
+        if not self.rag_service.is_available:
+            return
+
+        try:
+            endpoint_model = self.endpoint_repository.get_endpoint_model(endpoint_id)
+            if not endpoint_model:
+                logger.warning(f"Cannot ingest endpoint {endpoint_id}: not found")
+                return
+
+            # Only ingest public endpoints
+            if endpoint_model.visibility != EndpointVisibility.PUBLIC.value:
+                return
+
+            file_id = self.rag_service.ingest_endpoint(endpoint_model)
+            if file_id:
+                self.endpoint_repository.update_rag_file_id(endpoint_id, file_id)
+                logger.debug(
+                    f"Ingested endpoint {endpoint_id} to RAG (file: {file_id})"
+                )
+        except Exception as e:
+            logger.warning(f"Failed to ingest endpoint {endpoint_id} to RAG: {e}")
+
+    def _remove_from_rag(self, endpoint_id: int) -> None:
+        """Remove endpoint from RAG vector store (best effort).
+
+        Args:
+            endpoint_id: The endpoint ID to remove.
+        """
+        if not self.rag_service.is_available:
+            return
+
+        try:
+            file_id = self.endpoint_repository.get_rag_file_id(endpoint_id)
+            if file_id:
+                self.rag_service.remove_endpoint(file_id)
+                self.endpoint_repository.update_rag_file_id(endpoint_id, None)
+                logger.debug(
+                    f"Removed endpoint {endpoint_id} from RAG (file: {file_id})"
+                )
+        except Exception as e:
+            logger.warning(f"Failed to remove endpoint {endpoint_id} from RAG: {e}")
+
+    def _update_rag_on_visibility_change(
+        self,
+        endpoint_id: int,
+        old_visibility: str,
+        new_visibility: str,
+    ) -> None:
+        """Handle RAG updates when endpoint visibility changes.
+
+        Args:
+            endpoint_id: The endpoint ID.
+            old_visibility: The previous visibility value.
+            new_visibility: The new visibility value.
+        """
+        if not self.rag_service.is_available:
+            return
+
+        was_public = old_visibility == EndpointVisibility.PUBLIC.value
+        is_public = new_visibility == EndpointVisibility.PUBLIC.value
+
+        if was_public and not is_public:
+            # Was public, now private/internal -> remove from RAG
+            self._remove_from_rag(endpoint_id)
+        elif not was_public and is_public:
+            # Was private/internal, now public -> add to RAG
+            self._ingest_to_rag(endpoint_id)
+        elif was_public and is_public:
+            # Still public, might need to update content
+            self._update_in_rag(endpoint_id)
+
+    def _update_in_rag(self, endpoint_id: int) -> None:
+        """Update endpoint content in RAG (remove and re-add).
+
+        Args:
+            endpoint_id: The endpoint ID to update.
+        """
+        if not self.rag_service.is_available:
+            return
+
+        try:
+            endpoint_model = self.endpoint_repository.get_endpoint_model(endpoint_id)
+            if not endpoint_model:
+                return
+
+            # Only update if public
+            if endpoint_model.visibility != EndpointVisibility.PUBLIC.value:
+                return
+
+            old_file_id = endpoint_model.rag_file_id
+            new_file_id = self.rag_service.update_endpoint(endpoint_model, old_file_id)
+            if new_file_id:
+                self.endpoint_repository.update_rag_file_id(endpoint_id, new_file_id)
+                logger.debug(
+                    f"Updated endpoint {endpoint_id} in RAG (file: {new_file_id})"
+                )
+        except Exception as e:
+            logger.warning(f"Failed to update endpoint {endpoint_id} in RAG: {e}")
+
+    def search_endpoints(
+        self,
+        query: str,
+        top_k: int = 10,
+        endpoint_type: Optional[EndpointType] = None,
+    ) -> EndpointSearchResponse:
+        """Search endpoints using semantic search (RAG).
+
+        Args:
+            query: Natural language search query.
+            top_k: Maximum number of results to return.
+            endpoint_type: Optional filter by endpoint type.
+
+        Returns:
+            EndpointSearchResponse with matching endpoints and relevance scores.
+        """
+        if not self.rag_service.is_available:
+            logger.debug("RAG service not available, returning empty results")
+            return EndpointSearchResponse(results=[], total=0, query=query)
+
+        # Get endpoint IDs with relevance scores from RAG search
+        search_results = self.rag_service.search(query, max_results=top_k * 2)
+
+        if not search_results:
+            return EndpointSearchResponse(results=[], total=0, query=query)
+
+        # Create a map of endpoint_id -> relevance_score
+        score_map: dict[int, float] = dict(search_results)
+        endpoint_ids = list(score_map.keys())
+
+        # Fetch endpoints from database (preserves ranking order)
+        endpoints = self.endpoint_repository.get_public_endpoints_by_ids(endpoint_ids)
+
+        # Filter by type if specified
+        if endpoint_type:
+            endpoints = [ep for ep in endpoints if ep.type == endpoint_type]
+
+        # Limit to top_k
+        endpoints = endpoints[:top_k]
+
+        # Convert to EndpointSearchResult with relevance scores
+        results: List[EndpointSearchResult] = []
+        for ep in endpoints:
+            # Get the endpoint ID from the slug by looking up the original results
+            # Since endpoints are returned in the same order as endpoint_ids,
+            # we can find the corresponding score
+            endpoint_id = next(
+                (eid for eid, _ in search_results if score_map.get(eid) is not None),
+                None,
+            )
+            # Find the actual endpoint ID by matching slug
+            # We need to look up by position since EndpointPublicResponse doesn't have id
+            ep_index = endpoints.index(ep)
+            if ep_index < len(endpoint_ids):
+                endpoint_id = endpoint_ids[ep_index]
+                score = score_map.get(endpoint_id, 0.0)
+            else:
+                score = 0.0
+
+            results.append(
+                EndpointSearchResult(
+                    name=ep.name,
+                    slug=ep.slug,
+                    description=ep.description,
+                    type=ep.type,
+                    owner_username=ep.owner_username,
+                    contributors_count=ep.contributors_count,
+                    version=ep.version,
+                    readme=ep.readme,
+                    tags=ep.tags,
+                    stars_count=ep.stars_count,
+                    policies=ep.policies,
+                    connect=ep.connect,
+                    created_at=ep.created_at,
+                    updated_at=ep.updated_at,
+                    relevance_score=score,
+                )
+            )
+
+        return EndpointSearchResponse(
+            results=results,
+            total=len(results),
+            query=query,
+        )
+
     def get_endpoint(self, endpoint_id: int, current_user: User) -> EndpointResponse:
         """Get endpoint by ID with access control and transformed URLs."""
         endpoint = self.endpoint_repository.get_by_id(endpoint_id)
@@ -493,6 +715,9 @@ class EndpointService(BaseService):
                 detail="Permission denied: insufficient permissions",
             )
 
+        # Remove from RAG before deleting (best effort)
+        self._remove_from_rag(endpoint_id)
+
         success = self.endpoint_repository.delete_endpoint(endpoint_id)
         if not success:
             raise HTTPException(
@@ -518,6 +743,9 @@ class EndpointService(BaseService):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Permission denied: insufficient permissions",
             )
+
+        # Remove from RAG before deleting (best effort)
+        self._remove_from_rag(endpoint.id)
 
         success = self.endpoint_repository.delete_endpoint(endpoint.id)
         if not success:
@@ -828,7 +1056,21 @@ class EndpointService(BaseService):
                 },
             )
 
-        # Phase 2: Atomic database operation
+        # Phase 2: Remove old endpoints from RAG (best effort, before DB delete)
+        if self.rag_service.is_available:
+            old_rag_files = self.endpoint_repository.get_user_rag_file_ids(
+                current_user.id
+            )
+            for endpoint_id, file_id in old_rag_files:
+                try:
+                    self.rag_service.remove_endpoint(file_id)
+                    logger.debug(f"Removed endpoint {endpoint_id} from RAG during sync")
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to remove endpoint {endpoint_id} from RAG during sync: {e}"
+                    )
+
+        # Phase 3: Atomic database operation
         try:
             # Delete all existing user endpoints
             deleted_count = self.endpoint_repository.delete_all_user_endpoints(
@@ -850,6 +1092,12 @@ class EndpointService(BaseService):
                 f"Sync completed for user {current_user.id}: "
                 f"deleted={deleted_count}, created={len(created_endpoints)}"
             )
+
+            # Phase 4: Ingest new public endpoints to RAG (best effort, after commit)
+            if self.rag_service.is_available:
+                for endpoint in created_endpoints:
+                    if endpoint.visibility == EndpointVisibility.PUBLIC:
+                        self._ingest_to_rag(endpoint.id)
 
             # Transform URLs for response
             response_endpoints = [

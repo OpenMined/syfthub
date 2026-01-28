@@ -1,5 +1,10 @@
 import type { HTTPClient } from '../http.js';
-import type { EndpointPublic } from '../models/index.js';
+import type {
+  EndpointPublic,
+  EndpointSearchResult,
+  EndpointSearchResponse,
+  SearchOptions,
+} from '../models/index.js';
 import { PageIterator } from '../pagination.js';
 
 /**
@@ -35,6 +40,13 @@ export interface TrendingOptions {
  * // Get trending endpoints
  * for await (const endpoint of client.hub.trending({ minStars: 10 })) {
  *   console.log(`${endpoint.name} - ${endpoint.starsCount} stars`);
+ * }
+ *
+ * @example
+ * // Semantic search for endpoints
+ * const results = await client.hub.search('machine learning for images');
+ * for (const result of results) {
+ *   console.log(`${result.ownerUsername}/${result.slug}: ${result.relevanceScore.toFixed(2)}`);
  * }
  *
  * @example
@@ -95,7 +107,7 @@ export class HubResource {
     const { NotFoundError } = await import('../errors.js');
     throw new NotFoundError(
       `Could not resolve endpoint ID for '${path}'. ` +
-        'Endpoint not found or you don\'t have access to get its ID.'
+        "Endpoint not found or you don't have access to get its ID."
     );
   }
 
@@ -131,12 +143,70 @@ export class HubResource {
       if (options?.minStars !== undefined) {
         params['minStars'] = options.minStars;
       }
-      return this.http.get<EndpointPublic[]>(
-        '/api/v1/endpoints/trending',
-        params,
+      return this.http.get<EndpointPublic[]>('/api/v1/endpoints/trending', params, {
+        includeAuth: false,
+      });
+    }, pageSize);
+  }
+
+  /**
+   * Search for endpoints using semantic search.
+   *
+   * Uses RAG-powered semantic search to find endpoints that match the
+   * natural language query. Returns results sorted by relevance score.
+   *
+   * Note: If RAG is not configured on the server (no OpenAI API key),
+   * this method returns an empty array.
+   *
+   * @param query - Natural language search query (e.g., "machine learning models for image classification")
+   * @param options - Search options (topK, type filter, minScore)
+   * @returns Promise resolving to array of EndpointSearchResult with relevance scores.
+   *          Returns empty array if query is too short (<3 chars) or no matches found.
+   *
+   * @example
+   * // Search for machine learning models
+   * const results = await client.hub.search('image classification models');
+   * for (const result of results) {
+   *   console.log(`${result.ownerUsername}/${result.slug}: ${result.relevanceScore.toFixed(2)}`);
+   * }
+   *
+   * @example
+   * // Filter by type and minimum score
+   * const dataSources = await client.hub.search('customer data', {
+   *   type: EndpointType.DATA_SOURCE,
+   *   minScore: 0.5,
+   * });
+   */
+  async search(query: string, options: SearchOptions = {}): Promise<EndpointSearchResult[]> {
+    const { topK = 10, type, minScore = 0 } = options;
+
+    // Skip search for very short queries
+    if (!query || query.trim().length < 3) {
+      return [];
+    }
+
+    const body: Record<string, unknown> = {
+      query: query.trim(),
+      top_k: topK,
+    };
+
+    if (type !== undefined) {
+      body['type'] = type;
+    }
+
+    try {
+      const response = await this.http.post<EndpointSearchResponse>(
+        '/api/v1/endpoints/search',
+        body,
         { includeAuth: false }
       );
-    }, pageSize);
+
+      // Filter by minScore and return results
+      return (response.results ?? []).filter((result) => result.relevanceScore >= minScore);
+    } catch {
+      // Return empty array on any error (e.g., RAG not configured)
+      return [];
+    }
   }
 
   /**

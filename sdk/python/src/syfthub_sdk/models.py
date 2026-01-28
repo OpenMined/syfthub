@@ -165,6 +165,52 @@ class EndpointPublic(BaseModel):
         return f"{self.owner_username}/{self.slug}"
 
 
+class EndpointSearchResult(BaseModel):
+    """Search result with relevance score from semantic search.
+
+    Extends the public endpoint fields with a relevance score indicating
+    how well the endpoint matches the search query.
+    """
+
+    name: str
+    slug: str
+    description: str = ""
+    type: EndpointType
+    owner_username: str
+    contributors_count: int = 0
+    version: str = "0.1.0"
+    readme: str = ""
+    tags: list[str] = Field(default_factory=list)
+    stars_count: int = 0
+    policies: list[Policy] = Field(default_factory=list)
+    connect: list[Connection] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+    relevance_score: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Relevance score from semantic search (0.0-1.0)",
+    )
+
+    model_config = {"frozen": True}
+
+    @property
+    def path(self) -> str:
+        """Return the GitHub-style path (owner/slug)."""
+        return f"{self.owner_username}/{self.slug}"
+
+
+class EndpointSearchResponse(BaseModel):
+    """Response from the endpoint search API."""
+
+    results: list[EndpointSearchResult] = Field(default_factory=list)
+    total: int = 0
+    query: str = ""
+
+    model_config = {"frozen": True}
+
+
 # =============================================================================
 # Accounting Models
 # =============================================================================

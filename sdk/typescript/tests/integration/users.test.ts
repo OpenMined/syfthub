@@ -6,7 +6,6 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import {
   createTestClient,
   createAuthenticatedClient,
-  generateTestUser,
   isTestServerAvailable,
   randomString,
 } from '../setup.js';
@@ -47,9 +46,7 @@ describe('UsersResource', () => {
     it('should fail when not authenticated', async () => {
       const client = createTestClient();
 
-      await expect(
-        client.users.update({ fullName: 'Test' })
-      ).rejects.toThrow(AuthenticationError);
+      await expect(client.users.update({ fullName: 'Test' })).rejects.toThrow(AuthenticationError);
     });
   });
 

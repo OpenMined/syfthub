@@ -33,6 +33,9 @@ dependencies = [
     "syfthub-sdk",
 ]
 
+[tool.setuptools]
+py-modules = ["server", "syfthub_client"]
+
 [tool.uv.sources]
 syfthub-sdk = { path = "../sdk/python", editable = true }
 

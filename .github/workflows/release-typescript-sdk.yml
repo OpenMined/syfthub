@@ -32,16 +32,26 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
+      - name: Upgrade npm for OIDC trusted publishing
+        # npm 11.5.1+ is required for OIDC trusted publishing
+        # Node.js 22 ships with npm 10.x, so we need to upgrade
+        run: |
+          echo "Current npm version: $(npm --version)"
+          npm install -g npm@latest
+          echo "Upgraded npm version: $(npm --version)"
+
       - name: Verify npm version for OIDC support
         run: |
           NPM_VERSION=$(npm --version)
           echo "npm version: $NPM_VERSION"
           # npm 11.5.1+ required for OIDC trusted publishing
           MAJOR=$(echo $NPM_VERSION | cut -d. -f1)
-          if [ "$MAJOR" -lt 10 ]; then
-            echo "::error::npm version 10+ required for trusted publishing"
+          MINOR=$(echo $NPM_VERSION | cut -d. -f2)
+          if [ "$MAJOR" -lt 11 ] || ([ "$MAJOR" -eq 11 ] && [ "$MINOR" -lt 5 ]); then
+            echo "::error::npm version 11.5.1+ required for OIDC trusted publishing"
             exit 1
           fi
+          echo "✓ npm version $NPM_VERSION meets requirements for OIDC trusted publishing"
 
       - name: Extract and validate version
         id: version
@@ -76,8 +86,8 @@ jobs:
       - name: Run type checker
         run: npm run typecheck
 
-      - name: Run tests
-        run: npm run test:run
+      - name: Run unit tests
+        run: npx vitest run --exclude 'tests/integration/**'
 
       - name: Build package
         run: npm run build

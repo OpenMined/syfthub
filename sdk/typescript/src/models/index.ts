@@ -1,10 +1,5 @@
 // Enums and constants
-export {
-  Visibility,
-  EndpointType,
-  UserRole,
-  OrganizationRole,
-} from './common.js';
+export { Visibility, EndpointType, UserRole, OrganizationRole } from './common.js';
 
 // API Token types
 export type {
@@ -35,13 +30,14 @@ export type {
   EndpointCreateInput,
   EndpointUpdateInput,
   SyncEndpointsResponse,
+  // Search types
+  EndpointSearchResult,
+  EndpointSearchResponse,
+  SearchOptions,
 } from './endpoint.js';
 
 // Endpoint helpers
-export {
-  getEndpointOwnerType,
-  getEndpointPublicPath,
-} from './endpoint.js';
+export { getEndpointOwnerType, getEndpointPublicPath, getSearchResultPath } from './endpoint.js';
 
 // Accounting types
 export {

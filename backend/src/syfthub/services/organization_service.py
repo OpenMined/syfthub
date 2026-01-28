@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, List, Optional
+from urllib.parse import urlparse
 
 from fastapi import HTTPException, status
 
+from syfthub.core.config import settings
 from syfthub.repositories.organization import (
     OrganizationMemberRepository,
     OrganizationRepository,
@@ -19,6 +22,7 @@ from syfthub.schemas.organization import (
     OrganizationRole,
     OrganizationUpdate,
 )
+from syfthub.schemas.user import HeartbeatResponse
 from syfthub.services.base import BaseService
 
 if TYPE_CHECKING:
@@ -198,3 +202,85 @@ class OrganizationService(BaseService):
     def get_organization_by_id(self, org_id: int) -> Optional[Organization]:
         """Get organization by ID."""
         return self.org_repository.get_by_id(org_id)
+
+    def send_heartbeat(
+        self,
+        org_id: int,
+        url: str,
+        current_user: User,
+        ttl_seconds: Optional[int] = None,
+    ) -> HeartbeatResponse:
+        """Send heartbeat to indicate organization's domain is online.
+
+        This method:
+        - Verifies user has permission to send heartbeats for the organization
+        - Extracts domain (host + port) from the provided URL
+        - Calculates effective TTL (capped at server max, defaults if not specified)
+        - Updates organization's heartbeat information in the database
+
+        Args:
+            org_id: ID of the organization
+            url: Full URL of the domain (e.g., 'https://api.example.com')
+            current_user: The user making the request (for permission check)
+            ttl_seconds: Requested TTL in seconds (optional, will use default if not provided)
+
+        Returns:
+            HeartbeatResponse with status, timestamps, domain, and effective TTL
+
+        Raises:
+            HTTPException: If organization not found, permission denied, URL is invalid,
+                          or heartbeat update fails
+        """
+        # Check organization exists and is active
+        organization = self.org_repository.get_by_id(org_id)
+        if not organization or not organization.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Organization not found",
+            )
+
+        # Check permissions (admin/owner only, unless system admin)
+        if not self._can_manage_organization(org_id, current_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin or owner privileges required",
+            )
+
+        now = datetime.now(timezone.utc)
+
+        # Calculate effective TTL (cap at max, use default if not specified)
+        requested_ttl = ttl_seconds or settings.heartbeat_default_ttl_seconds
+        effective_ttl = min(requested_ttl, settings.heartbeat_max_ttl_seconds)
+
+        # Extract domain (host + port) from URL
+        parsed = urlparse(url)
+        domain = parsed.netloc
+        if not domain:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid URL: could not extract domain",
+            )
+
+        expires_at = now + timedelta(seconds=effective_ttl)
+
+        # Update organization record
+        success = self.org_repository.update_heartbeat(
+            org_id=org_id,
+            domain=domain,
+            last_heartbeat_at=now,
+            heartbeat_expires_at=expires_at,
+        )
+
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update heartbeat",
+            )
+
+        return HeartbeatResponse(
+            status="ok",
+            received_at=now,
+            expires_at=expires_at,
+            domain=domain,
+            ttl_seconds=effective_ttl,
+        )

@@ -209,10 +209,10 @@ export function RegisterModal({
 
         <div className='relative'>
           <div className='absolute inset-0 flex items-center'>
-            <span className='border-syft-border w-full border-t' />
+            <span className='border-border w-full border-t' />
           </div>
           <div className='relative flex justify-center text-xs uppercase'>
-            <span className='font-inter text-syft-muted bg-white px-2'>Or create account with</span>
+            <span className='font-inter text-muted-foreground bg-white px-2'>Or create account with</span>
           </div>
         </div>
         End of OAuth section */}
@@ -272,7 +272,7 @@ export function RegisterModal({
                       style={{ width: `${String((passwordStrength.score / 5) * 100)}%` }}
                     />
                   </div>
-                  <span className='font-inter text-syft-muted min-w-0 text-xs'>
+                  <span className='font-inter text-muted-foreground min-w-0 text-xs'>
                     {passwordStrength.label}
                   </span>
                 </div>
@@ -325,16 +325,16 @@ export function RegisterModal({
                 id='terms-agreement'
                 name='terms-agreement'
                 required
-                className='border-syft-border text-syft-primary focus:ring-syft-primary mt-0.5 rounded focus:ring-offset-0'
+                className='border-border text-foreground focus:ring-ring mt-0.5 rounded focus:ring-offset-0'
                 disabled={isLoading}
               />
-              <span className='font-inter text-syft-muted text-xs leading-relaxed'>
+              <span className='font-inter text-muted-foreground text-xs leading-relaxed'>
                 I agree to the{' '}
-                <a href='#' className='text-syft-primary hover:text-syft-secondary underline'>
+                <a href='#' className='text-foreground hover:text-secondary underline'>
                   Terms of Service
                 </a>{' '}
                 and{' '}
-                <a href='#' className='text-syft-primary hover:text-syft-secondary underline'>
+                <a href='#' className='text-foreground hover:text-secondary underline'>
                   Privacy Policy
                 </a>
               </span>
@@ -347,13 +347,13 @@ export function RegisterModal({
         </form>
 
         {/* Switch to Login */}
-        <div className='border-syft-border border-t pt-4 text-center text-sm'>
-          <p className='font-inter text-syft-muted'>
+        <div className='border-border border-t pt-4 text-center text-sm'>
+          <p className='font-inter text-muted-foreground'>
             Already have an account?{' '}
             <button
               type='button'
               onClick={onSwitchToLogin}
-              className='text-syft-primary hover:text-syft-secondary font-medium underline'
+              className='text-foreground hover:text-secondary font-medium underline'
               disabled={isLoading}
             >
               Sign in

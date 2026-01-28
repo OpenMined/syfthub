@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from syfthub.schemas.auth import UserRole
 
@@ -55,6 +56,13 @@ class User(UserBase):
     aggregator_url: Optional[str] = Field(
         None, description="Custom aggregator URL for RAG/chat workflows"
     )
+    # Heartbeat tracking fields
+    last_heartbeat_at: Optional[datetime] = Field(
+        None, description="Timestamp of last heartbeat received"
+    )
+    heartbeat_expires_at: Optional[datetime] = Field(
+        None, description="Timestamp when heartbeat expires"
+    )
 
     model_config = {"from_attributes": True}
 
@@ -82,6 +90,13 @@ class UserResponse(BaseModel):
     # Custom aggregator URL for RAG/chat workflows
     aggregator_url: Optional[str] = Field(
         None, description="Custom aggregator URL for RAG/chat workflows"
+    )
+    # Heartbeat tracking fields
+    last_heartbeat_at: Optional[datetime] = Field(
+        None, description="Timestamp of last heartbeat received"
+    )
+    heartbeat_expires_at: Optional[datetime] = Field(
+        None, description="Timestamp when heartbeat expires"
     )
 
     model_config = {"from_attributes": True}
@@ -130,3 +145,59 @@ class AccountingCredentialsResponse(BaseModel):
     password: Optional[str] = Field(None, description="Accounting service password")
 
     model_config = {"from_attributes": True}
+
+
+class HeartbeatRequest(BaseModel):
+    """Request schema for heartbeat endpoint."""
+
+    url: str = Field(
+        ...,
+        description="Full URL of the domain (e.g., 'https://api.example.com')",
+        max_length=500,
+    )
+    ttl_seconds: Optional[int] = Field(
+        None,
+        ge=1,
+        le=3600,
+        description="Requested TTL in seconds (capped by server max)",
+    )
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        """Validate URL format and structure.
+
+        Ensures the URL:
+        - Starts with http:// or https://
+        - Is parseable
+        - Has a valid hostname (netloc)
+        """
+        v = v.strip()
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("URL must start with http:// or https://")
+
+        # Parse the URL to validate structure
+        parsed = urlparse(v)
+
+        # Ensure netloc (host:port) exists
+        if not parsed.netloc:
+            raise ValueError("URL must contain a valid hostname")
+
+        # Extract hostname (without port) and validate it's not empty
+        hostname = parsed.netloc.split(":")[0]
+        if not hostname:
+            raise ValueError("URL must contain a valid hostname, not just a port")
+
+        return v
+
+
+class HeartbeatResponse(BaseModel):
+    """Response schema for heartbeat endpoint."""
+
+    status: str = Field(..., description="Status of heartbeat receipt")
+    received_at: datetime = Field(
+        ..., description="Timestamp when heartbeat was received"
+    )
+    expires_at: datetime = Field(..., description="Timestamp when heartbeat expires")
+    domain: str = Field(..., description="Normalized domain extracted from URL")
+    ttl_seconds: int = Field(..., description="Actual TTL applied (may be capped)")

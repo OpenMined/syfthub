@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SyftHubClient } from '../src/client.js';
 import { SyftAIResource, RetrievalError, GenerationError } from '../src/index.js';
-import type { EndpointRef, Document, Message } from '../src/models/index.js';
+import type { EndpointRef, Message } from '../src/models/index.js';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -56,9 +56,7 @@ describe('SyftAIResource', () => {
         ],
       };
 
-      mockFetch.mockResolvedValueOnce(
-        new Response(JSON.stringify(mockResponse), { status: 200 })
-      );
+      mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(mockResponse), { status: 200 }));
 
       const docs = await client.syftai.queryDataSource({
         endpoint: dataSourceEndpoint,
@@ -144,9 +142,7 @@ describe('SyftAIResource', () => {
         },
       };
 
-      mockFetch.mockResolvedValueOnce(
-        new Response(JSON.stringify(mockResponse), { status: 200 })
-      );
+      mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(mockResponse), { status: 200 }));
 
       const messages: Message[] = [{ role: 'user', content: 'Hello!' }];
 
@@ -284,7 +280,7 @@ describe('SyftAIResource', () => {
 
       // Need to consume the generator to trigger the error
       await expect(async () => {
-        for await (const _ of generator) {
+        for await (const _event of generator) {
           // consume
         }
       }).rejects.toThrow(GenerationError);

@@ -153,17 +153,37 @@ pull_images() {
 
     cd "$DEPLOY_DIR"
 
-    # Export variables for docker-compose
-    export IMAGE_TAG
-    export GITHUB_REPOSITORY
+    # IMPORTANT: Save CI-provided values BEFORE sourcing .env
+    # These values are passed from the CI/CD pipeline and must take precedence
+    # over any defaults in .env (which may have IMAGE_TAG=latest)
+    local ci_image_tag="${IMAGE_TAG:-}"
+    local ci_github_repo="${GITHUB_REPOSITORY:-}"
 
-    # Source .env for other variables
+    # Source .env for secrets and other configuration
+    # (DB_PASSWORD, SECRET_KEY, REDIS_PASSWORD, etc.)
     set -a
     source .env
     set +a
 
+    # Restore CI-provided values - they MUST override .env defaults
+    # This fixes a bug where .env's IMAGE_TAG=latest would override
+    # the staging tag (e.g., fc8ca7b-staging) passed from CI
+    if [[ -n "$ci_image_tag" ]]; then
+        IMAGE_TAG="$ci_image_tag"
+        log INFO "Using CI-provided IMAGE_TAG: ${IMAGE_TAG}"
+    else
+        log WARN "No CI-provided IMAGE_TAG, using .env value: ${IMAGE_TAG:-not set}"
+    fi
+
+    if [[ -n "$ci_github_repo" ]]; then
+        GITHUB_REPOSITORY="$ci_github_repo"
+    fi
+
     # Ensure GITHUB_REPOSITORY is lowercase (Docker requirement)
     GITHUB_REPOSITORY=$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
+
+    # Export for docker-compose
+    export IMAGE_TAG
     export GITHUB_REPOSITORY
 
     # Pull all images

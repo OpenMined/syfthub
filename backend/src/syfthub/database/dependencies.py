@@ -3,8 +3,10 @@
 from typing import Annotated
 
 from fastapi import Depends
+from redis.asyncio import Redis
 from sqlalchemy.orm import Session
 
+from syfthub.core.redis_client import get_redis_client
 from syfthub.database.connection import get_db_session
 from syfthub.repositories import (
     APITokenRepository,
@@ -17,6 +19,7 @@ from syfthub.repositories.organization import OrganizationMemberRepository
 from syfthub.services.api_token_service import APITokenService
 from syfthub.services.auth_service import AuthService
 from syfthub.services.endpoint_service import EndpointService
+from syfthub.services.mq_service import MessageQueueService
 from syfthub.services.organization_service import OrganizationService
 from syfthub.services.user_service import UserService
 
@@ -97,3 +100,11 @@ def get_api_token_service(
 ) -> APITokenService:
     """Get APITokenService dependency."""
     return APITokenService(session)
+
+async def get_mq_service(
+    session: Annotated[Session, Depends(get_db_session)],
+    redis: Annotated[Redis, Depends(get_redis_client)],
+) -> MessageQueueService:
+    """Get MessageQueueService dependency."""
+    user_repository = UserRepository(session)
+    return MessageQueueService(redis, user_repository)

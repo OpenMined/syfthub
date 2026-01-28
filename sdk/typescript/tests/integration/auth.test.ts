@@ -2,7 +2,7 @@
  * Integration tests for AuthResource.
  */
 
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import {
   createTestClient,
   createAuthenticatedClient,
@@ -100,23 +100,23 @@ describe('AuthResource', () => {
       await client.auth.register(userData);
       await client.auth.logout();
 
-      await expect(
-        client.auth.login(userData.username, 'wrongpassword')
-      ).rejects.toThrow(AuthenticationError);
+      await expect(client.auth.login(userData.username, 'wrongpassword')).rejects.toThrow(
+        AuthenticationError
+      );
     });
 
     it('should fail with non-existent user', async () => {
       const client = createTestClient();
 
-      await expect(
-        client.auth.login('nonexistent_user_12345', 'password123')
-      ).rejects.toThrow(AuthenticationError);
+      await expect(client.auth.login('nonexistent_user_12345', 'password123')).rejects.toThrow(
+        AuthenticationError
+      );
     });
   });
 
   describe('me', () => {
     it('should return current user', async () => {
-      const { client, user: registeredUser, credentials } = await createAuthenticatedClient();
+      const { client, user: _registeredUser, credentials } = await createAuthenticatedClient();
 
       const me = await client.auth.me();
 

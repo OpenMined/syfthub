@@ -38,21 +38,21 @@ interface BuildViewProperties {
 
 export function BuildView({ onAuthRequired: _onAuthRequired }: Readonly<BuildViewProperties>) {
   return (
-    <div className='bg-syft-background min-h-screen'>
+    <div className='bg-background min-h-screen'>
       <PageHeader title='Build' path='~/build' />
 
       {/* Main Content */}
       <div className='mx-auto max-w-5xl space-y-8 px-6 py-8'>
         {/* Hero / Intro Section */}
         <div className='max-w-3xl space-y-4'>
-          <div className='bg-syft-surface text-syft-muted inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium'>
+          <div className='bg-muted text-muted-foreground inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium'>
             <Code2 className='h-3 w-3' />
             Developer Portal
           </div>
-          <h1 className='font-rubik text-syft-primary text-3xl font-medium'>
+          <h1 className='font-rubik text-foreground text-3xl font-medium'>
             Build privacy-first AI apps
           </h1>
-          <p className='font-inter text-syft-muted text-lg leading-relaxed'>
+          <p className='font-inter text-muted-foreground text-lg leading-relaxed'>
             Access high-value data and models you don't own through a unified, permissioned API.
             Choose your stack and start building in minutes.
           </p>
@@ -61,22 +61,22 @@ export function BuildView({ onAuthRequired: _onAuthRequired }: Readonly<BuildVie
         {/* Tabs Section */}
         <Tabs defaultValue='python' className='space-y-8'>
           <div className='flex items-center justify-between overflow-x-auto pb-2'>
-            <TabsList className='border-syft-border bg-syft-surface h-auto flex-shrink-0 border p-1'>
+            <TabsList className='border-border bg-muted h-auto flex-shrink-0 border p-1'>
               <TabsTrigger
                 value='python'
-                className='text-syft-muted data-[state=active]:text-syft-primary data-[state=active]:bg-card px-4 py-2'
+                className='text-muted-foreground data-[state=active]:text-foreground data-[state=active]:bg-card px-4 py-2'
               >
                 Python SDK
               </TabsTrigger>
               <TabsTrigger
                 value='javascript'
-                className='text-syft-muted data-[state=active]:text-syft-primary data-[state=active]:bg-card px-4 py-2'
+                className='text-muted-foreground data-[state=active]:text-foreground data-[state=active]:bg-card px-4 py-2'
               >
                 JavaScript SDK
               </TabsTrigger>
               <TabsTrigger
                 value='mcp'
-                className='text-syft-muted data-[state=active]:text-syft-primary data-[state=active]:bg-card px-4 py-2'
+                className='text-muted-foreground data-[state=active]:text-foreground data-[state=active]:bg-card px-4 py-2'
               >
                 MCP Integration
               </TabsTrigger>
@@ -150,10 +150,10 @@ for ep in client.my_endpoints.list():
                 <InfoCard
                   title='Python SDK Features'
                   items={[
-                    'Full type hints support',
-                    'Lazy pagination iterators',
-                    'Context manager support',
-                    'Automatic token refresh'
+                    'Browse and search endpoints',
+                    'Manage your endpoints',
+                    'Make distributed RAG queries',
+                    'Authenticate and track usage'
                   ]}
                 />
                 <Card>
@@ -249,10 +249,10 @@ for await (const ep of client.myEndpoints.list()) {
                 <InfoCard
                   title='TypeScript SDK Features'
                   items={[
-                    'Full TypeScript support',
-                    'Async iterators for pagination',
-                    'Runs on Node.js & browsers',
-                    'Automatic token refresh'
+                    'Browse and search endpoints',
+                    'Manage your endpoints',
+                    'Make distributed RAG queries',
+                    'Authenticate and track usage'
                   ]}
                 />
                 <Card>
@@ -281,19 +281,15 @@ for await (const ep of client.myEndpoints.list()) {
             <div className='grid grid-cols-1 gap-8 lg:grid-cols-3'>
               <div className='space-y-6 lg:col-span-2'>
                 <Section
-                  title='Configuration'
-                  description='Add SyftHub to your MCP settings file.'
+                  title='Claude Desktop Configuration'
+                  description='Add SyftHub remote MCP server to your Claude Desktop settings.'
                   icon={<Box className='h-5 w-5' />}
                 >
                   <CodeBlock
                     code={`{
   "mcpServers": {
     "syfthub": {
-      "command": "npx",
-      "args": ["-y", "@syfthub/mcp-server"],
-      "env": {
-        "SYFTHUB_URL": "https://hub.syft.com"
-      }
+      "url": "https://syfthub.openmined.org/mcp"
     }
   }
 }`}
@@ -301,19 +297,32 @@ for await (const ep of client.myEndpoints.list()) {
                   />
                 </Section>
 
-                <div className='flex gap-4 rounded-lg border border-blue-200 bg-blue-50 p-4'>
+                <Section
+                  title='Claude Code MCP Installation'
+                  description='Add SyftHub MCP server to Claude Code CLI.'
+                  icon={<Terminal className='h-5 w-5' />}
+                >
+                  <CodeBlock
+                    code={`claude mcp add --transport http syfthub https://syfthub.openmined.org/mcp`}
+                    language='bash'
+                  />
+                </Section>
+
+                <div className='flex gap-4 rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950/30'>
                   <div className='min-w-[24px] pt-1'>
-                    <div className='flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-600'>
+                    <div className='flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-600 dark:bg-blue-900 dark:text-blue-300'>
                       i
                     </div>
                   </div>
                   <div>
-                    <h4 className='mb-1 font-medium text-blue-900'>What is MCP?</h4>
-                    <p className='text-sm text-blue-700'>
+                    <h4 className='mb-1 font-medium text-blue-900 dark:text-blue-300'>
+                      What is MCP?
+                    </h4>
+                    <p className='text-sm text-blue-700 dark:text-blue-400'>
                       The Model Context Protocol (MCP) allows AI assistants like Claude to directly
                       browse and interact with SyftHub endpoints during conversation. Once
                       configured, you can ask your AI to explore available models and data sources
-                      in real-time.
+                      in real-time using our remote MCP server at https://syfthub.openmined.org
                     </p>
                   </div>
                 </div>
@@ -367,12 +376,10 @@ const Section = memo(function Section({
   return (
     <div className='space-y-4'>
       <div className='flex items-start gap-3'>
-        <div className='border-syft-border text-syft-primary bg-card rounded-lg border p-2'>
-          {icon}
-        </div>
+        <div className='border-border text-foreground bg-card rounded-lg border p-2'>{icon}</div>
         <div>
-          <h3 className='text-syft-primary text-lg font-medium'>{title}</h3>
-          <p className='text-syft-muted text-sm'>{description}</p>
+          <h3 className='text-foreground text-lg font-medium'>{title}</h3>
+          <p className='text-muted-foreground text-sm'>{description}</p>
         </div>
       </div>
       {children}
@@ -430,7 +437,7 @@ const CodeBlock = memo(function CodeBlock({
   }, [style]);
 
   return (
-    <div className='group border-syft-border relative overflow-hidden rounded-xl border bg-[#1a1923]'>
+    <div className='group border-border relative overflow-hidden rounded-xl border bg-[#1a1923]'>
       <div className='absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100'>
         <Button
           variant='ghost'
@@ -486,7 +493,7 @@ const InfoCard = memo(function InfoCard({
       <CardContent>
         <ul className='space-y-2'>
           {items.map((item, index) => (
-            <li key={index} className='text-syft-muted flex items-center gap-2 text-sm'>
+            <li key={index} className='text-muted-foreground flex items-center gap-2 text-sm'>
               <Check className='h-4 w-4 text-green-500' />
               {item}
             </li>
@@ -507,7 +514,7 @@ const ResourceLink = memo(function ResourceLink({
       href={href}
       target='_blank'
       rel='noopener noreferrer'
-      className='text-syft-muted hover:bg-syft-surface hover:text-syft-primary flex items-center justify-between rounded p-2 text-sm transition-colors'
+      className='text-muted-foreground hover:bg-muted hover:text-foreground flex items-center justify-between rounded p-2 text-sm transition-colors'
     >
       {label}
       <ArrowRight className='h-4 w-4 opacity-50' />
