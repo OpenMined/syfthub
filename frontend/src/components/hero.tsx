@@ -1,8 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { ChatSource } from '@/lib/types';
+
 import Send from 'lucide-react/dist/esm/icons/send';
 
+import { ModelSelector } from '@/components/chat/model-selector';
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
+import { getChatModels } from '@/lib/endpoint-utils';
 
 // Static data hoisted outside component to prevent recreation on each render
 const FEATURES = [
@@ -18,7 +22,7 @@ const SEARCH_SUGGESTIONS = [
 ] as const;
 
 interface HeroProperties {
-  onSearch?: (query: string) => void;
+  onSearch?: (query: string, selectedModel: ChatSource | null) => void;
   onAuthRequired?: () => void;
   /** When true, Hero takes full viewport height and centers content (use when no other content below) */
   fullHeight?: boolean;
@@ -30,7 +34,35 @@ export function Hero({
   fullHeight = false
 }: Readonly<HeroProperties>) {
   const [searchValue, setSearchValue] = useState('');
+  const [selectedModel, setSelectedModel] = useState<ChatSource | null>(null);
+  const [availableModels, setAvailableModels] = useState<ChatSource[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(true);
   const inputReference = useRef<HTMLInputElement>(null);
+
+  // Load available models on mount
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadModels = async () => {
+      setIsLoadingModels(true);
+      const models = await getChatModels(20);
+
+      if (!isMounted) return;
+
+      setAvailableModels(models);
+      // Auto-select first model if available
+      if (models.length > 0 && models[0]) {
+        setSelectedModel(models[0]);
+      }
+      setIsLoadingModels(false);
+    };
+
+    void loadModels();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Auto-focus on desktop only (avoid virtual keyboard on mobile)
   useEffect(() => {
@@ -45,20 +77,20 @@ export function Hero({
     (event: React.FormEvent) => {
       event.preventDefault();
       if (searchValue.trim() && onSearch) {
-        onSearch(searchValue);
+        onSearch(searchValue, selectedModel);
       }
     },
-    [searchValue, onSearch]
+    [searchValue, onSearch, selectedModel]
   );
 
   const handleSuggestionClick = useCallback(
     (suggestion: string) => {
       setSearchValue(suggestion);
       if (onSearch) {
-        onSearch(suggestion);
+        onSearch(suggestion, selectedModel);
       }
     },
-    [onSearch]
+    [onSearch, selectedModel]
   );
 
   // Memoized input handler using functional setState for stable reference
@@ -67,92 +99,104 @@ export function Hero({
   }, []);
 
   return (
-    <section
-      className={`bg-background flex items-center justify-center px-6 ${
-        fullHeight ? 'min-h-[calc(100vh-2rem)]' : 'min-h-[50vh]'
-      }`}
-    >
-      <div className='mx-auto w-full max-w-2xl space-y-8'>
-        {/* Logo */}
-        <div className='flex items-center justify-center gap-3'>
-          <OpenMinedIcon className='h-7 w-7' />
-          <span className='font-rubik text-foreground text-xl font-normal'>SyftHub</span>
-        </div>
+    <>
+      {/* Model Selector - Fixed top left, matching chat-view layout */}
+      <div className='fixed top-4 left-24 z-40'>
+        <ModelSelector
+          selectedModel={selectedModel}
+          onModelSelect={setSelectedModel}
+          models={availableModels}
+          isLoading={isLoadingModels}
+        />
+      </div>
 
-        {/* Tagline */}
-        <div className='space-y-4 pb-4 text-center'>
-          <h1 className='font-rubik text-foreground text-3xl font-medium'>
-            Access the World's{' '}
-            <span className='from-secondary via-chart-3 to-chart-1 bg-gradient-to-r bg-clip-text text-transparent'>
-              Collective Intelligence
-            </span>
-          </h1>
-          <p className='font-inter text-foreground text-base'>
-            Query trusted data sources — public, copyrighted, or private — directly from source.
-          </p>
-        </div>
-
-        {/* Feature Badges and Search Bar - grouped closer together */}
-        <div className='space-y-6'>
-          {/* Feature Badges */}
-          <div className='flex flex-wrap items-center justify-center gap-8'>
-            {FEATURES.map((feature, index) => (
-              <div key={index} className='flex items-center gap-2'>
-                <div className={`h-2 w-2 rounded-full ${feature.color}`}></div>
-                <span className='font-inter text-foreground text-sm'>{feature.label}</span>
-              </div>
-            ))}
+      <section
+        className={`bg-background flex items-center justify-center px-6 ${
+          fullHeight ? 'min-h-[calc(100vh-2rem)]' : 'min-h-[50vh]'
+        }`}
+      >
+        <div className='mx-auto w-full max-w-2xl space-y-8'>
+          {/* Logo */}
+          <div className='flex items-center justify-center gap-3'>
+            <OpenMinedIcon className='h-7 w-7' />
+            <span className='font-rubik text-foreground text-xl font-normal'>SyftHub</span>
           </div>
 
-          {/* Search Bar */}
-          <form onSubmit={handleSearch} className='space-y-4' role='search'>
-            <div className='group relative'>
-              <label htmlFor='hero-search' className='sr-only'>
-                Search for data sources, models, or topics
-              </label>
-              <input
-                id='hero-search'
-                ref={inputReference}
-                type='search'
-                name='search'
-                value={searchValue}
-                onChange={handleInputChange}
-                placeholder='What are you looking for…'
-                className='font-inter border-input text-foreground placeholder:text-muted-foreground focus:ring-ring bg-background w-full rounded-xl border px-6 py-4 shadow-sm transition-colors transition-shadow focus:border-transparent focus:ring-2 focus:outline-none'
-                autoComplete='off'
-              />
-              <button
-                type='submit'
-                aria-label='Search'
-                className='group-focus-within:text-foreground hover:bg-muted absolute top-1/2 right-3 -translate-y-1/2 rounded-lg p-2 transition-colors'
-              >
-                <Send
-                  className={`h-5 w-5 transition-colors ${
-                    searchValue ? 'text-foreground' : 'text-muted-foreground'
-                  }`}
-                  aria-hidden='true'
-                />
-              </button>
-            </div>
+          {/* Tagline */}
+          <div className='space-y-4 pb-4 text-center'>
+            <h1 className='font-rubik text-foreground text-3xl font-medium'>
+              Access the World's{' '}
+              <span className='from-secondary via-chart-3 to-chart-1 bg-gradient-to-r bg-clip-text text-transparent'>
+                Collective Intelligence
+              </span>
+            </h1>
+            <p className='font-inter text-foreground text-base'>
+              Query trusted data sources — public, copyrighted, or private — directly from source.
+            </p>
+          </div>
 
-            {/* Search Suggestions Pills */}
-            <div className='flex flex-wrap items-center justify-center gap-2.5'>
-              {SEARCH_SUGGESTIONS.map((suggestion, index) => (
-                <button
-                  key={index}
-                  type='button'
-                  onClick={() => {
-                    handleSuggestionClick(suggestion);
-                  }}
-                  className='font-inter border-border text-foreground hover:border-primary hover:bg-muted focus:ring-ring bg-background rounded-full border px-4 py-1.5 text-sm transition-colors focus:ring-2 focus:ring-offset-2 focus:outline-none'
-                >
-                  {suggestion}
-                </button>
+          {/* Feature Badges and Search Bar - grouped closer together */}
+          <div className='space-y-6'>
+            {/* Feature Badges */}
+            <div className='flex flex-wrap items-center justify-center gap-8'>
+              {FEATURES.map((feature, index) => (
+                <div key={index} className='flex items-center gap-2'>
+                  <div className={`h-2 w-2 rounded-full ${feature.color}`}></div>
+                  <span className='font-inter text-foreground text-sm'>{feature.label}</span>
+                </div>
               ))}
             </div>
-          </form>
+
+            {/* Search Bar */}
+            <form onSubmit={handleSearch} className='space-y-4' role='search'>
+              <div className='group relative'>
+                <label htmlFor='hero-search' className='sr-only'>
+                  Search for data sources, models, or topics
+                </label>
+                <input
+                  id='hero-search'
+                  ref={inputReference}
+                  type='search'
+                  name='search'
+                  value={searchValue}
+                  onChange={handleInputChange}
+                  placeholder='What are you looking for…'
+                  className='font-inter border-input text-foreground placeholder:text-muted-foreground focus:ring-ring bg-background w-full rounded-xl border px-6 py-4 shadow-sm transition-colors transition-shadow focus:border-transparent focus:ring-2 focus:outline-none'
+                  autoComplete='off'
+                />
+                <button
+                  type='submit'
+                  aria-label='Search'
+                  className='group-focus-within:text-foreground hover:bg-muted absolute top-1/2 right-3 -translate-y-1/2 rounded-lg p-2 transition-colors'
+                >
+                  <Send
+                    className={`h-5 w-5 transition-colors ${
+                      searchValue ? 'text-foreground' : 'text-muted-foreground'
+                    }`}
+                    aria-hidden='true'
+                  />
+                </button>
+              </div>
+
+              {/* Search Suggestions Pills */}
+              <div className='flex flex-wrap items-center justify-center gap-2.5'>
+                {SEARCH_SUGGESTIONS.map((suggestion, index) => (
+                  <button
+                    key={index}
+                    type='button'
+                    onClick={() => {
+                      handleSuggestionClick(suggestion);
+                    }}
+                    className='font-inter border-border text-foreground hover:border-primary hover:bg-muted focus:ring-ring bg-background rounded-full border px-4 py-1.5 text-sm transition-colors focus:ring-2 focus:ring-offset-2 focus:outline-none'
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+              </div>
+            </form>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </>
   );
 }
