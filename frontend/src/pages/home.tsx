@@ -1,3 +1,5 @@
+import type { ChatSource } from '@/lib/types';
+
 import UserPlus from 'lucide-react/dist/esm/icons/user-plus';
 import { useNavigate } from 'react-router-dom';
 
@@ -39,10 +41,10 @@ export default function HomePage() {
     { immediate: true }
   );
 
-  const handleSearch = (query: string) => {
-    // Navigate to chat with the search query in state
+  const handleSearch = (query: string, selectedModel: ChatSource | null) => {
+    // Navigate to chat with the search query and selected model in state
     // eslint-disable-next-line @typescript-eslint/no-floating-promises -- Navigation is fire-and-forget
-    navigate('/chat', { state: { query } });
+    navigate('/chat', { state: { query, model: selectedModel } });
   };
 
   const handleJoinNetwork = () => {

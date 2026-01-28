@@ -739,6 +739,8 @@ interface Message {
 
 interface ChatViewProperties {
   initialQuery: string;
+  /** Optional pre-selected model from navigation (e.g., from home page hero) */
+  initialModel?: ChatSource | null;
 }
 
 // Helper function to process SDK streaming events (handles token content)
@@ -942,7 +944,7 @@ function getChatErrorMessage(error: unknown): string {
   return 'An unexpected error occurred';
 }
 
-export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
+export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProperties>) {
   const { user } = useAuth();
 
   const [messages, setMessages] = useState<Message[]>([
@@ -956,8 +958,8 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
   const messagesEndReference = useRef<HTMLDivElement>(null);
   const abortControllerReference = useRef<AbortController | null>(null);
 
-  // Model selection state
-  const [selectedModel, setSelectedModel] = useState<ChatSource | null>(null);
+  // Model selection state - initialize with initialModel if provided
+  const [selectedModel, setSelectedModel] = useState<ChatSource | null>(initialModel ?? null);
   const [availableModels, setAvailableModels] = useState<ChatSource[]>([]);
   const [isLoadingModels, setIsLoadingModels] = useState(true);
 
@@ -1163,12 +1165,19 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
         // Guard against state updates after unmount
         if (!isMounted) return;
 
-        setAvailableModels(models);
+        // If initialModel was provided but not in the fetched list, add it
+        let updatedModels = models;
+        if (initialModel && !models.some((m) => m.slug === initialModel.slug)) {
+          updatedModels = [initialModel, ...models];
+        }
+
+        setAvailableModels(updatedModels);
 
         // Auto-select the first model if available and not already selected
+        // (initialModel will already be set via useState if provided)
         setSelectedModel((current) => {
-          if (current !== null) return current; // Already selected, don't override
-          return models.length > 0 && models[0] ? models[0] : null;
+          if (current !== null) return current; // Already selected (including initialModel), don't override
+          return updatedModels.length > 0 && updatedModels[0] ? updatedModels[0] : null;
         });
       } catch (error) {
         console.error('Failed to load models:', error);
@@ -1185,7 +1194,7 @@ export function ChatView({ initialQuery }: Readonly<ChatViewProperties>) {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [initialModel]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
