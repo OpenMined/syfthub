@@ -262,7 +262,7 @@ export class HubResource {
   async unstar(path: string): Promise<void> {
     const endpointId = await this.resolveEndpointId(path);
     // Use DELETE method to /star endpoint (not PATCH to /unstar)
-    await this.http.delete<void>(`/api/v1/endpoints/${endpointId}/star`);
+    await this.http.delete<void>(`/api/v1/endpoints/${endpointId}/star`, undefined);
   }
 
   /**

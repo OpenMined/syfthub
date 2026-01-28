@@ -75,6 +75,7 @@ export type {
   ChatOptions,
   QueryDataSourceOptions,
   QueryModelOptions,
+  ResponseQueueCredentials,
   // Streaming events
   ChatStreamEvent,
   RetrievalStartEvent,
@@ -97,4 +98,9 @@ export type {
   PublishInput,
   ConsumeOptions,
   PeekOptions,
+  // Reserved Queue types
+  ReserveQueueOptions,
+  ReserveQueueResponse,
+  ReleaseQueueInput,
+  ReleaseQueueResponse,
 } from './mq.js';
