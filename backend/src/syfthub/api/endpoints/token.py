@@ -28,6 +28,7 @@ from syfthub.auth.keys import key_manager
 from syfthub.auth.satellite_tokens import (
     AudienceValidationResult,
     TokenVerificationResult,
+    create_guest_satellite_token,
     create_satellite_token,
     get_allowed_audiences,
     validate_audience,
@@ -161,6 +162,143 @@ async def get_satellite_token(
         # Create satellite token (validation already done, but pass user_repo for consistency)
         target_token = create_satellite_token(
             user=current_user,
+            audience=aud,
+            key_manager=key_manager,
+            user_repo=user_repo,
+        )
+
+        return SatelliteTokenResponse(
+            target_token=target_token,
+            expires_in=settings.satellite_token_expire_seconds,
+        )
+
+    except AudienceNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "audience_not_found",
+                "message": str(e.message),
+            },
+        ) from e
+
+    except AudienceInactiveError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "audience_inactive",
+                "message": str(e.message),
+            },
+        ) from e
+
+    except KeyNotConfiguredError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e.message),
+        ) from e
+
+
+@router.get(
+    "/token/guest",
+    response_model=SatelliteTokenResponse,
+    responses={
+        200: {
+            "description": "Guest token generated successfully",
+            "model": SatelliteTokenResponse,
+        },
+        400: {
+            "description": "Missing parameter or Invalid Audience requested",
+            "model": SatelliteTokenErrorResponse,
+        },
+        503: {
+            "description": "Service Unavailable (Identity Provider not configured)",
+        },
+    },
+    summary="Get Guest Satellite Token (No Authentication Required)",
+    description="""
+Mint a new, short-lived JWT for a guest (unauthenticated) user.
+The returned token is signed by the Hub's Private Key using RS256.
+
+**No Authentication Required** - This endpoint is public and allows
+unauthenticated users to obtain tokens for accessing policy-free endpoints.
+
+**Token Claims:**
+- `sub`: "guest" (special identifier for guest users)
+- `iss`: Issuer URL (Hub URL)
+- `aud`: The target service identifier (username of target user/service)
+- `exp`: Expiration timestamp (short-lived, typically 60 seconds)
+- `role`: "guest" (indicates unauthenticated user)
+
+**Restrictions:**
+- Guest tokens can only be used with endpoints that have no policies attached
+- Guest users cannot access billing/accounting features
+- Guest tokens do not include transaction tokens
+
+**Audience Validation:**
+- The audience must be the username of an active user account
+- When a user is deactivated/deleted, their username becomes invalid
+""",
+)
+async def get_guest_satellite_token(
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    aud: str = Query(
+        ...,
+        description="Username of target service/user (e.g., 'alice')",
+        examples=["alice"],
+    ),
+) -> SatelliteTokenResponse:
+    """Get a satellite token for guest (unauthenticated) access.
+
+    This endpoint allows unauthenticated users to obtain a short-lived,
+    RS256-signed JWT token for use with policy-free endpoints. Guest tokens
+    have role="guest" and sub="guest" to identify them as unauthenticated.
+
+    The audience is dynamically validated against the user database:
+    - A valid audience is any active user's username
+    - When users are deactivated/deleted, their username becomes invalid
+
+    Args:
+        user_repo: User repository for audience validation
+        aud: Target service identifier (username of an active user)
+
+    Returns:
+        SatelliteTokenResponse containing the RS256-signed JWT
+
+    Raises:
+        HTTPException: 400 if audience is invalid, not found, or inactive
+        HTTPException: 503 if RSA keys are not configured
+    """
+    # Check if Identity Provider is configured
+    if not key_manager.is_configured:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Identity Provider not configured. RSA keys are unavailable.",
+        )
+
+    # Validate audience parameter
+    if not aud or not aud.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "missing_audience",
+                "message": "The 'aud' query parameter is required.",
+            },
+        )
+
+    # Validate audience against user database (dynamic validation)
+    validation_result: AudienceValidationResult = validate_audience(aud, user_repo)
+    if not validation_result.valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": validation_result.error_code or "invalid_audience",
+                "message": validation_result.error
+                or f"The requested audience '{aud}' is not valid.",
+            },
+        )
+
+    try:
+        # Create guest satellite token
+        target_token = create_guest_satellite_token(
             audience=aud,
             key_manager=key_manager,
             user_repo=user_repo,

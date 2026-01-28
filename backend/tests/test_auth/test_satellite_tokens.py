@@ -14,6 +14,7 @@ from syfthub.auth.keys import RSAKeyManager
 from syfthub.auth.satellite_tokens import (
     AudienceValidationResult,
     TokenVerificationResult,
+    create_guest_satellite_token,
     create_satellite_token,
     decode_satellite_token,
     get_allowed_audiences,
@@ -736,3 +737,259 @@ class TestVerifySatelliteTokenForService:
         assert error.payload == {}
         assert error.error == "token_expired"
         assert error.message == "The token has expired."
+
+
+class TestGuestSatelliteTokenCreation:
+    """Tests for guest satellite token creation."""
+
+    @pytest.fixture
+    def mock_user_repo(self):
+        """Create a mock user repository."""
+        repo = MagicMock()
+        return repo
+
+    @pytest.fixture
+    def mock_audience_user(self):
+        """Create a mock user representing the audience (service account)."""
+        user = MagicMock()
+        user.id = 999
+        user.username = "syftai-space"
+        user.is_active = True
+        return user
+
+    @pytest.fixture
+    def configured_key_manager(self):
+        """Create a configured key manager for testing."""
+        RSAKeyManager._instance = None
+        manager = RSAKeyManager()
+        manager._generate_keypair("guest-test-key")
+        yield manager
+        RSAKeyManager._instance = None
+
+    @pytest.fixture
+    def unconfigured_key_manager(self):
+        """Create an unconfigured key manager for testing."""
+        RSAKeyManager._instance = None
+        manager = RSAKeyManager()
+        yield manager
+        RSAKeyManager._instance = None
+
+    def test_create_guest_token_valid_with_user_repo(
+        self, mock_user_repo, mock_audience_user, configured_key_manager
+    ):
+        """Test creating a valid guest satellite token with user_repo validation."""
+        mock_user_repo.get_by_username.return_value = mock_audience_user
+
+        with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
+            mock_settings.issuer_url = "https://hub.syft.com"
+            mock_settings.satellite_token_expire_seconds = 60
+
+            token = create_guest_satellite_token(
+                audience="syftai-space",
+                key_manager=configured_key_manager,
+                user_repo=mock_user_repo,
+            )
+
+            assert isinstance(token, str)
+            assert len(token) > 0
+
+            # Token should be a valid JWT format (three parts)
+            parts = token.split(".")
+            assert len(parts) == 3
+
+    def test_guest_token_claims(
+        self, mock_user_repo, mock_audience_user, configured_key_manager
+    ):
+        """Test that guest satellite token contains correct claims."""
+        mock_user_repo.get_by_username.return_value = mock_audience_user
+
+        with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
+            mock_settings.issuer_url = "https://hub.syft.com"
+            mock_settings.satellite_token_expire_seconds = 60
+
+            token = create_guest_satellite_token(
+                audience="syftai-space",
+                key_manager=configured_key_manager,
+                user_repo=mock_user_repo,
+            )
+
+            # Decode without verification to check claims
+            payload = jwt.decode(token, options={"verify_signature": False})
+
+            # Check guest-specific claims
+            assert payload["sub"] == "guest"  # Guest identifier
+            assert payload["iss"] == "https://hub.syft.com"
+            assert payload["aud"] == "syftai-space"
+            assert payload["role"] == "guest"  # Guest role
+            assert "exp" in payload
+            assert "iat" in payload
+
+    def test_guest_token_kid_header(
+        self, mock_user_repo, mock_audience_user, configured_key_manager
+    ):
+        """Test that guest satellite token includes kid in header."""
+        mock_user_repo.get_by_username.return_value = mock_audience_user
+
+        with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
+            mock_settings.issuer_url = "https://hub.syft.com"
+            mock_settings.satellite_token_expire_seconds = 60
+
+            token = create_guest_satellite_token(
+                audience="syftai-space",
+                key_manager=configured_key_manager,
+                user_repo=mock_user_repo,
+            )
+
+            # Get unverified header
+            header = jwt.get_unverified_header(token)
+
+            assert header["alg"] == "RS256"
+            assert header["kid"] == "guest-test-key"
+
+    def test_guest_token_expiry(
+        self, mock_user_repo, mock_audience_user, configured_key_manager
+    ):
+        """Test that guest satellite token has correct expiry."""
+        mock_user_repo.get_by_username.return_value = mock_audience_user
+
+        with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
+            mock_settings.issuer_url = "https://hub.syft.com"
+            mock_settings.satellite_token_expire_seconds = 60
+
+            before = datetime.now(timezone.utc).timestamp()
+
+            token = create_guest_satellite_token(
+                audience="syftai-space",
+                key_manager=configured_key_manager,
+                user_repo=mock_user_repo,
+            )
+
+            after = datetime.now(timezone.utc).timestamp()
+
+            payload = jwt.decode(token, options={"verify_signature": False})
+
+            # Expiry should be ~60 seconds from now
+            exp = payload["exp"]
+            iat = payload["iat"]
+
+            # Token should expire within the expected window (with 2s tolerance)
+            assert exp - iat == 60
+            assert exp >= before + 58  # Allow 2s tolerance
+            assert exp <= after + 62  # Allow 2s tolerance
+
+    def test_guest_audience_not_found_raises_error(
+        self, mock_user_repo, configured_key_manager
+    ):
+        """Test that non-existent audience raises AudienceNotFoundError for guest."""
+        mock_user_repo.get_by_username.return_value = None
+
+        with pytest.raises(AudienceNotFoundError) as exc_info:
+            create_guest_satellite_token(
+                audience="unknown-service",
+                key_manager=configured_key_manager,
+                user_repo=mock_user_repo,
+            )
+
+        assert "unknown-service" in str(exc_info.value.message)
+
+    def test_guest_audience_inactive_raises_error(
+        self, mock_user_repo, configured_key_manager
+    ):
+        """Test that inactive audience raises AudienceInactiveError for guest."""
+        inactive_user = MagicMock()
+        inactive_user.username = "inactive-service"
+        inactive_user.is_active = False
+        mock_user_repo.get_by_username.return_value = inactive_user
+
+        with pytest.raises(AudienceInactiveError) as exc_info:
+            create_guest_satellite_token(
+                audience="inactive-service",
+                key_manager=configured_key_manager,
+                user_repo=mock_user_repo,
+            )
+
+        assert "inactive-service" in str(exc_info.value.message)
+
+    def test_guest_key_not_configured_error(
+        self, mock_user_repo, mock_audience_user, unconfigured_key_manager
+    ):
+        """Test that unconfigured keys raise error for guest tokens."""
+        mock_user_repo.get_by_username.return_value = mock_audience_user
+
+        with pytest.raises(KeyNotConfiguredError):
+            create_guest_satellite_token(
+                audience="syftai-space",
+                key_manager=unconfigured_key_manager,
+                user_repo=mock_user_repo,
+            )
+
+    def test_guest_token_verifiable_with_public_key(
+        self, mock_user_repo, mock_audience_user, configured_key_manager
+    ):
+        """Test that guest token can be verified with the public key."""
+        mock_user_repo.get_by_username.return_value = mock_audience_user
+
+        with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
+            mock_settings.issuer_url = "https://hub.syft.com"
+            mock_settings.satellite_token_expire_seconds = 60
+
+            token = create_guest_satellite_token(
+                audience="syftai-space",
+                key_manager=configured_key_manager,
+                user_repo=mock_user_repo,
+            )
+
+            # Verify token using the public key
+            public_key = configured_key_manager.get_public_key("guest-test-key")
+            payload = jwt.decode(
+                token,
+                public_key,
+                algorithms=["RS256"],
+                audience="syftai-space",
+                issuer="https://hub.syft.com",
+            )
+
+            assert payload["sub"] == "guest"
+            assert payload["aud"] == "syftai-space"
+            assert payload["role"] == "guest"
+
+    def test_guest_token_differs_from_authenticated_token(
+        self, mock_user_repo, mock_audience_user, configured_key_manager
+    ):
+        """Test that guest tokens have different claims than authenticated tokens."""
+        mock_user_repo.get_by_username.return_value = mock_audience_user
+
+        mock_user = MagicMock()
+        mock_user.id = 123
+        mock_user.role = "user"
+
+        with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
+            mock_settings.issuer_url = "https://hub.syft.com"
+            mock_settings.satellite_token_expire_seconds = 60
+
+            guest_token = create_guest_satellite_token(
+                audience="syftai-space",
+                key_manager=configured_key_manager,
+                user_repo=mock_user_repo,
+            )
+
+            auth_token = create_satellite_token(
+                user=mock_user,
+                audience="syftai-space",
+                key_manager=configured_key_manager,
+                user_repo=mock_user_repo,
+            )
+
+            guest_payload = jwt.decode(guest_token, options={"verify_signature": False})
+            auth_payload = jwt.decode(auth_token, options={"verify_signature": False})
+
+            # Guest token should have "guest" as sub and role
+            assert guest_payload["sub"] == "guest"
+            assert guest_payload["role"] == "guest"
+
+            # Authenticated token should have user ID and role
+            assert auth_payload["sub"] == "123"
+            assert auth_payload["role"] == "user"
+
+            # Both should have the same audience
+            assert guest_payload["aud"] == auth_payload["aud"] == "syftai-space"
