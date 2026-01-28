@@ -328,13 +328,13 @@ class TestGetEndpointsForHealthCheck:
         assert endpoints[0].owner_type == "user"
         assert endpoints[1].owner_type == "organization"
 
-    def test_get_endpoints_filters_no_connect(self, monitor):
-        """Test that endpoints without connect config are filtered out."""
+    def test_get_endpoints_includes_no_connect(self, monitor):
+        """Test that endpoints without connect config are included (will be marked unhealthy)."""
         mock_session = MagicMock()
 
         user_results = [
-            (1, True, None, "user.com", 10, None),  # No connect config
-            (2, True, [], "user2.com", 20, None),  # Empty connect config (falsy)
+            (1, True, None, "user.com", 10, None),  # No connect config - included
+            (2, True, [], "user2.com", 20, None),  # Empty connect config - included
             (
                 3,
                 True,
@@ -342,7 +342,7 @@ class TestGetEndpointsForHealthCheck:
                 "user3.com",
                 30,
                 None,
-            ),  # Has connect config
+            ),  # Has connect config - included
         ]
         org_results = []
 
@@ -350,9 +350,15 @@ class TestGetEndpointsForHealthCheck:
 
         endpoints = monitor._get_endpoints_for_health_check(mock_session)
 
-        # Only endpoint 3 should be included (has truthy connect and domain)
-        assert len(endpoints) == 1
-        assert endpoints[0].id == 3
+        # All 3 endpoints should be included (no connect filtering)
+        # Endpoints without valid connect will be marked unhealthy during health check
+        assert len(endpoints) == 3
+        assert endpoints[0].id == 1
+        assert endpoints[0].connect == []  # None is converted to []
+        assert endpoints[1].id == 2
+        assert endpoints[1].connect == []
+        assert endpoints[2].id == 3
+        assert endpoints[2].connect == [{"type": "rest_api"}]
 
     def test_get_endpoints_includes_no_domain(self, monitor):
         """Test that endpoints without domain are included (will be marked unhealthy)."""
@@ -550,7 +556,7 @@ class TestCheckEndpointHealth:
     async def test_check_health_no_valid_url(
         self, monitor, sample_endpoint, mock_session
     ):
-        """Test health check when no valid URL can be built."""
+        """Test health check when no valid URL can be built marks endpoint as unhealthy."""
         semaphore = asyncio.Semaphore(10)
         mock_client = AsyncMock(spec=httpx.AsyncClient)
 
@@ -561,8 +567,10 @@ class TestCheckEndpointHealth:
 
         endpoint_id, is_healthy, state_changed = result
         assert endpoint_id == 1
-        assert is_healthy is True  # Returns current state
-        assert state_changed is False
+        assert is_healthy is False  # No valid URL means unhealthy
+        assert state_changed is True  # Was active, now unhealthy
+        # Should not have made any HTTP requests
+        mock_client.get.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_check_health_inactive_becomes_healthy(self, monitor, mock_session):
