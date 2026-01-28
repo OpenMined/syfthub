@@ -840,7 +840,7 @@ function getChatErrorMessage(error: unknown): string {
 }
 
 export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProperties>) {
-  const { user } = useAuth();
+  const { user, isInitializing } = useAuth();
 
   const [messages, setMessages] = useState<Message[]>([
     { id: '1', role: 'user', content: initialQuery, type: 'text' }
@@ -960,15 +960,48 @@ export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProper
     // Only process once - ref prevents re-triggering even if deps change
     if (hasProcessedInitialQuery.current) return;
 
-    // Need all conditions met before triggering
+    // No initial query - nothing to do
     if (!initialQuery.trim()) return;
-    if (!selectedModel) return;
-    if (!user?.email) return;
 
-    // Mark as processed BEFORE async operation to prevent race conditions
+    // Wait for auth to finish initializing before making decisions
+    if (isInitializing) return;
+
+    // Wait for models to finish loading
+    if (isLoadingModels) return;
+
+    // Auth is done - check if user is authenticated
+    if (!user?.email) {
+      hasProcessedInitialQuery.current = true;
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: 'Please log in to use the chat feature.',
+          type: 'text'
+        }
+      ]);
+      return;
+    }
+
+    // Models loaded - check if one is selected
+    if (!selectedModel) {
+      hasProcessedInitialQuery.current = true;
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: 'No models available. Please try again later.',
+          type: 'text'
+        }
+      ]);
+      return;
+    }
+
+    // All conditions met - trigger endpoint confirmation flow
     hasProcessedInitialQuery.current = true;
 
-    // Trigger endpoint confirmation flow (same logic as handleSubmit)
     const triggerInitialQuery = async () => {
       setPendingQuery(initialQuery);
       setShowEndpointConfirmation(true);
@@ -993,7 +1026,7 @@ export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProper
     };
 
     void triggerInitialQuery();
-  }, [initialQuery, selectedModel, user?.email]);
+  }, [initialQuery, selectedModel, user?.email, isInitializing, isLoadingModels]);
 
   // Use available sources for the panel (now loaded from backend)
   const allSources = availableSources;
