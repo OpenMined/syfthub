@@ -26,6 +26,7 @@ Example:
 
 from .app import SyftAPI
 from .config import Settings, load_settings
+from .heartbeat import HeartbeatManager
 from .exceptions import (
     AuthenticationError,
     ConfigurationError,
@@ -58,6 +59,8 @@ __version__ = "0.1.0"
 __all__ = [
     # Core
     "SyftAPI",
+    # Heartbeat
+    "HeartbeatManager",
     # Configuration
     "Settings",
     "load_settings",

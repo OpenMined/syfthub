@@ -79,6 +79,7 @@ from syfthub_sdk.models import (
     EndpointSearchResponse,
     EndpointSearchResult,
     EndpointType,
+    HeartbeatResponse,
     Message,
     OrganizationRole,
     Policy,
@@ -153,6 +154,8 @@ __all__ = [
     "CreatorType",
     # Sync models
     "SyncEndpointsResponse",
+    # Heartbeat models
+    "HeartbeatResponse",
     # Exceptions
     "SyftHubError",
     "AuthenticationError",

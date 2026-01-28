@@ -93,6 +93,8 @@ export type {
   UserUpdateInput,
   PasswordChangeInput,
   AccountingCredentials,
+  HeartbeatInput,
+  HeartbeatResponse,
   // Endpoint types
   Policy,
   Connection,

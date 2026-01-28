@@ -19,6 +19,8 @@ export type {
   UserUpdateInput,
   PasswordChangeInput,
   AccountingCredentials,
+  HeartbeatInput,
+  HeartbeatResponse,
 } from './user.js';
 
 // Endpoint types

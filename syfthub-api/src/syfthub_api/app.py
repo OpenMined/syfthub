@@ -29,6 +29,7 @@ from .exceptions import (
     EndpointRegistrationError,
     SyncError,
 )
+from .heartbeat import HeartbeatManager
 from .logging import setup_logging
 from .schemas import (
     DataSourceQueryRequest,
@@ -86,6 +87,9 @@ class SyftAPI:
         password: str | None = None,
         space_url: str | None = None,
         log_level: str = "INFO",
+        heartbeat_enabled: bool | None = None,
+        heartbeat_ttl_seconds: int | None = None,
+        heartbeat_interval_multiplier: float | None = None,
     ) -> None:
         """
         Initialize the SyftAPI application.
@@ -97,6 +101,12 @@ class SyftAPI:
             space_url: Public URL of this SyftAI Space. Falls back to SPACE_URL env var.
             log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
                 Falls back to LOG_LEVEL env var. Defaults to INFO.
+            heartbeat_enabled: Enable periodic heartbeat to SyftHub.
+                Falls back to HEARTBEAT_ENABLED env var. Defaults to True.
+            heartbeat_ttl_seconds: Heartbeat TTL in seconds (1-3600, server caps at 600).
+                Falls back to HEARTBEAT_TTL_SECONDS env var. Defaults to 300.
+            heartbeat_interval_multiplier: Send heartbeat at TTL * multiplier.
+                Falls back to HEARTBEAT_INTERVAL_MULTIPLIER env var. Defaults to 0.8.
 
         Raises:
             ConfigurationError: If required configuration is missing.
@@ -120,6 +130,29 @@ class SyftAPI:
         if not self._space_url:
             raise ConfigurationError("space_url must be provided or set as SPACE_URL env var")
 
+        # Heartbeat configuration
+        if heartbeat_enabled is not None:
+            self._heartbeat_enabled = heartbeat_enabled
+        else:
+            env_val = os.environ.get("HEARTBEAT_ENABLED", "true")
+            self._heartbeat_enabled = env_val.lower() in ("true", "1", "yes")
+
+        if heartbeat_ttl_seconds is not None:
+            self._heartbeat_ttl_seconds = heartbeat_ttl_seconds
+        else:
+            self._heartbeat_ttl_seconds = int(os.environ.get("HEARTBEAT_TTL_SECONDS", "300"))
+
+        if heartbeat_interval_multiplier is not None:
+            self._heartbeat_interval_multiplier = heartbeat_interval_multiplier
+        else:
+            self._heartbeat_interval_multiplier = float(
+                os.environ.get("HEARTBEAT_INTERVAL_MULTIPLIER", "0.8")
+            )
+
+        # Heartbeat manager (initialized after authentication)
+        self._heartbeat_manager: HeartbeatManager | None = None
+        self._client: SyftHubClient | None = None
+
         # Lifecycle hooks and middleware
         self._on_startup: list[LifecycleHook] = []
         self._on_shutdown: list[LifecycleHook] = []
@@ -130,9 +163,10 @@ class SyftAPI:
         self._skip_sync: bool = False
 
         self._logger.debug(
-            "SyftAPI initialized with syfthub_url=%s, space_url=%s",
+            "SyftAPI initialized with syfthub_url=%s, space_url=%s, heartbeat_enabled=%s",
             self._syfthub_url,
             self._space_url,
+            self._heartbeat_enabled,
         )
 
     def on_startup(self, fn: LifecycleHook) -> LifecycleHook:
@@ -434,6 +468,9 @@ class SyftAPI:
             updated_user = await asyncio.to_thread(client.users.update, domain=self._space_url)
             self._logger.info("User domain updated to: %s", updated_user.domain)
 
+            # Store client for heartbeat use
+            self._client = client
+
         except AuthenticationError:
             # Re-raise if already wrapped
             raise
@@ -473,6 +510,39 @@ class SyftAPI:
                 raise SyncError(f"Failed to sync endpoints with SyftHub: {e}", cause=e) from e
         else:
             self._logger.info("No endpoints to sync")
+
+    async def _start_heartbeat(self) -> None:
+        """
+        Start the heartbeat manager if enabled.
+
+        The heartbeat manager sends periodic requests to SyftHub to indicate
+        that this space is alive and available.
+        """
+        if not self._heartbeat_enabled:
+            self._logger.debug("Heartbeat is disabled")
+            return
+
+        if self._client is None:
+            self._logger.warning("Cannot start heartbeat: client not authenticated")
+            return
+
+        assert self._space_url is not None  # Validated in __init__
+
+        self._heartbeat_manager = HeartbeatManager(
+            client=self._client,
+            space_url=self._space_url,
+            ttl_seconds=self._heartbeat_ttl_seconds,
+            interval_multiplier=self._heartbeat_interval_multiplier,
+        )
+        await self._heartbeat_manager.start()
+
+    async def _stop_heartbeat(self) -> None:
+        """
+        Stop the heartbeat manager gracefully.
+        """
+        if self._heartbeat_manager is not None:
+            await self._heartbeat_manager.stop()
+            self._heartbeat_manager = None
 
     @asynccontextmanager
     async def _lifespan(self, app: FastAPI) -> AsyncIterator[None]:
@@ -599,8 +669,10 @@ class SyftAPI:
 
         This method:
         1. Synchronizes endpoints with the SyftHub backend (unless _skip_sync is True)
-        2. Builds the FastAPI application
-        3. Starts the uvicorn server
+        2. Starts the heartbeat manager (if enabled)
+        3. Builds the FastAPI application
+        4. Starts the uvicorn server
+        5. Stops the heartbeat manager on shutdown
 
         Args:
             host: Host to bind to (default: "0.0.0.0").
@@ -611,8 +683,15 @@ class SyftAPI:
         else:
             self._logger.info("Skipping endpoint sync (skip_sync=True)")
 
-        app = self._build_fastapi_app()
+        # Start heartbeat after successful sync/auth
+        await self._start_heartbeat()
 
-        config = uvicorn.Config(app, host=host, port=port, log_level="info")
-        server = uvicorn.Server(config)
-        await server.serve()
+        try:
+            app = self._build_fastapi_app()
+
+            config = uvicorn.Config(app, host=host, port=port, log_level="info")
+            server = uvicorn.Server(config)
+            await server.serve()
+        finally:
+            # Stop heartbeat on shutdown
+            await self._stop_heartbeat()

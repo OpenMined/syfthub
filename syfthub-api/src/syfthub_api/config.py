@@ -62,6 +62,29 @@ class Settings(BaseModel):
         8000
     )
 
+    # Heartbeat settings
+    heartbeat_enabled: Annotated[
+        bool, Field(default=True, description="Enable periodic heartbeat to SyftHub")
+    ] = True
+    heartbeat_ttl_seconds: Annotated[
+        int,
+        Field(
+            default=300,
+            ge=1,
+            le=3600,
+            description="Heartbeat TTL in seconds (server caps at 600)",
+        ),
+    ] = 300
+    heartbeat_interval_multiplier: Annotated[
+        float,
+        Field(
+            default=0.8,
+            gt=0.0,
+            lt=1.0,
+            description="Send heartbeat at TTL * multiplier (e.g., 0.8 = 80% of TTL)",
+        ),
+    ] = 0.8
+
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
@@ -102,6 +125,9 @@ def load_settings(**overrides: str | int) -> Settings:
         LOG_LEVEL: Logging level (default: INFO)
         SERVER_HOST: Server host (default: 0.0.0.0)
         SERVER_PORT: Server port (default: 8000)
+        HEARTBEAT_ENABLED: Enable periodic heartbeat (default: true)
+        HEARTBEAT_TTL_SECONDS: Heartbeat TTL in seconds (default: 300)
+        HEARTBEAT_INTERVAL_MULTIPLIER: Send at TTL * multiplier (default: 0.8)
 
     Args:
         **overrides: Keyword arguments to override environment variables.
@@ -128,16 +154,23 @@ def load_settings(**overrides: str | int) -> Settings:
         "log_level": "LOG_LEVEL",
         "server_host": "SERVER_HOST",
         "server_port": "SERVER_PORT",
+        "heartbeat_enabled": "HEARTBEAT_ENABLED",
+        "heartbeat_ttl_seconds": "HEARTBEAT_TTL_SECONDS",
+        "heartbeat_interval_multiplier": "HEARTBEAT_INTERVAL_MULTIPLIER",
     }
 
-    settings_dict: dict[str, str | int] = {}
+    settings_dict: dict[str, str | int | bool | float] = {}
 
     for setting_name, env_var in env_mapping.items():
         env_value = os.environ.get(env_var)
         if env_value is not None:
-            # Convert port to int if needed
-            if setting_name == "server_port":
+            # Convert types as needed
+            if setting_name == "server_port" or setting_name == "heartbeat_ttl_seconds":
                 settings_dict[setting_name] = int(env_value)
+            elif setting_name == "heartbeat_enabled":
+                settings_dict[setting_name] = env_value.lower() in ("true", "1", "yes")
+            elif setting_name == "heartbeat_interval_multiplier":
+                settings_dict[setting_name] = float(env_value)
             else:
                 settings_dict[setting_name] = env_value
 
