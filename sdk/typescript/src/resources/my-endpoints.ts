@@ -161,7 +161,7 @@ export class MyEndpointsResource {
   async delete(path: string): Promise<void> {
     const [, slug] = this.parsePath(path);
     // Use slug-based endpoint directly instead of resolving ID
-    await this.http.delete<void>(`/api/v1/endpoints/slug/${slug}`);
+    await this.http.delete<void>(`/api/v1/endpoints/slug/${slug}`, undefined);
   }
 
   /**

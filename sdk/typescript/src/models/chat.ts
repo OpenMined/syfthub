@@ -124,6 +124,16 @@ export interface Message {
 }
 
 /**
+ * Credentials for a reserved response queue (for tunneling support).
+ */
+export interface ResponseQueueCredentials {
+  /** Reserved queue identifier (e.g., 'rq_abc123') */
+  queueId: string;
+  /** Secret token for consuming from the queue */
+  token: string;
+}
+
+/**
  * Options for chat completion.
  */
 export interface ChatOptions {
@@ -145,6 +155,12 @@ export interface ChatOptions {
   signal?: AbortSignal;
   /** Custom aggregator URL to use instead of the default */
   aggregatorUrl?: string;
+  /**
+   * Response queue credentials for tunneling support.
+   * Required when using tunneled endpoints (URL format: "tunneling:username").
+   * Reserve a queue with client.mq.reserveQueue() before calling chat.
+   */
+  responseQueue?: ResponseQueueCredentials;
 }
 
 /**

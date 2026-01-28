@@ -171,8 +171,8 @@ export class HTTPClient {
   /**
    * Make a DELETE request.
    */
-  async delete<T>(path: string, options?: RequestOptions): Promise<T> {
-    return this.request<T>('DELETE', path, options);
+  async delete<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
+    return this.request<T>('DELETE', path, { ...options, body });
   }
 
   /**

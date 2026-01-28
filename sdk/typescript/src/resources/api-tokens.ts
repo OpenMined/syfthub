@@ -137,6 +137,6 @@ export class APITokensResource {
    * await client.apiTokens.revoke(123);
    */
   async revoke(tokenId: number): Promise<void> {
-    await this.http.delete<void>(`/api/v1/auth/tokens/${tokenId}`);
+    await this.http.delete<void>(`/api/v1/auth/tokens/${tokenId}`, undefined);
   }
 }
