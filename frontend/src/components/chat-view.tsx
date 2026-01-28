@@ -1,6 +1,7 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ChatStreamEvent } from '@/lib/sdk-client';
+import type { SearchableChatSource } from '@/lib/search-service';
 import type { ChatSource } from '@/lib/types';
 import type { SourcesData } from './chat/sources-section';
 import type { ProcessingStatus } from './chat/status-indicator';
@@ -9,7 +10,6 @@ import { AnimatePresence, motion } from 'framer-motion';
 import ArrowDown from 'lucide-react/dist/esm/icons/arrow-down';
 import Brain from 'lucide-react/dist/esm/icons/brain';
 import Check from 'lucide-react/dist/esm/icons/check';
-import Clock from 'lucide-react/dist/esm/icons/clock';
 import Cpu from 'lucide-react/dist/esm/icons/cpu';
 import Database from 'lucide-react/dist/esm/icons/database';
 import Info from 'lucide-react/dist/esm/icons/info';
@@ -20,7 +20,7 @@ import X from 'lucide-react/dist/esm/icons/x';
 import { useAuth } from '@/context/auth-context';
 import { triggerBalanceRefresh } from '@/hooks/use-accounting-api';
 import { formatCostPerUnit, getCostsFromSource } from '@/lib/cost-utils';
-import { analyzeQueryForSources, getChatDataSources, getChatModels } from '@/lib/endpoint-utils';
+import { getChatDataSources, getChatModels } from '@/lib/endpoint-utils';
 import {
   AggregatorError,
   AuthenticationError,
@@ -31,10 +31,9 @@ import { categorizeResults, MIN_QUERY_LENGTH, searchDataSources } from '@/lib/se
 import { filterSourcesForAutocomplete, validateEndpointPath } from '@/lib/validation';
 
 import { CostEstimationPanel } from './chat/cost-estimation-panel';
+import { EndpointConfirmation } from './chat/endpoint-confirmation';
 import { MarkdownMessage } from './chat/markdown-message';
 import { ModelSelector } from './chat/model-selector';
-import { NoMatchMessage } from './chat/no-match-message';
-import { SourceSearchLoader } from './chat/source-search-loader';
 import { SourcesSection } from './chat/sources-section';
 import { StatusIndicator } from './chat/status-indicator';
 import { Badge } from './ui/badge';
@@ -639,102 +638,14 @@ const AdvancedPanel = memo(function AdvancedPanel({
   );
 });
 
-interface SourceSelectorProperties {
-  sources: ChatSource[];
-  selectedIds: Set<string>;
-  onToggle: (id: string) => void;
-}
-
-// Memoized SourceSelector to prevent unnecessary re-renders when parent state changes
-const SourceSelector = memo(function SourceSelector({
-  sources,
-  selectedIds,
-  onToggle
-}: Readonly<SourceSelectorProperties>) {
-  return (
-    <div className='my-4 w-full max-w-3xl space-y-3' role='group' aria-label='Select data sources'>
-      {sources.map((source) => {
-        const isSelected = selectedIds.has(source.id);
-
-        let statusColor = 'bg-green-500';
-        if (source.status === 'warning') statusColor = 'bg-yellow-500';
-        if (source.status === 'inactive') statusColor = 'bg-red-500';
-
-        return (
-          <button
-            key={source.id}
-            type='button'
-            onClick={() => {
-              onToggle(source.id);
-            }}
-            aria-pressed={isSelected}
-            className={`group relative flex w-full cursor-pointer items-start gap-4 rounded-xl border p-4 text-left transition-colors focus-visible:ring-2 focus-visible:ring-[#272532]/50 focus-visible:outline-none ${isSelected ? 'border-secondary bg-muted' : 'border-border bg-card hover:border-input'} `}
-          >
-            <div className='min-w-0 flex-1'>
-              {/* Header */}
-              <div className='mb-1 flex flex-wrap items-center gap-2'>
-                <span
-                  className={`font-inter font-medium transition-colors ${
-                    isSelected ? 'text-foreground' : 'text-foreground group-hover:text-secondary'
-                  }`}
-                >
-                  {source.name}
-                </span>
-                {source.tags.slice(0, 2).map((tag) => (
-                  <span
-                    key={tag}
-                    className='font-inter bg-accent text-muted-foreground rounded-md px-2 py-0.5 text-xs'
-                  >
-                    {tag}
-                  </span>
-                ))}
-                {source.tags.length > 2 ? (
-                  <span className='font-inter bg-accent text-muted-foreground rounded-md px-2 py-0.5 text-xs'>
-                    +{source.tags.length - 2}
-                  </span>
-                ) : null}
-              </div>
-
-              {/* Description with Status Dot */}
-              <div className='mb-2 flex items-start gap-2'>
-                <div className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${statusColor}`} />
-                <p className='font-inter text-muted-foreground text-sm leading-relaxed'>
-                  {source.description}
-                </p>
-              </div>
-
-              {/* Footer */}
-              <div className='font-inter text-muted-foreground flex items-center gap-1.5 text-xs'>
-                <Clock className='h-3.5 w-3.5' aria-hidden='true' />
-                <span>Updated {source.updated}</span>
-              </div>
-            </div>
-
-            {/* Checkbox indicator */}
-            <div
-              className={`mt-1 flex h-6 w-6 items-center justify-center rounded border transition-colors ${isSelected ? 'border-foreground bg-primary' : 'border-input bg-card group-hover:border-muted-foreground'} `}
-              aria-hidden='true'
-            >
-              {isSelected && <Check className='h-3.5 w-3.5 text-white' />}
-            </div>
-          </button>
-        );
-      })}
-    </div>
-  );
-});
-
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content?: string;
-  type?: 'text' | 'source-selection' | 'source-search' | 'no-match';
-  sources?: ChatSource[];
+  type?: 'text';
   isThinking?: boolean;
   /** Sources from aggregator response (document titles -> endpoint slug & content) */
   aggregatorSources?: SourcesData;
-  /** Original query for no-match messages */
-  searchQuery?: string;
 }
 
 interface ChatViewProperties {
@@ -911,22 +822,6 @@ function addAggregatorSources(
   );
 }
 
-// Helper to check if a source-selection message already exists (prevents duplicates from Strict Mode / remounts)
-function hasSourceSelectionMessage(messages: Message[]): boolean {
-  return messages.some((m) => m.type === 'source-selection');
-}
-
-// Helper to check if we already have a source-related message (error, source-selection, no-match, or search)
-function hasSourceRelatedMessage(messages: Message[]): boolean {
-  return messages.some(
-    (m) =>
-      m.type === 'source-selection' ||
-      m.type === 'source-search' ||
-      m.type === 'no-match' ||
-      (m.role === 'assistant' && m.id.startsWith('source-'))
-  );
-}
-
 // Helper to convert chat errors to user-friendly messages
 function getChatErrorMessage(error: unknown): string {
   if (error instanceof AuthenticationError) {
@@ -974,174 +869,32 @@ export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProper
   // Factual/Nuanced mode state (lifted from AdvancedPanel)
   const [isFactualMode, setIsFactualMode] = useState(true);
 
+  // Endpoint confirmation state (new simplified flow)
+  const [pendingQuery, setPendingQuery] = useState<string | null>(null);
+  const [showEndpointConfirmation, setShowEndpointConfirmation] = useState(false);
+  const [suggestedEndpoints, setSuggestedEndpoints] = useState<SearchableChatSource[]>([]);
+  const [isSearchingEndpoints, setIsSearchingEndpoints] = useState(false);
+
   // Build Map for O(1) source lookups by ID (avoids repeated .find() calls)
   const availableSourcesById = useMemo(
     () => new Map(availableSources.map((source) => [source.id, source])),
     [availableSources]
   );
 
-  // Load real data sources from backend and use RAG search for relevance
+  // Load available data sources from backend (simplified - no longer shows source selection messages)
   useEffect(() => {
     let isMounted = true;
-    const searchMessageId = `source-search-${String(Date.now())}`;
-
-    // Filter predicate defined at useEffect level to avoid nesting depth issues
-    const isNotSearchPlaceholder = (m: Message) => m.id !== searchMessageId;
-
-    // Helper to update messages: filters out search placeholder and optionally adds new message
-    const updateMessagesWithFilter = (
-      newMessage: Message | null,
-      checkFn: (msgs: Message[]) => boolean
-    ) => {
-      setMessages((previous) => {
-        // eslint-disable-next-line unicorn/no-array-callback-reference -- Using named predicate to reduce nesting depth
-        const filtered = previous.filter(isNotSearchPlaceholder);
-        // Check against filtered array, not previous, since we've removed the search placeholder
-        return newMessage && !checkFn(filtered) ? [...filtered, newMessage] : filtered;
-      });
-    };
 
     const loadDataSources = async () => {
       try {
-        // First, load available sources for the source panel
         const sources = await getChatDataSources(100);
 
         // Guard against state updates after unmount
         if (!isMounted) return;
 
         setAvailableSources(sources);
-
-        // Check for exact path mentions first (e.g., "owner/endpoint-name")
-        const analysis = analyzeQueryForSources(initialQuery, sources);
-
-        if (analysis.action === 'auto-select' && analysis.matchedEndpoint) {
-          // Endpoint was explicitly mentioned - auto-select and proceed
-          setSelectedSources(new Set([analysis.matchedEndpoint.id]));
-
-          const autoSelectMessage: Message = {
-            id: `auto-select-${String(Date.now())}`,
-            role: 'assistant',
-            content: analysis.mentionedPath
-              ? `Found endpoint **${analysis.matchedEndpoint.name}** (${analysis.mentionedPath}). Processing your question…`
-              : `Found endpoint **${analysis.matchedEndpoint.name}**. Processing your question…`,
-            type: 'text'
-          };
-
-          setMessages((previous) => {
-            if (hasSourceRelatedMessage(previous)) {
-              return previous;
-            }
-            return [...previous, autoSelectMessage];
-          });
-          return;
-        }
-
-        // Use RAG semantic search if query is long enough
-        if (initialQuery.trim().length >= MIN_QUERY_LENGTH) {
-          // Show searching indicator
-          setMessages((previous) => {
-            if (hasSourceRelatedMessage(previous)) {
-              return previous;
-            }
-            return [
-              ...previous,
-              {
-                id: searchMessageId,
-                role: 'assistant',
-                type: 'source-search'
-              }
-            ];
-          });
-
-          // Perform semantic search
-          const searchResults = await searchDataSources(initialQuery, { top_k: 5 });
-
-          // Guard against state updates after unmount
-          if (!isMounted) return;
-
-          // Filter results by relevance threshold (>= 0.5)
-          const { highRelevance } = categorizeResults(searchResults);
-
-          if (highRelevance.length > 0) {
-            // High relevance results found - show top 3
-            const MAX_SOURCES_TO_SHOW = 3;
-            const sourcesToShow = highRelevance.slice(0, MAX_SOURCES_TO_SHOW);
-
-            const relevanceMessage: Message = {
-              id: `source-selection-${String(Date.now())}`,
-              role: 'assistant',
-              content: `Based on your question, I found ${String(highRelevance.length)} highly relevant data source${highRelevance.length === 1 ? '' : 's'}:`,
-              type: 'source-selection',
-              sources: sourcesToShow
-            };
-
-            updateMessagesWithFilter(relevanceMessage, hasSourceSelectionMessage);
-          } else {
-            // No results meet the threshold - show AI assistant no-match message
-            const noMatchMessage: Message = {
-              id: `no-match-${String(Date.now())}`,
-              role: 'assistant',
-              type: 'no-match',
-              searchQuery: initialQuery
-            };
-
-            updateMessagesWithFilter(noMatchMessage, hasSourceRelatedMessage);
-          }
-        } else {
-          // Query too short for semantic search - use keyword analysis
-          if (sources.length === 0) {
-            const noSourcesMessage: Message = {
-              id: `source-selection-${String(Date.now())}`,
-              role: 'assistant',
-              content:
-                'No data sources are currently available. You can add external sources manually in the advanced configuration panel.',
-              type: 'source-selection',
-              sources: []
-            };
-
-            setMessages((previous) => {
-              if (hasSourceSelectionMessage(previous)) {
-                return previous;
-              }
-              return [...previous, noSourcesMessage];
-            });
-          } else {
-            // Show top sources for short queries
-            const MAX_SOURCES_TO_SHOW = 3;
-            const sourcesToShow = sources.slice(0, MAX_SOURCES_TO_SHOW);
-
-            const sourceSelectionMessage: Message = {
-              id: `source-selection-${String(Date.now())}`,
-              role: 'assistant',
-              content: `Select data sources to get started (showing top ${String(sourcesToShow.length)} of ${String(sources.length)} available):`,
-              type: 'source-selection',
-              sources: sourcesToShow
-            };
-
-            setMessages((previous) => {
-              if (hasSourceSelectionMessage(previous)) {
-                return previous;
-              }
-              return [...previous, sourceSelectionMessage];
-            });
-          }
-        }
       } catch (error) {
-        // Guard against state updates after unmount
-        if (!isMounted) return;
-
         console.error('Failed to load data sources:', error);
-
-        // Add error message
-        const errorMessage: Message = {
-          id: `source-error-${String(Date.now())}`,
-          role: 'assistant',
-          content:
-            'Unable to load data sources from the server. You can still add external sources manually using the advanced configuration panel.',
-          type: 'text'
-        };
-
-        updateMessagesWithFilter(errorMessage, hasSourceRelatedMessage);
       }
     };
 
@@ -1151,7 +904,7 @@ export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProper
     return () => {
       isMounted = false;
     };
-  }, [initialQuery]);
+  }, []);
 
   // Load available models from backend
   useEffect(() => {
@@ -1282,10 +1035,11 @@ export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProper
     setInputValue(event.target.value);
   }, []);
 
+  // Handle submit - triggers endpoint confirmation flow instead of direct send
   const handleSubmit = useCallback(
     async (event: React.FormEvent) => {
       event.preventDefault();
-      if (!inputValue.trim() || isProcessing) return;
+      if (!inputValue.trim() || isProcessing || showEndpointConfirmation) return;
 
       // Validate model is selected
       if (!selectedModel) {
@@ -1315,131 +1069,172 @@ export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProper
         return;
       }
 
-      const userMessage: Message = {
-        id: Date.now().toString(),
-        role: 'user',
-        content: inputValue,
-        type: 'text'
-      };
-
-      setMessages((previous) => [...previous, userMessage]);
+      // Store the query and show endpoint confirmation
+      const query = inputValue.trim();
+      setPendingQuery(query);
       setInputValue('');
-      setIsProcessing(true);
+      setShowEndpointConfirmation(true);
+      setSelectedSources(new Set()); // Clear any previous selection
 
-      // Create assistant message placeholder for streaming with thinking state
-      const assistantMessageId = (Date.now() + 1).toString();
-      setMessages((previous) => [
-        ...previous,
-        {
-          id: assistantMessageId,
-          role: 'assistant',
-          content: '',
-          type: 'text',
-          isThinking: true
+      // Search for relevant endpoints
+      setIsSearchingEndpoints(true);
+      try {
+        if (query.length >= MIN_QUERY_LENGTH) {
+          const results = await searchDataSources(query, { top_k: 10 });
+          const { highRelevance } = categorizeResults(results);
+          setSuggestedEndpoints(highRelevance);
+        } else {
+          // Query too short for semantic search - show empty suggestions
+          setSuggestedEndpoints([]);
         }
-      ]);
+      } catch (error) {
+        console.error('Failed to search endpoints:', error);
+        setSuggestedEndpoints([]);
+      } finally {
+        setIsSearchingEndpoints(false);
+      }
+    },
+    [inputValue, isProcessing, showEndpointConfirmation, selectedModel, user?.email]
+  );
 
-      // Build endpoint paths using "owner/slug" format
-      // The SDK will resolve these to full endpoint references internally
-      const modelPath = selectedModel.full_path;
-      if (!modelPath) {
-        setMessages((previous) =>
-          updateMessageContent(
-            previous,
-            assistantMessageId,
-            'Error: Selected model does not have a valid path configured.'
-          )
-        );
-        setIsProcessing(false);
+  // Handle confirming endpoint selection and sending the query
+  const handleConfirmEndpoints = useCallback(async () => {
+    if (!pendingQuery || !selectedModel || !user?.email) return;
+
+    // Hide confirmation UI
+    setShowEndpointConfirmation(false);
+
+    // Add user message
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: pendingQuery,
+      type: 'text'
+    };
+
+    setMessages((previous) => [...previous, userMessage]);
+    setIsProcessing(true);
+
+    // Create assistant message placeholder for streaming with thinking state
+    const assistantMessageId = (Date.now() + 1).toString();
+    setMessages((previous) => [
+      ...previous,
+      {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: '',
+        type: 'text',
+        isThinking: true
+      }
+    ]);
+
+    // Build endpoint paths using "owner/slug" format
+    const modelPath = selectedModel.full_path;
+    if (!modelPath) {
+      setMessages((previous) =>
+        updateMessageContent(
+          previous,
+          assistantMessageId,
+          'Error: Selected model does not have a valid path configured.'
+        )
+      );
+      setIsProcessing(false);
+      setPendingQuery(null);
+      setSuggestedEndpoints([]);
+      return;
+    }
+
+    // Build data source paths from selected sources Set using Map for O(1) lookups
+    const selectedSourcePaths = [...selectedSources]
+      .map((id) => availableSourcesById.get(id)?.full_path)
+      .filter((path): path is string => path !== undefined);
+
+    // Combine with custom sources (already validated) and deduplicate
+    const allDataSourcePaths = [...new Set([...selectedSourcePaths, ...customSources])];
+
+    // Create abort controller for cancellation
+    abortControllerReference.current = new AbortController();
+
+    // Calculate total source count for status message
+    const totalSourceCount = allDataSourcePaths.length;
+
+    // Initialize processing status
+    setProcessingStatus({
+      phase: 'retrieving',
+      message: totalSourceCount > 0 ? 'Starting...' : 'Preparing request...',
+      completedSources: []
+    });
+
+    try {
+      let accumulatedContent = '';
+
+      // Use SDK for streaming - SDK resolves paths internally
+      for await (const event of syftClient.chat.stream({
+        prompt: pendingQuery,
+        model: modelPath,
+        dataSources: allDataSourcePaths.length > 0 ? allDataSourcePaths : undefined,
+        aggregatorUrl: user.aggregator_url ?? undefined,
+        signal: abortControllerReference.current.signal
+      })) {
+        // Update processing status from event
+        updateStatusFromEvent(event, setProcessingStatus);
+
+        // Handle token content
+        processStreamEvent(event, (content) => {
+          accumulatedContent += content;
+          setMessages((previous) =>
+            updateMessageContent(previous, assistantMessageId, accumulatedContent)
+          );
+        });
+
+        // Capture sources from done event
+        if (event.type === 'done') {
+          const doneEvent = event;
+          if (Object.keys(doneEvent.sources).length > 0) {
+            setMessages((previous) =>
+              addAggregatorSources(previous, assistantMessageId, doneEvent.sources)
+            );
+          }
+        }
+      }
+
+      // Refresh balance after successful chat completion (credits may have been consumed)
+      triggerBalanceRefresh();
+    } catch (error) {
+      // Don't show error if it was aborted - clean up status
+      if (error instanceof Error && error.name === 'AbortError') {
+        setProcessingStatus(null);
         return;
       }
 
-      // Build data source paths from selected sources Set using Map for O(1) lookups
-      const selectedSourcePaths = [...selectedSources]
-        .map((id) => availableSourcesById.get(id)?.full_path)
-        .filter((path): path is string => path !== undefined);
+      const errorMessage = getChatErrorMessage(error);
+      setMessages((previous) =>
+        updateMessageContent(previous, assistantMessageId, `Error: ${errorMessage}`)
+      );
+      setProcessingStatus(null);
+    } finally {
+      setIsProcessing(false);
+      abortControllerReference.current = null;
+      setPendingQuery(null);
+      setSuggestedEndpoints([]);
+    }
+  }, [
+    pendingQuery,
+    selectedModel,
+    user?.email,
+    user?.aggregator_url,
+    availableSourcesById,
+    selectedSources,
+    customSources
+  ]);
 
-      // Combine with custom sources (already validated) and deduplicate
-      const allDataSourcePaths = [...new Set([...selectedSourcePaths, ...customSources])];
-
-      // Create abort controller for cancellation
-      abortControllerReference.current = new AbortController();
-
-      // Calculate total source count for status message
-      const totalSourceCount = allDataSourcePaths.length;
-
-      // Initialize processing status
-      setProcessingStatus({
-        phase: 'retrieving',
-        message: totalSourceCount > 0 ? 'Starting...' : 'Preparing request...',
-        completedSources: []
-      });
-
-      try {
-        let accumulatedContent = '';
-
-        // Use SDK for streaming - SDK resolves paths internally
-        // Pass custom aggregator URL if user has configured one
-        // Note: isFactualMode could be passed to SDK if/when supported
-        for await (const event of syftClient.chat.stream({
-          prompt: inputValue,
-          model: modelPath,
-          dataSources: allDataSourcePaths.length > 0 ? allDataSourcePaths : undefined,
-          aggregatorUrl: user.aggregator_url ?? undefined,
-          signal: abortControllerReference.current.signal
-        })) {
-          // Update processing status from event
-          updateStatusFromEvent(event, setProcessingStatus);
-
-          // Handle token content
-          processStreamEvent(event, (content) => {
-            accumulatedContent += content;
-            setMessages((previous) =>
-              updateMessageContent(previous, assistantMessageId, accumulatedContent)
-            );
-          });
-
-          // Capture sources from done event
-          if (event.type === 'done') {
-            const doneEvent = event;
-            if (Object.keys(doneEvent.sources).length > 0) {
-              setMessages((previous) =>
-                addAggregatorSources(previous, assistantMessageId, doneEvent.sources)
-              );
-            }
-          }
-        }
-
-        // Refresh balance after successful chat completion (credits may have been consumed)
-        triggerBalanceRefresh();
-      } catch (error) {
-        // Don't show error if it was aborted - clean up status
-        if (error instanceof Error && error.name === 'AbortError') {
-          setProcessingStatus(null);
-          return;
-        }
-
-        const errorMessage = getChatErrorMessage(error);
-        setMessages((previous) =>
-          updateMessageContent(previous, assistantMessageId, `Error: ${errorMessage}`)
-        );
-        setProcessingStatus(null);
-      } finally {
-        setIsProcessing(false);
-        abortControllerReference.current = null;
-      }
-    },
-    [
-      inputValue,
-      isProcessing,
-      selectedModel,
-      user?.email,
-      user?.aggregator_url,
-      availableSourcesById,
-      selectedSources,
-      customSources
-    ]
-  );
+  // Handle canceling endpoint selection
+  const handleCancelEndpointSelection = useCallback(() => {
+    setPendingQuery(null);
+    setShowEndpointConfirmation(false);
+    setSuggestedEndpoints([]);
+    setSelectedSources(new Set());
+  }, []);
 
   return (
     <div className='bg-card min-h-screen pb-32'>
@@ -1512,32 +1307,26 @@ export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProper
                     <SourcesSection sources={message.aggregatorSources} />
                   </div>
                 ) : null}
-
-                {/* Source Selection UI */}
-                {message.type === 'source-selection' && message.sources ? (
-                  <SourceSelector
-                    sources={message.sources}
-                    selectedIds={selectedSources}
-                    onToggle={toggleSource}
-                  />
-                ) : null}
-
-                {/* Search Loading Indicator */}
-                {message.type === 'source-search' ? <SourceSearchLoader /> : null}
-
-                {/* No Match Message - AI assistant response when no relevant endpoints found */}
-                {message.type === 'no-match' ? (
-                  <NoMatchMessage
-                    query={message.searchQuery ?? ''}
-                    onBrowseCatalog={() => {
-                      window.open('/browse', '_blank');
-                    }}
-                    onAddCustomSource={handleOpenPanel}
-                  />
-                ) : null}
               </div>
             </div>
           ))}
+
+          {/* Endpoint Confirmation UI - shown after user submits a query */}
+          {showEndpointConfirmation && pendingQuery && (
+            <div className='flex justify-start'>
+              <EndpointConfirmation
+                query={pendingQuery}
+                suggestedEndpoints={suggestedEndpoints}
+                isSearching={isSearchingEndpoints}
+                selectedSources={selectedSources}
+                availableSources={availableSources}
+                onToggleSource={toggleSource}
+                onConfirm={handleConfirmEndpoints}
+                onCancel={handleCancelEndpointSelection}
+              />
+            </div>
+          )}
+
           <div ref={messagesEndReference} />
         </div>
       </div>
@@ -1573,7 +1362,7 @@ export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProper
               />
               <button
                 type='submit'
-                disabled={!inputValue.trim() || isProcessing}
+                disabled={!inputValue.trim() || isProcessing || showEndpointConfirmation}
                 className='bg-primary hover:bg-primary/90 absolute top-1/2 right-2 -translate-y-1/2 rounded-lg p-2 text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50'
                 aria-label={isProcessing ? 'Processing…' : 'Send message'}
               >
