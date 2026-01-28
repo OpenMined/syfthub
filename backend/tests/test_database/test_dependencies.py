@@ -1,9 +1,9 @@
 """Tests for database dependencies."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,7 @@ from syfthub.auth.db_dependencies import (
     get_user_by_username,
 )
 from syfthub.repositories import UserRepository
+from syfthub.repositories.api_token import APITokenRepository
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.user import User
 
@@ -86,9 +87,28 @@ class TestAuthenticationDependencies:
         )
         return User(**user_data)
 
+    @pytest.fixture
+    def mock_api_token_repo(self):
+        """Create a mock APITokenRepository for testing."""
+        repo = MagicMock(spec=APITokenRepository)
+        repo.get_by_hash.return_value = None
+        return repo
+
+    @pytest.fixture
+    def mock_request(self):
+        """Create a mock Request for testing."""
+        request = MagicMock(spec=Request)
+        request.client = MagicMock()
+        request.client.host = "127.0.0.1"
+        return request
+
     @pytest.mark.asyncio
     async def test_get_current_user_success(
-        self, test_session: Session, mock_user: User
+        self,
+        test_session: Session,
+        mock_user: User,
+        mock_api_token_repo,
+        mock_request,
     ):
         """Test successful authentication."""
         user_repo = UserRepository(test_session)
@@ -117,23 +137,29 @@ class TestAuthenticationDependencies:
             }
             created_user = user_repo.create(user_data)
 
-            result = await get_current_user(credentials, user_repo)
+            result = await get_current_user(
+                credentials, user_repo, mock_api_token_repo, mock_request
+            )
             assert result.id == created_user.id
             assert result.username == "testuser"
 
     @pytest.mark.asyncio
-    async def test_get_current_user_no_credentials(self, test_session: Session):
+    async def test_get_current_user_no_credentials(
+        self, test_session: Session, mock_api_token_repo, mock_request
+    ):
         """Test authentication with no credentials."""
         user_repo = UserRepository(test_session)
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_current_user(None, user_repo)
+            await get_current_user(None, user_repo, mock_api_token_repo, mock_request)
 
         assert exc_info.value.status_code == 401
         assert "Could not validate credentials" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_get_current_user_invalid_token(self, test_session: Session):
+    async def test_get_current_user_invalid_token(
+        self, test_session: Session, mock_api_token_repo, mock_request
+    ):
         """Test authentication with invalid token."""
         user_repo = UserRepository(test_session)
 
@@ -145,12 +171,16 @@ class TestAuthenticationDependencies:
             mock_verify.return_value = None
 
             with pytest.raises(HTTPException) as exc_info:
-                await get_current_user(credentials, user_repo)
+                await get_current_user(
+                    credentials, user_repo, mock_api_token_repo, mock_request
+                )
 
             assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_get_current_user_user_not_found(self, test_session: Session):
+    async def test_get_current_user_user_not_found(
+        self, test_session: Session, mock_api_token_repo, mock_request
+    ):
         """Test authentication when user doesn't exist in database."""
         user_repo = UserRepository(test_session)
 
@@ -165,7 +195,9 @@ class TestAuthenticationDependencies:
             }  # Non-existent user
 
             with pytest.raises(HTTPException) as exc_info:
-                await get_current_user(credentials, user_repo)
+                await get_current_user(
+                    credentials, user_repo, mock_api_token_repo, mock_request
+                )
 
             assert exc_info.value.status_code == 401
 
@@ -189,7 +221,11 @@ class TestAuthenticationDependencies:
 
     @pytest.mark.asyncio
     async def test_get_optional_current_user_success(
-        self, test_session: Session, mock_user: User
+        self,
+        test_session: Session,
+        mock_user: User,
+        mock_api_token_repo,
+        mock_request,
     ):
         """Test optional authentication with valid credentials."""
         user_repo = UserRepository(test_session)
@@ -216,22 +252,28 @@ class TestAuthenticationDependencies:
             }
             created_user = user_repo.create(user_data)
 
-            result = await get_optional_current_user(credentials, user_repo)
+            result = await get_optional_current_user(
+                credentials, user_repo, mock_api_token_repo, mock_request
+            )
             assert result is not None
             assert result.id == created_user.id
 
     @pytest.mark.asyncio
     async def test_get_optional_current_user_no_credentials(
-        self, test_session: Session
+        self, test_session: Session, mock_api_token_repo, mock_request
     ):
         """Test optional authentication with no credentials."""
         user_repo = UserRepository(test_session)
 
-        result = await get_optional_current_user(None, user_repo)
+        result = await get_optional_current_user(
+            None, user_repo, mock_api_token_repo, mock_request
+        )
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_optional_current_user_invalid_token(self, test_session: Session):
+    async def test_get_optional_current_user_invalid_token(
+        self, test_session: Session, mock_api_token_repo, mock_request
+    ):
         """Test optional authentication with invalid token."""
         user_repo = UserRepository(test_session)
 
@@ -242,5 +284,7 @@ class TestAuthenticationDependencies:
         with patch("syfthub.auth.db_dependencies.verify_token") as mock_verify:
             mock_verify.return_value = None
 
-            result = await get_optional_current_user(credentials, user_repo)
+            result = await get_optional_current_user(
+                credentials, user_repo, mock_api_token_repo, mock_request
+            )
             assert result is None

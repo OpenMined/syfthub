@@ -22,7 +22,11 @@ from syfthub_sdk.models import AuthTokens
 
 
 class HTTPClient:
-    """HTTP client with automatic token management."""
+    """HTTP client with automatic token management.
+
+    Supports both JWT (access/refresh tokens) and API token authentication.
+    API tokens are long-lived and don't support refresh.
+    """
 
     def __init__(
         self,
@@ -39,9 +43,12 @@ class HTTPClient:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 
-        # Token storage
+        # JWT token storage
         self._access_token: str | None = None
         self._refresh_token: str | None = None
+
+        # API token storage (alternative auth method)
+        self._api_token: str | None = None
 
         # HTTP client
         self._client = httpx.Client(timeout=timeout)
@@ -52,23 +59,43 @@ class HTTPClient:
 
     @property
     def is_authenticated(self) -> bool:
-        """Check if client has tokens set."""
-        return self._access_token is not None
+        """Check if client has tokens set (JWT or API token)."""
+        return self._access_token is not None or self._api_token is not None
+
+    @property
+    def is_using_api_token(self) -> bool:
+        """Check if client is using API token authentication."""
+        return self._api_token is not None
 
     def set_tokens(self, tokens: AuthTokens) -> None:
-        """Set authentication tokens.
+        """Set JWT authentication tokens.
+
+        Clears any API token if set.
 
         Args:
             tokens: AuthTokens with access_token and refresh_token
         """
         self._access_token = tokens.access_token
         self._refresh_token = tokens.refresh_token
+        self._api_token = None  # Clear API token when using JWT
+
+    def set_api_token(self, token: str) -> None:
+        """Set API token for authentication.
+
+        Clears any JWT tokens if set.
+
+        Args:
+            token: The API token (starts with "syft_")
+        """
+        self._api_token = token
+        self._access_token = None  # Clear JWT tokens when using API token
+        self._refresh_token = None
 
     def get_tokens(self) -> AuthTokens | None:
-        """Get current authentication tokens.
+        """Get current JWT authentication tokens.
 
         Returns:
-            AuthTokens if authenticated, None otherwise
+            AuthTokens if using JWT auth, None otherwise
         """
         if self._access_token and self._refresh_token:
             return AuthTokens(
@@ -78,9 +105,17 @@ class HTTPClient:
         return None
 
     def clear_tokens(self) -> None:
-        """Clear authentication tokens."""
+        """Clear all authentication (JWT and API tokens)."""
         self._access_token = None
         self._refresh_token = None
+        self._api_token = None
+
+    def _get_bearer_token(self) -> str | None:
+        """Get the current bearer token (API token or JWT access token).
+
+        API token takes precedence if set.
+        """
+        return self._api_token or self._access_token
 
     def _get_headers(self, include_auth: bool = True) -> dict[str, str]:
         """Build request headers.
@@ -95,8 +130,10 @@ class HTTPClient:
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
-        if include_auth and self._access_token:
-            headers["Authorization"] = f"Bearer {self._access_token}"
+        if include_auth:
+            bearer_token = self._get_bearer_token()
+            if bearer_token:
+                headers["Authorization"] = f"Bearer {bearer_token}"
         return headers
 
     def _handle_error(self, response: httpx.Response) -> None:
@@ -159,9 +196,15 @@ class HTTPClient:
     def _attempt_refresh(self) -> bool:
         """Attempt to refresh the access token.
 
+        API tokens don't support refresh, so this returns False if using API token.
+
         Returns:
             True if refresh succeeded, False otherwise
         """
+        # API tokens don't support refresh
+        if self._api_token:
+            return False
+
         if not self._refresh_token:
             return False
 
