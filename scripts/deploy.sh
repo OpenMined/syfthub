@@ -328,6 +328,23 @@ deploy_services() {
     done
     log INFO "MCP server is healthy"
 
+    # Start NATS server (proxy depends on it being healthy)
+    log INFO "Starting NATS server..."
+    docker compose -f "$COMPOSE_FILE" up -d --no-deps --force-recreate nats
+    sleep 3
+
+    # Wait for NATS to be healthy
+    log INFO "Waiting for NATS to be healthy..."
+    retries=0
+    while ! docker compose -f "$COMPOSE_FILE" exec -T nats wget --spider -q http://localhost:8222/healthz 2>/dev/null; do
+        retries=$((retries + 1))
+        if [[ $retries -ge $HEALTH_CHECK_RETRIES ]]; then
+            die "NATS server failed health check after restart"
+        fi
+        sleep $HEALTH_CHECK_INTERVAL
+    done
+    log INFO "NATS is healthy"
+
     # Restart proxy (to pick up any nginx config changes)
     log INFO "Restarting proxy..."
     docker compose -f "$COMPOSE_FILE" up -d --no-deps --force-recreate proxy
