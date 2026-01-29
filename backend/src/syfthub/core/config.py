@@ -313,25 +313,13 @@ class Settings(BaseSettings):
         )
 
     # ===========================================
-    # REDIS / MESSAGE QUEUE SETTINGS
+    # REDIS SETTINGS
     # ===========================================
 
     # Redis connection URL
     redis_url: str = Field(
         default="redis://localhost:6379/0",
-        description="Redis connection URL for message queue and caching",
-    )
-
-    # Message queue key prefix
-    redis_mq_prefix: str = Field(
-        default="mq",
-        description="Key prefix for message queue entries",
-    )
-
-    # Maximum messages per user queue (to prevent abuse)
-    redis_mq_max_queue_size: int = Field(
-        default=1000,
-        description="Maximum messages allowed per user queue",
+        description="Redis connection URL",
     )
 
 

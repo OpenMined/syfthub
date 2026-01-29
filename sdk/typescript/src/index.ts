@@ -138,16 +138,6 @@ export type {
   TokenEvent,
   DoneEvent,
   ErrorEvent,
-  // MQ types
-  MQMessage,
-  PublishResponse,
-  ConsumeResponse,
-  QueueStatusResponse,
-  PeekResponse,
-  ClearResponse,
-  PublishInput,
-  ConsumeOptions,
-  PeekOptions,
 } from './models/index.js';
 
 // Model helpers
@@ -173,9 +163,6 @@ export { SyftAIResource } from './resources/syftai.js';
 
 // API Tokens Resource (for type hints)
 export { APITokensResource } from './resources/api-tokens.js';
-
-// MQ Resource (for type hints)
-export { MQResource } from './resources/mq.js';
 
 // Resource option types (for type-safe usage)
 export type { ListEndpointsOptions } from './resources/my-endpoints.js';

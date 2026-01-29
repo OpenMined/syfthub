@@ -1,4 +1,4 @@
-"""Redis client for message queue and caching operations."""
+"""Redis client for caching operations."""
 
 from typing import Optional
 
