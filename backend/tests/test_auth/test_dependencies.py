@@ -172,9 +172,20 @@ class TestSatelliteTokenHelpers:
 
         header = {"alg": "RS256", "typ": "JWT", "kid": "test-key"}
         header_b64 = (
-            base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip("=")
+            base64.urlsafe_b64encode(json.dumps(header, separators=(",", ":")).encode())
+            .decode()
+            .rstrip("=")
         )
-        mock_token = f"{header_b64}.payload.signature"
+        # JWT requires valid base64 for all parts, even for header-only inspection
+        payload_b64 = (
+            base64.urlsafe_b64encode(
+                json.dumps({"sub": "test"}, separators=(",", ":")).encode()
+            )
+            .decode()
+            .rstrip("=")
+        )
+        sig_b64 = base64.urlsafe_b64encode(b"fake-signature").decode().rstrip("=")
+        mock_token = f"{header_b64}.{payload_b64}.{sig_b64}"
 
         assert _is_satellite_token(mock_token) is True
 
@@ -187,9 +198,20 @@ class TestSatelliteTokenHelpers:
 
         header = {"alg": "HS256", "typ": "JWT"}
         header_b64 = (
-            base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip("=")
+            base64.urlsafe_b64encode(json.dumps(header, separators=(",", ":")).encode())
+            .decode()
+            .rstrip("=")
         )
-        mock_token = f"{header_b64}.payload.signature"
+        # JWT requires valid base64 for all parts, even for header-only inspection
+        payload_b64 = (
+            base64.urlsafe_b64encode(
+                json.dumps({"sub": "test"}, separators=(",", ":")).encode()
+            )
+            .decode()
+            .rstrip("=")
+        )
+        sig_b64 = base64.urlsafe_b64encode(b"fake-signature").decode().rstrip("=")
+        mock_token = f"{header_b64}.{payload_b64}.{sig_b64}"
 
         assert _is_satellite_token(mock_token) is False
 
