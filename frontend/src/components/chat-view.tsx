@@ -1,10 +1,14 @@
+/**
+ * ChatView Component
+ *
+ * Main chat interface for querying data sources.
+ * Uses shared hooks for model management, data sources, and workflow execution.
+ */
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { ChatStreamEvent } from '@/lib/sdk-client';
-import type { SearchableChatSource } from '@/lib/search-service';
+import type { WorkflowResult } from '@/hooks/use-chat-workflow';
 import type { ChatSource } from '@/lib/types';
 import type { SourcesData } from './chat/sources-section';
-import type { ProcessingStatus } from './chat/status-indicator';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import ArrowDown from 'lucide-react/dist/esm/icons/arrow-down';
@@ -13,22 +17,14 @@ import Check from 'lucide-react/dist/esm/icons/check';
 import Cpu from 'lucide-react/dist/esm/icons/cpu';
 import Database from 'lucide-react/dist/esm/icons/database';
 import Info from 'lucide-react/dist/esm/icons/info';
-import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
 import Settings2 from 'lucide-react/dist/esm/icons/settings-2';
 import X from 'lucide-react/dist/esm/icons/x';
 
-import { useAuth } from '@/context/auth-context';
-import { triggerBalanceRefresh } from '@/hooks/use-accounting-api';
+import { useChatWorkflow } from '@/hooks/use-chat-workflow';
+import { useDataSources } from '@/hooks/use-data-sources';
+import { useModels } from '@/hooks/use-models';
 import { formatCostPerUnit, getCostsFromSource } from '@/lib/cost-utils';
-import { getChatDataSources, getChatModels } from '@/lib/endpoint-utils';
-import {
-  AggregatorError,
-  AuthenticationError,
-  EndpointResolutionError,
-  syftClient
-} from '@/lib/sdk-client';
-import { categorizeResults, MIN_QUERY_LENGTH, searchDataSources } from '@/lib/search-service';
-import { filterSourcesForAutocomplete, validateEndpointPath } from '@/lib/validation';
+import { filterSourcesForAutocomplete } from '@/lib/validation';
 
 import { CostEstimationPanel } from './chat/cost-estimation-panel';
 import { EndpointConfirmation } from './chat/endpoint-confirmation';
@@ -36,37 +32,36 @@ import { MarkdownMessage } from './chat/markdown-message';
 import { ModelSelector } from './chat/model-selector';
 import { SourcesSection } from './chat/sources-section';
 import { StatusIndicator } from './chat/status-indicator';
+import { QueryInput } from './query/query-input';
 import { Badge } from './ui/badge';
 import { Label } from './ui/label';
 import { Switch } from './ui/switch';
 
-// AdvancedPanel Props Interface
-interface AdvancedPanelProps {
-  isOpen: boolean;
-  onClose: () => void;
-  // Data sources
-  availableSources: ChatSource[];
-  selectedSourceIds: Set<string>;
-  onToggleSource: (id: string) => void;
-  // Custom sources (lifted state)
-  customSources: string[];
-  onAddCustomSource: (path: string) => void;
-  onRemoveCustomSource: (path: string) => void;
-  customSourceError: string | null;
-  onCustomSourceErrorClear: () => void;
-  // Mode (lifted state)
-  isFactualMode: boolean;
-  onModeChange: (isFactual: boolean) => void;
-  // Model
-  selectedModel: ChatSource | null;
-  availableModels: ChatSource[];
-  onModelSelect: (model: ChatSource) => void;
-  isLoadingModels: boolean;
+// =============================================================================
+// Types
+// =============================================================================
+
+interface Message {
+  id: string;
+  role: 'user' | 'assistant';
+  content?: string;
+  type?: 'text';
+  isThinking?: boolean;
+  aggregatorSources?: SourcesData;
 }
 
-// ============================================================================
-// Sub-components to reduce AdvancedPanel cognitive complexity
-// ============================================================================
+export interface ChatViewProperties {
+  /** Initial query from navigation (e.g., from home page search) */
+  initialQuery: string;
+  /** Optional pre-selected model from navigation */
+  initialModel?: ChatSource | null;
+  /** Optional initial result if workflow was completed before navigation */
+  initialResult?: WorkflowResult | null;
+}
+
+// =============================================================================
+// AdvancedPanel Sub-components
+// =============================================================================
 
 interface CostBadgesProps {
   inputPerToken: number;
@@ -74,7 +69,6 @@ interface CostBadgesProps {
   colorScheme: 'green' | 'purple';
 }
 
-/** Renders cost badges or "No pricing" badge */
 function CostBadges({ inputPerToken, outputPerToken, colorScheme }: Readonly<CostBadgesProps>) {
   const hasInputCost = inputPerToken > 0;
   const hasOutputCost = outputPerToken > 0;
@@ -97,22 +91,22 @@ function CostBadges({ inputPerToken, outputPerToken, colorScheme }: Readonly<Cos
 
   return (
     <>
-      {hasInputCost ? (
+      {hasInputCost && (
         <Badge
           variant='secondary'
           className={`font-inter h-5 px-2 text-[10px] font-medium ${colorClasses}`}
         >
           In: {formatCostPerUnit(inputPerToken, 'request')}
         </Badge>
-      ) : null}
-      {hasOutputCost ? (
+      )}
+      {hasOutputCost && (
         <Badge
           variant='secondary'
           className={`font-inter h-5 px-2 text-[10px] font-medium ${colorClasses}`}
         >
           Out: {formatCostPerUnit(outputPerToken, 'request')}
         </Badge>
-      ) : null}
+      )}
     </>
   );
 }
@@ -122,7 +116,6 @@ interface SourceCardProps {
   onRemove: () => void;
 }
 
-/** Renders a single data source card with remove button */
 function SourceCard({ source, onRemove }: Readonly<SourceCardProps>) {
   const costs = getCostsFromSource(source);
 
@@ -146,11 +139,11 @@ function SourceCard({ source, onRemove }: Readonly<SourceCardProps>) {
           >
             {source.name}
           </span>
-          {source.full_path ? (
+          {source.full_path && (
             <span className='font-inter text-muted-foreground truncate text-xs'>
               {source.full_path}
             </span>
-          ) : null}
+          )}
         </div>
       </div>
       <div className='flex flex-wrap gap-2'>
@@ -164,52 +157,12 @@ function SourceCard({ source, onRemove }: Readonly<SourceCardProps>) {
   );
 }
 
-interface CustomSourceCardProps {
-  sourcePath: string;
-  onRemove: () => void;
-}
-
-/** Renders a custom source card */
-function CustomSourceCard({ sourcePath, onRemove }: Readonly<CustomSourceCardProps>) {
-  return (
-    <div className='group bg-card relative rounded-lg border border-amber-200 p-3 shadow-sm dark:border-amber-800'>
-      <button
-        onClick={onRemove}
-        className='absolute top-2 right-2 rounded p-1 text-red-500 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-50 dark:hover:bg-red-950'
-        aria-label={`Remove custom source ${sourcePath}`}
-      >
-        <X className='h-3 w-3' aria-hidden='true' />
-      </button>
-      <div className='mb-3 flex items-center gap-3'>
-        <div className='font-inter flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-xs font-bold text-amber-700 dark:bg-amber-900 dark:text-amber-300'>
-          EXT
-        </div>
-        <div className='min-w-0 flex-1'>
-          <span
-            className='font-inter text-foreground block truncate text-sm font-medium'
-            title={sourcePath}
-          >
-            {sourcePath}
-          </span>
-        </div>
-      </div>
-      <Badge
-        variant='secondary'
-        className='font-inter h-5 border-amber-200 bg-amber-50 px-2 text-[10px] font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300'
-      >
-        Custom Source (pricing unknown)
-      </Badge>
-    </div>
-  );
-}
-
 interface SuggestionItemProps {
   source: ChatSource;
   isSelected: boolean;
   onSelect: () => void;
 }
 
-/** Renders an autocomplete suggestion item */
 function SuggestionItem({ source, isSelected, onSelect }: Readonly<SuggestionItemProps>) {
   return (
     <button
@@ -228,7 +181,7 @@ function SuggestionItem({ source, isSelected, onSelect }: Readonly<SuggestionIte
           {source.full_path}
         </span>
       </div>
-      {isSelected ? <Check className='h-3 w-3 text-green-600' /> : null}
+      {isSelected && <Check className='h-3 w-3 text-green-600' />}
     </button>
   );
 }
@@ -239,7 +192,6 @@ interface ModelDisplayProps {
   isFactualMode: boolean;
 }
 
-/** Renders the model display section */
 function ModelDisplay({ model, modelCosts, isFactualMode }: Readonly<ModelDisplayProps>) {
   if (!model) {
     return (
@@ -288,22 +240,30 @@ function ModelDisplay({ model, modelCosts, isFactualMode }: Readonly<ModelDispla
   );
 }
 
-// ============================================================================
+// =============================================================================
 // AdvancedPanel Component
-// ============================================================================
+// =============================================================================
 
-// Memoized AdvancedPanel to prevent unnecessary re-renders
+interface AdvancedPanelProps {
+  isOpen: boolean;
+  onClose: () => void;
+  availableSources: ChatSource[];
+  selectedSourceIds: Set<string>;
+  onToggleSource: (id: string) => void;
+  isFactualMode: boolean;
+  onModeChange: (isFactual: boolean) => void;
+  selectedModel: ChatSource | null;
+  availableModels: ChatSource[];
+  onModelSelect: (model: ChatSource) => void;
+  isLoadingModels: boolean;
+}
+
 const AdvancedPanel = memo(function AdvancedPanel({
   isOpen,
   onClose,
   availableSources,
   selectedSourceIds,
   onToggleSource,
-  customSources,
-  onAddCustomSource,
-  onRemoveCustomSource,
-  customSourceError,
-  onCustomSourceErrorClear,
   isFactualMode,
   onModeChange,
   selectedModel,
@@ -311,105 +271,62 @@ const AdvancedPanel = memo(function AdvancedPanel({
   onModelSelect,
   isLoadingModels
 }: Readonly<AdvancedPanelProps>) {
-  // Memoize active sources for performance
   const activeSources = useMemo(
     () => availableSources.filter((s) => selectedSourceIds.has(s.id)),
     [availableSources, selectedSourceIds]
   );
 
-  // Local state for custom source input
   const [customSourceInput, setCustomSourceInput] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const inputReference = useRef<HTMLInputElement>(null);
   const panelReference = useRef<HTMLDivElement>(null);
 
-  // Memoize model costs for performance
   const modelCosts = useMemo(
     () => (selectedModel ? getCostsFromSource(selectedModel) : null),
     [selectedModel]
   );
 
-  // Filter suggestions based on input
   const suggestions = useMemo(() => {
     if (!customSourceInput.trim()) return [];
     return filterSourcesForAutocomplete(availableSources, customSourceInput, 5);
   }, [availableSources, customSourceInput]);
 
-  // Handle keyboard events for accessibility
   useEffect(() => {
     if (!isOpen) return;
-
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose();
-      }
+      if (event.key === 'Escape') onClose();
     };
-
     document.addEventListener('keydown', handleEscape);
     return () => {
       document.removeEventListener('keydown', handleEscape);
     };
   }, [isOpen, onClose]);
 
-  // Focus trap - focus panel when opened
   useEffect(() => {
     if (isOpen && panelReference.current) {
-      // Focus the panel for accessibility
-      const timer = setTimeout(() => {
-        panelReference.current?.focus();
-      }, 100);
+      const timer = setTimeout(() => panelReference.current?.focus(), 100);
       return () => {
         clearTimeout(timer);
       };
     }
   }, [isOpen]);
 
-  // Handle adding custom source with validation
-  const handleAddSource = useCallback(
-    (event: React.KeyboardEvent) => {
-      if (event.key === 'Enter' && customSourceInput.trim()) {
-        event.preventDefault();
-        onAddCustomSource(customSourceInput.trim());
-        setCustomSourceInput('');
-        setShowSuggestions(false);
-      }
-    },
-    [customSourceInput, onAddCustomSource]
-  );
-
-  // Handle selecting a suggestion
   const handleSelectSuggestion = useCallback(
     (source: ChatSource) => {
-      if (source.full_path) {
-        // If the source is already available, toggle it instead of adding as custom
-        if (availableSources.some((s) => s.id === source.id)) {
-          onToggleSource(source.id);
-        } else {
-          onAddCustomSource(source.full_path);
-        }
+      if (availableSources.some((s) => s.id === source.id)) {
+        onToggleSource(source.id);
       }
       setCustomSourceInput('');
       setShowSuggestions(false);
     },
-    [availableSources, onToggleSource, onAddCustomSource]
+    [availableSources, onToggleSource]
   );
 
-  // Handle input change
-  const handleInputChange = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
-      setCustomSourceInput(event.target.value);
-      setShowSuggestions(event.target.value.trim().length > 0);
-      // Clear error when user starts typing
-      if (customSourceError) {
-        onCustomSourceErrorClear();
-      }
-    },
-    [customSourceError, onCustomSourceErrorClear]
-  );
+  const handleInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    setCustomSourceInput(event.target.value);
+    setShowSuggestions(event.target.value.trim().length > 0);
+  }, []);
 
-  // Handle input blur
   const handleInputBlur = useCallback(() => {
-    // Delay hiding suggestions to allow click events
     setTimeout(() => {
       setShowSuggestions(false);
     }, 200);
@@ -417,9 +334,8 @@ const AdvancedPanel = memo(function AdvancedPanel({
 
   return (
     <AnimatePresence>
-      {isOpen ? (
+      {isOpen && (
         <>
-          {/* Backdrop */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -428,8 +344,6 @@ const AdvancedPanel = memo(function AdvancedPanel({
             className='fixed inset-0 z-50 bg-black/20 backdrop-blur-sm'
             aria-hidden='true'
           />
-
-          {/* Panel */}
           <motion.div
             ref={panelReference}
             initial={{ x: '100%' }}
@@ -472,7 +386,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
                     <Database className='h-4 w-4' />
                     <h3>Data Sources</h3>
                     <span className='text-xs font-normal text-green-600/60'>
-                      ({activeSources.length + customSources.length} selected)
+                      ({activeSources.length} selected)
                     </span>
                   </div>
                   <div className='flex items-center gap-2'>
@@ -495,82 +409,46 @@ const AdvancedPanel = memo(function AdvancedPanel({
                 </div>
 
                 <div className='space-y-3'>
-                  {activeSources.length === 0 && customSources.length === 0 ? (
+                  {activeSources.length === 0 ? (
                     <div className='font-inter bg-card/50 rounded-lg border border-dashed border-green-200 py-8 text-center text-sm text-green-700/50 dark:border-green-800 dark:text-green-400/50'>
                       <p>No sources selected</p>
                       <p className='mt-1 text-xs'>Select sources from the chat or add below</p>
                     </div>
                   ) : (
-                    <>
-                      {/* Selected sources from available list */}
-                      {activeSources.map((source) => (
-                        <SourceCard
-                          key={source.id}
-                          source={source}
-                          onRemove={() => {
-                            onToggleSource(source.id);
-                          }}
-                        />
-                      ))}
-                      {/* Custom sources */}
-                      {customSources.map((sourcePath) => (
-                        <CustomSourceCard
-                          key={sourcePath}
-                          sourcePath={sourcePath}
-                          onRemove={() => {
-                            onRemoveCustomSource(sourcePath);
-                          }}
-                        />
-                      ))}
-                    </>
+                    activeSources.map((source) => (
+                      <SourceCard
+                        key={source.id}
+                        source={source}
+                        onRemove={() => {
+                          onToggleSource(source.id);
+                        }}
+                      />
+                    ))
                   )}
 
-                  {/* Custom source input with autocomplete */}
+                  {/* Source search input */}
                   <div className='relative mt-2'>
                     <label htmlFor='custom-source-input' className='sr-only'>
                       Add source (owner/endpoint-name)
                     </label>
                     <input
-                      ref={inputReference}
                       id='custom-source-input'
                       type='text'
                       value={customSourceInput}
                       onChange={handleInputChange}
-                      onKeyDown={handleAddSource}
                       onFocus={() => {
                         setShowSuggestions(customSourceInput.trim().length > 0);
                       }}
                       onBlur={handleInputBlur}
                       placeholder='Add source (owner/endpoint-name)…'
-                      className={`font-inter bg-card w-full rounded-lg border py-2 pr-8 pl-3 text-xs transition-colors transition-shadow placeholder:text-green-700/40 focus:ring-1 focus:outline-none dark:placeholder:text-green-400/40 ${
-                        customSourceError
-                          ? 'border-red-400 focus:border-red-500 focus:ring-red-500/20'
-                          : 'border-green-200 focus:border-green-500 focus:ring-green-500/20 dark:border-green-800'
-                      }`}
+                      className='font-inter bg-card w-full rounded-lg border border-green-200 py-2 pr-8 pl-3 text-xs transition-colors placeholder:text-green-700/40 focus:border-green-500 focus:ring-1 focus:ring-green-500/20 focus:outline-none dark:border-green-800 dark:placeholder:text-green-400/40'
                       autoComplete='off'
-                      aria-invalid={!!customSourceError}
-                      aria-describedby={customSourceError ? 'custom-source-error' : undefined}
                     />
-                    <div
-                      className='font-inter text-muted-foreground pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-[10px]'
-                      aria-hidden='true'
-                    >
+                    <div className='font-inter text-muted-foreground pointer-events-none absolute top-1/2 right-2 -translate-y-1/2 text-[10px]'>
                       ↵
                     </div>
 
-                    {/* Error message */}
-                    {customSourceError ? (
-                      <p
-                        id='custom-source-error'
-                        className='font-inter mt-1 text-xs text-red-600'
-                        role='alert'
-                      >
-                        {customSourceError}
-                      </p>
-                    ) : null}
-
-                    {/* Autocomplete suggestions */}
-                    {showSuggestions && suggestions.length > 0 ? (
+                    {showSuggestions && suggestions.length > 0 && (
                       <div className='border-border bg-card absolute top-full left-0 z-10 mt-1 w-full rounded-lg border shadow-lg'>
                         {suggestions.map((source) => (
                           <SuggestionItem
@@ -583,7 +461,7 @@ const AdvancedPanel = memo(function AdvancedPanel({
                           />
                         ))}
                       </div>
-                    ) : null}
+                    )}
                   </div>
                 </div>
               </div>
@@ -593,14 +471,13 @@ const AdvancedPanel = memo(function AdvancedPanel({
                 <ArrowDown className='h-5 w-5' aria-hidden='true' />
               </div>
 
-              {/* Model Section with inline selector */}
+              {/* Model Section */}
               <div className='rounded-xl border border-purple-200 bg-purple-50/30 p-4 dark:border-purple-800 dark:bg-purple-950/30'>
                 <div className='mb-4 flex items-center justify-between'>
                   <div className='font-inter flex items-center gap-2 font-medium text-purple-800 dark:text-purple-300'>
                     <Cpu className='h-4 w-4' />
                     <h3>Model</h3>
                   </div>
-                  {/* Inline model selector */}
                   <ModelSelector
                     selectedModel={selectedModel}
                     onModelSelect={onModelSelect}
@@ -608,7 +485,6 @@ const AdvancedPanel = memo(function AdvancedPanel({
                     isLoading={isLoadingModels}
                   />
                 </div>
-
                 <div className='bg-card space-y-3 rounded-lg border border-purple-100 p-3 shadow-sm dark:border-purple-800'>
                   <ModelDisplay
                     model={selectedModel}
@@ -624,635 +500,166 @@ const AdvancedPanel = memo(function AdvancedPanel({
                 <span className='font-inter text-[10px] font-medium'>Process & Combine</span>
               </div>
 
-              {/* Cost Estimation Section */}
+              {/* Cost Estimation */}
               <CostEstimationPanel
                 model={selectedModel}
                 dataSources={activeSources}
-                customSourceCount={customSources.length}
+                customSourceCount={0}
               />
             </div>
           </motion.div>
         </>
-      ) : null}
+      )}
     </AnimatePresence>
   );
 });
 
-interface Message {
-  id: string;
-  role: 'user' | 'assistant';
-  content?: string;
-  type?: 'text';
-  isThinking?: boolean;
-  /** Sources from aggregator response (document titles -> endpoint slug & content) */
-  aggregatorSources?: SourcesData;
-}
+// =============================================================================
+// ChatView Component
+// =============================================================================
 
-interface ChatViewProperties {
-  initialQuery: string;
-  /** Optional pre-selected model from navigation (e.g., from home page hero) */
-  initialModel?: ChatSource | null;
-}
+export function ChatView({
+  initialQuery,
+  initialModel,
+  initialResult
+}: Readonly<ChatViewProperties>) {
+  // Use shared hooks
+  const {
+    models,
+    selectedModel,
+    setSelectedModel,
+    isLoading: isLoadingModels
+  } = useModels({
+    initialModel
+  });
+  const { sources, sourcesById } = useDataSources();
 
-// Helper function to process SDK streaming events (handles token content)
-function processStreamEvent(event: ChatStreamEvent, onToken: (content: string) => void): void {
-  switch (event.type) {
-    case 'token': {
-      onToken(event.content);
-      break;
+  // Local state for messages and UI
+  const [messages, setMessages] = useState<Message[]>(() => {
+    // Initialize with initial query as first message if provided
+    if (initialResult) {
+      // If we have an initial result from Hero, add both user and assistant messages
+      return [
+        { id: '1', role: 'user' as const, content: initialResult.query, type: 'text' as const },
+        {
+          id: '2',
+          role: 'assistant' as const,
+          content: initialResult.content,
+          type: 'text' as const,
+          aggregatorSources: initialResult.sources
+        }
+      ];
     }
-    case 'error': {
-      throw new Error(event.message);
+    if (initialQuery) {
+      return [{ id: '1', role: 'user' as const, content: initialQuery, type: 'text' as const }];
     }
-    default: {
-      // Other events handled by updateStatusFromEvent
-      break;
-    }
-  }
-}
+    return [];
+  });
 
-// Helper to extract a display name from an endpoint path (e.g., "owner/my-data-source" → "My Data Source")
-function extractSourceDisplayName(path: string): string {
-  const parts = path.split('/');
-  const name = parts.at(-1) ?? path;
-  return name
-    .split('-')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
-
-// Helper to update processing status from streaming events
-function updateStatusFromEvent(
-  event: ChatStreamEvent,
-  setProcessingStatus: React.Dispatch<React.SetStateAction<ProcessingStatus | null>>
-): void {
-  switch (event.type) {
-    case 'retrieval_start': {
-      if (event.sourceCount === 0) {
-        // No data sources - show preparing message
-        setProcessingStatus({
-          phase: 'retrieving',
-          message: 'Preparing request…',
-          completedSources: []
-        });
-      } else {
-        setProcessingStatus({
-          phase: 'retrieving',
-          message: `Searching ${String(event.sourceCount)} data ${event.sourceCount === 1 ? 'source' : 'sources'}…`,
-          retrieval: {
-            completed: 0,
-            total: event.sourceCount,
-            documentsFound: 0
-          },
-          completedSources: []
-        });
-      }
-      break;
-    }
-
-    case 'source_complete': {
-      setProcessingStatus((previous) => {
-        if (!previous) return null;
-        const newCompleted = (previous.retrieval?.completed ?? 0) + 1;
-        const newDocumentsFound =
-          (previous.retrieval?.documentsFound ?? 0) + event.documentsRetrieved;
-        const total = previous.retrieval?.total ?? 1;
-
-        return {
-          ...previous,
-          message: `Retrieved from ${String(newCompleted)}/${String(total)} ${total === 1 ? 'source' : 'sources'}…`,
-          retrieval: {
-            completed: newCompleted,
-            total,
-            documentsFound: newDocumentsFound
-          },
-          completedSources: [
-            ...previous.completedSources,
-            {
-              path: event.path,
-              displayName: extractSourceDisplayName(event.path),
-              status: event.status as 'success' | 'error' | 'timeout',
-              documents: event.documentsRetrieved
-            }
-          ]
-        };
-      });
-      break;
-    }
-
-    case 'retrieval_complete': {
-      setProcessingStatus((previous) => {
-        if (!previous) return null;
-        const documentCount = event.totalDocuments;
-        const documentLabel = documentCount === 1 ? 'document' : 'documents';
-        const message =
-          documentCount > 0
-            ? `Found ${String(documentCount)} relevant ${documentLabel}`
-            : 'No relevant documents found';
-        return {
-          ...previous,
-          message,
-          timing: {
-            ...previous.timing,
-            retrievalMs: event.timeMs
-          }
-        };
-      });
-      break;
-    }
-
-    case 'generation_start': {
-      setProcessingStatus((previous) => ({
-        phase: 'generating',
-        message: 'Generating response…',
-        completedSources: previous?.completedSources ?? [],
-        retrieval: previous?.retrieval,
-        timing: previous?.timing
-      }));
-      break;
-    }
-
-    case 'token': {
-      // Update phase to streaming on first token (prevents excessive re-renders)
-      setProcessingStatus((previous) => {
-        if (!previous || previous.phase === 'streaming') return previous;
-        return {
-          ...previous,
-          phase: 'streaming',
-          message: 'Writing response…'
-        };
-      });
-      break;
-    }
-
-    case 'done': {
-      // Clear status - the response content is now visible
-      setProcessingStatus(null);
-      break;
-    }
-
-    case 'error': {
-      setProcessingStatus((previous) => ({
-        phase: 'error',
-        message: event.message,
-        completedSources: previous?.completedSources ?? [],
-        retrieval: previous?.retrieval,
-        timing: previous?.timing
-      }));
-      break;
-    }
-  }
-}
-
-// Helper to update a specific message in the messages array (also clears thinking state)
-function updateMessageContent(messages: Message[], messageId: string, content: string): Message[] {
-  return messages.map((message) =>
-    message.id === messageId ? { ...message, content, isThinking: false } : message
-  );
-}
-
-// Helper to add aggregator sources to a message
-function addAggregatorSources(
-  messages: Message[],
-  messageId: string,
-  aggregatorSources: SourcesData
-): Message[] {
-  return messages.map((message) =>
-    message.id === messageId ? { ...message, aggregatorSources } : message
-  );
-}
-
-// Helper to convert chat errors to user-friendly messages
-function getChatErrorMessage(error: unknown): string {
-  if (error instanceof AuthenticationError) {
-    return 'Authentication required. Please log in again.';
-  }
-  if (error instanceof AggregatorError) {
-    return `Chat service error: ${error.message}`;
-  }
-  if (error instanceof EndpointResolutionError) {
-    return `Could not resolve endpoint: ${error.message}`;
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return 'An unexpected error occurred';
-}
-
-export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProperties>) {
-  const { user } = useAuth();
-
-  const [messages, setMessages] = useState<Message[]>([
-    { id: '1', role: 'user', content: initialQuery, type: 'text' }
-  ]);
-  // Use Set for O(1) lookup performance when checking source selection
-  const [selectedSources, setSelectedSources] = useState<Set<string>>(() => new Set());
-  const [inputValue, setInputValue] = useState('');
   const [isPanelOpen, setIsPanelOpen] = useState(false);
-  const [availableSources, setAvailableSources] = useState<ChatSource[]>([]);
-  const messagesEndReference = useRef<HTMLDivElement>(null);
-  const abortControllerReference = useRef<AbortController | null>(null);
-
-  // Model selection state - initialize with initialModel if provided
-  const [selectedModel, setSelectedModel] = useState<ChatSource | null>(initialModel ?? null);
-  const [availableModels, setAvailableModels] = useState<ChatSource[]>([]);
-  const [isLoadingModels, setIsLoadingModels] = useState(true);
-
-  // Chat processing state
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [processingStatus, setProcessingStatus] = useState<ProcessingStatus | null>(null);
-
-  // Custom sources state (lifted from AdvancedPanel)
-  const [customSources, setCustomSources] = useState<string[]>([]);
-  const [customSourceError, setCustomSourceError] = useState<string | null>(null);
-
-  // Factual/Nuanced mode state (lifted from AdvancedPanel)
   const [isFactualMode, setIsFactualMode] = useState(true);
+  const messagesEndReference = useRef<HTMLDivElement>(null);
 
-  // Endpoint confirmation state (new simplified flow)
-  const [pendingQuery, setPendingQuery] = useState<string | null>(null);
-  const [showEndpointConfirmation, setShowEndpointConfirmation] = useState(false);
-  const [suggestedEndpoints, setSuggestedEndpoints] = useState<SearchableChatSource[]>([]);
-  const [isSearchingEndpoints, setIsSearchingEndpoints] = useState(false);
+  // Use workflow hook
+  const workflow = useChatWorkflow({
+    model: selectedModel,
+    dataSources: sources,
+    dataSourcesById: sourcesById,
+    onComplete: (result) => {
+      // Add user message and assistant response to messages
+      setMessages((previous) => {
+        // Check if user message already exists (avoid duplicates)
+        const hasUserMessage = previous.some(
+          (m) => m.role === 'user' && m.content === result.query
+        );
 
-  // Build Map for O(1) source lookups by ID (avoids repeated .find() calls)
-  const availableSourcesById = useMemo(
-    () => new Map(availableSources.map((source) => [source.id, source])),
-    [availableSources]
-  );
+        const newMessages = hasUserMessage
+          ? previous
+          : [
+              ...previous,
+              {
+                id: Date.now().toString(),
+                role: 'user' as const,
+                content: result.query,
+                type: 'text' as const
+              }
+            ];
 
-  // Load available data sources from backend (simplified - no longer shows source selection messages)
+        return [
+          ...newMessages,
+          {
+            id: (Date.now() + 1).toString(),
+            role: 'assistant' as const,
+            content: result.content,
+            type: 'text' as const,
+            aggregatorSources: result.sources
+          }
+        ];
+      });
+    }
+  });
+
+  // Auto-trigger workflow for initial query (when navigated from home page)
   useEffect(() => {
-    let isMounted = true;
-
-    const loadDataSources = async () => {
-      try {
-        const sources = await getChatDataSources(100);
-
-        // Guard against state updates after unmount
-        if (!isMounted) return;
-
-        setAvailableSources(sources);
-      } catch (error) {
-        console.error('Failed to load data sources:', error);
-      }
-    };
-
-    void loadDataSources();
-
-    // Cleanup: prevent state updates after unmount
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  // Load available models from backend
-  useEffect(() => {
-    let isMounted = true;
-
-    const loadModels = async () => {
-      try {
-        setIsLoadingModels(true);
-        const models = await getChatModels(20); // Load up to 20 models
-
-        // Guard against state updates after unmount
-        if (!isMounted) return;
-
-        // If initialModel was provided but not in the fetched list, add it
-        let updatedModels = models;
-        if (initialModel && !models.some((m) => m.slug === initialModel.slug)) {
-          updatedModels = [initialModel, ...models];
-        }
-
-        setAvailableModels(updatedModels);
-
-        // Auto-select the first model if available and not already selected
-        // (initialModel will already be set via useState if provided)
-        setSelectedModel((current) => {
-          if (current !== null) return current; // Already selected (including initialModel), don't override
-          return updatedModels.length > 0 && updatedModels[0] ? updatedModels[0] : null;
-        });
-      } catch (error) {
-        console.error('Failed to load models:', error);
-      } finally {
-        if (isMounted) {
-          setIsLoadingModels(false);
-        }
-      }
-    };
-
-    void loadModels();
-
-    // Cleanup: prevent state updates after unmount
-    return () => {
-      isMounted = false;
-    };
-  }, [initialModel]);
+    // Only trigger if:
+    // 1. We have an initial query
+    // 2. No initial result (not already processed)
+    // 3. Workflow is idle
+    // 4. Model is selected
+    // 5. Sources have loaded
+    if (
+      initialQuery &&
+      !initialResult &&
+      workflow.phase === 'idle' &&
+      selectedModel &&
+      sources.length > 0
+    ) {
+      void workflow.submitQuery(initialQuery);
+    }
+    // Only run once when dependencies are ready, not on every change
+  }, [initialQuery, initialResult, selectedModel, sources.length]);
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndReference.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages, workflow.streamedContent]);
 
-  // Use available sources for the panel (now loaded from backend)
-  const allSources = availableSources;
-
-  // Memoized toggleSource using functional setState for stable reference
-  // Uses Set for O(1) lookup and deletion performance
-  const toggleSource = useCallback((id: string) => {
-    setSelectedSources((previous) => {
-      const next = new Set(previous);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  }, []);
-
-  // Memoized panel handlers for stable references
+  // Handlers
   const handleOpenPanel = useCallback(() => {
     setIsPanelOpen(true);
   }, []);
-
   const handleClosePanel = useCallback(() => {
     setIsPanelOpen(false);
   }, []);
-
-  // Handler for adding sources by path - validates against available backend sources
-  const handleAddCustomSource = useCallback(
-    (path: string) => {
-      // Validate the path format
-      const validation = validateEndpointPath(path);
-      if (!validation.isValid) {
-        setCustomSourceError(validation.error ?? 'Invalid path format');
-        return;
-      }
-
-      const normalizedPath = validation.normalizedPath ?? path.toLowerCase();
-
-      // Check if the source exists in available sources from the backend
-      const matchingSource = availableSources.find(
-        (source) => source.full_path?.toLowerCase() === normalizedPath
-      );
-
-      if (!matchingSource) {
-        setCustomSourceError('Data source not found. Please select from available sources.');
-        return;
-      }
-
-      // Check if already selected
-      if (selectedSources.has(matchingSource.id)) {
-        setCustomSourceError('This source is already selected');
-        return;
-      }
-
-      // Select the matching source
-      toggleSource(matchingSource.id);
-      setCustomSourceError(null);
-    },
-    [availableSources, selectedSources, toggleSource]
-  );
-
-  // Handler for removing custom sources
-  const handleRemoveCustomSource = useCallback((path: string) => {
-    setCustomSources((previous) => previous.filter((p) => p !== path));
-  }, []);
-
-  // Handler for clearing custom source error
-  const handleClearCustomSourceError = useCallback(() => {
-    setCustomSourceError(null);
-  }, []);
-
-  // Handler for mode change
   const handleModeChange = useCallback((isFactual: boolean) => {
     setIsFactualMode(isFactual);
   }, []);
 
-  // Memoized input handler using functional setState
-  const handleInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    setInputValue(event.target.value);
-  }, []);
-
-  // Handle submit - triggers endpoint confirmation flow instead of direct send
+  // Handle query submission
   const handleSubmit = useCallback(
-    async (event: React.FormEvent) => {
-      event.preventDefault();
-      if (!inputValue.trim() || isProcessing || showEndpointConfirmation) return;
-
-      // Validate model is selected
-      if (!selectedModel) {
-        setMessages((previous) => [
-          ...previous,
-          {
-            id: Date.now().toString(),
-            role: 'assistant',
-            content: 'Please select a model before sending a message.',
-            type: 'text'
-          }
-        ]);
-        return;
-      }
-
-      // Validate user is authenticated
-      if (!user?.email) {
-        setMessages((previous) => [
-          ...previous,
-          {
-            id: Date.now().toString(),
-            role: 'assistant',
-            content: 'Please log in to use the chat feature.',
-            type: 'text'
-          }
-        ]);
-        return;
-      }
-
-      // Store the query and show endpoint confirmation
-      const query = inputValue.trim();
-      setPendingQuery(query);
-      setInputValue('');
-      setShowEndpointConfirmation(true);
-      setSelectedSources(new Set()); // Clear any previous selection
-
-      // Search for relevant endpoints
-      setIsSearchingEndpoints(true);
-      try {
-        if (query.length >= MIN_QUERY_LENGTH) {
-          const results = await searchDataSources(query, { top_k: 10 });
-          const { highRelevance } = categorizeResults(results);
-          setSuggestedEndpoints(highRelevance);
-        } else {
-          // Query too short for semantic search - show empty suggestions
-          setSuggestedEndpoints([]);
-        }
-      } catch (error) {
-        console.error('Failed to search endpoints:', error);
-        setSuggestedEndpoints([]);
-      } finally {
-        setIsSearchingEndpoints(false);
-      }
+    (query: string) => {
+      void workflow.submitQuery(query);
     },
-    [inputValue, isProcessing, showEndpointConfirmation, selectedModel, user?.email]
+    [workflow]
   );
 
-  // Handle confirming endpoint selection and sending the query
-  const handleConfirmEndpoints = useCallback(async () => {
-    if (!pendingQuery || !selectedModel || !user?.email) return;
-
-    // Hide confirmation UI
-    setShowEndpointConfirmation(false);
-
-    // Add user message
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: pendingQuery,
-      type: 'text'
-    };
-
-    setMessages((previous) => [...previous, userMessage]);
-    setIsProcessing(true);
-
-    // Create assistant message placeholder for streaming with thinking state
-    const assistantMessageId = (Date.now() + 1).toString();
-    setMessages((previous) => [
-      ...previous,
-      {
-        id: assistantMessageId,
-        role: 'assistant',
-        content: '',
-        type: 'text',
-        isThinking: true
-      }
-    ]);
-
-    // Build endpoint paths using "owner/slug" format
-    const modelPath = selectedModel.full_path;
-    if (!modelPath) {
-      setMessages((previous) =>
-        updateMessageContent(
-          previous,
-          assistantMessageId,
-          'Error: Selected model does not have a valid path configured.'
-        )
-      );
-      setIsProcessing(false);
-      setPendingQuery(null);
-      setSuggestedEndpoints([]);
-      return;
-    }
-
-    // Build data source paths from selected sources Set using Map for O(1) lookups
-    const selectedSourcePaths = [...selectedSources]
-      .map((id) => availableSourcesById.get(id)?.full_path)
-      .filter((path): path is string => path !== undefined);
-
-    // Combine with custom sources (already validated) and deduplicate
-    const allDataSourcePaths = [...new Set([...selectedSourcePaths, ...customSources])];
-
-    // Create abort controller for cancellation
-    abortControllerReference.current = new AbortController();
-
-    // Calculate total source count for status message
-    const totalSourceCount = allDataSourcePaths.length;
-
-    // Initialize processing status
-    setProcessingStatus({
-      phase: 'retrieving',
-      message: totalSourceCount > 0 ? 'Starting...' : 'Preparing request...',
-      completedSources: []
-    });
-
-    try {
-      let accumulatedContent = '';
-
-      // Use SDK for streaming - SDK resolves paths internally
-      for await (const event of syftClient.chat.stream({
-        prompt: pendingQuery,
-        model: modelPath,
-        dataSources: allDataSourcePaths.length > 0 ? allDataSourcePaths : undefined,
-        aggregatorUrl: user.aggregator_url ?? undefined,
-        signal: abortControllerReference.current.signal
-      })) {
-        // Update processing status from event
-        updateStatusFromEvent(event, setProcessingStatus);
-
-        // Handle token content
-        processStreamEvent(event, (content) => {
-          accumulatedContent += content;
-          setMessages((previous) =>
-            updateMessageContent(previous, assistantMessageId, accumulatedContent)
-          );
-        });
-
-        // Capture sources from done event
-        if (event.type === 'done') {
-          const doneEvent = event;
-          if (Object.keys(doneEvent.sources).length > 0) {
-            setMessages((previous) =>
-              addAggregatorSources(previous, assistantMessageId, doneEvent.sources)
-            );
-          }
-        }
-      }
-
-      // Refresh balance after successful chat completion (credits may have been consumed)
-      triggerBalanceRefresh();
-    } catch (error) {
-      // Don't show error if it was aborted - clean up status
-      if (error instanceof Error && error.name === 'AbortError') {
-        setProcessingStatus(null);
-        return;
-      }
-
-      const errorMessage = getChatErrorMessage(error);
-      setMessages((previous) =>
-        updateMessageContent(previous, assistantMessageId, `Error: ${errorMessage}`)
-      );
-      setProcessingStatus(null);
-    } finally {
-      setIsProcessing(false);
-      abortControllerReference.current = null;
-      setPendingQuery(null);
-      setSuggestedEndpoints([]);
-    }
-  }, [
-    pendingQuery,
-    selectedModel,
-    user?.email,
-    user?.aggregator_url,
-    availableSourcesById,
-    selectedSources,
-    customSources
-  ]);
-
-  // Handle canceling endpoint selection
-  const handleCancelEndpointSelection = useCallback(() => {
-    setPendingQuery(null);
-    setShowEndpointConfirmation(false);
-    setSuggestedEndpoints([]);
-    setSelectedSources(new Set());
-  }, []);
+  // Determine if workflow is in a blocking state
+  const isWorkflowActive =
+    workflow.phase !== 'idle' && workflow.phase !== 'complete' && workflow.phase !== 'error';
 
   return (
     <div className='bg-card min-h-screen pb-32'>
+      {/* Advanced Panel */}
       <AdvancedPanel
         isOpen={isPanelOpen}
         onClose={handleClosePanel}
-        availableSources={allSources}
-        selectedSourceIds={selectedSources}
-        onToggleSource={toggleSource}
-        customSources={customSources}
-        onAddCustomSource={handleAddCustomSource}
-        onRemoveCustomSource={handleRemoveCustomSource}
-        customSourceError={customSourceError}
-        onCustomSourceErrorClear={handleClearCustomSourceError}
+        availableSources={sources}
+        selectedSourceIds={workflow.selectedSources}
+        onToggleSource={workflow.toggleSource}
         isFactualMode={isFactualMode}
         onModeChange={handleModeChange}
         selectedModel={selectedModel}
-        availableModels={availableModels}
+        availableModels={models}
         onModelSelect={setSelectedModel}
         isLoadingModels={isLoadingModels}
       />
@@ -1262,13 +669,15 @@ export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProper
         <ModelSelector
           selectedModel={selectedModel}
           onModelSelect={setSelectedModel}
-          models={availableModels}
+          models={models}
           isLoading={isLoadingModels}
         />
       </div>
 
+      {/* Messages Area */}
       <div className='mx-auto max-w-4xl px-6 py-8 pt-16'>
         <div className='space-y-8'>
+          {/* Existing messages */}
           {messages.map((message) => (
             <div
               key={message.id}
@@ -1277,19 +686,13 @@ export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProper
               <div
                 className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'} max-w-full`}
               >
-                {/* Status Indicator - shows real-time progress during processing */}
-                {message.isThinking && !message.content && processingStatus ? (
-                  <StatusIndicator status={processingStatus} />
-                ) : null}
-
-                {/* Text Content */}
-                {message.content ? (
+                {message.content && (
                   <div
                     className={`font-inter max-w-2xl rounded-2xl px-5 py-3 shadow-sm ${
                       message.role === 'user'
                         ? 'bg-primary text-primary-foreground rounded-br-none text-[15px] leading-relaxed'
                         : 'border-border bg-muted text-foreground rounded-bl-none border'
-                    } `}
+                    }`}
                   >
                     {message.role === 'assistant' ? (
                       <MarkdownMessage content={message.content} />
@@ -1297,33 +700,56 @@ export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProper
                       message.content
                     )}
                   </div>
-                ) : null}
-
-                {/* Aggregator Sources Section - shows after assistant messages with sources */}
+                )}
                 {message.role === 'assistant' &&
-                message.aggregatorSources &&
-                Object.keys(message.aggregatorSources).length > 0 ? (
-                  <div className='mt-2 w-full max-w-2xl'>
-                    <SourcesSection sources={message.aggregatorSources} />
-                  </div>
-                ) : null}
+                  message.aggregatorSources &&
+                  Object.keys(message.aggregatorSources).length > 0 && (
+                    <div className='mt-2 w-full max-w-2xl'>
+                      <SourcesSection sources={message.aggregatorSources} />
+                    </div>
+                  )}
               </div>
             </div>
           ))}
 
-          {/* Endpoint Confirmation UI - shown after user submits a query */}
-          {showEndpointConfirmation && pendingQuery && (
+          {/* Workflow UI - Endpoint Confirmation */}
+          {(workflow.phase === 'searching' || workflow.phase === 'selecting') && workflow.query && (
             <div className='flex justify-start'>
               <EndpointConfirmation
-                query={pendingQuery}
-                suggestedEndpoints={suggestedEndpoints}
-                isSearching={isSearchingEndpoints}
-                selectedSources={selectedSources}
-                availableSources={availableSources}
-                onToggleSource={toggleSource}
-                onConfirm={handleConfirmEndpoints}
-                onCancel={handleCancelEndpointSelection}
+                query={workflow.query}
+                suggestedEndpoints={workflow.suggestedEndpoints}
+                isSearching={workflow.phase === 'searching'}
+                selectedSources={workflow.selectedSources}
+                availableSources={sources}
+                onToggleSource={workflow.toggleSource}
+                onConfirm={workflow.confirmSelection}
+                onCancel={workflow.cancelSelection}
               />
+            </div>
+          )}
+
+          {/* Workflow UI - Processing Status */}
+          {(workflow.phase === 'preparing' || workflow.phase === 'streaming') && (
+            <div className='flex justify-start'>
+              <div className='flex max-w-full flex-col items-start'>
+                {workflow.processingStatus && (
+                  <StatusIndicator status={workflow.processingStatus} />
+                )}
+                {workflow.streamedContent && (
+                  <div className='font-inter border-border bg-muted text-foreground mt-2 max-w-2xl rounded-2xl rounded-bl-none border px-5 py-3 shadow-sm'>
+                    <MarkdownMessage content={workflow.streamedContent} />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Error display */}
+          {workflow.phase === 'error' && workflow.error && (
+            <div className='flex justify-start'>
+              <div className='font-inter max-w-2xl rounded-2xl rounded-bl-none border border-red-200 bg-red-50 px-5 py-3 text-red-700 shadow-sm dark:border-red-800 dark:bg-red-950 dark:text-red-300'>
+                {workflow.error}
+              </div>
             </div>
           )}
 
@@ -1331,10 +757,10 @@ export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProper
         </div>
       </div>
 
-      {/* Input Area */}
+      {/* Input Area - Fixed bottom */}
       <div className='border-border bg-card fixed bottom-0 left-0 z-40 w-full border-t p-4 pl-24'>
         <div className='mx-auto max-w-3xl'>
-          <form onSubmit={handleSubmit} className='relative flex gap-3'>
+          <div className='flex gap-3'>
             <button
               type='button'
               onClick={handleOpenPanel}
@@ -1347,45 +773,18 @@ export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProper
               />
             </button>
 
-            <div className='relative flex-1'>
-              <label htmlFor='chat-followup-input' className='sr-only'>
-                Ask a follow-up question
-              </label>
-              <input
-                id='chat-followup-input'
-                type='text'
-                value={inputValue}
-                onChange={handleInputChange}
+            <div className='flex-1'>
+              <QueryInput
+                variant='chat'
+                onSubmit={handleSubmit}
+                disabled={isWorkflowActive}
+                isProcessing={workflow.phase === 'streaming'}
                 placeholder='Ask a follow-up question…'
-                className='font-inter border-border bg-background placeholder:text-muted-foreground focus:border-foreground focus:ring-foreground/10 w-full rounded-xl border py-3.5 pr-12 pl-4 shadow-sm transition-colors transition-shadow focus:ring-2 focus:outline-none'
-                autoComplete='off'
+                id='chat-followup-input'
+                ariaLabel='Ask a follow-up question'
               />
-              <button
-                type='submit'
-                disabled={!inputValue.trim() || isProcessing || showEndpointConfirmation}
-                className='bg-primary hover:bg-primary/90 absolute top-1/2 right-2 -translate-y-1/2 rounded-lg p-2 text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50'
-                aria-label={isProcessing ? 'Processing…' : 'Send message'}
-              >
-                {isProcessing ? (
-                  <Loader2 className='h-4 w-4 animate-spin' aria-hidden='true' />
-                ) : (
-                  <svg
-                    width='16'
-                    height='16'
-                    viewBox='0 0 24 24'
-                    fill='none'
-                    stroke='currentColor'
-                    strokeWidth='2'
-                    strokeLinecap='round'
-                    strokeLinejoin='round'
-                    aria-hidden='true'
-                  >
-                    <path d='M5 12h14M12 5l7 7-7 7' />
-                  </svg>
-                )}
-              </button>
             </div>
-          </form>
+          </div>
         </div>
       </div>
     </div>

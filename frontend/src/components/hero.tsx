@@ -1,14 +1,27 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+/**
+ * Hero Component
+ *
+ * Landing page hero section with search input and model selection.
+ * Uses shared hooks for model management and workflow execution.
+ */
+import { useCallback } from 'react';
 
 import type { ChatSource } from '@/lib/types';
 
-import Send from 'lucide-react/dist/esm/icons/send';
+import { useNavigate } from 'react-router-dom';
 
 import { ModelSelector } from '@/components/chat/model-selector';
+import { QueryInput, SearchSuggestions } from '@/components/query/query-input';
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
-import { getChatModels } from '@/lib/endpoint-utils';
+import { WorkflowOverlay } from '@/components/workflow';
+import { useChatWorkflow } from '@/hooks/use-chat-workflow';
+import { useDataSources } from '@/hooks/use-data-sources';
+import { useModels } from '@/hooks/use-models';
 
-// Static data hoisted outside component to prevent recreation on each render
+// =============================================================================
+// Constants
+// =============================================================================
+
 const FEATURES = [
   { label: 'Secure & Private', color: 'bg-chart-1' },
   { label: 'Rare Data & Models', color: 'bg-secondary' },
@@ -21,82 +34,88 @@ const SEARCH_SUGGESTIONS = [
   'Find climate research sources'
 ] as const;
 
-interface HeroProperties {
+// =============================================================================
+// Types
+// =============================================================================
+
+export interface HeroProperties {
+  /** Called when user completes a search (navigates to chat with results) */
   onSearch?: (query: string, selectedModel: ChatSource | null) => void;
+  /** Called when authentication is required */
   onAuthRequired?: () => void;
-  /** When true, Hero takes full viewport height and centers content (use when no other content below) */
+  /** When true, Hero takes full viewport height and centers content */
   fullHeight?: boolean;
+  /** Optional pre-selected model (e.g., from URL params) */
+  initialModel?: ChatSource | null;
 }
+
+// =============================================================================
+// Component
+// =============================================================================
 
 export function Hero({
   onSearch,
   onAuthRequired: _onAuthRequired,
-  fullHeight = false
+  fullHeight = false,
+  initialModel
 }: Readonly<HeroProperties>) {
-  const [searchValue, setSearchValue] = useState('');
-  const [selectedModel, setSelectedModel] = useState<ChatSource | null>(null);
-  const [availableModels, setAvailableModels] = useState<ChatSource[]>([]);
-  const [isLoadingModels, setIsLoadingModels] = useState(true);
-  const inputReference = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
 
-  // Load available models on mount
-  useEffect(() => {
-    let isMounted = true;
+  // Use shared hooks for model and data source management
+  const {
+    models,
+    selectedModel,
+    setSelectedModel,
+    isLoading: isLoadingModels
+  } = useModels({
+    initialModel
+  });
+  const { sources } = useDataSources();
 
-    const loadModels = async () => {
-      setIsLoadingModels(true);
-      const models = await getChatModels(20);
-
-      if (!isMounted) return;
-
-      setAvailableModels(models);
-      // Auto-select first model if available
-      if (models.length > 0 && models[0]) {
-        setSelectedModel(models[0]);
-      }
-      setIsLoadingModels(false);
-    };
-
-    void loadModels();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  // Auto-focus on desktop only (avoid virtual keyboard on mobile)
-  useEffect(() => {
-    const isDesktop = globalThis.matchMedia('(min-width: 1024px)').matches;
-    if (isDesktop && inputReference.current) {
-      inputReference.current.focus();
+  // Use workflow hook for query execution
+  const workflow = useChatWorkflow({
+    model: selectedModel,
+    dataSources: sources,
+    onComplete: (result) => {
+      // Navigate to chat with the completed result
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- Navigation is fire-and-forget
+      navigate('/chat', {
+        state: {
+          query: result.query,
+          model: selectedModel,
+          initialResult: result
+        }
+      });
+    },
+    onError: (error) => {
+      console.error('Workflow error:', error);
     }
-  }, []);
+  });
 
-  // Memoized handlers for stable references - prevents re-renders of child components
-  const handleSearch = useCallback(
-    (event: React.FormEvent) => {
-      event.preventDefault();
-      if (searchValue.trim() && onSearch) {
-        onSearch(searchValue, selectedModel);
+  // Handle query submission - either use workflow or direct navigation
+  const handleSubmit = useCallback(
+    (query: string) => {
+      if (onSearch) {
+        // If onSearch is provided, let parent handle navigation
+        onSearch(query, selectedModel);
+      } else {
+        // Use workflow for full execution flow
+        void workflow.submitQuery(query);
       }
     },
-    [searchValue, onSearch, selectedModel]
+    [onSearch, selectedModel, workflow]
   );
 
+  // Handle suggestion click
   const handleSuggestionClick = useCallback(
     (suggestion: string) => {
-      setSearchValue(suggestion);
-      if (onSearch) {
-        onSearch(suggestion, selectedModel);
-      }
+      handleSubmit(suggestion);
     },
-    [onSearch, selectedModel]
+    [handleSubmit]
   );
 
-  // Memoized input handler using functional setState for stable reference
-  const handleInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchValue(event.target.value);
-  }, []);
+  // Determine if workflow is active (not idle)
+  const isWorkflowActive = workflow.phase !== 'idle';
 
   return (
     <>
@@ -105,11 +124,12 @@ export function Hero({
         <ModelSelector
           selectedModel={selectedModel}
           onModelSelect={setSelectedModel}
-          models={availableModels}
+          models={models}
           isLoading={isLoadingModels}
         />
       </div>
 
+      {/* Hero Section */}
       <section
         className={`bg-background flex items-center justify-center px-6 ${
           fullHeight ? 'min-h-[calc(100vh-2rem)]' : 'min-h-[50vh]'
@@ -135,7 +155,7 @@ export function Hero({
             </p>
           </div>
 
-          {/* Feature Badges and Search Bar - grouped closer together */}
+          {/* Feature Badges and Search Bar */}
           <div className='space-y-6'>
             {/* Feature Badges */}
             <div className='flex flex-wrap items-center justify-center gap-8'>
@@ -148,55 +168,30 @@ export function Hero({
             </div>
 
             {/* Search Bar */}
-            <form onSubmit={handleSearch} className='space-y-4' role='search'>
-              <div className='group relative'>
-                <label htmlFor='hero-search' className='sr-only'>
-                  Search for data sources, models, or topics
-                </label>
-                <input
-                  id='hero-search'
-                  ref={inputReference}
-                  type='search'
-                  name='search'
-                  value={searchValue}
-                  onChange={handleInputChange}
-                  placeholder='What are you looking for…'
-                  className='font-inter border-input text-foreground placeholder:text-muted-foreground focus:ring-ring bg-background w-full rounded-xl border px-6 py-4 shadow-sm transition-colors transition-shadow focus:border-transparent focus:ring-2 focus:outline-none'
-                  autoComplete='off'
-                />
-                <button
-                  type='submit'
-                  aria-label='Search'
-                  className='group-focus-within:text-foreground hover:bg-muted absolute top-1/2 right-3 -translate-y-1/2 rounded-lg p-2 transition-colors'
-                >
-                  <Send
-                    className={`h-5 w-5 transition-colors ${
-                      searchValue ? 'text-foreground' : 'text-muted-foreground'
-                    }`}
-                    aria-hidden='true'
-                  />
-                </button>
-              </div>
+            <div className='space-y-4'>
+              <QueryInput
+                variant='hero'
+                onSubmit={handleSubmit}
+                disabled={isWorkflowActive}
+                isProcessing={workflow.phase === 'streaming'}
+                placeholder='What are you looking for…'
+                autoFocus
+                id='hero-search'
+                ariaLabel='Search for data sources, models, or topics'
+              />
 
               {/* Search Suggestions Pills */}
-              <div className='flex flex-wrap items-center justify-center gap-2.5'>
-                {SEARCH_SUGGESTIONS.map((suggestion, index) => (
-                  <button
-                    key={index}
-                    type='button'
-                    onClick={() => {
-                      handleSuggestionClick(suggestion);
-                    }}
-                    className='font-inter border-border text-foreground hover:border-primary hover:bg-muted focus:ring-ring bg-background rounded-full border px-4 py-1.5 text-sm transition-colors focus:ring-2 focus:ring-offset-2 focus:outline-none'
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-              </div>
-            </form>
+              <SearchSuggestions
+                suggestions={SEARCH_SUGGESTIONS}
+                onSelect={handleSuggestionClick}
+              />
+            </div>
           </div>
         </div>
       </section>
+
+      {/* Workflow Overlay - shown when workflow is active */}
+      <WorkflowOverlay workflow={workflow} availableSources={sources} />
     </>
   );
 }
