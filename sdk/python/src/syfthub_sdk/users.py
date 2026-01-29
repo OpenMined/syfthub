@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from syfthub_sdk.models import AccountingCredentials, HeartbeatResponse, User
+from syfthub_sdk.models import (
+    AccountingCredentials,
+    HeartbeatResponse,
+    NatsCredentials,
+    User,
+)
 
 if TYPE_CHECKING:
     from syfthub_sdk._http import HTTPClient
@@ -136,6 +141,27 @@ class UsersResource:
         response = self._http.get("/api/v1/users/me/accounting")
         data = response if isinstance(response, dict) else {}
         return AccountingCredentials.model_validate(data)
+
+    def get_nats_credentials(self) -> NatsCredentials:
+        """Get NATS credentials for connecting to the NATS server.
+
+        Fetches the shared NATS auth token from the hub. Spaces call this
+        after login to obtain credentials for NATS WebSocket connections.
+
+        Returns:
+            NatsCredentials with the NATS auth token.
+
+        Raises:
+            AuthenticationError: If not authenticated
+            APIError: If NATS is not configured on the hub (503)
+
+        Example:
+            creds = client.users.get_nats_credentials()
+            # Use creds.nats_auth_token to connect to NATS
+        """
+        response = self._http.get("/api/v1/nats/credentials")
+        data = response if isinstance(response, dict) else {}
+        return NatsCredentials.model_validate(data)
 
     def send_heartbeat(
         self,

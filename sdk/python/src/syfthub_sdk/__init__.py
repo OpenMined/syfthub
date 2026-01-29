@@ -81,7 +81,9 @@ from syfthub_sdk.models import (
     EndpointType,
     HeartbeatResponse,
     Message,
+    NatsCredentials,
     OrganizationRole,
+    PeerTokenResponse,
     Policy,
     SatelliteTokenResponse,
     SourceInfo,
@@ -112,6 +114,7 @@ __all__ = [
     "EndpointSearchResponse",
     "EndpointType",
     "AuthTokens",
+    "PeerTokenResponse",
     "SatelliteTokenResponse",
     "Visibility",
     "Policy",
@@ -146,6 +149,8 @@ __all__ = [
     "APITokensResource",
     "ChatResource",
     "SyftAIResource",
+    # NATS models
+    "NatsCredentials",
     # Accounting models
     "AccountingCredentials",
     "AccountingUser",

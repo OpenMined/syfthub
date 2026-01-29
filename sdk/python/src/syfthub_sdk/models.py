@@ -84,6 +84,25 @@ class SatelliteTokenResponse(BaseModel):
     model_config = {"frozen": True}
 
 
+class PeerTokenResponse(BaseModel):
+    """Response from peer token endpoint.
+
+    Peer tokens are short-lived credentials that allow the aggregator to
+    communicate with tunneling SyftAI Spaces via NATS pub/sub.
+    """
+
+    peer_token: str = Field(
+        ..., description="Short-lived token for NATS authentication"
+    )
+    peer_channel: str = Field(
+        ..., description="Unique reply channel for receiving responses"
+    )
+    expires_in: int = Field(..., description="Seconds until the token expires")
+    nats_url: str = Field(..., description="NATS server URL for WebSocket connections")
+
+    model_config = {"frozen": True}
+
+
 class Policy(BaseModel):
     """Policy configuration for endpoints."""
 
@@ -540,6 +559,25 @@ class APITokenListResponse(BaseModel):
 
     tokens: list[APIToken] = Field(default_factory=list)
     total: int = 0
+
+    model_config = {"frozen": True}
+
+
+# =============================================================================
+# NATS Credentials Models
+# =============================================================================
+
+
+class NatsCredentials(BaseModel):
+    """Credentials for connecting to the NATS server.
+
+    Fetched from the hub after login so spaces can connect to NATS
+    without needing a separate environment variable.
+    """
+
+    nats_auth_token: str = Field(
+        ..., description="The shared NATS auth token for WebSocket connections"
+    )
 
     model_config = {"frozen": True}
 
