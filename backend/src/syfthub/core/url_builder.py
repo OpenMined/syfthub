@@ -22,6 +22,9 @@ from __future__ import annotations
 
 from typing import Any
 
+# Tunneling URL prefix - endpoints behind NAT/firewall use NATS pub/sub
+TUNNELING_PREFIX = "tunneling:"
+
 # Mapping from connection type to protocol
 CONNECTION_PROTOCOL_MAP: dict[str, str] = {
     # HTTP-based protocols
@@ -92,6 +95,8 @@ def build_connection_url(
         domain: The owner's domain (e.g., "api.example.com" or "api.example.com:8080")
             Note: If the domain accidentally includes a protocol prefix, it will be
             stripped automatically.
+            For tunneling domains (e.g., "tunneling:username"), the domain is returned
+            as-is since tunneling uses NATS pub/sub, not HTTP.
         connection_type: The connection type for protocol selection
         path: The path portion of the URL (e.g., "api/v2" or "/api/v2")
 
@@ -100,6 +105,11 @@ def build_connection_url(
     """
     if not domain:
         return None
+
+    # Tunneling domains are pseudo-URLs for NATS pub/sub routing.
+    # Return the domain directly as the URL (e.g., "tunneling:username").
+    if domain.startswith(TUNNELING_PREFIX):
+        return domain
 
     # Normalize domain to strip any accidental protocol prefix
     normalized_domain = normalize_domain(domain)

@@ -313,6 +313,34 @@ class Settings(BaseSettings):
         )
 
     # ===========================================
+    # NATS SETTINGS
+    # ===========================================
+
+    # NATS server URL for internal service connections
+    nats_url: str = Field(
+        default="nats://nats:4222",
+        description="NATS server URL for internal connections",
+    )
+
+    # NATS authentication token (shared secret)
+    nats_auth_token: str = Field(
+        default="",
+        description="Authentication token for NATS server connections",
+    )
+
+    # Public WebSocket URL for NATS (used by external clients via nginx)
+    nats_ws_public_url: str = Field(
+        default="ws://localhost:8080/nats",
+        description="Public WebSocket URL for NATS connections (via nginx proxy)",
+    )
+
+    # Peer token lifetime in seconds
+    peer_token_expire_seconds: int = Field(
+        default=120,
+        description="Peer token lifetime in seconds (short-lived)",
+    )
+
+    # ===========================================
     # REDIS SETTINGS
     # ===========================================
 
