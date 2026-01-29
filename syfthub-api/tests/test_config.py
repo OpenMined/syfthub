@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from syfthub_api import Settings, load_settings
+from syfthub_api import Settings, derive_nats_ws_url, load_settings
 
 
 class TestSettings:
@@ -314,3 +314,34 @@ class TestLoadSettings:
         assert settings.syfthub_username == "envuser"
         assert settings.get_password() == "override-pass"
         assert settings.space_url == "http://override.space.com"
+
+
+class TestDeriveNatsWsUrl:
+    """Tests for the derive_nats_ws_url helper function."""
+
+    def test_http_to_ws(self) -> None:
+        """Test HTTP URL is converted to ws:// with /nats path."""
+        assert derive_nats_ws_url("http://localhost:8080") == "ws://localhost:8080/nats"
+
+    def test_https_to_wss(self) -> None:
+        """Test HTTPS URL is converted to wss:// with /nats path."""
+        assert derive_nats_ws_url("https://hub.syft.com") == "wss://hub.syft.com/nats"
+
+    def test_trailing_slash_stripped(self) -> None:
+        """Test trailing slash is stripped before appending /nats."""
+        assert derive_nats_ws_url("http://localhost:8080/") == "ws://localhost:8080/nats"
+        assert derive_nats_ws_url("https://hub.syft.com/") == "wss://hub.syft.com/nats"
+
+    def test_http_with_port(self) -> None:
+        """Test HTTP URL with port."""
+        assert derive_nats_ws_url("http://example.com:9090") == "ws://example.com:9090/nats"
+
+    def test_invalid_scheme_raises(self) -> None:
+        """Test that non-HTTP/HTTPS schemes raise ValueError."""
+        with pytest.raises(ValueError, match="Cannot derive NATS URL"):
+            derive_nats_ws_url("ftp://example.com")
+
+    def test_nats_scheme_raises(self) -> None:
+        """Test that nats:// scheme raises ValueError."""
+        with pytest.raises(ValueError, match="Cannot derive NATS URL"):
+            derive_nats_ws_url("nats://localhost:4222")

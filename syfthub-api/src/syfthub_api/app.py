@@ -7,7 +7,6 @@ Provides the SyftAPI class for building SyftAI Spaces with a FastAPI-like interf
 # Standard library
 import asyncio
 import inspect
-import json
 import os
 import re
 import signal
@@ -34,7 +33,8 @@ from .exceptions import (
 )
 from .heartbeat import HeartbeatManager
 from .logging import setup_logging
-from .config import TUNNELING_PREFIX
+from .config import TUNNELING_PREFIX, derive_nats_ws_url
+from .nats_transport import NATSSpaceTransport
 from .schemas import (
     DataSourceQueryRequest,
     DataSourceQueryResponse,
@@ -174,12 +174,12 @@ class SyftAPI:
 
         # Tunneling mode attributes
         self._is_tunneling: bool = self._space_url.startswith(TUNNELING_PREFIX)
-        self._tunnel_shutdown: bool = False
         self._pending_responses: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self._shutdown_event: asyncio.Event | None = None
 
-        # Tunnel consumer configuration
-        self._tunnel_poll_interval: float = 0.5  # seconds between polls when queue empty
-        self._tunnel_batch_size: int = 10  # messages per consume call
+        # NATS transport (initialized in _run_tunnel_mode)
+        self._nats_transport: NATSSpaceTransport | None = None
+        self._nats_auth_token: str | None = None  # fetched from hub after login
 
         self._logger.debug(
             "SyftAPI initialized with syfthub_url=%s, space_url=%s, heartbeat_enabled=%s, tunneling=%s",
@@ -491,6 +491,18 @@ class SyftAPI:
             # Store client for heartbeat use
             self._client = client
 
+            # Fetch NATS credentials from hub (only needed in tunneling mode)
+            if self._is_tunneling:
+                try:
+                    nats_creds = await asyncio.to_thread(client.users.get_nats_credentials)
+                    self._nats_auth_token = nats_creds.nats_auth_token
+                    self._logger.info("Fetched NATS credentials from hub")
+                except Exception as e:
+                    self._logger.error("Failed to fetch NATS credentials: %s", e)
+                    raise AuthenticationError(
+                        f"Failed to fetch NATS credentials from hub: {e}", cause=e
+                    ) from e
+
         except AuthenticationError:
             # Re-raise if already wrapped
             raise
@@ -790,8 +802,8 @@ class SyftAPI:
             - Starts the uvicorn server on host:port
 
         In tunneling mode (space_url starts with tunneling:):
-            - Starts MQ consumer loop
-            - Processes requests via message queue
+            - Connects to NATS via WebSocket
+            - Processes requests via pub/sub
             - host and port parameters are ignored
 
         Args:
@@ -830,8 +842,9 @@ class SyftAPI:
         await server.serve()
 
     async def _run_tunnel_mode(self) -> None:
-        """Run in tunneling mode - consume messages from MQ."""
-        self._logger.info("Tunnel mode: Starting message consumer")
+        """Run in tunneling mode - consume messages via NATS pub/sub."""
+        self._logger.info("Tunnel mode: Starting NATS consumer")
+        self._shutdown_event = asyncio.Event()
 
         # Set up signal handlers for graceful shutdown
         loop = asyncio.get_event_loop()
@@ -849,10 +862,19 @@ class SyftAPI:
                 raise
 
         try:
-            await self._tunnel_consumer_loop()
+            # Start NATS transport (sole transport for tunneling)
+            await self._start_nats_consumer()
+
+            # Block until shutdown is signalled
+            await self._shutdown_event.wait()
         except asyncio.CancelledError:
             self._logger.info("Tunnel consumer cancelled")
         finally:
+            # Stop NATS transport
+            if self._nats_transport is not None:
+                await self._nats_transport.close()
+                self._nats_transport = None
+
             # Run shutdown hooks
             self._logger.debug("Running %d shutdown hooks...", len(self._on_shutdown))
             for hook in self._on_shutdown:
@@ -865,7 +887,6 @@ class SyftAPI:
     async def _initiate_tunnel_shutdown(self) -> None:
         """Signal the tunnel consumer to shut down gracefully."""
         self._logger.info("Initiating tunnel shutdown...")
-        self._tunnel_shutdown = True
 
         # Cancel any pending response futures
         for correlation_id, future in self._pending_responses.items():
@@ -873,120 +894,96 @@ class SyftAPI:
                 self._logger.debug("Cancelling pending response for %s", correlation_id[:8])
                 future.cancel()
 
-    async def _tunnel_consumer_loop(self) -> None:
-        """Main loop: consume and process messages from the queue."""
-        self._logger.info("Tunnel consumer loop started")
+        # Signal the shutdown event to unblock _run_tunnel_mode
+        if self._shutdown_event is not None:
+            self._shutdown_event.set()
 
-        while not self._tunnel_shutdown:
-            try:
-                if self._client is None:
-                    self._logger.error("Client not authenticated, cannot consume messages")
-                    await asyncio.sleep(self._tunnel_poll_interval)
-                    continue
+    # =========================================================================
+    # NATS Transport Methods
+    # =========================================================================
 
-                # Consume messages from our queue
-                response = await asyncio.to_thread(
-                    self._client.mq.consume, limit=self._tunnel_batch_size  # type: ignore[attr-defined]
-                )
+    def _get_tunnel_username(self) -> str:
+        """Extract the tunnel username from the space URL."""
+        assert self._space_url is not None
+        return self._space_url[len(TUNNELING_PREFIX):]
 
-                if response.messages:
-                    self._logger.debug("Consumed %d messages", len(response.messages))
+    async def _start_nats_consumer(self) -> None:
+        """Start the NATS transport for receiving tunnel requests."""
+        tunnel_username = self._get_tunnel_username()
+        assert self._syfthub_url is not None
+        assert self._nats_auth_token is not None
 
-                    # Process each message concurrently
-                    tasks = [self._process_tunnel_message(msg) for msg in response.messages]
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
+        nats_url = derive_nats_ws_url(self._syfthub_url)
+        self._logger.info(
+            "Starting NATS consumer for %s at %s",
+            tunnel_username,
+            nats_url,
+        )
 
-                    # Log any errors
-                    for i, result in enumerate(results):
-                        if isinstance(result, Exception):
-                            self._logger.error(
-                                "Error processing message %d: %s", i, result, exc_info=result
-                            )
-                else:
-                    # No messages, wait before polling again
-                    await asyncio.sleep(self._tunnel_poll_interval)
+        self._nats_transport = NATSSpaceTransport(
+            username=tunnel_username,
+            nats_url=nats_url,
+            nats_auth_token=self._nats_auth_token,
+        )
 
-            except Exception as e:
-                self._logger.error("Error in tunnel consumer loop: %s", e)
-                await asyncio.sleep(self._tunnel_poll_interval)
+        await self._nats_transport.connect()
+        await self._nats_transport.subscribe(self._handle_tunnel_message)
+        self._logger.info("NATS consumer started, listening on %s", self._nats_transport.subject)
 
-        self._logger.info("Tunnel consumer loop stopped")
-
-    async def _process_tunnel_message(self, msg: Any) -> None:
-        """Process a single message from the queue.
+    async def _handle_tunnel_message(self, data: dict[str, Any], subject: str) -> None:
+        """Handle an incoming tunnel message from NATS.
 
         Args:
-            msg: Message object with id, from_username, from_user_id, message, queued_at
+            data: Parsed JSON message data.
+            subject: NATS subject the message was received on.
         """
         start_time = datetime.now(timezone.utc)
 
-        try:
-            # Parse the message payload
-            try:
-                data = json.loads(msg.message)
-            except json.JSONDecodeError:
-                self._logger.warning("Non-JSON message from %s, ignoring", msg.from_username)
-                return
+        # Check protocol version
+        protocol = data.get("protocol", "")
+        if not protocol.startswith("syfthub-tunnel/"):
+            self._logger.debug("Unknown protocol '%s' on subject %s", protocol, subject)
+            return
 
-            # Check protocol version
-            protocol = data.get("protocol", "")
-            if not protocol.startswith("syfthub-tunnel/"):
-                self._logger.debug("Unknown protocol '%s' from %s", protocol, msg.from_username)
-                return
+        msg_type = data.get("type")
 
-            # Route by message type
-            msg_type = data.get("type")
-
-            if msg_type == "endpoint_request":
-                await self._handle_tunnel_request(data, msg, start_time)
-            elif msg_type == "endpoint_response":
-                await self._handle_tunnel_response(data, msg)
-            else:
-                self._logger.warning("Unknown message type '%s' from %s", msg_type, msg.from_username)
-
-        except Exception as e:
-            self._logger.exception("Error processing message %s: %s", msg.id, e)
-            # Try to send error response if we have enough context
-            if "data" in locals() and isinstance(data, dict) and data.get("correlation_id"):
-                try:
-                    await self._send_tunnel_error(
-                        reply_to=data.get("reply_to", msg.from_username),
-                        correlation_id=data["correlation_id"],
-                        endpoint_slug=data.get("endpoint", {}).get("slug", "unknown"),
-                        code=TunnelErrorCode.PROCESSING_ERROR,
-                        message=str(e),
-                    )
-                except Exception as send_error:
-                    self._logger.error("Failed to send error response: %s", send_error)
+        if msg_type == "endpoint_request":
+            await self._handle_tunnel_request(data, start_time)
+        elif msg_type == "endpoint_response":
+            # Handle response (for peer-to-peer scenarios)
+            correlation_id = data.get("correlation_id")
+            if correlation_id:
+                future = self._pending_responses.get(correlation_id)
+                if future and not future.done():
+                    future.set_result(data)
+        else:
+            self._logger.warning("Unknown tunnel message type: %s", msg_type)
 
     async def _handle_tunnel_request(
-        self, data: dict[str, Any], msg: Any, start_time: datetime
+        self, data: dict[str, Any], start_time: datetime
     ) -> None:
-        """Handle an incoming endpoint request via tunnel.
+        """Handle a tunnel request received via NATS.
 
         Args:
-            data: Parsed message data.
-            msg: Original message object.
+            data: Parsed TunnelRequest message.
             start_time: When processing started.
         """
-        # Extract request fields
         correlation_id = data.get("correlation_id")
-        reply_to = data.get("reply_to", msg.from_username)
+        reply_to = data.get("reply_to")
         endpoint_info = data.get("endpoint", {})
         endpoint_slug = endpoint_info.get("slug")
         endpoint_type = endpoint_info.get("type")
         payload = data.get("payload", {})
 
         self._logger.info(
-            "Processing tunnel request: endpoint=%s, correlation_id=%s, from=%s",
+            "Tunnel request: endpoint=%s, correlation_id=%s, reply_to=%s",
             endpoint_slug,
             correlation_id[:8] if correlation_id else "none",
-            msg.from_username,
+            reply_to,
         )
 
-        # Validate required fields
-        if not correlation_id or not endpoint_slug:
-            self._logger.warning("Invalid request: missing correlation_id or endpoint_slug")
+        if not correlation_id or not endpoint_slug or not reply_to:
+            self._logger.warning("Invalid tunnel request: missing required fields")
             return
 
         # Find the endpoint
@@ -1002,7 +999,7 @@ class SyftAPI:
             )
             return
 
-        # Verify endpoint type matches
+        # Verify endpoint type
         if endpoint["type"].value != endpoint_type:
             await self._send_tunnel_error(
                 reply_to=reply_to,
@@ -1020,19 +1017,33 @@ class SyftAPI:
             else:
                 result = await self._invoke_model_handler(endpoint, payload)
 
-            # Send success response
-            await self._send_tunnel_success(
-                reply_to=reply_to,
+            # Send success response via NATS
+            end_time = datetime.now(timezone.utc)
+            duration_ms = int((end_time - start_time).total_seconds() * 1000)
+
+            response = TunnelResponse(
                 correlation_id=correlation_id,
+                status="success",
                 endpoint_slug=endpoint_slug,
                 payload=result,
-                start_time=start_time,
+                error=None,
+                timing=TunnelTiming(
+                    received_at=start_time.isoformat(),
+                    processed_at=end_time.isoformat(),
+                    duration_ms=duration_ms,
+                ),
             )
 
+            if self._nats_transport:
+                await self._nats_transport.publish_response(
+                    reply_to, response.model_dump()
+                )
+
             self._logger.info(
-                "Tunnel request completed: endpoint=%s, correlation_id=%s",
+                "Tunnel request completed: endpoint=%s, correlation_id=%s, %dms",
                 endpoint_slug,
                 correlation_id[:8],
+                duration_ms,
             )
 
         except Exception as e:
@@ -1045,71 +1056,6 @@ class SyftAPI:
                 message=str(e),
             )
 
-    async def _handle_tunnel_response(self, data: dict[str, Any], msg: Any) -> None:
-        """Handle an incoming response to our outgoing request.
-
-        This is used when this SDK acts as a requester to another tunneling Space.
-
-        Args:
-            data: Parsed message data.
-            msg: Original message object.
-        """
-        correlation_id = data.get("correlation_id")
-
-        if not correlation_id:
-            self._logger.warning("Received response without correlation_id from %s", msg.from_username)
-            return
-
-        # Check if we're waiting for this response
-        future = self._pending_responses.get(correlation_id)
-
-        if future and not future.done():
-            # Resolve the waiting future
-            future.set_result(data)
-            self._logger.debug("Resolved response for correlation_id=%s", correlation_id[:8])
-        else:
-            # Unexpected response - might be late/duplicate
-            self._logger.warning(
-                "Unexpected response for correlation_id=%s from %s",
-                correlation_id[:8],
-                msg.from_username,
-            )
-
-    async def _send_tunnel_success(
-        self,
-        reply_to: str,
-        correlation_id: str,
-        endpoint_slug: str,
-        payload: dict[str, Any],
-        start_time: datetime,
-    ) -> None:
-        """Send a success response via tunnel.
-
-        Args:
-            reply_to: Username to send response to.
-            correlation_id: Request correlation ID.
-            endpoint_slug: Endpoint that handled the request.
-            payload: Response payload.
-            start_time: When request processing started.
-        """
-        end_time = datetime.now(timezone.utc)
-        duration_ms = int((end_time - start_time).total_seconds() * 1000)
-
-        response = TunnelResponse(
-            correlation_id=correlation_id,
-            status="success",
-            endpoint_slug=endpoint_slug,
-            payload=payload,
-            error=None,
-            timing=TunnelTiming(
-                received_at=start_time.isoformat(),
-                processed_at=end_time.isoformat(),
-                duration_ms=duration_ms,
-            ),
-        )
-
-        await self._publish_tunnel_message(reply_to, response.model_dump())
-
     async def _send_tunnel_error(
         self,
         reply_to: str,
@@ -1119,10 +1065,10 @@ class SyftAPI:
         message: str,
         details: dict[str, Any] | None = None,
     ) -> None:
-        """Send an error response via tunnel.
+        """Send an error response via NATS.
 
         Args:
-            reply_to: Username to send response to.
+            reply_to: Peer channel to send response to.
             correlation_id: Request correlation ID.
             endpoint_slug: Endpoint that was requested.
             code: Error code.
@@ -1141,32 +1087,12 @@ class SyftAPI:
             ),
         )
 
-        await self._publish_tunnel_message(reply_to, response.model_dump())
+        if self._nats_transport:
+            await self._nats_transport.publish_response(reply_to, response.model_dump())
+
         self._logger.warning(
-            "Sent error response: endpoint=%s, code=%s, message=%s",
+            "Sent tunnel error response: endpoint=%s, code=%s, message=%s",
             endpoint_slug,
             code.value,
             message,
         )
-
-    async def _publish_tunnel_message(self, target_username: str, message: dict[str, Any]) -> None:
-        """Publish a message to another user's queue.
-
-        Args:
-            target_username: Username to send message to.
-            message: Message payload to send.
-        """
-        if self._client is None:
-            self._logger.error("Cannot publish: client not authenticated")
-            raise RuntimeError("Client not authenticated")
-
-        try:
-            await asyncio.to_thread(
-                self._client.mq.publish,  # type: ignore[attr-defined]
-                target_username=target_username,
-                message=json.dumps(message),
-            )
-            self._logger.debug("Published tunnel message to %s", target_username)
-        except Exception as e:
-            self._logger.error("Failed to publish tunnel message to %s: %s", target_username, e)
-            raise

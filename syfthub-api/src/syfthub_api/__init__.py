@@ -25,8 +25,9 @@ Example:
 """
 
 from .app import SyftAPI
-from .config import Settings, load_settings, TUNNELING_PREFIX
+from .config import Settings, load_settings, derive_nats_ws_url, TUNNELING_PREFIX
 from .heartbeat import HeartbeatManager
+from .nats_transport import NATSSpaceTransport
 from .exceptions import (
     AuthenticationError,
     ConfigurationError,
@@ -69,9 +70,12 @@ __all__ = [
     "SyftAPI",
     # Heartbeat
     "HeartbeatManager",
+    # NATS Transport
+    "NATSSpaceTransport",
     # Configuration
     "Settings",
     "load_settings",
+    "derive_nats_ws_url",
     "TUNNELING_PREFIX",
     # Logging
     "setup_logging",

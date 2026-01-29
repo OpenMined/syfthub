@@ -154,6 +154,19 @@ class Settings(BaseModel):
         return self.syfthub_password.get_secret_value()
 
 
+def derive_nats_ws_url(syfthub_url: str) -> str:
+    """Derive NATS WebSocket URL from the SyftHub URL.
+
+    http://host:port  -> ws://host:port/nats
+    https://host:port -> wss://host:port/nats
+    """
+    if syfthub_url.startswith("https://"):
+        return "wss://" + syfthub_url[len("https://"):].rstrip("/") + "/nats"
+    elif syfthub_url.startswith("http://"):
+        return "ws://" + syfthub_url[len("http://"):].rstrip("/") + "/nats"
+    raise ValueError(f"Cannot derive NATS URL from: {syfthub_url}")
+
+
 def load_settings(**overrides: str | int) -> Settings:
     """
     Load settings from environment variables with optional overrides.
