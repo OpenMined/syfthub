@@ -5,6 +5,27 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class ResponseQueue(BaseModel):
+    """Credentials for a reserved response queue.
+
+    Used for tunneling workflows where the aggregator needs to receive
+    responses from tunneled endpoints via MQ.
+
+    The client reserves a queue before calling the aggregator and provides
+    these credentials. The aggregator uses this queue to receive responses
+    from tunneled endpoints.
+    """
+
+    queue_id: str = Field(
+        ...,
+        description="Reserved queue identifier (e.g., 'rq_abc123')",
+    )
+    token: str = Field(
+        ...,
+        description="Secret token for consuming from the queue",
+    )
+
+
 class EndpointRef(BaseModel):
     """Reference to a SyftAI-Space endpoint with connection details.
 
@@ -112,6 +133,10 @@ class ChatRequest(BaseModel):
     custom_system_prompt: str | None = Field(
         default=None,
         description="Optional custom system prompt to override the default RAG prompt",
+    )
+    response_queue: ResponseQueue | None = Field(
+        default=None,
+        description="Reserved queue credentials for tunneling. Required if any endpoint uses tunneling URL (tunneling:username)",
     )
 
 

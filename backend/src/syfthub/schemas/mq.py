@@ -1,19 +1,23 @@
 """Message queue schemas for pub/consume operations."""
 
 from datetime import datetime
-from typing import List
 
 from pydantic import BaseModel, Field
 
 
 class PublishRequest(BaseModel):
-    """Request to publish a message to a user's queue."""
+    """Request to publish a message.
+
+    The target_username can be either:
+    - A regular username (e.g., "alice") - publishes to user's queue
+    - A reserved queue ID (e.g., "rq_abc123") - auto-detected and routed to reserved queue
+    """
 
     target_username: str = Field(
         ...,
         min_length=1,
-        max_length=50,
-        description="Username of the recipient",
+        max_length=64,
+        description="Target username or reserved queue ID (rq_ prefix auto-detected)",
     )
     message: str = Field(
         ...,
@@ -28,7 +32,7 @@ class PublishResponse(BaseModel):
 
     status: str = Field(default="ok", description="Status of the publish operation")
     queued_at: datetime = Field(..., description="Timestamp when message was queued")
-    target_username: str = Field(..., description="Username of the recipient")
+    target_username: str = Field(..., description="Target (username or queue ID)")
     queue_length: int = Field(
         ..., ge=0, description="Current queue length after publish"
     )
@@ -70,7 +74,7 @@ class ConsumeRequest(BaseModel):
 class ConsumeResponse(BaseModel):
     """Response with consumed messages."""
 
-    messages: List[Message] = Field(
+    messages: list[Message] = Field(
         default_factory=list, description="List of consumed messages"
     )
     remaining: int = Field(
@@ -101,7 +105,7 @@ class PeekRequest(BaseModel):
 class PeekResponse(BaseModel):
     """Response with peeked messages (not consumed)."""
 
-    messages: List[Message] = Field(
+    messages: list[Message] = Field(
         default_factory=list, description="List of messages (not removed from queue)"
     )
     total: int = Field(..., ge=0, description="Total number of messages in queue")

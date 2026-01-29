@@ -147,6 +147,7 @@ class GenerationService:
         """
         endpoint_tokens = endpoint_tokens or {}
         transaction_tokens = transaction_tokens or {}
+
         try:
             result = await self._query_model(
                 model_endpoint=model_endpoint,
@@ -164,10 +165,17 @@ class GenerationService:
         except ModelClientError as e:
             logger.error(f"Generation failed: {e}")
             raise GenerationError(f"Model generation failed: {e}") from e
-
+        except TimeoutError as e:
+            logger.error(f"Generation timed out: {e}")
+            raise GenerationError(f"Model generation timed out: {e}") from e
         except TunnelClientError as e:
             logger.error(f"Tunnel generation failed: {e}")
             raise GenerationError(f"Tunneled model generation failed: {e}") from e
+        except Exception as e:
+            if isinstance(e, GenerationError):
+                raise
+            logger.error(f"Generation failed: {e}")
+            raise GenerationError(f"Model generation failed: {e}") from e
 
     async def generate_stream(
         self,
@@ -210,6 +218,7 @@ class GenerationService:
             raise GenerationError("Streaming is not yet supported for tunneled endpoints")
 
         try:
+            # HTTP endpoint - use streaming
             async for chunk in self.model_client.chat_stream(
                 url=model_endpoint.url,
                 slug=model_endpoint.slug,
@@ -217,12 +226,21 @@ class GenerationService:
                 max_tokens=max_tokens,
                 temperature=temperature,
                 tenant_name=model_endpoint.tenant_name,
-                authorization_token=self._get_token_for_endpoint(model_endpoint, endpoint_tokens),
-                transaction_token=self._get_token_for_endpoint(model_endpoint, transaction_tokens),
+                authorization_token=self._get_token_for_endpoint(
+                    model_endpoint, endpoint_tokens
+                ),
+                transaction_token=self._get_token_for_endpoint(
+                    model_endpoint, transaction_tokens
+                ),
             ):
                 if chunk:
                     yield chunk
 
         except ModelClientError as e:
+            logger.error(f"Stream generation failed: {e}")
+            raise GenerationError(f"Model stream failed: {e}") from e
+        except GenerationError:
+            raise
+        except Exception as e:
             logger.error(f"Stream generation failed: {e}")
             raise GenerationError(f"Model stream failed: {e}") from e

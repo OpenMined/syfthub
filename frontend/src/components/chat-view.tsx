@@ -840,7 +840,7 @@ function getChatErrorMessage(error: unknown): string {
 }
 
 export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProperties>) {
-  const { user } = useAuth();
+  const { user, isInitializing } = useAuth();
 
   const [messages, setMessages] = useState<Message[]>([
     { id: '1', role: 'user', content: initialQuery, type: 'text' }
@@ -852,6 +852,7 @@ export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProper
   const [availableSources, setAvailableSources] = useState<ChatSource[]>([]);
   const messagesEndReference = useRef<HTMLDivElement>(null);
   const abortControllerReference = useRef<AbortController | null>(null);
+  const hasProcessedInitialQuery = useRef(false);
 
   // Model selection state - initialize with initialModel if provided
   const [selectedModel, setSelectedModel] = useState<ChatSource | null>(initialModel ?? null);
@@ -953,6 +954,79 @@ export function ChatView({ initialQuery, initialModel }: Readonly<ChatViewProper
   useEffect(() => {
     messagesEndReference.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Auto-trigger endpoint confirmation for initial query from navigation (e.g., hero search)
+  useEffect(() => {
+    // Only process once - ref prevents re-triggering even if deps change
+    if (hasProcessedInitialQuery.current) return;
+
+    // No initial query - nothing to do
+    if (!initialQuery.trim()) return;
+
+    // Wait for auth to finish initializing before making decisions
+    if (isInitializing) return;
+
+    // Wait for models to finish loading
+    if (isLoadingModels) return;
+
+    // Auth is done - check if user is authenticated
+    if (!user?.email) {
+      hasProcessedInitialQuery.current = true;
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: 'Please log in to use the chat feature.',
+          type: 'text'
+        }
+      ]);
+      return;
+    }
+
+    // Models loaded - check if one is selected
+    if (!selectedModel) {
+      hasProcessedInitialQuery.current = true;
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: 'No models available. Please try again later.',
+          type: 'text'
+        }
+      ]);
+      return;
+    }
+
+    // All conditions met - trigger endpoint confirmation flow
+    hasProcessedInitialQuery.current = true;
+
+    const triggerInitialQuery = async () => {
+      setPendingQuery(initialQuery);
+      setShowEndpointConfirmation(true);
+      setSelectedSources(new Set());
+
+      // Search for relevant endpoints
+      setIsSearchingEndpoints(true);
+      try {
+        if (initialQuery.length >= MIN_QUERY_LENGTH) {
+          const results = await searchDataSources(initialQuery, { top_k: 10 });
+          const { highRelevance } = categorizeResults(results);
+          setSuggestedEndpoints(highRelevance);
+        } else {
+          setSuggestedEndpoints([]);
+        }
+      } catch (error) {
+        console.error('Failed to search endpoints for initial query:', error);
+        setSuggestedEndpoints([]);
+      } finally {
+        setIsSearchingEndpoints(false);
+      }
+    };
+
+    void triggerInitialQuery();
+  }, [initialQuery, selectedModel, user?.email, isInitializing, isLoadingModels]);
 
   // Use available sources for the panel (now loaded from backend)
   const allSources = availableSources;

@@ -13,6 +13,7 @@ from syfthub_sdk.models import AuthTokens
 from syfthub_sdk.mq import (
     ClearResponse,
     ConsumeResponse,
+    MQMessage,
     PeekResponse,
     PublishResponse,
     QueueStatusResponse,
@@ -46,6 +47,222 @@ def authenticated_client(base_url: str, fake_tokens: AuthTokens) -> SyftHubClien
     client = SyftHubClient(base_url=base_url)
     client._tokens = fake_tokens
     return client
+
+
+# =============================================================================
+# Test: Publish
+# =============================================================================
+
+
+class TestPublish:
+    """Tests for publish method."""
+
+    @respx.mock
+    def test_publish_to_user_success(
+        self, authenticated_client: SyftHubClient, base_url: str
+    ):
+        """Test successful publish to user queue."""
+        now = datetime.now(timezone.utc)
+        mock_response = {
+            "status": "ok",
+            "queued_at": now.isoformat(),
+            "target_username": "bob",
+            "queue_length": 5,
+        }
+
+        respx.post(f"{base_url}/api/v1/mq/pub").mock(
+            return_value=httpx.Response(200, json=mock_response)
+        )
+
+        result = authenticated_client.mq.publish(
+            target_username="bob",
+            message='{"type": "hello"}',
+        )
+
+        assert isinstance(result, PublishResponse)
+        assert result.status == "ok"
+        assert result.target_username == "bob"
+        assert result.queue_length == 5
+
+    @respx.mock
+    def test_publish_to_reserved_queue_autodetect(
+        self, authenticated_client: SyftHubClient, base_url: str
+    ):
+        """Test publish auto-detects rq_ prefix."""
+        now = datetime.now(timezone.utc)
+        mock_response = {
+            "status": "ok",
+            "queued_at": now.isoformat(),
+            "target_username": "rq_abc123",
+            "queue_length": 1,
+        }
+
+        respx.post(f"{base_url}/api/v1/mq/pub").mock(
+            return_value=httpx.Response(200, json=mock_response)
+        )
+
+        result = authenticated_client.mq.publish(
+            target_username="rq_abc123",  # Reserved queue ID
+            message='{"response": "data"}',
+        )
+
+        assert result.target_username == "rq_abc123"
+
+    @respx.mock
+    def test_publish_user_not_found(
+        self, authenticated_client: SyftHubClient, base_url: str
+    ):
+        """Test publish to non-existent user."""
+        from syfthub_sdk.exceptions import NotFoundError
+
+        respx.post(f"{base_url}/api/v1/mq/pub").mock(
+            return_value=httpx.Response(
+                404,
+                json={"detail": "User 'nonexistent' not found"},
+            )
+        )
+
+        with pytest.raises(NotFoundError):
+            authenticated_client.mq.publish(
+                target_username="nonexistent", message="test"
+            )
+
+
+# =============================================================================
+# Test: Consume
+# =============================================================================
+
+
+class TestConsume:
+    """Tests for consume method."""
+
+    @respx.mock
+    def test_consume_from_own_queue(
+        self, authenticated_client: SyftHubClient, base_url: str
+    ):
+        """Test consuming from own queue."""
+        now = datetime.now(timezone.utc)
+        mock_response = {
+            "messages": [
+                {
+                    "id": "msg-123",
+                    "from_username": "alice",
+                    "from_user_id": 2,
+                    "message": '{"type": "greeting"}',
+                    "queued_at": now.isoformat(),
+                }
+            ],
+            "remaining": 0,
+        }
+
+        respx.post(f"{base_url}/api/v1/mq/consume").mock(
+            return_value=httpx.Response(200, json=mock_response)
+        )
+
+        result = authenticated_client.mq.consume(limit=10)
+
+        assert isinstance(result, ConsumeResponse)
+        assert len(result.messages) == 1
+        assert result.messages[0].from_username == "alice"
+        assert result.remaining == 0
+
+    @respx.mock
+    def test_consume_empty_queue(
+        self, authenticated_client: SyftHubClient, base_url: str
+    ):
+        """Test consuming from empty queue."""
+        respx.post(f"{base_url}/api/v1/mq/consume").mock(
+            return_value=httpx.Response(
+                200,
+                json={"messages": [], "remaining": 0},
+            )
+        )
+
+        result = authenticated_client.mq.consume()
+
+        assert len(result.messages) == 0
+        assert result.remaining == 0
+
+    @respx.mock
+    def test_consume_from_reserved_queue(
+        self, authenticated_client: SyftHubClient, base_url: str
+    ):
+        """Test consuming from reserved queue with queue_id and token."""
+        now = datetime.now(timezone.utc)
+        mock_response = {
+            "messages": [
+                {
+                    "id": "msg-456",
+                    "from_username": "aggregator",
+                    "from_user_id": 1,
+                    "message": '{"response": "data"}',
+                    "queued_at": now.isoformat(),
+                }
+            ],
+            "remaining": 0,
+        }
+
+        route = respx.post(f"{base_url}/api/v1/mq/consume").mock(
+            return_value=httpx.Response(200, json=mock_response)
+        )
+
+        result = authenticated_client.mq.consume(
+            queue_id="rq_abc123",
+            token="secret_token",
+            limit=10,
+        )
+
+        assert len(result.messages) == 1
+        assert result.messages[0].id == "msg-456"
+
+        # Verify queue_id and token were passed
+        import json
+
+        request = route.calls[0].request
+        body = json.loads(request.content)
+        assert body["queue_id"] == "rq_abc123"
+        assert body["token"] == "secret_token"
+
+    @respx.mock
+    def test_consume_reserved_queue_invalid_token(
+        self, authenticated_client: SyftHubClient, base_url: str
+    ):
+        """Test consume with invalid token fails."""
+        from syfthub_sdk.exceptions import AuthorizationError
+
+        respx.post(f"{base_url}/api/v1/mq/consume").mock(
+            return_value=httpx.Response(
+                403,
+                json={"detail": "Invalid token for this reserved queue"},
+            )
+        )
+
+        with pytest.raises(AuthorizationError):
+            authenticated_client.mq.consume(queue_id="rq_abc123", token="wrong_token")
+
+    @respx.mock
+    def test_consume_without_reserved_queue_params(
+        self, authenticated_client: SyftHubClient, base_url: str
+    ):
+        """Test that consume without queue_id/token doesn't include them."""
+        mock_response = {
+            "messages": [],
+            "remaining": 0,
+        }
+
+        route = respx.post(f"{base_url}/api/v1/mq/consume").mock(
+            return_value=httpx.Response(200, json=mock_response)
+        )
+
+        authenticated_client.mq.consume(limit=5)
+
+        import json
+
+        request = route.calls[0].request
+        body = json.loads(request.content)
+        assert body["limit"] == 5
+        assert "queue_id" not in body
+        assert "token" not in body
 
 
 # =============================================================================
@@ -102,9 +319,9 @@ class TestReserveQueue:
 
         # Verify the TTL was passed in the request
         assert route.called
-        request = route.calls[0].request
         import json
 
+        request = route.calls[0].request
         body = json.loads(request.content)
         assert body["ttl_seconds"] == 600
 
@@ -163,182 +380,31 @@ class TestReleaseQueue:
         )
 
         assert route.called
-        request = route.calls[0].request
         import json
 
+        request = route.calls[0].request
         body = json.loads(request.content)
         assert body["queue_id"] == "rq_myqueue"
         assert body["token"] == "my_secret"
 
-
-# =============================================================================
-# Test: Consume with Reserved Queue
-# =============================================================================
-
-
-class TestConsumeReservedQueue:
-    """Tests for mq.consume() with reserved queue support."""
-
     @respx.mock
-    def test_consume_own_queue(
+    def test_release_queue_not_found(
         self, authenticated_client: SyftHubClient, base_url: str
     ):
-        """Test consuming from own queue (default behavior)."""
-        now = datetime.now(timezone.utc)
-        mock_response = {
-            "messages": [
-                {
-                    "id": "msg-1",
-                    "from_username": "alice",
-                    "from_user_id": 2,
-                    "message": "Hello",
-                    "queued_at": now.isoformat(),
-                }
-            ],
-            "remaining": 0,
-        }
+        """Test release of non-existent queue."""
+        from syfthub_sdk.exceptions import NotFoundError
 
-        respx.post(f"{base_url}/api/v1/mq/consume").mock(
-            return_value=httpx.Response(200, json=mock_response)
+        respx.post(f"{base_url}/api/v1/mq/release").mock(
+            return_value=httpx.Response(
+                404,
+                json={"detail": "Reserved queue 'rq_nonexistent' not found or expired"},
+            )
         )
 
-        result = authenticated_client.mq.consume(limit=10)
-
-        assert isinstance(result, ConsumeResponse)
-        assert len(result.messages) == 1
-        assert result.messages[0].from_username == "alice"
-
-    @respx.mock
-    def test_consume_reserved_queue(
-        self, authenticated_client: SyftHubClient, base_url: str
-    ):
-        """Test consuming from a reserved queue."""
-        now = datetime.now(timezone.utc)
-        mock_response = {
-            "messages": [
-                {
-                    "id": "msg-2",
-                    "from_username": "bob",
-                    "from_user_id": 3,
-                    "message": '{"response": "data"}',
-                    "queued_at": now.isoformat(),
-                }
-            ],
-            "remaining": 2,
-        }
-
-        route = respx.post(f"{base_url}/api/v1/mq/consume").mock(
-            return_value=httpx.Response(200, json=mock_response)
-        )
-
-        result = authenticated_client.mq.consume(
-            limit=10,
-            queue_id="rq_reserved123",
-            token="reserved_token",
-        )
-
-        assert isinstance(result, ConsumeResponse)
-        assert len(result.messages) == 1
-        assert result.remaining == 2
-
-        # Verify queue_id and token were passed
-        request = route.calls[0].request
-        import json
-
-        body = json.loads(request.content)
-        assert body["queue_id"] == "rq_reserved123"
-        assert body["token"] == "reserved_token"
-
-    @respx.mock
-    def test_consume_without_reserved_queue_params(
-        self, authenticated_client: SyftHubClient, base_url: str
-    ):
-        """Test that consume without queue_id/token doesn't include them."""
-        mock_response = {
-            "messages": [],
-            "remaining": 0,
-        }
-
-        route = respx.post(f"{base_url}/api/v1/mq/consume").mock(
-            return_value=httpx.Response(200, json=mock_response)
-        )
-
-        authenticated_client.mq.consume(limit=5)
-
-        request = route.calls[0].request
-        import json
-
-        body = json.loads(request.content)
-        assert body["limit"] == 5
-        assert "queue_id" not in body
-        assert "token" not in body
-
-
-# =============================================================================
-# Test: Publish to Reserved Queue
-# =============================================================================
-
-
-class TestPublishToReservedQueue:
-    """Tests for mq.publish() with reserved queue target."""
-
-    @respx.mock
-    def test_publish_to_user_queue(
-        self, authenticated_client: SyftHubClient, base_url: str
-    ):
-        """Test publishing to a user's queue."""
-        now = datetime.now(timezone.utc)
-        mock_response = {
-            "status": "ok",
-            "queued_at": now.isoformat(),
-            "target_username": "alice",
-            "queue_length": 1,
-        }
-
-        respx.post(f"{base_url}/api/v1/mq/pub").mock(
-            return_value=httpx.Response(200, json=mock_response)
-        )
-
-        result = authenticated_client.mq.publish(
-            target_username="alice",
-            message='{"hello": "world"}',
-        )
-
-        assert isinstance(result, PublishResponse)
-        assert result.target_username == "alice"
-        assert result.queue_length == 1
-
-    @respx.mock
-    def test_publish_to_reserved_queue(
-        self, authenticated_client: SyftHubClient, base_url: str
-    ):
-        """Test publishing to a reserved queue."""
-        now = datetime.now(timezone.utc)
-        mock_response = {
-            "status": "ok",
-            "queued_at": now.isoformat(),
-            "target_username": "rq_response123",
-            "queue_length": 1,
-        }
-
-        route = respx.post(f"{base_url}/api/v1/mq/pub").mock(
-            return_value=httpx.Response(200, json=mock_response)
-        )
-
-        result = authenticated_client.mq.publish(
-            target_username="rq_response123",  # Reserved queue ID as target
-            message='{"response": "data"}',
-        )
-
-        assert isinstance(result, PublishResponse)
-        assert result.target_username == "rq_response123"
-
-        # Verify the request
-        request = route.calls[0].request
-        import json
-
-        body = json.loads(request.content)
-        assert body["target_username"] == "rq_response123"
+        with pytest.raises(NotFoundError):
+            authenticated_client.mq.release_queue(
+                queue_id="rq_nonexistent", token="token"
+            )
 
 
 # =============================================================================
@@ -346,14 +412,14 @@ class TestPublishToReservedQueue:
 # =============================================================================
 
 
-class TestOtherMQOperations:
-    """Tests for other MQ operations."""
+class TestQueueStatus:
+    """Tests for queue status method."""
 
     @respx.mock
-    def test_status(self, authenticated_client: SyftHubClient, base_url: str):
+    def test_status_success(self, authenticated_client: SyftHubClient, base_url: str):
         """Test getting queue status."""
         mock_response = {
-            "queue_length": 5,
+            "queue_length": 10,
             "username": "testuser",
         }
 
@@ -364,11 +430,15 @@ class TestOtherMQOperations:
         result = authenticated_client.mq.status()
 
         assert isinstance(result, QueueStatusResponse)
-        assert result.queue_length == 5
+        assert result.queue_length == 10
         assert result.username == "testuser"
 
+
+class TestPeek:
+    """Tests for peek method."""
+
     @respx.mock
-    def test_peek(self, authenticated_client: SyftHubClient, base_url: str):
+    def test_peek_messages(self, authenticated_client: SyftHubClient, base_url: str):
         """Test peeking at messages."""
         now = datetime.now(timezone.utc)
         mock_response = {
@@ -394,12 +464,16 @@ class TestOtherMQOperations:
         assert len(result.messages) == 1
         assert result.total == 3
 
+
+class TestClear:
+    """Tests for clear method."""
+
     @respx.mock
-    def test_clear(self, authenticated_client: SyftHubClient, base_url: str):
-        """Test clearing the queue."""
+    def test_clear_queue(self, authenticated_client: SyftHubClient, base_url: str):
+        """Test clearing queue."""
         mock_response = {
             "status": "ok",
-            "cleared": 10,
+            "cleared": 15,
         }
 
         respx.delete(f"{base_url}/api/v1/mq/clear").mock(
@@ -410,4 +484,48 @@ class TestOtherMQOperations:
 
         assert isinstance(result, ClearResponse)
         assert result.status == "ok"
-        assert result.cleared == 10
+        assert result.cleared == 15
+
+
+# =============================================================================
+# Model Tests
+# =============================================================================
+
+
+class TestMQModels:
+    """Tests for MQ models."""
+
+    def test_mq_message_model(self):
+        """Test MQMessage model."""
+        now = datetime.now(timezone.utc)
+        msg = MQMessage(
+            id="msg-123",
+            from_username="alice",
+            from_user_id=1,
+            message='{"type": "test"}',
+            queued_at=now,
+        )
+        assert msg.id == "msg-123"
+        assert msg.from_username == "alice"
+
+    def test_reserve_queue_response_model(self):
+        """Test ReserveQueueResponse model."""
+        now = datetime.now(timezone.utc)
+        response = ReserveQueueResponse(
+            queue_id="rq_abc123",
+            token="secret",
+            expires_at=now,
+            owner_username="testuser",
+        )
+        assert response.queue_id.startswith("rq_")
+        assert response.owner_username == "testuser"
+
+    def test_release_queue_response_model(self):
+        """Test ReleaseQueueResponse model."""
+        response = ReleaseQueueResponse(
+            status="ok",
+            cleared=10,
+            queue_id="rq_abc123",
+        )
+        assert response.cleared == 10
+        assert response.status == "ok"

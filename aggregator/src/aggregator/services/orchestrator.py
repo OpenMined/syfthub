@@ -41,6 +41,12 @@ class Orchestrator:
     2. Parallel retrieval from SyftAI-Space data source endpoints
     3. Prompt construction with retrieved context
     4. Model generation via SyftAI-Space model endpoints
+
+    Tunneling Support:
+    When a request includes response_queue_id and response_queue_token,
+    the orchestrator can communicate with tunneled endpoints (endpoints
+    behind firewalls that are accessible via MQ). The TunnelClient is
+    injected as a dependency to the services.
     """
 
     def __init__(

@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 
 from syfthub.schemas.user import User
 from syfthub.services.mq_service import MessageQueueService
@@ -114,8 +115,6 @@ class TestPublish(TestMessageQueueService):
         """Test publishing to a reserved queue that doesn't exist."""
         mock_redis.hgetall.return_value = {}
 
-        from fastapi import HTTPException
-
         with pytest.raises(HTTPException) as exc_info:
             await mq_service.publish(
                 sender=mock_user,
@@ -133,8 +132,6 @@ class TestPublish(TestMessageQueueService):
         """Test publishing to a user that doesn't exist."""
         mock_user_repo.get_by_username.return_value = None
 
-        from fastapi import HTTPException
-
         with pytest.raises(HTTPException) as exc_info:
             await mq_service.publish(
                 sender=mock_user,
@@ -145,14 +142,30 @@ class TestPublish(TestMessageQueueService):
         assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
+    async def test_publish_to_inactive_user(
+        self, mq_service, mock_user_repo, mock_user, target_user
+    ):
+        """Test publishing to an inactive user."""
+        target_user.is_active = False
+        mock_user_repo.get_by_username.return_value = target_user
+
+        with pytest.raises(HTTPException) as exc_info:
+            await mq_service.publish(
+                sender=mock_user,
+                target_username="bob",
+                message="test",
+            )
+
+        assert exc_info.value.status_code == 400
+        assert "not active" in exc_info.value.detail
+
+    @pytest.mark.asyncio
     async def test_publish_queue_full(
         self, mq_service, mock_redis, mock_user_repo, mock_user, target_user
     ):
         """Test publishing when queue is full."""
         mock_user_repo.get_by_username.return_value = target_user
         mock_redis.llen.return_value = 1000  # Max queue size
-
-        from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as exc_info:
             await mq_service.publish(
@@ -188,6 +201,42 @@ class TestConsume(TestMessageQueueService):
         assert response.messages[0].from_username == "bob"
         assert response.messages[0].message == "hello"
         assert response.remaining == 0
+
+    @pytest.mark.asyncio
+    async def test_consume_empty_queue(self, mq_service, mock_redis, mock_user):
+        """Test consuming from empty queue."""
+        mock_redis.rpop.return_value = None
+        mock_redis.llen.return_value = 0
+
+        response = await mq_service.consume(user=mock_user, limit=10)
+
+        assert len(response.messages) == 0
+        assert response.remaining == 0
+
+    @pytest.mark.asyncio
+    async def test_consume_respects_limit(self, mq_service, mock_redis, mock_user):
+        """Test consume respects the limit parameter."""
+        now = datetime.now(timezone.utc)
+        messages = [
+            json.dumps(
+                {
+                    "id": f"msg-{i}",
+                    "from_username": "sender",
+                    "from_user_id": 2,
+                    "message": f"message {i}",
+                    "queued_at": now.isoformat(),
+                }
+            )
+            for i in range(5)
+        ]
+        # Return 3 messages then None
+        mock_redis.rpop.side_effect = [*messages[:3], None]
+        mock_redis.llen.return_value = 2
+
+        response = await mq_service.consume(user=mock_user, limit=3)
+
+        assert len(response.messages) == 3
+        assert response.remaining == 2
 
     @pytest.mark.asyncio
     async def test_consume_from_reserved_queue(self, mq_service, mock_redis, mock_user):
@@ -226,8 +275,6 @@ class TestConsume(TestMessageQueueService):
     @pytest.mark.asyncio
     async def test_consume_reserved_queue_missing_token(self, mq_service, mock_user):
         """Test consuming from reserved queue without token."""
-        from fastapi import HTTPException
-
         with pytest.raises(HTTPException) as exc_info:
             await mq_service.consume(
                 user=mock_user,
@@ -250,8 +297,6 @@ class TestConsume(TestMessageQueueService):
             b"token_hash": b"different_hash",
         }
 
-        from fastapi import HTTPException
-
         with pytest.raises(HTTPException) as exc_info:
             await mq_service.consume(
                 user=mock_user,
@@ -262,6 +307,23 @@ class TestConsume(TestMessageQueueService):
 
         assert exc_info.value.status_code == 403
         assert "Invalid token" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_consume_reserved_queue_not_found(
+        self, mq_service, mock_redis, mock_user
+    ):
+        """Test consume fails if reserved queue not found."""
+        mock_redis.hgetall.return_value = {}
+
+        with pytest.raises(HTTPException) as exc_info:
+            await mq_service.consume(
+                user=mock_user,
+                queue_id="rq_nonexistent",
+                token="token",
+            )
+
+        assert exc_info.value.status_code == 404
+        assert "not found or expired" in exc_info.value.detail
 
 
 class TestReserveQueue(TestMessageQueueService):
@@ -323,8 +385,6 @@ class TestReleaseQueue(TestMessageQueueService):
         """Test releasing a queue that doesn't exist."""
         mock_redis.hgetall.return_value = {}
 
-        from fastapi import HTTPException
-
         with pytest.raises(HTTPException) as exc_info:
             await mq_service.release_queue(
                 queue_id="rq_nonexistent",
@@ -342,8 +402,6 @@ class TestReleaseQueue(TestMessageQueueService):
             b"token_hash": b"valid_hash",
         }
 
-        from fastapi import HTTPException
-
         with pytest.raises(HTTPException) as exc_info:
             await mq_service.release_queue(
                 queue_id="rq_test123",
@@ -351,6 +409,63 @@ class TestReleaseQueue(TestMessageQueueService):
             )
 
         assert exc_info.value.status_code == 403
+
+
+class TestQueueStatus(TestMessageQueueService):
+    """Tests for queue status operations."""
+
+    @pytest.mark.asyncio
+    async def test_get_status(self, mq_service, mock_redis, mock_user):
+        """Test getting queue status."""
+        mock_redis.llen.return_value = 10
+
+        result = await mq_service.get_status(user=mock_user)
+
+        assert result.queue_length == 10
+        assert result.username == mock_user.username
+
+
+class TestPeekMessages(TestMessageQueueService):
+    """Tests for peeking at messages."""
+
+    @pytest.mark.asyncio
+    async def test_peek_messages(self, mq_service, mock_redis, mock_user):
+        """Test peeking at messages without consuming."""
+        now = datetime.now(timezone.utc)
+        messages = [
+            json.dumps(
+                {
+                    "id": f"msg-{i}",
+                    "from_username": "sender",
+                    "from_user_id": 2,
+                    "message": f"message {i}",
+                    "queued_at": now.isoformat(),
+                }
+            )
+            for i in range(3)
+        ]
+        mock_redis.llen.return_value = 3
+        mock_redis.lrange.return_value = messages
+
+        result = await mq_service.peek(user=mock_user, limit=10)
+
+        assert result.total == 3
+        # Messages should still be in queue (peek doesn't remove)
+        mock_redis.rpop.assert_not_called()
+
+
+class TestClearQueue(TestMessageQueueService):
+    """Tests for clearing queue."""
+
+    @pytest.mark.asyncio
+    async def test_clear_queue(self, mq_service, mock_redis, mock_user):
+        """Test clearing all messages from queue."""
+        mock_redis.llen.return_value = 15
+
+        count = await mq_service.clear_queue(user=mock_user)
+
+        assert count == 15
+        mock_redis.delete.assert_called_once()
 
 
 class TestIsReservedQueueId(TestMessageQueueService):

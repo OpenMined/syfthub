@@ -31,12 +31,14 @@ async def publish_message(
     current_user: Annotated[User, Depends(get_current_active_user)],
     mq_service: Annotated[MessageQueueService, Depends(get_mq_service)],
 ) -> PublishResponse:
-    """Publish a message to another user's queue.
+    """Publish a message to another user's queue or a reserved queue.
 
-    Sends a message to the specified target user's message queue.
-    The message will be available for the target user to consume.
+    Sends a message to either a user's message queue or a reserved ephemeral queue.
+    The target is auto-detected by prefix:
+    - Regular username (e.g., "alice") - publishes to user's queue
+    - Reserved queue ID (e.g., "rq_abc123") - publishes to reserved queue
 
-    - **target_username**: The username of the recipient
+    - **target_username**: The recipient (username or reserved queue ID with rq_ prefix)
     - **message**: The message payload (can be a JSON string for structured data)
     """
     return await mq_service.publish(

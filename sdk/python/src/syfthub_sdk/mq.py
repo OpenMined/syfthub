@@ -89,7 +89,7 @@ class MQResource:
     """Message Queue operations for pub/consume messaging.
 
     This resource provides access to the Redis-backed message queue system
-    for asynchronous user-to-user messaging.
+    for asynchronous user-to-user messaging and ephemeral reserved queues.
 
     Example:
         # Publish a message to another user
@@ -115,6 +115,31 @@ class MQResource:
         # Clear your queue
         cleared = client.mq.clear()
         print(f"Cleared {cleared.cleared} messages")
+
+    Reserved Queue Example:
+        # Reserve a temporary queue for receiving responses
+        queue = client.mq.reserve_queue(ttl_seconds=300)
+        print(f"Reserved queue: {queue.queue_id}")
+
+        # Share queue_id with another service (it starts with 'rq_')
+        # Publish to reserved queue using the queue_id as target_username
+        client.mq.publish(
+            target_username=queue.queue_id,  # rq_ prefix auto-detected
+            message='{"type": "response", "data": "Hello!"}'
+        )
+
+        # Consume from the reserved queue
+        response = client.mq.consume(
+            queue_id=queue.queue_id,
+            token=queue.token,
+            limit=10
+        )
+
+        # Release when done
+        client.mq.release_queue(
+            queue_id=queue.queue_id,
+            token=queue.token
+        )
     """
 
     def __init__(self, http: HTTPClient) -> None:
@@ -125,18 +150,28 @@ class MQResource:
         """
         self._http = http
 
-    def publish(self, *, target_username: str, message: str) -> PublishResponse:
-        """Publish a message to another user's queue.
+    def publish(
+        self,
+        *,
+        target_username: str,
+        message: str,
+    ) -> PublishResponse:
+        """Publish a message to a user's queue or a reserved queue.
+
+        The target type is auto-detected by prefix:
+        - Regular username (e.g., "alice") - publishes to user's queue
+        - Reserved queue ID (e.g., "rq_abc123") - publishes to reserved queue
 
         Args:
-            target_username: Username of the recipient (1-50 characters).
+            target_username: Username of the recipient or reserved queue ID
+                (reserved queues start with 'rq_' prefix).
             message: The message payload (1-65536 characters, can be JSON string).
 
         Returns:
             PublishResponse with status and queue information.
 
         Raises:
-            NotFoundError: If target user doesn't exist.
+            NotFoundError: If target user or queue doesn't exist.
             ValidationError: If target user is not active or queue is full.
             AuthenticationError: If not authenticated.
         """
