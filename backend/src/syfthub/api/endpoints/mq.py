@@ -14,6 +14,10 @@ from syfthub.schemas.mq import (
     PublishRequest,
     PublishResponse,
     QueueStatusResponse,
+    ReleaseQueueRequest,
+    ReleaseQueueResponse,
+    ReserveQueueRequest,
+    ReserveQueueResponse,
 )
 from syfthub.schemas.user import User
 from syfthub.services.mq_service import MessageQueueService
@@ -48,16 +52,23 @@ async def consume_messages(
     current_user: Annotated[User, Depends(get_current_active_user)],
     mq_service: Annotated[MessageQueueService, Depends(get_mq_service)],
 ) -> ConsumeResponse:
-    """Consume messages from own queue.
+    """Consume messages from own queue or a reserved queue.
 
-    Retrieves and removes messages from the authenticated user's queue.
+    Supports two modes:
+    1. Own queue: Retrieves messages from authenticated user's queue
+    2. Reserved queue: Retrieves from a reserved queue using queue_id + token
+
     Messages are returned in FIFO order (oldest first).
 
     - **limit**: Maximum number of messages to retrieve (1-100, default 10)
+    - **queue_id**: Optional reserved queue ID (rq_*) to consume from
+    - **token**: Required when consuming from a reserved queue
     """
     return await mq_service.consume(
         user=current_user,
         limit=request.limit,
+        queue_id=request.queue_id,
+        token=request.token,
     )
 
 
@@ -106,3 +117,56 @@ async def clear_queue(
     """
     count = await mq_service.clear_queue(user=current_user)
     return {"status": "ok", "cleared": count}
+
+
+# =============================================================================
+# Reserved Queue Endpoints (for tunneling support)
+# =============================================================================
+
+
+@router.post("/reserve", response_model=ReserveQueueResponse)
+async def reserve_queue(
+    request: ReserveQueueRequest,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    mq_service: Annotated[MessageQueueService, Depends(get_mq_service)],
+) -> ReserveQueueResponse:
+    """Reserve a temporary queue for receiving messages.
+
+    Creates a new reserved queue with a unique ID and access token.
+    Reserved queues are used for receiving responses in tunneling scenarios.
+
+    The queue will automatically expire after the TTL.
+
+    - **ttl_seconds**: Time-to-live in seconds (60-3600, default 300)
+
+    Returns:
+    - **queue_id**: Unique queue identifier (rq_<uuid>)
+    - **token**: Secret token for consuming from this queue
+    - **expires_at**: When the queue will expire
+    """
+    return await mq_service.reserve_queue(
+        user=current_user,
+        ttl_seconds=request.ttl_seconds,
+    )
+
+
+@router.post("/release", response_model=ReleaseQueueResponse)
+async def release_queue(
+    request: ReleaseQueueRequest,
+    mq_service: Annotated[MessageQueueService, Depends(get_mq_service)],
+) -> ReleaseQueueResponse:
+    """Release a reserved queue and clear its messages.
+
+    Deletes a reserved queue and all its messages.
+    Requires the token that was returned when the queue was reserved.
+
+    Note: This endpoint does not require user authentication - the token
+    serves as the credential for this operation.
+
+    - **queue_id**: The reserved queue identifier
+    - **token**: The secret token for this queue
+    """
+    return await mq_service.release_queue(
+        queue_id=request.queue_id,
+        token=request.token,
+    )

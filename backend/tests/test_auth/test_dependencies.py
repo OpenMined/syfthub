@@ -159,6 +159,144 @@ class TestOwnershipChecker:
         assert exc_info.value.status_code == 403
 
 
+class TestSatelliteTokenHelpers:
+    """Test satellite token helper functions."""
+
+    def test_is_satellite_token_rs256(self):
+        """Test that RS256 tokens are detected as satellite tokens."""
+        # Create a mock RS256 JWT (header only matters for detection)
+        import base64
+        import json
+
+        from syfthub.auth.db_dependencies import _is_satellite_token
+
+        header = {"alg": "RS256", "typ": "JWT", "kid": "test-key"}
+        header_b64 = (
+            base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip("=")
+        )
+        mock_token = f"{header_b64}.payload.signature"
+
+        assert _is_satellite_token(mock_token) is True
+
+    def test_is_satellite_token_hs256(self):
+        """Test that HS256 tokens are not detected as satellite tokens."""
+        import base64
+        import json
+
+        from syfthub.auth.db_dependencies import _is_satellite_token
+
+        header = {"alg": "HS256", "typ": "JWT"}
+        header_b64 = (
+            base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip("=")
+        )
+        mock_token = f"{header_b64}.payload.signature"
+
+        assert _is_satellite_token(mock_token) is False
+
+    def test_is_satellite_token_invalid(self):
+        """Test that invalid tokens return False."""
+        from syfthub.auth.db_dependencies import _is_satellite_token
+
+        assert _is_satellite_token("not-a-jwt") is False
+        assert _is_satellite_token("") is False
+        assert _is_satellite_token("a.b") is False  # Missing parts
+
+
+class TestSatelliteTokenAuthentication:
+    """Test satellite token authentication for MQ operations."""
+
+    @pytest.fixture
+    def mock_user_repo(self, sample_user):
+        """Create a mock UserRepository for testing."""
+        repo = MagicMock(spec=UserRepository)
+        repo.get_by_id.return_value = sample_user
+        repo.get_by_username.return_value = sample_user
+        return repo
+
+    @pytest.fixture
+    def configured_key_manager(self):
+        """Create a configured key manager for testing."""
+        from syfthub.auth.keys import RSAKeyManager
+
+        RSAKeyManager._instance = None
+        manager = RSAKeyManager()
+        manager._generate_keypair("test-mq-key")
+        yield manager
+        RSAKeyManager._instance = None
+
+    @pytest.mark.asyncio
+    async def test_authenticate_satellite_token_success(
+        self, mock_user_repo, sample_user, configured_key_manager
+    ):
+        """Test successful satellite token authentication."""
+        from syfthub.auth.db_dependencies import _authenticate_with_satellite_token
+        from syfthub.auth.satellite_tokens import create_satellite_token
+
+        mock_user = MagicMock()
+        mock_user.id = sample_user.id
+        mock_user.role = "user"
+
+        with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
+            mock_settings.allowed_audiences = {"test-audience"}
+            mock_settings.issuer_url = "https://hub.syft.com"
+            mock_settings.satellite_token_expire_seconds = 60
+
+            token = create_satellite_token(
+                user=mock_user,
+                audience="test-audience",
+                key_manager=configured_key_manager,
+            )
+
+            with (
+                patch(
+                    "syfthub.auth.db_dependencies.key_manager", configured_key_manager
+                ),
+                patch("syfthub.auth.db_dependencies.settings") as dep_settings,
+            ):
+                dep_settings.issuer_url = "https://hub.syft.com"
+                user = await _authenticate_with_satellite_token(token, mock_user_repo)
+
+            assert user == sample_user
+            mock_user_repo.get_by_id.assert_called_once_with(sample_user.id)
+
+    @pytest.mark.asyncio
+    async def test_authenticate_satellite_token_user_not_found(
+        self, mock_user_repo, configured_key_manager
+    ):
+        """Test satellite token auth with non-existent user."""
+        from syfthub.auth.db_dependencies import _authenticate_with_satellite_token
+        from syfthub.auth.satellite_tokens import create_satellite_token
+
+        mock_user = MagicMock()
+        mock_user.id = 999
+        mock_user.role = "user"
+
+        mock_user_repo.get_by_id.return_value = None
+
+        with patch("syfthub.auth.satellite_tokens.settings") as mock_settings:
+            mock_settings.allowed_audiences = {"test-audience"}
+            mock_settings.issuer_url = "https://hub.syft.com"
+            mock_settings.satellite_token_expire_seconds = 60
+
+            token = create_satellite_token(
+                user=mock_user,
+                audience="test-audience",
+                key_manager=configured_key_manager,
+            )
+
+            with (
+                patch(
+                    "syfthub.auth.db_dependencies.key_manager", configured_key_manager
+                ),
+                patch("syfthub.auth.db_dependencies.settings") as dep_settings,
+            ):
+                dep_settings.issuer_url = "https://hub.syft.com"
+                with pytest.raises(HTTPException) as exc_info:
+                    await _authenticate_with_satellite_token(token, mock_user_repo)
+
+            assert exc_info.value.status_code == 401
+
+
 class TestAsyncAuthFunctions:
     """Test async authentication functions."""
 

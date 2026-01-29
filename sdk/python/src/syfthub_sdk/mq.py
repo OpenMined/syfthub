@@ -68,6 +68,23 @@ class ClearResponse(BaseModel):
     cleared: int = Field(..., ge=0, description="Number of messages cleared")
 
 
+class ReserveQueueResponse(BaseModel):
+    """Response with reserved queue credentials."""
+
+    queue_id: str = Field(..., description="Unique queue identifier (rq_<uuid>)")
+    token: str = Field(..., description="Secret token for accessing this queue")
+    expires_at: datetime = Field(..., description="When the queue will expire")
+    owner_username: str = Field(..., description="Username of the queue owner")
+
+
+class ReleaseQueueResponse(BaseModel):
+    """Response after releasing a reserved queue."""
+
+    status: str = Field(default="ok", description="Status of the release operation")
+    cleared: int = Field(..., ge=0, description="Number of messages that were cleared")
+    queue_id: str = Field(..., description="The released queue identifier")
+
+
 class MQResource:
     """Message Queue operations for pub/consume messaging.
 
@@ -129,24 +146,44 @@ class MQResource:
         )
         return PublishResponse.model_validate(response)
 
-    def consume(self, *, limit: int = 10) -> ConsumeResponse:
-        """Consume messages from your own queue.
+    def consume(
+        self,
+        *,
+        limit: int = 10,
+        queue_id: str | None = None,
+        token: str | None = None,
+    ) -> ConsumeResponse:
+        """Consume messages from your own queue or a reserved queue.
+
+        Supports two modes:
+        1. Own queue (default): Consume from your authenticated user's queue
+        2. Reserved queue: Consume from a reserved queue using queue_id + token
 
         Messages are returned in FIFO order (oldest first) and are
         removed from the queue.
 
         Args:
             limit: Maximum number of messages to retrieve (1-100, default 10).
+            queue_id: Optional reserved queue ID (rq_*) to consume from.
+            token: Required when consuming from a reserved queue.
 
         Returns:
             ConsumeResponse with messages and remaining count.
 
         Raises:
             AuthenticationError: If not authenticated.
+            NotFoundError: If reserved queue not found or expired.
+            ForbiddenError: If token is invalid for the reserved queue.
         """
+        payload: dict[str, int | str] = {"limit": limit}
+        if queue_id is not None:
+            payload["queue_id"] = queue_id
+        if token is not None:
+            payload["token"] = token
+
         response = self._http.post(
             "/api/v1/mq/consume",
-            json={"limit": limit},
+            json=payload,
         )
         return ConsumeResponse.model_validate(response)
 
@@ -196,3 +233,68 @@ class MQResource:
         """
         response = self._http.delete("/api/v1/mq/clear")
         return ClearResponse.model_validate(response)
+
+    def reserve_queue(self, *, ttl_seconds: int = 300) -> ReserveQueueResponse:
+        """Reserve a temporary queue for receiving messages.
+
+        Creates a new reserved queue with a unique ID and access token.
+        Reserved queues are used for receiving responses in tunneling scenarios.
+
+        The queue will automatically expire after the TTL.
+
+        Args:
+            ttl_seconds: Time-to-live in seconds (60-3600, default 300).
+
+        Returns:
+            ReserveQueueResponse with queue_id, token, and expiration time.
+
+        Raises:
+            AuthenticationError: If not authenticated.
+
+        Example:
+            # Reserve a queue for receiving tunneled responses
+            reserved = client.mq.reserve_queue(ttl_seconds=300)
+            print(f"Queue ID: {reserved.queue_id}")
+            print(f"Token: {reserved.token}")
+            print(f"Expires: {reserved.expires_at}")
+
+            # Later, consume from the reserved queue
+            response = client.mq.consume(
+                queue_id=reserved.queue_id,
+                token=reserved.token,
+            )
+
+            # When done, release the queue
+            client.mq.release_queue(
+                queue_id=reserved.queue_id,
+                token=reserved.token,
+            )
+        """
+        response = self._http.post(
+            "/api/v1/mq/reserve",
+            json={"ttl_seconds": ttl_seconds},
+        )
+        return ReserveQueueResponse.model_validate(response)
+
+    def release_queue(self, *, queue_id: str, token: str) -> ReleaseQueueResponse:
+        """Release a reserved queue and clear its messages.
+
+        Deletes a reserved queue and all its messages.
+        Requires the token that was returned when the queue was reserved.
+
+        Args:
+            queue_id: The reserved queue identifier (rq_*).
+            token: The secret token for this queue.
+
+        Returns:
+            ReleaseQueueResponse with status and number of messages cleared.
+
+        Raises:
+            NotFoundError: If queue not found or already expired.
+            ForbiddenError: If token is invalid.
+        """
+        response = self._http.post(
+            "/api/v1/mq/release",
+            json={"queue_id": queue_id, "token": token},
+        )
+        return ReleaseQueueResponse.model_validate(response)

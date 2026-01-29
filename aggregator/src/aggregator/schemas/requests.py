@@ -52,6 +52,11 @@ class ChatRequest(BaseModel):
         The transaction_tokens field maps owner usernames to accounting transaction tokens.
         These tokens authorize endpoint owners to charge the user for usage.
         The aggregator forwards these tokens to SyftAI-Space endpoints via headers.
+
+    Tunneling:
+        For endpoints using tunneling (URL starts with 'tunneling:'), the aggregator
+        communicates via the SyftHub message queue instead of HTTP. The user must
+        provide response_queue_id and response_queue_token for receiving responses.
     """
 
     prompt: str = Field(..., min_length=1, description="The user's question or prompt")
@@ -67,6 +72,17 @@ class ChatRequest(BaseModel):
     transaction_tokens: dict[str, str] = Field(
         default_factory=dict,
         description="Mapping of owner username to transaction token for billing authorization",
+    )
+    # Tunneling support: reserved queue credentials for receiving responses
+    response_queue_id: str | None = Field(
+        default=None,
+        description="Reserved queue ID (rq_*) for receiving tunneled responses. "
+        "Required when any endpoint uses tunneling.",
+    )
+    response_queue_token: str | None = Field(
+        default=None,
+        description="Secret token for accessing the reserved queue. "
+        "Required when response_queue_id is provided.",
     )
     top_k: int = Field(
         default=5,

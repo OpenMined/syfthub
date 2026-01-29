@@ -8,6 +8,12 @@ from aggregator.clients.syfthub import (
     SyftHubClient,
     SyftHubClientError,
 )
+from aggregator.clients.tunnel import (
+    TunnelClient,
+    TunnelClientError,
+    extract_tunnel_username,
+    is_tunneled_url,
+)
 
 __all__ = [
     "SyftHubClient",
@@ -17,4 +23,8 @@ __all__ = [
     "DataSourceClient",
     "ModelClient",
     "ModelClientError",
+    "TunnelClient",
+    "TunnelClientError",
+    "is_tunneled_url",
+    "extract_tunnel_username",
 ]

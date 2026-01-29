@@ -214,3 +214,74 @@ def test_chat_response_empty_sources() -> None:
 
     assert response.sources == {}
     assert response.retrieval_info == []
+
+
+# =============================================================================
+# Tunneling Support Tests
+# =============================================================================
+
+
+def test_chat_request_with_tunneling_credentials() -> None:
+    """Test ChatRequest with tunneling queue credentials."""
+    request = ChatRequest(
+        prompt="Query via tunnel",
+        model=EndpointRef(url="tunneling:bob", slug="model-endpoint"),
+        data_sources=[
+            EndpointRef(url="tunneling:alice", slug="data-source"),
+        ],
+        endpoint_tokens={"bob": "sat_token_for_bob", "alice": "sat_token_for_alice"},
+        response_queue_id="rq_abc123",
+        response_queue_token="secret_queue_token",
+    )
+
+    assert request.response_queue_id == "rq_abc123"
+    assert request.response_queue_token == "secret_queue_token"
+    assert request.endpoint_tokens["bob"] == "sat_token_for_bob"
+
+
+def test_chat_request_tunneling_defaults() -> None:
+    """Test ChatRequest has correct defaults for tunneling fields."""
+    request = ChatRequest(
+        prompt="Hello",
+        model=EndpointRef(url="http://localhost:8080", slug="model"),
+    )
+
+    assert request.response_queue_id is None
+    assert request.response_queue_token is None
+    assert request.endpoint_tokens == {}
+    assert request.transaction_tokens == {}
+
+
+def test_chat_request_mixed_endpoints() -> None:
+    """Test ChatRequest with both tunneled and HTTP endpoints."""
+    request = ChatRequest(
+        prompt="Mixed query",
+        model=EndpointRef(url="http://localhost:8080", slug="http-model"),
+        data_sources=[
+            EndpointRef(url="http://localhost:8081", slug="http-ds"),
+            EndpointRef(url="tunneling:charlie", slug="tunnel-ds"),
+        ],
+        endpoint_tokens={"charlie": "sat_token_charlie"},
+        response_queue_id="rq_mixed123",
+        response_queue_token="mixed_token",
+    )
+
+    # HTTP endpoint
+    assert request.data_sources[0].url == "http://localhost:8081"
+    # Tunneled endpoint
+    assert request.data_sources[1].url == "tunneling:charlie"
+    # Queue credentials for tunneled endpoints
+    assert request.response_queue_id is not None
+
+
+def test_endpoint_ref_with_owner_username() -> None:
+    """Test EndpointRef with owner_username for token lookup."""
+    ref = EndpointRef(
+        url="tunneling:alice",
+        slug="my-endpoint",
+        name="Alice's Endpoint",
+        owner_username="alice",
+    )
+
+    assert ref.owner_username == "alice"
+    assert ref.url == "tunneling:alice"

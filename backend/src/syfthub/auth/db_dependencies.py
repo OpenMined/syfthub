@@ -1,20 +1,24 @@
 """Database-based authentication dependencies for FastAPI.
 
-This module supports two authentication methods:
+This module supports three authentication methods:
 1. JWT tokens (default): Standard Bearer token authentication
 2. API tokens: Long-lived tokens starting with "syft_" prefix
+3. Satellite tokens: RS256-signed tokens for cross-service authentication
 
-Both methods are transparent to endpoints - they receive the same User object.
+All methods are transparent to endpoints - they receive the same User object.
 """
 
 from datetime import datetime, timezone
 from typing import Annotated, List, Optional
 
+import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from syfthub.auth.api_tokens import hash_api_token, is_api_token
+from syfthub.auth.keys import key_manager
 from syfthub.auth.security import verify_token
+from syfthub.core.config import settings
 from syfthub.database.dependencies import get_api_token_repository, get_user_repository
 from syfthub.repositories.api_token import APITokenRepository
 from syfthub.repositories.user import UserRepository
@@ -178,6 +182,141 @@ async def _authenticate_with_jwt(
     return user
 
 
+def _is_satellite_token(token: str) -> bool:
+    """Check if a token appears to be a satellite token (RS256 JWT).
+
+    Satellite tokens are RS256-signed JWTs with specific claims.
+    We detect them by checking the algorithm in the unverified header.
+
+    Args:
+        token: The token string to check.
+
+    Returns:
+        True if it appears to be a satellite token, False otherwise.
+    """
+    try:
+        # Get unverified header to check algorithm
+        header = jwt.get_unverified_header(token)
+        # Satellite tokens use RS256, hub tokens use HS256
+        return header.get("alg") == "RS256"
+    except jwt.DecodeError:
+        return False
+
+
+async def _authenticate_with_satellite_token(
+    token: str,
+    user_repo: UserRepository,
+) -> User:
+    """Authenticate using a satellite token (RS256 JWT).
+
+    Satellite tokens are normally used by Spaces to verify user identity.
+    For MQ operations, we accept any valid satellite token (regardless of audience)
+    and extract the user identity from the 'sub' claim.
+
+    Args:
+        token: The satellite token string.
+        user_repo: Repository for user operations.
+
+    Returns:
+        User object if authentication succeeds.
+
+    Raises:
+        HTTPException: If authentication fails.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid satellite token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    # Check if key manager is configured
+    if not key_manager.is_configured:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Satellite token authentication is not configured",
+        )
+
+    try:
+        # Get the key ID from the token header
+        unverified_header = jwt.get_unverified_header(token)
+        kid = unverified_header.get("kid")
+
+        if not kid:
+            raise credentials_exception
+
+        # Get the public key for this key ID
+        public_key = key_manager.get_public_key(kid)
+        if not public_key:
+            raise credentials_exception
+
+        # Decode and verify the token (without audience verification for MQ use)
+        # We only verify: signature, expiration, issuer
+        payload = jwt.decode(
+            token,
+            public_key,
+            algorithms=["RS256"],
+            issuer=settings.issuer_url,
+            options={"verify_aud": False},  # Don't verify audience for MQ
+        )
+
+        # Extract user ID from 'sub' claim
+        user_id_str = payload.get("sub")
+        if user_id_str is None:
+            raise credentials_exception
+
+        # Handle guest tokens (sub="guest")
+        if user_id_str == "guest":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Guest tokens cannot be used for MQ operations",
+            )
+
+        try:
+            user_id = int(user_id_str)
+        except (ValueError, TypeError):
+            raise credentials_exception from None
+
+        # Get user from database
+        user = user_repo.get_by_id(user_id)
+        if user is None:
+            raise credentials_exception
+
+        # Check if user is active
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User account is inactive",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        return user
+
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Satellite token has expired",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from None
+    except jwt.InvalidIssuerError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid satellite token issuer",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from None
+    except jwt.InvalidSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid satellite token signature",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from None
+    except jwt.DecodeError:
+        raise credentials_exception from None
+    except HTTPException:
+        raise
+    except Exception:
+        raise credentials_exception from None
+
+
 async def get_current_user(
     credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
@@ -186,11 +325,12 @@ async def get_current_user(
 ) -> User:
     """Get the current authenticated user.
 
-    Supports two authentication methods:
+    Supports three authentication methods:
     1. API tokens: Long-lived tokens starting with "syft_" prefix
-    2. JWT tokens: Standard Bearer token authentication
+    2. Satellite tokens: RS256-signed JWTs for cross-service auth
+    3. JWT tokens: Standard Bearer token authentication (HS256)
 
-    The authentication method is determined by the token prefix.
+    The authentication method is determined by token characteristics.
     """
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -209,7 +349,11 @@ async def get_current_user(
         if is_api_token(token):
             return await _authenticate_with_api_token(token, api_token_repo, request)
 
-        # Otherwise, use JWT authentication
+        # Check if this is a satellite token (RS256 JWT)
+        if _is_satellite_token(token):
+            return await _authenticate_with_satellite_token(token, user_repo)
+
+        # Otherwise, use JWT authentication (HS256 hub token)
         return await _authenticate_with_jwt(token, user_repo)
 
     except HTTPException:
@@ -237,7 +381,7 @@ async def get_optional_current_user(
 ) -> Optional[User]:
     """Get the current user if authenticated, otherwise return None.
 
-    Supports both JWT and API token authentication.
+    Supports JWT, API token, and satellite token authentication.
     """
     if credentials is None:
         return None
@@ -248,6 +392,10 @@ async def get_optional_current_user(
         # Check if this is an API token
         if is_api_token(token):
             return await _authenticate_with_api_token(token, api_token_repo, request)
+
+        # Check if this is a satellite token (RS256 JWT)
+        if _is_satellite_token(token):
+            return await _authenticate_with_satellite_token(token, user_repo)
 
         # Otherwise, use JWT authentication
         payload = verify_token(token, token_type="access")

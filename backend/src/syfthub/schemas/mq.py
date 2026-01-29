@@ -45,13 +45,25 @@ class Message(BaseModel):
 
 
 class ConsumeRequest(BaseModel):
-    """Request to consume messages from own queue."""
+    """Request to consume messages from own queue or a reserved queue."""
 
     limit: int = Field(
         default=10,
         ge=1,
         le=100,
         description="Maximum number of messages to retrieve",
+    )
+    queue_id: str | None = Field(
+        default=None,
+        min_length=3,
+        max_length=100,
+        description="Optional: Reserved queue ID (rq_*) to consume from instead of own queue",
+    )
+    token: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+        description="Required when consuming from a reserved queue",
     )
 
 
@@ -93,3 +105,53 @@ class PeekResponse(BaseModel):
         default_factory=list, description="List of messages (not removed from queue)"
     )
     total: int = Field(..., ge=0, description="Total number of messages in queue")
+
+
+# Reserved Queue Schemas for Tunneling Support
+# Reserved queues are temporary queues that can be created by authenticated users
+# and accessed using a token. They're used for receiving responses in tunneling scenarios.
+
+
+class ReserveQueueRequest(BaseModel):
+    """Request to reserve a temporary queue for receiving messages."""
+
+    ttl_seconds: int = Field(
+        default=300,
+        ge=60,
+        le=3600,
+        description="Time-to-live in seconds (60-3600, default 300)",
+    )
+
+
+class ReserveQueueResponse(BaseModel):
+    """Response with reserved queue credentials."""
+
+    queue_id: str = Field(..., description="Unique queue identifier (rq_<uuid>)")
+    token: str = Field(..., description="Secret token for accessing this queue")
+    expires_at: datetime = Field(..., description="When the queue will expire")
+    owner_username: str = Field(..., description="Username of the queue owner")
+
+
+class ReleaseQueueRequest(BaseModel):
+    """Request to release a reserved queue."""
+
+    queue_id: str = Field(
+        ...,
+        min_length=3,
+        max_length=100,
+        description="Reserved queue identifier",
+    )
+    token: str = Field(
+        ...,
+        min_length=1,
+        max_length=256,
+        description="Secret token for this queue",
+    )
+
+
+class ReleaseQueueResponse(BaseModel):
+    """Response after releasing a reserved queue."""
+
+    status: str = Field(default="ok", description="Status of the release operation")
+    cleared: int = Field(..., ge=0, description="Number of messages that were cleared")
+    queue_id: str = Field(..., description="The released queue identifier")

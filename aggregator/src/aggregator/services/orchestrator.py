@@ -177,6 +177,8 @@ class Orchestrator:
             similarity_threshold=request.similarity_threshold,
             endpoint_tokens=endpoint_tokens,
             transaction_tokens=transaction_tokens,
+            response_queue_id=request.response_queue_id,
+            response_queue_token=request.response_queue_token,
         )
         retrieval_time_ms = int((time.perf_counter() - retrieval_start) * 1000)
 
@@ -197,6 +199,8 @@ class Orchestrator:
                 temperature=request.temperature,
                 endpoint_tokens=endpoint_tokens,
                 transaction_tokens=transaction_tokens,
+                response_queue_id=request.response_queue_id,
+                response_queue_token=request.response_queue_token,
             )
         except GenerationError as e:
             raise OrchestratorError(f"Generation failed: {e}") from e
@@ -293,6 +297,8 @@ class Orchestrator:
                 similarity_threshold=request.similarity_threshold,
                 endpoint_tokens=endpoint_tokens,
                 transaction_tokens=transaction_tokens,
+                response_queue_id=request.response_queue_id,
+                response_queue_token=request.response_queue_token,
             ):
                 retrieval_results.append(result)
                 yield self._sse_event(
@@ -358,6 +364,8 @@ class Orchestrator:
                     temperature=request.temperature,
                     endpoint_tokens=endpoint_tokens,
                     transaction_tokens=transaction_tokens,
+                    response_queue_id=request.response_queue_id,
+                    response_queue_token=request.response_queue_token,
                 ):
                     full_response.append(chunk)
                     yield self._sse_event("token", {"content": chunk})
@@ -371,6 +379,8 @@ class Orchestrator:
                     temperature=request.temperature,
                     endpoint_tokens=endpoint_tokens,
                     transaction_tokens=transaction_tokens,
+                    response_queue_id=request.response_queue_id,
+                    response_queue_token=request.response_queue_token,
                 )
                 full_response.append(result.response)
                 usage_data = result.usage  # Capture usage from non-streaming response

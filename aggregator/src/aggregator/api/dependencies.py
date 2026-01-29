@@ -21,7 +21,7 @@ from typing import Annotated
 
 from fastapi import Depends, Header
 
-from aggregator.clients import DataSourceClient, ModelClient
+from aggregator.clients import DataSourceClient, ModelClient, TunnelClient
 from aggregator.core.config import get_settings
 from aggregator.services import (
     GenerationService,
@@ -45,6 +45,16 @@ def get_model_client() -> ModelClient:
     return ModelClient(timeout=settings.generation_timeout)
 
 
+@lru_cache
+def get_tunnel_client() -> TunnelClient:
+    """Get the tunnel client singleton for MQ-based communication."""
+    settings = get_settings()
+    return TunnelClient(
+        syfthub_url=settings.syfthub_url,
+        timeout=settings.retrieval_timeout,
+    )
+
+
 def get_prompt_builder() -> PromptBuilder:
     """Get a prompt builder instance."""
     return PromptBuilder()
@@ -52,16 +62,18 @@ def get_prompt_builder() -> PromptBuilder:
 
 def get_retrieval_service(
     data_source_client: Annotated[DataSourceClient, Depends(get_data_source_client)],
+    tunnel_client: Annotated[TunnelClient, Depends(get_tunnel_client)],
 ) -> RetrievalService:
-    """Get the retrieval service."""
-    return RetrievalService(data_source_client)
+    """Get the retrieval service with tunnel support."""
+    return RetrievalService(data_source_client, tunnel_client)
 
 
 def get_generation_service(
     model_client: Annotated[ModelClient, Depends(get_model_client)],
+    tunnel_client: Annotated[TunnelClient, Depends(get_tunnel_client)],
 ) -> GenerationService:
-    """Get the generation service."""
-    return GenerationService(model_client)
+    """Get the generation service with tunnel support."""
+    return GenerationService(model_client, tunnel_client)
 
 
 def get_orchestrator(

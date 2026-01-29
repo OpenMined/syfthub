@@ -5,16 +5,25 @@ import logging
 import time
 
 from aggregator.clients.data_source import DataSourceClient
+from aggregator.clients.tunnel import TunnelClient, extract_tunnel_username, is_tunneled_url
 from aggregator.schemas.internal import AggregatedContext, ResolvedEndpoint, RetrievalResult
 
 logger = logging.getLogger(__name__)
 
 
 class RetrievalService:
-    """Service for retrieving context from multiple SyftAI-Space data sources."""
+    """Service for retrieving context from multiple SyftAI-Space data sources.
 
-    def __init__(self, data_source_client: DataSourceClient):
+    Supports both HTTP endpoints and tunneled endpoints (via MQ).
+    """
+
+    def __init__(
+        self,
+        data_source_client: DataSourceClient,
+        tunnel_client: TunnelClient | None = None,
+    ):
         self.data_source_client = data_source_client
+        self.tunnel_client = tunnel_client
 
     def _get_token_for_endpoint(
         self, endpoint: ResolvedEndpoint, token_mapping: dict[str, str]
@@ -24,6 +33,73 @@ class RetrievalService:
             return token_mapping[endpoint.owner_username]
         return None
 
+    async def _query_single_source(
+        self,
+        ds: ResolvedEndpoint,
+        query: str,
+        top_k: int,
+        similarity_threshold: float,
+        endpoint_tokens: dict[str, str],
+        transaction_tokens: dict[str, str],
+        response_queue_id: str | None,
+        response_queue_token: str | None,
+    ) -> RetrievalResult:
+        """Query a single data source, routing to HTTP or tunnel as appropriate."""
+        if is_tunneled_url(ds.url):
+            # Tunneled endpoint - use MQ
+            if not self.tunnel_client:
+                return RetrievalResult(
+                    endpoint_path=ds.path,
+                    documents=[],
+                    status="error",
+                    error_message="Tunnel client not configured",
+                    latency_ms=0,
+                )
+            if not response_queue_id or not response_queue_token:
+                return RetrievalResult(
+                    endpoint_path=ds.path,
+                    documents=[],
+                    status="error",
+                    error_message="Tunneled endpoints require response_queue_id and response_queue_token",
+                    latency_ms=0,
+                )
+
+            satellite_token = self._get_token_for_endpoint(ds, endpoint_tokens)
+            if not satellite_token:
+                return RetrievalResult(
+                    endpoint_path=ds.path,
+                    documents=[],
+                    status="error",
+                    error_message="Satellite token required for tunneled endpoint",
+                    latency_ms=0,
+                )
+
+            return await self.tunnel_client.query_data_source(
+                target_username=extract_tunnel_username(ds.url),
+                endpoint_slug=ds.slug,
+                query=query,
+                top_k=top_k,
+                similarity_threshold=similarity_threshold,
+                satellite_token=satellite_token,
+                response_queue_id=response_queue_id,
+                response_queue_token=response_queue_token,
+                endpoint_path=ds.path,
+                transaction_token=self._get_token_for_endpoint(ds, transaction_tokens),
+            )
+        else:
+            # HTTP endpoint
+            return await self.data_source_client.query(
+                url=ds.url,
+                slug=ds.slug,
+                endpoint_path=ds.path,
+                query=query,
+                top_k=top_k,
+                similarity_threshold=similarity_threshold,
+                tenant_name=ds.tenant_name,
+                authorization_token=self._get_token_for_endpoint(ds, endpoint_tokens),
+                transaction_token=self._get_token_for_endpoint(ds, transaction_tokens),
+            )
+
     async def retrieve(
         self,
         data_sources: list[ResolvedEndpoint],
@@ -32,10 +108,13 @@ class RetrievalService:
         similarity_threshold: float = 0.5,
         endpoint_tokens: dict[str, str] | None = None,
         transaction_tokens: dict[str, str] | None = None,
+        response_queue_id: str | None = None,
+        response_queue_token: str | None = None,
     ) -> AggregatedContext:
         """
         Retrieve relevant documents from multiple SyftAI-Space data sources in parallel.
 
+        Supports both HTTP endpoints and tunneled endpoints (via MQ).
         User identity is derived from satellite tokens by SyftAI-Space.
 
         Args:
@@ -45,6 +124,8 @@ class RetrievalService:
             similarity_threshold: Minimum similarity score for documents
             endpoint_tokens: Mapping of owner username to satellite token for auth
             transaction_tokens: Mapping of owner username to transaction token for billing
+            response_queue_id: Reserved queue ID for tunneled responses
+            response_queue_token: Token for accessing the reserved queue
 
         Returns:
             AggregatedContext with all documents and retrieval results
@@ -62,16 +143,15 @@ class RetrievalService:
 
         # Query all data sources in parallel
         tasks = [
-            self.data_source_client.query(
-                url=ds.url,
-                slug=ds.slug,
-                endpoint_path=ds.path,
+            self._query_single_source(
+                ds=ds,
                 query=query,
                 top_k=top_k,
                 similarity_threshold=similarity_threshold,
-                tenant_name=ds.tenant_name,
-                authorization_token=self._get_token_for_endpoint(ds, endpoint_tokens),
-                transaction_token=self._get_token_for_endpoint(ds, transaction_tokens),
+                endpoint_tokens=endpoint_tokens,
+                transaction_tokens=transaction_tokens,
+                response_queue_id=response_queue_id,
+                response_queue_token=response_queue_token,
             )
             for ds in data_sources
         ]
@@ -111,11 +191,14 @@ class RetrievalService:
         similarity_threshold: float = 0.5,
         endpoint_tokens: dict[str, str] | None = None,
         transaction_tokens: dict[str, str] | None = None,
+        response_queue_id: str | None = None,
+        response_queue_token: str | None = None,
     ):
         """
         Retrieve from SyftAI-Space data sources and yield results as they complete.
 
         This is useful for streaming UX where you want to show progress.
+        Supports both HTTP endpoints and tunneled endpoints (via MQ).
         User identity is derived from satellite tokens by SyftAI-Space.
 
         Args:
@@ -125,6 +208,8 @@ class RetrievalService:
             similarity_threshold: Minimum similarity score for documents
             endpoint_tokens: Mapping of owner username to satellite token for auth
             transaction_tokens: Mapping of owner username to transaction token for billing
+            response_queue_id: Reserved queue ID for tunneled responses
+            response_queue_token: Token for accessing the reserved queue
 
         Yields:
             RetrievalResult for each data source as it completes
@@ -135,19 +220,18 @@ class RetrievalService:
         endpoint_tokens = endpoint_tokens or {}
         transaction_tokens = transaction_tokens or {}
 
-        # Create tasks
+        # Create tasks using _query_single_source which handles tunneling
         tasks = {
             asyncio.create_task(
-                self.data_source_client.query(
-                    url=ds.url,
-                    slug=ds.slug,
-                    endpoint_path=ds.path,
+                self._query_single_source(
+                    ds=ds,
                     query=query,
                     top_k=top_k,
                     similarity_threshold=similarity_threshold,
-                    tenant_name=ds.tenant_name,
-                    authorization_token=self._get_token_for_endpoint(ds, endpoint_tokens),
-                    transaction_token=self._get_token_for_endpoint(ds, transaction_tokens),
+                    endpoint_tokens=endpoint_tokens,
+                    transaction_tokens=transaction_tokens,
+                    response_queue_id=response_queue_id,
+                    response_queue_token=response_queue_token,
                 )
             ): ds
             for ds in data_sources
