@@ -33,9 +33,9 @@ class OrganizationModel(BaseModel, TimestampMixin):
     avatar_url: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
-    # Domain for dynamic endpoint URL construction
+    # Domain with protocol for dynamic endpoint URL construction
     domain: Mapped[Optional[str]] = mapped_column(
-        String(253), nullable=True, default=None
+        String(500), nullable=True, default=None
     )
 
     # Heartbeat tracking fields for push-based health monitoring

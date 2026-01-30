@@ -584,11 +584,11 @@ def test_update_user_full_profile(client: TestClient, regular_user_token: str) -
     update_data = {
         "full_name": "Completely New Name",
         "avatar_url": "https://example.com/new-avatar.jpg",
-        "domain": "example.com",
+        "domain": "https://example.com",
     }
     response = client.put("/api/v1/users/me", json=update_data, headers=headers)
     assert response.status_code == 200
     data = response.json()
     assert data["full_name"] == "Completely New Name"
     assert data["avatar_url"] == "https://example.com/new-avatar.jpg"
-    assert data["domain"] == "example.com"
+    assert data["domain"] == "https://example.com"

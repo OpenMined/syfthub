@@ -200,14 +200,14 @@ class UserService(BaseService):
         requested_ttl = ttl_seconds or settings.heartbeat_default_ttl_seconds
         effective_ttl = min(requested_ttl, settings.heartbeat_max_ttl_seconds)
 
-        # Extract domain (host + port) from URL
+        # Extract domain with protocol (scheme + host + port) from URL
         parsed = urlparse(url)
-        domain = parsed.netloc
-        if not domain:
+        if not parsed.netloc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Invalid URL: could not extract domain",
             )
+        domain = f"{parsed.scheme}://{parsed.netloc}"
 
         expires_at = now + timedelta(seconds=effective_ttl)
 

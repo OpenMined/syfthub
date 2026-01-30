@@ -74,7 +74,7 @@ class TestHeartbeatEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "ok"
-        assert data["domain"] == "api.example.com"
+        assert data["domain"] == "https://api.example.com"
         assert data["ttl_seconds"] == 300
         assert "received_at" in data
         assert "expires_at" in data
@@ -117,7 +117,7 @@ class TestHeartbeatEndpoint:
     def test_heartbeat_updates_domain(
         self, client: TestClient, regular_user_token: str
     ) -> None:
-        """Test that heartbeat updates user's domain (extracts host only, not path)."""
+        """Test that heartbeat updates user's domain (scheme + host + port, no path)."""
         headers = {"Authorization": f"Bearer {regular_user_token}"}
         # URL with path - domain should be extracted without the path
         payload = {"url": "https://my-new-domain.com:8080/path/to/api"}
@@ -126,9 +126,9 @@ class TestHeartbeatEndpoint:
             json=payload,
             headers=headers,
         )
-        # Verify domain was updated (host + port only, no path)
+        # Verify domain was updated (scheme + host + port, no path)
         me_response = client.get("/api/v1/users/me", headers=headers)
-        assert me_response.json()["domain"] == "my-new-domain.com:8080"
+        assert me_response.json()["domain"] == "https://my-new-domain.com:8080"
 
     def test_heartbeat_requires_auth(self, client: TestClient) -> None:
         """Test that heartbeat requires authentication."""
@@ -152,17 +152,17 @@ class TestHeartbeatEndpoint:
     def test_heartbeat_url_domain_extraction(
         self, client: TestClient, regular_user_token: str
     ) -> None:
-        """Test domain extraction from various URL formats (host + port only)."""
+        """Test domain extraction from various URL formats (scheme + host + port)."""
         headers = {"Authorization": f"Bearer {regular_user_token}"}
         test_cases = [
-            # URL -> expected domain (host + port, no path)
-            ("https://api.example.com", "api.example.com"),
-            ("https://api.example.com/", "api.example.com"),
-            ("https://api.example.com/v1/health", "api.example.com"),
-            ("https://api.example.com:8080", "api.example.com:8080"),
-            ("https://api.example.com:8080/api/v1", "api.example.com:8080"),
-            ("http://localhost:3000", "localhost:3000"),
-            ("http://localhost:3000/path", "localhost:3000"),
+            # URL -> expected domain (scheme + host + port, no path)
+            ("https://api.example.com", "https://api.example.com"),
+            ("https://api.example.com/", "https://api.example.com"),
+            ("https://api.example.com/v1/health", "https://api.example.com"),
+            ("https://api.example.com:8080", "https://api.example.com:8080"),
+            ("https://api.example.com:8080/api/v1", "https://api.example.com:8080"),
+            ("http://localhost:3000", "http://localhost:3000"),
+            ("http://localhost:3000/path", "http://localhost:3000"),
         ]
         for url, expected_domain in test_cases:
             payload = {"url": url}
@@ -216,7 +216,7 @@ class TestHeartbeatExpiry:
         me_response = client.get("/api/v1/users/me", headers=headers)
         user_data = me_response.json()
 
-        assert user_data["domain"] == "api.example.com"
+        assert user_data["domain"] == "https://api.example.com"
         assert user_data["last_heartbeat_at"] is not None
         assert user_data["heartbeat_expires_at"] is not None
 
@@ -250,7 +250,7 @@ class TestHeartbeatExpiry:
 
         # Verify domain was updated
         me_response = client.get("/api/v1/users/me", headers=headers)
-        assert me_response.json()["domain"] == "second-domain.com"
+        assert me_response.json()["domain"] == "https://second-domain.com"
 
         # Verify expiry was extended (second should be later than first)
         assert second_expires > first_expires
@@ -311,4 +311,4 @@ class TestHeartbeatEdgeCases:
             headers=headers,
         )
         assert response.status_code == 200
-        assert response.json()["domain"] == "api.example.com"
+        assert response.json()["domain"] == "https://api.example.com"

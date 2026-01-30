@@ -35,9 +35,9 @@ class UserModel(BaseModel, TimestampMixin):
         String(255), nullable=True, default=None
     )
 
-    # Domain for dynamic endpoint URL construction
+    # Domain with protocol for dynamic endpoint URL construction
     domain: Mapped[Optional[str]] = mapped_column(
-        String(253), nullable=True, default=None
+        String(500), nullable=True, default=None
     )
 
     # Custom aggregator URL for RAG/chat workflows

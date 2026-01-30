@@ -6,6 +6,7 @@ import re
 from datetime import datetime
 from enum import Enum
 from typing import Optional
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -71,10 +72,28 @@ class OrganizationBase(BaseModel):
         None, max_length=255, description="URL to organization avatar/logo"
     )
     # REMOVED is_active - server-managed field
-    # Domain for dynamic endpoint URL construction
+    # Domain with protocol for dynamic endpoint URL construction
     domain: Optional[str] = Field(
-        None, max_length=253, description="Domain for endpoint URL construction"
+        None,
+        max_length=500,
+        description="Domain with protocol for endpoint URL construction (e.g., 'https://example.com')",
     )
+
+    @field_validator("domain")
+    @classmethod
+    def validate_domain(cls, v: Optional[str]) -> Optional[str]:
+        """Validate domain includes protocol prefix."""
+        if v is None:
+            return None
+        v = v.strip().rstrip("/")
+        if not v.startswith(("http://", "https://")):
+            raise ValueError(
+                "Domain must include protocol (e.g., 'https://example.com' or 'http://192.168.1.1:8080')"
+            )
+        parsed = urlparse(v)
+        if not parsed.netloc:
+            raise ValueError("Domain must contain a valid hostname")
+        return v
 
 
 class OrganizationCreate(OrganizationBase):
@@ -133,10 +152,28 @@ class OrganizationUpdate(BaseModel):
         None, max_length=255, description="URL to organization avatar/logo"
     )
     # REMOVED is_active - only admin can change this
-    # Domain for dynamic endpoint URL construction
+    # Domain with protocol for dynamic endpoint URL construction
     domain: Optional[str] = Field(
-        None, max_length=253, description="Domain for endpoint URL construction"
+        None,
+        max_length=500,
+        description="Domain with protocol for endpoint URL construction (e.g., 'https://example.com')",
     )
+
+    @field_validator("domain")
+    @classmethod
+    def validate_domain(cls, v: Optional[str]) -> Optional[str]:
+        """Validate domain includes protocol prefix."""
+        if v is None:
+            return None
+        v = v.strip().rstrip("/")
+        if not v.startswith(("http://", "https://")):
+            raise ValueError(
+                "Domain must include protocol (e.g., 'https://example.com' or 'http://192.168.1.1:8080')"
+            )
+        parsed = urlparse(v)
+        if not parsed.netloc:
+            raise ValueError("Domain must contain a valid hostname")
+        return v
 
 
 class Organization(BaseModel):
@@ -155,9 +192,10 @@ class Organization(BaseModel):
         ..., min_length=3, max_length=63, description="URL-safe identifier"
     )
     is_active: bool = Field(..., description="Whether the organization is active")
-    # Domain for dynamic endpoint URL construction
+    # Domain with protocol for dynamic endpoint URL construction
     domain: Optional[str] = Field(
-        None, description="Domain for endpoint URL construction"
+        None,
+        description="Domain with protocol for endpoint URL construction (e.g., 'https://example.com')",
     )
     # Heartbeat tracking fields
     last_heartbeat_at: Optional[datetime] = Field(
@@ -185,9 +223,10 @@ class OrganizationResponse(BaseModel):
         ..., description="URL to organization avatar/logo"
     )
     is_active: bool = Field(..., description="Whether the organization is active")
-    # Domain for dynamic endpoint URL construction
+    # Domain with protocol for dynamic endpoint URL construction
     domain: Optional[str] = Field(
-        None, description="Domain for endpoint URL construction"
+        None,
+        description="Domain with protocol for endpoint URL construction (e.g., 'https://example.com')",
     )
     # Heartbeat tracking fields
     last_heartbeat_at: Optional[datetime] = Field(
