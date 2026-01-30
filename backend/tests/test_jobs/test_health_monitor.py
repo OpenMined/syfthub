@@ -21,7 +21,7 @@ class TestEndpointHealthInfo:
             id=1,
             is_active=True,
             connect=[{"type": "rest_api", "config": {"url": "/test"}}],
-            owner_domain="example.com",
+            owner_domain="https://example.com",
             owner_id=10,
             owner_type="user",
             heartbeat_expires_at=None,
@@ -29,7 +29,7 @@ class TestEndpointHealthInfo:
         assert info.id == 1
         assert info.is_active is True
         assert info.connect == [{"type": "rest_api", "config": {"url": "/test"}}]
-        assert info.owner_domain == "example.com"
+        assert info.owner_domain == "https://example.com"
         assert info.owner_id == 10
         assert info.owner_type == "user"
         assert info.heartbeat_expires_at is None
@@ -40,7 +40,7 @@ class TestEndpointHealthInfo:
             id=2,
             is_active=False,
             connect=[],
-            owner_domain="test.com",
+            owner_domain="https://test.com",
             owner_id=20,
             owner_type="organization",
             heartbeat_expires_at=None,
@@ -128,12 +128,14 @@ class TestBuildHealthCheckUrl:
             mock_get_conn.return_value = connect[0]
             mock_build_url.return_value = "https://example.com"
 
-            url = monitor._build_health_check_url("example.com", connect)
+            url = monitor._build_health_check_url("https://example.com", connect)
 
             assert url == "https://example.com"
             mock_get_conn.assert_called_once_with(connect)
             # Should check base domain, not the endpoint path
-            mock_build_url.assert_called_once_with("example.com", "rest_api", path=None)
+            mock_build_url.assert_called_once_with(
+                "https://example.com", "rest_api", path=None
+            )
 
     def test_build_url_no_enabled_connection(self, monitor):
         """Test URL building when no connection is enabled."""
@@ -144,7 +146,7 @@ class TestBuildHealthCheckUrl:
         ) as mock_get_conn:
             mock_get_conn.return_value = None
 
-            url = monitor._build_health_check_url("example.com", connect)
+            url = monitor._build_health_check_url("https://example.com", connect)
 
             assert url is None
 
@@ -155,7 +157,7 @@ class TestBuildHealthCheckUrl:
         ) as mock_get_conn:
             mock_get_conn.return_value = None
 
-            url = monitor._build_health_check_url("example.com", [])
+            url = monitor._build_health_check_url("https://example.com", [])
 
             assert url is None
 
@@ -178,11 +180,13 @@ class TestBuildHealthCheckUrl:
             mock_get_conn.return_value = connect[0]
             mock_build_url.return_value = "https://example.com"
 
-            url = monitor._build_health_check_url("example.com", connect)
+            url = monitor._build_health_check_url("https://example.com", connect)
 
             assert url == "https://example.com"
             # Should use the connection type but check base domain
-            mock_build_url.assert_called_once_with("example.com", "mcp", path=None)
+            mock_build_url.assert_called_once_with(
+                "https://example.com", "mcp", path=None
+            )
 
     def test_build_url_default_type(self, monitor):
         """Test URL building defaults to rest_api type."""
@@ -197,9 +201,11 @@ class TestBuildHealthCheckUrl:
             mock_get_conn.return_value = connect[0]
             mock_build_url.return_value = "https://example.com"
 
-            monitor._build_health_check_url("example.com", connect)
+            monitor._build_health_check_url("https://example.com", connect)
 
-            mock_build_url.assert_called_once_with("example.com", "rest_api", path=None)
+            mock_build_url.assert_called_once_with(
+                "https://example.com", "rest_api", path=None
+            )
 
 
 class TestGetEndpointsForHealthCheck:
@@ -236,7 +242,7 @@ class TestGetEndpointsForHealthCheck:
                 1,
                 True,
                 [{"type": "rest_api", "config": {"url": "/test"}}],
-                "user.com",
+                "https://user.com",
                 10,
                 None,
             ),
@@ -244,7 +250,7 @@ class TestGetEndpointsForHealthCheck:
                 2,
                 False,
                 [{"type": "mcp", "config": {"url": "/mcp"}}],
-                "user2.com",
+                "https://user2.com",
                 20,
                 None,
             ),
@@ -259,12 +265,12 @@ class TestGetEndpointsForHealthCheck:
         assert len(endpoints) == 2
         assert endpoints[0].id == 1
         assert endpoints[0].is_active is True
-        assert endpoints[0].owner_domain == "user.com"
+        assert endpoints[0].owner_domain == "https://user.com"
         assert endpoints[0].owner_type == "user"
         assert endpoints[0].owner_id == 10
         assert endpoints[1].id == 2
         assert endpoints[1].is_active is False
-        assert endpoints[1].owner_domain == "user2.com"
+        assert endpoints[1].owner_domain == "https://user2.com"
         assert endpoints[1].owner_type == "user"
 
     def test_get_endpoints_org_owned(self, monitor):
@@ -279,7 +285,7 @@ class TestGetEndpointsForHealthCheck:
                 3,
                 True,
                 [{"type": "rest_api", "config": {"url": "/api"}}],
-                "org.com",
+                "https://org.com",
                 100,
                 None,
             ),
@@ -291,7 +297,7 @@ class TestGetEndpointsForHealthCheck:
 
         assert len(endpoints) == 1
         assert endpoints[0].id == 3
-        assert endpoints[0].owner_domain == "org.com"
+        assert endpoints[0].owner_domain == "https://org.com"
         assert endpoints[0].owner_type == "organization"
         assert endpoints[0].heartbeat_expires_at is None
 
@@ -304,7 +310,7 @@ class TestGetEndpointsForHealthCheck:
                 1,
                 True,
                 [{"type": "rest_api", "config": {"url": "/user"}}],
-                "user.com",
+                "https://user.com",
                 10,
                 None,
             ),
@@ -314,7 +320,7 @@ class TestGetEndpointsForHealthCheck:
                 2,
                 True,
                 [{"type": "rest_api", "config": {"url": "/org"}}],
-                "org.com",
+                "https://org.com",
                 100,
                 None,
             ),
@@ -333,13 +339,20 @@ class TestGetEndpointsForHealthCheck:
         mock_session = MagicMock()
 
         user_results = [
-            (1, True, None, "user.com", 10, None),  # No connect config
-            (2, True, [], "user2.com", 20, None),  # Empty connect config (falsy)
+            (1, True, None, "https://user.com", 10, None),  # No connect config
+            (
+                2,
+                True,
+                [],
+                "https://user2.com",
+                20,
+                None,
+            ),  # Empty connect config (falsy)
             (
                 3,
                 True,
                 [{"type": "rest_api"}],
-                "user3.com",
+                "https://user3.com",
                 30,
                 None,
             ),  # Has connect config
@@ -365,7 +378,7 @@ class TestGetEndpointsForHealthCheck:
                 3,
                 True,
                 [{"type": "rest_api"}],
-                "valid.com",
+                "https://valid.com",
                 30,
                 None,
             ),  # Has domain - included
@@ -383,7 +396,7 @@ class TestGetEndpointsForHealthCheck:
         assert endpoints[1].id == 2
         assert endpoints[1].owner_domain == ""
         assert endpoints[2].id == 3
-        assert endpoints[2].owner_domain == "valid.com"
+        assert endpoints[2].owner_domain == "https://valid.com"
 
 
 class TestCheckEndpointHealth:
@@ -407,7 +420,7 @@ class TestCheckEndpointHealth:
             id=1,
             is_active=True,
             connect=[{"type": "rest_api", "enabled": True, "config": {"url": "/test"}}],
-            owner_domain="example.com",
+            owner_domain="https://example.com",
             owner_id=10,
             owner_type="user",
             heartbeat_expires_at=None,  # No heartbeat - will trigger HTTP check
@@ -571,7 +584,7 @@ class TestCheckEndpointHealth:
             id=2,
             is_active=False,  # Currently inactive
             connect=[{"type": "rest_api", "enabled": True, "config": {"url": "/test"}}],
-            owner_domain="example.com",
+            owner_domain="https://example.com",
             owner_id=10,
             owner_type="user",
             heartbeat_expires_at=None,  # No heartbeat - will trigger HTTP check
@@ -793,7 +806,7 @@ class TestRunHealthCheckCycle:
                 id=1,
                 is_active=True,
                 connect=[{"type": "rest_api", "config": {"url": "/test"}}],
-                owner_domain="example.com",
+                owner_domain="https://example.com",
                 owner_id=10,
                 owner_type="user",
                 heartbeat_expires_at=None,
@@ -827,7 +840,7 @@ class TestRunHealthCheckCycle:
                 id=1,
                 is_active=True,
                 connect=[{"type": "rest_api", "config": {"url": "/test"}}],
-                owner_domain="example.com",
+                owner_domain="https://example.com",
                 owner_id=10,
                 owner_type="user",
                 heartbeat_expires_at=None,
@@ -863,7 +876,7 @@ class TestRunHealthCheckCycle:
                 id=1,
                 is_active=True,
                 connect=[{"type": "rest_api", "config": {"url": "/test"}}],
-                owner_domain="example.com",
+                owner_domain="https://example.com",
                 owner_id=10,
                 owner_type="user",
                 heartbeat_expires_at=None,

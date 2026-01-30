@@ -4,15 +4,19 @@ This module provides functions to build full URLs from owner domains and
 connection path configurations.
 
 DESIGN INTENT:
+- The owner's domain field stores a full origin with protocol
+  (e.g., "https://api.example.com" or "http://192.168.1.1:8080")
 - Internally (database storage), connection.config.url contains only the PATH portion
   (e.g., "api/v2" or "" for root)
-- Externally (API responses), we ALWAYS expose full URLs by combining:
-  {protocol}://{owner.domain}/{connection.config.url}
+- Externally (API responses), we expose full URLs by combining:
+  {owner.domain}/{connection.config.url}
 
 Where:
-- protocol is determined by the connection type (rest_api → https, ws → wss, etc.)
-- owner.domain is stored on User or Organization (e.g., "api.example.com")
+- owner.domain includes the protocol (e.g., "https://api.example.com")
 - connection.config.url contains only the path portion (e.g., "v1" or "")
+
+For WebSocket connection types, the protocol is automatically upgraded
+(http → ws, https → wss).
 
 IMPORTANT: All API responses returning endpoints MUST use transform_connection_urls()
 to ensure clients always receive full URLs, not paths.
@@ -22,63 +26,20 @@ from __future__ import annotations
 
 from typing import Any
 
-# Mapping from connection type to protocol
-CONNECTION_PROTOCOL_MAP: dict[str, str] = {
-    # HTTP-based protocols
-    "rest_api": "https",
-    "http": "https",
-    "https": "https",
-    "graphql": "https",
-    # WebSocket protocols
-    "websocket": "wss",
-    "ws": "ws",
-    "wss": "wss",
-    # RPC protocols
-    "grpc": "https",
-    # Storage protocols
-    "database": "https",
-    "s3": "https",
-    "storage": "https",
-}
-
-
-def get_protocol_for_connection_type(connection_type: str) -> str:
-    """Get the protocol for a given connection type.
-
-    Args:
-        connection_type: The connection type string (e.g., "rest_api", "websocket")
-
-    Returns:
-        The protocol string (e.g., "https", "wss")
-    """
-    return CONNECTION_PROTOCOL_MAP.get(connection_type.lower(), "https")
+# WebSocket connection types that need protocol upgrade
+_WEBSOCKET_TYPES = {"websocket", "ws", "wss"}
 
 
 def normalize_domain(domain: str) -> str:
-    """Normalize a domain by stripping any protocol prefix and trailing slashes.
-
-    This is a defensive measure to handle cases where users accidentally include
-    the protocol in their domain (e.g., "https://api.example.com" instead of
-    "api.example.com").
+    """Normalize a domain by stripping whitespace and trailing slashes.
 
     Args:
-        domain: The domain string, possibly with protocol prefix
+        domain: The domain string with protocol (e.g., "https://api.example.com/")
 
     Returns:
-        The normalized domain without protocol or trailing slashes
+        The normalized domain without trailing slashes
     """
-    normalized = domain.strip()
-
-    # Strip protocol prefixes (handle both http and https, with or without //)
-    for prefix in ("https://", "http://", "wss://", "ws://"):
-        if normalized.lower().startswith(prefix):
-            normalized = normalized[len(prefix) :]
-            break
-
-    # Strip trailing slashes
-    normalized = normalized.rstrip("/")
-
-    return normalized
+    return domain.strip().rstrip("/")
 
 
 def build_connection_url(
@@ -88,11 +49,15 @@ def build_connection_url(
 ) -> str | None:
     """Build a full URL from domain and path.
 
+    The domain is expected to include the protocol (e.g., "https://api.example.com").
+    For WebSocket connection types, the protocol is automatically upgraded
+    (http → ws, https → wss).
+
     Args:
-        domain: The owner's domain (e.g., "api.example.com" or "api.example.com:8080")
-            Note: If the domain accidentally includes a protocol prefix, it will be
-            stripped automatically.
-        connection_type: The connection type for protocol selection
+        domain: The owner's domain with protocol
+            (e.g., "https://api.example.com" or "http://api.example.com:8080")
+        connection_type: The connection type (e.g., "rest_api", "websocket").
+            Used only for WebSocket protocol upgrades.
         path: The path portion of the URL (e.g., "api/v2" or "/api/v2")
 
     Returns:
@@ -101,13 +66,15 @@ def build_connection_url(
     if not domain:
         return None
 
-    # Normalize domain to strip any accidental protocol prefix
-    normalized_domain = normalize_domain(domain)
-    if not normalized_domain:
+    base_url = normalize_domain(domain)
+    if not base_url:
         return None
 
-    protocol = get_protocol_for_connection_type(connection_type)
-    base_url = f"{protocol}://{normalized_domain}"
+    # For WebSocket connection types, upgrade protocol
+    if connection_type.lower() in _WEBSOCKET_TYPES:
+        base_url = base_url.replace("https://", "wss://", 1).replace(
+            "http://", "ws://", 1
+        )
 
     if path:
         # Normalize path - remove leading slashes
@@ -128,7 +95,7 @@ def transform_connection_urls(
     the path, and returns a new list with full URLs built from the domain.
 
     Args:
-        domain: The owner's domain
+        domain: The owner's domain with protocol
         connections: List of connection dictionaries with config.url as path
 
     Returns:

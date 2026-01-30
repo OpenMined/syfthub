@@ -48,9 +48,11 @@ class User(UserBase):
     accounting_password: Optional[str] = Field(
         None, description="Password for external accounting service"
     )
-    # Domain for dynamic endpoint URL construction
+    # Domain with protocol for dynamic endpoint URL construction
     domain: Optional[str] = Field(
-        None, max_length=253, description="Domain for endpoint URL construction"
+        None,
+        max_length=500,
+        description="Domain with protocol for endpoint URL construction (e.g., 'https://example.com')",
     )
     # Custom aggregator URL for RAG/chat workflows
     aggregator_url: Optional[str] = Field(
@@ -83,9 +85,10 @@ class UserResponse(BaseModel):
     accounting_service_url: Optional[str] = Field(
         None, description="URL to external accounting service"
     )
-    # Domain for dynamic endpoint URL construction
+    # Domain with protocol for dynamic endpoint URL construction
     domain: Optional[str] = Field(
-        None, description="Domain for endpoint URL construction"
+        None,
+        description="Domain with protocol for endpoint URL construction (e.g., 'https://example.com')",
     )
     # Custom aggregator URL for RAG/chat workflows
     aggregator_url: Optional[str] = Field(
@@ -123,11 +126,11 @@ class UserUpdate(BaseModel):
     accounting_password: Optional[str] = Field(
         None, max_length=255, description="Password for external accounting service"
     )
-    # Domain for dynamic endpoint URL construction
+    # Domain with protocol for dynamic endpoint URL construction
     domain: Optional[str] = Field(
         None,
-        max_length=253,
-        description="Domain for endpoint URL construction (no protocol)",
+        max_length=500,
+        description="Domain with protocol for endpoint URL construction (e.g., 'https://example.com')",
     )
     # Custom aggregator URL for RAG/chat workflows
     aggregator_url: Optional[str] = Field(
@@ -135,6 +138,27 @@ class UserUpdate(BaseModel):
         max_length=500,
         description="Custom aggregator URL for RAG/chat workflows",
     )
+
+    @field_validator("domain")
+    @classmethod
+    def validate_domain(cls, v: Optional[str]) -> Optional[str]:
+        """Validate domain includes protocol prefix.
+
+        Ensures the domain:
+        - Starts with http:// or https://
+        - Has a valid hostname
+        """
+        if v is None:
+            return None
+        v = v.strip().rstrip("/")
+        if not v.startswith(("http://", "https://")):
+            raise ValueError(
+                "Domain must include protocol (e.g., 'https://example.com' or 'http://192.168.1.1:8080')"
+            )
+        parsed = urlparse(v)
+        if not parsed.netloc:
+            raise ValueError("Domain must contain a valid hostname")
+        return v
 
 
 class AccountingCredentialsResponse(BaseModel):
@@ -199,5 +223,8 @@ class HeartbeatResponse(BaseModel):
         ..., description="Timestamp when heartbeat was received"
     )
     expires_at: datetime = Field(..., description="Timestamp when heartbeat expires")
-    domain: str = Field(..., description="Normalized domain extracted from URL")
+    domain: str = Field(
+        ...,
+        description="Domain with protocol extracted from URL (e.g., 'https://example.com:8080')",
+    )
     ttl_seconds: int = Field(..., description="Actual TTL applied (may be capped)")

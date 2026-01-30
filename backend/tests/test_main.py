@@ -664,7 +664,7 @@ class TestBuildInvocationUrl:
             role=UserRole.USER,
             password_hash="hash",
             is_active=True,
-            domain="api.example.com",
+            domain="https://api.example.com",
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
@@ -696,7 +696,7 @@ class TestBuildInvocationUrl:
             description="A test org",
             avatar_url="",
             is_active=True,
-            domain="api.testorg.com",
+            domain="https://api.testorg.com",
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
@@ -955,7 +955,7 @@ class TestInvokeOwnerEndpoint:
             role=UserRole.USER,
             password_hash="hash",
             is_active=True,
-            domain="syftai-space:8080",
+            domain="https://syftai-space:8080",
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
