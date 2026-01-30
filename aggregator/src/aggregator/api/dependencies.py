@@ -21,7 +21,7 @@ from typing import Annotated
 
 from fastapi import Depends, Header
 
-from aggregator.clients import DataSourceClient, ModelClient
+from aggregator.clients import DataSourceClient, ErrorReporter, ModelClient
 from aggregator.core.config import get_settings
 from aggregator.services import (
     GenerationService,
@@ -32,17 +32,30 @@ from aggregator.services import (
 
 
 @lru_cache
+def get_error_reporter() -> ErrorReporter:
+    """Get the error reporter singleton."""
+    settings = get_settings()
+    return ErrorReporter(backend_url=settings.syfthub_url)
+
+
+@lru_cache
 def get_data_source_client() -> DataSourceClient:
     """Get the data source client singleton."""
     settings = get_settings()
-    return DataSourceClient(timeout=settings.retrieval_timeout)
+    return DataSourceClient(
+        timeout=settings.retrieval_timeout,
+        error_reporter=get_error_reporter(),
+    )
 
 
 @lru_cache
 def get_model_client() -> ModelClient:
     """Get the model client singleton."""
     settings = get_settings()
-    return ModelClient(timeout=settings.generation_timeout)
+    return ModelClient(
+        timeout=settings.generation_timeout,
+        error_reporter=get_error_reporter(),
+    )
 
 
 def get_prompt_builder() -> PromptBuilder:

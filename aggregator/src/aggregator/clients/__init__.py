@@ -1,6 +1,7 @@
 """Clients package - HTTP clients for external services."""
 
 from aggregator.clients.data_source import DataSourceClient
+from aggregator.clients.error_reporter import ErrorReporter
 from aggregator.clients.model import ModelClient, ModelClientError
 from aggregator.clients.syfthub import (
     EndpointAccessDeniedError,
@@ -15,6 +16,7 @@ __all__ = [
     "EndpointNotFoundError",
     "EndpointAccessDeniedError",
     "DataSourceClient",
+    "ErrorReporter",
     "ModelClient",
     "ModelClientError",
 ]
