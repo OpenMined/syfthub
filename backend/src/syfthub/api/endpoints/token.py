@@ -500,6 +500,20 @@ async def verify_satellite_token(
             message="Token is missing 'sub' claim.",
         )
 
+    # Handle guest tokens: sub="guest" is a valid guest satellite token
+    # Guest tokens are issued for unauthenticated access to policy-free endpoints
+    if user_id == "guest":
+        return TokenVerifySuccessResponse(
+            valid=True,
+            sub="guest",
+            email="guest",
+            username="guest",
+            role="guest",
+            aud=result.payload.get("aud", authorized_audience),
+            exp=result.payload.get("exp", 0),
+            iat=result.payload.get("iat", 0),
+        )
+
     # Look up user in database
     try:
         user = user_repo.get_by_id(int(user_id))
