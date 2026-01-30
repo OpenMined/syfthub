@@ -506,7 +506,7 @@ async def verify_satellite_token(
         return TokenVerifySuccessResponse(
             valid=True,
             sub="guest",
-            email="guest",
+            email="guest@email.com",
             username="guest",
             role="guest",
             aud=result.payload.get("aud", authorized_audience),
@@ -544,7 +544,7 @@ async def verify_satellite_token(
     return TokenVerifySuccessResponse(
         valid=True,
         sub=str(user.id),
-        email=user.email,
+        email="guest@email.com",
         username=user.username,
         role=result.payload.get("role", user.role),
         aud=result.payload.get("aud", authorized_audience),

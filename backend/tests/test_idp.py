@@ -366,7 +366,7 @@ class TestTokenVerifyEndpoint:
             data = response.json()
             assert data["valid"] is True
             assert data["sub"] == "123"
-            assert data["email"] == "alice@om.org"
+            assert data["email"] == "guest@email.com"
             assert data["username"] == "alice"
             assert data["role"] == "admin"
             assert data["aud"] == "syftai-space"
