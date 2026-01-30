@@ -213,9 +213,13 @@ export function ProfileSettingsTab() {
       updates.avatar_url = formData.avatar_url.trim();
     }
     if (formData.domain !== (user?.domain ?? '')) {
-      // Strip protocol if user accidentally included it
       let domainValue = formData.domain.trim();
-      domainValue = domainValue.replace(/^https?:\/\//, '');
+      // Ensure protocol is present — default to https:// if omitted
+      if (domainValue && !/^https?:\/\//.test(domainValue)) {
+        domainValue = `https://${domainValue}`;
+      }
+      // Strip trailing slashes
+      domainValue = domainValue.replace(/\/+$/, '');
       updates.domain = domainValue;
     }
 
@@ -468,12 +472,12 @@ export function ProfileSettingsTab() {
               id='domain'
               value={formData.domain}
               onChange={handleInputChange('domain')}
-              placeholder='api.example.com or api.example.com:8080'
+              placeholder='https://api.example.com'
               disabled={isLoading}
             />
             <p className='text-muted-foreground text-xs'>
-              Enter the base domain for your endpoints without the protocol (https:// will be added
-              automatically).
+              Enter the base domain for your endpoints including the protocol (e.g.,
+              https://api.example.com). If omitted, https:// is assumed.
             </p>
           </div>
         </div>

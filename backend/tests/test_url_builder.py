@@ -145,6 +145,21 @@ class TestBuildConnectionUrl:
         result = build_connection_url("https://example.com", "wss", "path")
         assert result == "wss://example.com/path"
 
+    def test_build_url_defaults_to_https_when_no_protocol(self):
+        """Test that bare domain defaults to https:// protocol."""
+        result = build_connection_url("api.example.com", "rest_api", "v1")
+        assert result == "https://api.example.com/v1"
+
+    def test_build_url_bare_domain_with_port_defaults_to_https(self):
+        """Test that bare domain with port defaults to https://."""
+        result = build_connection_url("192.168.1.1:8080", "rest_api", "v1")
+        assert result == "https://192.168.1.1:8080/v1"
+
+    def test_build_url_bare_domain_websocket_defaults_to_wss(self):
+        """Test that bare domain with websocket type gets wss://."""
+        result = build_connection_url("ws.example.com", "websocket", "socket")
+        assert result == "wss://ws.example.com/socket"
+
 
 class TestTransformConnectionUrls:
     """Tests for transform_connection_urls function."""

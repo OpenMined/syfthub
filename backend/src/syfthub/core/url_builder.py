@@ -70,6 +70,10 @@ def build_connection_url(
     if not base_url:
         return None
 
+    # Defensive: ensure protocol is present (default to https://)
+    if not base_url.startswith(("http://", "https://", "ws://", "wss://")):
+        base_url = f"https://{base_url}"
+
     # For WebSocket connection types, upgrade protocol
     if connection_type.lower() in _WEBSOCKET_TYPES:
         base_url = base_url.replace("https://", "wss://", 1).replace(
