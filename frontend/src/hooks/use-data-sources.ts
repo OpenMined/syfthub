@@ -8,7 +8,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { ChatSource } from '@/lib/types';
 
-import { getChatDataSources } from '@/lib/endpoint-utils';
+import { useAuth } from '@/context/auth-context';
+import { getChatDataSources, getGuestAccessibleDataSources } from '@/lib/endpoint-utils';
 
 export interface UseDataSourcesOptions {
   /** Maximum number of sources to fetch (default: 100) */
@@ -42,6 +43,9 @@ export interface UseDataSourcesReturn {
 export function useDataSources(options: UseDataSourcesOptions = {}): UseDataSourcesReturn {
   const { limit = 100, immediate = true } = options;
 
+  const { user } = useAuth();
+  const isAuthenticated = !!user;
+
   const [sources, setSources] = useState<ChatSource[]>([]);
   const [isLoading, setIsLoading] = useState(immediate);
 
@@ -49,14 +53,17 @@ export function useDataSources(options: UseDataSourcesOptions = {}): UseDataSour
     setIsLoading(true);
 
     try {
-      const fetchedSources = await getChatDataSources(limit);
+      // Use guest-accessible data sources for unauthenticated users
+      const fetchedSources = isAuthenticated
+        ? await getChatDataSources(limit)
+        : await getGuestAccessibleDataSources(limit);
       setSources(fetchedSources);
     } catch (error) {
       console.error('Failed to load data sources:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [limit]);
+  }, [limit, isAuthenticated]);
 
   // Load sources on mount if immediate
   useEffect(() => {

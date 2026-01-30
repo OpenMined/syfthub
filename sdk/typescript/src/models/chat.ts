@@ -145,6 +145,8 @@ export interface ChatOptions {
   signal?: AbortSignal;
   /** Custom aggregator URL to use instead of the default */
   aggregatorUrl?: string;
+  /** Use guest mode for unauthenticated access to policy-free endpoints */
+  guestMode?: boolean;
 }
 
 /**

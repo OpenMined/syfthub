@@ -8,7 +8,8 @@ import { useCallback, useEffect, useState } from 'react';
 
 import type { ChatSource } from '@/lib/types';
 
-import { getChatModels } from '@/lib/endpoint-utils';
+import { useAuth } from '@/context/auth-context';
+import { getChatModels, getGuestAccessibleModels } from '@/lib/endpoint-utils';
 
 export interface UseModelsOptions {
   /** Initial model to pre-select (e.g., from navigation state) */
@@ -49,6 +50,9 @@ export interface UseModelsReturn {
 export function useModels(options: UseModelsOptions = {}): UseModelsReturn {
   const { initialModel = null, autoSelectFirst = true, limit = 20 } = options;
 
+  const { user } = useAuth();
+  const isAuthenticated = !!user;
+
   const [models, setModels] = useState<ChatSource[]>([]);
   const [selectedModel, setSelectedModel] = useState<ChatSource | null>(initialModel);
   const [isLoading, setIsLoading] = useState(true);
@@ -57,7 +61,10 @@ export function useModels(options: UseModelsOptions = {}): UseModelsReturn {
     setIsLoading(true);
 
     try {
-      const fetchedModels = await getChatModels(limit);
+      // Use guest-accessible models for unauthenticated users
+      const fetchedModels = isAuthenticated
+        ? await getChatModels(limit)
+        : await getGuestAccessibleModels(limit);
 
       // If initialModel was provided but not in fetched list, prepend it
       let updatedModels = fetchedModels;
@@ -82,7 +89,7 @@ export function useModels(options: UseModelsOptions = {}): UseModelsReturn {
     } finally {
       setIsLoading(false);
     }
-  }, [initialModel, autoSelectFirst, limit]);
+  }, [initialModel, autoSelectFirst, limit, isAuthenticated]);
 
   // Load models on mount
   useEffect(() => {

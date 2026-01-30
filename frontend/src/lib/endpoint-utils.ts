@@ -235,6 +235,53 @@ export async function getTotalEndpointsCount(): Promise<number> {
 }
 
 // ============================================================================
+// Guest-Accessible Endpoint Functions (No Auth Required)
+// ============================================================================
+
+/**
+ * Get guest-accessible endpoints (public, active, no policies).
+ *
+ * @param params - Pagination and filter parameters
+ * @returns Array of ChatSource objects
+ */
+export async function getGuestAccessibleEndpoints(
+  params: PaginationParams & { endpoint_type?: EndpointType } = {}
+): Promise<ChatSource[]> {
+  const { limit = 10 } = params;
+
+  try {
+    const endpoints = await syftClient.hub
+      .guestAccessible({ pageSize: limit, endpointType: params.endpoint_type })
+      .firstPage();
+
+    return endpoints.map((ep) => mapEndpointPublicToSource(ep));
+  } catch (error) {
+    console.error('Failed to fetch guest-accessible endpoints:', error);
+    return [];
+  }
+}
+
+/**
+ * Get guest-accessible model endpoints for chat.
+ *
+ * @param limit - Maximum number of results
+ * @returns Array of ChatSource objects for models
+ */
+export async function getGuestAccessibleModels(limit = 20): Promise<ChatSource[]> {
+  return getGuestAccessibleEndpoints({ limit, endpoint_type: 'model' });
+}
+
+/**
+ * Get guest-accessible data source endpoints for chat.
+ *
+ * @param limit - Maximum number of results
+ * @returns Array of ChatSource objects for data sources
+ */
+export async function getGuestAccessibleDataSources(limit = 20): Promise<ChatSource[]> {
+  return getGuestAccessibleEndpoints({ limit, endpoint_type: 'data_source' });
+}
+
+// ============================================================================
 // User Endpoint Functions (Auth Required)
 // ============================================================================
 

@@ -26,6 +26,16 @@ export interface TrendingOptions {
 }
 
 /**
+ * Options for listing guest-accessible endpoints.
+ */
+export interface GuestAccessibleOptions {
+  /** Filter by endpoint type ('model' or 'data_source') */
+  endpointType?: string;
+  /** Number of items per page (default: 20) */
+  pageSize?: number;
+}
+
+/**
  * Hub resource for browsing and discovering public endpoints.
  *
  * For managing your own endpoints, see the MyEndpoints resource.
@@ -144,6 +154,39 @@ export class HubResource {
         params['minStars'] = options.minStars;
       }
       return this.http.get<EndpointPublic[]>('/api/v1/endpoints/trending', params, {
+        includeAuth: false,
+      });
+    }, pageSize);
+  }
+
+  /**
+   * List endpoints accessible to unauthenticated (guest) users.
+   *
+   * Guest-accessible endpoints are public, active, and have no policies attached.
+   * No authentication is required to call this method.
+   *
+   * @param options - Filter and pagination options
+   * @returns PageIterator that lazily fetches guest-accessible endpoints
+   *
+   * @example
+   * // List all guest-accessible endpoints
+   * for await (const endpoint of client.hub.guestAccessible()) {
+   *   console.log(`${endpoint.ownerUsername}/${endpoint.slug}: ${endpoint.name}`);
+   * }
+   *
+   * @example
+   * // List only guest-accessible models
+   * const models = await client.hub.guestAccessible({ endpointType: 'model' }).firstPage();
+   */
+  guestAccessible(options?: GuestAccessibleOptions): PageIterator<EndpointPublic> {
+    const pageSize = options?.pageSize ?? 20;
+
+    return new PageIterator<EndpointPublic>(async (skip, limit) => {
+      const params: Record<string, unknown> = { skip, limit };
+      if (options?.endpointType !== undefined) {
+        params['endpoint_type'] = options.endpointType;
+      }
+      return this.http.get<EndpointPublic[]>('/api/v1/endpoints/guest-accessible', params, {
         includeAuth: false,
       });
     }, pageSize);

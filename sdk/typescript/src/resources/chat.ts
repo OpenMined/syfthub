@@ -163,13 +163,21 @@ export class ChatResource {
   /**
    * Get satellite tokens for all unique endpoint owners.
    * Returns a map of owner username to satellite token.
+   *
+   * @param owners - Array of unique owner usernames
+   * @param guestMode - If true, fetch guest tokens (no auth required)
    */
-  private async getSatelliteTokensForOwners(owners: string[]): Promise<Record<string, string>> {
+  private async getSatelliteTokensForOwners(
+    owners: string[],
+    guestMode = false
+  ): Promise<Record<string, string>> {
     if (owners.length === 0) {
       return {};
     }
 
-    const tokenMap = await this.auth.getSatelliteTokens(owners);
+    const tokenMap = guestMode
+      ? await this.auth.getGuestSatelliteTokens(owners)
+      : await this.auth.getSatelliteTokens(owners);
     const result: Record<string, string> = {};
 
     for (const [owner, token] of tokenMap) {
@@ -365,10 +373,13 @@ export class ChatResource {
 
     // Get satellite tokens for all unique endpoint owners
     const uniqueOwners = this.collectUniqueOwners(modelRef, dsRefs);
-    const endpointTokens = await this.getSatelliteTokensForOwners(uniqueOwners);
+    const guestMode = options.guestMode ?? false;
+    const endpointTokens = await this.getSatelliteTokensForOwners(uniqueOwners, guestMode);
 
-    // Get transaction tokens for billing authorization
-    const transactionTokens = await this.getTransactionTokensForOwners(uniqueOwners);
+    // Get transaction tokens for billing authorization (skip for guest mode)
+    const transactionTokens = guestMode
+      ? {}
+      : await this.getTransactionTokensForOwners(uniqueOwners);
 
     const requestBody = this.buildRequestBody(
       options.prompt,
@@ -459,10 +470,13 @@ export class ChatResource {
 
     // Get satellite tokens for all unique endpoint owners
     const uniqueOwners = this.collectUniqueOwners(modelRef, dsRefs);
-    const endpointTokens = await this.getSatelliteTokensForOwners(uniqueOwners);
+    const guestMode = options.guestMode ?? false;
+    const endpointTokens = await this.getSatelliteTokensForOwners(uniqueOwners, guestMode);
 
-    // Get transaction tokens for billing authorization
-    const transactionTokens = await this.getTransactionTokensForOwners(uniqueOwners);
+    // Get transaction tokens for billing authorization (skip for guest mode)
+    const transactionTokens = guestMode
+      ? {}
+      : await this.getTransactionTokensForOwners(uniqueOwners);
 
     const requestBody = this.buildRequestBody(
       options.prompt,
