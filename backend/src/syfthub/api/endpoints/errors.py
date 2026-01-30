@@ -1,4 +1,4 @@
-"""Error reporting endpoint for frontend errors."""
+"""Error reporting endpoints for frontend and service errors."""
 
 from datetime import datetime
 from typing import Annotated, Any, Optional
@@ -134,5 +134,93 @@ async def report_frontend_error(
         )
     except Exception as e:
         logger.warning("frontend_error.persist.failed", error=str(e))
+
+    return ErrorReportResponse(correlation_id=correlation_id)
+
+
+# =============================================================================
+# Generic service error reporting (for aggregator, MCP, and other services)
+# =============================================================================
+
+
+class ServiceErrorReport(BaseModel):
+    """Generic error report from any SyftHub service."""
+
+    correlation_id: Optional[str] = Field(None, description="Correlation ID if known")
+    service: str = Field(..., description="Service name (e.g., aggregator, mcp)")
+    level: str = Field(default="ERROR", description="Log level (ERROR, WARNING)")
+    event: str = Field(..., description="Event name (e.g., model.query.failed)")
+    message: str = Field(..., description="Human-readable error description")
+    endpoint: Optional[str] = Field(None, description="Target endpoint URL or path")
+    method: Optional[str] = Field(None, description="HTTP method")
+    error_type: Optional[str] = Field(None, description="Error/exception type name")
+    error_code: Optional[str] = Field(None, description="Status code or error code")
+    stack_trace: Optional[str] = Field(None, description="Stack trace if available")
+    context: Optional[dict[str, Any]] = Field(None, description="Additional context")
+    request_data: Optional[dict[str, Any]] = Field(
+        None, description="Sanitized request data"
+    )
+    response_data: Optional[dict[str, Any]] = Field(
+        None, description="Sanitized response data"
+    )
+
+
+@router.post(
+    "/errors/service-report",
+    response_model=ErrorReportResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Report service error",
+    description="""
+    Accept error reports from SyftHub services (aggregator, MCP, etc.).
+
+    This endpoint allows backend services to persist error events to the
+    centralized error_logs table for traceability and debugging.
+
+    No authentication required - services use internal network.
+    """,
+)
+async def report_service_error(
+    error_report: ServiceErrorReport,
+    session: Annotated[Session, Depends(get_db_session)],
+) -> ErrorReportResponse:
+    """Persist a service error report to the database.
+
+    Args:
+        error_report: The error report from the service.
+        session: Database session.
+
+    Returns:
+        Confirmation with correlation ID.
+    """
+    correlation_id = error_report.correlation_id or get_correlation_id()
+
+    logger.warning(
+        error_report.event,
+        service=error_report.service,
+        error_type=error_report.error_type,
+        error_code=error_report.error_code,
+        error_message=error_report.message,
+        endpoint=error_report.endpoint,
+    )
+
+    try:
+        repo = ErrorLogRepository(session)
+        repo.create(
+            correlation_id=correlation_id,
+            service=error_report.service,
+            level=error_report.level,
+            event=error_report.event,
+            message=error_report.message,
+            endpoint=error_report.endpoint,
+            method=error_report.method,
+            error_type=error_report.error_type,
+            error_code=error_report.error_code,
+            stack_trace=error_report.stack_trace,
+            context=error_report.context,
+            request_data=error_report.request_data,
+            response_data=error_report.response_data,
+        )
+    except Exception as e:
+        logger.warning("service_error.persist.failed", error=str(e))
 
     return ErrorReportResponse(correlation_id=correlation_id)

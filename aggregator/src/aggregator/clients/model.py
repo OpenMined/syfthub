@@ -1,9 +1,12 @@
 """Client for interacting with SyftAI-Space model endpoints."""
 
+from __future__ import annotations
+
+import asyncio
 import json
 import time
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -12,7 +15,15 @@ from aggregator.observability.constants import CORRELATION_ID_HEADER, LogEvents
 from aggregator.schemas.internal import GenerationResult
 from aggregator.schemas.requests import Message
 
+if TYPE_CHECKING:
+    from aggregator.clients.error_reporter import ErrorReporter
+
 logger = get_logger(__name__)
+
+# Retry configuration for transient upstream failures (e.g. HTTP 500)
+MAX_RETRIES = 2
+RETRY_BASE_DELAY = 1.0  # seconds
+RETRYABLE_STATUS_CODES = {500, 502, 503, 504}
 
 
 class ModelClientError(Exception):
@@ -33,8 +44,13 @@ class ModelClient:
     (either "summary" or "both") to return LLM-generated content.
     """
 
-    def __init__(self, timeout: float = 120.0):
+    def __init__(
+        self,
+        timeout: float = 120.0,
+        error_reporter: ErrorReporter | None = None,
+    ):
         self.timeout = httpx.Timeout(timeout)
+        self.error_reporter = error_reporter
 
     async def chat(
         self,
@@ -109,66 +125,139 @@ class ModelClient:
             temperature=temperature,
         )
 
+        last_error: ModelClientError | None = None
+
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                response = await client.post(
-                    chat_url,
-                    json=request_data,
-                    headers=headers,
-                )
+            for attempt in range(1 + MAX_RETRIES):
+                try:
+                    response = await client.post(
+                        chat_url,
+                        json=request_data,
+                        headers=headers,
+                    )
 
-                latency_ms = int((time.perf_counter() - start_time) * 1000)
+                    latency_ms = int((time.perf_counter() - start_time) * 1000)
 
-                if response.status_code == 403:
-                    error_detail = self._extract_error_detail(response)
-                    logger.warning(
-                        LogEvents.MODEL_QUERY_FAILED,
-                        status_code=403,
-                        error=error_detail,
+                    if response.status_code == 403:
+                        error_detail = self._extract_error_detail(response)
+                        logger.warning(
+                            LogEvents.MODEL_QUERY_FAILED,
+                            status_code=403,
+                            error=error_detail,
+                            latency_ms=latency_ms,
+                        )
+                        self._report_upstream_error(
+                            event=LogEvents.MODEL_QUERY_FAILED,
+                            message=f"Model access denied: {error_detail}",
+                            endpoint=chat_url,
+                            status_code=403,
+                            error_detail=error_detail,
+                            latency_ms=latency_ms,
+                            request_data=request_data,
+                        )
+                        raise ModelClientError(
+                            f"Model access denied: {error_detail}",
+                            status_code=403,
+                        )
+
+                    if response.status_code != 200:
+                        error_detail = self._extract_error_detail(response)
+
+                        # Retry on transient upstream errors
+                        if (
+                            response.status_code in RETRYABLE_STATUS_CODES
+                            and attempt < MAX_RETRIES
+                        ):
+                            delay = RETRY_BASE_DELAY * (2 ** attempt)
+                            logger.warning(
+                                LogEvents.MODEL_QUERY_FAILED,
+                                status_code=response.status_code,
+                                error=error_detail,
+                                latency_ms=latency_ms,
+                                retry_attempt=attempt + 1,
+                                retry_max=MAX_RETRIES,
+                                retry_delay=delay,
+                            )
+                            last_error = ModelClientError(
+                                f"Model request failed: HTTP {response.status_code} - {error_detail}",
+                                status_code=response.status_code,
+                            )
+                            await asyncio.sleep(delay)
+                            start_time = time.perf_counter()
+                            continue
+
+                        logger.warning(
+                            LogEvents.MODEL_QUERY_FAILED,
+                            status_code=response.status_code,
+                            error=error_detail,
+                            latency_ms=latency_ms,
+                        )
+                        self._report_upstream_error(
+                            event=LogEvents.MODEL_QUERY_FAILED,
+                            message=f"Model request failed: HTTP {response.status_code} - {error_detail}",
+                            endpoint=chat_url,
+                            status_code=response.status_code,
+                            error_detail=error_detail,
+                            latency_ms=latency_ms,
+                            request_data=request_data,
+                        )
+                        raise ModelClientError(
+                            f"Model request failed: HTTP {response.status_code} - {error_detail}",
+                            status_code=response.status_code,
+                        )
+
+                    try:
+                        data = response.json()
+                    except (json.JSONDecodeError, ValueError) as e:
+                        logger.warning(
+                            LogEvents.MODEL_QUERY_FAILED,
+                            status_code=200,
+                            error=f"Invalid JSON response: {e}",
+                            latency_ms=latency_ms,
+                        )
+                        self._report_upstream_error(
+                            event=LogEvents.MODEL_QUERY_FAILED,
+                            message=f"Model returned invalid JSON: {e}",
+                            endpoint=chat_url,
+                            status_code=200,
+                            error_detail=str(e),
+                            latency_ms=latency_ms,
+                            request_data=request_data,
+                            error_type="JSONDecodeError",
+                        )
+                        raise ModelClientError(
+                            f"Model returned invalid JSON: {e}",
+                            status_code=200,
+                        ) from e
+
+                    response_text = self._extract_syftai_response(data)
+                    usage = self._extract_usage(data)
+
+                    logger.info(
+                        LogEvents.MODEL_QUERY_COMPLETED,
                         latency_ms=latency_ms,
-                    )
-                    raise ModelClientError(
-                        f"Model access denied: {error_detail}",
-                        status_code=403,
+                        usage=usage,
                     )
 
-                if response.status_code != 200:
-                    error_detail = self._extract_error_detail(response)
-                    logger.warning(
-                        LogEvents.MODEL_QUERY_FAILED,
-                        status_code=response.status_code,
-                        error=error_detail,
+                    return GenerationResult(
+                        response=response_text,
                         latency_ms=latency_ms,
-                    )
-                    raise ModelClientError(
-                        f"Model request failed: HTTP {response.status_code} - {error_detail}",
-                        status_code=response.status_code,
+                        usage=usage,
                     )
 
-                data = response.json()
-                response_text = self._extract_syftai_response(data)
-                usage = self._extract_usage(data)
+                except ModelClientError:
+                    raise
+                except httpx.TimeoutException as e:
+                    logger.warning(LogEvents.CHAT_GENERATION_TIMEOUT, chat_url=chat_url)
+                    raise ModelClientError("Model request timed out") from e
+                except httpx.RequestError as e:
+                    logger.warning(
+                        LogEvents.MODEL_QUERY_FAILED, chat_url=chat_url, error=str(e)
+                    )
+                    raise ModelClientError(f"Network error: {e}") from e
 
-                logger.info(
-                    LogEvents.MODEL_QUERY_COMPLETED,
-                    latency_ms=latency_ms,
-                    usage=usage,
-                )
-
-                return GenerationResult(
-                    response=response_text,
-                    latency_ms=latency_ms,
-                    usage=usage,
-                )
-
-            except httpx.TimeoutException as e:
-                logger.warning(LogEvents.CHAT_GENERATION_TIMEOUT, chat_url=chat_url)
-                raise ModelClientError("Model request timed out") from e
-            except httpx.RequestError as e:
-                logger.warning(
-                    LogEvents.MODEL_QUERY_FAILED, chat_url=chat_url, error=str(e)
-                )
-                raise ModelClientError(f"Network error: {e}") from e
+        # All retries exhausted
+        raise last_error or ModelClientError("Model request failed after retries")
 
     async def chat_stream(
         self,
@@ -253,15 +342,33 @@ class ModelClient:
                 ) as response:
                     if response.status_code == 403:
                         error_text = await response.aread()
+                        error_str = error_text[:200].decode("utf-8", errors="replace") if isinstance(error_text, bytes) else str(error_text)[:200]
+                        self._report_upstream_error(
+                            event=LogEvents.SSE_STREAM_FAILED,
+                            message=f"Model access denied: {error_str}",
+                            endpoint=chat_url,
+                            status_code=403,
+                            error_detail=error_str,
+                            request_data=request_data,
+                        )
                         raise ModelClientError(
-                            f"Model access denied: {error_text[:200]}",
+                            f"Model access denied: {error_str}",
                             status_code=403,
                         )
 
                     if response.status_code != 200:
                         error_text = await response.aread()
+                        error_str = error_text[:200].decode("utf-8", errors="replace") if isinstance(error_text, bytes) else str(error_text)[:200]
+                        self._report_upstream_error(
+                            event=LogEvents.SSE_STREAM_FAILED,
+                            message=f"Model stream failed: HTTP {response.status_code} - {error_str}",
+                            endpoint=chat_url,
+                            status_code=response.status_code,
+                            error_detail=error_str,
+                            request_data=request_data,
+                        )
                         raise ModelClientError(
-                            f"Model stream failed: HTTP {response.status_code} - {error_text[:200]}",
+                            f"Model stream failed: HTTP {response.status_code} - {error_str}",
                             status_code=response.status_code,
                         )
 
@@ -295,6 +402,39 @@ class ModelClient:
                     LogEvents.SSE_STREAM_FAILED, chat_url=chat_url, error=str(e)
                 )
                 raise ModelClientError(f"Network error during stream: {e}") from e
+
+    def _report_upstream_error(
+        self,
+        *,
+        event: str,
+        message: str,
+        endpoint: str,
+        status_code: int,
+        error_detail: str,
+        latency_ms: int | None = None,
+        request_data: dict[str, Any] | None = None,
+        error_type: str = "UpstreamError",
+    ) -> None:
+        """Report an upstream SyftAI-Space error to the backend for DB persistence."""
+        if not self.error_reporter:
+            return
+
+        context: dict[str, Any] = {"upstream_status_code": status_code}
+        if latency_ms is not None:
+            context["latency_ms"] = latency_ms
+
+        self.error_reporter.report(
+            event=event,
+            message=message,
+            level="ERROR" if status_code >= 500 else "WARNING",
+            endpoint=endpoint,
+            method="POST",
+            error_type=error_type,
+            error_code=str(status_code),
+            context=context,
+            request_data=request_data,
+            response_data={"detail": error_detail},
+        )
 
     def _extract_error_detail(self, response: httpx.Response) -> str:
         """Extract error detail from response."""
@@ -382,9 +522,12 @@ class ModelClient:
                 # OpenAI-style delta (for compatibility)
                 if "choices" in parsed:
                     choices = parsed["choices"]
-                    if choices and len(choices) > 0:
-                        delta = choices[0].get("delta", {})
-                        return delta.get("content")
+                    if choices and isinstance(choices, list) and len(choices) > 0:
+                        first_choice = choices[0]
+                        if isinstance(first_choice, dict):
+                            delta = first_choice.get("delta", {})
+                            if isinstance(delta, dict):
+                                return delta.get("content")
 
                 # Simple content field
                 if "content" in parsed:

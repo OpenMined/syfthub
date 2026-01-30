@@ -1,7 +1,9 @@
 """Client for interacting with SyftAI-Space data source endpoints."""
 
+from __future__ import annotations
+
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -9,6 +11,9 @@ from aggregator.observability import get_correlation_id, get_logger
 from aggregator.observability.constants import CORRELATION_ID_HEADER, LogEvents
 from aggregator.schemas.internal import RetrievalResult
 from aggregator.schemas.responses import Document
+
+if TYPE_CHECKING:
+    from aggregator.clients.error_reporter import ErrorReporter
 
 logger = get_logger(__name__)
 
@@ -23,8 +28,13 @@ class DataSourceClient:
     (either "raw" or "both") to return document references.
     """
 
-    def __init__(self, timeout: float = 30.0):
+    def __init__(
+        self,
+        timeout: float = 30.0,
+        error_reporter: ErrorReporter | None = None,
+    ):
         self.timeout = httpx.Timeout(timeout)
+        self.error_reporter = error_reporter
 
     async def query(
         self,
@@ -112,6 +122,15 @@ class DataSourceClient:
                         error=error_detail,
                         latency_ms=latency_ms,
                     )
+                    self._report_upstream_error(
+                        event=LogEvents.DATA_SOURCE_QUERY_FAILED,
+                        message=f"Data source access denied: {error_detail}",
+                        endpoint=query_url,
+                        status_code=403,
+                        error_detail=error_detail,
+                        latency_ms=latency_ms,
+                        request_data=request_data,
+                    )
                     return RetrievalResult(
                         endpoint_path=endpoint_path,
                         documents=[],
@@ -128,6 +147,15 @@ class DataSourceClient:
                         status_code=response.status_code,
                         error=error_detail,
                         latency_ms=latency_ms,
+                    )
+                    self._report_upstream_error(
+                        event=LogEvents.DATA_SOURCE_QUERY_FAILED,
+                        message=f"Data source query failed: HTTP {response.status_code} - {error_detail}",
+                        endpoint=query_url,
+                        status_code=response.status_code,
+                        error_detail=error_detail,
+                        latency_ms=latency_ms,
+                        request_data=request_data,
                     )
                     return RetrievalResult(
                         endpoint_path=endpoint_path,
@@ -200,6 +228,38 @@ class DataSourceClient:
                     error_message=f"Unexpected error: {e}",
                     latency_ms=latency_ms,
                 )
+
+    def _report_upstream_error(
+        self,
+        *,
+        event: str,
+        message: str,
+        endpoint: str,
+        status_code: int,
+        error_detail: str,
+        latency_ms: int | None = None,
+        request_data: dict[str, Any] | None = None,
+    ) -> None:
+        """Report an upstream SyftAI-Space error to the backend for DB persistence."""
+        if not self.error_reporter:
+            return
+
+        context: dict[str, Any] = {"upstream_status_code": status_code}
+        if latency_ms is not None:
+            context["latency_ms"] = latency_ms
+
+        self.error_reporter.report(
+            event=event,
+            message=message,
+            level="ERROR" if status_code >= 500 else "WARNING",
+            endpoint=endpoint,
+            method="POST",
+            error_type="UpstreamError",
+            error_code=str(status_code),
+            context=context,
+            request_data=request_data,
+            response_data={"detail": error_detail},
+        )
 
     def _extract_error_detail(self, response: httpx.Response) -> str:
         """Extract error detail from response."""
