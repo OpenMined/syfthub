@@ -472,12 +472,6 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
         return;
       }
 
-      if (!user?.email) {
-        dispatch({ type: 'ERROR', error: 'Please log in to use the chat feature.' });
-        onError?.('Please log in to use the chat feature.');
-        return;
-      }
-
       // Start the workflow
       dispatch({ type: 'START_SEARCH', query: query.trim() });
 
@@ -497,7 +491,7 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
         dispatch({ type: 'SEARCH_COMPLETE', endpoints: [] });
       }
     },
-    [model, user?.email, onError]
+    [model, onError]
   );
 
   /**
@@ -511,7 +505,7 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
    * Confirm endpoint selection and proceed to execution.
    */
   const confirmSelection = useCallback(async () => {
-    if (!state.query || !model || !user?.email) {
+    if (!state.query || !model) {
       return;
     }
 
@@ -564,7 +558,8 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
         prompt: state.query,
         model: modelPath,
         dataSources: allDataSourcePaths.length > 0 ? allDataSourcePaths : undefined,
-        aggregatorUrl: user.aggregator_url ?? undefined,
+        aggregatorUrl: user?.aggregator_url ?? undefined,
+        guestMode: !user,
         signal: abortControllerReference.current.signal
       })) {
         // Update processing status
@@ -590,8 +585,10 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
           dispatch({ type: 'COMPLETE', sources: event.sources });
           onComplete?.(result);
 
-          // Refresh balance after successful completion
-          triggerBalanceRefresh();
+          // Refresh balance after successful completion (only for authenticated users)
+          if (user) {
+            triggerBalanceRefresh();
+          }
         }
 
         // Handle errors
@@ -616,8 +613,7 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
     state.query,
     state.selectedSources,
     model,
-    user?.email,
-    user?.aggregator_url,
+    user,
     sourcesMap,
     onComplete,
     onError,

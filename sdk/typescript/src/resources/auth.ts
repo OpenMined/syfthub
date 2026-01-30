@@ -253,6 +253,59 @@ export class AuthResource {
   }
 
   /**
+   * Get a guest satellite token for a specific audience (target service).
+   *
+   * Guest tokens allow unauthenticated users to access policy-free endpoints.
+   * No authentication is required to call this method.
+   *
+   * @param audience - Target service identifier (username of the service owner)
+   * @returns Satellite token response with token and expiry
+   * @throws {ValidationError} If audience is invalid or inactive
+   *
+   * @example
+   * // Get a guest token for querying alice's policy-free endpoints
+   * const tokenResponse = await client.auth.getGuestSatelliteToken('alice');
+   */
+  async getGuestSatelliteToken(audience: string): Promise<SatelliteTokenResponse> {
+    return this.http.get<SatelliteTokenResponse>(
+      '/api/v1/token/guest',
+      { aud: audience },
+      { includeAuth: false }
+    );
+  }
+
+  /**
+   * Get guest satellite tokens for multiple audiences in parallel.
+   *
+   * No authentication is required to call this method.
+   *
+   * @param audiences - Array of unique audience identifiers (usernames)
+   * @returns Map of audience to satellite token
+   *
+   * @example
+   * const tokens = await client.auth.getGuestSatelliteTokens(['alice', 'bob']);
+   */
+  async getGuestSatelliteTokens(audiences: string[]): Promise<Map<string, string>> {
+    const uniqueAudiences = [...new Set(audiences)];
+    const tokenMap = new Map<string, string>();
+
+    const results = await Promise.allSettled(
+      uniqueAudiences.map(async (aud) => {
+        const response = await this.getGuestSatelliteToken(aud);
+        return { audience: aud, token: response.targetToken };
+      })
+    );
+
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        tokenMap.set(result.value.audience, result.value.token);
+      }
+    }
+
+    return tokenMap;
+  }
+
+  /**
    * Get transaction tokens for multiple endpoint owners.
    *
    * Transaction tokens are short-lived JWTs that pre-authorize the endpoint owner
