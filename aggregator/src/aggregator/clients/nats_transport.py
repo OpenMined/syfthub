@@ -100,6 +100,7 @@ class NATSTransport:
         payload: dict[str, Any],
         peer_channel: str,
         timeout_ms: int = 30000,
+        satellite_token: str | None = None,
     ) -> tuple[str, dict[str, Any]]:
         """Build a syfthub-tunnel/v1 request message.
 
@@ -119,6 +120,8 @@ class NATSTransport:
             "payload": payload,
             "timeout_ms": timeout_ms,
         }
+        if satellite_token:
+            message["satellite_token"] = satellite_token
         return correlation_id, message
 
     async def _send_and_receive(
@@ -129,6 +132,7 @@ class NATSTransport:
         endpoint_type: str,
         payload: dict[str, Any],
         timeout: float | None = None,
+        satellite_token: str | None = None,
     ) -> dict[str, Any]:
         """Send a tunnel request and wait for the response.
 
@@ -139,6 +143,7 @@ class NATSTransport:
             endpoint_type: "model" or "data_source".
             payload: Request payload matching HTTP request body.
             timeout: Timeout in seconds (defaults to self._default_timeout).
+            satellite_token: Optional satellite token for authenticated endpoints.
 
         Returns:
             The parsed TunnelResponse dict.
@@ -158,6 +163,7 @@ class NATSTransport:
             payload=payload,
             peer_channel=peer_channel,
             timeout_ms=timeout_ms,
+            satellite_token=satellite_token,
         )
 
         # Subscribe to reply channel before publishing
@@ -211,6 +217,7 @@ class NATSTransport:
         top_k: int = 5,
         similarity_threshold: float = 0.5,
         transaction_token: str | None = None,
+        satellite_token: str | None = None,
         timeout: float | None = None,
     ) -> RetrievalResult:
         """Query a tunneling data source endpoint via NATS.
@@ -224,6 +231,7 @@ class NATSTransport:
             top_k: Number of documents to retrieve.
             similarity_threshold: Minimum similarity score.
             transaction_token: Optional billing token.
+            satellite_token: Optional satellite token for authenticated endpoints.
             timeout: Timeout in seconds.
 
         Returns:
@@ -248,6 +256,7 @@ class NATSTransport:
                 endpoint_type="data_source",
                 payload=payload,
                 timeout=timeout,
+                satellite_token=satellite_token,
             )
 
             latency_ms = int((time.perf_counter() - start_time) * 1000)
@@ -320,6 +329,7 @@ class NATSTransport:
         max_tokens: int = 1024,
         temperature: float = 0.7,
         transaction_token: str | None = None,
+        satellite_token: str | None = None,
         timeout: float | None = None,
     ) -> GenerationResult:
         """Query a tunneling model endpoint via NATS.
@@ -332,6 +342,7 @@ class NATSTransport:
             max_tokens: Maximum tokens to generate.
             temperature: Temperature for generation.
             transaction_token: Optional billing token.
+            satellite_token: Optional satellite token for authenticated endpoints.
             timeout: Timeout in seconds.
 
         Returns:
@@ -360,6 +371,7 @@ class NATSTransport:
                 endpoint_type="model",
                 payload=payload,
                 timeout=timeout,
+                satellite_token=satellite_token,
             )
 
             latency_ms = int((time.perf_counter() - start_time) * 1000)

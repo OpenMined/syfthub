@@ -20,6 +20,7 @@ from typing import Any
 # Third-party
 import uvicorn
 from fastapi import APIRouter, FastAPI, Request, Response
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from syfthub_sdk import SyftHubClient, User, Visibility
@@ -36,6 +37,7 @@ from .logging import setup_logging
 from .config import TUNNELING_PREFIX, derive_nats_ws_url
 from .nats_transport import NATSSpaceTransport
 from .schemas import (
+    AuthenticatedUser,
     DataSourceQueryRequest,
     DataSourceQueryResponse,
     Document,
@@ -279,6 +281,25 @@ class SyftAPI:
         self._middleware_dispatch.append(fn)
         return fn
 
+    def authenticated(
+        self,
+        fn: Callable[..., Coroutine[Any, Any, Any]],
+    ) -> Callable[..., Coroutine[Any, Any, Any]]:
+        """Mark an endpoint as requiring satellite token authentication.
+
+        When applied, the framework verifies the satellite token via the Hub's
+        /verify endpoint before invoking the handler. If the handler has a
+        parameter with type AuthenticatedUser, the verified user is injected.
+
+        Usage:
+            @app.datasource(slug="my-data", name="...", description="...")
+            @app.authenticated
+            async def search(query: str, user: AuthenticatedUser) -> list[Document]:
+                ...
+        """
+        fn._syfthub_authenticated = True  # type: ignore[attr-defined]
+        return fn
+
     def _validate_slug(self, slug: str) -> None:
         """
         Validate endpoint slug format and uniqueness.
@@ -382,6 +403,7 @@ class SyftAPI:
                 "name": name,
                 "description": description,
                 "fn": fn,
+                "authenticated": getattr(fn, "_syfthub_authenticated", False),
             }
         )
 
@@ -605,6 +627,71 @@ class SyftAPI:
                 self._logger.error("Shutdown hook '%s' failed: %s", hook.__name__, e)
                 # Don't raise on shutdown - try to clean up everything
 
+    async def _verify_satellite_token(self, token: str) -> AuthenticatedUser:
+        """Verify a satellite token via the Hub's /verify endpoint.
+
+        The space authenticates itself to the Hub. The Hub uses the space's
+        username as the authorized audience, ensuring only tokens intended
+        for this space are accepted.
+
+        Args:
+            token: The satellite token string to verify.
+
+        Returns:
+            AuthenticatedUser with the verified user's identity.
+
+        Raises:
+            AuthenticationError: If verification fails or the Hub is unreachable.
+        """
+        if self._client is None:
+            raise AuthenticationError(
+                "Hub client not available. Cannot verify satellite tokens "
+                "before authentication with SyftHub."
+            )
+
+        try:
+            response = await asyncio.to_thread(
+                self._client._http.post,
+                "/api/v1/verify",
+                json={"token": token},
+            )
+        except Exception as e:
+            raise AuthenticationError(
+                f"Failed to reach Hub for token verification: {e}", cause=e
+            ) from e
+
+        data = response if isinstance(response, dict) else {}
+
+        if not data.get("valid"):
+            error = data.get("error", "verification_failed")
+            message = data.get("message", "Satellite token verification failed.")
+            raise AuthenticationError(f"Token verification failed: {error} — {message}")
+
+        return AuthenticatedUser(
+            sub=data["sub"],
+            email=data["email"],
+            username=data["username"],
+            role=data["role"],
+        )
+
+    @staticmethod
+    def _extract_bearer_token(request: Request) -> str:
+        """Extract Bearer token from Authorization header.
+
+        Raises:
+            AuthenticationError: If the header is missing or malformed.
+        """
+        auth_header = request.headers.get("authorization", "")
+        if not auth_header.startswith("Bearer "):
+            raise AuthenticationError(
+                "Missing or invalid Authorization header. "
+                "Expected: Authorization: Bearer <satellite_token>"
+            )
+        token = auth_header[7:].strip()
+        if not token:
+            raise AuthenticationError("Empty Bearer token in Authorization header.")
+        return token
+
     def _find_endpoint_by_slug(self, slug: str) -> dict[str, Any] | None:
         """Find a registered endpoint by its slug.
 
@@ -620,7 +707,10 @@ class SyftAPI:
         return None
 
     async def _invoke_datasource_handler(
-        self, endpoint: dict[str, Any], payload: dict[str, Any]
+        self,
+        endpoint: dict[str, Any],
+        payload: dict[str, Any],
+        user: AuthenticatedUser | None = None,
     ) -> dict[str, Any]:
         """Invoke a DATA_SOURCE endpoint handler.
 
@@ -629,6 +719,7 @@ class SyftAPI:
         Args:
             endpoint: The registered endpoint dict.
             payload: Request payload with 'messages' (query), 'limit', etc.
+            user: Verified user identity, injected if the handler accepts it.
 
         Returns:
             Response dict with 'references' containing documents.
@@ -636,8 +727,18 @@ class SyftAPI:
         fn = endpoint["fn"]
         query = payload.get("messages", "")
 
+        kwargs: dict[str, Any] = {"query": query}
+
+        # Inject AuthenticatedUser if handler accepts it
+        if user is not None:
+            sig = inspect.signature(fn)
+            for param_name, param in sig.parameters.items():
+                if param.annotation is AuthenticatedUser:
+                    kwargs[param_name] = user
+                    break
+
         # Call user's async function
-        documents = await fn(query=query)
+        documents = await fn(**kwargs)
 
         # Format response
         return {
@@ -652,7 +753,10 @@ class SyftAPI:
         }
 
     async def _invoke_model_handler(
-        self, endpoint: dict[str, Any], payload: dict[str, Any]
+        self,
+        endpoint: dict[str, Any],
+        payload: dict[str, Any],
+        user: AuthenticatedUser | None = None,
     ) -> dict[str, Any]:
         """Invoke a MODEL endpoint handler.
 
@@ -661,6 +765,7 @@ class SyftAPI:
         Args:
             endpoint: The registered endpoint dict.
             payload: Request payload with 'messages' list.
+            user: Verified user identity, injected if the handler accepts it.
 
         Returns:
             Response dict with 'summary' containing model response.
@@ -671,8 +776,18 @@ class SyftAPI:
         # Convert to Message objects if they're dicts
         messages = [Message(**m) if isinstance(m, dict) else m for m in raw_messages]
 
+        kwargs: dict[str, Any] = {"messages": messages}
+
+        # Inject AuthenticatedUser if handler accepts it
+        if user is not None:
+            sig = inspect.signature(fn)
+            for param_name, param in sig.parameters.items():
+                if param.annotation is AuthenticatedUser:
+                    kwargs[param_name] = user
+                    break
+
         # Call user's async function
-        response_content = await fn(messages=messages)
+        response_content = await fn(**kwargs)
 
         # Generate unique response ID (OpenAI-style format)
         response_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
@@ -698,6 +813,11 @@ class SyftAPI:
     def _build_fastapi_app(self) -> FastAPI:
         """Build the FastAPI application with registered endpoints."""
         app = FastAPI(title="SyftAI Space", lifespan=self._lifespan)
+
+        # Add exception handler for AuthenticationError -> HTTP 401
+        @app.exception_handler(AuthenticationError)
+        async def auth_error_handler(request: Request, exc: AuthenticationError) -> JSONResponse:
+            return JSONResponse(status_code=401, content={"detail": str(exc)})
 
         # Add user-defined middleware classes (in reverse order for correct execution)
         for middleware_class, options in reversed(self._middleware):
@@ -751,39 +871,53 @@ class SyftAPI:
         """
         return self._build_fastapi_app()
 
-    def _create_datasource_handler(
-        self, endpoint: dict[str, Any]
-    ) -> Callable[[DataSourceQueryRequest], Coroutine[Any, Any, DataSourceQueryResponse]]:
+    def _create_datasource_handler(self, endpoint: dict[str, Any]) -> Any:
         """Create a request handler for a data source endpoint."""
+        is_authenticated = endpoint.get("authenticated", False)
 
-        async def handler(request: DataSourceQueryRequest) -> DataSourceQueryResponse:
+        async def handler(
+            request_body: DataSourceQueryRequest,
+            request: Request,
+        ) -> DataSourceQueryResponse:
+            user = None
+            if is_authenticated:
+                token = self._extract_bearer_token(request)
+                user = await self._verify_satellite_token(token)
+
             payload = {
-                "messages": request.messages,
-                "limit": request.limit,
-                "similarity_threshold": request.similarity_threshold,
-                "include_metadata": request.include_metadata,
-                "transaction_token": request.transaction_token,
+                "messages": request_body.messages,
+                "limit": request_body.limit,
+                "similarity_threshold": request_body.similarity_threshold,
+                "include_metadata": request_body.include_metadata,
+                "transaction_token": request_body.transaction_token,
             }
-            result = await self._invoke_datasource_handler(endpoint, payload)
+            result = await self._invoke_datasource_handler(endpoint, payload, user=user)
             return DataSourceQueryResponse(**result)
 
         return handler
 
-    def _create_model_handler(
-        self, endpoint: dict[str, Any]
-    ) -> Callable[[ModelQueryRequest], Coroutine[Any, Any, ModelQueryResponse]]:
+    def _create_model_handler(self, endpoint: dict[str, Any]) -> Any:
         """Create a request handler for a model endpoint."""
+        is_authenticated = endpoint.get("authenticated", False)
 
-        async def handler(request: ModelQueryRequest) -> ModelQueryResponse:
+        async def handler(
+            request_body: ModelQueryRequest,
+            request: Request,
+        ) -> ModelQueryResponse:
+            user = None
+            if is_authenticated:
+                token = self._extract_bearer_token(request)
+                user = await self._verify_satellite_token(token)
+
             payload = {
-                "messages": [m.model_dump() for m in request.messages],
-                "max_tokens": request.max_tokens,
-                "temperature": request.temperature,
-                "stream": request.stream,
-                "stop_sequences": request.stop_sequences,
-                "transaction_token": request.transaction_token,
+                "messages": [m.model_dump() for m in request_body.messages],
+                "max_tokens": request_body.max_tokens,
+                "temperature": request_body.temperature,
+                "stream": request_body.stream,
+                "stop_sequences": request_body.stop_sequences,
+                "transaction_token": request_body.transaction_token,
             }
-            result = await self._invoke_model_handler(endpoint, payload)
+            result = await self._invoke_model_handler(endpoint, payload, user=user)
             return ModelQueryResponse(**result)
 
         return handler
@@ -1010,12 +1144,37 @@ class SyftAPI:
             )
             return
 
+        # Auth check for authenticated endpoints
+        user = None
+        if endpoint.get("authenticated"):
+            satellite_token = data.get("satellite_token")
+            if not satellite_token:
+                await self._send_tunnel_error(
+                    reply_to=reply_to,
+                    correlation_id=correlation_id,
+                    endpoint_slug=endpoint_slug,
+                    code=TunnelErrorCode.AUTH_FAILED,
+                    message="Satellite token required for this endpoint.",
+                )
+                return
+            try:
+                user = await self._verify_satellite_token(satellite_token)
+            except AuthenticationError as e:
+                await self._send_tunnel_error(
+                    reply_to=reply_to,
+                    correlation_id=correlation_id,
+                    endpoint_slug=endpoint_slug,
+                    code=TunnelErrorCode.AUTH_FAILED,
+                    message=str(e),
+                )
+                return
+
         # Invoke the handler
         try:
             if endpoint["type"] == EndpointType.DATA_SOURCE:
-                result = await self._invoke_datasource_handler(endpoint, payload)
+                result = await self._invoke_datasource_handler(endpoint, payload, user=user)
             else:
-                result = await self._invoke_model_handler(endpoint, payload)
+                result = await self._invoke_model_handler(endpoint, payload, user=user)
 
             # Send success response via NATS
             end_time = datetime.now(timezone.utc)

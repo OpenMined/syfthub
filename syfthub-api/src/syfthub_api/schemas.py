@@ -12,9 +12,19 @@ class EndpointType(str, Enum):
     MODEL = "model"
 
 
+class AuthenticatedUser(BaseModel):
+    """Verified user identity from satellite token verification."""
+
+    sub: str = Field(..., description="User ID")
+    email: str = Field(..., description="User email")
+    username: str = Field(..., description="Username")
+    role: str = Field(..., description="User role (user, admin, guest)")
+
+
 class TunnelErrorCode(str, Enum):
     """Error codes for tunnel responses."""
 
+    AUTH_FAILED = "AUTH_FAILED"
     ENDPOINT_NOT_FOUND = "ENDPOINT_NOT_FOUND"
     ENDPOINT_TYPE_MISMATCH = "ENDPOINT_TYPE_MISMATCH"
     HANDLER_ERROR = "HANDLER_ERROR"
@@ -125,6 +135,10 @@ class TunnelRequest(BaseModel):
         default_factory=dict, description="Request payload (matches HTTP request body)"
     )
     timeout_ms: int = Field(default=30000, ge=1000, le=300000, description="Request timeout in ms")
+    satellite_token: str | None = Field(
+        default=None,
+        description="Satellite token for authenticated endpoints (verified via Hub /verify)",
+    )
 
 
 class TunnelError(BaseModel):

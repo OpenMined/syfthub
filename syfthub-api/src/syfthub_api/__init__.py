@@ -37,6 +37,8 @@ from .exceptions import (
 )
 from .logging import get_logger, setup_logging
 from .schemas import (
+    # Auth
+    AuthenticatedUser,
     # Request schemas
     DataSourceQueryRequest,
     # Response schemas
@@ -68,6 +70,8 @@ __version__ = "0.1.0"
 __all__ = [
     # Core
     "SyftAPI",
+    # Auth
+    "AuthenticatedUser",
     # Heartbeat
     "HeartbeatManager",
     # NATS Transport

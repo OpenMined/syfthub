@@ -89,6 +89,7 @@ class RetrievalService:
                         top_k=top_k,
                         similarity_threshold=similarity_threshold,
                         transaction_token=self._get_token_for_endpoint(ds, transaction_tokens),
+                        satellite_token=self._get_token_for_endpoint(ds, endpoint_tokens),
                     )
                 )
             else:
@@ -182,6 +183,7 @@ class RetrievalService:
                         top_k=top_k,
                         similarity_threshold=similarity_threshold,
                         transaction_token=self._get_token_for_endpoint(ds, transaction_tokens),
+                        satellite_token=self._get_token_for_endpoint(ds, endpoint_tokens),
                     )
                 )
             else:
