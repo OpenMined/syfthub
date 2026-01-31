@@ -10,6 +10,14 @@ of all registered endpoints using a hybrid approach:
 If an endpoint becomes unreachable, its is_active status is set to False.
 If a previously inactive endpoint becomes reachable, its is_active status
 is restored to True.
+
+Multi-worker safety:
+    In multi-worker deployments (e.g., uvicorn --workers 4), each worker
+    starts its own health monitor loop. A PostgreSQL advisory lock
+    (pg_try_advisory_lock) ensures only one worker executes the health
+    check cycle at any given time. Workers that cannot acquire the lock
+    skip the cycle gracefully. The lock is automatically released when
+    the database session closes, including on worker crashes.
 """
 
 from __future__ import annotations
@@ -22,7 +30,7 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.sql import label
 
 from syfthub.core.url_builder import build_connection_url, get_first_enabled_connection
@@ -37,6 +45,11 @@ if TYPE_CHECKING:
     from syfthub.core.config import Settings
 
 logger = logging.getLogger(__name__)
+
+# PostgreSQL advisory lock ID for health monitor cycle exclusion.
+# Ensures only one worker runs the health check cycle at a time in
+# multi-worker deployments (e.g., uvicorn --workers 4).
+HEALTH_MONITOR_LOCK_ID = 839201
 
 
 @dataclass
@@ -80,6 +93,37 @@ class EndpointHealthMonitor:
         self.grace_period = settings.heartbeat_grace_period_seconds
         self._running = False
         self._task: Optional[asyncio.Task[None]] = None
+
+    def _try_acquire_cycle_lock(self, session: Session) -> bool:
+        """Try to acquire a PostgreSQL advisory lock for this health check cycle.
+
+        Uses pg_try_advisory_lock to ensure only one worker runs the health
+        check at a time in multi-worker deployments. The lock is automatically
+        released when the session is closed.
+
+        For non-PostgreSQL databases (e.g., SQLite in development), always
+        returns True since dev environments run a single worker.
+
+        Args:
+            session: Database session to use for lock acquisition
+
+        Returns:
+            True if the lock was acquired (or not needed), False otherwise
+        """
+        dialect = session.bind.dialect.name if session.bind else ""
+        if dialect != "postgresql":
+            return True
+
+        try:
+            result = session.execute(
+                text("SELECT pg_try_advisory_lock(:lock_id)"),
+                {"lock_id": HEALTH_MONITOR_LOCK_ID},
+            )
+            acquired = result.scalar()
+            return bool(acquired)
+        except Exception as e:
+            logger.warning(f"Failed to acquire advisory lock: {e}")
+            return False
 
     def _build_health_check_url(
         self, owner_domain: str, connect: list[dict[str, Any]]
@@ -357,6 +401,14 @@ class EndpointHealthMonitor:
         """
         session = db_manager.get_session()
         try:
+            # Acquire advisory lock to prevent multiple workers from running
+            # the health check cycle simultaneously (prevents flapping)
+            if not self._try_acquire_cycle_lock(session):
+                logger.debug(
+                    "Skipping health check cycle - another worker holds the lock"
+                )
+                return
+
             # Get all endpoints that can be health checked
             endpoints = self._get_endpoints_for_health_check(session)
 
