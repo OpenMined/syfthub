@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from syfthub.jobs.health_monitor import (
+    HEALTH_MONITOR_LOCK_ID,
     EndpointHealthInfo,
     EndpointHealthMonitor,
 )
@@ -93,6 +94,79 @@ class TestEndpointHealthMonitorInit:
         assert monitor.interval == 60
         assert monitor.timeout == 10.0
         assert monitor.max_concurrent == 50
+
+
+class TestTryAcquireCycleLock:
+    """Tests for _try_acquire_cycle_lock advisory lock method."""
+
+    @pytest.fixture
+    def monitor(self):
+        """Create EndpointHealthMonitor for testing."""
+        settings = MagicMock()
+        settings.health_check_enabled = True
+        settings.health_check_interval_seconds = 30
+        settings.health_check_timeout_seconds = 5.0
+        settings.health_check_max_concurrent = 20
+        settings.heartbeat_grace_period_seconds = 60
+        return EndpointHealthMonitor(settings)
+
+    def test_lock_acquired_on_postgresql(self, monitor):
+        """Test lock is acquired when pg_try_advisory_lock returns True."""
+        mock_session = MagicMock()
+        mock_session.bind.dialect.name = "postgresql"
+        mock_result = MagicMock()
+        mock_result.scalar.return_value = True
+        mock_session.execute.return_value = mock_result
+
+        assert monitor._try_acquire_cycle_lock(mock_session) is True
+        mock_session.execute.assert_called_once()
+
+    def test_lock_not_acquired_on_postgresql(self, monitor):
+        """Test lock not acquired when another worker holds it."""
+        mock_session = MagicMock()
+        mock_session.bind.dialect.name = "postgresql"
+        mock_result = MagicMock()
+        mock_result.scalar.return_value = False
+        mock_session.execute.return_value = mock_result
+
+        assert monitor._try_acquire_cycle_lock(mock_session) is False
+
+    def test_lock_skipped_on_sqlite(self, monitor):
+        """Test lock is always acquired (skipped) on SQLite."""
+        mock_session = MagicMock()
+        mock_session.bind.dialect.name = "sqlite"
+
+        assert monitor._try_acquire_cycle_lock(mock_session) is True
+        mock_session.execute.assert_not_called()
+
+    def test_lock_skipped_when_no_bind(self, monitor):
+        """Test lock is not acquired when session has no bind."""
+        mock_session = MagicMock()
+        mock_session.bind = None
+
+        assert monitor._try_acquire_cycle_lock(mock_session) is True
+
+    def test_lock_uses_correct_lock_id(self, monitor):
+        """Test that the correct advisory lock ID is used."""
+        mock_session = MagicMock()
+        mock_session.bind.dialect.name = "postgresql"
+        mock_result = MagicMock()
+        mock_result.scalar.return_value = True
+        mock_session.execute.return_value = mock_result
+
+        monitor._try_acquire_cycle_lock(mock_session)
+
+        call_args = mock_session.execute.call_args
+        params = call_args[0][1]
+        assert params["lock_id"] == HEALTH_MONITOR_LOCK_ID
+
+    def test_lock_returns_false_on_exception(self, monitor):
+        """Test lock returns False when database query fails."""
+        mock_session = MagicMock()
+        mock_session.bind.dialect.name = "postgresql"
+        mock_session.execute.side_effect = Exception("Connection lost")
+
+        assert monitor._try_acquire_cycle_lock(mock_session) is False
 
 
 class TestBuildHealthCheckUrl:
@@ -783,12 +857,51 @@ class TestRunHealthCheckCycle:
         return EndpointHealthMonitor(settings)
 
     @pytest.mark.asyncio
+    async def test_cycle_skips_when_lock_not_acquired(self, monitor):
+        """Test health check cycle skips when advisory lock is held by another worker."""
+        mock_session = MagicMock()
+
+        with (
+            patch("syfthub.jobs.health_monitor.db_manager") as mock_db_manager,
+            patch.object(monitor, "_try_acquire_cycle_lock", return_value=False),
+            patch.object(monitor, "_get_endpoints_for_health_check") as mock_get,
+        ):
+            mock_db_manager.get_session.return_value = mock_session
+
+            await monitor.run_health_check_cycle()
+
+            # Should not query endpoints since lock was not acquired
+            mock_get.assert_not_called()
+            mock_session.close.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_cycle_proceeds_when_lock_acquired(self, monitor):
+        """Test health check cycle proceeds when advisory lock is acquired."""
+        mock_session = MagicMock()
+
+        with (
+            patch("syfthub.jobs.health_monitor.db_manager") as mock_db_manager,
+            patch.object(monitor, "_try_acquire_cycle_lock", return_value=True),
+            patch.object(
+                monitor, "_get_endpoints_for_health_check", return_value=[]
+            ) as mock_get,
+        ):
+            mock_db_manager.get_session.return_value = mock_session
+
+            await monitor.run_health_check_cycle()
+
+            # Should query endpoints since lock was acquired
+            mock_get.assert_called_once()
+            mock_session.close.assert_called_once()
+
+    @pytest.mark.asyncio
     async def test_cycle_no_endpoints(self, monitor):
         """Test health check cycle with no endpoints."""
         mock_session = MagicMock()
 
         with (
             patch("syfthub.jobs.health_monitor.db_manager") as mock_db_manager,
+            patch.object(monitor, "_try_acquire_cycle_lock", return_value=True),
             patch.object(monitor, "_get_endpoints_for_health_check", return_value=[]),
         ):
             mock_db_manager.get_session.return_value = mock_session
@@ -815,6 +928,7 @@ class TestRunHealthCheckCycle:
 
         with (
             patch("syfthub.jobs.health_monitor.db_manager") as mock_db_manager,
+            patch.object(monitor, "_try_acquire_cycle_lock", return_value=True),
             patch.object(
                 monitor, "_get_endpoints_for_health_check", return_value=endpoints
             ),
@@ -852,6 +966,7 @@ class TestRunHealthCheckCycle:
 
         with (
             patch("syfthub.jobs.health_monitor.db_manager") as mock_db_manager,
+            patch.object(monitor, "_try_acquire_cycle_lock", return_value=True),
             patch.object(
                 monitor, "_get_endpoints_for_health_check", return_value=endpoints
             ),
@@ -889,6 +1004,7 @@ class TestRunHealthCheckCycle:
 
         with (
             patch("syfthub.jobs.health_monitor.db_manager") as mock_db_manager,
+            patch.object(monitor, "_try_acquire_cycle_lock", return_value=True),
             patch.object(
                 monitor, "_get_endpoints_for_health_check", return_value=endpoints
             ),

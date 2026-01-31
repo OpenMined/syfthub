@@ -7,6 +7,6 @@ Jobs:
 - health_monitor: Periodic endpoint health checking
 """
 
-from syfthub.jobs.health_monitor import EndpointHealthMonitor
+from syfthub.jobs.health_monitor import HEALTH_MONITOR_LOCK_ID, EndpointHealthMonitor
 
-__all__ = ["EndpointHealthMonitor"]
+__all__ = ["HEALTH_MONITOR_LOCK_ID", "EndpointHealthMonitor"]
