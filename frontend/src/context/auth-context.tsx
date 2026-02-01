@@ -57,7 +57,7 @@ function generateAvatarUrl(name: string): string {
 /**
  * Generate a base username from email.
  */
-function generateUsernameFromEmail(email: string): string {
+export function generateUsernameFromEmail(email: string): string {
   const emailPrefix = email.split('@')[0];
   return emailPrefix ? emailPrefix.toLowerCase().replaceAll(/[^a-z0-9]/g, '') : 'user';
 }
@@ -119,7 +119,7 @@ async function attemptRegistration(
  * This provides backward compatibility with existing components while
  * using the SDK internally.
  */
-function mapSdkUserToFrontend(sdkUser: SdkUser): User {
+export function mapSdkUserToFrontend(sdkUser: SdkUser): User {
   return {
     id: String(sdkUser.id),
     username: sdkUser.username,
