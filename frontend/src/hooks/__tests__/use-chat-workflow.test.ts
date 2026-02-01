@@ -75,7 +75,7 @@ describe('useChatWorkflow', () => {
     expect(result.current.streamedContent).toBe('');
   });
 
-  it('transitions to searching on submitQuery', async () => {
+  it('transitions to selecting after submitQuery completes search', async () => {
     const mockSearchResults = [
       createMockSearchableChatSource({ slug: 'result-1', relevance_score: 0.8 })
     ];
@@ -94,13 +94,10 @@ describe('useChatWorkflow', () => {
       result.current.submitQuery('test query');
     });
 
-    expect(result.current.phase).toBe('searching');
-    expect(result.current.query).toBe('test query');
-
-    // Wait for search to complete
     await waitFor(() => {
       expect(result.current.phase).toBe('selecting');
     });
+    expect(result.current.query).toBe('test query');
   });
 
   it('skips search for short query and goes to selecting with empty results', async () => {
