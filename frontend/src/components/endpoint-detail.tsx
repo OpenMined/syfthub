@@ -89,68 +89,68 @@ const POLICY_TYPE_CONFIG: Record<
   transaction: {
     icon: Coins,
     label: 'Transaction Policy',
-    color: 'text-emerald-600',
-    bgColor: 'bg-emerald-50',
-    borderColor: 'border-emerald-200',
+    color: 'text-emerald-600 dark:text-emerald-400',
+    bgColor: 'bg-emerald-50 dark:bg-emerald-950/30',
+    borderColor: 'border-emerald-200 dark:border-emerald-800',
     description: 'Pay-per-use pricing for this endpoint'
   },
   // Access control policies
   public: {
     icon: Globe,
     label: 'Public Access',
-    color: 'text-sky-600',
-    bgColor: 'bg-sky-50',
-    borderColor: 'border-sky-200',
+    color: 'text-sky-600 dark:text-sky-400',
+    bgColor: 'bg-sky-50 dark:bg-sky-950/30',
+    borderColor: 'border-sky-200 dark:border-sky-800',
     description: 'Anyone can access this endpoint without authentication'
   },
   private: {
     icon: Lock,
     label: 'Private Access',
-    color: 'text-red-600',
-    bgColor: 'bg-red-50',
-    borderColor: 'border-red-200',
+    color: 'text-red-600 dark:text-red-400',
+    bgColor: 'bg-red-50 dark:bg-red-950/30',
+    borderColor: 'border-red-200 dark:border-red-800',
     description: 'Only the owner can access this endpoint'
   },
   authenticated: {
     icon: Key,
     label: 'Authentication Required',
-    color: 'text-amber-600',
-    bgColor: 'bg-amber-50',
-    borderColor: 'border-amber-200',
+    color: 'text-amber-600 dark:text-amber-400',
+    bgColor: 'bg-amber-50 dark:bg-amber-950/30',
+    borderColor: 'border-amber-200 dark:border-amber-800',
     description: 'Requires authentication to access'
   },
   internal: {
     icon: Shield,
     label: 'Internal Only',
-    color: 'text-indigo-600',
-    bgColor: 'bg-indigo-50',
-    borderColor: 'border-indigo-200',
+    color: 'text-indigo-600 dark:text-indigo-400',
+    bgColor: 'bg-indigo-50 dark:bg-indigo-950/30',
+    borderColor: 'border-indigo-200 dark:border-indigo-800',
     description: 'Only accessible within the organization'
   },
   // Rate limiting and quotas
   rate_limit: {
     icon: Gauge,
     label: 'Rate Limit',
-    color: 'text-orange-600',
-    bgColor: 'bg-orange-50',
-    borderColor: 'border-orange-200',
+    color: 'text-orange-600 dark:text-orange-400',
+    bgColor: 'bg-orange-50 dark:bg-orange-950/30',
+    borderColor: 'border-orange-200 dark:border-orange-800',
     description: 'Request rate is limited'
   },
   quota: {
     icon: Zap,
     label: 'Usage Quota',
-    color: 'text-purple-600',
-    bgColor: 'bg-purple-50',
-    borderColor: 'border-purple-200',
+    color: 'text-purple-600 dark:text-purple-400',
+    bgColor: 'bg-purple-50 dark:bg-purple-950/30',
+    borderColor: 'border-purple-200 dark:border-purple-800',
     description: 'Usage quota applies to this endpoint'
   },
   // Geographic restrictions
   geographic: {
     icon: MapPin,
     label: 'Geographic Restriction',
-    color: 'text-rose-600',
-    bgColor: 'bg-rose-50',
-    borderColor: 'border-rose-200',
+    color: 'text-rose-600 dark:text-rose-400',
+    bgColor: 'bg-rose-50 dark:bg-rose-950/30',
+    borderColor: 'border-rose-200 dark:border-rose-800',
     description: 'Access restricted by geographic location'
   }
 };
@@ -158,9 +158,9 @@ const POLICY_TYPE_CONFIG: Record<
 const DEFAULT_POLICY_CONFIG = {
   icon: ShieldCheck,
   label: 'Policy',
-  color: 'text-slate-600',
-  bgColor: 'bg-slate-50',
-  borderColor: 'border-slate-200',
+  color: 'text-slate-600 dark:text-slate-400',
+  bgColor: 'bg-slate-50 dark:bg-slate-950/30',
+  borderColor: 'border-slate-200 dark:border-slate-800',
   description: 'Custom policy configuration'
 };
 
@@ -255,13 +255,13 @@ const TransactionPolicyContent = memo(function TransactionPolicyContent({
 
       {/* Pricing Table */}
       {costs ? (
-        <div className='bg-card/60 rounded-md border border-emerald-200'>
-          <div className='border-b border-emerald-100 px-3 py-1.5'>
-            <span className='text-[10px] font-semibold tracking-wide text-emerald-700 uppercase'>
+        <div className='bg-card/60 rounded-md border border-emerald-200 dark:border-emerald-800'>
+          <div className='border-b border-emerald-100 px-3 py-1.5 dark:border-emerald-800'>
+            <span className='text-[10px] font-semibold tracking-wide text-emerald-700 uppercase dark:text-emerald-400'>
               Pricing
             </span>
           </div>
-          <div className='divide-y divide-emerald-100'>
+          <div className='divide-y divide-emerald-100 dark:divide-emerald-800'>
             {Object.entries(costs)
               .filter(
                 ([key, value]) =>
@@ -360,7 +360,7 @@ const PolicyItem = memo(function PolicyItem({ policy }: Readonly<{ policy: Polic
               className={cn(
                 'shrink-0 text-[10px] font-medium',
                 policy.enabled
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400'
                   : 'border-border bg-muted text-muted-foreground'
               )}
             >
