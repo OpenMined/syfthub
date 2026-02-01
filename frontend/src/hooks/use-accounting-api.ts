@@ -30,7 +30,7 @@ import { syftClient } from '@/lib/sdk-client';
 // =============================================================================
 
 /** Polling interval for balance and transactions (30 seconds) */
-const POLLING_INTERVAL_MS = 30_000;
+export const POLLING_INTERVAL_MS = 30_000;
 
 // =============================================================================
 // Force Refresh Event System
@@ -147,7 +147,7 @@ function createVisibilityAwarePolling(
  * Makes authenticated requests to the SyftHub backend accounting proxy endpoints.
  * This avoids CORS issues by going through the backend.
  */
-class AccountingProxyClient {
+export class AccountingProxyClient {
   // Use same-origin for API calls (through Vite proxy or nginx)
   private readonly baseUrl = '/api/v1/accounting';
   private readonly timeout: number;
@@ -269,7 +269,7 @@ interface TransactionResponse {
 }
 
 // Parse transaction response to proper type (snake_case -> camelCase)
-function parseTransaction(response: TransactionResponse): AccountingTransaction {
+export function parseTransaction(response: TransactionResponse): AccountingTransaction {
   return {
     id: response.id,
     senderEmail: response.sender_email,

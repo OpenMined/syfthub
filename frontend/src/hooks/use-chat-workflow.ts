@@ -149,7 +149,7 @@ export interface UseChatWorkflowReturn extends WorkflowState {
 // Reducer Actions
 // =============================================================================
 
-type WorkflowAction =
+export type WorkflowAction =
   | { type: 'START_SEARCH'; query: string }
   | { type: 'SEARCH_COMPLETE'; endpoints: SearchableChatSource[] }
   | { type: 'TOGGLE_SOURCE'; id: string }
@@ -165,7 +165,7 @@ type WorkflowAction =
 // Initial State
 // =============================================================================
 
-const initialState: WorkflowState = {
+export const initialState: WorkflowState = {
   phase: 'idle',
   query: null,
   suggestedEndpoints: [],
@@ -183,7 +183,7 @@ const initialState: WorkflowState = {
 /**
  * Extract a display name from an endpoint path.
  */
-function extractSourceDisplayName(path: string): string {
+export function extractSourceDisplayName(path: string): string {
   const parts = path.split('/');
   const name = parts.at(-1) ?? path;
   return name
@@ -195,7 +195,7 @@ function extractSourceDisplayName(path: string): string {
 /**
  * Process a stream event to update the processing status.
  */
-function processStreamEventForStatus(
+export function processStreamEventForStatus(
   status: ProcessingStatus | null,
   event: ChatStreamEvent
 ): ProcessingStatus | null {
@@ -306,7 +306,7 @@ function processStreamEventForStatus(
 /**
  * Convert errors to user-friendly messages.
  */
-function getErrorMessage(error: unknown): string {
+export function getErrorMessage(error: unknown): string {
   if (error instanceof AuthenticationError) {
     return 'Authentication required. Please log in again.';
   }
@@ -326,7 +326,7 @@ function getErrorMessage(error: unknown): string {
 // Reducer
 // =============================================================================
 
-function workflowReducer(state: WorkflowState, action: WorkflowAction): WorkflowState {
+export function workflowReducer(state: WorkflowState, action: WorkflowAction): WorkflowState {
   switch (action.type) {
     case 'START_SEARCH': {
       return {
