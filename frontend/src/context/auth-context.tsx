@@ -37,8 +37,6 @@ interface AuthContextType {
   error: string | null;
   login: (credentials: { email: string; password: string }) => Promise<void>;
   register: (userData: RegisterData) => Promise<void>;
-  loginWithGoogle: () => Promise<void>;
-  loginWithGitHub: () => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
   refreshUser: () => Promise<void>;
@@ -249,42 +247,6 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
     }
   }, []);
 
-  // Memoized loginWithGoogle callback for stable reference
-  const loginWithGoogle = useCallback(async (): Promise<void> => {
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      // Google OAuth not yet implemented
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      throw new Error('Google OAuth not yet implemented');
-    } catch (googleError) {
-      const message = getErrorMessage(googleError);
-      setError(message);
-      throw googleError;
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  // Memoized loginWithGitHub callback for stable reference
-  const loginWithGitHub = useCallback(async (): Promise<void> => {
-    try {
-      setIsLoading(true);
-      setError(null);
-
-      // GitHub OAuth not yet implemented
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      throw new Error('GitHub OAuth not yet implemented');
-    } catch (githubError) {
-      const message = getErrorMessage(githubError);
-      setError(message);
-      throw githubError;
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
   // Memoized logout callback for stable reference
   const logout = useCallback(async (): Promise<void> => {
     try {
@@ -342,8 +304,6 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
       error,
       login,
       register,
-      loginWithGoogle,
-      loginWithGitHub,
       logout,
       clearError,
       refreshUser,
@@ -356,8 +316,6 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
       error,
       login,
       register,
-      loginWithGoogle,
-      loginWithGitHub,
       logout,
       clearError,
       refreshUser,

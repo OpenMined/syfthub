@@ -13,19 +13,22 @@ import { ThemeProvider } from '@/context/theme-context';
 /**
  * AllProviders wraps children in the same provider stack as app.tsx
  * (minus ErrorBoundary which would swallow test errors).
+ *
+ * Provider order mirrors RootProvider (Theme > Modal > SettingsModal)
+ * then AuthProvider > AccountingProvider > Router.
  */
 function AllProviders({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <ThemeProvider defaultTheme='light'>
-      <AuthProvider>
-        <AccountingProvider>
-          <ModalProvider>
-            <SettingsModalProvider>
+      <ModalProvider>
+        <SettingsModalProvider>
+          <AuthProvider>
+            <AccountingProvider>
               <MemoryRouter>{children}</MemoryRouter>
-            </SettingsModalProvider>
-          </ModalProvider>
-        </AccountingProvider>
-      </AuthProvider>
+            </AccountingProvider>
+          </AuthProvider>
+        </SettingsModalProvider>
+      </ModalProvider>
     </ThemeProvider>
   );
 }
