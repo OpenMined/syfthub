@@ -7,7 +7,7 @@
  * This hook centralizes all workflow logic that was previously scattered across
  * Hero and ChatView components.
  */
-import { useCallback, useReducer, useRef } from 'react';
+import { useCallback, useMemo, useReducer, useRef } from 'react';
 
 import type { ChatStreamEvent } from '@/lib/sdk-client';
 import type { SearchableChatSource } from '@/lib/search-service';
@@ -449,7 +449,10 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
   const abortControllerReference = useRef<AbortController | null>(null);
 
   // Build a sources map for O(1) lookups if not provided
-  const sourcesMap = dataSourcesById ?? new Map(dataSources.map((source) => [source.id, source]));
+  const sourcesMap = useMemo(
+    () => dataSourcesById ?? new Map(dataSources.map((source) => [source.id, source])),
+    [dataSourcesById, dataSources]
+  );
 
   // -------------------------------------------------------------------------
   // Actions
