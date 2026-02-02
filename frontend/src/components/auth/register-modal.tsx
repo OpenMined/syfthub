@@ -16,6 +16,7 @@ import { useAuth } from '@/context/auth-context';
 import { registerSchema } from '@/lib/schemas';
 import { AccountingAccountExistsError } from '@/lib/sdk-client';
 import { getPasswordStrength } from '@/lib/validation';
+import { useOnboardingStore } from '@/stores/onboarding-store';
 
 import { AuthErrorAlert, AuthLoadingOverlay } from './auth-utils';
 
@@ -70,6 +71,7 @@ export function RegisterModal({
         accountingPassword: data.accountingPassword || undefined
       });
       onClose();
+      useOnboardingStore.getState().startOnboarding();
     } catch (error_) {
       if (error_ instanceof AccountingAccountExistsError) {
         setRequiresAccountingPassword(true);

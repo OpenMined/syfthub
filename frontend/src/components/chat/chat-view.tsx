@@ -13,10 +13,12 @@ import type { SourcesData } from './sources-section';
 
 import Settings2 from 'lucide-react/dist/esm/icons/settings-2';
 
+import { ChatEmptyState } from '@/components/onboarding';
 import { QueryInput } from '@/components/query/query-input';
 import { useChatWorkflow } from '@/hooks/use-chat-workflow';
 import { useDataSources } from '@/hooks/use-data-sources';
 import { useModels } from '@/hooks/use-models';
+import { useOnboardingStore } from '@/stores/onboarding-store';
 
 import { AdvancedPanel } from './advanced-panel';
 import { EndpointConfirmation } from './endpoint-confirmation';
@@ -66,6 +68,7 @@ export function ChatView({
     initialModel
   });
   const { sources, sourcesById } = useDataSources();
+  const markFirstQueryComplete = useOnboardingStore((s) => s.markFirstQueryComplete);
 
   // Local state for messages and UI
   const [messages, setMessages] = useState<Message[]>(() => {
@@ -99,6 +102,7 @@ export function ChatView({
     dataSources: sources,
     dataSourcesById: sourcesById,
     onComplete: (result) => {
+      markFirstQueryComplete();
       // Add user message and assistant response to messages
       setMessages((previous) => {
         // Check if user message already exists (avoid duplicates)
@@ -209,85 +213,90 @@ export function ChatView({
 
       {/* Messages Area */}
       <div className='mx-auto max-w-4xl px-6 py-8 pt-16'>
-        <div className='space-y-8'>
-          {/* Existing messages */}
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
+        {messages.length === 0 && !initialQuery && workflow.phase === 'idle' ? (
+          <ChatEmptyState onSuggestionClick={handleSubmit} />
+        ) : (
+          <div className='space-y-8'>
+            {/* Existing messages */}
+            {messages.map((message) => (
               <div
-                className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'} max-w-full`}
+                key={message.id}
+                className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
               >
-                {message.content && (
-                  <div
-                    className={`font-inter max-w-2xl rounded-2xl px-5 py-3 shadow-sm ${
-                      message.role === 'user'
-                        ? 'bg-primary text-primary-foreground rounded-br-none text-[15px] leading-relaxed'
-                        : 'border-border bg-muted text-foreground rounded-bl-none border'
-                    }`}
-                  >
-                    {message.role === 'assistant' ? (
-                      <MarkdownMessage content={message.content} />
-                    ) : (
-                      message.content
-                    )}
-                  </div>
-                )}
-                {message.role === 'assistant' &&
-                  message.aggregatorSources &&
-                  Object.keys(message.aggregatorSources).length > 0 && (
-                    <div className='mt-2 w-full max-w-2xl'>
-                      <SourcesSection sources={message.aggregatorSources} />
+                <div
+                  className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'} max-w-full`}
+                >
+                  {message.content && (
+                    <div
+                      className={`font-inter max-w-2xl rounded-2xl px-5 py-3 shadow-sm ${
+                        message.role === 'user'
+                          ? 'bg-primary text-primary-foreground rounded-br-none text-[15px] leading-relaxed'
+                          : 'border-border bg-muted text-foreground rounded-bl-none border'
+                      }`}
+                    >
+                      {message.role === 'assistant' ? (
+                        <MarkdownMessage content={message.content} />
+                      ) : (
+                        message.content
+                      )}
                     </div>
                   )}
+                  {message.role === 'assistant' &&
+                    message.aggregatorSources &&
+                    Object.keys(message.aggregatorSources).length > 0 && (
+                      <div className='mt-2 w-full max-w-2xl'>
+                        <SourcesSection sources={message.aggregatorSources} />
+                      </div>
+                    )}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
 
-          {/* Workflow UI - Endpoint Confirmation */}
-          {(workflow.phase === 'searching' || workflow.phase === 'selecting') && workflow.query && (
-            <div className='flex justify-start'>
-              <EndpointConfirmation
-                query={workflow.query}
-                suggestedEndpoints={workflow.suggestedEndpoints}
-                isSearching={workflow.phase === 'searching'}
-                selectedSources={workflow.selectedSources}
-                availableSources={sources}
-                onToggleSource={workflow.toggleSource}
-                onConfirm={workflow.confirmSelection}
-                onCancel={workflow.cancelSelection}
-              />
-            </div>
-          )}
+            {/* Workflow UI - Endpoint Confirmation */}
+            {(workflow.phase === 'searching' || workflow.phase === 'selecting') &&
+              workflow.query && (
+                <div className='flex justify-start'>
+                  <EndpointConfirmation
+                    query={workflow.query}
+                    suggestedEndpoints={workflow.suggestedEndpoints}
+                    isSearching={workflow.phase === 'searching'}
+                    selectedSources={workflow.selectedSources}
+                    availableSources={sources}
+                    onToggleSource={workflow.toggleSource}
+                    onConfirm={workflow.confirmSelection}
+                    onCancel={workflow.cancelSelection}
+                  />
+                </div>
+              )}
 
-          {/* Workflow UI - Processing Status */}
-          {(workflow.phase === 'preparing' || workflow.phase === 'streaming') && (
-            <div className='flex justify-start'>
-              <div className='flex max-w-full flex-col items-start'>
-                {workflow.processingStatus && (
-                  <StatusIndicator status={workflow.processingStatus} />
-                )}
-                {workflow.streamedContent && (
-                  <div className='font-inter border-border bg-muted text-foreground mt-2 max-w-2xl rounded-2xl rounded-bl-none border px-5 py-3 shadow-sm'>
-                    <MarkdownMessage content={workflow.streamedContent} />
-                  </div>
-                )}
+            {/* Workflow UI - Processing Status */}
+            {(workflow.phase === 'preparing' || workflow.phase === 'streaming') && (
+              <div className='flex justify-start'>
+                <div className='flex max-w-full flex-col items-start'>
+                  {workflow.processingStatus && (
+                    <StatusIndicator status={workflow.processingStatus} />
+                  )}
+                  {workflow.streamedContent && (
+                    <div className='font-inter border-border bg-muted text-foreground mt-2 max-w-2xl rounded-2xl rounded-bl-none border px-5 py-3 shadow-sm'>
+                      <MarkdownMessage content={workflow.streamedContent} />
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Error display */}
-          {workflow.phase === 'error' && workflow.error && (
-            <div className='flex justify-start'>
-              <div className='font-inter max-w-2xl rounded-2xl rounded-bl-none border border-red-200 bg-red-50 px-5 py-3 text-red-700 shadow-sm dark:border-red-800 dark:bg-red-950 dark:text-red-300'>
-                {workflow.error}
+            {/* Error display */}
+            {workflow.phase === 'error' && workflow.error && (
+              <div className='flex justify-start'>
+                <div className='font-inter max-w-2xl rounded-2xl rounded-bl-none border border-red-200 bg-red-50 px-5 py-3 text-red-700 shadow-sm dark:border-red-800 dark:bg-red-950 dark:text-red-300'>
+                  {workflow.error}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          <div ref={messagesEndReference} />
-        </div>
+            <div ref={messagesEndReference} />
+          </div>
+        )}
       </div>
 
       {/* Input Area - Fixed bottom */}

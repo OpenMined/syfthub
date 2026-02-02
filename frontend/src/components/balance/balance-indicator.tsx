@@ -12,6 +12,7 @@ import Settings from 'lucide-react/dist/esm/icons/settings';
 import { useAccountingContext } from '@/context/accounting-context';
 import { useAccountingUser, useTransactions } from '@/hooks/use-accounting-api';
 import { cn } from '@/lib/utils';
+import { useOnboardingStore } from '@/stores/onboarding-store';
 import { useSettingsModalStore } from '@/stores/settings-modal-store';
 
 import {
@@ -46,6 +47,21 @@ export function BalanceIndicator() {
     refetch: refetchTransactions
   } = useTransactions({ pageSize: 5, autoFetch: isConfigured });
   const { openSettings } = useSettingsModalStore();
+  const { hasCompletedOnboarding, hasCompletedFirstQuery } = useOnboardingStore();
+  const [showCallout, setShowCallout] = useState(false);
+
+  // Show callout when onboarding is completed but first query hasn't been done
+  useEffect(() => {
+    if (hasCompletedOnboarding && !hasCompletedFirstQuery && isConfigured) {
+      setShowCallout(true);
+      const timer = setTimeout(() => {
+        setShowCallout(false);
+      }, 5000);
+      return () => {
+        clearTimeout(timer);
+      };
+    }
+  }, [hasCompletedOnboarding, hasCompletedFirstQuery, isConfigured]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -181,6 +197,26 @@ export function BalanceIndicator() {
           )}
         />
       </button>
+
+      {/* Onboarding Callout Tooltip */}
+      <AnimatePresence>
+        {showCallout && !isOpen ? (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.2 }}
+            className={cn(
+              'absolute top-full left-1/2 z-50 mt-2 -translate-x-1/2 whitespace-nowrap',
+              'bg-primary text-primary-foreground rounded-lg px-3 py-2 text-xs font-medium shadow-lg'
+            )}
+            role='tooltip'
+          >
+            <div className='bg-primary absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45' />
+            Your credit balance lives here
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
       {/* Dropdown */}
       <AnimatePresence>
