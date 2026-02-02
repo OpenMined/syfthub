@@ -7,8 +7,6 @@ import RootProvider from './components/providers/root';
 import { ScrollToTop } from './components/scroll-to-top';
 import { AccountingProvider } from './context/accounting-context';
 import { AuthProvider } from './context/auth-context';
-import { ModalProvider } from './context/modal-context';
-import { SettingsModalProvider } from './context/settings-modal-context';
 import { MainLayout } from './layouts/main-layout';
 import { ErrorBoundary } from './observability';
 
@@ -48,47 +46,43 @@ export default function App() {
       <RootProvider>
         <AuthProvider>
           <AccountingProvider>
-            <ModalProvider>
-              <SettingsModalProvider>
-                <BrowserRouter>
-                  <ScrollToTop />
-                  <Routes>
-                    <Route element={<MainLayout />}>
-                      {/* Public routes */}
-                      <Route index element={<HomePage />} />
-                      <Route path='browse' element={<BrowsePage />} />
-                      <Route path='chat' element={<ChatPage />} />
-                      <Route path='build' element={<BuildPage />} />
-                      <Route path='about' element={<AboutPage />} />
+            <BrowserRouter>
+              <ScrollToTop />
+              <Routes>
+                <Route element={<MainLayout />}>
+                  {/* Public routes */}
+                  <Route index element={<HomePage />} />
+                  <Route path='browse' element={<BrowsePage />} />
+                  <Route path='chat' element={<ChatPage />} />
+                  <Route path='build' element={<BuildPage />} />
+                  <Route path='about' element={<AboutPage />} />
 
-                      {/* Protected routes */}
-                      <Route
-                        path='profile'
-                        element={
-                          <ProtectedRoute>
-                            <ProfilePage />
-                          </ProtectedRoute>
-                        }
-                      />
-                      <Route
-                        path='endpoints'
-                        element={
-                          <ProtectedRoute>
-                            <EndpointsPage />
-                          </ProtectedRoute>
-                        }
-                      />
+                  {/* Protected routes */}
+                  <Route
+                    path='profile'
+                    element={
+                      <ProtectedRoute>
+                        <ProfilePage />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path='endpoints'
+                    element={
+                      <ProtectedRoute>
+                        <EndpointsPage />
+                      </ProtectedRoute>
+                    }
+                  />
 
-                      {/* GitHub-style endpoint URLs: /:username/:slug */}
-                      <Route path=':username/:slug' element={<EndpointDetailPage />} />
+                  {/* GitHub-style endpoint URLs: /:username/:slug */}
+                  <Route path=':username/:slug' element={<EndpointDetailPage />} />
 
-                      {/* 404 Not Found */}
-                      <Route path='*' element={<NotFoundPage />} />
-                    </Route>
-                  </Routes>
-                </BrowserRouter>
-              </SettingsModalProvider>
-            </ModalProvider>
+                  {/* 404 Not Found */}
+                  <Route path='*' element={<NotFoundPage />} />
+                </Route>
+              </Routes>
+            </BrowserRouter>
           </AccountingProvider>
         </AuthProvider>
       </RootProvider>
