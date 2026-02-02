@@ -30,8 +30,8 @@ const FEATURES = [
 
 const SEARCH_SUGGESTIONS = [
   'What is attribution-based control?',
-  'How does federated data access work?',
-  'Show me privacy-preserving data sources'
+  'What is paid parental leave?',
+  "What's AI data scarcity problem?"
 ] as const;
 
 // =============================================================================
