@@ -29,9 +29,9 @@ const FEATURES = [
 ] as const;
 
 const SEARCH_SUGGESTIONS = [
-  'Look for genomics data',
-  'Look for news in finance',
-  'Find climate research sources'
+  'What is attribution-based control?',
+  'How does federated data access work?',
+  'Show me privacy-preserving data sources'
 ] as const;
 
 // =============================================================================
@@ -174,7 +174,7 @@ export function Hero({
                 onSubmit={handleSubmit}
                 disabled={isWorkflowActive}
                 isProcessing={workflow.phase === 'streaming'}
-                placeholder='What are you looking for…'
+                placeholder='What is attribution-based control?'
                 autoFocus
                 id='hero-search'
                 ariaLabel='Search for data sources, models, or topics'
