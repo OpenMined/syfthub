@@ -1,50 +1,31 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
+import type { RegisterFormValues } from '@/lib/schemas';
+
+import { zodResolver } from '@hookform/resolvers/zod';
 import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
 import Lock from 'lucide-react/dist/esm/icons/lock';
 import Mail from 'lucide-react/dist/esm/icons/mail';
 import User from 'lucide-react/dist/esm/icons/user';
+import { useForm } from 'react-hook-form';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/context/auth-context';
-import { useForm } from '@/hooks/use-form';
+import { registerSchema } from '@/lib/schemas';
 import { AccountingAccountExistsError } from '@/lib/sdk-client';
-import {
-  getPasswordStrength,
-  validateConfirmPassword,
-  validateEmail,
-  validateName,
-  validatePassword
-} from '@/lib/validation';
+import { getPasswordStrength } from '@/lib/validation';
 
 import { AuthErrorAlert, AuthLoadingOverlay } from './auth-utils';
 
-// Password strength indicator - moved outside component for consistent-function-scoping
+// Password strength indicator
 function getPasswordStrengthInfo(password: string) {
   const score = getPasswordStrength(password);
   if (score < 2) return { score, label: 'Weak', color: 'bg-red-500' };
   if (score < 4) return { score, label: 'Medium', color: 'bg-yellow-500' };
   return { score, label: 'Strong', color: 'bg-green-500' };
 }
-
-interface RegisterFormValues {
-  name: string;
-  email: string;
-  password: string;
-  confirmPassword: string;
-  accountingPassword: string;
-}
-
-// Stable reference to prevent useForm from recreating resetForm on every render
-const REGISTER_INITIAL_VALUES: RegisterFormValues = {
-  name: '',
-  email: '',
-  password: '',
-  confirmPassword: '',
-  accountingPassword: ''
-};
 
 interface RegisterModalProperties {
   isOpen: boolean;
@@ -57,69 +38,60 @@ export function RegisterModal({
   onClose,
   onSwitchToLogin
 }: Readonly<RegisterModalProperties>) {
-  const { register, isLoading, error, clearError } = useAuth();
+  const { register: authRegister, isLoading, error, clearError } = useAuth();
   const [requiresAccountingPassword, setRequiresAccountingPassword] = useState(false);
 
-  const { values, errors, handleChange, handleSubmit, resetForm, setFieldError } =
-    useForm<RegisterFormValues>({
-      initialValues: REGISTER_INITIAL_VALUES,
-      validators: {
-        name: (value) => validateName(value),
-        email: (value) => validateEmail(value),
-        password: (value) => validatePassword(value),
-        confirmPassword: (value, allValues) => validateConfirmPassword(allValues.password, value)
-      },
-      onSubmit: async (formValues) => {
-        try {
-          await register({
-            name: formValues.name.trim(),
-            email: formValues.email.trim(),
-            password: formValues.password,
-            // Only include accounting password if required (after 409 error)
-            accountingPassword: formValues.accountingPassword || undefined
-          });
-          onClose(); // Close modal on successful registration
-        } catch (error_) {
-          // Check if this is an accounting account exists error
-          if (error_ instanceof AccountingAccountExistsError) {
-            // Show accounting password field to link existing account
-            setRequiresAccountingPassword(true);
-          }
-          // Other errors are handled by the auth context
-        }
+  const {
+    register,
+    handleSubmit,
+    reset,
+    watch,
+    formState: { errors }
+  } = useForm<RegisterFormValues>({
+    resolver: zodResolver(registerSchema),
+    defaultValues: {
+      name: '',
+      email: '',
+      password: '',
+      confirmPassword: '',
+      accountingPassword: ''
+    }
+  });
+
+  const passwordValue = watch('password');
+  const passwordStrength = getPasswordStrengthInfo(passwordValue);
+
+  const onSubmit = async (data: RegisterFormValues) => {
+    try {
+      await authRegister({
+        name: data.name.trim(),
+        email: data.email.trim(),
+        password: data.password,
+        accountingPassword: data.accountingPassword || undefined
+      });
+      onClose();
+    } catch (error_) {
+      if (error_ instanceof AccountingAccountExistsError) {
+        setRequiresAccountingPassword(true);
       }
-    });
+    }
+  };
 
   // Reset form when modal closes
   useEffect(() => {
     if (!isOpen) {
-      resetForm();
+      reset();
       clearError();
       setRequiresAccountingPassword(false);
     }
-  }, [isOpen, resetForm, clearError]);
+  }, [isOpen, reset, clearError]);
 
   // Clear auth error when user starts typing
-  const handleInputChange =
-    (field: keyof RegisterFormValues) => (e: React.ChangeEvent<HTMLInputElement>) => {
-      handleChange(field)(e);
-
-      // Clear confirm password error if user is typing in password field
-      if (field === 'password' && errors.confirmPassword) {
-        setFieldError('confirmPassword', null);
-      }
-
-      // Reset accounting requirement if email changes (different email might not have existing account)
-      if (field === 'email' && requiresAccountingPassword) {
-        setRequiresAccountingPassword(false);
-      }
-
-      if (error) {
-        clearError();
-      }
-    };
-
-  const passwordStrength = getPasswordStrengthInfo(values.password);
+  const handleInputChange = () => {
+    if (error) {
+      clearError();
+    }
+  };
 
   // Determine submit button text based on state
   const getSubmitButtonText = () => {
@@ -143,15 +115,13 @@ export function RegisterModal({
         {error ? <AuthErrorAlert error={error} onDismiss={clearError} /> : null}
 
         {/* Registration Form */}
-        <form onSubmit={handleSubmit} className='space-y-4'>
+        <form onSubmit={handleSubmit(onSubmit)} className='space-y-4'>
           <Input
             type='text'
-            name='name'
             label='Full Name'
             placeholder='John Doe…'
-            value={values.name}
-            onChange={handleInputChange('name')}
-            error={errors.name}
+            {...register('name', { onChange: handleInputChange })}
+            error={errors.name?.message}
             leftIcon={<User className='h-4 w-4' />}
             isRequired
             disabled={isLoading}
@@ -160,12 +130,17 @@ export function RegisterModal({
 
           <Input
             type='email'
-            name='email'
             label='Email'
             placeholder='name@company.com…'
-            value={values.email}
-            onChange={handleInputChange('email')}
-            error={errors.email}
+            {...register('email', {
+              onChange: () => {
+                handleInputChange();
+                if (requiresAccountingPassword) {
+                  setRequiresAccountingPassword(false);
+                }
+              }
+            })}
+            error={errors.email?.message}
             leftIcon={<Mail className='h-4 w-4' />}
             isRequired
             disabled={isLoading}
@@ -176,19 +151,17 @@ export function RegisterModal({
           <div className='space-y-2'>
             <Input
               type='password'
-              name='password'
               label='Password'
               placeholder='Create a secure password…'
-              value={values.password}
-              onChange={handleInputChange('password')}
-              error={errors.password}
+              {...register('password', { onChange: handleInputChange })}
+              error={errors.password?.message}
               isRequired
               disabled={isLoading}
               autoComplete='new-password'
             />
 
             {/* Password Strength Indicator */}
-            {values.password ? (
+            {passwordValue ? (
               <div className='space-y-1'>
                 <div className='flex items-center gap-2'>
                   <div className='bg-muted h-1.5 flex-1 overflow-hidden rounded-full'>
@@ -207,12 +180,10 @@ export function RegisterModal({
 
           <Input
             type='password'
-            name='confirmPassword'
             label='Confirm Password'
             placeholder='Confirm your password…'
-            value={values.confirmPassword}
-            onChange={handleInputChange('confirmPassword')}
-            error={errors.confirmPassword}
+            {...register('confirmPassword', { onChange: handleInputChange })}
+            error={errors.confirmPassword?.message}
             isRequired
             disabled={isLoading}
             autoComplete='new-password'
@@ -233,9 +204,8 @@ export function RegisterModal({
                 type='password'
                 label='Accounting Password'
                 placeholder='Enter your existing accounting password…'
-                value={values.accountingPassword}
-                onChange={handleInputChange('accountingPassword')}
-                error={errors.accountingPassword}
+                {...register('accountingPassword', { onChange: handleInputChange })}
+                error={errors.accountingPassword?.message}
                 leftIcon={<Lock className='h-4 w-4' />}
                 disabled={isLoading}
                 isRequired

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import type { SettingsTab } from '@/context/settings-modal-context';
+import type { SettingsTab } from '@/stores/settings-modal-store';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
@@ -11,8 +11,8 @@ import User from 'lucide-react/dist/esm/icons/user';
 import X from 'lucide-react/dist/esm/icons/x';
 
 import { Button } from '@/components/ui/button';
-import { useSettingsModal } from '@/context/settings-modal-context';
 import { cn } from '@/lib/utils';
+import { useSettingsModalStore } from '@/stores/settings-modal-store';
 
 import { AggregatorSettingsTab } from './aggregator-settings-tab';
 import { DangerZoneTab } from './danger-zone-tab';
@@ -49,7 +49,7 @@ const FOCUSABLE_SELECTOR =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])';
 
 export function SettingsModal() {
-  const { isOpen, closeSettings, activeTab, setActiveTab } = useSettingsModal();
+  const { isOpen, closeSettings, activeTab, setActiveTab } = useSettingsModalStore();
   const modalReference = React.useRef<HTMLDivElement>(null);
   const previousActiveElement = React.useRef<Element | null>(null);
 

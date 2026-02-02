@@ -1,23 +1,28 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
+import type { AvailabilityState } from './username-field';
+
 import { AnimatePresence, motion } from 'framer-motion';
 import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
 import Check from 'lucide-react/dist/esm/icons/check';
 import Globe from 'lucide-react/dist/esm/icons/globe';
 import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
 import Save from 'lucide-react/dist/esm/icons/save';
-import User from 'lucide-react/dist/esm/icons/user';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/context/auth-context';
-import { useSettingsModal } from '@/context/settings-modal-context';
 import {
   checkEmailAvailability,
   checkUsernameAvailability,
   updateUserProfileAPI
 } from '@/lib/sdk-client';
+import { useSettingsModalStore } from '@/stores/settings-modal-store';
+
+import { AvatarSection } from './avatar-section';
+import { DisplayNameField } from './display-name-field';
+import { UsernameField } from './username-field';
 
 interface ProfileFormData {
   username: string;
@@ -27,15 +32,9 @@ interface ProfileFormData {
   domain: string;
 }
 
-interface AvailabilityState {
-  checking: boolean;
-  available: boolean | null;
-  message: string | null;
-}
-
 export function ProfileSettingsTab() {
   const { user, updateUser } = useAuth();
-  const { closeSettings } = useSettingsModal();
+  const { closeSettings } = useSettingsModalStore();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -247,11 +246,6 @@ export function ProfileSettingsTab() {
     }
   };
 
-  // Generate avatar preview URL
-  const avatarPreviewUrl =
-    formData.avatar_url ||
-    `https://ui-avatars.com/api/?name=${encodeURIComponent(formData.full_name || 'User')}&background=272532&color=fff`;
-
   /* eslint-disable @typescript-eslint/no-unnecessary-condition -- Defensive null checks */
   const hasChanges =
     formData.username !== user?.username ||
@@ -307,88 +301,20 @@ export function ProfileSettingsTab() {
 
       <form onSubmit={handleSubmit} className='space-y-5'>
         {/* Avatar Preview and URL */}
-        <div className='space-y-3'>
-          <Label>Profile Picture</Label>
-          <div className='flex items-start gap-4'>
-            <div className='flex h-16 w-16 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-blue-500 to-purple-600'>
-              {avatarPreviewUrl ? (
-                <img
-                  src={avatarPreviewUrl}
-                  alt='Avatar preview'
-                  width={64}
-                  height={64}
-                  loading='lazy'
-                  className='h-16 w-16 rounded-full object-cover'
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src =
-                      `https://ui-avatars.com/api/?name=${encodeURIComponent(formData.full_name || 'User')}&background=272532&color=fff`;
-                  }}
-                />
-              ) : (
-                <User className='h-8 w-8 text-white' aria-hidden='true' />
-              )}
-            </div>
-            <div className='flex-1'>
-              <Input
-                type='url'
-                value={formData.avatar_url}
-                onChange={handleInputChange('avatar_url')}
-                placeholder='https://example.com/your-avatar.png'
-                disabled={isLoading}
-              />
-              <p className='text-muted-foreground mt-1 text-xs'>
-                Enter a URL to your profile picture. Leave blank to use an auto-generated avatar.
-              </p>
-            </div>
-          </div>
-        </div>
+        <AvatarSection
+          avatarUrl={formData.avatar_url}
+          fullName={formData.full_name}
+          onChange={handleInputChange('avatar_url')}
+          isLoading={isLoading}
+        />
 
         {/* Username */}
-        <div className='space-y-2'>
-          <Label htmlFor='username'>Username</Label>
-          <div className='relative'>
-            <Input
-              id='username'
-              value={formData.username}
-              onChange={handleInputChange('username')}
-              placeholder='your-username'
-              disabled={isLoading}
-              className={(() => {
-                if (usernameAvailability.available === false) {
-                  return 'border-red-300 focus:border-red-500 focus:ring-red-500';
-                }
-                if (usernameAvailability.available === true) {
-                  return 'border-green-300 focus:border-green-500 focus:ring-green-500';
-                }
-                return '';
-              })()}
-            />
-            {usernameAvailability.checking ? (
-              <div className='absolute top-1/2 right-3 -translate-y-1/2'>
-                <Loader2 className='text-muted-foreground h-4 w-4 animate-spin' />
-              </div>
-            ) : null}
-            {!usernameAvailability.checking && usernameAvailability.available === true ? (
-              <div className='absolute top-1/2 right-3 -translate-y-1/2'>
-                <Check className='h-4 w-4 text-green-500' />
-              </div>
-            ) : null}
-            {!usernameAvailability.checking && usernameAvailability.available === false ? (
-              <div className='absolute top-1/2 right-3 -translate-y-1/2'>
-                <AlertCircle className='h-4 w-4 text-red-500' />
-              </div>
-            ) : null}
-          </div>
-          {usernameAvailability.message ? (
-            <p
-              className={`text-xs ${
-                usernameAvailability.available === false ? 'text-red-600' : 'text-green-600'
-              }`}
-            >
-              {usernameAvailability.message}
-            </p>
-          ) : null}
-        </div>
+        <UsernameField
+          value={formData.username}
+          onChange={handleInputChange('username')}
+          isLoading={isLoading}
+          availability={usernameAvailability}
+        />
 
         {/* Email */}
         <div className='space-y-2'>
@@ -439,16 +365,11 @@ export function ProfileSettingsTab() {
         </div>
 
         {/* Full Name */}
-        <div className='space-y-2'>
-          <Label htmlFor='full_name'>Full Name</Label>
-          <Input
-            id='full_name'
-            value={formData.full_name}
-            onChange={handleInputChange('full_name')}
-            placeholder='Your full name'
-            disabled={isLoading}
-          />
-        </div>
+        <DisplayNameField
+          value={formData.full_name}
+          onChange={handleInputChange('full_name')}
+          isLoading={isLoading}
+        />
 
         {/* Endpoint Configuration Section */}
         <div className='border-border mt-6 border-t pt-6'>

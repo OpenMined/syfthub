@@ -1,13 +1,13 @@
-import { BuildView } from '@/components/build-view';
+import { BuildView } from '@/components/build/build-view';
 import { useAuth } from '@/context/auth-context';
-import { useModal } from '@/context/modal-context';
+import { useModalStore } from '@/stores/modal-store';
 
 /**
  * Build page - Developer portal and documentation.
  */
 export default function BuildPage() {
   const { user } = useAuth();
-  const { openLogin } = useModal();
+  const { openLogin } = useModalStore();
 
   return <BuildView onAuthRequired={user ? undefined : openLogin} />;
 }

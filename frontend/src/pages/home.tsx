@@ -7,39 +7,29 @@ import { Hero } from '@/components/hero';
 import { RecentModels } from '@/components/recent-models';
 import { RecentSources } from '@/components/recent-sources';
 import { useAuth } from '@/context/auth-context';
-import { useModal } from '@/context/modal-context';
-import { useAPI } from '@/hooks/use-api';
 import {
-  getPublicEndpoints,
-  getTotalEndpointsCount,
-  getTrendingEndpoints
-} from '@/lib/endpoint-utils';
+  usePublicEndpointCount,
+  useRecentEndpoints,
+  useTrendingEndpoints
+} from '@/hooks/use-endpoint-queries';
+import { useModalStore } from '@/stores/modal-store';
 
 /**
  * Home page - Landing page with hero, search, and recent items.
  */
 export default function HomePage() {
   const { user } = useAuth();
-  const { openLogin } = useModal();
+  const { openLogin } = useModalStore();
   const navigate = useNavigate();
 
   // Fetch recent endpoints (sorted by updated_at)
-  const { data: recentEndpoints, isLoading: isLoadingRecent } = useAPI(
-    () => getPublicEndpoints({ limit: 4 }),
-    { immediate: true }
-  );
+  const { data: recentEndpoints, isLoading: isLoadingRecent } = useRecentEndpoints(4);
 
   // Fetch trending endpoints (sorted by stars)
-  const { data: trendingEndpoints, isLoading: isLoadingTrending } = useAPI(
-    () => getTrendingEndpoints({ limit: 4 }),
-    { immediate: true }
-  );
+  const { data: trendingEndpoints, isLoading: isLoadingTrending } = useTrendingEndpoints(4);
 
   // Fetch total endpoints count
-  const { data: totalCount, isLoading: isLoadingTotalCount } = useAPI(
-    () => getTotalEndpointsCount(),
-    { immediate: true }
-  );
+  const { data: totalCount, isLoading: isLoadingTotalCount } = usePublicEndpointCount();
 
   const handleSearch = (query: string, selectedModel: ChatSource | null) => {
     // Navigate to chat with the search query and selected model in state

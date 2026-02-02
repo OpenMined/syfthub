@@ -1,26 +1,18 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 
+import type { LoginFormValues } from '@/lib/schemas';
+
+import { zodResolver } from '@hookform/resolvers/zod';
 import Mail from 'lucide-react/dist/esm/icons/mail';
+import { useForm } from 'react-hook-form';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/context/auth-context';
-import { useForm } from '@/hooks/use-form';
-import { validateEmail, validatePassword } from '@/lib/validation';
+import { loginSchema } from '@/lib/schemas';
 
 import { AuthErrorAlert, AuthLoadingOverlay } from './auth-utils';
-
-interface LoginFormValues {
-  email: string;
-  password: string;
-}
-
-// Stable reference to prevent useForm from recreating resetForm on every render
-const LOGIN_INITIAL_VALUES: LoginFormValues = {
-  email: '',
-  password: ''
-};
 
 interface LoginModalProperties {
   isOpen: boolean;
@@ -35,42 +27,42 @@ export function LoginModal({
 }: Readonly<LoginModalProperties>) {
   const { login, isLoading, error, clearError } = useAuth();
 
-  const { values, errors, handleChange, handleSubmit, resetForm } = useForm<LoginFormValues>({
-    initialValues: LOGIN_INITIAL_VALUES,
-    validators: {
-      email: (value) => validateEmail(value),
-      password: (value) => validatePassword(value)
-    },
-    onSubmit: async (formValues) => {
-      try {
-        await login({
-          email: formValues.email.trim(),
-          password: formValues.password
-        });
-        onClose(); // Close modal on successful login
-      } catch {
-        // Error is handled by the auth context
-        // No need to do anything here
-      }
-    }
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors }
+  } = useForm<LoginFormValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: { email: '', password: '' }
   });
+
+  const onSubmit = async (data: LoginFormValues) => {
+    try {
+      await login({
+        email: data.email.trim(),
+        password: data.password
+      });
+      onClose();
+    } catch {
+      // Error is handled by the auth context
+    }
+  };
 
   // Reset form when modal closes
   useEffect(() => {
     if (!isOpen) {
-      resetForm();
+      reset();
       clearError();
     }
-  }, [isOpen, resetForm, clearError]);
+  }, [isOpen, reset, clearError]);
 
   // Clear auth error when user starts typing
-  const handleInputChange =
-    (field: keyof LoginFormValues) => (e: React.ChangeEvent<HTMLInputElement>) => {
-      handleChange(field)(e);
-      if (error) {
-        clearError();
-      }
-    };
+  const handleInputChange = () => {
+    if (error) {
+      clearError();
+    }
+  };
 
   return (
     <Modal
@@ -87,15 +79,13 @@ export function LoginModal({
         {error && <AuthErrorAlert error={error} onDismiss={clearError} />}
 
         {/* Email/Password Form */}
-        <form onSubmit={handleSubmit} className='space-y-4'>
+        <form onSubmit={handleSubmit(onSubmit)} className='space-y-4'>
           <Input
             type='email'
-            name='email'
             label='Email'
             placeholder='name@company.com…'
-            value={values.email}
-            onChange={handleInputChange('email')}
-            error={errors.email}
+            {...register('email', { onChange: handleInputChange })}
+            error={errors.email?.message}
             leftIcon={<Mail className='h-4 w-4' />}
             isRequired
             disabled={isLoading}
@@ -105,12 +95,10 @@ export function LoginModal({
 
           <Input
             type='password'
-            name='password'
             label='Password'
             placeholder='Enter your password…'
-            value={values.password}
-            onChange={handleInputChange('password')}
-            error={errors.password}
+            {...register('password', { onChange: handleInputChange })}
+            error={errors.password?.message}
             isRequired
             disabled={isLoading}
             autoComplete='current-password'

@@ -1,6 +1,6 @@
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { EndpointDetail } from '@/components/endpoint-detail';
+import { EndpointDetail } from '@/components/endpoint/endpoint-detail';
 
 /**
  * Endpoint Detail page - View details of a specific endpoint.

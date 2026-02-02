@@ -12,10 +12,10 @@ import json from 'react-syntax-highlighter/dist/esm/languages/prism/json';
 import python from 'react-syntax-highlighter/dist/esm/languages/prism/python';
 import typescript from 'react-syntax-highlighter/dist/esm/languages/prism/typescript';
 
-import { Button } from './ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { PageHeader } from './ui/page-header';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PageHeader } from '@/components/ui/page-header';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 // Register languages for syntax highlighting (prism-light requires explicit registration)
 SyntaxHighlighterBase.registerLanguage('bash', bash);

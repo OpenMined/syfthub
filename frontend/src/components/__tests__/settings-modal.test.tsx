@@ -6,13 +6,13 @@ import { SettingsModal } from '@/components/settings/settings-modal';
 
 vi.mock('framer-motion', () => import('@/test/mocks/framer-motion'));
 
-// Mock settings modal context with controllable return values
+// Mock settings modal store with controllable return values
 const { mockUseSettingsModal } = vi.hoisted(() => ({
   mockUseSettingsModal: vi.fn()
 }));
 
-vi.mock('@/context/settings-modal-context', () => ({
-  useSettingsModal: (): unknown => mockUseSettingsModal()
+vi.mock('@/stores/settings-modal-store', () => ({
+  useSettingsModalStore: (): unknown => mockUseSettingsModal()
 }));
 
 // Mock all tab sub-components as simple stubs

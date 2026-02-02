@@ -1,5 +1,3 @@
-import { Suspense } from 'react';
-
 import LogOut from 'lucide-react/dist/esm/icons/log-out';
 import Settings from 'lucide-react/dist/esm/icons/settings';
 import User from 'lucide-react/dist/esm/icons/user';
@@ -13,8 +11,8 @@ import { Button } from '@/components/ui/button';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { ModeToggle } from '@/components/ui/mode-toggle';
 import { useAuth } from '@/context/auth-context';
-import { useModal } from '@/context/modal-context';
-import { useSettingsModal } from '@/context/settings-modal-context';
+import { useModalStore } from '@/stores/modal-store';
+import { useSettingsModalStore } from '@/stores/settings-modal-store';
 
 /**
  * MainLayout - The application shell that wraps all routes.
@@ -22,14 +20,14 @@ import { useSettingsModal } from '@/context/settings-modal-context';
  * Provides:
  * - Sidebar navigation (self-contained with NavLink)
  * - User menu (auth buttons/user info)
- * - Main content area with Suspense for lazy-loaded routes
+ * - Main content area (per-route Suspense handled by RouteBoundary in app.tsx)
  * - Authentication modals
  * - Semantic HTML structure for accessibility
  */
 export function MainLayout() {
   const { user, logout, isInitializing } = useAuth();
-  const { openLogin, openRegister } = useModal();
-  const { openSettings } = useSettingsModal();
+  const { openLogin, openRegister } = useModalStore();
+  const { openSettings } = useSettingsModalStore();
 
   // Show full-screen loading while initializing auth
   if (isInitializing) {
@@ -121,15 +119,7 @@ export function MainLayout() {
 
       {/* Main content with left margin for sidebar */}
       <main id='main-content' className='ml-20'>
-        <Suspense
-          fallback={
-            <div className='flex min-h-[400px] items-center justify-center'>
-              <LoadingSpinner size='lg' message='Loading…' />
-            </div>
-          }
-        >
-          <Outlet />
-        </Suspense>
+        <Outlet />
       </main>
 
       {/* Authentication Modals */}

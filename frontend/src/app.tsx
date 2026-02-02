@@ -1,13 +1,16 @@
 import { lazy } from 'react';
 
+import { QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 
 import { ProtectedRoute } from './components/auth/protected-route';
 import RootProvider from './components/providers/root';
+import { RouteBoundary } from './components/route-boundary';
 import { ScrollToTop } from './components/scroll-to-top';
 import { AccountingProvider } from './context/accounting-context';
 import { AuthProvider } from './context/auth-context';
 import { MainLayout } from './layouts/main-layout';
+import { queryClient } from './lib/query-client';
 import { ErrorBoundary } from './observability';
 
 // Lazy load all pages for code splitting
@@ -38,54 +41,103 @@ const NotFoundPage = lazy(() => import('./pages/not-found'));
  * - Sidebar navigation
  * - User menu
  * - Auth modals
- * - Suspense boundary for lazy loading
+ *
+ * Each lazy-loaded route has its own RouteBoundary (Suspense + ErrorBoundary)
  */
 export default function App() {
   return (
     <ErrorBoundary>
-      <RootProvider>
-        <AuthProvider>
-          <AccountingProvider>
-            <BrowserRouter>
-              <ScrollToTop />
-              <Routes>
-                <Route element={<MainLayout />}>
-                  {/* Public routes */}
-                  <Route index element={<HomePage />} />
-                  <Route path='browse' element={<BrowsePage />} />
-                  <Route path='chat' element={<ChatPage />} />
-                  <Route path='build' element={<BuildPage />} />
-                  <Route path='about' element={<AboutPage />} />
+      <QueryClientProvider client={queryClient}>
+        <RootProvider>
+          <AuthProvider>
+            <AccountingProvider>
+              <BrowserRouter>
+                <ScrollToTop />
+                <Routes>
+                  <Route element={<MainLayout />}>
+                    {/* Public routes */}
+                    <Route
+                      index
+                      element={
+                        <RouteBoundary>
+                          <HomePage />
+                        </RouteBoundary>
+                      }
+                    />
+                    <Route
+                      path='browse'
+                      element={
+                        <RouteBoundary>
+                          <BrowsePage />
+                        </RouteBoundary>
+                      }
+                    />
+                    <Route
+                      path='chat'
+                      element={
+                        <RouteBoundary>
+                          <ChatPage />
+                        </RouteBoundary>
+                      }
+                    />
+                    <Route
+                      path='build'
+                      element={
+                        <RouteBoundary>
+                          <BuildPage />
+                        </RouteBoundary>
+                      }
+                    />
+                    <Route
+                      path='about'
+                      element={
+                        <RouteBoundary>
+                          <AboutPage />
+                        </RouteBoundary>
+                      }
+                    />
 
-                  {/* Protected routes */}
-                  <Route
-                    path='profile'
-                    element={
-                      <ProtectedRoute>
-                        <ProfilePage />
-                      </ProtectedRoute>
-                    }
-                  />
-                  <Route
-                    path='endpoints'
-                    element={
-                      <ProtectedRoute>
-                        <EndpointsPage />
-                      </ProtectedRoute>
-                    }
-                  />
+                    {/* Protected routes */}
+                    <Route
+                      path='profile'
+                      element={
+                        <ProtectedRoute>
+                          <RouteBoundary>
+                            <ProfilePage />
+                          </RouteBoundary>
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path='endpoints'
+                      element={
+                        <ProtectedRoute>
+                          <RouteBoundary>
+                            <EndpointsPage />
+                          </RouteBoundary>
+                        </ProtectedRoute>
+                      }
+                    />
 
-                  {/* GitHub-style endpoint URLs: /:username/:slug */}
-                  <Route path=':username/:slug' element={<EndpointDetailPage />} />
+                    {/* GitHub-style endpoint URLs: /:username/:slug */}
+                    <Route
+                      path=':username/:slug'
+                      element={
+                        <RouteBoundary>
+                          <EndpointDetailPage />
+                        </RouteBoundary>
+                      }
+                    />
 
-                  {/* 404 Not Found */}
-                  <Route path='*' element={<NotFoundPage />} />
-                </Route>
-              </Routes>
-            </BrowserRouter>
-          </AccountingProvider>
-        </AuthProvider>
-      </RootProvider>
+                    {/* 404 Not Found */}
+                    <Route path='*' element={<NotFoundPage />} />
+                  </Route>
+                </Routes>
+              </BrowserRouter>
+            </AccountingProvider>
+          </AuthProvider>
+        </RootProvider>
+      </QueryClientProvider>
     </ErrorBoundary>
   );
 }

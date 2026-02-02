@@ -13,8 +13,7 @@ import Search from 'lucide-react/dist/esm/icons/search';
 import Star from 'lucide-react/dist/esm/icons/star';
 import { Link } from 'react-router-dom';
 
-import { useAPI } from '@/hooks/use-api';
-import { getPublicEndpoints } from '@/lib/endpoint-utils';
+import { usePublicEndpoints } from '@/hooks/use-endpoint-queries';
 
 import { Badge } from './ui/badge';
 import { LoadingSpinner } from './ui/loading-spinner';
@@ -77,12 +76,8 @@ export function BrowseView({
 }: Readonly<BrowseViewProperties>) {
   const [searchQuery, setSearchQuery] = useState(initialQuery);
 
-  // Fetch endpoints using useAPI hook
-  const {
-    data: endpoints,
-    isLoading,
-    error
-  } = useAPI(() => getPublicEndpoints({ limit: 50 }), { immediate: true });
+  // Fetch endpoints using TanStack Query
+  const { data: endpoints, isLoading, error } = usePublicEndpoints(50);
 
   // Filter endpoints based on search query using useMemo for performance
   const filteredEndpoints = useMemo(() => {

@@ -2,7 +2,7 @@ import { useSearchParams } from 'react-router-dom';
 
 import { BrowseView } from '@/components/browse-view';
 import { useAuth } from '@/context/auth-context';
-import { useModal } from '@/context/modal-context';
+import { useModalStore } from '@/stores/modal-store';
 
 /**
  * Browse page - Browse and search data sources.
@@ -11,7 +11,7 @@ import { useModal } from '@/context/modal-context';
  */
 export default function BrowsePage() {
   const { user } = useAuth();
-  const { openLogin } = useModal();
+  const { openLogin } = useModalStore();
   const [searchParams] = useSearchParams();
 
   // Get initial query from URL params

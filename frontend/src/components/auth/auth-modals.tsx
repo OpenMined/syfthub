@@ -1,17 +1,17 @@
-import { useModal } from '@/context/modal-context';
+import { useModalStore } from '@/stores/modal-store';
 
 import { LoginModal } from './login-modal';
 import { RegisterModal } from './register-modal';
 
 /**
  * AuthModals - Container component that renders authentication modals
- * based on the ModalContext state.
+ * based on the modal store state.
  *
  * This component should be placed once in the app (typically in MainLayout)
- * and the modals can be opened from anywhere using the useModal hook.
+ * and the modals can be opened from anywhere using the useModalStore hook.
  */
 export function AuthModals() {
-  const { activeModal, closeModal, switchToLogin, switchToRegister } = useModal();
+  const { activeModal, closeModal, switchToLogin, switchToRegister } = useModalStore();
 
   return (
     <>
