@@ -3,7 +3,7 @@ import type { ChatSource } from '@/lib/types';
 
 import { useLocation } from 'react-router-dom';
 
-import { ChatView } from '@/components/chat-view';
+import { ChatView } from '@/components/chat/chat-view';
 
 interface LocationState {
   query?: string;

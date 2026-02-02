@@ -1,8 +1,8 @@
 /**
  * useModels Hook
  *
- * Centralized hook for model fetching and selection state.
- * Used by both Hero and ChatView to eliminate duplicate model management.
+ * Centralized hook for model fetching.
+ * Selection state is managed separately by useModelSelectionStore.
  */
 import { useCallback, useEffect, useState } from 'react';
 
@@ -10,6 +10,7 @@ import type { ChatSource } from '@/lib/types';
 
 import { useAuth } from '@/context/auth-context';
 import { getChatModels, getGuestAccessibleModels } from '@/lib/endpoint-utils';
+import { useModelSelectionStore } from '@/stores/model-selection-store';
 
 export interface UseModelsOptions {
   /** Initial model to pre-select (e.g., from navigation state) */
@@ -23,9 +24,9 @@ export interface UseModelsOptions {
 export interface UseModelsReturn {
   /** Available models from the backend */
   models: ChatSource[];
-  /** Currently selected model */
+  /** Currently selected model (from Zustand store) */
   selectedModel: ChatSource | null;
-  /** Update the selected model */
+  /** Update the selected model (writes to Zustand store) */
   setSelectedModel: (model: ChatSource | null) => void;
   /** Whether models are currently loading */
   isLoading: boolean;
@@ -36,15 +37,12 @@ export interface UseModelsReturn {
 /**
  * Hook for managing model fetching and selection.
  *
+ * Selection state is persisted in the useModelSelectionStore Zustand store,
+ * making it accessible across all components without prop drilling.
+ *
  * @example
  * ```tsx
- * // Basic usage
  * const { models, selectedModel, setSelectedModel, isLoading } = useModels();
- *
- * // With initial model from navigation
- * const { models, selectedModel, setSelectedModel } = useModels({
- *   initialModel: locationState?.model
- * });
  * ```
  */
 export function useModels(options: UseModelsOptions = {}): UseModelsReturn {
@@ -54,8 +52,9 @@ export function useModels(options: UseModelsOptions = {}): UseModelsReturn {
   const isAuthenticated = !!user;
 
   const [models, setModels] = useState<ChatSource[]>([]);
-  const [selectedModel, setSelectedModel] = useState<ChatSource | null>(initialModel);
   const [isLoading, setIsLoading] = useState(true);
+
+  const { selectedModel, setSelectedModel } = useModelSelectionStore();
 
   const loadModels = useCallback(async () => {
     setIsLoading(true);
@@ -75,21 +74,21 @@ export function useModels(options: UseModelsOptions = {}): UseModelsReturn {
       setModels(updatedModels);
 
       // Auto-select first model if enabled and no current selection
-      setSelectedModel((current) => {
-        // Keep current selection if exists
-        if (current !== null) return current;
-        // Auto-select first if enabled
-        if (autoSelectFirst && updatedModels.length > 0 && updatedModels[0]) {
-          return updatedModels[0];
-        }
-        return null;
-      });
+      const currentSelection = useModelSelectionStore.getState().selectedModel;
+      if (
+        currentSelection === null &&
+        autoSelectFirst &&
+        updatedModels.length > 0 &&
+        updatedModels[0]
+      ) {
+        setSelectedModel(updatedModels[0]);
+      }
     } catch (error) {
       console.error('Failed to load models:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [initialModel, autoSelectFirst, limit, isAuthenticated]);
+  }, [initialModel, autoSelectFirst, limit, isAuthenticated, setSelectedModel]);
 
   // Load models on mount
   useEffect(() => {
@@ -97,7 +96,6 @@ export function useModels(options: UseModelsOptions = {}): UseModelsReturn {
 
     const load = async () => {
       await loadModels();
-      // Guard against state updates after unmount (loadModels handles its own state)
       if (!isMounted) return;
     };
 

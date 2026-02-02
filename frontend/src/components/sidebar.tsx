@@ -9,8 +9,8 @@ import { NavLink } from 'react-router-dom';
 
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 import { useAuth } from '@/context/auth-context';
-import { useModal } from '@/context/modal-context';
 import { cn } from '@/lib/utils';
+import { useModalStore } from '@/stores/modal-store';
 
 interface NavItem {
   id: string;
@@ -37,7 +37,7 @@ const navItems: NavItem[] = [
  */
 export function Sidebar() {
   const { user } = useAuth();
-  const { openLogin } = useModal();
+  const { openLogin } = useModalStore();
 
   /**
    * Handler for protected navigation items.

@@ -15,13 +15,13 @@ vi.mock('@/context/accounting-context', () => ({
   useAccountingContext: (): unknown => mockUseAccountingContext()
 }));
 
-// Mock settings modal context
+// Mock settings modal store
 const { mockOpenSettings } = vi.hoisted(() => ({
   mockOpenSettings: vi.fn()
 }));
 
-vi.mock('@/context/settings-modal-context', () => ({
-  useSettingsModal: () => ({ openSettings: mockOpenSettings })
+vi.mock('@/stores/settings-modal-store', () => ({
+  useSettingsModalStore: () => ({ openSettings: mockOpenSettings })
 }));
 
 // Mock accounting API hooks
