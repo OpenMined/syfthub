@@ -9,6 +9,7 @@ interface LocationState {
   query?: string;
   model?: ChatSource | null;
   initialResult?: WorkflowResult | null;
+  contextSources?: ChatSource[];
 }
 
 /**
@@ -24,12 +25,14 @@ export default function ChatPage() {
   const initialQuery = state?.query ?? '';
   const initialModel = state?.model ?? null;
   const initialResult = state?.initialResult ?? null;
+  const contextSources = state?.contextSources ?? undefined;
 
   return (
     <ChatView
       initialQuery={initialQuery}
       initialModel={initialModel}
       initialResult={initialResult}
+      contextSources={contextSources}
     />
   );
 }
