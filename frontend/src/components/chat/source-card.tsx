@@ -60,6 +60,8 @@ export function SourceCard({ source, onRemove }: Readonly<SourceCardProps>) {
           inputPerToken={costs.inputPerToken}
           outputPerToken={costs.outputPerToken}
           colorScheme='green'
+          pricingMode={costs.pricingMode}
+          pricePerCall={costs.pricePerCall}
         />
       </div>
     </div>

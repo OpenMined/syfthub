@@ -9,10 +9,14 @@ import type { ChatSource, Policy } from './types';
 // Types
 // ============================================================================
 
+export type PricingMode = 'per_token' | 'per_call';
+
 export interface TransactionCosts {
   inputPerToken: number;
   outputPerToken: number;
   currency: string;
+  pricingMode: PricingMode;
+  pricePerCall: number;
 }
 
 export interface CostEstimate {
@@ -28,6 +32,7 @@ export interface ModelCostBreakdown {
   outputCost: number;
   totalCost: number;
   hasPolicy: boolean;
+  pricingMode: PricingMode;
 }
 
 // Data sources also use token-based pricing (same structure as models)
@@ -38,6 +43,7 @@ export interface DataSourceCostBreakdown {
   outputCost: number;
   totalCost: number;
   hasPolicy: boolean;
+  pricingMode: PricingMode;
 }
 
 export interface FullCostBreakdown {
@@ -47,6 +53,7 @@ export interface FullCostBreakdown {
   totalDataSourceCost: number;
   totalInputCost: number;
   totalOutputCost: number;
+  totalPerCallCost: number;
   totalCost: number;
   hasAnyPricing: boolean;
 }
@@ -68,13 +75,16 @@ export const DEFAULT_ESTIMATION_PARAMS: EstimationParams = {
 // Policy Extraction
 // ============================================================================
 
+/** Policy types that carry billing/pricing configuration */
+const BILLING_POLICY_TYPES = new Set(['transaction', 'accounting']);
+
 /**
- * Extracts transaction policy from an array of policies
+ * Extracts the billing policy (transaction or accounting) from an array of policies
  */
 export function extractTransactionPolicy(policies?: Policy[]): Policy | null {
   if (!policies || policies.length === 0) return null;
 
-  return policies.find((p) => p.type.toLowerCase() === 'transaction' && p.enabled) ?? null;
+  return policies.find((p) => BILLING_POLICY_TYPES.has(p.type.toLowerCase()) && p.enabled) ?? null;
 }
 
 /**
@@ -84,12 +94,27 @@ export function extractCostsFromPolicy(policy: Policy | null): TransactionCosts 
   const defaultCosts: TransactionCosts = {
     inputPerToken: 0,
     outputPerToken: 0,
-    currency: 'USD'
+    currency: 'USD',
+    pricingMode: 'per_token',
+    pricePerCall: 0
   };
 
   if (!policy?.config) return defaultCosts;
 
   const config = policy.config;
+
+  // Detect per-call pricing (config.pricingMode is camelCase-transformed from pricing_mode)
+  if (config.pricingMode === 'per_call' && typeof config.price === 'number') {
+    return {
+      inputPerToken: 0,
+      outputPerToken: 0,
+      currency: typeof config.currency === 'string' ? config.currency : 'USD',
+      pricingMode: 'per_call',
+      pricePerCall: config.price
+    };
+  }
+
+  // Per-token pricing path
   const costs = config.costs as Record<string, unknown> | undefined;
 
   if (!costs) return defaultCosts;
@@ -98,7 +123,9 @@ export function extractCostsFromPolicy(policy: Policy | null): TransactionCosts 
     // Field names are camelCase due to SDK transformation (input_tokens -> inputTokens)
     inputPerToken: typeof costs.inputTokens === 'number' ? costs.inputTokens : 0,
     outputPerToken: typeof costs.outputTokens === 'number' ? costs.outputTokens : 0,
-    currency: typeof costs.currency === 'string' ? costs.currency : 'USD'
+    currency: typeof costs.currency === 'string' ? costs.currency : 'USD',
+    pricingMode: 'per_token',
+    pricePerCall: 0
   };
 }
 
@@ -110,7 +137,9 @@ export function getCostsFromSource(source: ChatSource | null): TransactionCosts 
     return {
       inputPerToken: 0,
       outputPerToken: 0,
-      currency: 'USD'
+      currency: 'USD',
+      pricingMode: 'per_token',
+      pricePerCall: 0
     };
   }
 
@@ -132,8 +161,20 @@ export function calculateModelCost(
   if (!source) return null;
 
   const costs = getCostsFromSource(source);
-  const hasPolicy = costs.inputPerToken > 0 || costs.outputPerToken > 0;
 
+  if (costs.pricingMode === 'per_call') {
+    return {
+      name: source.name,
+      slug: source.slug,
+      inputCost: 0,
+      outputCost: 0,
+      totalCost: costs.pricePerCall,
+      hasPolicy: costs.pricePerCall > 0,
+      pricingMode: 'per_call'
+    };
+  }
+
+  const hasPolicy = costs.inputPerToken > 0 || costs.outputPerToken > 0;
   const inputCost = params.estimatedInputTokens * costs.inputPerToken;
   const outputCost = params.estimatedOutputTokens * costs.outputPerToken;
 
@@ -143,7 +184,8 @@ export function calculateModelCost(
     inputCost,
     outputCost,
     totalCost: inputCost + outputCost,
-    hasPolicy
+    hasPolicy,
+    pricingMode: 'per_token'
   };
 }
 
@@ -155,6 +197,19 @@ export function calculateDataSourceCost(
   params: EstimationParams
 ): DataSourceCostBreakdown {
   const costs = getCostsFromSource(source);
+
+  if (costs.pricingMode === 'per_call') {
+    return {
+      name: source.name,
+      slug: source.slug,
+      inputCost: 0,
+      outputCost: 0,
+      totalCost: costs.pricePerCall,
+      hasPolicy: costs.pricePerCall > 0,
+      pricingMode: 'per_call'
+    };
+  }
+
   const hasPolicy = costs.inputPerToken > 0 || costs.outputPerToken > 0;
 
   // Data sources use token-based pricing for RAG queries
@@ -167,7 +222,8 @@ export function calculateDataSourceCost(
     inputCost,
     outputCost,
     totalCost: inputCost + outputCost,
-    hasPolicy
+    hasPolicy,
+    pricingMode: 'per_token'
   };
 }
 
@@ -185,14 +241,20 @@ export function calculateFullCostBreakdown(
   const totalModelCost = modelBreakdown?.totalCost ?? 0;
   const totalDataSourceCost = dataSourceBreakdowns.reduce((sum, ds) => sum + ds.totalCost, 0);
 
-  // Calculate total input and output costs across all sources
-  const modelInputCost = modelBreakdown?.inputCost ?? 0;
-  const modelOutputCost = modelBreakdown?.outputCost ?? 0;
-  const dataSourcesInputCost = dataSourceBreakdowns.reduce((sum, ds) => sum + ds.inputCost, 0);
-  const dataSourcesOutputCost = dataSourceBreakdowns.reduce((sum, ds) => sum + ds.outputCost, 0);
+  // Separate per-call costs from per-token input/output costs
+  const allBreakdowns = [...(modelBreakdown ? [modelBreakdown] : []), ...dataSourceBreakdowns];
 
-  const totalInputCost = modelInputCost + dataSourcesInputCost;
-  const totalOutputCost = modelOutputCost + dataSourcesOutputCost;
+  const totalInputCost = allBreakdowns
+    .filter((b) => b.pricingMode === 'per_token')
+    .reduce((sum, b) => sum + b.inputCost, 0);
+
+  const totalOutputCost = allBreakdowns
+    .filter((b) => b.pricingMode === 'per_token')
+    .reduce((sum, b) => sum + b.outputCost, 0);
+
+  const totalPerCallCost = allBreakdowns
+    .filter((b) => b.pricingMode === 'per_call')
+    .reduce((sum, b) => sum + b.totalCost, 0);
 
   const hasAnyPricing =
     (modelBreakdown?.hasPolicy ?? false) || dataSourceBreakdowns.some((ds) => ds.hasPolicy);
@@ -204,7 +266,8 @@ export function calculateFullCostBreakdown(
     totalDataSourceCost,
     totalInputCost,
     totalOutputCost,
-    totalCost: totalInputCost + totalOutputCost,
+    totalPerCallCost,
+    totalCost: totalInputCost + totalOutputCost + totalPerCallCost,
     hasAnyPricing
   };
 }
@@ -243,7 +306,10 @@ export function formatCurrency(value: number, currency = 'USD'): string {
 /**
  * Formats cost per unit (e.g., per million tokens, per request)
  */
-export function formatCostPerUnit(value: number, unit: 'token' | 'query' | 'request'): string {
+export function formatCostPerUnit(
+  value: number,
+  unit: 'token' | 'query' | 'request' | 'call'
+): string {
   if (value === 0) return '—';
 
   if (unit === 'token') {
@@ -252,6 +318,17 @@ export function formatCostPerUnit(value: number, unit: 'token' | 'query' | 'requ
       return `$${(perMillion * 1000).toFixed(2)} / 1B`;
     }
     return `$${perMillion.toFixed(2)} / 1M`;
+  }
+
+  if (unit === 'call') {
+    // Per call - flat price per API call
+    if (value < 0.000_001) {
+      return `$${value.toExponential(2)} / call`;
+    }
+    if (value < 0.01) {
+      return `$${value.toFixed(6)} / call`;
+    }
+    return `$${value.toFixed(4)} / call`;
   }
 
   if (unit === 'request') {
@@ -297,6 +374,11 @@ export function estimatePerRequestCost(
   if (!source) return null;
 
   const costs = getCostsFromSource(source);
+
+  if (costs.pricingMode === 'per_call') {
+    return costs.pricePerCall > 0 ? costs.pricePerCall : null;
+  }
+
   const hasPolicy = costs.inputPerToken > 0 || costs.outputPerToken > 0;
   if (!hasPolicy) return null;
 
