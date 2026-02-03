@@ -298,7 +298,8 @@ export function BrowseView({
         {!isLoading && !error && filteredEndpoints.length > 0 ? (
           <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-3'>
             {filteredEndpoints.map((endpoint) => {
-              const selected = isSelected(endpoint.id);
+              const canAddToContext = isDataSourceEndpoint(endpoint.type);
+              const selected = canAddToContext && isSelected(endpoint.id);
               const detailHref = endpoint.owner_username
                 ? `/${endpoint.owner_username}/${endpoint.slug}`
                 : `/browse/${endpoint.slug}`;
@@ -312,26 +313,28 @@ export function BrowseView({
                       : 'border-border bg-card hover:shadow-md'
                   }`}
                 >
-                  {/* Add to Context / Selected toggle button */}
-                  <button
-                    type='button'
-                    onClick={() => {
-                      handleToggleSource(endpoint);
-                    }}
-                    aria-pressed={selected}
-                    aria-label={
-                      selected
-                        ? `Remove ${endpoint.name} from context`
-                        : `Add ${endpoint.name} to context`
-                    }
-                    className={`absolute top-3 right-3 z-10 flex h-7 w-7 items-center justify-center rounded-full border transition-all ${
-                      selected
-                        ? 'border-primary bg-primary text-primary-foreground'
-                        : 'border-border bg-card text-muted-foreground hover:border-primary hover:text-primary'
-                    }`}
-                  >
-                    {selected ? <Check className='h-4 w-4' /> : <Plus className='h-4 w-4' />}
-                  </button>
+                  {/* Add to Context / Selected toggle button (data sources only) */}
+                  {canAddToContext && (
+                    <button
+                      type='button'
+                      onClick={() => {
+                        handleToggleSource(endpoint);
+                      }}
+                      aria-pressed={selected}
+                      aria-label={
+                        selected
+                          ? `Remove ${endpoint.name} from context`
+                          : `Add ${endpoint.name} to context`
+                      }
+                      className={`absolute top-3 right-3 z-10 flex h-7 w-7 items-center justify-center rounded-full border transition-all ${
+                        selected
+                          ? 'border-primary bg-primary text-primary-foreground'
+                          : 'border-border bg-card text-muted-foreground hover:border-primary hover:text-primary'
+                      }`}
+                    >
+                      {selected ? <Check className='h-4 w-4' /> : <Plus className='h-4 w-4' />}
+                    </button>
+                  )}
 
                   {/* Card content is a Link for navigation */}
                   <Link to={detailHref} className='block'>
