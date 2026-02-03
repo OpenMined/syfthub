@@ -4,13 +4,11 @@ import type { ChatSource } from '@/lib/types';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import Brain from 'lucide-react/dist/esm/icons/brain';
-import Check from 'lucide-react/dist/esm/icons/check';
 import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
-import ExternalLink from 'lucide-react/dist/esm/icons/external-link';
 import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
 import Search from 'lucide-react/dist/esm/icons/search';
-import Star from 'lucide-react/dist/esm/icons/star';
-import { useNavigate } from 'react-router-dom';
+
+import { estimatePerRequestCost, formatPerRequestCost } from '@/lib/cost-utils';
 
 interface ModelSelectorProps {
   selectedModel: ChatSource | null;
@@ -25,7 +23,6 @@ export function ModelSelector({
   models,
   isLoading = false
 }: Readonly<ModelSelectorProps>) {
-  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const containerReference = useRef<HTMLDivElement>(null);
@@ -114,18 +111,6 @@ export function ModelSelector({
     setSearchQuery(event.target.value);
   }, []);
 
-  const handleNavigateToEndpoint = useCallback(
-    (event: React.MouseEvent, model: ChatSource) => {
-      event.stopPropagation(); // Prevent selecting the model
-      setIsOpen(false);
-      setSearchQuery('');
-      const path = model.full_path ?? `${model.owner_username ?? 'unknown'}/${model.slug}`;
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises -- Navigation is fire-and-forget
-      navigate(`/${path}`);
-    },
-    [navigate]
-  );
-
   return (
     <div ref={containerReference} className='relative'>
       {/* Trigger Button */}
@@ -155,7 +140,7 @@ export function ModelSelector({
         />
       </button>
 
-      {/* Dropdown Panel - Opens downward from top left position */}
+      {/* Dropdown Panel */}
       <AnimatePresence>
         {isOpen ? (
           <motion.div
@@ -163,10 +148,13 @@ export function ModelSelector({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.96 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            className='border-border bg-card absolute top-full left-0 z-50 mt-2 w-[320px] overflow-hidden rounded-xl border shadow-lg'
+            className='border-border bg-card absolute top-full left-0 z-50 mt-2 w-[340px] overflow-hidden rounded-xl border shadow-lg'
           >
-            {/* Search Input */}
-            <div className='border-border border-b p-3'>
+            {/* Header */}
+            <div className='border-border border-b px-3 pt-3 pb-2'>
+              <h3 className='font-inter text-foreground mb-2 text-sm font-semibold'>
+                Select Model
+              </h3>
               <div className='relative'>
                 <label htmlFor='model-search' className='sr-only'>
                   Search models
@@ -189,7 +177,7 @@ export function ModelSelector({
             </div>
 
             {/* Model List */}
-            <div className='max-h-[280px] overflow-y-auto p-2'>
+            <div className='max-h-[300px] overflow-y-auto p-2'>
               {filteredModels.length === 0 ? (
                 <div className='font-inter text-muted-foreground py-8 text-center text-sm'>
                   {searchQuery ? 'No models found' : 'No models available'}
@@ -198,6 +186,10 @@ export function ModelSelector({
                 <div className='space-y-1'>
                   {filteredModels.map((model) => {
                     const isSelected = selectedModel?.slug === model.slug;
+                    const perRequestCost = estimatePerRequestCost(model);
+                    const formattedCost = formatPerRequestCost(perRequestCost);
+                    const modelPath =
+                      model.full_path ?? `${model.owner_username ?? 'unknown'}/${model.slug}`;
 
                     return (
                       <button
@@ -212,63 +204,39 @@ export function ModelSelector({
                         role='option'
                         aria-selected={isSelected}
                       >
-                        {/* Model Icon */}
+                        {/* Selection Indicator */}
                         <div
-                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-                            isSelected ? 'bg-secondary text-white' : 'bg-accent text-secondary'
+                          className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                            isSelected ? 'border-secondary bg-secondary' : 'border-input bg-card'
                           }`}
                           aria-hidden='true'
                         >
-                          <Brain className='h-4 w-4' />
+                          {isSelected && <div className='h-1.5 w-1.5 rounded-full bg-white' />}
                         </div>
 
                         {/* Model Info */}
                         <div className='min-w-0 flex-1'>
+                          {/* Name + Price row */}
                           <div className='mb-0.5 flex items-center gap-2'>
-                            <span className='font-inter text-foreground truncate text-sm font-medium'>
+                            <span className='font-inter text-foreground truncate text-sm font-semibold'>
                               {model.name}
                             </span>
-                            {model.stars_count > 0 ? (
-                              <div className='text-muted-foreground flex items-center gap-0.5'>
-                                <Star className='h-3 w-3' aria-hidden='true' />
-                                <span className='font-inter text-xs'>{model.stars_count}</span>
-                              </div>
+                            {formattedCost ? (
+                              <span className='font-inter text-muted-foreground shrink-0 text-xs'>
+                                {formattedCost}
+                              </span>
                             ) : null}
                           </div>
-                          {/* Clickable path to endpoint page */}
-                          <button
-                            type='button'
-                            onClick={(event) => {
-                              handleNavigateToEndpoint(event, model);
-                            }}
-                            className='font-inter group/link text-secondary hover:text-foreground flex items-center gap-1 text-xs transition-colors hover:underline'
-                          >
-                            <span className='truncate'>
-                              {model.full_path ??
-                                `${model.owner_username ?? 'unknown'}/${model.slug}`}
-                            </span>
-                            <ExternalLink
-                              className='h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover/link:opacity-100'
-                              aria-hidden='true'
-                            />
-                          </button>
-                          {model.version ? (
-                            <span className='font-inter bg-accent text-muted-foreground mt-1 inline-block rounded px-1.5 py-0.5 text-[10px]'>
-                              v{model.version}
-                            </span>
-                          ) : null}
-                        </div>
 
-                        {/* Selected Indicator */}
-                        <div
-                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-colors ${
-                            isSelected
-                              ? 'bg-foreground text-background'
-                              : 'border-input bg-card border'
-                          }`}
-                          aria-hidden='true'
-                        >
-                          {isSelected && <Check className='h-3 w-3' />}
+                          {/* Description */}
+                          {model.description ? (
+                            <p className='font-inter text-muted-foreground mb-0.5 truncate text-xs'>
+                              {model.description}
+                            </p>
+                          ) : null}
+
+                          {/* Provider path */}
+                          <span className='font-inter text-secondary text-[11px]'>{modelPath}</span>
                         </div>
                       </button>
                     );

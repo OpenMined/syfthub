@@ -287,6 +287,44 @@ export function formatTokenCount(count: number): string {
 }
 
 /**
+ * Estimates the cost per request for a model using default token estimates.
+ * Returns null if the model has no pricing policy.
+ */
+export function estimatePerRequestCost(
+  source: ChatSource | null,
+  params: EstimationParams = DEFAULT_ESTIMATION_PARAMS
+): number | null {
+  if (!source) return null;
+
+  const costs = getCostsFromSource(source);
+  const hasPolicy = costs.inputPerToken > 0 || costs.outputPerToken > 0;
+  if (!hasPolicy) return null;
+
+  return (
+    params.estimatedInputTokens * costs.inputPerToken +
+    params.estimatedOutputTokens * costs.outputPerToken
+  );
+}
+
+/**
+ * Formats an estimated per-request cost for compact display (e.g., "~$0.003/req")
+ */
+export function formatPerRequestCost(cost: number | null): string | null {
+  if (cost === null || cost === 0) return null;
+
+  if (cost < 0.000_001) {
+    return `~${cost.toExponential(1)}/req`;
+  }
+  if (cost < 0.01) {
+    return `~$${cost.toFixed(4)}/req`;
+  }
+  if (cost < 1) {
+    return `~$${cost.toFixed(3)}/req`;
+  }
+  return `~$${cost.toFixed(2)}/req`;
+}
+
+/**
  * Gets a percentage for visual representation
  */
 export function getCostPercentage(cost: number, total: number): number {
