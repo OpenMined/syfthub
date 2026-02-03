@@ -75,16 +75,13 @@ export const DEFAULT_ESTIMATION_PARAMS: EstimationParams = {
 // Policy Extraction
 // ============================================================================
 
-/** Policy types that carry billing/pricing configuration */
-const BILLING_POLICY_TYPES = new Set(['transaction', 'accounting']);
-
 /**
- * Extracts the billing policy (transaction or accounting) from an array of policies
+ * Extracts transaction policy from an array of policies
  */
 export function extractTransactionPolicy(policies?: Policy[]): Policy | null {
   if (!policies || policies.length === 0) return null;
 
-  return policies.find((p) => BILLING_POLICY_TYPES.has(p.type.toLowerCase()) && p.enabled) ?? null;
+  return policies.find((p) => p.type.toLowerCase() === 'transaction' && p.enabled) ?? null;
 }
 
 /**

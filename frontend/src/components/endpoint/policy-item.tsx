@@ -39,14 +39,6 @@ const POLICY_TYPE_CONFIG: Record<
     borderColor: 'border-emerald-200 dark:border-emerald-800',
     description: 'Pay-per-use pricing for this endpoint'
   },
-  accounting: {
-    icon: Coins,
-    label: 'Accounting Policy',
-    color: 'text-emerald-600 dark:text-emerald-400',
-    bgColor: 'bg-emerald-50 dark:bg-emerald-950/30',
-    borderColor: 'border-emerald-200 dark:border-emerald-800',
-    description: 'Pay-per-use pricing for this endpoint'
-  },
   // Access control policies
   public: {
     icon: Globe,
@@ -129,8 +121,7 @@ export interface PolicyItemProperties {
 export const PolicyItem = memo(function PolicyItem({ policy }: Readonly<PolicyItemProperties>) {
   const config = getPolicyConfig(policy.type);
   const Icon = config.icon;
-  const policyTypeLower = policy.type.toLowerCase();
-  const isBillingPolicy = policyTypeLower === 'transaction' || policyTypeLower === 'accounting';
+  const isTransaction = policy.type.toLowerCase() === 'transaction';
 
   // For unknown policy types, use the type as the label
   const displayLabel = POLICY_TYPE_CONFIG[policy.type.toLowerCase()]
@@ -180,7 +171,7 @@ export const PolicyItem = memo(function PolicyItem({ policy }: Readonly<PolicyIt
           </p>
 
           {/* Policy-specific content */}
-          {isBillingPolicy && Object.keys(policy.config).length > 0 ? (
+          {isTransaction && Object.keys(policy.config).length > 0 ? (
             <TransactionPolicyContent config={policy.config} />
           ) : (
             Object.keys(policy.config).length > 0 && <GenericPolicyContent config={policy.config} />
