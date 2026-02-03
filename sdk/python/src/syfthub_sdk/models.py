@@ -22,6 +22,7 @@ class EndpointType(str, Enum):
 
     MODEL = "model"
     DATA_SOURCE = "data_source"
+    MODEL_DATA_SOURCE = "model_data_source"
 
 
 class UserRole(str, Enum):

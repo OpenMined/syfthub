@@ -19,6 +19,7 @@ from syfthub.schemas.endpoint import (
     EndpointType,
     EndpointUpdate,
     EndpointVisibility,
+    get_matching_types,
 )
 
 if TYPE_CHECKING:
@@ -170,7 +171,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             )
 
             if endpoint_type:
-                stmt = stmt.where(self.model.type == endpoint_type.value)
+                matching_types = get_matching_types(endpoint_type)
+                stmt = stmt.where(self.model.type.in_(matching_types))
 
             stmt = stmt.order_by(self.model.updated_at.desc()).offset(skip).limit(limit)
 
@@ -316,7 +318,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             )
 
             if endpoint_type:
-                stmt = stmt.where(self.model.type == endpoint_type.value)
+                matching_types = get_matching_types(endpoint_type)
+                stmt = stmt.where(self.model.type.in_(matching_types))
 
             stmt = stmt.order_by(self.model.updated_at.desc()).offset(skip).limit(limit)
 
@@ -376,7 +379,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 stmt = stmt.where(self.model.stars_count >= min_stars)
 
             if endpoint_type:
-                stmt = stmt.where(self.model.type == endpoint_type.value)
+                matching_types = get_matching_types(endpoint_type)
+                stmt = stmt.where(self.model.type.in_(matching_types))
 
             stmt = (
                 stmt.order_by(self.model.stars_count.desc()).offset(skip).limit(limit)

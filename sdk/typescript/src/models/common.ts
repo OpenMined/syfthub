@@ -20,6 +20,8 @@ export const EndpointType = {
   MODEL: 'model',
   /** Data source endpoint */
   DATA_SOURCE: 'data_source',
+  /** Both model and data source endpoint */
+  MODEL_DATA_SOURCE: 'model_data_source',
 } as const;
 
 export type EndpointType = (typeof EndpointType)[keyof typeof EndpointType];

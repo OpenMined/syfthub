@@ -30,7 +30,7 @@ class EndpointSearchRequest(BaseModel):
     )
     type: Optional[EndpointType] = Field(
         default=None,
-        description="Filter results by endpoint type (model or data_source)",
+        description="Filter results by endpoint type (model, data_source, or model_data_source)",
     )
 
 
@@ -42,7 +42,7 @@ class EndpointSearchResult(BaseModel):
     slug: str = Field(..., description="URL-safe identifier")
     description: str = Field(..., description="Description of the endpoint")
     type: EndpointType = Field(
-        ..., description="Type of endpoint (model or data_source)"
+        ..., description="Type of endpoint (model, data_source, or model_data_source)"
     )
     owner_username: str = Field(..., description="Username of the endpoint owner")
     contributors_count: int = Field(
