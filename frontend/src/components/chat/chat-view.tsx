@@ -47,6 +47,8 @@ export interface ChatViewProperties {
   initialModel?: ChatSource | null;
   /** Optional initial result if workflow was completed before navigation */
   initialResult?: WorkflowResult | null;
+  /** Optional pre-selected data sources from browse page "Add to context" flow */
+  contextSources?: ChatSource[];
 }
 
 // =============================================================================
@@ -56,7 +58,8 @@ export interface ChatViewProperties {
 export function ChatView({
   initialQuery,
   initialModel,
-  initialResult
+  initialResult,
+  contextSources
 }: Readonly<ChatViewProperties>) {
   // Use shared hooks
   const {
@@ -101,6 +104,7 @@ export function ChatView({
     model: selectedModel,
     dataSources: sources,
     dataSourcesById: sourcesById,
+    contextSources,
     onComplete: (result) => {
       markFirstQueryComplete();
       // Add user message and assistant response to messages
