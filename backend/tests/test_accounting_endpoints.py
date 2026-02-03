@@ -70,8 +70,8 @@ class TestGetAccountingClient:
 
     def test_accounting_not_configured(self, client, mock_user_no_accounting):
         """Test error when accounting is not configured."""
-        app.dependency_overrides[get_current_active_user] = (
-            lambda: mock_user_no_accounting
+        app.dependency_overrides[get_current_active_user] = lambda: (
+            mock_user_no_accounting
         )
 
         response = client.get("/api/v1/accounting/user")
@@ -617,8 +617,8 @@ class TestCreateTransactionTokens:
         )
 
         mock_repo = MagicMock()
-        mock_repo.get_by_username.side_effect = (
-            lambda u: owner1 if u == "owner1" else owner2
+        mock_repo.get_by_username.side_effect = lambda u: (
+            owner1 if u == "owner1" else owner2
         )
 
         app.dependency_overrides[get_current_active_user] = lambda: mock_user
@@ -803,8 +803,8 @@ class TestCreateTransactionTokens:
         self, client, mock_user_no_accounting
     ):
         """Test token creation when accounting not configured."""
-        app.dependency_overrides[get_current_active_user] = (
-            lambda: mock_user_no_accounting
+        app.dependency_overrides[get_current_active_user] = lambda: (
+            mock_user_no_accounting
         )
 
         response = client.post(
