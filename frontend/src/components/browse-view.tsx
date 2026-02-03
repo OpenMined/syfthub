@@ -5,6 +5,7 @@ import type { ChatSource, EndpointType } from '@/lib/types';
 import Building from 'lucide-react/dist/esm/icons/building';
 import Calendar from 'lucide-react/dist/esm/icons/calendar';
 import Check from 'lucide-react/dist/esm/icons/check';
+import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right';
 import Database from 'lucide-react/dist/esm/icons/database';
 import Filter from 'lucide-react/dist/esm/icons/filter';
 import Globe from 'lucide-react/dist/esm/icons/globe';
@@ -339,31 +340,37 @@ export function BrowseView({
                   {/* Card content is a Link for navigation */}
                   <Link to={detailHref} className='block'>
                     {/* Header */}
-                    <div className='mb-3 pr-8'>
-                      <div className='flex items-center gap-2'>
-                        <Database
-                          className='text-muted-foreground h-4 w-4 shrink-0'
-                          aria-hidden='true'
-                        />
+                    <div className='mb-3 flex items-start justify-between'>
+                      <div className='min-w-0 flex-1 pr-8'>
                         <h3 className='font-inter text-foreground group-hover:text-primary truncate text-base font-semibold'>
                           {endpoint.name}
                         </h3>
-                      </div>
-                      {endpoint.owner_username && (
-                        <p className='font-inter text-muted-foreground mt-0.5 truncate pl-6 text-xs'>
-                          {endpoint.owner_username}/{endpoint.slug}
+                        {endpoint.owner_username && (
+                          <p className='font-inter text-muted-foreground mt-0.5 truncate text-xs'>
+                            by @{endpoint.owner_username}
+                          </p>
+                        )}
+                        <p className='font-inter text-muted-foreground mt-1.5 line-clamp-2 text-sm'>
+                          {endpoint.description}
                         </p>
-                      )}
-                      <p className='font-inter text-muted-foreground mt-1.5 line-clamp-2 text-sm'>
-                        {endpoint.description}
-                      </p>
+                      </div>
+                      <ChevronRight
+                        className='text-muted-foreground mt-1 h-5 w-5 shrink-0 transition-transform group-hover:translate-x-0.5'
+                        aria-hidden='true'
+                      />
                     </div>
 
-                    {/* Tags */}
-                    <div className='mb-3 flex flex-wrap items-center gap-1.5'>
+                    {/* Tags and Status */}
+                    <div className='mb-3 flex flex-wrap items-center gap-2'>
+                      <Badge
+                        variant='outline'
+                        className={`font-inter border text-xs ${getTypeStyles(endpoint.type)}`}
+                      >
+                        {getTypeLabel(endpoint.type)}
+                      </Badge>
                       {endpoint.tags.slice(0, 3).map((tag) => (
                         <Badge key={tag} variant='secondary' className='font-inter text-xs'>
-                          #{tag}
+                          {tag}
                         </Badge>
                       ))}
                       {endpoint.tags.length > 3 && (
@@ -371,39 +378,35 @@ export function BrowseView({
                           +{endpoint.tags.length - 3}
                         </Badge>
                       )}
+                      <div className='flex items-center gap-1'>
+                        <div
+                          className={`h-2 w-2 rounded-full ${getStatusColor(endpoint.status)}`}
+                        />
+                        <span className='text-muted-foreground font-inter text-xs capitalize'>
+                          {endpoint.status}
+                        </span>
+                      </div>
                     </div>
 
                     {/* Footer Info */}
                     <div className='border-muted flex items-center justify-between border-t pt-3'>
                       <div className='text-muted-foreground flex items-center gap-3 text-xs'>
-                        <Badge
-                          variant='outline'
-                          className={`font-inter border text-[10px] ${getTypeStyles(endpoint.type)}`}
-                        >
-                          {getTypeLabel(endpoint.type)}
-                        </Badge>
-                        <div className='flex items-center gap-1'>
-                          <div
-                            className={`h-2 w-2 rounded-full ${getStatusColor(endpoint.status)}`}
-                          />
-                          <span className='font-inter capitalize'>{endpoint.status}</span>
-                        </div>
-                      </div>
-                      <div className='text-muted-foreground flex items-center gap-3 text-xs'>
                         <div className='flex items-center gap-1'>
                           {getVisibilityIcon(endpoint)}
                           <span>Public</span>
                         </div>
+                        <div className='flex items-center gap-1'>
+                          <Package className='h-3 w-3' aria-hidden='true' />
+                          <span>v{endpoint.version}</span>
+                        </div>
+                      </div>
+                      <div className='text-muted-foreground flex items-center gap-3 text-xs'>
                         {endpoint.stars_count > 0 && (
                           <div className='flex items-center gap-1'>
                             <Star className='h-3 w-3' aria-hidden='true' />
                             <span>{endpoint.stars_count}</span>
                           </div>
                         )}
-                        <div className='flex items-center gap-1'>
-                          <Package className='h-3 w-3' aria-hidden='true' />
-                          <span>v{endpoint.version}</span>
-                        </div>
                         <div className='flex items-center gap-1'>
                           <Calendar className='h-3 w-3' aria-hidden='true' />
                           <span>{endpoint.updated}</span>
