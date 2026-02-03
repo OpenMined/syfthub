@@ -47,7 +47,7 @@ export interface QueryInputProps {
  * <QueryInput
  *   variant="hero"
  *   onSubmit={handleSearch}
- *   placeholder="What are you looking for…"
+ *   placeholder="What is attribution-based control?"
  *   autoFocus
  * />
  *
@@ -65,7 +65,7 @@ export function QueryInput({
   onSubmit,
   disabled = false,
   isProcessing = false,
-  placeholder = 'What are you looking for…',
+  placeholder = 'What is attribution-based control?',
   variant = 'hero',
   autoFocus = false,
   initialValue = '',
