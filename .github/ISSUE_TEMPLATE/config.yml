@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📚 Documentation
+    url: https://github.com/OpenMined/syfthub/blob/main/README.md
+    about: Check out the project documentation
+  - name: 💬 Discussions
+    url: https://github.com/OpenMined/syfthub/discussions
+    about: Ask questions and discuss with the community
+  - name: 🔒 Security Issues
+    url: https://github.com/OpenMined/syfthub/security/advisories/new
+    about: Report security vulnerabilities privately

@@ -1,0 +1,83 @@
+name: Question or Support
+description: Ask a question or get help with SyftHub
+title: "[Question]: "
+labels: ["type: question", "status: needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have a question? We're here to help! Please provide details below.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component is your question about?
+      options:
+        - Backend (FastAPI/Python)
+        - Frontend (React/TypeScript)
+        - Python SDK
+        - TypeScript SDK
+        - Database
+        - Authentication
+        - DevOps/Deployment
+        - Documentation
+        - General Usage
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Your Question
+      description: What would you like to know?
+      placeholder: How do I...?
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Provide any relevant context about what you're trying to accomplish
+      placeholder: I'm trying to...
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What Have You Tried?
+      description: What have you already tried to solve this?
+      placeholder: |
+        - I checked the documentation at...
+        - I tried...
+        - I looked at examples in...
+
+  - type: textarea
+    id: code
+    attributes:
+      label: Relevant Code
+      description: If applicable, provide code snippets related to your question
+      placeholder: |
+        ```python
+        # Your code here
+        ```
+      render: markdown
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add any other context or information
+      placeholder: Any additional information
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Checklist
+      description: Please confirm the following
+      options:
+        - label: I have searched existing issues and discussions for similar questions
+          required: true
+        - label: I have checked the documentation
+          required: true

@@ -453,6 +453,10 @@ Key environment variables (see `.env.example` for full list):
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
+### Issue Labeling
+
+SyftHub uses an automated issue labeling system to help organize and prioritize issues. When you create an issue, labels are automatically applied based on the content. See [.github/LABELING.md](.github/LABELING.md) for details about the labeling system.
+
 ## License
 
 MIT License - see LICENSE file for details.

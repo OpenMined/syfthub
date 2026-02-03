@@ -80,7 +80,16 @@ All submissions require review. We use GitHub pull requests for this purpose.
 
 ## Issues
 
-Feel free to submit issues and enhancement requests.
+Feel free to submit issues and enhancement requests. SyftHub uses an automated labeling system to help organize issues - labels are automatically applied based on your issue's content. For more details, see [.github/LABELING.md](.github/LABELING.md).
+
+### Creating Issues
+
+We provide issue templates to help you submit structured and actionable issues:
+- **Bug Report** - For reporting bugs and errors
+- **Feature Request** - For suggesting new features or enhancements
+- **Question** - For asking questions or seeking help
+
+Please choose the appropriate template when creating an issue. This helps maintainers understand and address your concern more efficiently.
 
 ## Questions?
 

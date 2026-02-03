@@ -1,0 +1,183 @@
+name: Label Issues
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  label-issues:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Auto-label based on content
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+            const title = issue.title.toLowerCase();
+            const body = (issue.body || '').toLowerCase();
+            const labels = [];
+
+            // Component/Area labels
+            if (title.includes('backend') || body.includes('backend') || 
+                title.includes('api') || body.includes('fastapi') ||
+                body.includes('python') && body.includes('backend')) {
+              labels.push('area: backend');
+            }
+            
+            if (title.includes('frontend') || body.includes('frontend') || 
+                title.includes('react') || title.includes('ui') ||
+                body.includes('react') || body.includes('typescript') && body.includes('frontend')) {
+              labels.push('area: frontend');
+            }
+            
+            if (title.includes('sdk') || body.includes('sdk') ||
+                title.includes('python sdk') || title.includes('typescript sdk') ||
+                body.includes('syfthub-sdk') || body.includes('@syfthub/sdk')) {
+              labels.push('area: sdk');
+            }
+            
+            if (title.includes('docker') || body.includes('docker') ||
+                title.includes('deployment') || body.includes('deployment') ||
+                title.includes('deploy') || body.includes('ci/cd') ||
+                title.includes('github actions')) {
+              labels.push('area: devops');
+            }
+            
+            if (title.includes('database') || body.includes('database') ||
+                title.includes('postgres') || body.includes('postgresql') ||
+                title.includes('sql') || body.includes('migration')) {
+              labels.push('area: database');
+            }
+            
+            if (title.includes('auth') || body.includes('authentication') ||
+                title.includes('login') || body.includes('token') ||
+                title.includes('jwt') || body.includes('security')) {
+              labels.push('area: auth');
+            }
+            
+            if (title.includes('organization') || body.includes('organization') ||
+                title.includes('org ') || body.includes('team')) {
+              labels.push('area: organizations');
+            }
+            
+            if (title.includes('endpoint') || body.includes('endpoint') ||
+                title.includes('model') || body.includes('data source')) {
+              labels.push('area: endpoints');
+            }
+
+            if (title.includes('docs') || title.includes('documentation') ||
+                body.includes('documentation') || body.includes('readme')) {
+              labels.push('area: documentation');
+            }
+
+            // Type labels
+            if (title.includes('bug') || title.includes('error') || 
+                title.includes('fix') || title.includes('broken') ||
+                body.includes('error:') || body.includes('traceback') ||
+                body.includes('exception') || body.includes('stack trace')) {
+              labels.push('type: bug');
+            }
+            
+            if (title.includes('feature') || title.includes('enhancement') ||
+                title.includes('add ') || title.includes('support for') ||
+                body.includes('feature request') || body.includes('new feature')) {
+              labels.push('type: enhancement');
+            }
+            
+            if (title.includes('refactor') || body.includes('refactor') ||
+                title.includes('clean up') || title.includes('cleanup') ||
+                body.includes('code quality') || body.includes('technical debt')) {
+              labels.push('type: refactor');
+            }
+            
+            if (title.includes('performance') || body.includes('performance') ||
+                title.includes('slow') || title.includes('optimization') ||
+                body.includes('optimize') || body.includes('speed')) {
+              labels.push('type: performance');
+            }
+            
+            if (title.includes('test') || body.includes('test') ||
+                title.includes('testing') || body.includes('coverage')) {
+              labels.push('type: testing');
+            }
+
+            // Priority indicators (security issues get highest priority)
+            if (body.includes('security') || body.includes('vulnerability') ||
+                body.includes('cve-') || body.includes('exploit') ||
+                title.includes('security')) {
+              labels.push('priority: high');
+              labels.push('security');
+            }
+            
+            if (title.includes('critical') || title.includes('urgent') ||
+                body.includes('production down') || body.includes('critical bug')) {
+              labels.push('priority: high');
+            }
+
+            // Good first issue detection
+            if (title.includes('good first issue') || 
+                body.includes('good first issue') ||
+                body.includes('beginner friendly') ||
+                body.includes('easy') && body.includes('new contributor')) {
+              labels.push('good first issue');
+            }
+
+            // Help wanted
+            if (body.includes('help wanted') || body.includes('help needed') ||
+                body.includes('looking for help')) {
+              labels.push('help wanted');
+            }
+
+            // Question label
+            if (title.includes('how to') || title.includes('question') ||
+                title.startsWith('how ') || title.includes('?') ||
+                body.includes('how do i') || body.includes('how can i')) {
+              labels.push('type: question');
+            }
+
+            // Add labels if any were identified
+            if (labels.length > 0) {
+              console.log(`Adding labels: ${labels.join(', ')}`);
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: labels
+              });
+            } else {
+              console.log('No labels identified for this issue');
+            }
+
+      - name: Add comment for new contributors
+        uses: actions/github-script@v7
+        if: github.event.action == 'opened'
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+            
+            // Check if this is the user's first issue
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              creator: issue.user.login,
+              state: 'all'
+            });
+            
+            // If this is their first issue, welcome them
+            if (issues.data.length === 1) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `👋 Welcome to SyftHub, @${issue.user.login}! Thank you for opening your first issue.\n\nA maintainer will review your issue and provide feedback soon. In the meantime, please make sure you've provided all the necessary details to help us understand and address your concern.\n\nIf you're interested in contributing a fix, check out our [Contributing Guide](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/main/CONTRIBUTING.md).`
+              });
+            }
