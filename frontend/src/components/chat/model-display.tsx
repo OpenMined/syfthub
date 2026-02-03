@@ -4,6 +4,7 @@
  * Displays the selected model's details including name, version,
  * cost badges, and the current reasoning mode description.
  */
+import type { PricingMode } from '@/lib/cost-utils';
 import type { ChatSource } from '@/lib/types';
 
 import Brain from 'lucide-react/dist/esm/icons/brain';
@@ -17,7 +18,12 @@ import { CostBadges } from './cost-badges';
 
 export interface ModelDisplayProps {
   model: ChatSource | null;
-  modelCosts: { inputPerToken: number; outputPerToken: number } | null;
+  modelCosts: {
+    inputPerToken: number;
+    outputPerToken: number;
+    pricingMode?: PricingMode;
+    pricePerCall?: number;
+  } | null;
   isFactualMode: boolean;
 }
 
@@ -58,6 +64,8 @@ export function ModelDisplay({ model, modelCosts, isFactualMode }: Readonly<Mode
           inputPerToken={modelCosts?.inputPerToken ?? 0}
           outputPerToken={modelCosts?.outputPerToken ?? 0}
           colorScheme='purple'
+          pricingMode={modelCosts?.pricingMode}
+          pricePerCall={modelCosts?.pricePerCall}
         />
       </div>
       <div

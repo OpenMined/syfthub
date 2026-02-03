@@ -32,6 +32,9 @@ export function CostEstimationPanel({
     [model, dataSources]
   );
 
+  const hasPerCallCost = breakdown.totalPerCallCost > 0;
+  const hasPerTokenCost = breakdown.totalInputCost > 0 || breakdown.totalOutputCost > 0;
+
   const hasModel = Boolean(model);
   const hasDataSources = dataSources.length > 0 || customSourceCount > 0;
 
@@ -73,37 +76,58 @@ export function CostEstimationPanel({
           </div>
           <span className='font-inter text-xs font-semibold text-blue-900 dark:text-blue-300'>
             Estimated Cost{' '}
-            <span className='font-normal text-blue-700 dark:text-blue-400'>(per 1K tokens)</span>
+            <span className='font-normal text-blue-700 dark:text-blue-400'>
+              {hasPerCallCost && !hasPerTokenCost ? '(per request)' : '(per 1K tokens)'}
+            </span>
           </span>
         </div>
 
-        {/* Cost breakdown: Input / Output / Total */}
+        {/* Cost breakdown: Input / Output / Per Call / Total */}
         <div className='space-y-2'>
-          {/* Input Cost */}
-          <div className='flex items-center justify-between'>
-            <span className='font-inter text-muted-foreground text-xs'>Input</span>
-            <motion.span
-              key={`input-${String(breakdown.totalInputCost)}`}
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className='text-foreground font-mono text-sm font-medium tabular-nums'
-            >
-              {formatCurrency(breakdown.totalInputCost)}
-            </motion.span>
-          </div>
+          {/* Input Cost (hidden when only per-call pricing) */}
+          {hasPerTokenCost && (
+            <div className='flex items-center justify-between'>
+              <span className='font-inter text-muted-foreground text-xs'>Input</span>
+              <motion.span
+                key={`input-${String(breakdown.totalInputCost)}`}
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className='text-foreground font-mono text-sm font-medium tabular-nums'
+              >
+                {formatCurrency(breakdown.totalInputCost)}
+              </motion.span>
+            </div>
+          )}
 
-          {/* Output Cost */}
-          <div className='flex items-center justify-between'>
-            <span className='font-inter text-muted-foreground text-xs'>Output</span>
-            <motion.span
-              key={`output-${String(breakdown.totalOutputCost)}`}
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              className='text-foreground font-mono text-sm font-medium tabular-nums'
-            >
-              {formatCurrency(breakdown.totalOutputCost)}
-            </motion.span>
-          </div>
+          {/* Output Cost (hidden when only per-call pricing) */}
+          {hasPerTokenCost && (
+            <div className='flex items-center justify-between'>
+              <span className='font-inter text-muted-foreground text-xs'>Output</span>
+              <motion.span
+                key={`output-${String(breakdown.totalOutputCost)}`}
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className='text-foreground font-mono text-sm font-medium tabular-nums'
+              >
+                {formatCurrency(breakdown.totalOutputCost)}
+              </motion.span>
+            </div>
+          )}
+
+          {/* Per Call Cost */}
+          {hasPerCallCost && (
+            <div className='flex items-center justify-between'>
+              <span className='font-inter text-muted-foreground text-xs'>Per Call</span>
+              <motion.span
+                key={`percall-${String(breakdown.totalPerCallCost)}`}
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                className='text-foreground font-mono text-sm font-medium tabular-nums'
+              >
+                {formatCurrency(breakdown.totalPerCallCost)}
+              </motion.span>
+            </div>
+          )}
 
           {/* Divider */}
           <div className='border-t border-blue-200/50 dark:border-blue-800/50' />
