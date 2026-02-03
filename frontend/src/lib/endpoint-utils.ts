@@ -20,6 +20,26 @@ import type {
 import { syftClient } from './sdk-client';
 
 // ============================================================================
+// Type Matching Helpers
+// ============================================================================
+
+/**
+ * Check if an endpoint type should be treated as a model.
+ * model_data_source endpoints are included.
+ */
+export function isModelEndpoint(type: EndpointType): boolean {
+  return type === 'model' || type === 'model_data_source';
+}
+
+/**
+ * Check if an endpoint type should be treated as a data source.
+ * model_data_source endpoints are included.
+ */
+export function isDataSourceEndpoint(type: EndpointType): boolean {
+  return type === 'data_source' || type === 'model_data_source';
+}
+
+// ============================================================================
 // Type Mapping Utilities
 // ============================================================================
 
@@ -177,9 +197,13 @@ export async function getPublicEndpoints(
 
     let results = endpoints.map((ep) => mapEndpointPublicToSource(ep));
 
-    // Client-side type filtering if specified
+    // Client-side type filtering if specified (inclusive: model_data_source matches both)
     if (params.endpoint_type) {
-      results = results.filter((ep) => ep.type === params.endpoint_type);
+      results = results.filter((ep) => {
+        if (params.endpoint_type === 'model') return isModelEndpoint(ep.type);
+        if (params.endpoint_type === 'data_source') return isDataSourceEndpoint(ep.type);
+        return ep.type === params.endpoint_type;
+      });
     }
 
     return results;
@@ -207,9 +231,13 @@ export async function getTrendingEndpoints(
 
     let results = endpoints.map((ep) => mapEndpointPublicToSource(ep));
 
-    // Client-side type filtering if specified
+    // Client-side type filtering if specified (inclusive: model_data_source matches both)
     if (params.endpoint_type) {
-      results = results.filter((ep) => ep.type === params.endpoint_type);
+      results = results.filter((ep) => {
+        if (params.endpoint_type === 'model') return isModelEndpoint(ep.type);
+        if (params.endpoint_type === 'data_source') return isDataSourceEndpoint(ep.type);
+        return ep.type === params.endpoint_type;
+      });
     }
 
     return results;

@@ -28,6 +28,7 @@ from syfthub.schemas.endpoint import (
     SyncEndpointsResponse,
     SyncValidationError,
     generate_slug_from_name,
+    get_matching_types,
 )
 from syfthub.schemas.search import EndpointSearchResponse, EndpointSearchResult
 from syfthub.services.base import BaseService
@@ -653,9 +654,10 @@ class EndpointService(BaseService):
         # Fetch endpoints from database (preserves ranking order)
         endpoints = self.endpoint_repository.get_public_endpoints_by_ids(endpoint_ids)
 
-        # Filter by type if specified
+        # Filter by type if specified (inclusive: model_data_source matches both)
         if endpoint_type:
-            endpoints = [ep for ep in endpoints if ep.type == endpoint_type]
+            matching_types = get_matching_types(endpoint_type)
+            endpoints = [ep for ep in endpoints if ep.type in matching_types]
 
         # Limit to top_k
         endpoints = endpoints[:top_k]
