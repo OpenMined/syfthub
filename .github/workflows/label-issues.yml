@@ -28,13 +28,13 @@ jobs:
             // Component/Area labels
             if (title.includes('backend') || body.includes('backend') || 
                 title.includes('api') || body.includes('fastapi') ||
-                body.includes('python') && body.includes('backend')) {
+                (body.includes('python') && body.includes('backend'))) {
               labels.push('area: backend');
             }
             
             if (title.includes('frontend') || body.includes('frontend') || 
                 title.includes('react') || title.includes('ui') ||
-                body.includes('react') || body.includes('typescript') && body.includes('frontend')) {
+                body.includes('react') || (body.includes('typescript') && body.includes('frontend'))) {
               labels.push('area: frontend');
             }
             
@@ -126,7 +126,7 @@ jobs:
             if (title.includes('good first issue') || 
                 body.includes('good first issue') ||
                 body.includes('beginner friendly') ||
-                body.includes('easy') && body.includes('new contributor')) {
+                (body.includes('easy') && body.includes('new contributor'))) {
               labels.push('good first issue');
             }
 
