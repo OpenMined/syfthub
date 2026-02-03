@@ -68,6 +68,39 @@ describe('extractTransactionPolicy', () => {
     };
     expect(extractTransactionPolicy([policy])).toEqual(policy);
   });
+
+  it('returns the enabled accounting policy', () => {
+    const policy = {
+      type: 'accounting',
+      version: '1.0',
+      enabled: true,
+      description: 'Accounting policy',
+      config: { costs: { inputTokens: 0.003, outputTokens: 0.004, currency: 'USD' } }
+    };
+    expect(extractTransactionPolicy([policy])).toEqual(policy);
+  });
+
+  it('is case-insensitive on accounting type', () => {
+    const policy = {
+      type: 'Accounting',
+      version: '1.0',
+      enabled: true,
+      description: '',
+      config: {}
+    };
+    expect(extractTransactionPolicy([policy])).toEqual(policy);
+  });
+
+  it('ignores disabled accounting policies', () => {
+    const policy = {
+      type: 'accounting',
+      version: '1.0',
+      enabled: false,
+      description: '',
+      config: {}
+    };
+    expect(extractTransactionPolicy([policy])).toBeNull();
+  });
 });
 
 // ============================================================================
@@ -151,6 +184,25 @@ describe('getCostsFromSource', () => {
     expect(getCostsFromSource(source)).toEqual({
       inputPerToken: 0.01,
       outputPerToken: 0.02,
+      currency: 'USD'
+    });
+  });
+
+  it('extracts costs from source with accounting policy', () => {
+    const source = createMockChatSource({
+      policies: [
+        {
+          type: 'accounting',
+          version: '1.0',
+          enabled: true,
+          description: '',
+          config: { costs: { inputTokens: 0.005, outputTokens: 0.01, currency: 'USD' } }
+        }
+      ]
+    });
+    expect(getCostsFromSource(source)).toEqual({
+      inputPerToken: 0.005,
+      outputPerToken: 0.01,
       currency: 'USD'
     });
   });
