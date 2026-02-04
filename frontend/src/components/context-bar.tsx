@@ -6,7 +6,7 @@ import ArrowRight from 'lucide-react/dist/esm/icons/arrow-right';
 import Database from 'lucide-react/dist/esm/icons/database';
 import ExternalLink from 'lucide-react/dist/esm/icons/external-link';
 import X from 'lucide-react/dist/esm/icons/x';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { useContextSelectionStore } from '@/stores/context-selection-store';
 
@@ -63,6 +63,7 @@ export const ContextBar = memo(function ContextBar() {
   const removeSource = useContextSelectionStore((s) => s.removeSource);
   const clearSources = useContextSelectionStore((s) => s.clearSources);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const sourcesArray = [...selectedSources.values()];
   const count = sourcesArray.length;
@@ -84,7 +85,8 @@ export const ContextBar = memo(function ContextBar() {
     clearSources();
   }, [navigate, sourcesArray, clearSources]);
 
-  if (count === 0) return null;
+  // Hide on /chat page — the chat view already shows selected sources as chips
+  if (count === 0 || location.pathname === '/chat') return null;
 
   return (
     <div className='fixed bottom-0 left-0 z-50 w-full pl-20'>
