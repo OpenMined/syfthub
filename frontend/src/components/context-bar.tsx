@@ -61,7 +61,6 @@ const ContextChip = memo(function ContextChip({ source, onRemove }: Readonly<Con
 export const ContextBar = memo(function ContextBar() {
   const selectedSources = useContextSelectionStore((s) => s.selectedSources);
   const removeSource = useContextSelectionStore((s) => s.removeSource);
-  const clearSources = useContextSelectionStore((s) => s.clearSources);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -76,14 +75,10 @@ export const ContextBar = memo(function ContextBar() {
   );
 
   const handleStartChat = useCallback(() => {
-    // eslint-disable-next-line @typescript-eslint/no-floating-promises -- Navigation is fire-and-forget
-    navigate('/chat', {
-      state: {
-        contextSources: sourcesArray
-      }
-    });
-    clearSources();
-  }, [navigate, sourcesArray, clearSources]);
+    // Navigate to chat — sources stay in the ContextSelectionStore (single source of truth)
+    // and ChatView reads them directly from the store for chips and query submission
+    navigate('/chat');
+  }, [navigate]);
 
   // Hide on /chat page — the chat view already shows selected sources as chips
   if (count === 0 || location.pathname === '/chat') return null;

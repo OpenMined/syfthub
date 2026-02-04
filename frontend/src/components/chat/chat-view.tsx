@@ -50,8 +50,6 @@ export interface ChatViewProperties {
   initialModel?: ChatSource | null;
   /** Optional initial result if workflow was completed before navigation */
   initialResult?: WorkflowResult | null;
-  /** Optional pre-selected data sources from browse page "Add to context" flow */
-  contextSources?: ChatSource[];
 }
 
 // =============================================================================
@@ -61,8 +59,7 @@ export interface ChatViewProperties {
 export function ChatView({
   initialQuery,
   initialModel,
-  initialResult,
-  contextSources
+  initialResult
 }: Readonly<ChatViewProperties>) {
   // Use shared hooks
   const {
@@ -104,12 +101,13 @@ export function ChatView({
 
   const messagesEndReference = useRef<HTMLDivElement>(null);
 
-  // Use workflow hook
+  // Use workflow hook — pass context store sources for sourcesMap enrichment
+  // so path lookups work for sources selected from browse page
   const workflow = useChatWorkflow({
     model: selectedModel,
     dataSources: sources,
     dataSourcesById: sourcesById,
-    contextSources,
+    additionalSources: contextStore.selectedSources,
     onComplete: (result) => {
       markFirstQueryComplete();
       // Add user message and assistant response to messages

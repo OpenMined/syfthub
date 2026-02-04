@@ -119,8 +119,8 @@ export interface UseChatWorkflowOptions {
   dataSources: ChatSource[];
   /** Map of data sources by ID for O(1) lookups */
   dataSourcesById?: Map<string, ChatSource>;
-  /** Pre-selected context sources from browse page "Add to context" flow */
-  contextSources?: ChatSource[];
+  /** Additional sources to include in the source map for path lookups (e.g., from the ContextSelectionStore) */
+  additionalSources?: Map<string, ChatSource>;
   /** Callback when workflow completes successfully */
   onComplete?: (result: WorkflowResult) => void;
   /** Callback when workflow encounters an error */
@@ -154,7 +154,6 @@ export interface UseChatWorkflowReturn extends WorkflowState {
 export type WorkflowAction =
   | { type: 'START_SEARCH'; query: string }
   | { type: 'SEARCH_COMPLETE'; endpoints: SearchableChatSource[] }
-  | { type: 'SET_CONTEXT_SOURCES'; query: string; sourceIds: Set<string> }
   | { type: 'TOGGLE_SOURCE'; id: string }
   | { type: 'START_PREPARING' }
   | { type: 'START_EXECUTING'; query: string; sourceIds: Set<string> }
@@ -348,15 +347,6 @@ export function workflowReducer(state: WorkflowState, action: WorkflowAction): W
       };
     }
 
-    case 'SET_CONTEXT_SOURCES': {
-      return {
-        ...initialState,
-        phase: 'selecting',
-        query: action.query,
-        selectedSources: action.sourceIds
-      };
-    }
-
     case 'TOGGLE_SOURCE': {
       const next = new Set(state.selectedSources);
       if (next.has(action.id)) {
@@ -467,7 +457,7 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
     model,
     dataSources,
     dataSourcesById,
-    contextSources,
+    additionalSources,
     onComplete,
     onError,
     onStreamToken
@@ -478,19 +468,20 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
   const [state, dispatch] = useReducer(workflowReducer, initialState);
   const abortControllerReference = useRef<AbortController | null>(null);
 
-  // Build a sources map for O(1) lookups, including context sources if provided
+  // Build a sources map for O(1) lookups, including additional sources
+  // (e.g., from the ContextSelectionStore) that may not be in the standard dataSources list
   const sourcesMap = useMemo(() => {
     const base = dataSourcesById ?? new Map(dataSources.map((source) => [source.id, source]));
-    if (!contextSources || contextSources.length === 0) return base;
-    // Merge context sources into the map (they may not be in dataSources)
+    if (!additionalSources || additionalSources.size === 0) return base;
+    // Merge additional sources into the map
     const merged = new Map(base);
-    for (const source of contextSources) {
-      if (!merged.has(source.id)) {
-        merged.set(source.id, source);
+    for (const [id, source] of additionalSources) {
+      if (!merged.has(id)) {
+        merged.set(id, source);
       }
     }
     return merged;
-  }, [dataSourcesById, dataSources, contextSources]);
+  }, [dataSourcesById, dataSources, additionalSources]);
 
   // -------------------------------------------------------------------------
   // Actions
@@ -625,7 +616,8 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
         return;
       }
 
-      // Pre-selected sources from the chat input "+" button — skip search and execute directly
+      // Pre-selected sources (from ContextSelectionStore via chat input "+" button or browse page)
+      // — skip search/selecting and execute directly
       if (preSelectedSourceIds && preSelectedSourceIds.size > 0) {
         dispatch({
           type: 'START_EXECUTING',
@@ -636,15 +628,7 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
         return;
       }
 
-      // If context sources were pre-selected from browse page, skip search
-      // and go directly to selecting with those sources pre-checked
-      if (contextSources && contextSources.length > 0) {
-        const sourceIds = new Set(contextSources.map((s) => s.id));
-        dispatch({ type: 'SET_CONTEXT_SOURCES', query: query.trim(), sourceIds });
-        return;
-      }
-
-      // Start the workflow
+      // No pre-selected sources — start the search/select workflow
       dispatch({ type: 'START_SEARCH', query: query.trim() });
 
       try {
@@ -663,7 +647,7 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
         dispatch({ type: 'SEARCH_COMPLETE', endpoints: [] });
       }
     },
-    [model, contextSources, onError, executeWithSources]
+    [model, onError, executeWithSources]
   );
 
   /**
