@@ -3,7 +3,7 @@
  *
  * Main chat interface for querying data sources.
  * Uses shared hooks for model management, data sources, and workflow execution.
- * Orchestrates sub-components: AdvancedPanel, ModelSelector, EndpointConfirmation, etc.
+ * Orchestrates sub-components: ModelSelector, EndpointConfirmation, etc.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -23,7 +23,6 @@ import { useContextSelectionStore } from '@/stores/context-selection-store';
 import { useOnboardingStore } from '@/stores/onboarding-store';
 
 import { AddSourcesModal } from './add-sources-modal';
-import { AdvancedPanel } from './advanced-panel';
 import { EndpointConfirmation } from './endpoint-confirmation';
 import { MarkdownMessage } from './markdown-message';
 import { ModelSelector } from './model-selector';
@@ -103,8 +102,6 @@ export function ChatView({
     return [];
   });
 
-  const [isPanelOpen, setIsPanelOpen] = useState(false);
-  const [isFactualMode, setIsFactualMode] = useState(true);
   const messagesEndReference = useRef<HTMLDivElement>(null);
 
   // Use workflow hook
@@ -173,14 +170,6 @@ export function ChatView({
     messagesEndReference.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, workflow.streamedContent]);
 
-  // Handlers
-  const handleClosePanel = useCallback(() => {
-    setIsPanelOpen(false);
-  }, []);
-  const handleModeChange = useCallback((isFactual: boolean) => {
-    setIsFactualMode(isFactual);
-  }, []);
-
   // Handle query submission
   const handleSubmit = useCallback(
     (query: string) => {
@@ -225,21 +214,6 @@ export function ChatView({
 
   return (
     <div className='bg-card min-h-screen pb-32'>
-      {/* Advanced Panel */}
-      <AdvancedPanel
-        isOpen={isPanelOpen}
-        onClose={handleClosePanel}
-        availableSources={sources}
-        selectedSourceIds={workflow.selectedSources}
-        onToggleSource={workflow.toggleSource}
-        isFactualMode={isFactualMode}
-        onModeChange={handleModeChange}
-        selectedModel={selectedModel}
-        availableModels={models}
-        onModelSelect={setSelectedModel}
-        isLoadingModels={isLoadingModels}
-      />
-
       {/* Model Selector - Fixed top left */}
       <div className='fixed top-4 left-24 z-40'>
         <ModelSelector
