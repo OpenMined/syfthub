@@ -133,8 +133,8 @@ export interface UseChatWorkflowOptions {
  * Return type of useChatWorkflow hook.
  */
 export interface UseChatWorkflowReturn extends WorkflowState {
-  /** Submit a query to start the workflow */
-  submitQuery: (query: string) => Promise<void>;
+  /** Submit a query to start the workflow. If preSelectedSourceIds is provided and non-empty, skips search/selecting and executes directly. */
+  submitQuery: (query: string, preSelectedSourceIds?: Set<string>) => Promise<void>;
   /** Toggle a source selection */
   toggleSource: (id: string) => void;
   /** Confirm endpoint selection and proceed to execution */
@@ -157,6 +157,7 @@ export type WorkflowAction =
   | { type: 'SET_CONTEXT_SOURCES'; query: string; sourceIds: Set<string> }
   | { type: 'TOGGLE_SOURCE'; id: string }
   | { type: 'START_PREPARING' }
+  | { type: 'START_EXECUTING'; query: string; sourceIds: Set<string> }
   | { type: 'START_STREAMING'; status: ProcessingStatus }
   | { type: 'STREAM_EVENT'; event: ChatStreamEvent }
   | { type: 'UPDATE_CONTENT'; content: string }
@@ -370,6 +371,15 @@ export function workflowReducer(state: WorkflowState, action: WorkflowAction): W
       return { ...state, phase: 'preparing' };
     }
 
+    case 'START_EXECUTING': {
+      return {
+        ...initialState,
+        phase: 'preparing',
+        query: action.query,
+        selectedSources: action.sourceIds
+      };
+    }
+
     case 'START_STREAMING': {
       return {
         ...state,
@@ -487,11 +497,123 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
   // -------------------------------------------------------------------------
 
   /**
+   * Toggle a source selection.
+   */
+  const toggleSource = useCallback((id: string) => {
+    dispatch({ type: 'TOGGLE_SOURCE', id });
+  }, []);
+
+  /**
+   * Execute the streaming request with the given query and source IDs.
+   * Shared by both confirmSelection and the direct-execution path in submitQuery.
+   */
+  const executeWithSources = useCallback(
+    async (query: string, sourceIds: Set<string>) => {
+      // Build endpoint paths
+      const modelPath = model?.full_path;
+      if (!modelPath) {
+        dispatch({
+          type: 'ERROR',
+          error: 'Error: Selected model does not have a valid path configured.'
+        });
+        onError?.('Error: Selected model does not have a valid path configured.');
+        return;
+      }
+
+      // Build data source paths from selected sources
+      const selectedSourcePaths = [...sourceIds]
+        .map((id) => sourcesMap.get(id)?.full_path)
+        .filter((path): path is string => path !== undefined);
+
+      // Deduplicate paths
+      const allDataSourcePaths = [...new Set(selectedSourcePaths)];
+
+      // Create abort controller for cancellation
+      abortControllerReference.current = new AbortController();
+
+      // Calculate total source count for status
+      const totalSourceCount = allDataSourcePaths.length;
+
+      // Initialize processing status
+      const initialProcessingStatus: ProcessingStatus = {
+        phase: 'retrieving',
+        message: totalSourceCount > 0 ? 'Starting...' : 'Preparing request...',
+        completedSources: []
+      };
+
+      dispatch({ type: 'START_STREAMING', status: initialProcessingStatus });
+
+      let accumulatedContent = '';
+
+      try {
+        // Execute the stream
+        for await (const event of syftClient.chat.stream({
+          prompt: query,
+          model: modelPath,
+          dataSources: allDataSourcePaths.length > 0 ? allDataSourcePaths : undefined,
+          aggregatorUrl: user?.aggregator_url ?? undefined,
+          guestMode: !user,
+          signal: abortControllerReference.current.signal
+        })) {
+          // Update processing status
+          dispatch({ type: 'STREAM_EVENT', event });
+
+          // Handle token content
+          if (event.type === 'token') {
+            accumulatedContent += event.content;
+            dispatch({ type: 'UPDATE_CONTENT', content: accumulatedContent });
+            onStreamToken?.(accumulatedContent);
+          }
+
+          // Handle completion
+          if (event.type === 'done') {
+            const result: WorkflowResult = {
+              query,
+              content: accumulatedContent,
+              sources: event.sources,
+              modelPath,
+              dataSourcePaths: allDataSourcePaths
+            };
+
+            dispatch({ type: 'COMPLETE', sources: event.sources });
+            onComplete?.(result);
+
+            // Refresh balance after successful completion (only for authenticated users)
+            if (user) {
+              triggerBalanceRefresh();
+            }
+          }
+
+          // Handle errors
+          if (event.type === 'error') {
+            throw new Error(event.message);
+          }
+        }
+      } catch (error) {
+        // Don't show error if aborted
+        if (error instanceof Error && error.name === 'AbortError') {
+          dispatch({ type: 'RESET' });
+          return;
+        }
+
+        const errorMessage = getErrorMessage(error);
+        dispatch({ type: 'ERROR', error: errorMessage });
+        onError?.(errorMessage);
+      } finally {
+        abortControllerReference.current = null;
+      }
+    },
+    [model, user, sourcesMap, onComplete, onError, onStreamToken]
+  );
+
+  /**
    * Submit a query to start the workflow.
-   * This triggers semantic search and transitions to the selecting phase.
+   * If preSelectedSourceIds is provided and non-empty, skips search/selecting
+   * and executes directly with those sources.
+   * Otherwise triggers semantic search and transitions to the selecting phase.
    */
   const submitQuery = useCallback(
-    async (query: string) => {
+    async (query: string, preSelectedSourceIds?: Set<string>) => {
       // Validation
       if (!query.trim()) {
         return;
@@ -500,6 +622,17 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
       if (!model) {
         dispatch({ type: 'ERROR', error: 'Please select a model before sending a message.' });
         onError?.('Please select a model before sending a message.');
+        return;
+      }
+
+      // Pre-selected sources from the chat input "+" button — skip search and execute directly
+      if (preSelectedSourceIds && preSelectedSourceIds.size > 0) {
+        dispatch({
+          type: 'START_EXECUTING',
+          query: query.trim(),
+          sourceIds: preSelectedSourceIds
+        });
+        await executeWithSources(query.trim(), preSelectedSourceIds);
         return;
       }
 
@@ -530,15 +663,8 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
         dispatch({ type: 'SEARCH_COMPLETE', endpoints: [] });
       }
     },
-    [model, contextSources, onError]
+    [model, contextSources, onError, executeWithSources]
   );
-
-  /**
-   * Toggle a source selection.
-   */
-  const toggleSource = useCallback((id: string) => {
-    dispatch({ type: 'TOGGLE_SOURCE', id });
-  }, []);
 
   /**
    * Confirm endpoint selection and proceed to execution.
@@ -551,113 +677,8 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
     // Transition to preparing phase
     dispatch({ type: 'START_PREPARING' });
 
-    // Build endpoint paths
-    const modelPath = model.full_path;
-    if (!modelPath) {
-      dispatch({
-        type: 'ERROR',
-        error: 'Error: Selected model does not have a valid path configured.'
-      });
-      onError?.('Error: Selected model does not have a valid path configured.');
-      return;
-    }
-
-    // Build data source paths from selected sources
-    const selectedSourcePaths = [...state.selectedSources]
-      .map((id) => sourcesMap.get(id)?.full_path)
-      .filter((path): path is string => path !== undefined);
-
-    // Deduplicate paths
-    const allDataSourcePaths = [...new Set(selectedSourcePaths)];
-
-    // TODO: Phase: Request Preparation
-    // - Handle satellite connection if required
-    // - Handle transaction token if required (accounting flow)
-
-    // Create abort controller for cancellation
-    abortControllerReference.current = new AbortController();
-
-    // Calculate total source count for status
-    const totalSourceCount = allDataSourcePaths.length;
-
-    // Initialize processing status
-    const initialStatus: ProcessingStatus = {
-      phase: 'retrieving',
-      message: totalSourceCount > 0 ? 'Starting...' : 'Preparing request...',
-      completedSources: []
-    };
-
-    dispatch({ type: 'START_STREAMING', status: initialStatus });
-
-    let accumulatedContent = '';
-
-    try {
-      // Execute the stream
-      for await (const event of syftClient.chat.stream({
-        prompt: state.query,
-        model: modelPath,
-        dataSources: allDataSourcePaths.length > 0 ? allDataSourcePaths : undefined,
-        aggregatorUrl: user?.aggregator_url ?? undefined,
-        guestMode: !user,
-        signal: abortControllerReference.current.signal
-      })) {
-        // Update processing status
-        dispatch({ type: 'STREAM_EVENT', event });
-
-        // Handle token content
-        if (event.type === 'token') {
-          accumulatedContent += event.content;
-          dispatch({ type: 'UPDATE_CONTENT', content: accumulatedContent });
-          onStreamToken?.(accumulatedContent);
-        }
-
-        // Handle completion
-        if (event.type === 'done') {
-          const result: WorkflowResult = {
-            query: state.query,
-            content: accumulatedContent,
-            sources: event.sources,
-            modelPath,
-            dataSourcePaths: allDataSourcePaths
-          };
-
-          dispatch({ type: 'COMPLETE', sources: event.sources });
-          onComplete?.(result);
-
-          // Refresh balance after successful completion (only for authenticated users)
-          if (user) {
-            triggerBalanceRefresh();
-          }
-        }
-
-        // Handle errors
-        if (event.type === 'error') {
-          throw new Error(event.message);
-        }
-      }
-    } catch (error) {
-      // Don't show error if aborted
-      if (error instanceof Error && error.name === 'AbortError') {
-        dispatch({ type: 'RESET' });
-        return;
-      }
-
-      const errorMessage = getErrorMessage(error);
-      dispatch({ type: 'ERROR', error: errorMessage });
-      onError?.(errorMessage);
-    } finally {
-      abortControllerReference.current = null;
-    }
-  }, [
-    state.query,
-    state.selectedSources,
-    model,
-    user,
-    sourcesMap,
-    onComplete,
-    onError,
-    onStreamToken
-  ]);
+    await executeWithSources(state.query, state.selectedSources);
+  }, [state.query, state.selectedSources, model, executeWithSources]);
 
   /**
    * Cancel the current workflow and reset to idle.

@@ -11,19 +11,23 @@ import type { WorkflowResult } from '@/hooks/use-chat-workflow';
 import type { ChatSource } from '@/lib/types';
 import type { SourcesData } from './sources-section';
 
-import Settings2 from 'lucide-react/dist/esm/icons/settings-2';
+import Database from 'lucide-react/dist/esm/icons/database';
+import Plus from 'lucide-react/dist/esm/icons/plus';
 
 import { ChatEmptyState } from '@/components/onboarding';
 import { QueryInput } from '@/components/query/query-input';
 import { useChatWorkflow } from '@/hooks/use-chat-workflow';
 import { useDataSources } from '@/hooks/use-data-sources';
 import { useModels } from '@/hooks/use-models';
+import { useContextSelectionStore } from '@/stores/context-selection-store';
 import { useOnboardingStore } from '@/stores/onboarding-store';
 
+import { AddSourcesModal } from './add-sources-modal';
 import { AdvancedPanel } from './advanced-panel';
 import { EndpointConfirmation } from './endpoint-confirmation';
 import { MarkdownMessage } from './markdown-message';
 import { ModelSelector } from './model-selector';
+import { SelectedSourcesChips } from './selected-sources-chips';
 import { SourcesSection } from './sources-section';
 import { StatusIndicator } from './status-indicator';
 
@@ -72,6 +76,10 @@ export function ChatView({
   });
   const { sources, sourcesById } = useDataSources();
   const markFirstQueryComplete = useOnboardingStore((s) => s.markFirstQueryComplete);
+  const contextStore = useContextSelectionStore();
+
+  // Source modal state
+  const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
 
   // Local state for messages and UI
   const [messages, setMessages] = useState<Message[]>(() => {
@@ -166,9 +174,6 @@ export function ChatView({
   }, [messages, workflow.streamedContent]);
 
   // Handlers
-  const handleOpenPanel = useCallback(() => {
-    setIsPanelOpen(true);
-  }, []);
   const handleClosePanel = useCallback(() => {
     setIsPanelOpen(false);
   }, []);
@@ -179,9 +184,39 @@ export function ChatView({
   // Handle query submission
   const handleSubmit = useCallback(
     (query: string) => {
-      void workflow.submitQuery(query);
+      const preSelectedSources = contextStore.getSourcesArray();
+      if (preSelectedSources.length > 0) {
+        const sourceIds = new Set(preSelectedSources.map((s) => s.id));
+        void workflow.submitQuery(query, sourceIds);
+      } else {
+        void workflow.submitQuery(query);
+      }
     },
-    [workflow]
+    [workflow, contextStore]
+  );
+
+  // Handle modal confirm
+  const handleSourceModalConfirm = useCallback(
+    (selectedIds: Set<string>) => {
+      // Sync context store with modal selection
+      contextStore.clearSources();
+      for (const id of selectedIds) {
+        const source = sourcesById.get(id) ?? sources.find((s) => s.id === id);
+        if (source) {
+          contextStore.addSource(source);
+        }
+      }
+      setIsSourceModalOpen(false);
+    },
+    [contextStore, sourcesById, sources]
+  );
+
+  // Handle removing a chip
+  const handleRemoveSource = useCallback(
+    (id: string) => {
+      contextStore.removeSource(id);
+    },
+    [contextStore]
   );
 
   // Determine if workflow is in a blocking state
@@ -306,17 +341,33 @@ export function ChatView({
       {/* Input Area - Fixed bottom */}
       <div className='border-border bg-card fixed bottom-0 left-0 z-40 w-full border-t p-4 pl-24'>
         <div className='mx-auto max-w-3xl'>
+          {/* Selected sources chips */}
+          {contextStore.count() > 0 && (
+            <SelectedSourcesChips
+              sources={contextStore.getSourcesArray()}
+              onRemove={handleRemoveSource}
+              onEdit={() => {
+                setIsSourceModalOpen(true);
+              }}
+            />
+          )}
+
           <div className='flex gap-3'>
             <button
               type='button'
-              onClick={handleOpenPanel}
+              onClick={() => {
+                setIsSourceModalOpen(true);
+              }}
               className='group border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground flex items-center justify-center rounded-xl border p-3.5 transition-colors'
-              aria-label='Open advanced configuration'
+              aria-label={
+                contextStore.count() > 0 ? 'Edit selected sources' : 'Add sources to context'
+              }
             >
-              <Settings2
-                className='h-5 w-5 transition-transform duration-500 group-hover:rotate-45'
-                aria-hidden='true'
-              />
+              {contextStore.count() > 0 ? (
+                <Database className='h-5 w-5' aria-hidden='true' />
+              ) : (
+                <Plus className='h-5 w-5' aria-hidden='true' />
+              )}
             </button>
 
             <div className='flex-1'>
@@ -325,7 +376,11 @@ export function ChatView({
                 onSubmit={handleSubmit}
                 disabled={isWorkflowActive}
                 isProcessing={workflow.phase === 'streaming'}
-                placeholder='Ask a follow-up question…'
+                placeholder={
+                  contextStore.count() > 0
+                    ? 'Ask question about these sources...'
+                    : 'Ask anything... (Use + to add sources)'
+                }
                 id='chat-followup-input'
                 ariaLabel='Ask a follow-up question'
               />
@@ -333,6 +388,17 @@ export function ChatView({
           </div>
         </div>
       </div>
+
+      {/* Add Sources Modal */}
+      <AddSourcesModal
+        isOpen={isSourceModalOpen}
+        onClose={() => {
+          setIsSourceModalOpen(false);
+        }}
+        availableSources={sources}
+        selectedSourceIds={new Set(contextStore.getSourcesArray().map((s) => s.id))}
+        onConfirm={handleSourceModalConfirm}
+      />
     </div>
   );
 }
