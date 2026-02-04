@@ -91,7 +91,9 @@ describe('ModelSelector', () => {
     renderSelector();
 
     await user.click(screen.getByText('Select model'));
-    await user.type(screen.getByPlaceholderText('Search models…'), 'GPT');
+    fireEvent.change(screen.getByPlaceholderText('Search models…'), {
+      target: { value: 'GPT' }
+    });
 
     expect(screen.getByText('GPT-4')).toBeInTheDocument();
     expect(screen.queryByText('Claude 3')).not.toBeInTheDocument();
