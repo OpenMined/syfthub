@@ -104,8 +104,7 @@ export function BrowseView({
 
   // Context selection store
   const toggleSource = useContextSelectionStore((s) => s.toggleSource);
-  const isSelected = useContextSelectionStore((s) => s.isSelected);
-  const selectedCount = useContextSelectionStore((s) => s.count);
+  const selectedSources = useContextSelectionStore((s) => s.selectedSources);
 
   // Fetch endpoints using TanStack Query
   const { data: endpoints, isLoading, error } = usePublicEndpoints(50);
@@ -300,7 +299,7 @@ export function BrowseView({
           <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-3'>
             {filteredEndpoints.map((endpoint) => {
               const canAddToContext = isDataSourceEndpoint(endpoint.type);
-              const selected = canAddToContext && isSelected(endpoint.id);
+              const selected = canAddToContext && selectedSources.has(endpoint.id);
               const detailHref = endpoint.owner_username
                 ? `/${endpoint.owner_username}/${endpoint.slug}`
                 : `/browse/${endpoint.slug}`;
@@ -421,7 +420,7 @@ export function BrowseView({
         ) : null}
 
         {/* Bottom spacer when context bar is visible */}
-        {selectedCount() > 0 && <div className='h-16' />}
+        {selectedSources.size > 0 && <div className='h-16' />}
       </div>
     </div>
   );
