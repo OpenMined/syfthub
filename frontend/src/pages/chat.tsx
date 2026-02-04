@@ -9,13 +9,13 @@ interface LocationState {
   query?: string;
   model?: ChatSource | null;
   initialResult?: WorkflowResult | null;
-  contextSources?: ChatSource[];
 }
 
 /**
  * Chat page - AI-powered chat interface.
  * Receives initial query and optional pre-selected model from navigation state (e.g., from home page search).
  * Can also receive an initialResult if the query was already executed on the home page.
+ * Pre-selected data sources are read directly from the ContextSelectionStore (Zustand).
  */
 export default function ChatPage() {
   const location = useLocation();
@@ -25,14 +25,12 @@ export default function ChatPage() {
   const initialQuery = state?.query ?? '';
   const initialModel = state?.model ?? null;
   const initialResult = state?.initialResult ?? null;
-  const contextSources = state?.contextSources ?? undefined;
 
   return (
     <ChatView
       initialQuery={initialQuery}
       initialModel={initialModel}
       initialResult={initialResult}
-      contextSources={contextSources}
     />
   );
 }
