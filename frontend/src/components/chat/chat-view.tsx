@@ -112,36 +112,17 @@ export function ChatView({
     contextSources,
     onComplete: (result) => {
       markFirstQueryComplete();
-      // Add user message and assistant response to messages
-      setMessages((previous) => {
-        // Check if user message already exists (avoid duplicates)
-        const hasUserMessage = previous.some(
-          (m) => m.role === 'user' && m.content === result.query
-        );
-
-        const newMessages = hasUserMessage
-          ? previous
-          : [
-              ...previous,
-              {
-                id: Date.now().toString(),
-                role: 'user' as const,
-                content: result.query,
-                type: 'text' as const
-              }
-            ];
-
-        return [
-          ...newMessages,
-          {
-            id: (Date.now() + 1).toString(),
-            role: 'assistant' as const,
-            content: result.content,
-            type: 'text' as const,
-            aggregatorSources: result.sources
-          }
-        ];
-      });
+      // Add assistant response to messages (user message was already added on submit)
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant' as const,
+          content: result.content,
+          type: 'text' as const,
+          aggregatorSources: result.sources
+        }
+      ]);
     }
   });
 
@@ -173,6 +154,17 @@ export function ChatView({
   // Handle query submission
   const handleSubmit = useCallback(
     (query: string) => {
+      // Add user message to chat history immediately so it appears before the AI response
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: Date.now().toString(),
+          role: 'user' as const,
+          content: query,
+          type: 'text' as const
+        }
+      ]);
+
       const preSelectedSources = contextStore.getSourcesArray();
       if (preSelectedSources.length > 0) {
         const sourceIds = new Set(preSelectedSources.map((s) => s.id));
