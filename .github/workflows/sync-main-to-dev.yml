@@ -1,0 +1,56 @@
+name: Sync Main to Dev
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  sync-to-dev:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Sync main to dev
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git checkout dev
+          git reset --hard origin/dev
+
+          if git merge origin/main --no-edit; then
+            echo "Merge successful, pushing to dev"
+            git push origin dev
+          else
+            echo "Merge conflict detected, aborting merge and creating PR"
+            git merge --abort
+
+            EXISTING_PR=$(gh pr list --base dev --head main --state open --json number --jq '.[0].number')
+
+            if [ -n "$EXISTING_PR" ]; then
+              echo "PR #$EXISTING_PR already exists for main -> dev"
+            else
+              gh pr create \
+                --base dev \
+                --head main \
+                --title "Sync main into dev" \
+                --body "$(cat <<'EOF'
+          ## Automated Sync
+
+          Merge conflicts were detected when trying to sync `main` into `dev`.
+
+          Please resolve the conflicts manually and merge this PR to keep `dev` up to date with `main`.
+          EOF
+              )"
+            fi
+          fi
