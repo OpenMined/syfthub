@@ -3,7 +3,6 @@ import type { ProcessingStatus } from '../use-chat-workflow';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { createMockSearchableChatSource } from '@/test/mocks/fixtures';
 import {
   AggregatorError,
   AuthenticationError,
@@ -203,40 +202,16 @@ describe('workflowReducer', () => {
     expect(initialState.query).toBeNull();
   });
 
-  it('START_SEARCH transitions to searching', () => {
-    const state = workflowReducer(initialState, { type: 'START_SEARCH', query: 'test' });
-    expect(state.phase).toBe('searching');
-    expect(state.query).toBe('test');
-  });
-
-  it('SEARCH_COMPLETE transitions to selecting', () => {
-    const searchState = { ...initialState, phase: 'searching' as const, query: 'test' };
-    const endpoints = [createMockSearchableChatSource()];
-    const state = workflowReducer(searchState, {
-      type: 'SEARCH_COMPLETE',
-      endpoints
+  it('START_EXECUTING transitions to preparing', () => {
+    const sourceIds = new Set(['source-1']);
+    const state = workflowReducer(initialState, {
+      type: 'START_EXECUTING',
+      query: 'test',
+      sourceIds
     });
-    expect(state.phase).toBe('selecting');
-    expect(state.suggestedEndpoints).toEqual(endpoints);
-  });
-
-  it('TOGGLE_SOURCE adds source', () => {
-    const state = workflowReducer(initialState, { type: 'TOGGLE_SOURCE', id: 'source-1' });
-    expect(state.selectedSources.has('source-1')).toBe(true);
-  });
-
-  it('TOGGLE_SOURCE removes existing source', () => {
-    const stateWithSource = {
-      ...initialState,
-      selectedSources: new Set(['source-1'])
-    };
-    const state = workflowReducer(stateWithSource, { type: 'TOGGLE_SOURCE', id: 'source-1' });
-    expect(state.selectedSources.has('source-1')).toBe(false);
-  });
-
-  it('START_PREPARING transitions to preparing', () => {
-    const state = workflowReducer(initialState, { type: 'START_PREPARING' });
     expect(state.phase).toBe('preparing');
+    expect(state.query).toBe('test');
+    expect(state.selectedSources).toBe(sourceIds);
   });
 
   it('START_STREAMING transitions to streaming', () => {
