@@ -191,7 +191,7 @@ export function Hero({
       </section>
 
       {/* Workflow Overlay - shown when workflow is active */}
-      <WorkflowOverlay workflow={workflow} availableSources={sources} />
+      <WorkflowOverlay workflow={workflow} />
     </>
   );
 }

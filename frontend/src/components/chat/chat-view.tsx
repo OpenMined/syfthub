@@ -3,7 +3,7 @@
  *
  * Main chat interface for querying data sources.
  * Uses shared hooks for model management, data sources, and workflow execution.
- * Orchestrates sub-components: ModelSelector, EndpointConfirmation, etc.
+ * Orchestrates sub-components: ModelSelector, AddSourcesModal, etc.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -23,7 +23,6 @@ import { useContextSelectionStore } from '@/stores/context-selection-store';
 import { useOnboardingStore } from '@/stores/onboarding-store';
 
 import { AddSourcesModal } from './add-sources-modal';
-import { EndpointConfirmation } from './endpoint-confirmation';
 import { MarkdownMessage } from './markdown-message';
 import { ModelSelector } from './model-selector';
 import { SelectedSourcesChips } from './selected-sources-chips';
@@ -50,6 +49,8 @@ export interface ChatViewProperties {
   initialModel?: ChatSource | null;
   /** Optional initial result if workflow was completed before navigation */
   initialResult?: WorkflowResult | null;
+  /** Optional pre-selected data sources from browse page "Add to context" flow */
+  contextSources?: ChatSource[];
 }
 
 // =============================================================================
@@ -59,7 +60,8 @@ export interface ChatViewProperties {
 export function ChatView({
   initialQuery,
   initialModel,
-  initialResult
+  initialResult,
+  contextSources
 }: Readonly<ChatViewProperties>) {
   // Use shared hooks
   const {
@@ -101,26 +103,44 @@ export function ChatView({
 
   const messagesEndReference = useRef<HTMLDivElement>(null);
 
-  // Use workflow hook — pass context store sources for sourcesMap enrichment
-  // so path lookups work for sources selected from browse page
+  // Use workflow hook
   const workflow = useChatWorkflow({
     model: selectedModel,
     dataSources: sources,
     dataSourcesById: sourcesById,
-    additionalSources: contextStore.selectedSources,
+    contextSources,
     onComplete: (result) => {
       markFirstQueryComplete();
-      // Add assistant response to messages (user message was already added on submit)
-      setMessages((previous) => [
-        ...previous,
-        {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant' as const,
-          content: result.content,
-          type: 'text' as const,
-          aggregatorSources: result.sources
-        }
-      ]);
+      // Add user message and assistant response to messages
+      setMessages((previous) => {
+        // Check if user message already exists (avoid duplicates)
+        const hasUserMessage = previous.some(
+          (m) => m.role === 'user' && m.content === result.query
+        );
+
+        const newMessages = hasUserMessage
+          ? previous
+          : [
+              ...previous,
+              {
+                id: Date.now().toString(),
+                role: 'user' as const,
+                content: result.query,
+                type: 'text' as const
+              }
+            ];
+
+        return [
+          ...newMessages,
+          {
+            id: (Date.now() + 1).toString(),
+            role: 'assistant' as const,
+            content: result.content,
+            type: 'text' as const,
+            aggregatorSources: result.sources
+          }
+        ];
+      });
     }
   });
 
@@ -152,17 +172,6 @@ export function ChatView({
   // Handle query submission
   const handleSubmit = useCallback(
     (query: string) => {
-      // Add user message to chat history immediately so it appears before the AI response
-      setMessages((previous) => [
-        ...previous,
-        {
-          id: Date.now().toString(),
-          role: 'user' as const,
-          content: query,
-          type: 'text' as const
-        }
-      ]);
-
       const preSelectedSources = contextStore.getSourcesArray();
       if (preSelectedSources.length > 0) {
         const sourceIds = new Set(preSelectedSources.map((s) => s.id));
@@ -254,23 +263,6 @@ export function ChatView({
                 </div>
               </div>
             ))}
-
-            {/* Workflow UI - Endpoint Confirmation */}
-            {(workflow.phase === 'searching' || workflow.phase === 'selecting') &&
-              workflow.query && (
-                <div className='flex justify-start'>
-                  <EndpointConfirmation
-                    query={workflow.query}
-                    suggestedEndpoints={workflow.suggestedEndpoints}
-                    isSearching={workflow.phase === 'searching'}
-                    selectedSources={workflow.selectedSources}
-                    availableSources={sources}
-                    onToggleSource={workflow.toggleSource}
-                    onConfirm={workflow.confirmSelection}
-                    onCancel={workflow.cancelSelection}
-                  />
-                </div>
-              )}
 
             {/* Workflow UI - Processing Status */}
             {(workflow.phase === 'preparing' || workflow.phase === 'streaming') && (
