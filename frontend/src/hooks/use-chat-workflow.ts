@@ -2,15 +2,15 @@
  * useChatWorkflow Hook
  *
  * Main workflow state machine for the query execution flow:
- * User Query → Semantic Search → Endpoints Selection → Request Preparation → Aggregator Request
+ * User Query → Request Preparation → Aggregator Request → Streaming Response
  *
- * This hook centralizes all workflow logic that was previously scattered across
- * Hero and ChatView components.
+ * The workflow uses pre-selected data sources from the ContextSelectionStore
+ * (via the "+" button / AddSourcesModal). If no sources are selected, the query
+ * executes with the model only (no data sources).
  */
 import { useCallback, useMemo, useReducer, useRef } from 'react';
 
 import type { ChatStreamEvent } from '@/lib/sdk-client';
-import type { SearchableChatSource } from '@/lib/search-service';
 import type { ChatSource } from '@/lib/types';
 
 import { useAuth } from '@/context/auth-context';
@@ -21,7 +21,6 @@ import {
   EndpointResolutionError,
   syftClient
 } from '@/lib/sdk-client';
-import { categorizeResults, MIN_QUERY_LENGTH, searchDataSources } from '@/lib/search-service';
 
 // =============================================================================
 // Types
@@ -32,8 +31,6 @@ import { categorizeResults, MIN_QUERY_LENGTH, searchDataSources } from '@/lib/se
  */
 export type WorkflowPhase =
   | 'idle' // Ready for user input
-  | 'searching' // Running semantic search for endpoints
-  | 'selecting' // User selecting/confirming endpoints
   | 'preparing' // Building request (satellite, tokens)
   | 'streaming' // Receiving response from aggregator
   | 'complete' // Workflow completed successfully
@@ -101,7 +98,6 @@ export interface WorkflowResult {
 export interface WorkflowState {
   phase: WorkflowPhase;
   query: string | null;
-  suggestedEndpoints: SearchableChatSource[];
   selectedSources: Set<string>;
   processingStatus: ProcessingStatus | null;
   streamedContent: string;
@@ -115,12 +111,12 @@ export interface WorkflowState {
 export interface UseChatWorkflowOptions {
   /** Currently selected model */
   model: ChatSource | null;
-  /** Available data sources for selection and path lookups */
+  /** Available data sources for path lookups */
   dataSources: ChatSource[];
   /** Map of data sources by ID for O(1) lookups */
   dataSourcesById?: Map<string, ChatSource>;
-  /** Additional sources to include in the source map for path lookups (e.g., from the ContextSelectionStore) */
-  additionalSources?: Map<string, ChatSource>;
+  /** Pre-selected context sources from browse page "Add to context" flow */
+  contextSources?: ChatSource[];
   /** Callback when workflow completes successfully */
   onComplete?: (result: WorkflowResult) => void;
   /** Callback when workflow encounters an error */
@@ -133,14 +129,8 @@ export interface UseChatWorkflowOptions {
  * Return type of useChatWorkflow hook.
  */
 export interface UseChatWorkflowReturn extends WorkflowState {
-  /** Submit a query to start the workflow. If preSelectedSourceIds is provided and non-empty, skips search/selecting and executes directly. */
+  /** Submit a query to start the workflow. If preSelectedSourceIds is provided, uses those sources; otherwise executes with model only. */
   submitQuery: (query: string, preSelectedSourceIds?: Set<string>) => Promise<void>;
-  /** Toggle a source selection */
-  toggleSource: (id: string) => void;
-  /** Confirm endpoint selection and proceed to execution */
-  confirmSelection: () => Promise<void>;
-  /** Cancel the current workflow and reset to idle */
-  cancelSelection: () => void;
   /** Abort any in-flight request */
   abort: () => void;
   /** Reset the workflow to initial state */
@@ -152,10 +142,6 @@ export interface UseChatWorkflowReturn extends WorkflowState {
 // =============================================================================
 
 export type WorkflowAction =
-  | { type: 'START_SEARCH'; query: string }
-  | { type: 'SEARCH_COMPLETE'; endpoints: SearchableChatSource[] }
-  | { type: 'TOGGLE_SOURCE'; id: string }
-  | { type: 'START_PREPARING' }
   | { type: 'START_EXECUTING'; query: string; sourceIds: Set<string> }
   | { type: 'START_STREAMING'; status: ProcessingStatus }
   | { type: 'STREAM_EVENT'; event: ChatStreamEvent }
@@ -171,7 +157,6 @@ export type WorkflowAction =
 export const initialState: WorkflowState = {
   phase: 'idle',
   query: null,
-  suggestedEndpoints: [],
   selectedSources: new Set(),
   processingStatus: null,
   streamedContent: '',
@@ -331,36 +316,6 @@ export function getErrorMessage(error: unknown): string {
 
 export function workflowReducer(state: WorkflowState, action: WorkflowAction): WorkflowState {
   switch (action.type) {
-    case 'START_SEARCH': {
-      return {
-        ...initialState,
-        phase: 'searching',
-        query: action.query
-      };
-    }
-
-    case 'SEARCH_COMPLETE': {
-      return {
-        ...state,
-        phase: 'selecting',
-        suggestedEndpoints: action.endpoints
-      };
-    }
-
-    case 'TOGGLE_SOURCE': {
-      const next = new Set(state.selectedSources);
-      if (next.has(action.id)) {
-        next.delete(action.id);
-      } else {
-        next.add(action.id);
-      }
-      return { ...state, selectedSources: next };
-    }
-
-    case 'START_PREPARING': {
-      return { ...state, phase: 'preparing' };
-    }
-
     case 'START_EXECUTING': {
       return {
         ...initialState,
@@ -434,22 +389,12 @@ export function workflowReducer(state: WorkflowState, action: WorkflowAction): W
  *   model: selectedModel,
  *   dataSources: availableSources,
  *   onComplete: (result) => {
- *     // Handle completed query
  *     addMessage({ role: 'assistant', content: result.content });
  *   }
  * });
  *
  * // In JSX
  * <QueryInput onSubmit={workflow.submitQuery} disabled={workflow.phase !== 'idle'} />
- * {workflow.phase === 'selecting' && (
- *   <EndpointConfirmation
- *     suggestedEndpoints={workflow.suggestedEndpoints}
- *     selectedSources={workflow.selectedSources}
- *     onToggleSource={workflow.toggleSource}
- *     onConfirm={workflow.confirmSelection}
- *     onCancel={workflow.cancelSelection}
- *   />
- * )}
  * ```
  */
 export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflowReturn {
@@ -457,7 +402,7 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
     model,
     dataSources,
     dataSourcesById,
-    additionalSources,
+    contextSources,
     onComplete,
     onError,
     onStreamToken
@@ -468,35 +413,26 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
   const [state, dispatch] = useReducer(workflowReducer, initialState);
   const abortControllerReference = useRef<AbortController | null>(null);
 
-  // Build a sources map for O(1) lookups, including additional sources
-  // (e.g., from the ContextSelectionStore) that may not be in the standard dataSources list
+  // Build a sources map for O(1) lookups, including context sources if provided
   const sourcesMap = useMemo(() => {
     const base = dataSourcesById ?? new Map(dataSources.map((source) => [source.id, source]));
-    if (!additionalSources || additionalSources.size === 0) return base;
-    // Merge additional sources into the map
+    if (!contextSources || contextSources.length === 0) return base;
+    // Merge context sources into the map (they may not be in dataSources)
     const merged = new Map(base);
-    for (const [id, source] of additionalSources) {
-      if (!merged.has(id)) {
-        merged.set(id, source);
+    for (const source of contextSources) {
+      if (!merged.has(source.id)) {
+        merged.set(source.id, source);
       }
     }
     return merged;
-  }, [dataSourcesById, dataSources, additionalSources]);
+  }, [dataSourcesById, dataSources, contextSources]);
 
   // -------------------------------------------------------------------------
   // Actions
   // -------------------------------------------------------------------------
 
   /**
-   * Toggle a source selection.
-   */
-  const toggleSource = useCallback((id: string) => {
-    dispatch({ type: 'TOGGLE_SOURCE', id });
-  }, []);
-
-  /**
    * Execute the streaming request with the given query and source IDs.
-   * Shared by both confirmSelection and the direct-execution path in submitQuery.
    */
   const executeWithSources = useCallback(
     async (query: string, sourceIds: Set<string>) => {
@@ -599,9 +535,9 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
 
   /**
    * Submit a query to start the workflow.
-   * If preSelectedSourceIds is provided and non-empty, skips search/selecting
-   * and executes directly with those sources.
-   * Otherwise triggers semantic search and transitions to the selecting phase.
+   *
+   * Uses the provided preSelectedSourceIds if available, falls back to
+   * contextSources from the browse page, or executes with model only.
    */
   const submitQuery = useCallback(
     async (query: string, preSelectedSourceIds?: Set<string>) => {
@@ -616,60 +552,30 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
         return;
       }
 
-      // Pre-selected sources (from ContextSelectionStore via chat input "+" button or browse page)
-      // — skip search/selecting and execute directly
+      // Determine source IDs to use
+      let sourceIds: Set<string>;
+
       if (preSelectedSourceIds && preSelectedSourceIds.size > 0) {
-        dispatch({
-          type: 'START_EXECUTING',
-          query: query.trim(),
-          sourceIds: preSelectedSourceIds
-        });
-        await executeWithSources(query.trim(), preSelectedSourceIds);
-        return;
+        // Sources from the chat input "+" button
+        sourceIds = preSelectedSourceIds;
+      } else if (contextSources && contextSources.length > 0) {
+        // Sources from browse page "Add to context" flow
+        sourceIds = new Set(contextSources.map((s) => s.id));
+      } else {
+        // No sources selected — model-only execution
+        sourceIds = new Set();
       }
 
-      // No pre-selected sources — start the search/select workflow
-      dispatch({ type: 'START_SEARCH', query: query.trim() });
-
-      try {
-        // Perform semantic search for relevant endpoints
-        if (query.length >= MIN_QUERY_LENGTH) {
-          const results = await searchDataSources(query, { top_k: 10 });
-          const { highRelevance } = categorizeResults(results);
-          dispatch({ type: 'SEARCH_COMPLETE', endpoints: highRelevance });
-        } else {
-          // Query too short for semantic search - proceed with empty suggestions
-          dispatch({ type: 'SEARCH_COMPLETE', endpoints: [] });
-        }
-      } catch (error) {
-        console.error('Failed to search endpoints:', error);
-        // Still proceed to selection phase even if search fails
-        dispatch({ type: 'SEARCH_COMPLETE', endpoints: [] });
-      }
+      // Execute directly
+      dispatch({
+        type: 'START_EXECUTING',
+        query: query.trim(),
+        sourceIds
+      });
+      await executeWithSources(query.trim(), sourceIds);
     },
-    [model, onError, executeWithSources]
+    [model, contextSources, onError, executeWithSources]
   );
-
-  /**
-   * Confirm endpoint selection and proceed to execution.
-   */
-  const confirmSelection = useCallback(async () => {
-    if (!state.query || !model) {
-      return;
-    }
-
-    // Transition to preparing phase
-    dispatch({ type: 'START_PREPARING' });
-
-    await executeWithSources(state.query, state.selectedSources);
-  }, [state.query, state.selectedSources, model, executeWithSources]);
-
-  /**
-   * Cancel the current workflow and reset to idle.
-   */
-  const cancelSelection = useCallback(() => {
-    dispatch({ type: 'RESET' });
-  }, []);
 
   /**
    * Abort any in-flight request.
@@ -689,9 +595,6 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
   return {
     ...state,
     submitQuery,
-    toggleSource,
-    confirmSelection,
-    cancelSelection,
     abort,
     reset
   };

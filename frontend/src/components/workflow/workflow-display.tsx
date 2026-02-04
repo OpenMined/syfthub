@@ -1,17 +1,15 @@
 /**
  * WorkflowDisplay Component
  *
- * Presents the workflow UI for endpoint selection and processing status.
+ * Presents the workflow UI for processing status and streaming response.
  * Can be rendered as an overlay (for Hero) or inline (for ChatView).
  */
 import { memo } from 'react';
 
 import type { UseChatWorkflowReturn } from '@/hooks/use-chat-workflow';
-import type { ChatSource } from '@/lib/types';
 
 import { AnimatePresence, motion } from 'framer-motion';
 
-import { EndpointConfirmation } from '@/components/chat/endpoint-confirmation';
 import { SourcesSection } from '@/components/chat/sources-section';
 import { StatusIndicator } from '@/components/chat/status-indicator';
 
@@ -24,8 +22,6 @@ import { MarkdownMessage } from '../chat/markdown-message';
 export interface WorkflowDisplayProps {
   /** Workflow state and actions from useChatWorkflow */
   workflow: UseChatWorkflowReturn;
-  /** Available data sources for endpoint confirmation search */
-  availableSources: ChatSource[];
   /** Display mode: overlay (modal-like) or inline (in message list) */
   mode: 'overlay' | 'inline';
   /** Whether to show the streamed response (for overlay mode) */
@@ -39,20 +35,17 @@ export interface WorkflowDisplayProps {
 /**
  * Displays the workflow UI based on the current phase.
  *
- * - `searching` / `selecting` phase: Shows EndpointConfirmation
  * - `preparing` / `streaming` phase: Shows StatusIndicator + streamed content
  * - `complete` phase: Shows final response with sources
  */
 export const WorkflowDisplay = memo(function WorkflowDisplay({
   workflow,
-  availableSources,
   mode,
   showResponse = true
 }: Readonly<WorkflowDisplayProps>) {
   const isInline = mode === 'inline';
 
   // Determine what to show based on workflow phase
-  const showEndpointConfirmation = workflow.phase === 'searching' || workflow.phase === 'selecting';
   const showProcessing = workflow.phase === 'preparing' || workflow.phase === 'streaming';
   const showComplete = workflow.phase === 'complete';
   const showError = workflow.phase === 'error';
@@ -64,20 +57,6 @@ export const WorkflowDisplay = memo(function WorkflowDisplay({
 
   const content = (
     <>
-      {/* Endpoint Confirmation UI */}
-      {showEndpointConfirmation && workflow.query && (
-        <EndpointConfirmation
-          query={workflow.query}
-          suggestedEndpoints={workflow.suggestedEndpoints}
-          isSearching={workflow.phase === 'searching'}
-          selectedSources={workflow.selectedSources}
-          availableSources={availableSources}
-          onToggleSource={workflow.toggleSource}
-          onConfirm={workflow.confirmSelection}
-          onCancel={workflow.cancelSelection}
-        />
-      )}
-
       {/* Processing Status */}
       {showProcessing && workflow.processingStatus && (
         <div className={isInline ? 'max-w-2xl' : ''}>
@@ -150,7 +129,6 @@ export const WorkflowDisplay = memo(function WorkflowDisplay({
 
 export interface WorkflowOverlayProps {
   workflow: UseChatWorkflowReturn;
-  availableSources: ChatSource[];
 }
 
 /**
@@ -158,22 +136,13 @@ export interface WorkflowOverlayProps {
  * Shows as a modal/overlay when workflow is active.
  */
 export const WorkflowOverlay = memo(function WorkflowOverlay({
-  workflow,
-  availableSources
+  workflow
 }: Readonly<WorkflowOverlayProps>) {
-  return (
-    <WorkflowDisplay
-      workflow={workflow}
-      availableSources={availableSources}
-      mode='overlay'
-      showResponse={true}
-    />
-  );
+  return <WorkflowDisplay workflow={workflow} mode='overlay' showResponse={true} />;
 });
 
 export interface WorkflowInlineProps {
   workflow: UseChatWorkflowReturn;
-  availableSources: ChatSource[];
 }
 
 /**
@@ -181,13 +150,11 @@ export interface WorkflowInlineProps {
  * Renders inline within the message list.
  */
 export const WorkflowInline = memo(function WorkflowInline({
-  workflow,
-  availableSources
+  workflow
 }: Readonly<WorkflowInlineProps>) {
   return (
     <WorkflowDisplay
       workflow={workflow}
-      availableSources={availableSources}
       mode='inline'
       showResponse={false} // ChatView manages response display in messages
     />
