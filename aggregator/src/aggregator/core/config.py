@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     # attempt to stream tokens from the model endpoint.
     model_streaming_enabled: bool = False
 
+    # NATS configuration (for tunneling spaces)
+    nats_url: str = "nats://nats:4222"
+    nats_auth_token: str = ""
+    nats_tunnel_timeout: float = 30.0
+
     # CORS configuration
     cors_origins: list[str] = ["*"]
 

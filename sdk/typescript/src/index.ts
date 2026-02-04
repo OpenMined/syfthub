@@ -93,6 +93,8 @@ export type {
   UserUpdateInput,
   PasswordChangeInput,
   AccountingCredentials,
+  HeartbeatInput,
+  HeartbeatResponse,
   // Endpoint types
   Policy,
   Connection,
@@ -101,6 +103,13 @@ export type {
   EndpointCreateInput,
   EndpointUpdateInput,
   SyncEndpointsResponse,
+  // API Token types
+  APIToken,
+  APITokenScope,
+  APITokenCreateResponse,
+  CreateAPITokenInput,
+  UpdateAPITokenInput,
+  APITokenListResponse,
   // Accounting types
   AccountingUser,
   Transaction,
@@ -151,6 +160,9 @@ export { ChatResource } from './resources/chat.js';
 
 // SyftAI Resource (for type hints)
 export { SyftAIResource } from './resources/syftai.js';
+
+// API Tokens Resource (for type hints)
+export { APITokensResource } from './resources/api-tokens.js';
 
 // Resource option types (for type-safe usage)
 export type { ListEndpointsOptions } from './resources/my-endpoints.js';

@@ -97,6 +97,15 @@ class ChatRequest(BaseModel):
         default=None,
         description="Optional custom system prompt to override the default RAG prompt",
     )
+    # NATS peer token fields for tunneling spaces
+    peer_token: str | None = Field(
+        default=None,
+        description="Peer token from /api/v1/peer-token for NATS tunneling authentication",
+    )
+    peer_channel: str | None = Field(
+        default=None,
+        description="Unique reply channel for receiving NATS responses (from peer token endpoint)",
+    )
 
 
 class Message(BaseModel):

@@ -1,6 +1,16 @@
 // Enums and constants
 export { Visibility, EndpointType, UserRole, OrganizationRole } from './common.js';
 
+// API Token types
+export type {
+  APIToken,
+  APITokenScope,
+  APITokenCreateResponse,
+  CreateAPITokenInput,
+  UpdateAPITokenInput,
+  APITokenListResponse,
+} from './api-token.js';
+
 // User types
 export type {
   User,
@@ -9,6 +19,8 @@ export type {
   UserUpdateInput,
   PasswordChangeInput,
   AccountingCredentials,
+  HeartbeatInput,
+  HeartbeatResponse,
 } from './user.js';
 
 // Endpoint types

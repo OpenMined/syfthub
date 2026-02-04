@@ -26,6 +26,9 @@ from __future__ import annotations
 
 from typing import Any
 
+# Tunneling URL prefix - endpoints behind NAT/firewall use NATS pub/sub
+TUNNELING_PREFIX = "tunneling:"
+
 # WebSocket connection types that need protocol upgrade
 _WEBSOCKET_TYPES = {"websocket", "ws", "wss"}
 
@@ -56,6 +59,8 @@ def build_connection_url(
     Args:
         domain: The owner's domain with protocol
             (e.g., "https://api.example.com" or "http://api.example.com:8080")
+            For tunneling domains (e.g., "tunneling:username"), the domain is returned
+            as-is since tunneling uses NATS pub/sub, not HTTP.
         connection_type: The connection type (e.g., "rest_api", "websocket").
             Used only for WebSocket protocol upgrades.
         path: The path portion of the URL (e.g., "api/v2" or "/api/v2")
@@ -65,6 +70,11 @@ def build_connection_url(
     """
     if not domain:
         return None
+
+    # Tunneling domains are pseudo-URLs for NATS pub/sub routing.
+    # Return the domain directly as the URL (e.g., "tunneling:username").
+    if domain.startswith(TUNNELING_PREFIX):
+        return domain
 
     base_url = normalize_domain(domain)
     if not base_url:

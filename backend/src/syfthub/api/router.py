@@ -6,7 +6,9 @@ from syfthub.api.endpoints import (
     accounting,
     endpoints,
     errors,
+    nats,
     organizations,
+    peer,
     token,
     users,
 )
@@ -27,6 +29,12 @@ api_router.include_router(accounting.router, prefix="/accounting", tags=["accoun
 
 # Identity Provider (IdP) endpoints
 api_router.include_router(token.router, tags=["identity-provider"])
+
+# NATS peer token endpoints
+api_router.include_router(peer.router, tags=["nats-peer"])
+
+# NATS credentials endpoint
+api_router.include_router(nats.router, tags=["nats"])
 
 # Error reporting endpoint for frontend
 api_router.include_router(errors.router, tags=["observability"])

@@ -1,20 +1,4 @@
-"""FastAPI dependencies for the aggregator API.
-
-TODO: Satellite Token Integration
----------------------------------
-Currently the aggregator receives user tokens but does not forward them to
-SyftAI-Space endpoints. When SyftAI-Space implements satellite token support:
-
-1. The `get_optional_token()` function extracts Bearer tokens from requests
-2. These tokens should be passed through the orchestrator to the clients
-3. DataSourceClient and ModelClient should include Authorization headers
-4. SyftAI-Space will validate tokens and check user permissions
-
-See also:
-- aggregator/clients/data_source.py - needs Authorization header
-- aggregator/clients/model.py - needs Authorization header
-- syfthub backend token endpoint - generates satellite tokens
-"""
+"""FastAPI dependencies for the aggregator API."""
 
 from functools import lru_cache
 from typing import Annotated
@@ -22,6 +6,7 @@ from typing import Annotated
 from fastapi import Depends, Header
 
 from aggregator.clients import DataSourceClient, ErrorReporter, ModelClient
+from aggregator.clients.nats_transport import NATSTransport
 from aggregator.core.config import get_settings
 from aggregator.services import (
     GenerationService,
@@ -58,6 +43,19 @@ def get_model_client() -> ModelClient:
     )
 
 
+@lru_cache
+def get_nats_transport() -> NATSTransport | None:
+    """Get the NATS transport singleton (None if NATS is not configured)."""
+    settings = get_settings()
+    if not settings.nats_auth_token:
+        return None
+    return NATSTransport(
+        nats_url=settings.nats_url,
+        nats_auth_token=settings.nats_auth_token,
+        default_timeout=settings.nats_tunnel_timeout,
+    )
+
+
 def get_prompt_builder() -> PromptBuilder:
     """Get a prompt builder instance."""
     return PromptBuilder()
@@ -65,16 +63,18 @@ def get_prompt_builder() -> PromptBuilder:
 
 def get_retrieval_service(
     data_source_client: Annotated[DataSourceClient, Depends(get_data_source_client)],
+    nats_transport: Annotated[NATSTransport | None, Depends(get_nats_transport)],
 ) -> RetrievalService:
     """Get the retrieval service."""
-    return RetrievalService(data_source_client)
+    return RetrievalService(data_source_client, nats_transport=nats_transport)
 
 
 def get_generation_service(
     model_client: Annotated[ModelClient, Depends(get_model_client)],
+    nats_transport: Annotated[NATSTransport | None, Depends(get_nats_transport)],
 ) -> GenerationService:
     """Get the generation service."""
-    return GenerationService(model_client)
+    return GenerationService(model_client, nats_transport=nats_transport)
 
 
 def get_orchestrator(
