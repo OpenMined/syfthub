@@ -263,6 +263,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          build-args: |
+            ${{ matrix.image == 'frontend' && format('VITE_GOOGLE_CLIENT_ID={0}', secrets.VITE_GOOGLE_CLIENT_ID) || '' }}
 
   # ============================================================================
   # DEPLOY TO PRODUCTION VM

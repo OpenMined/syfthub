@@ -116,6 +116,8 @@ services:
       - RSA_PUBLIC_KEY_PEM=${RSA_PUBLIC_KEY_PEM}
       # RAG/OpenAI configuration (optional - semantic search disabled if not set)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # Google OAuth configuration (optional - Google Sign-In disabled if not set)
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
     networks:
       - syfthub-network
     depends_on:
