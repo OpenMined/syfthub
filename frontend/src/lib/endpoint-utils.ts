@@ -189,9 +189,67 @@ export interface PaginatedEndpointsResponse {
 }
 
 /**
+ * Raw API response shape for public endpoints (snake_case from backend).
+ * The SDK normally transforms these to camelCase, but getPublicEndpointsPaginated
+ * uses raw fetch() to support server-side pagination, so we transform manually.
+ */
+interface RawEndpointPublic {
+  name: string;
+  slug: string;
+  description: string;
+  type: string;
+  owner_username: string;
+  contributors_count: number;
+  version: string;
+  readme: string;
+  tags: string[];
+  stars_count: number;
+  policies: Array<{
+    type: string;
+    version: string;
+    enabled: boolean;
+    description: string;
+    config: Record<string, unknown>;
+  }>;
+  connect: Array<{
+    type: string;
+    enabled: boolean;
+    description: string;
+    config: Record<string, unknown>;
+  }>;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Transform a raw API endpoint response (snake_case) to the SDK EndpointPublic
+ * format (camelCase with Date objects) that mapEndpointPublicToSource expects.
+ */
+function transformRawEndpoint(raw: RawEndpointPublic): SdkEndpointPublic {
+  return {
+    name: raw.name,
+    slug: raw.slug,
+    description: raw.description,
+    type: raw.type,
+    ownerUsername: raw.owner_username,
+    contributorsCount: raw.contributors_count,
+    version: raw.version,
+    readme: raw.readme,
+    tags: raw.tags,
+    starsCount: raw.stars_count,
+    policies: raw.policies,
+    connect: raw.connect,
+    createdAt: new Date(raw.created_at),
+    updatedAt: new Date(raw.updated_at)
+  } as unknown as SdkEndpointPublic;
+}
+
+/**
  * Get public endpoints from the hub with pagination support.
  *
  * Uses the "fetch N+1" pattern to detect if there are more pages.
+ * Uses raw fetch() instead of the SDK client to support server-side
+ * pagination with skip/limit and endpoint_type filtering.
  *
  * @param params - Pagination and filter parameters
  * @returns Paginated response with items and hasNextPage flag
@@ -219,7 +277,9 @@ export async function getPublicEndpointsPaginated(
       throw new Error(`Failed to fetch endpoints: ${response.statusText}`);
     }
 
-    const data = (await response.json()) as SdkEndpointPublic[];
+    // Raw API returns snake_case JSON; transform to camelCase SDK types
+    const rawData = (await response.json()) as RawEndpointPublic[];
+    const data = rawData.map((ep) => transformRawEndpoint(ep));
 
     // Check if there's a next page (we fetched limit+1 items)
     const hasNextPage = data.length > limit;
