@@ -181,6 +181,60 @@ export function mapSdkEndpointToResponse(
 // ============================================================================
 
 /**
+ * Response type for paginated endpoint queries.
+ */
+export interface PaginatedEndpointsResponse {
+  items: ChatSource[];
+  hasNextPage: boolean;
+}
+
+/**
+ * Get public endpoints from the hub with pagination support.
+ *
+ * Uses the "fetch N+1" pattern to detect if there are more pages.
+ *
+ * @param params - Pagination and filter parameters
+ * @returns Paginated response with items and hasNextPage flag
+ */
+export async function getPublicEndpointsPaginated(
+  params: { page?: number; limit?: number; endpoint_type?: EndpointType } = {}
+): Promise<PaginatedEndpointsResponse> {
+  const { page = 1, limit = 12, endpoint_type } = params;
+  const skip = (page - 1) * limit;
+
+  try {
+    // Build query params
+    const queryParams = new URLSearchParams({
+      skip: String(skip),
+      limit: String(limit + 1) // Fetch one extra to detect if there's a next page
+    });
+
+    if (endpoint_type) {
+      queryParams.append('endpoint_type', endpoint_type);
+    }
+
+    const response = await fetch(`/api/v1/endpoints/public?${queryParams.toString()}`);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch endpoints: ${response.statusText}`);
+    }
+
+    const data = (await response.json()) as SdkEndpointPublic[];
+
+    // Check if there's a next page (we fetched limit+1 items)
+    const hasNextPage = data.length > limit;
+
+    // Map only the requested number of items
+    const items = data.slice(0, limit).map((ep) => mapEndpointPublicToSource(ep));
+
+    return { items, hasNextPage };
+  } catch (error) {
+    console.error('Failed to fetch paginated public endpoints:', error);
+    return { items: [], hasNextPage: false };
+  }
+}
+
+/**
  * Get public endpoints from the hub.
  *
  * @param params - Pagination and filter parameters
