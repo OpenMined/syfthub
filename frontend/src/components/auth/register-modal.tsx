@@ -8,6 +8,7 @@ import Lock from 'lucide-react/dist/esm/icons/lock';
 import Mail from 'lucide-react/dist/esm/icons/mail';
 import User from 'lucide-react/dist/esm/icons/user';
 import { useForm } from 'react-hook-form';
+import { useNavigate } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,6 +41,7 @@ export function RegisterModal({
   onSwitchToLogin
 }: Readonly<RegisterModalProperties>) {
   const { register: authRegister, isLoading, error, clearError } = useAuth();
+  const navigate = useNavigate();
   const [requiresAccountingPassword, setRequiresAccountingPassword] = useState(false);
 
   const {
@@ -72,6 +74,7 @@ export function RegisterModal({
       });
       onClose();
       useOnboardingStore.getState().startOnboarding();
+      navigate('/chat');
     } catch (error_) {
       if (error_ instanceof AccountingAccountExistsError) {
         setRequiresAccountingPassword(true);
