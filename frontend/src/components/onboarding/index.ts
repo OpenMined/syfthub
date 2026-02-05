@@ -1,2 +1,2 @@
-export { ChatEmptyState } from './chat-empty-state';
-export { WelcomeOverlay } from './welcome-overlay';
+export { OnboardingCallout } from './onboarding-callout';
+export type { OnboardingStep } from '@/stores/onboarding-store';

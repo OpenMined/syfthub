@@ -6,6 +6,7 @@ import Check from 'lucide-react/dist/esm/icons/check';
 import Database from 'lucide-react/dist/esm/icons/database';
 import Search from 'lucide-react/dist/esm/icons/search';
 
+import { OnboardingCallout } from '@/components/onboarding';
 import { Modal } from '@/components/ui/modal';
 import { filterSourcesForAutocomplete } from '@/lib/validation';
 
@@ -180,6 +181,11 @@ export const AddSourcesModal = memo(function AddSourcesModal({
           autoComplete='off'
         />
       </div>
+
+      {/* Onboarding callout for source selection */}
+      <OnboardingCallout step='select-sources' position='bottom'>
+        <div />
+      </OnboardingCallout>
 
       {/* Scrollable source list */}
       <div className='max-h-72 space-y-2 overflow-y-auto pr-1'>
