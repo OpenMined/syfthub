@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import Boolean, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from syfthub.models.base import BaseModel, TimestampMixin
@@ -45,17 +45,12 @@ class UserAggregatorModel(BaseModel, TimestampMixin):
     user: Mapped["UserModel"] = relationship("UserModel", back_populates="aggregators")
 
     # Indexes and constraints
+    # Note: Unique constraint on (user_id, is_default) can't work properly in SQLite
+    # because it treats multiple FALSE values as duplicates. We enforce "one default
+    # per user" at the application level instead.
     __table_args__ = (
         Index("idx_user_aggregators_user_id", "user_id"),
         Index("idx_user_aggregators_is_default", "is_default"),
-        # Ensure only one default per user
-        UniqueConstraint(
-            "user_id",
-            "is_default",
-            name="uq_user_default_aggregator",
-            deferrable=True,
-            initially="DEFERRED",
-        ),
     )
 
     def __repr__(self) -> str:
