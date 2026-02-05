@@ -36,7 +36,7 @@ dependencies = [
     "uvicorn>=0.38.0",
     "structlog>=24.0.0",
     "bleach>=6.0.0",
-    "google-auth>=2.0.0",
+    "google-auth[urllib3]>=2.0.0",
 ]
 
 [project.scripts]
