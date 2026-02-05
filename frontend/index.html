@@ -3,7 +3,7 @@
   <head>
     <!-- THEME: Prevent flash of wrong theme by applying dark class before paint -->
     <script>
-      (function() {
+      (function () {
         var theme = localStorage.getItem('syfthub-theme');
         var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
         if (theme === 'dark' || (theme === 'system' && prefersDark) || (!theme && prefersDark)) {
