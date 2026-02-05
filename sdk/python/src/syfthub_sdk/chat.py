@@ -210,6 +210,21 @@ class ChatResource:
         # Separate client for aggregator with longer timeout (LLM can be slow)
         self._agg_client = httpx.Client(timeout=120.0)
 
+    @staticmethod
+    def _type_matches(actual_type: str, expected_type: str) -> bool:
+        """Check if an endpoint type matches the expected type.
+
+        A model_data_source endpoint matches both 'model' and 'data_source'.
+        """
+        if actual_type == expected_type:
+            return True
+        if actual_type == EndpointType.MODEL_DATA_SOURCE.value:
+            return expected_type in (
+                EndpointType.MODEL.value,
+                EndpointType.DATA_SOURCE.value,
+            )
+        return False
+
     def _resolve_endpoint_ref(
         self,
         endpoint: str | EndpointRef | EndpointPublic,
@@ -234,8 +249,10 @@ class ChatResource:
             return endpoint
 
         if isinstance(endpoint, EndpointPublic):
-            # Validate type if expected
-            if expected_type and endpoint.type.value != expected_type:
+            # Validate type if expected (model_data_source matches both model and data_source)
+            if expected_type and not self._type_matches(
+                endpoint.type.value, expected_type
+            ):
                 raise ValueError(
                     f"Expected endpoint type '{expected_type}', "
                     f"got '{endpoint.type.value}' for '{endpoint.slug}'"

@@ -83,6 +83,18 @@ export class ChatResource {
   ) {}
 
   /**
+   * Check if an endpoint type matches the expected type.
+   * A model_data_source endpoint matches both 'model' and 'data_source'.
+   */
+  private static typeMatches(actualType: string, expectedType: string): boolean {
+    if (actualType === expectedType) return true;
+    if (actualType === EndpointType.MODEL_DATA_SOURCE) {
+      return expectedType === EndpointType.MODEL || expectedType === EndpointType.DATA_SOURCE;
+    }
+    return false;
+  }
+
+  /**
    * Convert any endpoint format to EndpointRef with URL and owner info.
    * The ownerUsername is critical for satellite token authentication.
    */
@@ -97,8 +109,8 @@ export class ChatResource {
 
     // EndpointPublic object
     if (this.isEndpointPublic(endpoint)) {
-      // Validate type if expected
-      if (expectedType && endpoint.type !== expectedType) {
+      // Validate type if expected (model_data_source matches both model and data_source)
+      if (expectedType && !ChatResource.typeMatches(endpoint.type, expectedType)) {
         throw new Error(
           `Expected endpoint type '${expectedType}', got '${endpoint.type}' for '${endpoint.slug}'`
         );
