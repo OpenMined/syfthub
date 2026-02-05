@@ -21,6 +21,9 @@ export type {
   AccountingCredentials,
   HeartbeatInput,
   HeartbeatResponse,
+  UserAggregator,
+  UserAggregatorCreateInput,
+  UserAggregatorUpdateInput,
 } from './user.js';
 
 // Endpoint types

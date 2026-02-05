@@ -116,3 +116,47 @@ export interface HeartbeatResponse {
   /** Effective TTL applied (may be capped by server) */
   readonly ttlSeconds: number;
 }
+
+/**
+ * A user's aggregator configuration.
+ *
+ * Aggregators are custom RAG orchestration service endpoints that users can
+ * configure to use for chat operations. Each user can have multiple aggregator
+ * configurations, with one set as the default.
+ */
+export interface UserAggregator {
+  /** Unique aggregator configuration ID */
+  readonly id: number;
+  /** Owner user ID */
+  readonly userId: number;
+  /** Display name for the aggregator */
+  readonly name: string;
+  /** Aggregator service URL */
+  readonly url: string;
+  /** Whether this is the user's default aggregator */
+  readonly isDefault: boolean;
+  /** When the aggregator was created */
+  readonly createdAt: Date;
+  /** When the aggregator was last updated */
+  readonly updatedAt: Date;
+}
+
+/**
+ * Input for creating an aggregator configuration.
+ */
+export interface UserAggregatorCreateInput {
+  /** Display name for the aggregator */
+  name: string;
+  /** Aggregator service URL */
+  url: string;
+}
+
+/**
+ * Input for updating an aggregator configuration.
+ */
+export interface UserAggregatorUpdateInput {
+  /** New display name (optional) */
+  name?: string;
+  /** New aggregator URL (optional) */
+  url?: string;
+}

@@ -95,6 +95,9 @@ export type {
   AccountingCredentials,
   HeartbeatInput,
   HeartbeatResponse,
+  UserAggregator,
+  UserAggregatorCreateInput,
+  UserAggregatorUpdateInput,
   // Endpoint types
   Policy,
   Connection,
@@ -163,6 +166,9 @@ export { SyftAIResource } from './resources/syftai.js';
 
 // API Tokens Resource (for type hints)
 export { APITokensResource } from './resources/api-tokens.js';
+
+// Aggregators Resource (for type hints)
+export { AggregatorsResource } from './resources/aggregators.js';
 
 // Resource option types (for type-safe usage)
 export type { ListEndpointsOptions } from './resources/my-endpoints.js';
