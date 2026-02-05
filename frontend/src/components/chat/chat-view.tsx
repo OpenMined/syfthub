@@ -172,6 +172,17 @@ export function ChatView({
   // Handle query submission
   const handleSubmit = useCallback(
     (query: string) => {
+      // Optimistically add user message immediately so it appears before the AI responds
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: Date.now().toString(),
+          role: 'user' as const,
+          content: query,
+          type: 'text' as const
+        }
+      ]);
+
       const preSelectedSources = contextStore.getSourcesArray();
       if (preSelectedSources.length > 0) {
         const sourceIds = new Set(preSelectedSources.map((s) => s.id));
