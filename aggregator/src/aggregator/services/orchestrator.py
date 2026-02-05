@@ -187,6 +187,7 @@ class Orchestrator:
             user_prompt=request.prompt,
             context=context if data_sources else None,
             custom_system_prompt=request.custom_system_prompt,
+            history=request.messages or None,
         )
 
         # 5. Generate response via SyftAI-Space model endpoint
@@ -337,6 +338,7 @@ class Orchestrator:
             user_prompt=request.prompt,
             context=context if data_sources else None,
             custom_system_prompt=request.custom_system_prompt,
+            history=request.messages or None,
         )
 
         # 5. Generation phase with streaming (or non-streaming fallback)

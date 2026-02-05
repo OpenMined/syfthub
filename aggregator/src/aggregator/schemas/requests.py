@@ -97,6 +97,11 @@ class ChatRequest(BaseModel):
         default=None,
         description="Optional custom system prompt to override the default RAG prompt",
     )
+    messages: list["Message"] = Field(
+        default_factory=list,
+        description="Conversation history (prior turns) for multi-turn context. "
+        "Only used for LLM generation; data source retrieval remains stateless.",
+    )
     # NATS peer token fields for tunneling spaces
     peer_token: str | None = Field(
         default=None,
@@ -113,6 +118,10 @@ class Message(BaseModel):
 
     role: Literal["system", "user", "assistant"]
     content: str
+
+
+# Resolve forward reference to Message in ChatRequest
+ChatRequest.model_rebuild()
 
 
 class QueryRequest(BaseModel):

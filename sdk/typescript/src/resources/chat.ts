@@ -31,6 +31,7 @@ import type {
   ChatStreamEvent,
   DocumentSource,
   EndpointRef,
+  Message,
   SourceInfo,
   SourceStatus,
   TokenUsage,
@@ -284,6 +285,7 @@ export class ChatResource {
       temperature?: number;
       similarityThreshold?: number;
       stream?: boolean;
+      messages?: Message[];
       peerToken?: string;
       peerChannel?: string;
     }
@@ -312,6 +314,9 @@ export class ChatResource {
       similarity_threshold: options.similarityThreshold ?? 0.5,
       stream: options.stream ?? false,
     };
+    if (options.messages && options.messages.length > 0) {
+      body.messages = options.messages.map((m) => ({ role: m.role, content: m.content }));
+    }
 
     // Include peer token fields for NATS tunneling
     if (options.peerToken) {
@@ -453,6 +458,7 @@ export class ChatResource {
         temperature: options.temperature,
         similarityThreshold: options.similarityThreshold,
         stream: false,
+        messages: options.messages,
         peerToken,
         peerChannel,
       }
@@ -564,6 +570,7 @@ export class ChatResource {
         temperature: options.temperature,
         similarityThreshold: options.similarityThreshold,
         stream: true,
+        messages: options.messages,
         peerToken,
         peerChannel,
       }

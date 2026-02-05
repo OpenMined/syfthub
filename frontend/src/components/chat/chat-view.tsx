@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { WorkflowResult } from '@/hooks/use-chat-workflow';
+import type { ChatHistoryMessage, WorkflowResult } from '@/hooks/use-chat-workflow';
 import type { ChatSource } from '@/lib/types';
 import type { SourcesData } from './sources-section';
 
@@ -173,6 +173,11 @@ export function ChatView({
   // Handle query submission
   const handleSubmit = useCallback(
     (query: string) => {
+      // Build conversation history from existing messages (prior turns only)
+      const history: ChatHistoryMessage[] = messages
+        .filter((m): m is Message & { content: string } => !!m.content)
+        .map((m) => ({ role: m.role, content: m.content }));
+
       // Optimistically add user message immediately so it appears before the AI responds
       setMessages((previous) => [
         ...previous,
@@ -187,12 +192,12 @@ export function ChatView({
       const preSelectedSources = contextStore.getSourcesArray();
       if (preSelectedSources.length > 0) {
         const sourceIds = new Set(preSelectedSources.map((s) => s.id));
-        void workflow.submitQuery(query, sourceIds);
+        void workflow.submitQuery(query, sourceIds, history);
       } else {
-        void workflow.submitQuery(query);
+        void workflow.submitQuery(query, undefined, history);
       }
     },
-    [workflow, contextStore]
+    [workflow, contextStore, messages]
   );
 
   // Handle modal confirm
