@@ -60,6 +60,7 @@ repos:
           types-markdown,
           types-passlib,
           google-auth,
+          types-urllib3,
         ]
       # Python SDK mypy
       - id: mypy
