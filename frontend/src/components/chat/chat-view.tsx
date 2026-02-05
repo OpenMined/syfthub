@@ -266,7 +266,7 @@ export function ChatView({
                     <div
                       className={`font-inter max-w-2xl rounded-2xl px-5 py-3 shadow-sm ${
                         message.role === 'user'
-                          ? 'bg-primary text-primary-foreground rounded-br-none text-[15px] leading-relaxed'
+                          ? 'bg-primary text-primary-foreground rounded-br-none text-sm leading-relaxed'
                           : 'border-border bg-muted text-foreground rounded-bl-none border'
                       }`}
                     >
@@ -339,7 +339,7 @@ export function ChatView({
                 onClick={() => {
                   setIsSourceModalOpen(true);
                 }}
-                className='group border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground flex items-center justify-center rounded-xl border p-3.5 transition-colors'
+                className='group border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground flex items-center justify-center rounded-xl border p-3 transition-colors'
                 aria-label={
                   contextStore.count() > 0 ? 'Edit selected sources' : 'Add sources to context'
                 }
