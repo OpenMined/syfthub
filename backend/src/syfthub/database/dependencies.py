@@ -20,6 +20,8 @@ from syfthub.services.endpoint_service import EndpointService
 from syfthub.services.organization_service import OrganizationService
 from syfthub.services.user_service import UserService
 
+__all__ = ["get_db_session"]
+
 
 def get_user_repository(
     session: Annotated[Session, Depends(get_db_session)],
