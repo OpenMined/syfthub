@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from syfthub_sdk.aggregators import AggregatorsResource
 from syfthub_sdk.models import AccountingCredentials, User
 
 if TYPE_CHECKING:
@@ -27,6 +28,13 @@ class UsersResource:
         # Check email availability
         if client.users.check_email("new@example.com"):
             print("Email is available!")
+
+        # Manage aggregators
+        aggregators = client.users.aggregators.list()
+        new_agg = client.users.aggregators.create(
+            name="My Aggregator",
+            url="https://my-aggregator.example.com"
+        )
     """
 
     def __init__(self, http: HTTPClient) -> None:
@@ -36,6 +44,32 @@ class UsersResource:
             http: HTTP client instance
         """
         self._http = http
+        self._aggregators: AggregatorsResource | None = None
+
+    @property
+    def aggregators(self) -> AggregatorsResource:
+        """Access aggregator management operations.
+
+        Returns:
+            AggregatorsResource for managing user's aggregator configurations
+
+        Example:
+            # List aggregators
+            for agg in client.users.aggregators.list():
+                print(f"{agg.name}: {agg.url}")
+
+            # Create aggregator
+            agg = client.users.aggregators.create(
+                name="My Aggregator",
+                url="https://my-aggregator.example.com"
+            )
+
+            # Set as default
+            client.users.aggregators.set_default(agg.id)
+        """
+        if self._aggregators is None:
+            self._aggregators = AggregatorsResource(self._http)
+        return self._aggregators
 
     def update(
         self,
