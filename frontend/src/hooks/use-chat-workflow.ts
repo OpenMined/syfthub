@@ -128,9 +128,21 @@ export interface UseChatWorkflowOptions {
 /**
  * Return type of useChatWorkflow hook.
  */
+/**
+ * A prior conversation turn for multi-turn context.
+ */
+export interface ChatHistoryMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface UseChatWorkflowReturn extends WorkflowState {
   /** Submit a query to start the workflow. If preSelectedSourceIds is provided, uses those sources; otherwise executes with model only. */
-  submitQuery: (query: string, preSelectedSourceIds?: Set<string>) => Promise<void>;
+  submitQuery: (
+    query: string,
+    preSelectedSourceIds?: Set<string>,
+    messages?: ChatHistoryMessage[]
+  ) => Promise<void>;
   /** Abort any in-flight request */
   abort: () => void;
   /** Reset the workflow to initial state */
@@ -435,7 +447,7 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
    * Execute the streaming request with the given query and source IDs.
    */
   const executeWithSources = useCallback(
-    async (query: string, sourceIds: Set<string>) => {
+    async (query: string, sourceIds: Set<string>, history?: ChatHistoryMessage[]) => {
       // Build endpoint paths
       const modelPath = model?.full_path;
       if (!modelPath) {
@@ -480,7 +492,8 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
           dataSources: allDataSourcePaths.length > 0 ? allDataSourcePaths : undefined,
           aggregatorUrl: user?.aggregator_url ?? undefined,
           guestMode: !user,
-          signal: abortControllerReference.current.signal
+          signal: abortControllerReference.current.signal,
+          messages: history && history.length > 0 ? history : undefined
         })) {
           // Update processing status
           dispatch({ type: 'STREAM_EVENT', event });
@@ -540,7 +553,7 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
    * contextSources from the browse page, or executes with model only.
    */
   const submitQuery = useCallback(
-    async (query: string, preSelectedSourceIds?: Set<string>) => {
+    async (query: string, preSelectedSourceIds?: Set<string>, history?: ChatHistoryMessage[]) => {
       // Validation
       if (!query.trim()) {
         return;
@@ -572,7 +585,7 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
         query: query.trim(),
         sourceIds
       });
-      await executeWithSources(query.trim(), sourceIds);
+      await executeWithSources(query.trim(), sourceIds, history);
     },
     [model, contextSources, onError, executeWithSources]
   );

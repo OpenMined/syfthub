@@ -365,6 +365,7 @@ class ChatResource:
         temperature: float = 0.7,
         similarity_threshold: float = 0.5,
         stream: bool = False,
+        messages: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         """Build the request body for the aggregator.
 
@@ -372,7 +373,7 @@ class ChatResource:
         and transaction_tokens for billing authorization.
         User identity is derived from satellite tokens, not passed in request body.
         """
-        return {
+        body: dict[str, Any] = {
             "prompt": prompt,
             "model": {
                 "url": model_ref.url,
@@ -399,6 +400,9 @@ class ChatResource:
             "similarity_threshold": similarity_threshold,
             "stream": stream,
         }
+        if messages:
+            body["messages"] = messages
+        return body
 
     def _handle_aggregator_error(self, response: httpx.Response) -> None:
         """Handle error responses from the aggregator."""
@@ -508,6 +512,7 @@ class ChatResource:
         temperature: float = 0.7,
         similarity_threshold: float = 0.5,
         aggregator_url: str | None = None,
+        messages: list[dict[str, str]] | None = None,
     ) -> ChatResponse:
         """Send a chat request and get the complete response.
 
@@ -568,6 +573,7 @@ class ChatResource:
             temperature=temperature,
             similarity_threshold=similarity_threshold,
             stream=False,
+            messages=messages,
         )
 
         try:
@@ -647,6 +653,7 @@ class ChatResource:
         temperature: float = 0.7,
         similarity_threshold: float = 0.5,
         aggregator_url: str | None = None,
+        messages: list[dict[str, str]] | None = None,
     ) -> Iterator[ChatStreamEvent]:
         """Send a chat request and stream response events.
 
@@ -712,6 +719,7 @@ class ChatResource:
             temperature=temperature,
             similarity_threshold=similarity_threshold,
             stream=True,
+            messages=messages,
         )
 
         try:
