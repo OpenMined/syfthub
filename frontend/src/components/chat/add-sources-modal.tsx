@@ -4,7 +4,9 @@ import type { ChatSource } from '@/lib/types';
 
 import Check from 'lucide-react/dist/esm/icons/check';
 import Database from 'lucide-react/dist/esm/icons/database';
+import ExternalLink from 'lucide-react/dist/esm/icons/external-link';
 import Search from 'lucide-react/dist/esm/icons/search';
+import { Link } from 'react-router-dom';
 
 import { OnboardingCallout } from '@/components/onboarding';
 import { Modal } from '@/components/ui/modal';
@@ -26,30 +28,62 @@ const SourceItem = memo(function SourceItem({
   isSelected,
   onToggle
 }: Readonly<SourceItemProps>) {
+  const detailHref = source.owner_username
+    ? `/${source.owner_username}/${source.slug}`
+    : `/browse/${source.slug}`;
+
   return (
-    <button
-      type='button'
-      onClick={onToggle}
-      aria-pressed={isSelected}
-      className={`group flex w-full items-start gap-3 rounded-lg border p-3 text-left transition-all focus-visible:ring-2 focus-visible:ring-[#272532]/50 focus-visible:outline-none ${
+    <div
+      className={`group flex w-full items-start gap-3 rounded-lg border p-3 transition-all ${
         isSelected
           ? 'border-green-500 bg-green-50 dark:border-green-600 dark:bg-green-950/30'
           : 'border-border bg-card hover:border-green-300 hover:bg-green-50/50 dark:hover:border-green-700 dark:hover:bg-green-950/20'
       }`}
     >
-      {/* Icon */}
-      <div
-        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors ${
-          isSelected
-            ? 'bg-green-500 text-white'
-            : 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-        }`}
+      {/* Checkbox indicator */}
+      <button
+        type='button'
+        onClick={onToggle}
+        aria-pressed={isSelected}
+        className='mt-1 shrink-0 rounded focus-visible:ring-2 focus-visible:ring-[#272532]/50 focus-visible:outline-none'
       >
-        <Database className='h-4 w-4' />
-      </div>
+        <div
+          className={`flex h-5 w-5 items-center justify-center rounded border transition-colors ${
+            isSelected
+              ? 'border-green-500 bg-green-500 dark:border-green-600 dark:bg-green-600'
+              : 'border-input bg-background'
+          }`}
+          aria-hidden='true'
+        >
+          {isSelected && <Check className='h-3 w-3 text-white' />}
+        </div>
+      </button>
+
+      {/* Icon */}
+      <button
+        type='button'
+        onClick={onToggle}
+        className='flex shrink-0 items-start focus-visible:outline-none'
+        tabIndex={-1}
+      >
+        <div
+          className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
+            isSelected
+              ? 'bg-green-500 text-white'
+              : 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+          }`}
+        >
+          <Database className='h-4 w-4' />
+        </div>
+      </button>
 
       {/* Content */}
-      <div className='min-w-0 flex-1'>
+      <button
+        type='button'
+        onClick={onToggle}
+        className='min-w-0 flex-1 text-left focus-visible:outline-none'
+        tabIndex={-1}
+      >
         <span
           className='font-inter text-foreground block truncate text-sm font-medium'
           title={source.name}
@@ -66,20 +100,20 @@ const SourceItem = memo(function SourceItem({
             {source.description}
           </p>
         )}
-      </div>
+      </button>
 
-      {/* Checkbox indicator */}
-      <div
-        className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
-          isSelected
-            ? 'border-green-500 bg-green-500 dark:border-green-600 dark:bg-green-600'
-            : 'border-input bg-background'
-        }`}
-        aria-hidden='true'
+      {/* Endpoint page link */}
+      <Link
+        to={detailHref}
+        className='text-muted-foreground hover:text-foreground mt-1 shrink-0 transition-colors'
+        aria-label={`View ${source.name} details`}
+        onClick={(e) => {
+          e.stopPropagation();
+        }}
       >
-        {isSelected && <Check className='h-3 w-3 text-white' />}
-      </div>
-    </button>
+        <ExternalLink className='h-4 w-4' />
+      </Link>
+    </div>
   );
 });
 
@@ -130,6 +164,15 @@ export const AddSourcesModal = memo(function AddSourcesModal({
       dataSourceEndpoints.length
     );
   }, [dataSourceEndpoints, searchQuery]);
+
+  // Sort selected endpoints to appear at the top
+  const sortedSources = useMemo(() => {
+    return filteredSources.toSorted((a, b) => {
+      const aSelected = localSelected.has(a.id) ? 0 : 1;
+      const bSelected = localSelected.has(b.id) ? 0 : 1;
+      return aSelected - bSelected;
+    });
+  }, [filteredSources, localSelected]);
 
   const toggleLocal = useCallback((id: string) => {
     setLocalSelected((previous) => {
@@ -190,8 +233,8 @@ export const AddSourcesModal = memo(function AddSourcesModal({
 
       {/* Scrollable source list */}
       <div className='max-h-72 space-y-2 overflow-y-auto pr-1'>
-        {filteredSources.length > 0 ? (
-          filteredSources.map((source) => (
+        {sortedSources.length > 0 ? (
+          sortedSources.map((source) => (
             <SourceItem
               key={source.id}
               source={source}
