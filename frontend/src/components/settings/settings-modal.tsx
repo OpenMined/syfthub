@@ -196,11 +196,11 @@ export function SettingsModal() {
                       (() => {
                         if (activeTab === tab.id) {
                           return tab.danger
-                            ? 'bg-red-100 text-red-700'
-                            : 'bg-blue-100 text-blue-700';
+                            ? 'bg-destructive/10 text-destructive'
+                            : 'bg-accent text-foreground';
                         }
                         return tab.danger
-                          ? 'text-red-600 hover:bg-red-50'
+                          ? 'text-destructive hover:bg-destructive/5'
                           : 'text-muted-foreground hover:bg-accent';
                       })()
                     )}
