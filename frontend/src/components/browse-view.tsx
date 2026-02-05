@@ -43,34 +43,17 @@ const PAGE_SIZE = 12;
 // Helper functions
 // ============================================================================
 
-function getStatusColor(status: 'active' | 'warning' | 'inactive') {
-  switch (status) {
-    case 'active': {
-      return 'bg-green-500';
-    }
-    case 'warning': {
-      return 'bg-yellow-500';
-    }
-    case 'inactive': {
-      return 'bg-red-500';
-    }
-    default: {
-      return 'bg-muted-foreground';
-    }
-  }
-}
-
 function getTypeIcon(type: EndpointType) {
   switch (type) {
     case 'model': {
-      return <Sparkles className='h-4 w-4 text-purple-500' aria-label='Model' />;
+      return <Sparkles className='h-4 w-4 shrink-0 text-purple-500' aria-label='Model' />;
     }
     case 'data_source': {
-      return <Database className='h-4 w-4 text-emerald-500' aria-label='Data Source' />;
+      return <Database className='h-4 w-4 shrink-0 text-emerald-500' aria-label='Data Source' />;
     }
     case 'model_data_source': {
       return (
-        <span className='flex items-center gap-0.5' aria-label='Model and Data Source'>
+        <span className='flex shrink-0 items-center gap-0.5' aria-label='Model and Data Source'>
           <Sparkles className='h-3.5 w-3.5 text-purple-500' />
           <Database className='h-3.5 w-3.5 text-emerald-500' />
         </span>
@@ -199,7 +182,7 @@ export function BrowseView({
               onClick={() => {
                 handleTabChange('data_sources');
               }}
-              className={`font-inter flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
+              className={`font-inter flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
                 activeTab === 'data_sources'
                   ? 'bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -213,7 +196,7 @@ export function BrowseView({
               onClick={() => {
                 handleTabChange('models');
               }}
-              className={`font-inter flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
+              className={`font-inter flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
                 activeTab === 'models'
                   ? 'bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -243,12 +226,12 @@ export function BrowseView({
                 setSearchQuery(e.target.value);
               }}
               placeholder={`Search ${activeTab === 'data_sources' ? 'data sources' : 'models'} on this page…`}
-              className='font-inter border-border focus:border-primary focus:ring-ring/10 w-full rounded-xl border py-3 pr-4 pl-11 transition-colors transition-shadow focus:ring-2 focus:outline-none'
+              className='font-inter border-border focus:border-primary focus:ring-ring/10 w-full rounded-lg border py-3 pr-4 pl-10 transition-colors transition-shadow focus:ring-2 focus:outline-none'
             />
           </div>
           <button
             type='button'
-            className='font-inter border-border text-muted-foreground hover:bg-muted flex items-center gap-2 rounded-xl border px-4 py-3 transition-colors'
+            className='font-inter border-border text-muted-foreground hover:bg-muted flex items-center gap-2 rounded-lg border px-4 py-3 transition-colors'
           >
             <Filter className='h-5 w-5' aria-hidden='true' />
             Filters
@@ -369,7 +352,7 @@ export function BrowseView({
                         />
                       </div>
 
-                      {/* Tags and Status */}
+                      {/* Tags */}
                       <div className='mb-3 flex flex-wrap items-center gap-2'>
                         {endpoint.tags.slice(0, 3).map((tag) => (
                           <Badge key={tag} variant='secondary' className='font-inter text-xs'>
@@ -381,14 +364,6 @@ export function BrowseView({
                             +{endpoint.tags.length - 3}
                           </Badge>
                         )}
-                        <div className='flex items-center gap-1'>
-                          <div
-                            className={`h-2 w-2 rounded-full ${getStatusColor(endpoint.status)}`}
-                          />
-                          <span className='text-muted-foreground font-inter text-xs capitalize'>
-                            {endpoint.status}
-                          </span>
-                        </div>
                       </div>
 
                       {/* Footer Info */}
