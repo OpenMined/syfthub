@@ -796,33 +796,34 @@ class TestUpdateEndpointStatus:
         return EndpointHealthMonitor(settings)
 
     def test_update_status_success(self, monitor):
-        """Test successful status update."""
+        """Test successful status update uses core-level UPDATE."""
         mock_session = MagicMock()
-        mock_endpoint = MagicMock()
-        mock_session.get.return_value = mock_endpoint
+        mock_result = MagicMock()
+        mock_result.rowcount = 1
+        mock_session.execute.return_value = mock_result
 
         result = monitor._update_endpoint_status(mock_session, 1, False)
 
         assert result is True
-        assert mock_endpoint.is_active is False
+        mock_session.execute.assert_called_once()
         mock_session.commit.assert_called_once()
 
     def test_update_status_endpoint_not_found(self, monitor):
-        """Test status update when endpoint not found."""
+        """Test status update when endpoint not found (rowcount=0)."""
         mock_session = MagicMock()
-        mock_session.get.return_value = None
+        mock_result = MagicMock()
+        mock_result.rowcount = 0
+        mock_session.execute.return_value = mock_result
 
         result = monitor._update_endpoint_status(mock_session, 999, False)
 
         assert result is False
-        mock_session.commit.assert_not_called()
+        mock_session.commit.assert_called_once()
 
     def test_update_status_database_error(self, monitor):
         """Test status update with database error."""
         mock_session = MagicMock()
-        mock_endpoint = MagicMock()
-        mock_session.get.return_value = mock_endpoint
-        mock_session.commit.side_effect = Exception("Database error")
+        mock_session.execute.side_effect = Exception("Database error")
 
         result = monitor._update_endpoint_status(mock_session, 1, False)
 
@@ -830,16 +831,17 @@ class TestUpdateEndpointStatus:
         mock_session.rollback.assert_called_once()
 
     def test_update_status_to_active(self, monitor):
-        """Test updating status to active."""
+        """Test updating status to active uses core-level UPDATE."""
         mock_session = MagicMock()
-        mock_endpoint = MagicMock()
-        mock_endpoint.is_active = False
-        mock_session.get.return_value = mock_endpoint
+        mock_result = MagicMock()
+        mock_result.rowcount = 1
+        mock_session.execute.return_value = mock_result
 
         result = monitor._update_endpoint_status(mock_session, 1, True)
 
         assert result is True
-        assert mock_endpoint.is_active is True
+        mock_session.execute.assert_called_once()
+        mock_session.commit.assert_called_once()
 
 
 class TestRunHealthCheckCycle:
