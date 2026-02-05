@@ -163,6 +163,15 @@ class ModelClient:
                     if response.status_code != 200:
                         error_detail = self._extract_error_detail(response)
 
+                        # Detect HTML error pages (e.g. ngrok offline page)
+                        # and use a friendly message for the user-facing error
+                        is_html = self._is_html_error_page(error_detail)
+                        user_message = (
+                            self._build_unreachable_message(slug)
+                            if is_html
+                            else f"Model request failed: HTTP {response.status_code} - {error_detail}"
+                        )
+
                         # Retry on transient upstream errors
                         if (
                             response.status_code in RETRYABLE_STATUS_CODES
@@ -179,7 +188,7 @@ class ModelClient:
                                 retry_delay=delay,
                             )
                             last_error = ModelClientError(
-                                f"Model request failed: HTTP {response.status_code} - {error_detail}",
+                                user_message,
                                 status_code=response.status_code,
                             )
                             await asyncio.sleep(delay)
@@ -202,7 +211,7 @@ class ModelClient:
                             request_data=request_data,
                         )
                         raise ModelClientError(
-                            f"Model request failed: HTTP {response.status_code} - {error_detail}",
+                            user_message,
                             status_code=response.status_code,
                         )
 
@@ -367,8 +376,13 @@ class ModelClient:
                             error_detail=error_str,
                             request_data=request_data,
                         )
+                        user_message = (
+                            self._build_unreachable_message(slug)
+                            if self._is_html_error_page(error_str)
+                            else f"Model stream failed: HTTP {response.status_code} - {error_str}"
+                        )
                         raise ModelClientError(
-                            f"Model stream failed: HTTP {response.status_code} - {error_str}",
+                            user_message,
                             status_code=response.status_code,
                         )
 
@@ -434,6 +448,20 @@ class ModelClient:
             context=context,
             request_data=request_data,
             response_data={"detail": error_detail},
+        )
+
+    @staticmethod
+    def _is_html_error_page(text: str) -> bool:
+        """Check if a response body is an HTML error page (e.g. from ngrok or a reverse proxy)."""
+        stripped = text.strip().lower()
+        return stripped.startswith("<!doctype html") or stripped.startswith("<html")
+
+    @staticmethod
+    def _build_unreachable_message(slug: str) -> str:
+        """Build a user-friendly message for unreachable endpoints."""
+        return (
+            f"The model endpoint '{slug}' is currently unreachable. "
+            "Please contact the endpoint owner for further assistance."
         )
 
     def _extract_error_detail(self, response: httpx.Response) -> str:

@@ -157,11 +157,16 @@ class DataSourceClient:
                         latency_ms=latency_ms,
                         request_data=request_data,
                     )
+                    user_message = (
+                        self._build_unreachable_message(endpoint_path)
+                        if self._is_html_error_page(error_detail)
+                        else f"HTTP {response.status_code}: {error_detail}"
+                    )
                     return RetrievalResult(
                         endpoint_path=endpoint_path,
                         documents=[],
                         status="error",
-                        error_message=f"HTTP {response.status_code}: {error_detail}",
+                        error_message=user_message,
                         latency_ms=latency_ms,
                     )
 
@@ -259,6 +264,20 @@ class DataSourceClient:
             context=context,
             request_data=request_data,
             response_data={"detail": error_detail},
+        )
+
+    @staticmethod
+    def _is_html_error_page(text: str) -> bool:
+        """Check if a response body is an HTML error page (e.g. from ngrok or a reverse proxy)."""
+        stripped = text.strip().lower()
+        return stripped.startswith("<!doctype html") or stripped.startswith("<html")
+
+    @staticmethod
+    def _build_unreachable_message(endpoint_path: str) -> str:
+        """Build a user-friendly message for unreachable endpoints."""
+        return (
+            f"The data source '{endpoint_path}' is currently unreachable. "
+            "Please contact the endpoint owner for further assistance."
         )
 
     def _extract_error_detail(self, response: httpx.Response) -> str:
