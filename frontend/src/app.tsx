@@ -1,5 +1,6 @@
 import { lazy } from 'react';
 
+import { GoogleOAuthProvider } from '@react-oauth/google';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 
@@ -11,7 +12,11 @@ import { AccountingProvider } from './context/accounting-context';
 import { AuthProvider } from './context/auth-context';
 import { MainLayout } from './layouts/main-layout';
 import { queryClient } from './lib/query-client';
+import { getGoogleClientId } from './lib/sdk-client';
 import { ErrorBoundary } from './observability';
+
+// Get Google OAuth Client ID from environment
+const googleClientId = getGoogleClientId();
 
 // Lazy load all pages for code splitting
 const HomePage = lazy(() => import('./pages/home'));
@@ -44,98 +49,111 @@ const NotFoundPage = lazy(() => import('./pages/not-found'));
  *
  * Each lazy-loaded route has its own RouteBoundary (Suspense + ErrorBoundary)
  */
+/**
+ * Wrapper component that conditionally provides GoogleOAuthProvider
+ * only when Google OAuth is configured.
+ */
+function GoogleOAuthWrapper({ children }: Readonly<{ children: React.ReactNode }>) {
+  if (googleClientId) {
+    return <GoogleOAuthProvider clientId={googleClientId}>{children}</GoogleOAuthProvider>;
+  }
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <RootProvider>
-          <AuthProvider>
-            <AccountingProvider>
-              <BrowserRouter>
-                <ScrollToTop />
-                <Routes>
-                  <Route element={<MainLayout />}>
-                    {/* Public routes */}
-                    <Route
-                      index
-                      element={
-                        <RouteBoundary>
-                          <HomePage />
-                        </RouteBoundary>
-                      }
-                    />
-                    <Route
-                      path='browse'
-                      element={
-                        <RouteBoundary>
-                          <BrowsePage />
-                        </RouteBoundary>
-                      }
-                    />
-                    <Route
-                      path='chat'
-                      element={
-                        <RouteBoundary>
-                          <ChatPage />
-                        </RouteBoundary>
-                      }
-                    />
-                    <Route
-                      path='build'
-                      element={
-                        <RouteBoundary>
-                          <BuildPage />
-                        </RouteBoundary>
-                      }
-                    />
-                    <Route
-                      path='about'
-                      element={
-                        <RouteBoundary>
-                          <AboutPage />
-                        </RouteBoundary>
-                      }
-                    />
-
-                    {/* Protected routes */}
-                    <Route
-                      path='profile'
-                      element={
-                        <ProtectedRoute>
+          <GoogleOAuthWrapper>
+            <AuthProvider>
+              <AccountingProvider>
+                <BrowserRouter>
+                  <ScrollToTop />
+                  <Routes>
+                    <Route element={<MainLayout />}>
+                      {/* Public routes */}
+                      <Route
+                        index
+                        element={
                           <RouteBoundary>
-                            <ProfilePage />
+                            <HomePage />
                           </RouteBoundary>
-                        </ProtectedRoute>
-                      }
-                    />
-                    <Route
-                      path='endpoints'
-                      element={
-                        <ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path='browse'
+                        element={
                           <RouteBoundary>
-                            <EndpointsPage />
+                            <BrowsePage />
                           </RouteBoundary>
-                        </ProtectedRoute>
-                      }
-                    />
+                        }
+                      />
+                      <Route
+                        path='chat'
+                        element={
+                          <RouteBoundary>
+                            <ChatPage />
+                          </RouteBoundary>
+                        }
+                      />
+                      <Route
+                        path='build'
+                        element={
+                          <RouteBoundary>
+                            <BuildPage />
+                          </RouteBoundary>
+                        }
+                      />
+                      <Route
+                        path='about'
+                        element={
+                          <RouteBoundary>
+                            <AboutPage />
+                          </RouteBoundary>
+                        }
+                      />
 
-                    {/* GitHub-style endpoint URLs: /:username/:slug */}
-                    <Route
-                      path=':username/:slug'
-                      element={
-                        <RouteBoundary>
-                          <EndpointDetailPage />
-                        </RouteBoundary>
-                      }
-                    />
+                      {/* Protected routes */}
+                      <Route
+                        path='profile'
+                        element={
+                          <ProtectedRoute>
+                            <RouteBoundary>
+                              <ProfilePage />
+                            </RouteBoundary>
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path='endpoints'
+                        element={
+                          <ProtectedRoute>
+                            <RouteBoundary>
+                              <EndpointsPage />
+                            </RouteBoundary>
+                          </ProtectedRoute>
+                        }
+                      />
 
-                    {/* 404 Not Found */}
-                    <Route path='*' element={<NotFoundPage />} />
-                  </Route>
-                </Routes>
-              </BrowserRouter>
-            </AccountingProvider>
-          </AuthProvider>
+                      {/* GitHub-style endpoint URLs: /:username/:slug */}
+                      <Route
+                        path=':username/:slug'
+                        element={
+                          <RouteBoundary>
+                            <EndpointDetailPage />
+                          </RouteBoundary>
+                        }
+                      />
+
+                      {/* 404 Not Found */}
+                      <Route path='*' element={<NotFoundPage />} />
+                    </Route>
+                  </Routes>
+                </BrowserRouter>
+              </AccountingProvider>
+            </AuthProvider>
+          </GoogleOAuthWrapper>
         </RootProvider>
       </QueryClientProvider>
     </ErrorBoundary>

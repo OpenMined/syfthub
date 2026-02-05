@@ -25,8 +25,16 @@ class UserModel(BaseModel, TimestampMixin):
     full_name: Mapped[str] = mapped_column(String(100), nullable=False)
     avatar_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="user")
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    # OAuth fields
+    auth_provider: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="local"
+    )
+    google_id: Mapped[Optional[str]] = mapped_column(
+        String(255), unique=True, nullable=True
+    )
 
     # Accounting service credentials (for external billing integration)
     accounting_service_url: Mapped[Optional[str]] = mapped_column(
@@ -72,6 +80,7 @@ class UserModel(BaseModel, TimestampMixin):
         Index("idx_users_role", "role"),
         Index("idx_users_is_active", "is_active"),
         Index("idx_users_heartbeat_expires_at", "heartbeat_expires_at"),
+        Index("idx_users_google_id", "google_id"),
     )
 
     def __repr__(self) -> str:

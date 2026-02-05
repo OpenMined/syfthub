@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional, Tuple
 
 from fastapi import HTTPException, status
 
@@ -299,6 +299,13 @@ class AuthService(BaseService):
                 detail="Invalid credentials",
             )
 
+        # Check if user has a password (OAuth users don't)
+        if not user.password_hash:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Please use Google Sign-In for this account",
+            )
+
         # Verify password
         if not verify_password(login_data.password, user.password_hash):
             raise HTTPException(
@@ -431,7 +438,9 @@ class AuthService(BaseService):
     ) -> None:
         """Change user's password."""
         # Verify current password
-        if not verify_password(current_password, current_user.password_hash):
+        if not current_user.password_hash or not verify_password(
+            current_password, current_user.password_hash
+        ):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Current password is incorrect",
@@ -447,3 +456,201 @@ class AuthService(BaseService):
         # Hash new password and update
         new_password_hash = hash_password(new_password)
         self.user_repository.update_password(current_user.id, new_password_hash)
+
+    def _verify_google_token(self, credential: str) -> dict[str, Any]:
+        """Verify Google ID token and extract user info.
+
+        Args:
+            credential: Google ID token (JWT) from Google Sign-In
+
+        Returns:
+            Dictionary with user info from Google token
+
+        Raises:
+            HTTPException: If token is invalid or verification fails
+        """
+        from google.auth.transport import requests  # type: ignore[import-not-found]
+        from google.oauth2 import id_token  # type: ignore[import-not-found]
+
+        if not settings.google_oauth_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Google OAuth is not configured",
+            )
+
+        try:
+            # Verify the Google ID token
+            idinfo = id_token.verify_oauth2_token(
+                credential,
+                requests.Request(),
+                settings.google_client_id,
+            )
+
+            # Verify the token is from Google
+            if idinfo.get("iss") not in [
+                "accounts.google.com",
+                "https://accounts.google.com",
+            ]:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token issuer",
+                )
+
+            return dict(idinfo)
+
+        except ValueError as e:
+            logger.warning(f"Invalid Google token: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Google token",
+            ) from e
+
+    def _generate_unique_username(self, email: str) -> str:
+        """Generate a unique username from email.
+
+        Args:
+            email: User's email address
+
+        Returns:
+            A unique username based on the email prefix
+        """
+        import secrets
+
+        # Extract email prefix and sanitize
+        base_username = email.split("@")[0].lower()
+        base_username = "".join(c for c in base_username if c.isalnum() or c in "_-")
+
+        # Ensure minimum length
+        if len(base_username) < 3:
+            base_username = f"user{base_username}"
+
+        # Try the base username first
+        if not self.user_repository.username_exists(base_username):
+            return base_username
+
+        # Add random suffix until we find a unique one
+        for _ in range(10):
+            suffix = secrets.randbelow(900) + 100  # 100-999
+            username = f"{base_username}{suffix}"
+            if not self.user_repository.username_exists(username):
+                return username
+
+        # Final fallback with longer random suffix
+        suffix = secrets.randbelow(9000) + 1000  # 1000-9999
+        return f"{base_username}{suffix}"
+
+    def google_login(self, credential: str) -> AuthResponse:
+        """Authenticate or register user via Google OAuth.
+
+        This method handles both login and registration for Google OAuth:
+        1. Verify the Google ID token
+        2. Check if user exists by google_id
+        3. If not, check if user exists by email (account linking)
+        4. If no user found, create a new account
+        5. Return authentication tokens
+
+        Args:
+            credential: Google ID token from Google Sign-In
+
+        Returns:
+            AuthResponse with user info and tokens
+
+        Raises:
+            HTTPException: For various auth errors
+        """
+        # Verify Google token
+        idinfo = self._verify_google_token(credential)
+
+        google_id = idinfo.get("sub")
+        email = idinfo.get("email", "").lower()
+        full_name = idinfo.get("name", "")
+        avatar_url = idinfo.get("picture")
+
+        if not google_id or not email:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Google token: missing user information",
+            )
+
+        # Try to find existing user by google_id
+        user = self.user_repository.get_by_google_id(google_id)
+
+        if not user:
+            # Try to find by email (for account linking)
+            user = self.user_repository.get_by_email(email)
+
+            if user:
+                # Link Google account to existing user
+                logger.info(f"Linking Google account to existing user: {email}")
+                self.user_repository.link_google_account(
+                    user_id=user.id,
+                    google_id=google_id,
+                    avatar_url=avatar_url,
+                )
+                # Refresh user data
+                user = self.user_repository.get_by_id(user.id)
+            else:
+                # Create new user
+                logger.info(f"Creating new user via Google OAuth: {email}")
+                username = self._generate_unique_username(email)
+
+                user_data = UserCreate(
+                    username=username,
+                    email=email,
+                    full_name=full_name or email.split("@")[0],
+                    is_active=True,
+                )
+
+                user = self.user_repository.create_user(
+                    user_data=user_data,
+                    password_hash=None,  # OAuth users don't have passwords
+                    auth_provider="google",
+                    google_id=google_id,
+                    avatar_url=avatar_url,
+                )
+
+                if not user:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Failed to create user account",
+                    )
+
+        # At this point, user should never be None
+        # (either found by google_id, linked by email, or created new)
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to retrieve user account",
+            )
+
+        # Check if user is active
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Account is deactivated",
+            )
+
+        # Create tokens
+        access_token = create_access_token(
+            data={"sub": str(user.id), "username": user.username, "role": user.role}
+        )
+        refresh_token = create_refresh_token(
+            data={"sub": str(user.id), "username": user.username}
+        )
+
+        logger.info(f"Google OAuth login successful: {user.username} ({user.email})")
+
+        return AuthResponse(
+            user={
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "full_name": user.full_name,
+                "role": user.role,
+                "is_active": user.is_active,
+                "created_at": user.created_at.isoformat(),
+            },
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_type="bearer",
+        )
