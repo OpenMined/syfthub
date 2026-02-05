@@ -18,6 +18,13 @@ class UserRole(str, Enum):
     GUEST = "guest"
 
 
+class AuthProvider(str, Enum):
+    """Authentication provider types."""
+
+    LOCAL = "local"
+    GOOGLE = "google"
+
+
 class Token(BaseModel):
     """Token response schema."""
 
@@ -157,3 +164,13 @@ class AuthResponse(BaseModel):
 
 # RegistrationResponse is now identical to AuthResponse
 RegistrationResponse = AuthResponse
+
+
+class GoogleAuthRequest(BaseModel):
+    """Google OAuth authentication request schema."""
+
+    credential: str = Field(
+        ...,
+        min_length=1,
+        description="Google ID token (JWT) received from Google Sign-In",
+    )

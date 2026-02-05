@@ -197,6 +197,23 @@ class Settings(BaseSettings):
     )
 
     # ===========================================
+    # GOOGLE OAUTH SETTINGS
+    # ===========================================
+
+    # Google OAuth Client ID - required for Google Sign-In
+    google_client_id: Optional[str] = Field(
+        default=None,
+        description="Google OAuth Client ID for verifying Google Sign-In tokens",
+    )
+
+    @property
+    def google_oauth_enabled(self) -> bool:
+        """Check if Google OAuth is configured and available."""
+        return (
+            self.google_client_id is not None and len(self.google_client_id.strip()) > 0
+        )
+
+    # ===========================================
     # ACCOUNTING SERVICE SETTINGS
     # ===========================================
 
