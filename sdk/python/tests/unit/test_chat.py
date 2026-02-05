@@ -466,6 +466,94 @@ class TestEndpointResolution:
         with pytest.raises(EndpointResolutionError, match="no connection with URL"):
             client.chat._resolve_endpoint_ref(ep)
 
+    def test_resolve_model_data_source_as_model(
+        self,
+        base_url: str,
+    ) -> None:
+        """Test that model_data_source endpoints can be used as models."""
+        client = SyftHubClient(base_url=base_url)
+        now = datetime.now(timezone.utc)
+
+        ep = EndpointPublic(
+            name="Combo Endpoint",
+            slug="combo-endpoint",
+            type=EndpointType.MODEL_DATA_SOURCE,
+            owner_username="alice",
+            stars_count=0,
+            created_at=now,
+            updated_at=now,
+            connect=[
+                Connection(
+                    type="syftai",
+                    enabled=True,
+                    config={"url": "http://space:8080"},
+                )
+            ],
+        )
+
+        resolved = client.chat._resolve_endpoint_ref(ep, expected_type="model")
+
+        assert isinstance(resolved, EndpointRef)
+        assert resolved.slug == "combo-endpoint"
+
+    def test_resolve_model_data_source_as_data_source(
+        self,
+        base_url: str,
+    ) -> None:
+        """Test that model_data_source endpoints can be used as data sources."""
+        client = SyftHubClient(base_url=base_url)
+        now = datetime.now(timezone.utc)
+
+        ep = EndpointPublic(
+            name="Combo Endpoint",
+            slug="combo-endpoint",
+            type=EndpointType.MODEL_DATA_SOURCE,
+            owner_username="alice",
+            stars_count=0,
+            created_at=now,
+            updated_at=now,
+            connect=[
+                Connection(
+                    type="syftai",
+                    enabled=True,
+                    config={"url": "http://space:8080"},
+                )
+            ],
+        )
+
+        resolved = client.chat._resolve_endpoint_ref(ep, expected_type="data_source")
+
+        assert isinstance(resolved, EndpointRef)
+        assert resolved.slug == "combo-endpoint"
+
+    def test_resolve_wrong_type_raises(
+        self,
+        base_url: str,
+    ) -> None:
+        """Test that using a data_source endpoint as a model raises ValueError."""
+        client = SyftHubClient(base_url=base_url)
+        now = datetime.now(timezone.utc)
+
+        ep = EndpointPublic(
+            name="Data Only",
+            slug="data-only",
+            type=EndpointType.DATA_SOURCE,
+            owner_username="alice",
+            stars_count=0,
+            created_at=now,
+            updated_at=now,
+            connect=[
+                Connection(
+                    type="syftai",
+                    enabled=True,
+                    config={"url": "http://space:8080"},
+                )
+            ],
+        )
+
+        with pytest.raises(ValueError, match="Expected endpoint type 'model'"):
+            client.chat._resolve_endpoint_ref(ep, expected_type="model")
+
 
 class TestGetAvailableEndpoints:
     """Tests for get_available_models() and get_available_data_sources()."""

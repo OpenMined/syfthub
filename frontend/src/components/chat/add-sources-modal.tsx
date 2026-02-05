@@ -8,6 +8,7 @@ import Search from 'lucide-react/dist/esm/icons/search';
 
 import { OnboardingCallout } from '@/components/onboarding';
 import { Modal } from '@/components/ui/modal';
+import { isDataSourceEndpoint } from '@/lib/endpoint-utils';
 import { filterSourcesForAutocomplete } from '@/lib/validation';
 
 // ============================================================================
@@ -114,9 +115,9 @@ export const AddSourcesModal = memo(function AddSourcesModal({
   }
   previousOpenRef.current = isOpen;
 
-  // Filter to data sources only (exclude models)
+  // Filter to data sources only (model_data_source endpoints are included)
   const dataSourceEndpoints = useMemo(
-    () => availableSources.filter((s) => s.type === 'data_source'),
+    () => availableSources.filter((s) => isDataSourceEndpoint(s.type)),
     [availableSources]
   );
 
