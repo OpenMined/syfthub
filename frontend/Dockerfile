@@ -26,6 +26,10 @@ RUN npm config set fetch-retry-mintimeout 20000 && \
 # Copy frontend source code
 COPY frontend/ .
 
+# Build arguments for Vite environment variables
+ARG VITE_GOOGLE_CLIENT_ID
+ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
+
 # Build the application
 RUN npm run build
 

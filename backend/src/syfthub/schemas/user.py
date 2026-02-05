@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from syfthub.schemas.auth import UserRole
+from syfthub.schemas.auth import AuthProvider, UserRole
 
 # Tunneling URL prefix for spaces behind firewalls/NAT
 TUNNELING_PREFIX = "tunneling:"
@@ -45,9 +45,16 @@ class User(UserBase):
         None, max_length=500, description="URL to user's avatar image"
     )
     role: UserRole = Field(default=UserRole.USER, description="User role")
-    password_hash: str = Field(..., description="Hashed password")
+    password_hash: Optional[str] = Field(
+        None, description="Hashed password (null for OAuth users)"
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    # OAuth fields
+    auth_provider: AuthProvider = Field(
+        default=AuthProvider.LOCAL, description="Authentication provider"
+    )
+    google_id: Optional[str] = Field(None, description="Google OAuth user ID")
     # Accounting fields
     accounting_service_url: Optional[str] = Field(
         None, description="URL to external accounting service"
@@ -86,6 +93,7 @@ class UserResponse(BaseModel):
     avatar_url: Optional[str] = Field(None, description="URL to user's avatar image")
     role: UserRole = Field(..., description="User role")
     is_active: bool = Field(..., description="Whether the user is active")
+    auth_provider: AuthProvider = Field(..., description="Authentication provider")
     created_at: datetime = Field(..., description="When the user was created")
     updated_at: datetime = Field(..., description="When the user was last updated")
     # Accounting - only expose URL, never expose password in user response

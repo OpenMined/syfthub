@@ -14,6 +14,7 @@ import {
   AccountingAccountExistsError,
   AuthenticationError,
   clearPersistedTokens,
+  googleLoginAPI,
   InvalidAccountingPasswordError,
   NetworkError,
   persistTokens,
@@ -36,6 +37,7 @@ interface AuthContextType {
   isInitializing: boolean;
   error: string | null;
   login: (credentials: { email: string; password: string }) => Promise<void>;
+  loginWithGoogle: (credential: string) => Promise<void>;
   register: (userData: RegisterData) => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
@@ -224,6 +226,29 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
     []
   );
 
+  // Memoized Google login callback for stable reference
+  const loginWithGoogle = useCallback(async (credential: string): Promise<void> => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      // Call Google OAuth API and get user
+      const frontendUser = await googleLoginAPI(credential);
+
+      // Persist tokens to localStorage
+      persistTokens();
+
+      // Update state
+      setUser(frontendUser);
+    } catch (googleError) {
+      const message = getErrorMessage(googleError);
+      setError(message);
+      throw googleError;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   // Memoized register callback for stable reference
   const register = useCallback(async (userData: RegisterData): Promise<void> => {
     try {
@@ -303,6 +328,7 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
       isInitializing,
       error,
       login,
+      loginWithGoogle,
       register,
       logout,
       clearError,
@@ -315,6 +341,7 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
       isInitializing,
       error,
       login,
+      loginWithGoogle,
       register,
       logout,
       clearError,

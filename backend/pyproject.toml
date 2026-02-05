@@ -38,6 +38,7 @@ dependencies = [
     "bleach>=6.0.0",
     "redis[hiredis]>=5.0.0",
     "nats-py>=2.7.0",
+    "google-auth>=2.0.0",
 ]
 
 [project.scripts]

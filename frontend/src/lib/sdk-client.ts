@@ -6,6 +6,7 @@ import type {
   AvailabilityResponse,
   User as FrontendUser,
   PasswordChange,
+  UserRole,
   UserUpdate
 } from './types';
 
@@ -288,6 +289,85 @@ export async function checkUsernameAvailability(username: string): Promise<Avail
 export async function checkEmailAvailability(email: string): Promise<AvailabilityResponse> {
   const available = await syftClient.users.checkEmail(email);
   return { available, email };
+}
+
+/**
+ * Get the Google OAuth Client ID from environment.
+ *
+ * @returns Google Client ID or undefined if not configured
+ */
+export function getGoogleClientId(): string | undefined {
+  return import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+}
+
+/**
+ * Check if Google OAuth is configured.
+ */
+export function isGoogleOAuthEnabled(): boolean {
+  const clientId = getGoogleClientId();
+  return Boolean(clientId && clientId.trim().length > 0);
+}
+
+/**
+ * Authenticate with Google OAuth.
+ *
+ * @param credential - Google ID token (JWT) from Google Sign-In
+ * @returns User object on success
+ */
+export async function googleLoginAPI(credential: string): Promise<FrontendUser> {
+  // Get base URL for API call (empty string for same-origin)
+  const baseUrl = getBaseUrl() ?? '';
+
+  const response = await fetch(`${baseUrl}/api/v1/auth/google`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ credential })
+  });
+
+  if (!response.ok) {
+    const errorData = await response
+      .json()
+      .catch(() => ({ detail: 'Google authentication failed' }));
+    throw new Error((errorData as { detail?: string }).detail ?? 'Google authentication failed');
+  }
+
+  const data = (await response.json()) as {
+    user: {
+      id: number;
+      username: string;
+      email: string;
+      full_name: string;
+      role: UserRole;
+      is_active: boolean;
+      created_at: string;
+    };
+    access_token: string;
+    refresh_token: string;
+    token_type: string;
+  };
+
+  // Set tokens in SDK client
+  syftClient.setTokens({
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+    tokenType: data.token_type
+  });
+
+  // Convert to frontend User format
+  return {
+    id: String(data.user.id),
+    username: data.user.username,
+    email: data.user.email,
+    name: data.user.full_name,
+    full_name: data.user.full_name,
+    avatar_url: generateAvatarUrl(data.user.full_name),
+    role: data.user.role,
+    is_active: data.user.is_active,
+    created_at: data.user.created_at,
+    updated_at: data.user.created_at
+  };
 }
 
 /**

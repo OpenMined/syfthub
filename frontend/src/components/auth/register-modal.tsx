@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 
 import type { RegisterFormValues } from '@/lib/schemas';
+import type { CredentialResponse } from '@react-oauth/google';
 
 import { zodResolver } from '@hookform/resolvers/zod';
+import { GoogleLogin } from '@react-oauth/google';
 import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
 import Lock from 'lucide-react/dist/esm/icons/lock';
 import Mail from 'lucide-react/dist/esm/icons/mail';
@@ -15,11 +17,13 @@ import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/context/auth-context';
 import { registerSchema } from '@/lib/schemas';
-import { AccountingAccountExistsError } from '@/lib/sdk-client';
+import { AccountingAccountExistsError, isGoogleOAuthEnabled } from '@/lib/sdk-client';
 import { getPasswordStrength } from '@/lib/validation';
 import { useOnboardingStore } from '@/stores/onboarding-store';
 
 import { AuthErrorAlert, AuthLoadingOverlay } from './auth-utils';
+
+const googleOAuthEnabled = isGoogleOAuthEnabled();
 
 // Password strength indicator
 function getPasswordStrengthInfo(password: string) {
@@ -40,7 +44,7 @@ export function RegisterModal({
   onClose,
   onSwitchToLogin
 }: Readonly<RegisterModalProperties>) {
-  const { register: authRegister, isLoading, error, clearError } = useAuth();
+  const { register: authRegister, loginWithGoogle, isLoading, error, clearError } = useAuth();
   const navigate = useNavigate();
   const [requiresAccountingPassword, setRequiresAccountingPassword] = useState(false);
 
@@ -245,6 +249,41 @@ export function RegisterModal({
             {getSubmitButtonText()}
           </Button>
         </form>
+
+        {/* Google OAuth - only shown if configured */}
+        {googleOAuthEnabled && (
+          <>
+            <div className='relative my-4'>
+              <div className='absolute inset-0 flex items-center'>
+                <span className='border-border w-full border-t' />
+              </div>
+              <div className='relative flex justify-center text-xs uppercase'>
+                <span className='bg-background text-muted-foreground px-2'>Or continue with</span>
+              </div>
+            </div>
+
+            <div className='flex justify-center'>
+              <GoogleLogin
+                onSuccess={(credentialResponse: CredentialResponse) => {
+                  if (credentialResponse.credential) {
+                    void loginWithGoogle(credentialResponse.credential).then(() => {
+                      onClose();
+                      useOnboardingStore.getState().startOnboarding();
+                      navigate('/chat');
+                    });
+                  }
+                }}
+                onError={() => {
+                  clearError();
+                }}
+                theme='outline'
+                size='large'
+                width='100%'
+                text='signup_with'
+              />
+            </div>
+          </>
+        )}
 
         {/* Switch to Login */}
         <div className='border-border border-t pt-4 text-center text-sm'>

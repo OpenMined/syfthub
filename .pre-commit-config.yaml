@@ -59,6 +59,7 @@ repos:
           types-sqlalchemy,
           types-markdown,
           types-passlib,
+          google-auth,
         ]
       # Python SDK mypy
       - id: mypy
