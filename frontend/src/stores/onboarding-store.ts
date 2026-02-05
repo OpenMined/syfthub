@@ -23,6 +23,7 @@ interface OnboardingState {
   hasCompletedOnboarding: boolean;
   startOnboarding: () => void;
   dismissStep: () => void;
+  showQueryInputStep: () => void;
   showSourcesStep: () => void;
   completeOnboarding: () => void;
 }
@@ -45,6 +46,12 @@ export const useOnboardingStore = create<OnboardingState>()(
 
         const currentIndex = STEP_SEQUENCE.indexOf(currentStep);
 
+        // After 'select-sources', pause and wait for modal to close
+        if (currentStep === 'select-sources') {
+          set({ currentStep: null });
+          return;
+        }
+
         // After 'query-input', pause and wait for first query
         if (currentStep === 'query-input') {
           set({ currentStep: null });
@@ -61,6 +68,12 @@ export const useOnboardingStore = create<OnboardingState>()(
         const nextStep = STEP_SEQUENCE[currentIndex + 1];
         if (nextStep) {
           set({ currentStep: nextStep });
+        }
+      },
+
+      showQueryInputStep: () => {
+        if (!get().hasCompletedOnboarding && get().currentStep === null) {
+          set({ currentStep: 'query-input' });
         }
       },
 

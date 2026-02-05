@@ -74,6 +74,7 @@ export function ChatView({
   });
   const { sources, sourcesById } = useDataSources();
   const showSourcesStep = useOnboardingStore((s) => s.showSourcesStep);
+  const showQueryInputStep = useOnboardingStore((s) => s.showQueryInputStep);
   const contextStore = useContextSelectionStore();
 
   // Source modal state
@@ -195,8 +196,9 @@ export function ChatView({
         }
       }
       setIsSourceModalOpen(false);
+      showQueryInputStep();
     },
-    [contextStore, sourcesById, sources]
+    [contextStore, sourcesById, sources, showQueryInputStep]
   );
 
   // Handle removing a chip
@@ -360,6 +362,7 @@ export function ChatView({
         isOpen={isSourceModalOpen}
         onClose={() => {
           setIsSourceModalOpen(false);
+          showQueryInputStep();
         }}
         availableSources={sources}
         selectedSourceIds={new Set(contextStore.getSourcesArray().map((s) => s.id))}
