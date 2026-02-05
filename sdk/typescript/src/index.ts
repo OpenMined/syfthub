@@ -93,6 +93,9 @@ export type {
   UserUpdateInput,
   PasswordChangeInput,
   AccountingCredentials,
+  UserAggregator,
+  UserAggregatorCreateInput,
+  UserAggregatorUpdateInput,
   // Endpoint types
   Policy,
   Connection,
@@ -151,6 +154,9 @@ export { ChatResource } from './resources/chat.js';
 
 // SyftAI Resource (for type hints)
 export { SyftAIResource } from './resources/syftai.js';
+
+// Aggregators Resource (for type hints)
+export { AggregatorsResource } from './resources/aggregators.js';
 
 // Resource option types (for type-safe usage)
 export type { ListEndpointsOptions } from './resources/my-endpoints.js';

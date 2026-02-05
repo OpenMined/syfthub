@@ -1,5 +1,6 @@
 import type { HTTPClient } from '../http.js';
 import type { AccountingCredentials, User, UserUpdateInput } from '../models/index.js';
+import { AggregatorsResource } from './aggregators.js';
 
 /**
  * Users resource for profile management and availability checks.
@@ -18,9 +19,47 @@ import type { AccountingCredentials, User, UserUpdateInput } from '../models/ind
  * @example
  * // Check if email is available
  * const available = await client.users.checkEmail('new@example.com');
+ *
+ * @example
+ * // Manage aggregators
+ * const aggregators = await client.users.aggregators.list();
+ * const newAgg = await client.users.aggregators.create({
+ *   name: 'My Aggregator',
+ *   url: 'https://my-aggregator.example.com'
+ * });
  */
 export class UsersResource {
+  private _aggregators?: AggregatorsResource;
+
   constructor(private readonly http: HTTPClient) {}
+
+  /**
+   * Access aggregator management operations.
+   *
+   * @returns AggregatorsResource for managing user's aggregator configurations
+   *
+   * @example
+   * // List aggregators
+   * const aggregators = await client.users.aggregators.list();
+   * for (const agg of aggregators) {
+   *   console.log(`${agg.name}: ${agg.url}`);
+   * }
+   *
+   * // Create aggregator
+   * const agg = await client.users.aggregators.create({
+   *   name: 'My Aggregator',
+   *   url: 'https://my-aggregator.example.com'
+   * });
+   *
+   * // Set as default
+   * await client.users.aggregators.setDefault(agg.id);
+   */
+  get aggregators(): AggregatorsResource {
+    if (!this._aggregators) {
+      this._aggregators = new AggregatorsResource(this.http);
+    }
+    return this._aggregators;
+  }
 
   /**
    * Update the current user's profile.
