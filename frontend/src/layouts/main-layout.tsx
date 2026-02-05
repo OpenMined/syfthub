@@ -6,7 +6,6 @@ import { Link, Outlet } from 'react-router-dom';
 import { AuthModals } from '@/components/auth/auth-modals';
 import { BalanceIndicator } from '@/components/balance';
 import { ContextBar } from '@/components/context-bar';
-import { WelcomeOverlay } from '@/components/onboarding';
 import { SettingsModal } from '@/components/settings/settings-modal';
 import { Sidebar } from '@/components/sidebar';
 import { Button } from '@/components/ui/button';
@@ -129,9 +128,6 @@ export function MainLayout() {
 
       {/* Settings Modal */}
       <SettingsModal />
-
-      {/* Onboarding Welcome Overlay */}
-      <WelcomeOverlay />
 
       {/* Context Selection Bar (visible when sources are selected on browse page) */}
       <ContextBar />

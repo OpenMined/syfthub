@@ -14,7 +14,7 @@ import type { SourcesData } from './sources-section';
 import Database from 'lucide-react/dist/esm/icons/database';
 import Plus from 'lucide-react/dist/esm/icons/plus';
 
-import { ChatEmptyState } from '@/components/onboarding';
+import { OnboardingCallout } from '@/components/onboarding';
 import { QueryInput } from '@/components/query/query-input';
 import { useChatWorkflow } from '@/hooks/use-chat-workflow';
 import { useDataSources } from '@/hooks/use-data-sources';
@@ -73,7 +73,7 @@ export function ChatView({
     initialModel
   });
   const { sources, sourcesById } = useDataSources();
-  const markFirstQueryComplete = useOnboardingStore((s) => s.markFirstQueryComplete);
+  const showSourcesStep = useOnboardingStore((s) => s.showSourcesStep);
   const contextStore = useContextSelectionStore();
 
   // Source modal state
@@ -110,7 +110,7 @@ export function ChatView({
     dataSourcesById: sourcesById,
     contextSources,
     onComplete: (result) => {
-      markFirstQueryComplete();
+      showSourcesStep();
       // Add user message and assistant response to messages
       setMessages((previous) => {
         // Check if user message already exists (avoid duplicates)
@@ -215,18 +215,24 @@ export function ChatView({
     <div className='bg-card min-h-screen pb-32'>
       {/* Model Selector - Fixed top left */}
       <div className='fixed top-4 left-24 z-40'>
-        <ModelSelector
-          selectedModel={selectedModel}
-          onModelSelect={setSelectedModel}
-          models={models}
-          isLoading={isLoadingModels}
-        />
+        <OnboardingCallout step='model-selector' position='bottom'>
+          <ModelSelector
+            selectedModel={selectedModel}
+            onModelSelect={setSelectedModel}
+            models={models}
+            isLoading={isLoadingModels}
+          />
+        </OnboardingCallout>
       </div>
 
       {/* Messages Area */}
       <div className='mx-auto max-w-4xl px-6 py-8 pt-16'>
         {messages.length === 0 && !initialQuery && workflow.phase === 'idle' ? (
-          <ChatEmptyState onSuggestionClick={handleSubmit} />
+          <div className='flex flex-col items-center justify-center px-4 py-24'>
+            <p className='font-inter text-muted-foreground text-sm'>
+              Ask anything using the input below.
+            </p>
+          </div>
         ) : (
           <div className='space-y-8'>
             {/* Existing messages */}
@@ -309,37 +315,41 @@ export function ChatView({
           )}
 
           <div className='flex gap-3'>
-            <button
-              type='button'
-              onClick={() => {
-                setIsSourceModalOpen(true);
-              }}
-              className='group border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground flex items-center justify-center rounded-xl border p-3.5 transition-colors'
-              aria-label={
-                contextStore.count() > 0 ? 'Edit selected sources' : 'Add sources to context'
-              }
-            >
-              {contextStore.count() > 0 ? (
-                <Database className='h-5 w-5' aria-hidden='true' />
-              ) : (
-                <Plus className='h-5 w-5' aria-hidden='true' />
-              )}
-            </button>
+            <OnboardingCallout step='add-sources' position='top'>
+              <button
+                type='button'
+                onClick={() => {
+                  setIsSourceModalOpen(true);
+                }}
+                className='group border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground flex items-center justify-center rounded-xl border p-3.5 transition-colors'
+                aria-label={
+                  contextStore.count() > 0 ? 'Edit selected sources' : 'Add sources to context'
+                }
+              >
+                {contextStore.count() > 0 ? (
+                  <Database className='h-5 w-5' aria-hidden='true' />
+                ) : (
+                  <Plus className='h-5 w-5' aria-hidden='true' />
+                )}
+              </button>
+            </OnboardingCallout>
 
             <div className='flex-1'>
-              <QueryInput
-                variant='chat'
-                onSubmit={handleSubmit}
-                disabled={isWorkflowActive}
-                isProcessing={workflow.phase === 'streaming'}
-                placeholder={
-                  contextStore.count() > 0
-                    ? 'Ask question about these sources...'
-                    : 'Ask anything... (Use + to add sources)'
-                }
-                id='chat-followup-input'
-                ariaLabel='Ask a follow-up question'
-              />
+              <OnboardingCallout step='query-input' position='top'>
+                <QueryInput
+                  variant='chat'
+                  onSubmit={handleSubmit}
+                  disabled={isWorkflowActive}
+                  isProcessing={workflow.phase === 'streaming'}
+                  placeholder={
+                    contextStore.count() > 0
+                      ? 'Ask question about these sources...'
+                      : 'Ask anything... (Use + to add sources)'
+                  }
+                  id='chat-followup-input'
+                  ariaLabel='Ask a follow-up question'
+                />
+              </OnboardingCallout>
             </div>
           </div>
         </div>

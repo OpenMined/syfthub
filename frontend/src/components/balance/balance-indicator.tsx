@@ -9,10 +9,10 @@ import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
 import RefreshCw from 'lucide-react/dist/esm/icons/refresh-cw';
 import Settings from 'lucide-react/dist/esm/icons/settings';
 
+import { OnboardingCallout } from '@/components/onboarding';
 import { useAccountingContext } from '@/context/accounting-context';
 import { useAccountingUser, useTransactions } from '@/hooks/use-accounting-api';
 import { cn } from '@/lib/utils';
-import { useOnboardingStore } from '@/stores/onboarding-store';
 import { useSettingsModalStore } from '@/stores/settings-modal-store';
 
 import {
@@ -47,21 +47,6 @@ export function BalanceIndicator() {
     refetch: refetchTransactions
   } = useTransactions({ pageSize: 5, autoFetch: isConfigured });
   const { openSettings } = useSettingsModalStore();
-  const { hasCompletedOnboarding, hasCompletedFirstQuery } = useOnboardingStore();
-  const [showCallout, setShowCallout] = useState(false);
-
-  // Show callout when onboarding is completed but first query hasn't been done
-  useEffect(() => {
-    if (hasCompletedOnboarding && !hasCompletedFirstQuery && isConfigured) {
-      setShowCallout(true);
-      const timer = setTimeout(() => {
-        setShowCallout(false);
-      }, 5000);
-      return () => {
-        clearTimeout(timer);
-      };
-    }
-  }, [hasCompletedOnboarding, hasCompletedFirstQuery, isConfigured]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -169,142 +154,124 @@ export function BalanceIndicator() {
   };
 
   return (
-    <div className='relative'>
-      {/* Balance Pill Button */}
-      <button
-        ref={buttonReference}
-        onClick={toggleOpen}
-        disabled={isLoading}
-        className={cn(
-          'font-inter flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors transition-shadow',
-          'border-border bg-muted',
-          'hover:border-input hover:shadow-sm',
-          'focus:ring-ring/20 focus:ring-2 focus:outline-none',
-          'disabled:cursor-not-allowed disabled:opacity-50'
-        )}
-        aria-label={`Account balance: ${formatBalance(balance)} credits`}
-        aria-expanded={isOpen}
-        aria-haspopup='true'
-      >
-        {renderStatusIcon()}
-        <span className='text-foreground font-medium tabular-nums'>
-          {getDisplayText(isLoading, error, balance)}
-        </span>
-        <ChevronDown
+    <OnboardingCallout step='balance' position='bottom'>
+      <div className='relative'>
+        {/* Balance Pill Button */}
+        <button
+          ref={buttonReference}
+          onClick={toggleOpen}
+          disabled={isLoading}
           className={cn(
-            'text-muted-foreground h-3 w-3 transition-transform',
-            isOpen && 'rotate-180'
+            'font-inter flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors transition-shadow',
+            'border-border bg-muted',
+            'hover:border-input hover:shadow-sm',
+            'focus:ring-ring/20 focus:ring-2 focus:outline-none',
+            'disabled:cursor-not-allowed disabled:opacity-50'
           )}
-        />
-      </button>
-
-      {/* Onboarding Callout Tooltip */}
-      <AnimatePresence>
-        {showCallout && !isOpen ? (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.2 }}
+          aria-label={`Account balance: ${formatBalance(balance)} credits`}
+          aria-expanded={isOpen}
+          aria-haspopup='true'
+        >
+          {renderStatusIcon()}
+          <span className='text-foreground font-medium tabular-nums'>
+            {getDisplayText(isLoading, error, balance)}
+          </span>
+          <ChevronDown
             className={cn(
-              'absolute top-full left-1/2 z-50 mt-2 -translate-x-1/2 whitespace-nowrap',
-              'bg-primary text-primary-foreground rounded-lg px-3 py-2 text-xs font-medium shadow-lg'
+              'text-muted-foreground h-3 w-3 transition-transform',
+              isOpen && 'rotate-180'
             )}
-            role='tooltip'
-          >
-            <div className='bg-primary absolute -top-1 left-1/2 h-2 w-2 -translate-x-1/2 rotate-45' />
-            Your credit balance lives here
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+          />
+        </button>
 
-      {/* Dropdown */}
-      <AnimatePresence>
-        {isOpen ? (
-          <motion.div
-            ref={dropdownReference}
-            initial={{ opacity: 0, y: -8, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.96 }}
-            transition={{ duration: 0.15, ease: 'easeOut' }}
-            className={cn(
-              'absolute top-full right-0 z-50 mt-2 w-72',
-              'bg-card border-border rounded-xl border shadow-lg'
-            )}
-          >
-            {/* Header */}
-            <div className='border-border border-b px-4 py-3'>
-              <div className='flex items-center justify-between'>
-                <span className='font-inter text-muted-foreground text-xs font-medium tracking-wide uppercase'>
-                  Available Credits
-                </span>
-                <button
-                  onClick={() => void handleRefresh()}
-                  disabled={isLoading}
-                  className={cn(
-                    'text-muted-foreground rounded-md p-1 transition-colors',
-                    'hover:bg-muted hover:text-foreground',
-                    'disabled:cursor-not-allowed disabled:opacity-50'
-                  )}
-                  aria-label='Refresh balance'
-                >
-                  <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
-                </button>
+        {/* Dropdown */}
+        <AnimatePresence>
+          {isOpen ? (
+            <motion.div
+              ref={dropdownReference}
+              initial={{ opacity: 0, y: -8, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -8, scale: 0.96 }}
+              transition={{ duration: 0.15, ease: 'easeOut' }}
+              className={cn(
+                'absolute top-full right-0 z-50 mt-2 w-72',
+                'bg-card border-border rounded-xl border shadow-lg'
+              )}
+            >
+              {/* Header */}
+              <div className='border-border border-b px-4 py-3'>
+                <div className='flex items-center justify-between'>
+                  <span className='font-inter text-muted-foreground text-xs font-medium tracking-wide uppercase'>
+                    Available Credits
+                  </span>
+                  <button
+                    onClick={() => void handleRefresh()}
+                    disabled={isLoading}
+                    className={cn(
+                      'text-muted-foreground rounded-md p-1 transition-colors',
+                      'hover:bg-muted hover:text-foreground',
+                      'disabled:cursor-not-allowed disabled:opacity-50'
+                    )}
+                    aria-label='Refresh balance'
+                  >
+                    <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
+                  </button>
+                </div>
+
+                <BalanceDisplay
+                  isLoading={isLoading}
+                  error={error}
+                  balance={balance}
+                  status={status}
+                />
               </div>
 
-              <BalanceDisplay
-                isLoading={isLoading}
-                error={error}
-                balance={balance}
-                status={status}
-              />
-            </div>
+              {/* Recent Transactions */}
+              <div className='px-4 py-3'>
+                <div className='mb-2 flex items-center justify-between'>
+                  <span className='font-inter text-muted-foreground text-xs font-medium'>
+                    Recent Activity
+                  </span>
+                </div>
 
-            {/* Recent Transactions */}
-            <div className='px-4 py-3'>
-              <div className='mb-2 flex items-center justify-between'>
-                <span className='font-inter text-muted-foreground text-xs font-medium'>
-                  Recent Activity
-                </span>
+                <TransactionList
+                  isLoading={isLoadingTransactions}
+                  transactions={recentTransactions}
+                  userEmail={user?.email}
+                />
               </div>
 
-              <TransactionList
-                isLoading={isLoadingTransactions}
-                transactions={recentTransactions}
-                userEmail={user?.email}
-              />
-            </div>
-
-            {/* Footer Actions */}
-            <div className='border-border border-t px-4 py-3'>
-              <div className='flex gap-2'>
-                <button
-                  onClick={handleOpenSettings}
-                  className={cn(
-                    'font-inter flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors',
-                    'bg-muted text-foreground',
-                    'hover:bg-border'
-                  )}
-                >
-                  <Settings className='h-3.5 w-3.5' />
-                  Settings
-                </button>
-                <button
-                  onClick={handleOpenSettings}
-                  className={cn(
-                    'font-inter flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors',
-                    'bg-primary text-white',
-                    'hover:bg-primary/90'
-                  )}
-                >
-                  <ExternalLink className='h-3.5 w-3.5' />
-                  View All
-                </button>
+              {/* Footer Actions */}
+              <div className='border-border border-t px-4 py-3'>
+                <div className='flex gap-2'>
+                  <button
+                    onClick={handleOpenSettings}
+                    className={cn(
+                      'font-inter flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors',
+                      'bg-muted text-foreground',
+                      'hover:bg-border'
+                    )}
+                  >
+                    <Settings className='h-3.5 w-3.5' />
+                    Settings
+                  </button>
+                  <button
+                    onClick={handleOpenSettings}
+                    className={cn(
+                      'font-inter flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors',
+                      'bg-primary text-white',
+                      'hover:bg-primary/90'
+                    )}
+                  >
+                    <ExternalLink className='h-3.5 w-3.5' />
+                    View All
+                  </button>
+                </div>
               </div>
-            </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
-    </div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      </div>
+    </OnboardingCallout>
   );
 }
