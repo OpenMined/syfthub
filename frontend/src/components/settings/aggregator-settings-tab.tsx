@@ -240,7 +240,9 @@ function AggregatorForm({
         <Input
           id='aggregator-name'
           value={formData.name}
-          onChange={(e) => handleChange('name', e.target.value)}
+          onChange={(e) => {
+            handleChange('name', e.target.value);
+          }}
           placeholder='e.g., Production Aggregator'
           disabled={isSubmitting}
         />
@@ -256,7 +258,9 @@ function AggregatorForm({
           id='aggregator-url'
           type='url'
           value={formData.url}
-          onChange={(e) => handleChange('url', e.target.value)}
+          onChange={(e) => {
+            handleChange('url', e.target.value);
+          }}
           placeholder='https://aggregator.example.com/api/v1'
           disabled={isSubmitting}
         />
@@ -272,7 +276,9 @@ function AggregatorForm({
           type='checkbox'
           id='is-default'
           checked={formData.is_default}
-          onChange={(e) => handleChange('is_default', e.target.checked)}
+          onChange={(e) => {
+            handleChange('is_default', e.target.checked);
+          }}
           disabled={isSubmitting}
           className='h-4 w-4 rounded border-gray-300'
         />

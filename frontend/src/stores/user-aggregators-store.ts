@@ -124,7 +124,7 @@ export const useUserAggregatorsStore = create<UserAggregatorsState>((set, get) =
     set({ isUpdating: true, error: null });
     try {
       const headers = await getAuthHeaders();
-      const response = await fetch(`${API_BASE}/${id}`, {
+      const response = await fetch(`${API_BASE}/${String(id)}`, {
         method: 'PUT',
         headers,
         body: JSON.stringify(data)
@@ -168,7 +168,7 @@ export const useUserAggregatorsStore = create<UserAggregatorsState>((set, get) =
     set({ isDeleting: true, error: null });
     try {
       const headers = await getAuthHeaders();
-      const response = await fetch(`${API_BASE}/${id}`, {
+      const response = await fetch(`${API_BASE}/${String(id)}`, {
         method: 'DELETE',
         headers
       });
