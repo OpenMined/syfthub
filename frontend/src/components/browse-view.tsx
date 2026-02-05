@@ -60,36 +60,24 @@ function getStatusColor(status: 'active' | 'warning' | 'inactive') {
   }
 }
 
-function getTypeStyles(type: EndpointType) {
+function getTypeIcon(type: EndpointType) {
   switch (type) {
     case 'model': {
-      return 'bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-200';
+      return <Sparkles className='h-4 w-4 text-purple-500' aria-label='Model' />;
     }
     case 'data_source': {
-      return 'bg-emerald-100 text-emerald-800 border-emerald-200 hover:bg-emerald-200';
+      return <Database className='h-4 w-4 text-emerald-500' aria-label='Data Source' />;
     }
     case 'model_data_source': {
-      return 'bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200';
+      return (
+        <span className='flex items-center gap-0.5' aria-label='Model and Data Source'>
+          <Sparkles className='h-3.5 w-3.5 text-purple-500' />
+          <Database className='h-3.5 w-3.5 text-emerald-500' />
+        </span>
+      );
     }
     default: {
-      return 'bg-muted text-muted-foreground border-border';
-    }
-  }
-}
-
-function getTypeLabel(type: EndpointType) {
-  switch (type) {
-    case 'model': {
-      return 'Model';
-    }
-    case 'data_source': {
-      return 'Data Source';
-    }
-    case 'model_data_source': {
-      return 'Model + Data Source';
-    }
-    default: {
-      return type;
+      return null;
     }
   }
 }
@@ -195,44 +183,46 @@ export function BrowseView({
 
       {/* Main Content */}
       <div className='mx-auto max-w-6xl px-6 py-8'>
-        {/* Header */}
-        <div className='mb-8'>
-          <h1 className='font-rubik text-foreground mb-2 text-3xl font-semibold'>Browse Library</h1>
-          <p className='font-inter text-muted-foreground'>
-            Discover trusted data sources and AI models
-          </p>
-        </div>
-
-        {/* Tabs */}
-        <div className='mb-6 flex items-center gap-1'>
-          <button
-            type='button'
-            onClick={() => {
-              handleTabChange('data_sources');
-            }}
-            className={`font-inter flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
-              activeTab === 'data_sources'
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            }`}
-          >
-            <Database className='h-4 w-4' aria-hidden='true' />
-            Data Sources
-          </button>
-          <button
-            type='button'
-            onClick={() => {
-              handleTabChange('models');
-            }}
-            className={`font-inter flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
-              activeTab === 'models'
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-            }`}
-          >
-            <Sparkles className='h-4 w-4' aria-hidden='true' />
-            Models
-          </button>
+        {/* Header with Tabs */}
+        <div className='mb-8 flex items-start justify-between'>
+          <div>
+            <h1 className='font-rubik text-foreground mb-2 text-3xl font-semibold'>
+              Browse Library
+            </h1>
+            <p className='font-inter text-muted-foreground'>
+              Discover trusted data sources and AI models
+            </p>
+          </div>
+          <div className='flex items-center gap-1'>
+            <button
+              type='button'
+              onClick={() => {
+                handleTabChange('data_sources');
+              }}
+              className={`font-inter flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
+                activeTab === 'data_sources'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+            >
+              <Database className='h-4 w-4' aria-hidden='true' />
+              Data Sources
+            </button>
+            <button
+              type='button'
+              onClick={() => {
+                handleTabChange('models');
+              }}
+              className={`font-inter flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
+                activeTab === 'models'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+              }`}
+            >
+              <Sparkles className='h-4 w-4' aria-hidden='true' />
+              Models
+            </button>
+          </div>
         </div>
 
         {/* Search and Filter Bar */}
@@ -360,8 +350,9 @@ export function BrowseView({
                       {/* Header */}
                       <div className='mb-3 flex items-start justify-between'>
                         <div className='min-w-0 flex-1 pr-8'>
-                          <h3 className='font-inter text-foreground group-hover:text-primary truncate text-base font-semibold'>
-                            {endpoint.name}
+                          <h3 className='font-inter text-foreground group-hover:text-primary flex items-center gap-1.5 text-base font-semibold'>
+                            {getTypeIcon(endpoint.type)}
+                            <span className='truncate'>{endpoint.name}</span>
                           </h3>
                           {endpoint.owner_username && (
                             <p className='font-inter text-muted-foreground mt-0.5 truncate text-xs'>
@@ -380,12 +371,6 @@ export function BrowseView({
 
                       {/* Tags and Status */}
                       <div className='mb-3 flex flex-wrap items-center gap-2'>
-                        <Badge
-                          variant='outline'
-                          className={`font-inter border text-xs ${getTypeStyles(endpoint.type)}`}
-                        >
-                          {getTypeLabel(endpoint.type)}
-                        </Badge>
                         {endpoint.tags.slice(0, 3).map((tag) => (
                           <Badge key={tag} variant='secondary' className='font-inter text-xs'>
                             {tag}
