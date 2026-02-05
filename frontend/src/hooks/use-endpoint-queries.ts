@@ -1,7 +1,10 @@
-import { useQuery } from '@tanstack/react-query';
+import type { EndpointType } from '@/lib/types';
+
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
 import {
   getPublicEndpoints,
+  getPublicEndpointsPaginated,
   getTotalEndpointsCount,
   getTrendingEndpoints,
   mapEndpointPublicToSource
@@ -13,6 +16,27 @@ export function usePublicEndpoints(limit = 10) {
   return useQuery({
     queryKey: endpointKeys.public(limit),
     queryFn: () => getPublicEndpoints({ limit })
+  });
+}
+
+/**
+ * Hook for fetching paginated public endpoints with server-side type filtering.
+ *
+ * @param page - Current page number (1-indexed)
+ * @param pageSize - Number of items per page
+ * @param endpointType - Optional filter for endpoint type (model or data_source)
+ * @returns Query result with items, hasNextPage, and loading/error states
+ */
+export function usePaginatedPublicEndpoints(
+  page: number,
+  pageSize = 12,
+  endpointType?: EndpointType
+) {
+  return useQuery({
+    queryKey: endpointKeys.publicPaginated(page, pageSize, endpointType),
+    queryFn: () =>
+      getPublicEndpointsPaginated({ page, limit: pageSize, endpoint_type: endpointType }),
+    placeholderData: keepPreviousData // Keep previous data while fetching new page
   });
 }
 
