@@ -11,6 +11,7 @@ from syfthub.models.base import BaseModel, TimestampMixin
 if TYPE_CHECKING:
     from syfthub.models.endpoint import EndpointModel
     from syfthub.models.organization import OrganizationMemberModel
+    from syfthub.models.user_aggregator import UserAggregatorModel
 
 
 class UserModel(BaseModel, TimestampMixin):
@@ -59,6 +60,9 @@ class UserModel(BaseModel, TimestampMixin):
     )
     organization_memberships: Mapped[List["OrganizationMemberModel"]] = relationship(
         "OrganizationMemberModel", back_populates="user", cascade="all, delete-orphan"
+    )
+    aggregators: Mapped[List["UserAggregatorModel"]] = relationship(
+        "UserAggregatorModel", back_populates="user", cascade="all, delete-orphan"
     )
 
     # Indexes for performance

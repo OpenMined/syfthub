@@ -228,3 +228,129 @@ class HeartbeatResponse(BaseModel):
         description="Domain with protocol extracted from URL (e.g., 'https://example.com:8080')",
     )
     ttl_seconds: int = Field(..., description="Actual TTL applied (may be capped)")
+
+
+# =============================================================================
+# User Aggregator Schemas
+# =============================================================================
+
+
+class UserAggregatorBase(BaseModel):
+    """Base schema for user aggregator."""
+
+    name: str = Field(
+        ..., min_length=1, max_length=100, description="Display name for the aggregator"
+    )
+    url: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+        description="URL of the aggregator service (e.g., 'https://aggregator.example.com')",
+    )
+    is_default: bool = Field(
+        False, description="Whether this is the default aggregator for the user"
+    )
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        """Validate URL format and structure.
+
+        Ensures the URL:
+        - Starts with http:// or https://
+        - Is parseable
+        - Has a valid hostname (netloc)
+        """
+        v = v.strip()
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("URL must start with http:// or https://")
+
+        # Parse the URL to validate structure
+        parsed = urlparse(v)
+
+        # Ensure netloc (host:port) exists
+        if not parsed.netloc:
+            raise ValueError("URL must contain a valid hostname")
+
+        # Extract hostname (without port) and validate it's not empty
+        hostname = parsed.netloc.split(":")[0]
+        if not hostname:
+            raise ValueError("URL must contain a valid hostname, not just a port")
+
+        return v
+
+
+class UserAggregatorCreate(UserAggregatorBase):
+    """Schema for creating a new user aggregator."""
+
+    pass
+
+
+class UserAggregatorUpdate(BaseModel):
+    """Schema for updating a user aggregator."""
+
+    model_config = {"extra": "ignore"}
+
+    name: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=100,
+        description="Display name for the aggregator",
+    )
+    url: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=500,
+        description="URL of the aggregator service",
+    )
+    is_default: Optional[bool] = Field(
+        default=None, description="Whether this is the default aggregator"
+    )
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: Optional[str]) -> Optional[str]:
+        """Validate URL format and structure."""
+        if v is None:
+            return None
+
+        v = v.strip()
+        if not v.startswith(("http://", "https://")):
+            raise ValueError("URL must start with http:// or https://")
+
+        parsed = urlparse(v)
+        if not parsed.netloc:
+            raise ValueError("URL must contain a valid hostname")
+
+        hostname = parsed.netloc.split(":")[0]
+        if not hostname:
+            raise ValueError("URL must contain a valid hostname, not just a port")
+
+        return v
+
+
+class UserAggregatorResponse(BaseModel):
+    """Schema for user aggregator response."""
+
+    id: int = Field(..., description="Aggregator's unique identifier")
+    user_id: int = Field(..., description="ID of the user who owns this aggregator")
+    name: str = Field(..., description="Display name for the aggregator")
+    url: str = Field(..., description="URL of the aggregator service")
+    is_default: bool = Field(..., description="Whether this is the default aggregator")
+    created_at: datetime = Field(..., description="When the aggregator was created")
+    updated_at: datetime = Field(
+        ..., description="When the aggregator was last updated"
+    )
+
+    model_config = {"from_attributes": True}
+
+
+class UserAggregatorListResponse(BaseModel):
+    """Schema for list of user aggregators response."""
+
+    aggregators: list[UserAggregatorResponse] = Field(
+        ..., description="List of user's aggregators"
+    )
+    default_aggregator_id: Optional[int] = Field(
+        None, description="ID of the default aggregator, if any"
+    )

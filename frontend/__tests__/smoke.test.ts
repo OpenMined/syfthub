@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test';
 
 import config from '../_config';
-
 import { HomePage } from './pages/home.page';
 
 test.describe('Smoke tests', () => {
