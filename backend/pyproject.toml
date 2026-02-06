@@ -36,6 +36,8 @@ dependencies = [
     "uvicorn>=0.38.0",
     "structlog>=24.0.0",
     "bleach>=6.0.0",
+    "redis[hiredis]>=5.0.0",
+    "nats-py>=2.7.0",
     "google-auth[urllib3]>=2.0.0",
 ]
 
@@ -153,18 +155,26 @@ show_error_context = true
 pretty = true
 
 # SQLAlchemy 2.0 has complex typing, disable strict checking for database modules
+# Redis asyncio also has complex typing that doesn't work well with mypy strict mode
 [[tool.mypy.overrides]]
 module = [
     "syfthub.database.*",
     "syfthub.models.*",
     "syfthub.repositories.*",
-    "syfthub.auth.security"
+    "syfthub.auth.security",
+    "syfthub.core.redis_client",
+    "syfthub.services.mq_service"
 ]
 ignore_errors = true
 
 # Handle SQLAlchemy 2.0 import issues
 [[tool.mypy.overrides]]
 module = "sqlalchemy.*"
+ignore_missing_imports = true
+
+# Handle redis async import issues (no type stubs available)
+[[tool.mypy.overrides]]
+module = "redis.*"
 ignore_missing_imports = true
 
 [tool.coverage.run]

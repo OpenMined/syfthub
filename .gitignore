@@ -159,7 +159,6 @@ Thumbs.db
 ehthumbs.db
 
 # uv
-backend/uv.lock
 
 # ruff
 .ruff_cache/

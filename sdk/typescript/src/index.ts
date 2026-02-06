@@ -93,6 +93,8 @@ export type {
   UserUpdateInput,
   PasswordChangeInput,
   AccountingCredentials,
+  HeartbeatInput,
+  HeartbeatResponse,
   UserAggregator,
   UserAggregatorCreateInput,
   UserAggregatorUpdateInput,
@@ -104,6 +106,13 @@ export type {
   EndpointCreateInput,
   EndpointUpdateInput,
   SyncEndpointsResponse,
+  // API Token types
+  APIToken,
+  APITokenScope,
+  APITokenCreateResponse,
+  CreateAPITokenInput,
+  UpdateAPITokenInput,
+  APITokenListResponse,
   // Accounting types
   AccountingUser,
   Transaction,
@@ -154,6 +163,9 @@ export { ChatResource } from './resources/chat.js';
 
 // SyftAI Resource (for type hints)
 export { SyftAIResource } from './resources/syftai.js';
+
+// API Tokens Resource (for type hints)
+export { APITokensResource } from './resources/api-tokens.js';
 
 // Aggregators Resource (for type hints)
 export { AggregatorsResource } from './resources/aggregators.js';

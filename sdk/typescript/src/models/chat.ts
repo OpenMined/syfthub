@@ -145,6 +145,10 @@ export interface ChatOptions {
   signal?: AbortSignal;
   /** Custom aggregator URL to use instead of the default */
   aggregatorUrl?: string;
+  /** Peer token for NATS tunneling (auto-fetched if tunneling endpoints detected) */
+  peerToken?: string;
+  /** Peer channel for NATS replies (auto-fetched if tunneling endpoints detected) */
+  peerChannel?: string;
   /** Use guest mode for unauthenticated access to policy-free endpoints */
   guestMode?: boolean;
   /** Conversation history (prior turns) for multi-turn context */

@@ -149,6 +149,9 @@ ChatStreamEvent = (
 # =============================================================================
 
 
+TUNNELING_PREFIX = "tunneling:"
+
+
 class ChatResource:
     """Chat resource for RAG-augmented conversations via the Aggregator.
 
@@ -331,6 +334,31 @@ class ChatResource:
 
         return self._auth.get_satellite_tokens(owners)
 
+    def _collect_tunneling_usernames(
+        self,
+        model_ref: EndpointRef,
+        data_source_refs: list[EndpointRef],
+    ) -> list[str]:
+        """Check if any endpoints use tunneling URLs and extract target usernames.
+
+        Args:
+            model_ref: The model endpoint reference
+            data_source_refs: List of data source endpoint references
+
+        Returns:
+            List of unique tunneling usernames
+        """
+        usernames: set[str] = set()
+
+        if model_ref.url.startswith(TUNNELING_PREFIX):
+            usernames.add(model_ref.url[len(TUNNELING_PREFIX) :])
+
+        for ds in data_source_refs:
+            if ds.url.startswith(TUNNELING_PREFIX):
+                usernames.add(ds.url[len(TUNNELING_PREFIX) :])
+
+        return list(usernames)
+
     def _get_transaction_tokens_for_owners(
         self,
         owners: list[str],
@@ -366,6 +394,8 @@ class ChatResource:
         similarity_threshold: float = 0.5,
         stream: bool = False,
         messages: list[dict[str, str]] | None = None,
+        peer_token: str | None = None,
+        peer_channel: str | None = None,
     ) -> dict[str, Any]:
         """Build the request body for the aggregator.
 
@@ -402,6 +432,13 @@ class ChatResource:
         }
         if messages:
             body["messages"] = messages
+
+        # Include peer token fields for NATS tunneling
+        if peer_token:
+            body["peer_token"] = peer_token
+        if peer_channel:
+            body["peer_channel"] = peer_channel
+
         return body
 
     def _handle_aggregator_error(self, response: httpx.Response) -> None:
@@ -562,6 +599,15 @@ class ChatResource:
         endpoint_tokens = self._get_satellite_tokens_for_owners(unique_owners)
         transaction_tokens = self._get_transaction_tokens_for_owners(unique_owners)
 
+        # Auto-fetch peer token if tunneling endpoints detected
+        peer_token = None
+        peer_channel = None
+        tunneling_usernames = self._collect_tunneling_usernames(model_ref, ds_refs)
+        if tunneling_usernames:
+            peer_response = self._auth.get_peer_token(tunneling_usernames)
+            peer_token = peer_response.peer_token
+            peer_channel = peer_response.peer_channel
+
         request_body = self._build_request_body(
             prompt=prompt,
             model_ref=model_ref,
@@ -574,6 +620,8 @@ class ChatResource:
             similarity_threshold=similarity_threshold,
             stream=False,
             messages=messages,
+            peer_token=peer_token,
+            peer_channel=peer_channel,
         )
 
         try:
@@ -708,6 +756,15 @@ class ChatResource:
         endpoint_tokens = self._get_satellite_tokens_for_owners(unique_owners)
         transaction_tokens = self._get_transaction_tokens_for_owners(unique_owners)
 
+        # Auto-fetch peer token if tunneling endpoints detected
+        peer_token = None
+        peer_channel = None
+        tunneling_usernames = self._collect_tunneling_usernames(model_ref, ds_refs)
+        if tunneling_usernames:
+            peer_response = self._auth.get_peer_token(tunneling_usernames)
+            peer_token = peer_response.peer_token
+            peer_channel = peer_response.peer_channel
+
         request_body = self._build_request_body(
             prompt=prompt,
             model_ref=model_ref,
@@ -720,6 +777,8 @@ class ChatResource:
             similarity_threshold=similarity_threshold,
             stream=True,
             messages=messages,
+            peer_token=peer_token,
+            peer_channel=peer_channel,
         )
 
         try:

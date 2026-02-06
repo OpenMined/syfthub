@@ -45,8 +45,8 @@ export interface AuthTokens {
  * Internal HTTP client for making API requests.
  *
  * Handles:
- * - Bearer token authentication
- * - Automatic token refresh on 401 responses
+ * - Bearer token authentication (JWT or API token)
+ * - Automatic token refresh on 401 responses (JWT only)
  * - JSON serialization/deserialization
  * - snake_case <-> camelCase conversion
  * - Error handling and exception mapping
@@ -54,6 +54,7 @@ export interface AuthTokens {
 export class HTTPClient {
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
+  private apiToken: string | null = null;
   private isRefreshing = false;
   private refreshPromise: Promise<void> | null = null;
 
@@ -69,15 +70,30 @@ export class HTTPClient {
   ) {}
 
   /**
-   * Set authentication tokens.
+   * Set JWT authentication tokens.
+   * Clears any API token if set.
    */
   setTokens(access: string, refresh: string): void {
     this.accessToken = access;
     this.refreshToken = refresh;
+    this.apiToken = null; // Clear API token when using JWT
   }
 
   /**
-   * Get current authentication tokens.
+   * Set API token for authentication.
+   * Clears any JWT tokens if set.
+   *
+   * @param token - The API token (starts with "syft_")
+   */
+  setApiToken(token: string): void {
+    this.apiToken = token;
+    this.accessToken = null; // Clear JWT tokens when using API token
+    this.refreshToken = null;
+  }
+
+  /**
+   * Get current JWT authentication tokens.
+   * Returns null if using API token authentication.
    */
   getTokens(): AuthTokens | null {
     if (!this.accessToken || !this.refreshToken) {
@@ -91,18 +107,33 @@ export class HTTPClient {
   }
 
   /**
-   * Clear authentication tokens.
+   * Check if using API token authentication.
+   */
+  isUsingApiToken(): boolean {
+    return this.apiToken !== null;
+  }
+
+  /**
+   * Clear all authentication (JWT and API tokens).
    */
   clearTokens(): void {
     this.accessToken = null;
     this.refreshToken = null;
+    this.apiToken = null;
   }
 
   /**
-   * Check if the client has valid tokens.
+   * Check if the client has valid authentication (JWT or API token).
    */
   hasTokens(): boolean {
-    return this.accessToken !== null;
+    return this.accessToken !== null || this.apiToken !== null;
+  }
+
+  /**
+   * Get the current bearer token (API token or JWT access token).
+   */
+  private getBearerToken(): string | null {
+    return this.apiToken ?? this.accessToken;
   }
 
   /**
@@ -167,8 +198,9 @@ export class HTTPClient {
     // Build headers
     const headers: Record<string, string> = {};
 
-    if (includeAuth && this.accessToken) {
-      headers['Authorization'] = `Bearer ${this.accessToken}`;
+    const bearerToken = this.getBearerToken();
+    if (includeAuth && bearerToken) {
+      headers['Authorization'] = `Bearer ${bearerToken}`;
     }
 
     // Build body
@@ -205,8 +237,9 @@ export class HTTPClient {
 
       clearTimeout(timeoutId);
 
-      // Handle 401 with automatic token refresh
-      if (response.status === 401 && includeAuth && this.refreshToken) {
+      // Handle 401 with automatic token refresh (JWT only, not API tokens)
+      // API tokens don't have refresh capability - they just fail
+      if (response.status === 401 && includeAuth && this.refreshToken && !this.apiToken) {
         // Attempt to refresh the token
         await this.attemptTokenRefresh();
 
