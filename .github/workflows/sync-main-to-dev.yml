@@ -28,6 +28,42 @@ jobs:
           git checkout dev
           git reset --hard origin/dev
 
+          # Check if merge would include workflow file changes
+          # GITHUB_TOKEN cannot push workflow changes (security restriction)
+          WORKFLOW_CHANGES=$(git diff --name-only origin/dev origin/main -- '.github/workflows/' || true)
+
+          if [ -n "$WORKFLOW_CHANGES" ]; then
+            echo "Workflow file changes detected:"
+            echo "$WORKFLOW_CHANGES"
+            echo ""
+            echo "Creating PR instead of direct push (GITHUB_TOKEN cannot modify workflow files)"
+
+            EXISTING_PR=$(gh pr list --base dev --head main --state open --json number --jq '.[0].number')
+
+            if [ -n "$EXISTING_PR" ]; then
+              echo "PR #$EXISTING_PR already exists for main -> dev"
+            else
+              gh pr create \
+                --base dev \
+                --head main \
+                --title "Sync main into dev" \
+                --body "$(cat <<'EOF'
+          ## Automated Sync
+
+          This sync includes workflow file changes which require manual merge:
+
+          ```
+          $WORKFLOW_CHANGES
+          ```
+
+          GITHUB_TOKEN cannot modify workflow files due to security restrictions.
+          Please merge this PR manually to keep `dev` up to date with `main`.
+          EOF
+              )"
+            fi
+            exit 0
+          fi
+
           if git merge origin/main --no-edit; then
             echo "Merge successful, pushing to dev"
             git push origin dev

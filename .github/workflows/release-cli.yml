@@ -1,0 +1,205 @@
+name: Release CLI Binaries
+
+on:
+  push:
+    tags:
+      - "cli/v*"
+
+concurrency:
+  group: release-cli
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: x64
+            runner: ubuntu-latest
+            artifact_name: syft-linux-x64
+          # Note: darwin-x64 removed - GitHub retired Intel Mac runners (macos-13)
+          # Apple Silicon Macs run arm64 natively; Intel Macs can use Rosetta 2
+          - os: darwin
+            arch: arm64
+            runner: macos-14
+            artifact_name: syft-darwin-arm64
+          - os: windows
+            arch: x64
+            runner: windows-latest
+            artifact_name: syft-windows-x64.exe
+
+    defaults:
+      run:
+        working-directory: cli
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Extract and validate version
+        id: version
+        shell: bash
+        env:
+          GH_REF: ${{ github.ref }}
+        run: |
+          # Extract version from tag (e.g., cli/v0.1.0 -> 0.1.0)
+          TAG_VERSION=${GH_REF#refs/tags/cli/v}
+          echo "Tag version: $TAG_VERSION"
+
+          # Extract version from pyproject.toml
+          PKG_VERSION=$(grep -Po '(?<=^version = ")[^"]+' pyproject.toml || grep -E '^version = "' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "Package version: $PKG_VERSION"
+
+          # Validate versions match
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Version mismatch! Tag version ($TAG_VERSION) does not match pyproject.toml version ($PKG_VERSION)"
+            echo "::error::Please ensure the version in cli/pyproject.toml matches your tag"
+            exit 1
+          fi
+
+          echo "version=$TAG_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Install dependencies
+        run: uv sync --extra build
+
+      - name: Build binary
+        shell: bash
+        run: |
+          uv run python scripts/build.py --checksum
+          echo "Build artifacts:"
+          ls -la dist/
+
+      - name: Verify binary
+        shell: bash
+        env:
+          ARTIFACT_NAME: ${{ matrix.artifact_name }}
+        run: |
+          ./dist/"$ARTIFACT_NAME" --version
+          ./dist/"$ARTIFACT_NAME" --help
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            cli/dist/${{ matrix.artifact_name }}
+            cli/dist/${{ matrix.artifact_name }}.sha256
+          retention-days: 1
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        env:
+          GH_REF: ${{ github.ref }}
+        run: |
+          TAG_VERSION=${GH_REF#refs/tags/cli/v}
+          echo "version=$TAG_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          # Move all binaries and checksums to release directory
+          find artifacts -type f \( -name "syft-*" -o -name "*.sha256" \) -exec mv {} release/ \;
+          echo "Release assets:"
+          ls -la release/
+
+          # Create combined checksum file
+          cd release
+          cat *.sha256 > checksums.txt
+          echo "Combined checksums:"
+          cat checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+          REPO: ${{ github.repository }}
+        with:
+          name: Syft CLI v${{ steps.version.outputs.version }}
+          body: |
+            ## Syft CLI v${{ steps.version.outputs.version }}
+
+            ### Quick Install (Recommended)
+
+            Install with a single command (auto-detects your OS and architecture):
+
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/cli/install.sh | sh
+            ```
+
+            Or install a specific version:
+            ```bash
+            SYFT_VERSION=${{ steps.version.outputs.version }} curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/cli/install.sh | sh
+            ```
+
+            ### Manual Installation
+
+            Download the appropriate binary for your platform and add it to your PATH.
+
+            #### Linux (x64)
+            ```bash
+            curl -L -o syft https://github.com/${{ github.repository }}/releases/download/cli/v${{ steps.version.outputs.version }}/syft-linux-x64
+            chmod +x syft
+            sudo mv syft /usr/local/bin/
+            ```
+
+            #### macOS (Apple Silicon & Intel)
+            ```bash
+            curl -L -o syft https://github.com/${{ github.repository }}/releases/download/cli/v${{ steps.version.outputs.version }}/syft-darwin-arm64
+            chmod +x syft
+            sudo mv syft /usr/local/bin/
+            ```
+            > Note: Intel Macs can run the arm64 binary via Rosetta 2.
+
+            #### Windows (x64)
+            ```powershell
+            Invoke-WebRequest -Uri "https://github.com/${{ github.repository }}/releases/download/cli/v${{ steps.version.outputs.version }}/syft-windows-x64.exe" -OutFile "syft.exe"
+            # Add to PATH or move to a directory in your PATH
+            ```
+
+            ### Verify Installation
+            ```bash
+            syft --version
+            syft --help
+            ```
+
+            ### Checksum Verification
+            SHA256 checksums are provided in `checksums.txt` for binary verification.
+
+          generate_release_notes: true
+          files: |
+            release/syft-linux-x64
+            release/syft-linux-x64.sha256
+            release/syft-darwin-arm64
+            release/syft-darwin-arm64.sha256
+            release/syft-windows-x64.exe
+            release/syft-windows-x64.exe.sha256
+            release/checksums.txt

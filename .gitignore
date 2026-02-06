@@ -36,6 +36,7 @@ MANIFEST
 # PyInstaller
 *.manifest
 *.spec
+!cli/syft.spec
 
 # Installer logs
 pip-log.txt
