@@ -23,7 +23,7 @@ jobs:
             artifact_name: syft-linux-x64
           - os: darwin
             arch: x64
-            runner: macos-13
+            runner: macos-15
             artifact_name: syft-darwin-x64
           - os: darwin
             arch: arm64
