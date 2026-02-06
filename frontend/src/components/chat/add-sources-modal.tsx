@@ -105,6 +105,8 @@ const SourceItem = memo(function SourceItem({
       {/* Endpoint page link */}
       <Link
         to={detailHref}
+        target='_blank'
+        rel='noopener noreferrer'
         className='text-muted-foreground hover:text-foreground mt-1 shrink-0 transition-colors'
         aria-label={`View ${source.name} details`}
         onClick={(e) => {
