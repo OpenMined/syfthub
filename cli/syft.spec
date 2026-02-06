@@ -12,6 +12,8 @@ Output will be in dist/syft (or dist/syft.exe on Windows)
 import sys
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+
 # Get the CLI source directory
 cli_dir = Path(SPECPATH)
 src_dir = cli_dir / "src"
@@ -52,49 +54,26 @@ cli_hidden_imports = [
     "syfthub_cli.commands.utils",
 ]
 
-# Hidden imports for dependencies that may have dynamic imports
+# Collect all submodules for packages with dynamic imports
+# This is more robust than listing individual modules
+collected_submodules = (
+    collect_submodules("rich")
+    + collect_submodules("typer")
+    + collect_submodules("click")
+    + collect_submodules("shellingham")
+    + collect_submodules("httpx")
+    + collect_submodules("httpcore")
+    + collect_submodules("anyio")
+    + collect_submodules("pydantic")
+    + collect_submodules("pydantic_core")
+)
+
+# Additional hidden imports for dependencies
 dependency_hidden_imports = [
-    # Typer/Click
-    "typer",
-    "typer.main",
-    "click",
-    "click.core",
-    "click.decorators",
-    # Shellingham (shell detection for typer completion)
-    "shellingham",
-    "shellingham.posix",
-    "shellingham.nt",
-    # Rich (terminal output)
-    "rich",
-    "rich.console",
-    "rich.table",
-    "rich.panel",
-    "rich.progress",
-    "rich.syntax",
-    "rich.markdown",
-    "rich.traceback",
-    "rich.live",
-    "rich.spinner",
-    "rich.text",
-    "rich.style",
-    "rich.highlighter",
-    "rich._emoji_codes",
-    # Pydantic
-    "pydantic",
-    "pydantic.fields",
-    "pydantic_core",
-    "pydantic_core._pydantic_core",
-    # HTTPX (for SDK HTTP client)
-    "httpx",
-    "httpx._transports",
-    "httpx._transports.default",
-    "httpcore",
+    # HTTP/2 support
     "h11",
     "h2",
     "hpack",
-    "anyio",
-    "anyio._backends",
-    "anyio._backends._asyncio",
     "sniffio",
     # SSL/TLS support
     "ssl",
@@ -115,14 +94,22 @@ dependency_hidden_imports = [
 ]
 
 # Combine all hidden imports
-hidden_imports = sdk_hidden_imports + cli_hidden_imports + dependency_hidden_imports
+hidden_imports = (
+    sdk_hidden_imports
+    + cli_hidden_imports
+    + collected_submodules
+    + dependency_hidden_imports
+)
+
+# Collect data files for packages that need them
+datas = collect_data_files("certifi")
 
 # Analysis configuration
 a = Analysis(
     ["src/syfthub_cli/main.py"],
     pathex=[str(src_dir)],
     binaries=[],
-    datas=[],
+    datas=datas,
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
