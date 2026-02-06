@@ -469,7 +469,8 @@ class AuthService(BaseService):
         Raises:
             HTTPException: If token is invalid or verification fails
         """
-        from google.auth.transport import requests
+        import urllib3
+        from google.auth.transport import urllib3 as google_urllib3
         from google.oauth2 import id_token
 
         if not settings.google_oauth_enabled:
@@ -480,9 +481,11 @@ class AuthService(BaseService):
 
         try:
             # Verify the Google ID token
+            http = urllib3.PoolManager()
+            request = google_urllib3.Request(http)  # type: ignore[no-untyped-call]
             idinfo = id_token.verify_oauth2_token(  # type: ignore[no-untyped-call]
                 credential,
-                requests.Request(),
+                request,
                 settings.google_client_id,
             )
 
