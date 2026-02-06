@@ -71,6 +71,9 @@ python_version = "3.10"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
+# Disable unused-ignore warnings since pre-commit and CI have different environments
+# (pre-commit uses --ignore-missing-imports, CI has syfthub_sdk installed)
+warn_unused_ignores = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

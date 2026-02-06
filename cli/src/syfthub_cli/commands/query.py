@@ -171,7 +171,7 @@ def _query_complete(
     response = client.chat.complete(
         prompt=prompt,
         model=target,
-        data_sources=sources if sources else None,
+        data_sources=sources if sources else None,  # type: ignore[arg-type]
         top_k=top_k,
         max_tokens=max_tokens,
         temperature=temperature,
@@ -227,7 +227,7 @@ def _query_stream(
     stream = client.chat.stream(
         prompt=prompt,
         model=target,
-        data_sources=sources if sources else None,
+        data_sources=sources if sources else None,  # type: ignore[arg-type]
         top_k=top_k,
         max_tokens=max_tokens,
         temperature=temperature,
