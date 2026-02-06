@@ -60,6 +60,10 @@ dependency_hidden_imports = [
     "click",
     "click.core",
     "click.decorators",
+    # Shellingham (shell detection for typer completion)
+    "shellingham",
+    "shellingham.posix",
+    "shellingham.nt",
     # Rich (terminal output)
     "rich",
     "rich.console",
