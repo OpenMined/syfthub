@@ -92,6 +92,10 @@ def get_platform_binary_name() -> str:
     }
     arch = arch_map.get(machine, machine)
 
+    # macOS: only arm64 binary is available (works on Intel via Rosetta 2)
+    if os_name == "darwin":
+        arch = "arm64"
+
     if os_name == "windows":
         return f"syft-{os_name}-{arch}.exe"
     return f"syft-{os_name}-{arch}"

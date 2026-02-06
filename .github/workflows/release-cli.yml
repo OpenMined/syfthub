@@ -21,10 +21,8 @@ jobs:
             arch: x64
             runner: ubuntu-latest
             artifact_name: syft-linux-x64
-          - os: darwin
-            arch: x64
-            runner: macos-15
-            artifact_name: syft-darwin-x64
+          # Note: darwin-x64 removed - GitHub retired Intel Mac runners (macos-13)
+          # Apple Silicon Macs run arm64 natively; Intel Macs can use Rosetta 2
           - os: darwin
             arch: arm64
             runner: macos-14
@@ -173,19 +171,13 @@ jobs:
             sudo mv syft /usr/local/bin/
             ```
 
-            #### macOS (Apple Silicon)
+            #### macOS (Apple Silicon & Intel)
             ```bash
             curl -L -o syft https://github.com/${{ github.repository }}/releases/download/cli/v${{ steps.version.outputs.version }}/syft-darwin-arm64
             chmod +x syft
             sudo mv syft /usr/local/bin/
             ```
-
-            #### macOS (Intel)
-            ```bash
-            curl -L -o syft https://github.com/${{ github.repository }}/releases/download/cli/v${{ steps.version.outputs.version }}/syft-darwin-x64
-            chmod +x syft
-            sudo mv syft /usr/local/bin/
-            ```
+            > Note: Intel Macs can run the arm64 binary via Rosetta 2.
 
             #### Windows (x64)
             ```powershell
@@ -206,8 +198,6 @@ jobs:
           files: |
             release/syft-linux-x64
             release/syft-linux-x64.sha256
-            release/syft-darwin-x64
-            release/syft-darwin-x64.sha256
             release/syft-darwin-arm64
             release/syft-darwin-arm64.sha256
             release/syft-windows-x64.exe
