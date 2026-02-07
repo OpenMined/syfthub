@@ -77,7 +77,8 @@ class UserRepository(BaseRepository[UserModel]):
         user_data: UserCreate,
         password_hash: Optional[str] = None,
         accounting_service_url: Optional[str] = None,
-        accounting_password: Optional[str] = None,
+        accounting_api_token: Optional[str] = None,
+        accounting_account_id: Optional[str] = None,
         auth_provider: str = "local",
         google_id: Optional[str] = None,
         avatar_url: Optional[str] = None,
@@ -87,8 +88,9 @@ class UserRepository(BaseRepository[UserModel]):
         Args:
             user_data: User creation data (username, email, full_name)
             password_hash: Hashed password (required for local auth, None for OAuth)
-            accounting_service_url: URL to accounting service
-            accounting_password: Password for accounting service
+            accounting_service_url: URL to Unified Global Ledger service
+            accounting_api_token: API token for Unified Global Ledger (at_* format)
+            accounting_account_id: UUID of user's account in Unified Global Ledger
             auth_provider: Authentication provider ('local' or 'google')
             google_id: Google OAuth user ID (for Google auth)
             avatar_url: URL to user's avatar image
@@ -101,7 +103,8 @@ class UserRepository(BaseRepository[UserModel]):
                 password_hash=password_hash,
                 is_active=True,
                 accounting_service_url=accounting_service_url,
-                accounting_password=accounting_password,
+                accounting_api_token=accounting_api_token,
+                accounting_account_id=accounting_account_id,
                 auth_provider=auth_provider,
                 google_id=google_id,
                 avatar_url=avatar_url,
@@ -134,11 +137,13 @@ class UserRepository(BaseRepository[UserModel]):
                 user_model.avatar_url = user_data.avatar_url
             if user_data.is_active is not None:
                 user_model.is_active = user_data.is_active
-            # Accounting fields
+            # Accounting fields (Unified Global Ledger)
             if user_data.accounting_service_url is not None:
                 user_model.accounting_service_url = user_data.accounting_service_url
-            if user_data.accounting_password is not None:
-                user_model.accounting_password = user_data.accounting_password
+            if user_data.accounting_api_token is not None:
+                user_model.accounting_api_token = user_data.accounting_api_token
+            if user_data.accounting_account_id is not None:
+                user_model.accounting_account_id = user_data.accounting_account_id
             if user_data.domain is not None:
                 user_model.domain = user_data.domain
             # Aggregator URL

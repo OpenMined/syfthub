@@ -15,7 +15,6 @@ from syfthub.auth.security import (
 )
 from syfthub.core.config import settings
 from syfthub.domain.exceptions import (
-    AccountingAccountExistsError,
     AccountingServiceUnavailableError,
     InvalidAccountingPasswordError,
     UserAlreadyExistsError,
@@ -30,11 +29,8 @@ from syfthub.schemas.auth import (
     UserRegister,
 )
 from syfthub.schemas.user import User, UserCreate
-from syfthub.services.accounting_client import (
-    AccountingClient,
-    generate_accounting_password,
-)
 from syfthub.services.base import BaseService
+from syfthub.services.unified_ledger_client import UnifiedLedgerClient
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -50,44 +46,36 @@ class AuthService(BaseService):
         super().__init__(session)
         self.user_repository = UserRepository(session)
 
-    def _handle_accounting_registration(
+    def _handle_accounting_setup(
         self,
         email: str,
         accounting_url: Optional[str],
-        accounting_password: Optional[str],
-    ) -> Tuple[Optional[str], Optional[str]]:
-        """Handle accounting service registration during user signup.
+        accounting_api_token: Optional[str],
+        accounting_account_id: Optional[str],
+    ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        """Handle Unified Global Ledger setup during user signup.
 
-        This method uses a "try-create-first" approach that intelligently handles
-        both new and existing accounting users:
+        The new accounting model requires:
+        1. An API token (at_* format) - user must provide this
+        2. An account ID - user provides this or we validate the token works
 
-        1. If accounting_password is provided:
-           - First TRY to create a new account with this password
-           - If account exists (conflict), VALIDATE the password instead
-           This supports both:
-           - New users who want to set their own accounting password
-           - Existing users linking their accounts
-
-        2. If accounting_password is NOT provided:
-           - Auto-generate a secure password
-           - Create a new accounting account
-           - If account exists, raise error asking for password
+        Unlike the old model, we no longer auto-create accounts. Users must:
+        1. Create an account in the Unified Global Ledger UI
+        2. Generate an API token
+        3. Provide both during registration
 
         Args:
             email: User's email address
-            accounting_url: Accounting service URL (from request or config)
-            accounting_password: Password for accounting service. Can be:
-                - A new password to create an account with (for new users)
-                - An existing password to validate (for existing users)
-                - None to auto-generate a password (for new users)
+            accounting_url: Ledger service URL (from request or config)
+            accounting_api_token: API token for the ledger (at_* format)
+            accounting_account_id: UUID of the user's ledger account
 
         Returns:
-            Tuple of (accounting_url, accounting_password) to store
+            Tuple of (accounting_url, accounting_api_token, accounting_account_id)
 
         Raises:
-            AccountingAccountExistsError: If email exists and no password provided
-            InvalidAccountingPasswordError: If provided password is invalid
-            AccountingServiceUnavailableError: If accounting service is unreachable
+            InvalidAccountingPasswordError: If API token is invalid
+            AccountingServiceUnavailableError: If ledger service is unreachable
         """
         # Determine the accounting URL to use
         effective_url = accounting_url or settings.default_accounting_url
@@ -97,90 +85,51 @@ class AuthService(BaseService):
             logger.debug(
                 "No accounting URL configured, skipping accounting integration"
             )
-            return (None, None)
+            return (None, None, None)
 
-        logger.info(
-            f"Processing accounting registration for {email} at {effective_url}"
-        )
+        # If no API token provided, skip accounting setup
+        # Users can configure this later in settings
+        if not accounting_api_token:
+            logger.debug("No API token provided, skipping accounting setup")
+            return (effective_url, None, None)
 
-        # Create accounting client
-        client = AccountingClient(
+        logger.info(f"Validating ledger credentials for {email} at {effective_url}")
+
+        # Create ledger client to validate credentials
+        client = UnifiedLedgerClient(
             base_url=effective_url,
+            api_token=accounting_api_token,
             timeout=settings.accounting_timeout,
         )
 
         try:
-            if accounting_password:
-                # User provided a password - could be for new OR existing account
-                # Try to create first (handles new user with custom password)
-                logger.debug(
-                    f"Attempting to create accounting account for {email} "
-                    "with user-provided password"
-                )
+            # Validate the API token
+            result = client.validate_token()
 
-                result = client.create_user(
-                    email=email,
-                    password=accounting_password,
-                    organization=None,
-                )
-
-                if result.success:
-                    # New account created with user's chosen password
-                    logger.info(
-                        f"Created accounting account for {email} "
-                        "with user-provided password"
-                    )
-                    return (effective_url, accounting_password)
-
-                if result.conflict:
-                    # Account already exists - validate the provided password
-                    logger.debug(
-                        f"Accounting account exists for {email}, validating credentials"
-                    )
-                    is_valid = client.validate_credentials(email, accounting_password)
-
-                    if not is_valid:
-                        logger.warning(f"Invalid accounting credentials for {email}")
-                        raise InvalidAccountingPasswordError()
-
-                    logger.info(
-                        f"Validated and linked existing accounting account for {email}"
-                    )
-                    return (effective_url, accounting_password)
-
-                # Other error from accounting service
-                logger.error(f"Accounting service error: {result.error}")
+            if not result.success:
+                if result.status_code == 401:
+                    logger.warning(f"Invalid ledger API token for {email}")
+                    raise InvalidAccountingPasswordError()
+                logger.error(f"Ledger service error: {result.error}")
                 raise AccountingServiceUnavailableError(result.error or "Unknown error")
 
-            else:
-                # No password provided - auto-generate and create
-                generated_password = generate_accounting_password(
-                    length=settings.accounting_password_length
-                )
-                logger.debug(f"Auto-registering accounting account for {email}")
-
-                result = client.create_user(
-                    email=email,
-                    password=generated_password,
-                    organization=None,
-                )
-
-                if result.success:
-                    logger.info(
-                        f"Created accounting account for {email} "
-                        "with auto-generated password"
+            # If account ID provided, validate it exists
+            if accounting_account_id:
+                account_result = client.get_account(accounting_account_id)
+                if not account_result.success:
+                    logger.warning(
+                        f"Invalid account ID {accounting_account_id} for {email}"
                     )
-                    return (effective_url, generated_password)
+                    raise InvalidAccountingPasswordError()
 
-                if result.conflict:
-                    # Account exists but user didn't provide password - they need to
-                    logger.info(f"Accounting account already exists for {email}")
-                    raise AccountingAccountExistsError(email)
+            logger.info(f"Validated ledger credentials for {email}")
+            return (effective_url, accounting_api_token, accounting_account_id)
 
-                # Other error
-                logger.error(f"Failed to create accounting account: {result.error}")
-                raise AccountingServiceUnavailableError(result.error or "Unknown error")
-
+        except (InvalidAccountingPasswordError, AccountingServiceUnavailableError):
+            raise
+        except Exception as e:
+            logger.error(f"Failed to validate ledger credentials: {e}")
+            raise AccountingServiceUnavailableError(str(e)) from e
         finally:
             client.close()
 
@@ -226,12 +175,19 @@ class AuthService(BaseService):
         if self.user_repository.email_exists(register_data.email):
             raise UserAlreadyExistsError("email", register_data.email)
 
-        # Handle accounting service registration
-        # This may raise AccountingAccountExistsError or InvalidAccountingPasswordError
-        accounting_url, accounting_password = self._handle_accounting_registration(
-            email=register_data.email,
-            accounting_url=register_data.accounting_service_url,
-            accounting_password=register_data.accounting_password,
+        # Handle accounting service setup (Unified Global Ledger)
+        # This may raise InvalidAccountingPasswordError or AccountingServiceUnavailableError
+        accounting_url, accounting_api_token, accounting_account_id = (
+            self._handle_accounting_setup(
+                email=register_data.email,
+                accounting_url=register_data.accounting_service_url,
+                accounting_api_token=getattr(
+                    register_data, "accounting_api_token", None
+                ),
+                accounting_account_id=getattr(
+                    register_data, "accounting_account_id", None
+                ),
+            )
         )
 
         # Generate password hash for SyftHub
@@ -250,7 +206,8 @@ class AuthService(BaseService):
             user_data=user_data,
             password_hash=password_hash,
             accounting_service_url=accounting_url,
-            accounting_password=accounting_password,
+            accounting_api_token=accounting_api_token,
+            accounting_account_id=accounting_account_id,
         )
 
         if not user:

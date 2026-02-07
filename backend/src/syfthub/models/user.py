@@ -36,12 +36,15 @@ class UserModel(BaseModel, TimestampMixin):
         String(255), unique=True, nullable=True
     )
 
-    # Accounting service credentials (for external billing integration)
+    # Accounting service credentials (for Unified Global Ledger integration)
     accounting_service_url: Mapped[Optional[str]] = mapped_column(
         String(500), nullable=True, default=None
     )
-    accounting_password: Mapped[Optional[str]] = mapped_column(
-        String(255), nullable=True, default=None
+    accounting_api_token: Mapped[Optional[str]] = mapped_column(
+        String(500), nullable=True, default=None
+    )
+    accounting_account_id: Mapped[Optional[str]] = mapped_column(
+        String(36), nullable=True, default=None
     )
 
     # Domain with protocol for dynamic endpoint URL construction

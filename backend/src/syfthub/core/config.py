@@ -214,26 +214,19 @@ class Settings(BaseSettings):
         )
 
     # ===========================================
-    # ACCOUNTING SERVICE SETTINGS
+    # UNIFIED GLOBAL LEDGER SETTINGS
     # ===========================================
 
-    # Default accounting service URL - used if user doesn't provide one during registration
-    # Uses OpenMined's hosted accounting service by default
+    # Default ledger service URL - used if user doesn't provide one during registration
     default_accounting_url: Optional[str] = Field(
-        default="https://syftaccounting.centralus.cloudapp.azure.com",
-        description="Default accounting service URL for user registration",
+        default=None,
+        description="Default Unified Global Ledger URL for user registration",
     )
 
-    # Generated accounting password length
-    accounting_password_length: int = Field(
-        default=32,
-        description="Length of auto-generated accounting passwords",
-    )
-
-    # Timeout for accounting service requests
+    # Timeout for ledger service requests
     accounting_timeout: float = Field(
         default=30.0,
-        description="Timeout in seconds for accounting service requests",
+        description="Timeout in seconds for ledger service requests",
     )
 
     # ===========================================
