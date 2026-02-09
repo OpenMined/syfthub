@@ -76,7 +76,11 @@ export const DEFAULT_ESTIMATION_PARAMS: EstimationParams = {
 // ============================================================================
 
 /** Policy types that carry billing/pricing configuration */
-const BILLING_POLICY_TYPES = new Set(['transaction', 'accounting']);
+const BILLING_POLICY_TYPES = new Set([
+  'transaction',
+  'transactionpolicy', // Handle class name format (TransactionPolicy)
+  'accounting'
+]);
 
 /**
  * Extracts the billing policy (transaction or accounting) from an array of policies
@@ -89,6 +93,11 @@ export function extractTransactionPolicy(policies?: Policy[]): Policy | null {
 
 /**
  * Extracts cost information from a transaction policy config
+ *
+ * Supported formats:
+ * - Per-call: { pricingMode: 'per_call', price: 1.0 }
+ * - TransactionPolicy: { price_per_request: 1.0 }
+ * - Per-token: { costs: { inputTokens: 0.001, outputTokens: 0.002 } }
  */
 export function extractCostsFromPolicy(policy: Policy | null): TransactionCosts {
   const defaultCosts: TransactionCosts = {
@@ -111,6 +120,18 @@ export function extractCostsFromPolicy(policy: Policy | null): TransactionCosts 
       currency: typeof config.currency === 'string' ? config.currency : 'USD',
       pricingMode: 'per_call',
       pricePerCall: config.price
+    };
+  }
+
+  // Handle TransactionPolicy format (price_per_request from backend)
+  if (typeof config.price_per_request === 'number' && config.price_per_request > 0) {
+    const pricePerRequest = config.price_per_request;
+    return {
+      inputPerToken: 0,
+      outputPerToken: 0,
+      currency: typeof config.currency === 'string' ? config.currency : 'USD',
+      pricingMode: 'per_call',
+      pricePerCall: pricePerRequest
     };
   }
 

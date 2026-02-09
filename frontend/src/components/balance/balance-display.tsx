@@ -4,39 +4,54 @@ import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
 import { cn } from '@/lib/utils';
 
 /**
- * Format balance for display.
- * Shows 2 decimal places, with thousands separator.
+ * Convert balance from cents to dollars.
+ * The ledger stores balance in smallest currency unit (cents).
  */
-export function formatBalance(balance: number): string {
+function centsToDollars(cents: number): number {
+  return cents / 100;
+}
+
+/**
+ * Format balance for display.
+ * Converts from cents to dollars and shows 2 decimal places with $ prefix.
+ */
+export function formatBalance(balanceInCents: number): string {
+  const dollars = centsToDollars(balanceInCents);
   return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
-  }).format(balance);
+  }).format(dollars);
 }
 
 /**
  * Format balance compactly for the pill display.
- * Shows K/M suffix for large numbers.
+ * Shows K/M suffix for large numbers, with $ prefix.
  */
-export function formatBalanceCompact(balance: number): string {
-  if (balance >= 1_000_000) {
-    return `${(balance / 1_000_000).toFixed(1)}M`;
+export function formatBalanceCompact(balanceInCents: number): string {
+  const dollars = centsToDollars(balanceInCents);
+  if (dollars >= 1_000_000) {
+    return `$${(dollars / 1_000_000).toFixed(1)}M`;
   }
-  if (balance >= 10_000) {
-    return `${(balance / 1000).toFixed(1)}K`;
+  if (dollars >= 10_000) {
+    return `$${(dollars / 1000).toFixed(1)}K`;
   }
-  if (balance >= 1000) {
-    return `${(balance / 1000).toFixed(2)}K`;
+  if (dollars >= 1000) {
+    return `$${(dollars / 1000).toFixed(2)}K`;
   }
-  return formatBalance(balance);
+  return formatBalance(balanceInCents);
 }
 
 /**
- * Get balance status based on amount.
+ * Get balance status based on amount (in cents).
+ * - empty: $0 or negative
+ * - low: under $10
+ * - healthy: $10 or more
  */
-export function getBalanceStatus(balance: number): 'healthy' | 'low' | 'empty' {
-  if (balance <= 0) return 'empty';
-  if (balance < 100) return 'low';
+export function getBalanceStatus(balanceInCents: number): 'healthy' | 'low' | 'empty' {
+  if (balanceInCents <= 0) return 'empty';
+  if (balanceInCents < 1000) return 'low'; // $10.00
   return 'healthy';
 }
 
