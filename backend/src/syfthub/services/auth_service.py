@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 from typing import TYPE_CHECKING, Any, Optional, Tuple
 
 from fastapi import HTTPException, status
@@ -30,7 +31,10 @@ from syfthub.schemas.auth import (
 )
 from syfthub.schemas.user import User, UserCreate
 from syfthub.services.base import BaseService
-from syfthub.services.unified_ledger_client import UnifiedLedgerClient
+from syfthub.services.unified_ledger_client import (
+    UnifiedLedgerClient,
+    provision_ledger_user,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -55,14 +59,15 @@ class AuthService(BaseService):
     ) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """Handle Unified Global Ledger setup during user signup.
 
-        The new accounting model requires:
-        1. An API token (at_* format) - user must provide this
-        2. An account ID - user provides this or we validate the token works
+        This method implements auto-provisioning:
+        1. If no API token is provided, try to auto-provision a new ledger account
+        2. If auto-provisioning succeeds, use the generated API token and account
+        3. If the email already exists in the ledger, skip (user can configure later)
+        4. If an API token is explicitly provided, validate it as before
 
-        Unlike the old model, we no longer auto-create accounts. Users must:
-        1. Create an account in the Unified Global Ledger UI
-        2. Generate an API token
-        3. Provide both during registration
+        Note: For auto-provisioning, a random password is generated for the ledger
+        account. Users authenticate via API tokens, not passwords, so this is only
+        used internally by the ledger service.
 
         Args:
             email: User's email address
@@ -87,15 +92,51 @@ class AuthService(BaseService):
             )
             return (None, None, None)
 
-        # If no API token provided, skip accounting setup
-        # Users can configure this later in settings
+        # If no API token provided, try auto-provisioning
         if not accounting_api_token:
-            logger.debug("No API token provided, skipping accounting setup")
+            logger.info(f"Auto-provisioning ledger account for {email}")
+
+            # Generate a random password for the ledger account.
+            # Users authenticate via API tokens, not passwords, so this is only
+            # used internally by the ledger service.
+            ledger_password = secrets.token_urlsafe(32)
+
+            result = provision_ledger_user(
+                base_url=effective_url,
+                email=email,
+                password=ledger_password,
+                timeout=settings.accounting_timeout,
+            )
+
+            if result.success and result.data:
+                # Auto-provisioning succeeded
+                logger.info(
+                    f"Auto-provisioned ledger account for {email}: "
+                    f"account_id={result.data.account_id}"
+                )
+                return (
+                    effective_url,
+                    result.data.api_token,
+                    result.data.account_id,
+                )
+
+            if result.status_code == 409:
+                # Email already exists in ledger - user must configure manually
+                logger.info(
+                    f"Email {email} already exists in ledger, "
+                    "user must configure credentials manually"
+                )
+                return (effective_url, None, None)
+
+            # Other error - log but don't fail registration
+            logger.warning(
+                f"Failed to auto-provision ledger account for {email}: {result.error}"
+            )
             return (effective_url, None, None)
 
+        # API token was explicitly provided - validate it
         logger.info(f"Validating ledger credentials for {email} at {effective_url}")
 
-        # Create ledger client to validate credentials
         client = UnifiedLedgerClient(
             base_url=effective_url,
             api_token=accounting_api_token,
@@ -176,7 +217,8 @@ class AuthService(BaseService):
             raise UserAlreadyExistsError("email", register_data.email)
 
         # Handle accounting service setup (Unified Global Ledger)
-        # This may raise InvalidAccountingPasswordError or AccountingServiceUnavailableError
+        # This attempts auto-provisioning if no API token is provided
+        # May raise InvalidAccountingPasswordError or AccountingServiceUnavailableError
         accounting_url, accounting_api_token, accounting_account_id = (
             self._handle_accounting_setup(
                 email=register_data.email,

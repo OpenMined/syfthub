@@ -211,6 +211,7 @@ class AccountingCredentialsResponse(BaseModel):
     """
 
     url: Optional[str] = Field(None, description="Unified Global Ledger URL")
+    email: str = Field(..., description="User's email (same as SyftHub email)")
     account_id: Optional[str] = Field(
         None, description="User's account ID in the ledger"
     )

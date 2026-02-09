@@ -369,11 +369,13 @@ class UnifiedLedgerClient:
 
             if response.status_code == 200:
                 data = response.json()
+                balance_obj = data.get("balance", {})
+                available_obj = data.get("available_balance", {})
                 balance = LedgerBalance(
                     account_id=account_id,
-                    balance=data.get("balance", "0"),
-                    available_balance=data.get("available_balance", "0"),
-                    currency=data.get("currency", "CREDIT"),
+                    balance=balance_obj.get("amount", "0"),
+                    available_balance=available_obj.get("amount", "0"),
+                    currency=balance_obj.get("currency", "CREDIT"),
                 )
                 return LedgerResult(success=True, data=balance, status_code=200)
 
@@ -414,7 +416,7 @@ class UnifiedLedgerClient:
         Args:
             source_account_id: UUID of the source account (sender)
             destination_account_id: UUID of the destination account (recipient)
-            amount: Amount to transfer as string (e.g., "1000")
+            amount: Amount to transfer as decimal string (e.g., "0.50" for 50 cents)
             currency: Currency code (default "CREDIT")
             description: Optional description for the transfer
             require_confirmation: If True, returns confirmation token for later completion
@@ -428,10 +430,25 @@ class UnifiedLedgerClient:
         if idempotency_key is None:
             idempotency_key = generate_idempotency_key()
 
+        # Convert decimal dollar amount to integer credits for ledger API
+        # The ledger uses credits as the unit: 1 dollar = 1000 credits
+        # So $0.50 = 500 credits, $1.00 = 1000 credits
+        try:
+            from decimal import ROUND_HALF_UP, Decimal
+
+            decimal_amount = Decimal(amount)
+            credits_amount = int(
+                (decimal_amount * 1000).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            )
+            amount_str = str(credits_amount)
+        except Exception:
+            # Fall back to the original amount if conversion fails
+            amount_str = amount
+
         payload: dict[str, Any] = {
             "source_account_id": source_account_id,
             "destination_account_id": destination_account_id,
-            "amount": {"amount": amount, "currency": currency},
+            "amount": {"amount": amount_str, "currency": currency},
         }
         if description:
             payload["description"] = description
@@ -674,3 +691,101 @@ class UnifiedLedgerClient:
         except Exception as e:
             logger.exception("ledger.validate_token.unexpected_error", error=str(e))
             return LedgerResult(success=False, error=f"Unexpected error: {e}")
+
+
+@dataclass(frozen=True)
+class ProvisionResult:
+    """Result of provisioning a new ledger user."""
+
+    user_id: str
+    account_id: str
+    api_token: str
+    api_token_prefix: str
+
+
+def provision_ledger_user(
+    base_url: str,
+    email: str,
+    password: str,
+    timeout: float = 30.0,
+) -> LedgerResult:
+    """Provision a new user in the Unified Global Ledger.
+
+    This is a standalone function (not requiring an API token) that calls
+    the ledger's /auth/provision endpoint to create:
+    1. A new user account
+    2. A default ledger account
+    3. An API token for future access
+
+    Args:
+        base_url: Base URL of the ledger service
+        email: User's email address
+        password: Password for the ledger account
+        timeout: Request timeout in seconds
+
+    Returns:
+        LedgerResult with ProvisionResult data if successful, including:
+        - user_id: The created user's ID
+        - account_id: The created account's ID
+        - api_token: The API token for future access
+        - api_token_prefix: The token prefix for identification
+    """
+    try:
+        logger.debug("ledger.provision.started", email=email)
+
+        with httpx.Client(base_url=base_url.rstrip("/"), timeout=timeout) as client:
+            response = client.post(
+                "/auth/provision",
+                json={"email": email, "password": password},
+                headers={"Content-Type": "application/json"},
+            )
+
+            if response.status_code == 201:
+                data = response.json()
+                result = ProvisionResult(
+                    user_id=data.get("user", {}).get("id", ""),
+                    account_id=data.get("account", {}).get("id", ""),
+                    api_token=data.get("api_token", {}).get("token", ""),
+                    api_token_prefix=data.get("api_token", {}).get("prefix", ""),
+                )
+                logger.info(
+                    "ledger.provision.success",
+                    user_id=result.user_id,
+                    account_id=result.account_id,
+                )
+                return LedgerResult(success=True, data=result, status_code=201)
+
+            if response.status_code == 409:
+                # Email already exists in ledger
+                error_detail = "Email already exists in ledger"
+                logger.info("ledger.provision.email_exists", email=email)
+                return LedgerResult(
+                    success=False,
+                    error=error_detail,
+                    status_code=409,
+                )
+
+            error_detail = response.json().get("detail", response.text[:200])
+            logger.warning(
+                "ledger.provision.failed",
+                status_code=response.status_code,
+                error=error_detail,
+            )
+            return LedgerResult(
+                success=False,
+                error=error_detail,
+                status_code=response.status_code,
+            )
+
+    except httpx.TimeoutException:
+        logger.error("ledger.provision.timeout")
+        return LedgerResult(success=False, error="Ledger request timed out")
+    except httpx.RequestError as e:
+        logger.error("ledger.provision.network_error", error=str(e))
+        return LedgerResult(
+            success=False,
+            error=f"Failed to connect to ledger: {e}",
+        )
+    except Exception as e:
+        logger.exception("ledger.provision.unexpected_error", error=str(e))
+        return LedgerResult(success=False, error=f"Unexpected error: {e}")
