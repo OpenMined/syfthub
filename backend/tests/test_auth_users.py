@@ -329,16 +329,19 @@ def test_access_users_without_auth(client: TestClient) -> None:
 def test_get_accounting_credentials(
     client: TestClient, regular_user_token: str
 ) -> None:
-    """Test getting current user's accounting credentials."""
+    """Test getting current user's accounting credentials (Unified Global Ledger)."""
     headers = {"Authorization": f"Bearer {regular_user_token}"}
     response = client.get("/api/v1/users/me/accounting", headers=headers)
 
     assert response.status_code == 200
     data = response.json()
+    # New ledger response format
     assert "url" in data
     assert "email" in data
-    assert "password" in data
+    assert "account_id" in data
+    assert "has_api_token" in data
     assert data["email"] == "regular@example.com"
+    assert isinstance(data["has_api_token"], bool)
 
 
 def test_check_username_availability(client: TestClient) -> None:
