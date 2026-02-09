@@ -75,20 +75,63 @@ export const DEFAULT_ESTIMATION_PARAMS: EstimationParams = {
 // Policy Extraction
 // ============================================================================
 
-/** Policy types that carry billing/pricing configuration */
+/**
+ * Normalized policy type identifiers for billing/pricing configuration.
+ *
+ * The backend may return policy types in various formats:
+ * - Class names: "TransactionPolicy", "AccountingPolicy"
+ * - Slugs: "transaction", "accounting"
+ * - Mixed case: "Transaction", "TRANSACTION"
+ *
+ * This set contains all normalized (lowercase, stripped) variants.
+ */
 const BILLING_POLICY_TYPES = new Set([
   'transaction',
-  'transactionpolicy', // Handle class name format (TransactionPolicy)
-  'accounting'
+  'transactionpolicy',
+  'accounting',
+  'accountingpolicy',
+  'billing',
+  'billingpolicy'
 ]);
 
 /**
- * Extracts the billing policy (transaction or accounting) from an array of policies
+ * Normalizes a policy type string for consistent matching.
+ *
+ * Handles various formats:
+ * - "TransactionPolicy" -> "transactionpolicy"
+ * - "Transaction" -> "transaction"
+ * - "transaction_policy" -> "transactionpolicy"
+ * - "ACCOUNTING" -> "accounting"
+ *
+ * @param policyType - The raw policy type string from the API
+ * @returns Normalized lowercase string with no separators
+ */
+function normalizePolicyType(policyType: string): string {
+  return policyType
+    .toLowerCase()
+    .replaceAll(/[_-]/g, '') // Remove underscores and hyphens
+    .trim();
+}
+
+/**
+ * Checks if a policy type is a billing/transaction policy.
+ *
+ * @param policyType - The policy type to check
+ * @returns True if this is a billing-related policy
+ */
+export function isBillingPolicy(policyType: string): boolean {
+  return BILLING_POLICY_TYPES.has(normalizePolicyType(policyType));
+}
+
+/**
+ * Extracts the billing policy (transaction or accounting) from an array of policies.
+ *
+ * Handles various policy type formats returned by the backend.
  */
 export function extractTransactionPolicy(policies?: Policy[]): Policy | null {
   if (!policies || policies.length === 0) return null;
 
-  return policies.find((p) => BILLING_POLICY_TYPES.has(p.type.toLowerCase()) && p.enabled) ?? null;
+  return policies.find((p) => isBillingPolicy(p.type) && p.enabled) ?? null;
 }
 
 /**

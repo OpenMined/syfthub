@@ -133,14 +133,17 @@ class ConfirmTransferRequest(BaseModel):
 # =============================================================================
 
 
-def get_ledger_client(user: User) -> UnifiedLedgerClient:
-    """Get a ledger client configured with user's credentials.
+def get_ledger_client_and_account(user: User) -> tuple[UnifiedLedgerClient, str]:
+    """Get a ledger client configured with user's credentials and their account ID.
+
+    This function validates all required credentials and returns both the client
+    and the account ID, ensuring type safety for subsequent operations.
 
     Args:
         user: The current user with accounting credentials
 
     Returns:
-        UnifiedLedgerClient configured for the user
+        Tuple of (UnifiedLedgerClient, account_id) - both guaranteed non-None
 
     Raises:
         HTTPException: If accounting is not configured for the user
@@ -155,10 +158,11 @@ def get_ledger_client(user: User) -> UnifiedLedgerClient:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No accounting account linked. Please complete billing setup.",
         )
-    return UnifiedLedgerClient(
+    client = UnifiedLedgerClient(
         base_url=user.accounting_service_url,
         api_token=user.accounting_api_token,
     )
+    return client, user.accounting_account_id
 
 
 # =============================================================================
@@ -175,10 +179,10 @@ async def get_accounting_user(
     Fetches the balance from the Unified Global Ledger using
     the user's linked account.
     """
-    client = get_ledger_client(current_user)
+    client, account_id = get_ledger_client_and_account(current_user)
 
     try:
-        result = client.get_balance(current_user.accounting_account_id)  # type: ignore
+        result = client.get_balance(account_id)
 
         if not result.success:
             if result.status_code == 401:
@@ -191,9 +195,15 @@ async def get_accounting_user(
                 detail=result.error or "Failed to fetch balance",
             )
 
-        balance_data: LedgerBalance = result.data  # type: ignore[assignment]
+        if result.data is None:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Ledger returned empty balance data",
+            )
+
+        balance_data: LedgerBalance = result.data
         return AccountingUserResponse(
-            id=current_user.accounting_account_id,  # type: ignore[arg-type]
+            id=account_id,
             email=current_user.email,
             balance=float(balance_data.available_balance),
             currency=balance_data.currency,
@@ -219,11 +229,11 @@ async def create_transfer(
     If require_confirmation=True, creates a pending transfer that the
     recipient must confirm. The response will include a confirmation_token.
     """
-    client = get_ledger_client(current_user)
+    client, account_id = get_ledger_client_and_account(current_user)
 
     try:
         result = client.create_transfer(
-            source_account_id=current_user.accounting_account_id,  # type: ignore
+            source_account_id=account_id,
             destination_account_id=request.destination_account_id,
             amount=request.amount,
             description=request.description,
@@ -241,7 +251,13 @@ async def create_transfer(
                 detail=result.error or "Failed to create transfer",
             )
 
-        transfer: LedgerTransfer = result.data  # type: ignore[assignment]
+        if result.data is None:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Ledger returned empty transfer data",
+            )
+
+        transfer: LedgerTransfer = result.data
         return TransferResponse(
             id=transfer.id,
             source_account_id=transfer.source_account_id,
@@ -274,7 +290,7 @@ async def confirm_transfer(
     This endpoint is typically called by the recipient (or their agent)
     to complete a transfer that was created with require_confirmation=True.
     """
-    client = get_ledger_client(current_user)
+    client, _ = get_ledger_client_and_account(current_user)
 
     try:
         result = client.confirm_transfer(request.confirmation_token)
@@ -285,7 +301,13 @@ async def confirm_transfer(
                 detail=result.error or "Failed to confirm transfer",
             )
 
-        transfer: LedgerTransfer = result.data  # type: ignore[assignment]
+        if result.data is None:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Ledger returned empty transfer data",
+            )
+
+        transfer: LedgerTransfer = result.data
         return TransferResponse(
             id=transfer.id,
             source_account_id=transfer.source_account_id,
@@ -318,7 +340,7 @@ async def cancel_transfer(
     Only the sender can cancel a pending transfer. This releases the
     held funds back to the sender's available balance.
     """
-    client = get_ledger_client(current_user)
+    client, _ = get_ledger_client_and_account(current_user)
 
     try:
         result = client.cancel_transfer(transfer_id)
@@ -329,7 +351,13 @@ async def cancel_transfer(
                 detail=result.error or "Failed to cancel transfer",
             )
 
-        transfer: LedgerTransfer = result.data  # type: ignore[assignment]
+        if result.data is None:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Ledger returned empty transfer data",
+            )
+
+        transfer: LedgerTransfer = result.data
         return TransferResponse(
             id=transfer.id,
             source_account_id=transfer.source_account_id,
@@ -429,6 +457,9 @@ async def create_transaction_tokens(
                 continue
 
             # Create pending transfer to this owner with their specific amount
+            # At this point we've validated current_user.accounting_account_id is not None
+            # (see check at line 418), so we can assert it for type safety
+            assert current_user.accounting_account_id is not None
             try:
                 result = client.create_transfer(
                     source_account_id=current_user.accounting_account_id,
@@ -438,8 +469,8 @@ async def create_transaction_tokens(
                     require_confirmation=True,
                 )
 
-                if result.success:
-                    transfer: LedgerTransfer = result.data  # type: ignore[assignment]
+                if result.success and result.data is not None:
+                    transfer: LedgerTransfer = result.data
                     if transfer.confirmation_token:
                         tokens[owner_username] = TokenInfo(
                             token=transfer.confirmation_token,

@@ -4,24 +4,38 @@ import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
 import { cn } from '@/lib/utils';
 
 /**
- * Convert balance from cents to dollars.
- * The ledger stores balance in smallest currency unit (cents).
+ * Currency conversion constants.
+ *
+ * The Unified Global Ledger uses CREDITS as the smallest unit:
+ * - 1 USD = 1000 CREDITS (allows $0.001 precision for micropayments)
+ * - This differs from cents (1 USD = 100 cents)
+ *
+ * All balance values from the API are in CREDITS.
  */
-function centsToDollars(cents: number): number {
-  return cents / 100;
+const CREDITS_PER_DOLLAR = 1000;
+
+/**
+ * Convert balance from credits to dollars.
+ * The Unified Global Ledger stores balance in CREDITS (1 USD = 1000 CREDITS).
+ */
+function creditsToDollars(credits: number): number {
+  return credits / CREDITS_PER_DOLLAR;
 }
 
 /**
  * Format balance for display.
- * Converts from cents to dollars and shows 2 decimal places with $ prefix.
+ * Converts from credits to dollars and shows 2-3 decimal places with $ prefix.
+ * Uses 3 decimal places to support sub-cent precision when needed.
  */
-export function formatBalance(balanceInCents: number): string {
-  const dollars = centsToDollars(balanceInCents);
+export function formatBalance(balanceInCredits: number): string {
+  const dollars = creditsToDollars(balanceInCredits);
+  // Use 3 decimal places if there are sub-cent amounts, otherwise 2
+  const hasSubCentPrecision = balanceInCredits % 10 !== 0;
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
     minimumFractionDigits: 2,
-    maximumFractionDigits: 2
+    maximumFractionDigits: hasSubCentPrecision ? 3 : 2
   }).format(dollars);
 }
 
@@ -29,8 +43,8 @@ export function formatBalance(balanceInCents: number): string {
  * Format balance compactly for the pill display.
  * Shows K/M suffix for large numbers, with $ prefix.
  */
-export function formatBalanceCompact(balanceInCents: number): string {
-  const dollars = centsToDollars(balanceInCents);
+export function formatBalanceCompact(balanceInCredits: number): string {
+  const dollars = creditsToDollars(balanceInCredits);
   if (dollars >= 1_000_000) {
     return `$${(dollars / 1_000_000).toFixed(1)}M`;
   }
@@ -40,18 +54,18 @@ export function formatBalanceCompact(balanceInCents: number): string {
   if (dollars >= 1000) {
     return `$${(dollars / 1000).toFixed(2)}K`;
   }
-  return formatBalance(balanceInCents);
+  return formatBalance(balanceInCredits);
 }
 
 /**
- * Get balance status based on amount (in cents).
+ * Get balance status based on amount (in credits).
  * - empty: $0 or negative
- * - low: under $10
+ * - low: under $10 (10,000 credits)
  * - healthy: $10 or more
  */
-export function getBalanceStatus(balanceInCents: number): 'healthy' | 'low' | 'empty' {
-  if (balanceInCents <= 0) return 'empty';
-  if (balanceInCents < 1000) return 'low'; // $10.00
+export function getBalanceStatus(balanceInCredits: number): 'healthy' | 'low' | 'empty' {
+  if (balanceInCredits <= 0) return 'empty';
+  if (balanceInCredits < 10_000) return 'low'; // $10.00 = 10,000 credits
   return 'healthy';
 }
 
