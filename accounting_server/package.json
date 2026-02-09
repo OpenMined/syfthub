@@ -1,0 +1,71 @@
+{
+  "name": "accounting-server",
+  "version": "1.0.0",
+  "description": "Unified Global Ledger & Payment Abstraction Layer",
+  "main": "dist/main/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/main/server.js",
+    "dev": "ts-node-dev --respawn src/main/server.ts",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "format": "prettier --write src/**/*.ts",
+    "typecheck": "tsc --noEmit",
+    "migrate": "node-pg-migrate",
+    "migrate:up": "node-pg-migrate up",
+    "migrate:down": "node-pg-migrate down"
+  },
+  "keywords": [
+    "payments",
+    "ledger",
+    "fintech",
+    "accounting",
+    "stripe",
+    "paypal"
+  ],
+  "author": "",
+  "license": "PROPRIETARY",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "pg": "^8.11.3",
+    "pino": "^8.18.0",
+    "pino-pretty": "^10.3.1",
+    "redis": "^4.6.12",
+    "stripe": "^14.14.0",
+    "uuid": "^9.0.1",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jest": "^30.0.0",
+    "@types/jsonwebtoken": "^9.0.5",
+    "@types/morgan": "^1.9.9",
+    "@types/node": "^20.11.16",
+    "@types/pg": "^8.10.9",
+    "@types/supertest": "^6.0.3",
+    "@types/uuid": "^9.0.7",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "jest": "^29.7.0",
+    "node-pg-migrate": "^6.2.2",
+    "prettier": "^3.2.4",
+    "supertest": "^7.2.2",
+    "ts-jest": "^29.1.2",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

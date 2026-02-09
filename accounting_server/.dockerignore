@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+.npm
+
+# Build output
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test
+coverage/
+.nyc_output/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Documentation
+*.md
+!README.md
+docs/
+
+# Testing
+__tests__/
+*.test.ts
+*.spec.ts
+jest.config.js
+
+# Misc
+.DS_Store
+Thumbs.db
+*.bak

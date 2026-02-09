@@ -1,0 +1,2152 @@
+openapi: 3.1.0
+info:
+  title: Unified Global Ledger API
+  description: |
+    A centralized financial orchestration server providing an abstraction layer
+    between disparate global payment ecosystems. Uses internal "Accounting Credits"
+    as the unit of account for P2P transfers and value accumulation.
+  version: 1.0.0
+  contact:
+    name: API Support
+    email: api-support@example.com
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.ledger.example.com/v1
+    description: Production
+  - url: https://api.staging.ledger.example.com/v1
+    description: Staging
+  - url: http://localhost:3000/v1
+    description: Local development
+
+tags:
+  - name: Accounts
+    description: Account management and balance queries
+  - name: Transfers
+    description: P2P transfers between internal accounts
+  - name: Deposits
+    description: Deposit funds from external sources
+  - name: Withdrawals
+    description: Withdraw funds to external destinations
+  - name: Payment Methods
+    description: Manage linked external payment methods
+  - name: Refunds
+    description: Refund completed transactions
+  - name: Transactions
+    description: Query transaction history
+  - name: Webhooks
+    description: Webhook subscription management
+  - name: API Tokens
+    description: Manage API tokens for programmatic access
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ============================================
+  # ACCOUNTS
+  # ============================================
+  /accounts:
+    post:
+      tags: [Accounts]
+      summary: Create a new account
+      operationId: createAccount
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAccountRequest'
+      responses:
+        '201':
+          description: Account created
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URL of the created account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+    get:
+      tags: [Accounts]
+      summary: List user's accounts
+      operationId: listAccounts
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, frozen, closed]
+      responses:
+        '200':
+          description: List of accounts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /accounts/{accountId}:
+    get:
+      tags: [Accounts]
+      summary: Get account details
+      operationId: getAccount
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      responses:
+        '200':
+          description: Account details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /accounts/{accountId}/balance:
+    get:
+      tags: [Accounts]
+      summary: Get current balance
+      operationId: getAccountBalance
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+      responses:
+        '200':
+          description: Current balance details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /accounts/{accountId}/transactions:
+    get:
+      tags: [Accounts]
+      summary: List account transactions
+      operationId: listAccountTransactions
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/TransactionType'
+        - $ref: '#/components/parameters/TransactionStatus'
+        - $ref: '#/components/parameters/CreatedAfter'
+        - $ref: '#/components/parameters/CreatedBefore'
+      responses:
+        '200':
+          description: List of transactions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================
+  # TRANSFERS
+  # ============================================
+  /transfers:
+    post:
+      tags: [Transfers]
+      summary: Initiate P2P transfer
+      description: |
+        Initiate a transfer between two internal accounts. This creates a pending
+        transfer that must be confirmed by the recipient using the confirmation token.
+
+        Flow:
+        1. Sender creates transfer (funds are held from available balance)
+        2. Sender receives confirmation_token in response
+        3. Sender passes token to recipient (out-of-band)
+        4. Recipient confirms transfer via POST /transfers/confirm
+
+        Pending transfers can be cancelled by the sender via POST /transfers/{id}/cancel.
+      operationId: createTransfer
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransferRequest'
+      responses:
+        '202':
+          description: Transfer created and pending confirmation
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URL of the created transfer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+              example:
+                id: "550e8400-e29b-41d4-a716-446655440000"
+                type: transfer
+                status: pending
+                source_account_id: "550e8400-e29b-41d4-a716-446655440001"
+                destination_account_id: "550e8400-e29b-41d4-a716-446655440002"
+                amount:
+                  amount: "10000"
+                  currency: "CREDIT"
+                confirmation_token: "txn_confirm_abc123xyz456"
+                created_at: "2026-02-06T10:00:00Z"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Validation error or insufficient funds
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+              examples:
+                insufficient_funds:
+                  $ref: '#/components/examples/InsufficientFunds'
+                same_account:
+                  $ref: '#/components/examples/SameAccount'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /transfers/{transferId}:
+    get:
+      tags: [Transfers]
+      summary: Get transfer details
+      operationId: getTransfer
+      parameters:
+        - name: transferId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Transfer details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /transfers/confirm:
+    post:
+      tags: [Transfers]
+      summary: Confirm a pending transfer
+      description: |
+        Confirm a pending transfer using the confirmation token. This endpoint must
+        be called by the recipient (destination account owner) to complete the transfer.
+
+        The confirmation token is provided to the recipient out-of-band by the sender.
+        Upon successful confirmation, held funds are transferred to the recipient's account.
+      operationId: confirmTransfer
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmTransferRequest'
+      responses:
+        '200':
+          description: Transfer confirmed and completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Caller is not the recipient of this transfer
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '404':
+          description: Transfer not found or token invalid
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          description: Transfer is not in pending status (already confirmed, cancelled, or expired)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /transfers/{transferId}/cancel:
+    post:
+      tags: [Transfers]
+      summary: Cancel a pending transfer
+      description: |
+        Cancel a pending transfer. Only the sender (source account owner) can cancel
+        a transfer, and only while it is in 'pending' status.
+
+        Upon cancellation, held funds are released back to the sender's available balance.
+      operationId: cancelTransfer
+      parameters:
+        - name: transferId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Transfer cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Caller is not the sender of this transfer
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Transfer cannot be cancelled (already confirmed, cancelled, or expired)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+
+  # ============================================
+  # DEPOSITS
+  # ============================================
+  /deposits:
+    post:
+      tags: [Deposits]
+      summary: Initiate deposit
+      description: |
+        Initiate a deposit from an external payment source. This is an asynchronous
+        operation - the response will be 202 Accepted with a Location header pointing
+        to the deposit status endpoint.
+      operationId: createDeposit
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDepositRequest'
+      responses:
+        '202':
+          description: Deposit accepted for processing
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URL to check deposit status
+            Retry-After:
+              schema:
+                type: integer
+              description: Suggested seconds before polling status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deposit'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /deposits/{depositId}:
+    get:
+      tags: [Deposits]
+      summary: Get deposit status
+      operationId: getDeposit
+      parameters:
+        - name: depositId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Deposit details
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Suggested seconds before polling again (if still pending)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deposit'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================
+  # WITHDRAWALS
+  # ============================================
+  /withdrawals:
+    post:
+      tags: [Withdrawals]
+      summary: Initiate withdrawal
+      description: |
+        Initiate a withdrawal to an external destination. Funds are held immediately
+        and the withdrawal is processed asynchronously.
+      operationId: createWithdrawal
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWithdrawalRequest'
+      responses:
+        '202':
+          description: Withdrawal accepted for processing
+          headers:
+            Location:
+              schema:
+                type: string
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Withdrawal'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: Validation error or insufficient funds
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /withdrawals/{withdrawalId}:
+    get:
+      tags: [Withdrawals]
+      summary: Get withdrawal status
+      operationId: getWithdrawal
+      parameters:
+        - name: withdrawalId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Withdrawal details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Withdrawal'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /withdrawals/{withdrawalId}/cancel:
+    post:
+      tags: [Withdrawals]
+      summary: Cancel pending withdrawal
+      description: |
+        Cancel a pending withdrawal. Only withdrawals in 'pending' status can be
+        cancelled. Held funds will be released back to available balance.
+      operationId: cancelWithdrawal
+      parameters:
+        - name: withdrawalId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Withdrawal cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Withdrawal'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Withdrawal cannot be cancelled (already processing or completed)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+
+  # ============================================
+  # PAYMENT METHODS
+  # ============================================
+  /payment-methods:
+    post:
+      tags: [Payment Methods]
+      summary: Link new payment method
+      operationId: createPaymentMethod
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentMethodRequest'
+      responses:
+        '201':
+          description: Payment method linked
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentMethod'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+    get:
+      tags: [Payment Methods]
+      summary: List payment methods
+      operationId: listPaymentMethods
+      parameters:
+        - name: account_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: provider_code
+          in: query
+          schema:
+            $ref: '#/components/schemas/ProviderCode'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: List of payment methods
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentMethodList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /payment-methods/{paymentMethodId}:
+    get:
+      tags: [Payment Methods]
+      summary: Get payment method details
+      operationId: getPaymentMethod
+      parameters:
+        - name: paymentMethodId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Payment method details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentMethod'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Payment Methods]
+      summary: Unlink payment method
+      operationId: deletePaymentMethod
+      parameters:
+        - name: paymentMethodId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Payment method unlinked
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Cannot delete - payment method has pending transactions
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+
+  /payment-methods/{paymentMethodId}/verify:
+    post:
+      tags: [Payment Methods]
+      summary: Verify payment method
+      description: |
+        Verify a payment method that requires additional verification (e.g.,
+        micro-deposit verification for bank accounts).
+      operationId: verifyPaymentMethod
+      parameters:
+        - name: paymentMethodId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyPaymentMethodRequest'
+      responses:
+        '200':
+          description: Payment method verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentMethod'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Verification failed
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+
+  # ============================================
+  # REFUNDS
+  # ============================================
+  /refunds:
+    post:
+      tags: [Refunds]
+      summary: Initiate refund
+      description: |
+        Refund a completed transaction. For P2P transfers, this reverses the
+        original transfer. For deposits, this may initiate a provider refund.
+      operationId: createRefund
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRefundRequest'
+      responses:
+        '201':
+          description: Refund completed
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Refund'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          description: Refund not allowed (already refunded, insufficient balance, etc.)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /refunds/{refundId}:
+    get:
+      tags: [Refunds]
+      summary: Get refund details
+      operationId: getRefund
+      parameters:
+        - name: refundId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Refund details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Refund'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================
+  # TRANSACTIONS (Read-only)
+  # ============================================
+  /transactions:
+    get:
+      tags: [Transactions]
+      summary: List transactions
+      description: |
+        Query transactions across all accounts owned by the authenticated user.
+        Supports filtering by type, status, date range, and account.
+      operationId: listTransactions
+      parameters:
+        - name: account_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/TransactionType'
+        - $ref: '#/components/parameters/TransactionStatus'
+        - $ref: '#/components/parameters/CreatedAfter'
+        - $ref: '#/components/parameters/CreatedBefore'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: sort
+          in: query
+          description: Sort field (prefix with - for descending)
+          schema:
+            type: string
+            enum: [created_at, -created_at, amount, -amount]
+            default: -created_at
+      responses:
+        '200':
+          description: List of transactions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /transactions/{transactionId}:
+    get:
+      tags: [Transactions]
+      summary: Get transaction details
+      operationId: getTransaction
+      parameters:
+        - name: transactionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Transaction details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================
+  # WEBHOOKS
+  # ============================================
+  /webhooks:
+    post:
+      tags: [Webhooks]
+      summary: Register webhook endpoint
+      operationId: createWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookRequest'
+      responses:
+        '201':
+          description: Webhook registered
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+    get:
+      tags: [Webhooks]
+      summary: List webhooks
+      operationId: listWebhooks
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: List of webhooks
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /webhooks/{webhookId}:
+    get:
+      tags: [Webhooks]
+      summary: Get webhook details
+      operationId: getWebhook
+      parameters:
+        - name: webhookId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Webhook details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Webhooks]
+      summary: Update webhook
+      operationId: updateWebhook
+      parameters:
+        - name: webhookId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWebhookRequest'
+      responses:
+        '200':
+          description: Webhook updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Webhook'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+    delete:
+      tags: [Webhooks]
+      summary: Delete webhook
+      operationId: deleteWebhook
+      parameters:
+        - name: webhookId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Webhook deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================
+  # API TOKENS
+  # ============================================
+  /api-tokens:
+    post:
+      tags: [API Tokens]
+      summary: Create a new API token
+      description: |
+        Create a new API token for programmatic access. The full token value is only
+        returned in this response and cannot be retrieved again.
+
+        **Important:** This endpoint requires JWT authentication. API tokens cannot
+        be used to create other API tokens.
+      operationId: createApiToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateApiTokenRequest'
+      responses:
+        '201':
+          description: Token created successfully
+          headers:
+            Location:
+              schema:
+                type: string
+              description: URL of the created token resource
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiTokenCreated'
+              example:
+                id: "550e8400-e29b-41d4-a716-446655440000"
+                token: "at_abc12345_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                prefix: "abc12345"
+                name: "CI Pipeline"
+                scopes: ["accounts:read", "transactions:read"]
+                created_at: "2026-02-07T10:00:00Z"
+                expires_at: "2026-05-08T10:00:00Z"
+                warning: "Store this token securely. It will not be shown again."
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Cannot create tokens with API token authentication
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          description: Too many tokens (maximum 25 per user)
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+
+    get:
+      tags: [API Tokens]
+      summary: List user's API tokens
+      description: |
+        List all API tokens for the authenticated user. Does not include the
+        full token value (only the prefix for identification).
+
+        **Important:** This endpoint requires JWT authentication.
+      operationId: listApiTokens
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: List of API tokens
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiTokenList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Cannot list tokens with API token authentication
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+
+  /api-tokens/{tokenId}:
+    get:
+      tags: [API Tokens]
+      summary: Get API token details
+      description: |
+        Get details of a specific API token. Does not include the full token value.
+
+        **Important:** This endpoint requires JWT authentication.
+      operationId: getApiToken
+      parameters:
+        - name: tokenId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Token details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiToken'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [API Tokens]
+      summary: Update API token
+      description: |
+        Update an API token's name. Only the token name can be updated.
+
+        **Important:** This endpoint requires JWT authentication.
+      operationId: updateApiToken
+      parameters:
+        - name: tokenId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateApiTokenRequest'
+      responses:
+        '200':
+          description: Token updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiToken'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+    delete:
+      tags: [API Tokens]
+      summary: Revoke API token
+      description: |
+        Revoke an API token. The token will immediately become invalid for
+        authentication. This operation is idempotent.
+
+        **Important:** This endpoint requires JWT authentication.
+      operationId: revokeApiToken
+      parameters:
+        - name: tokenId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevokeApiTokenRequest'
+      responses:
+        '200':
+          description: Token revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiToken'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  # ============================================
+  # HEALTH
+  # ============================================
+  /health:
+    get:
+      tags: [System]
+      summary: Health check
+      operationId: healthCheck
+      security: []
+      responses:
+        '200':
+          description: System healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: System unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+components:
+  # ============================================
+  # SECURITY SCHEMES
+  # ============================================
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Authentication via Bearer token. Two formats are accepted:
+        - **JWT token**: Standard JWT from authentication service (full access)
+        - **API token**: Long-lived token starting with `at_` prefix (scoped access)
+
+        API tokens can be created via POST /v1/api-tokens using JWT authentication.
+
+  # ============================================
+  # PARAMETERS
+  # ============================================
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Unique key to ensure idempotent request processing (UUID v4 recommended)
+      schema:
+        type: string
+        format: uuid
+        example: "550e8400-e29b-41d4-a716-446655440000"
+
+    AccountId:
+      name: accountId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+    Limit:
+      name: limit
+      in: query
+      description: Maximum number of items to return (1-100)
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+    Cursor:
+      name: cursor
+      in: query
+      description: Pagination cursor from previous response
+      schema:
+        type: string
+
+    TransactionType:
+      name: type
+      in: query
+      description: Filter by transaction type(s)
+      schema:
+        type: array
+        items:
+          $ref: '#/components/schemas/TransactionType'
+      style: form
+      explode: false
+
+    TransactionStatus:
+      name: status
+      in: query
+      description: Filter by transaction status(es)
+      schema:
+        type: array
+        items:
+          $ref: '#/components/schemas/TransactionStatus'
+      style: form
+      explode: false
+
+    CreatedAfter:
+      name: created_after
+      in: query
+      description: Filter transactions created after this timestamp
+      schema:
+        type: string
+        format: date-time
+
+    CreatedBefore:
+      name: created_before
+      in: query
+      description: Filter transactions created before this timestamp
+      schema:
+        type: string
+        format: date-time
+
+  # ============================================
+  # SCHEMAS
+  # ============================================
+  schemas:
+    # --- Common Types ---
+    Money:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          type: string
+          pattern: '^\d+$'
+          description: Amount in smallest currency unit (e.g., cents)
+          example: "10000"
+        currency:
+          type: string
+          description: Currency code
+          example: "CREDIT"
+
+    Pagination:
+      type: object
+      properties:
+        has_more:
+          type: boolean
+        next_cursor:
+          type: string
+          nullable: true
+        prev_cursor:
+          type: string
+          nullable: true
+
+    ProviderCode:
+      type: string
+      enum: [stripe, paypal, bank_transfer, crypto]
+
+    TransactionType:
+      type: string
+      enum: [transfer, deposit, withdrawal, refund, fee]
+
+    TransactionStatus:
+      type: string
+      enum: [pending, processing, completed, failed, reversed]
+
+    TransferStatus:
+      type: string
+      enum: [pending, completed, cancelled, expired]
+      description: |
+        Status of a P2P transfer:
+        - pending: Awaiting recipient confirmation (funds held)
+        - completed: Confirmed by recipient (funds transferred)
+        - cancelled: Cancelled by sender (funds released)
+        - expired: Confirmation token expired (funds released)
+
+    AccountType:
+      type: string
+      enum: [user, system, escrow]
+
+    AccountStatus:
+      type: string
+      enum: [active, frozen, closed]
+
+    PaymentMethodType:
+      type: string
+      enum: [card, bank_account, wallet, crypto]
+
+    PaymentMethodStatus:
+      type: string
+      enum: [pending_verification, verified, disabled]
+
+    # --- Account ---
+    Account:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: '#/components/schemas/AccountType'
+        status:
+          $ref: '#/components/schemas/AccountStatus'
+        balance:
+          $ref: '#/components/schemas/Money'
+        available_balance:
+          $ref: '#/components/schemas/Money'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+
+    CreateAccountRequest:
+      type: object
+      required: [type]
+      properties:
+        type:
+          $ref: '#/components/schemas/AccountType'
+        metadata:
+          type: object
+          additionalProperties: true
+
+    AccountList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Account'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    BalanceResponse:
+      type: object
+      properties:
+        account_id:
+          type: string
+          format: uuid
+        balance:
+          $ref: '#/components/schemas/Money'
+        available_balance:
+          $ref: '#/components/schemas/Money'
+        pending_deposits:
+          $ref: '#/components/schemas/Money'
+        pending_withdrawals:
+          $ref: '#/components/schemas/Money'
+        as_of:
+          type: string
+          format: date-time
+
+    # --- Transfer ---
+    Transfer:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [transfer]
+        status:
+          $ref: '#/components/schemas/TransferStatus'
+        source_account_id:
+          type: string
+          format: uuid
+        destination_account_id:
+          type: string
+          format: uuid
+        amount:
+          $ref: '#/components/schemas/Money'
+        fee:
+          $ref: '#/components/schemas/Money'
+        description:
+          type: string
+        confirmation_token:
+          type: string
+          nullable: true
+          description: |
+            Token required for recipient to confirm the transfer.
+            Only present when status is 'pending'. Sender must pass this
+            token to the recipient out-of-band.
+          example: "txn_confirm_abc123xyz456"
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when transfer was confirmed/completed
+        cancelled_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when transfer was cancelled
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Timestamp when pending transfer expires if not confirmed
+        metadata:
+          type: object
+          additionalProperties: true
+
+    CreateTransferRequest:
+      type: object
+      required: [source_account_id, destination_account_id, amount]
+      properties:
+        source_account_id:
+          type: string
+          format: uuid
+        destination_account_id:
+          type: string
+          format: uuid
+        amount:
+          $ref: '#/components/schemas/Money'
+        description:
+          type: string
+          maxLength: 500
+        metadata:
+          type: object
+          additionalProperties: true
+
+    ConfirmTransferRequest:
+      type: object
+      required: [confirmation_token]
+      properties:
+        confirmation_token:
+          type: string
+          description: |
+            The confirmation token received from the sender.
+            This token validates that the recipient is authorized to complete the transfer.
+          example: "txn_confirm_abc123xyz456"
+
+    # --- Deposit ---
+    Deposit:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/TransactionStatus'
+        account_id:
+          type: string
+          format: uuid
+        amount:
+          $ref: '#/components/schemas/Money'
+          description: Amount in source currency
+        credits_amount:
+          $ref: '#/components/schemas/Money'
+          description: Amount in internal credits
+        fee:
+          $ref: '#/components/schemas/Money'
+        net_credits:
+          $ref: '#/components/schemas/Money'
+          description: Credits after fees
+        provider_code:
+          $ref: '#/components/schemas/ProviderCode'
+        payment_method_id:
+          type: string
+          format: uuid
+        external_reference:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        estimated_completion:
+          type: string
+          format: date-time
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+
+    CreateDepositRequest:
+      type: object
+      required: [account_id, amount, payment_method_id]
+      properties:
+        account_id:
+          type: string
+          format: uuid
+        amount:
+          $ref: '#/components/schemas/Money'
+        payment_method_id:
+          type: string
+          format: uuid
+        metadata:
+          type: object
+          additionalProperties: true
+
+    # --- Withdrawal ---
+    Withdrawal:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/TransactionStatus'
+        account_id:
+          type: string
+          format: uuid
+        amount:
+          $ref: '#/components/schemas/Money'
+          description: Amount in internal credits
+        destination_amount:
+          $ref: '#/components/schemas/Money'
+          description: Amount in destination currency
+        fee:
+          $ref: '#/components/schemas/Money'
+        provider_code:
+          $ref: '#/components/schemas/ProviderCode'
+        payment_method_id:
+          type: string
+          format: uuid
+        external_reference:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        estimated_completion:
+          type: string
+          format: date-time
+          nullable: true
+        failure_reason:
+          type: string
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+
+    CreateWithdrawalRequest:
+      type: object
+      required: [account_id, amount, payment_method_id]
+      properties:
+        account_id:
+          type: string
+          format: uuid
+        amount:
+          $ref: '#/components/schemas/Money'
+        payment_method_id:
+          type: string
+          format: uuid
+        description:
+          type: string
+          maxLength: 500
+        metadata:
+          type: object
+          additionalProperties: true
+
+    # --- Payment Method ---
+    PaymentMethod:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        account_id:
+          type: string
+          format: uuid
+        provider_code:
+          $ref: '#/components/schemas/ProviderCode'
+        type:
+          $ref: '#/components/schemas/PaymentMethodType'
+        status:
+          $ref: '#/components/schemas/PaymentMethodStatus'
+        display_name:
+          type: string
+          description: Masked display name (e.g., "Visa •••• 4242")
+        is_default:
+          type: boolean
+        is_withdrawable:
+          type: boolean
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+
+    CreatePaymentMethodRequest:
+      type: object
+      required: [account_id, provider_code, type, provider_token]
+      properties:
+        account_id:
+          type: string
+          format: uuid
+        provider_code:
+          $ref: '#/components/schemas/ProviderCode'
+        type:
+          $ref: '#/components/schemas/PaymentMethodType'
+        provider_token:
+          type: string
+          description: Token from provider's client-side SDK
+        set_as_default:
+          type: boolean
+          default: false
+        metadata:
+          type: object
+          additionalProperties: true
+
+    VerifyPaymentMethodRequest:
+      type: object
+      properties:
+        amounts:
+          type: array
+          items:
+            type: integer
+          description: Micro-deposit amounts for bank account verification
+          example: [32, 45]
+        verification_code:
+          type: string
+          description: Verification code for other methods
+
+    PaymentMethodList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentMethod'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    # --- Refund ---
+    Refund:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/TransactionStatus'
+        original_transaction_id:
+          type: string
+          format: uuid
+        amount:
+          $ref: '#/components/schemas/Money'
+        reason:
+          type: string
+          enum: [customer_request, duplicate, fraudulent, other]
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    CreateRefundRequest:
+      type: object
+      required: [transaction_id]
+      properties:
+        transaction_id:
+          type: string
+          format: uuid
+        amount:
+          $ref: '#/components/schemas/Money'
+          description: Partial refund amount (omit for full refund)
+        reason:
+          type: string
+          enum: [customer_request, duplicate, fraudulent, other]
+        description:
+          type: string
+          maxLength: 500
+
+    # --- Transaction ---
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          $ref: '#/components/schemas/TransactionType'
+        status:
+          $ref: '#/components/schemas/TransactionStatus'
+        source_account_id:
+          type: string
+          format: uuid
+          nullable: true
+        destination_account_id:
+          type: string
+          format: uuid
+          nullable: true
+        amount:
+          $ref: '#/components/schemas/Money'
+        fee:
+          $ref: '#/components/schemas/Money'
+        description:
+          type: string
+        provider_code:
+          $ref: '#/components/schemas/ProviderCode'
+          nullable: true
+        external_reference:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        metadata:
+          type: object
+          additionalProperties: true
+
+    TransactionList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Transaction'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    # --- Webhook ---
+    Webhook:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [active, disabled]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateWebhookRequest:
+      type: object
+      required: [url, events]
+      properties:
+        url:
+          type: string
+          format: uri
+          description: HTTPS endpoint to receive webhook events
+        events:
+          type: array
+          items:
+            type: string
+            enum:
+              - account.created
+              - transfer.completed
+              - deposit.pending
+              - deposit.completed
+              - deposit.failed
+              - withdrawal.pending
+              - withdrawal.completed
+              - withdrawal.failed
+              - refund.completed
+              - payment_method.verified
+          minItems: 1
+        secret:
+          type: string
+          description: Shared secret for HMAC signature verification
+
+    UpdateWebhookRequest:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+        events:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum: [active, disabled]
+
+    WebhookList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Webhook'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    # --- API Token ---
+    TokenScope:
+      type: string
+      enum:
+        - accounts:read
+        - accounts:write
+        - transactions:read
+        - deposits:write
+        - withdrawals:write
+        - transfers:write
+        - payment-methods:read
+        - payment-methods:write
+      description: Available permission scopes for API tokens
+
+    ApiToken:
+      type: object
+      description: API token details (without the full token value)
+      properties:
+        id:
+          type: string
+          format: uuid
+        prefix:
+          type: string
+          description: First 8 characters of the token (for identification)
+          example: "abc12345"
+        name:
+          type: string
+          description: User-provided name for the token
+          example: "CI Pipeline"
+        scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/TokenScope'
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the token expires (null if non-expiring)
+        last_used_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last time the token was used for authentication
+        last_used_ip:
+          type: string
+          nullable: true
+          description: IP address from which the token was last used
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the token was revoked (null if active)
+        revoked_reason:
+          type: string
+          nullable: true
+          description: Reason for revocation
+
+    ApiTokenCreated:
+      type: object
+      description: Response when creating a new API token (includes full token value)
+      properties:
+        id:
+          type: string
+          format: uuid
+        token:
+          type: string
+          description: |
+            The full API token value. This is the ONLY time it will be shown.
+            Store it securely - it cannot be retrieved again.
+          example: "at_abc12345_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        prefix:
+          type: string
+          example: "abc12345"
+        name:
+          type: string
+        scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/TokenScope'
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        warning:
+          type: string
+          description: Security reminder to store the token securely
+
+    CreateApiTokenRequest:
+      type: object
+      required: [name, scopes]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Human-readable name for the token
+          example: "CI Pipeline"
+        scopes:
+          type: array
+          items:
+            $ref: '#/components/schemas/TokenScope'
+          minItems: 1
+          maxItems: 10
+          description: Permissions granted to this token
+        expires_in_days:
+          type: integer
+          minimum: 1
+          maximum: 365
+          description: Token expiration in days (omit for non-expiring)
+          example: 90
+
+    UpdateApiTokenRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: New name for the token
+
+    RevokeApiTokenRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 500
+          description: Optional reason for revocation
+          example: "Token compromised"
+
+    ApiTokenList:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApiToken'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    # --- Error ---
+    ProblemDetails:
+      type: object
+      description: RFC 9457 Problem Details
+      properties:
+        type:
+          type: string
+          format: uri
+          description: URI reference identifying the problem type
+        title:
+          type: string
+          description: Short human-readable summary
+        status:
+          type: integer
+          description: HTTP status code
+        detail:
+          type: string
+          description: Human-readable explanation specific to this occurrence
+        instance:
+          type: string
+          description: URI reference identifying the specific occurrence
+        trace_id:
+          type: string
+          description: Request trace ID for debugging
+      additionalProperties: true
+
+    # --- Health ---
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        version:
+          type: string
+        checks:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              status:
+                type: string
+                enum: [healthy, degraded, unhealthy]
+              latency_ms:
+                type: integer
+              message:
+                type: string
+
+  # ============================================
+  # RESPONSES
+  # ============================================
+  responses:
+    BadRequest:
+      description: Malformed request
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+
+    Forbidden:
+      description: Access denied
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+
+    ValidationError:
+      description: Validation error
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ProblemDetails'
+              - type: object
+                properties:
+                  errors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        field:
+                          type: string
+                        message:
+                          type: string
+
+    RateLimited:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds to wait before retrying
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+        X-RateLimit-Reset:
+          schema:
+            type: integer
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetails'
+
+  # ============================================
+  # EXAMPLES
+  # ============================================
+  examples:
+    InsufficientFunds:
+      value:
+        type: "https://api.ledger.example.com/problems/insufficient-funds"
+        title: "Insufficient Funds"
+        status: 422
+        detail: "Account acc_abc123 has insufficient available balance. Required: 1000 CREDIT, Available: 500 CREDIT."
+        instance: "/v1/transfers"
+        account_id: "acc_abc123"
+        required_amount: "1000"
+        available_amount: "500"
+
+    SameAccount:
+      value:
+        type: "https://api.ledger.example.com/problems/validation-error"
+        title: "Validation Error"
+        status: 422
+        detail: "Cannot transfer to the same account."
+        instance: "/v1/transfers"
