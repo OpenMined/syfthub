@@ -71,9 +71,9 @@ CMD uv pip install -e . -e /sdk/python --python .venv/bin/python && \
     --factory
 
 # ==============================================================================
-# Production stage - SDK baked into image
+# Builder stage - install dependencies in base with build tools
 # Build with: context: . (repository root)
-FROM base AS production
+FROM base AS builder
 
 # Copy SDK from repository root (build context must be .)
 COPY --chown=syfthub:syfthub sdk/python /sdk/python
@@ -89,22 +89,46 @@ USER syfthub
 RUN uv venv .venv && \
     uv pip install -e . -e /sdk/python --python .venv/bin/python
 
+# ==============================================================================
+# Production stage - fresh slim image without build tools (gcc, git)
+# Build with: context: . (repository root)
+FROM python:3.12-slim AS production
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    ENVIRONMENT=production \
+    LOG_LEVEL=info \
+    MCP_PORT=8002
+
+# Install uv for runtime (no gcc, git, or curl needed)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Create non-root user
+RUN useradd -m -u 1000 syfthub && \
+    mkdir -p /app /sdk/python && \
+    chown -R syfthub:syfthub /app /sdk
+
+WORKDIR /app
+
+# Copy virtual environment and SDK from builder
+COPY --from=builder --chown=syfthub:syfthub /app/.venv /app/.venv
+COPY --from=builder --chown=syfthub:syfthub /sdk/python /sdk/python
+
 # Copy source code
 COPY --chown=syfthub:syfthub mcp/server.py ./
 COPY --chown=syfthub:syfthub mcp/syfthub_client.py ./
 COPY --chown=syfthub:syfthub mcp/fastmcp.json ./
 
-# Environment variables for production
+# Switch to non-root user
+USER syfthub
+
+# Health check (using Python instead of curl to avoid extra dependency)
 # RSA_PRIVATE_KEY: Base64-encoded PEM private key for JWT signing (REQUIRED for multi-worker)
 # Generate with: python -c "from cryptography.hazmat.primitives.asymmetric import rsa; from cryptography.hazmat.primitives import serialization; import base64; k=rsa.generate_private_key(65537,2048); print(base64.b64encode(k.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption())).decode())"
-ENV ENVIRONMENT=production \
-    LOG_LEVEL=info \
-    MCP_PORT=8002
-    # RSA_PRIVATE_KEY should be set via docker-compose or orchestrator secrets
-
-# Health check
+# RSA_PRIVATE_KEY should be set via docker-compose or orchestrator secrets
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8002/health || exit 1
+    CMD .venv/bin/python -c "import urllib.request; urllib.request.urlopen('http://localhost:8002/health', timeout=5)" || exit 1
 
 # Expose port
 EXPOSE 8002

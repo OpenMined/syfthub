@@ -1,0 +1,80 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+env/
+venv/
+.venv/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.hypothesis/
+test-results/
+
+# Type checking
+.mypy_cache/
+.ruff_cache/
+
+# Development
+*.swp
+*.swo
+*~
+.DS_Store
+.idea/
+.vscode/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+*.egg
+wheels/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# Logs
+*.log
+logs/
+
+# Git
+.git/
+.gitignore
+.github/
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Environment files (keep .env.example)
+.env
+.env.*
+!.env.example
+
+# Documentation (README.md needed for build)
+CONTRIBUTING.md
+CHANGELOG.md
+
+# Tests (excluded in production build)
+tests/
+conftest.py
+pytest.ini
+
+# Secrets
+secrets/
+*.key
+*.pem

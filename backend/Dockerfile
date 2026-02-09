@@ -135,10 +135,9 @@ ENV PYTHONUNBUFFERED=1 \
     ENVIRONMENT=production \
     LOG_LEVEL=info
 
-# Install runtime dependencies only
+# Install runtime dependencies only (libpq5 for PostgreSQL, not libpq-dev)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev \
-    curl \
+    libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast package installation
@@ -164,9 +163,9 @@ RUN mkdir -p /app/data && \
 # Switch to non-root user
 USER syfthub
 
-# Health check
+# Health check (using Python instead of curl to avoid extra dependency)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD .venv/bin/python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)" || exit 1
 
 # Expose port
 EXPOSE 8000
@@ -190,10 +189,9 @@ ENV PYTHONUNBUFFERED=1 \
     ENVIRONMENT=production \
     LOG_LEVEL=info
 
-# Install Alpine packages
+# Install Alpine packages (runtime only, no curl - using Python for health checks)
 RUN apk add --no-cache \
     libpq \
-    curl \
     && apk add --no-cache --virtual .build-deps \
     gcc \
     musl-dev \
@@ -224,9 +222,9 @@ RUN mkdir -p /app/data && \
 # Switch to non-root user
 USER syfthub
 
-# Health check
+# Health check (using Python instead of curl to avoid extra dependency)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD .venv/bin/python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)" || exit 1
 
 # Expose port
 EXPOSE 8000
