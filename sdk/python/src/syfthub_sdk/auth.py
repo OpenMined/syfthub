@@ -5,7 +5,12 @@ from __future__ import annotations
 import concurrent.futures
 from typing import TYPE_CHECKING
 
-from syfthub_sdk.models import AuthTokens, SatelliteTokenResponse, User
+from syfthub_sdk.models import (
+    AuthTokens,
+    PeerTokenResponse,
+    SatelliteTokenResponse,
+    User,
+)
 
 if TYPE_CHECKING:
     from syfthub_sdk._http import HTTPClient
@@ -339,6 +344,32 @@ class AuthResource:
                 token_map[aud] = token
 
         return token_map
+
+    def get_peer_token(self, target_usernames: list[str]) -> PeerTokenResponse:
+        """Get a peer token for NATS communication with tunneling spaces.
+
+        Peer tokens are short-lived credentials that allow the aggregator to
+        communicate with tunneling SyftAI Spaces via NATS pub/sub.
+
+        Args:
+            target_usernames: Usernames of the tunneling spaces to communicate with
+
+        Returns:
+            PeerTokenResponse with token, channel, expiry, and NATS URL
+
+        Raises:
+            AuthenticationError: If not authenticated
+
+        Example:
+            peer = client.auth.get_peer_token(["alice", "bob"])
+            print(f"Peer channel: {peer.peer_channel}, expires in {peer.expires_in}s")
+        """
+        response = self._http.post(
+            "/api/v1/peer-token",
+            json={"target_usernames": target_usernames},
+        )
+        data = response if isinstance(response, dict) else {}
+        return PeerTokenResponse.model_validate(data)
 
     def get_transaction_tokens(
         self, owner_usernames: list[str]

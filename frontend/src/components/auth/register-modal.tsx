@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import type { RegisterFormValues } from '@/lib/schemas';
+import type { CredentialResponse } from '@react-oauth/google';
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { GoogleLogin } from '@react-oauth/google';
@@ -263,7 +264,7 @@ export function RegisterModal({
 
             <div className='flex justify-center'>
               <GoogleLogin
-                onSuccess={(credentialResponse) => {
+                onSuccess={(credentialResponse: CredentialResponse) => {
                   if (credentialResponse.credential) {
                     void loginWithGoogle(credentialResponse.credential).then(() => {
                       onClose();

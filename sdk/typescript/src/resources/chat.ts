@@ -243,6 +243,30 @@ export class ChatResource {
     );
   }
 
+  private static readonly TUNNELING_PREFIX = 'tunneling:';
+
+  /**
+   * Check if any endpoints use tunneling URLs and extract target usernames.
+   */
+  private collectTunnelingUsernames(
+    modelRef: EndpointRef,
+    dataSourceRefs: EndpointRef[]
+  ): string[] {
+    const usernames = new Set<string>();
+
+    if (modelRef.url.startsWith(ChatResource.TUNNELING_PREFIX)) {
+      usernames.add(modelRef.url.slice(ChatResource.TUNNELING_PREFIX.length));
+    }
+
+    for (const ds of dataSourceRefs) {
+      if (ds.url.startsWith(ChatResource.TUNNELING_PREFIX)) {
+        usernames.add(ds.url.slice(ChatResource.TUNNELING_PREFIX.length));
+      }
+    }
+
+    return [...usernames];
+  }
+
   /**
    * Build the request body for the aggregator.
    * Includes endpoint_tokens mapping for satellite token authentication.
@@ -262,6 +286,8 @@ export class ChatResource {
       similarityThreshold?: number;
       stream?: boolean;
       messages?: Message[];
+      peerToken?: string;
+      peerChannel?: string;
     }
   ): Record<string, unknown> {
     const body: Record<string, unknown> = {
@@ -291,6 +317,15 @@ export class ChatResource {
     if (options.messages && options.messages.length > 0) {
       body.messages = options.messages.map((m) => ({ role: m.role, content: m.content }));
     }
+
+    // Include peer token fields for NATS tunneling
+    if (options.peerToken) {
+      body['peer_token'] = options.peerToken;
+    }
+    if (options.peerChannel) {
+      body['peer_channel'] = options.peerChannel;
+    }
+
     return body;
   }
 
@@ -399,6 +434,18 @@ export class ChatResource {
       ? {}
       : await this.getTransactionTokensForOwners(uniqueOwners);
 
+    // Auto-fetch peer token if tunneling endpoints detected
+    let peerToken = options.peerToken;
+    let peerChannel = options.peerChannel;
+    if (!peerToken) {
+      const tunnelingUsernames = this.collectTunnelingUsernames(modelRef, dsRefs);
+      if (tunnelingUsernames.length > 0) {
+        const peerResponse = await this.auth.getPeerToken(tunnelingUsernames);
+        peerToken = peerResponse.peerToken;
+        peerChannel = peerResponse.peerChannel;
+      }
+    }
+
     const requestBody = this.buildRequestBody(
       options.prompt,
       modelRef,
@@ -412,6 +459,8 @@ export class ChatResource {
         similarityThreshold: options.similarityThreshold,
         stream: false,
         messages: options.messages,
+        peerToken,
+        peerChannel,
       }
     );
 
@@ -497,6 +546,18 @@ export class ChatResource {
       ? {}
       : await this.getTransactionTokensForOwners(uniqueOwners);
 
+    // Auto-fetch peer token if tunneling endpoints detected
+    let peerToken = options.peerToken;
+    let peerChannel = options.peerChannel;
+    if (!peerToken) {
+      const tunnelingUsernames = this.collectTunnelingUsernames(modelRef, dsRefs);
+      if (tunnelingUsernames.length > 0) {
+        const peerResponse = await this.auth.getPeerToken(tunnelingUsernames);
+        peerToken = peerResponse.peerToken;
+        peerChannel = peerResponse.peerChannel;
+      }
+    }
+
     const requestBody = this.buildRequestBody(
       options.prompt,
       modelRef,
@@ -510,6 +571,8 @@ export class ChatResource {
         similarityThreshold: options.similarityThreshold,
         stream: true,
         messages: options.messages,
+        peerToken,
+        peerChannel,
       }
     );
 

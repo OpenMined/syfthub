@@ -1,4 +1,4 @@
-.PHONY: help setup dev stop test check logs
+.PHONY: help setup dev stop test test-integration check logs
 
 # =============================================================================
 # SyftHub Development Commands
@@ -64,21 +64,42 @@ test:  ## Run all tests
 	@echo 'Running backend tests...'
 	@cd backend && uv run python -m pytest
 	@echo ''
+	@echo 'Running aggregator tests...'
+	@cd aggregator && uv run python -m pytest
+	@echo ''
+	@echo 'Running syfthub-api tests...'
+	@cd syfthub-api && uv run pytest tests/ -v
+	@echo ''
 	@echo 'Running frontend tests...'
 	@cd frontend && npm run test --if-present || echo 'Frontend tests skipped (playwright not configured)'
 	@echo ''
 	@echo 'Running SDK tests...'
-	@echo 'Python SDK dev tests...'
-	@cd sdk/python && uv run pytest tests/dev/ -v || echo 'Python SDK dev tests skipped (dev server not available)'
+	@echo 'Python SDK unit tests...'
+	@cd sdk/python && uv run pytest tests/unit/ -v
 	@echo ''
-	@echo 'TypeScript SDK dev tests...'
-	@cd sdk/typescript && npm run test:dev || echo 'TypeScript SDK dev tests skipped (dev server not available)'
+	@echo 'TypeScript SDK unit tests...'
+	@cd sdk/typescript && npx vitest run --exclude 'tests/integration/**' || echo 'TypeScript SDK tests skipped'
+
+test-integration:  ## Run integration tests (requires dev server running)
+	@echo 'Running SDK integration tests...'
+	@echo '(Requires: make dev to be running)'
+	@echo ''
+	@echo 'Python SDK integration tests...'
+	@cd sdk/python && uv run pytest tests/integration/ -v
+	@echo ''
+	@echo 'TypeScript SDK integration tests...'
+	@cd sdk/typescript && npx vitest run tests/integration/
 
 check:  ## Run code quality checks
 	@echo 'Backend checks...'
 	@cd backend && uv run ruff check src/ tests/
 	@cd backend && uv run ruff format --check src/ tests/
 	@cd backend && uv run python -m mypy src/ || true
+	@echo ''
+	@echo 'SyftHub API checks...'
+	@cd syfthub-api && uv run ruff check src/ tests/
+	@cd syfthub-api && uv run ruff format --check src/ tests/
+	@cd syfthub-api && uv run mypy src/syfthub_api/ --ignore-missing-imports
 	@echo ''
 	@echo 'Frontend checks...'
 	@cd frontend && npm run lint --if-present || true

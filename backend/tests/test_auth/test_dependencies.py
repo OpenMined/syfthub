@@ -4,7 +4,7 @@ from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials
 
 from syfthub.auth.db_dependencies import (
@@ -17,6 +17,7 @@ from syfthub.auth.db_dependencies import (
     get_user_by_id,
     get_user_by_username,
 )
+from syfthub.repositories.api_token import APITokenRepository
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.user import User
@@ -47,6 +48,23 @@ def mock_user_repo(sample_user):
     repo.get_by_username.return_value = sample_user
     repo.get_by_email.return_value = sample_user
     return repo
+
+
+@pytest.fixture
+def mock_api_token_repo():
+    """Create a mock APITokenRepository for testing."""
+    repo = MagicMock(spec=APITokenRepository)
+    repo.get_by_hash.return_value = None
+    return repo
+
+
+@pytest.fixture
+def mock_request():
+    """Create a mock Request for testing."""
+    request = MagicMock(spec=Request)
+    request.client = MagicMock()
+    request.client.host = "127.0.0.1"
+    return request
 
 
 class TestUserHelperFunctions:
@@ -145,36 +163,50 @@ class TestAsyncAuthFunctions:
     """Test async authentication functions."""
 
     @pytest.mark.asyncio
-    async def test_get_current_user_no_credentials(self, mock_user_repo):
+    async def test_get_current_user_no_credentials(
+        self, mock_user_repo, mock_api_token_repo, mock_request
+    ):
         """Test get_current_user with no credentials."""
         with pytest.raises(HTTPException) as exc_info:
-            await get_current_user(None, mock_user_repo)
+            await get_current_user(
+                None, mock_user_repo, mock_api_token_repo, mock_request
+            )
         assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_get_current_user_invalid_token(self, mock_user_repo):
+    async def test_get_current_user_invalid_token(
+        self, mock_user_repo, mock_api_token_repo, mock_request
+    ):
         """Test get_current_user with invalid token."""
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer", credentials="invalid_token"
         )
         with patch("syfthub.auth.db_dependencies.verify_token", return_value=None):
             with pytest.raises(HTTPException) as exc_info:
-                await get_current_user(credentials, mock_user_repo)
+                await get_current_user(
+                    credentials, mock_user_repo, mock_api_token_repo, mock_request
+                )
             assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_get_current_user_no_sub_claim(self, mock_user_repo):
+    async def test_get_current_user_no_sub_claim(
+        self, mock_user_repo, mock_api_token_repo, mock_request
+    ):
         """Test get_current_user with token missing sub claim."""
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer", credentials="valid_token"
         )
         with patch("syfthub.auth.db_dependencies.verify_token", return_value={}):
             with pytest.raises(HTTPException) as exc_info:
-                await get_current_user(credentials, mock_user_repo)
+                await get_current_user(
+                    credentials, mock_user_repo, mock_api_token_repo, mock_request
+                )
             assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_get_current_user_invalid_user_id(self, mock_user_repo):
+    async def test_get_current_user_invalid_user_id(
+        self, mock_user_repo, mock_api_token_repo, mock_request
+    ):
         """Test get_current_user with invalid user ID in token."""
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer", credentials="valid_token"
@@ -183,11 +215,15 @@ class TestAsyncAuthFunctions:
             "syfthub.auth.db_dependencies.verify_token", return_value={"sub": "invalid"}
         ):
             with pytest.raises(HTTPException) as exc_info:
-                await get_current_user(credentials, mock_user_repo)
+                await get_current_user(
+                    credentials, mock_user_repo, mock_api_token_repo, mock_request
+                )
             assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_get_current_user_user_not_found(self, mock_user_repo):
+    async def test_get_current_user_user_not_found(
+        self, mock_user_repo, mock_api_token_repo, mock_request
+    ):
         """Test get_current_user with user not found in database."""
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer", credentials="valid_token"
@@ -198,11 +234,15 @@ class TestAsyncAuthFunctions:
             "syfthub.auth.db_dependencies.verify_token", return_value={"sub": "999"}
         ):
             with pytest.raises(HTTPException) as exc_info:
-                await get_current_user(credentials, mock_user_repo)
+                await get_current_user(
+                    credentials, mock_user_repo, mock_api_token_repo, mock_request
+                )
             assert exc_info.value.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_get_current_user_success(self, mock_user_repo, sample_user):
+    async def test_get_current_user_success(
+        self, mock_user_repo, mock_api_token_repo, mock_request, sample_user
+    ):
         """Test get_current_user success case."""
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer", credentials="valid_token"
@@ -210,7 +250,9 @@ class TestAsyncAuthFunctions:
         with patch(
             "syfthub.auth.db_dependencies.verify_token", return_value={"sub": "1"}
         ):
-            user = await get_current_user(credentials, mock_user_repo)
+            user = await get_current_user(
+                credentials, mock_user_repo, mock_api_token_repo, mock_request
+            )
             assert user == sample_user
 
     @pytest.mark.asyncio
@@ -245,23 +287,33 @@ class TestAsyncAuthFunctions:
         assert user == sample_user
 
     @pytest.mark.asyncio
-    async def test_get_optional_current_user_no_credentials(self, mock_user_repo):
+    async def test_get_optional_current_user_no_credentials(
+        self, mock_user_repo, mock_api_token_repo, mock_request
+    ):
         """Test get_optional_current_user with no credentials."""
-        user = await get_optional_current_user(None, mock_user_repo)
+        user = await get_optional_current_user(
+            None, mock_user_repo, mock_api_token_repo, mock_request
+        )
         assert user is None
 
     @pytest.mark.asyncio
-    async def test_get_optional_current_user_invalid_token(self, mock_user_repo):
+    async def test_get_optional_current_user_invalid_token(
+        self, mock_user_repo, mock_api_token_repo, mock_request
+    ):
         """Test get_optional_current_user with invalid token."""
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer", credentials="invalid_token"
         )
         with patch("syfthub.auth.db_dependencies.verify_token", return_value=None):
-            user = await get_optional_current_user(credentials, mock_user_repo)
+            user = await get_optional_current_user(
+                credentials, mock_user_repo, mock_api_token_repo, mock_request
+            )
             assert user is None
 
     @pytest.mark.asyncio
-    async def test_get_optional_current_user_success(self, mock_user_repo, sample_user):
+    async def test_get_optional_current_user_success(
+        self, mock_user_repo, mock_api_token_repo, mock_request, sample_user
+    ):
         """Test get_optional_current_user success case."""
         credentials = HTTPAuthorizationCredentials(
             scheme="Bearer", credentials="valid_token"
@@ -269,5 +321,7 @@ class TestAsyncAuthFunctions:
         with patch(
             "syfthub.auth.db_dependencies.verify_token", return_value={"sub": "1"}
         ):
-            user = await get_optional_current_user(credentials, mock_user_repo)
+            user = await get_optional_current_user(
+                credentials, mock_user_repo, mock_api_token_repo, mock_request
+            )
             assert user == sample_user

@@ -286,6 +286,136 @@ describe('ChatResource', () => {
     });
   });
 
+  describe('tunneling detection', () => {
+    it('should auto-fetch peer token for tunneling endpoints', async () => {
+      const mockPeerTokenResponse = {
+        peerToken: 'pt_test123',
+        peerChannel: 'peer_abc',
+        expiresIn: 120,
+        natsUrl: 'ws://localhost:8080/nats',
+      };
+
+      mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+        if (url.includes('/api/v1/auth/me')) {
+          return new Response(JSON.stringify(mockUserResponse), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/v1/peer-token')) {
+          return new Response(JSON.stringify(mockPeerTokenResponse), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/chat') && !url.includes('/stream')) {
+          // Verify peer token is included in request body
+          const body = JSON.parse(init?.body as string);
+          expect(body.peer_token).toBe('pt_test123');
+          expect(body.peer_channel).toBe('peer_abc');
+          return new Response(JSON.stringify(mockChatResponse), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      const modelRef: EndpointRef = {
+        url: 'tunneling:alice',
+        slug: 'test-model',
+        name: 'Tunneled Model',
+        ownerUsername: 'alice',
+      };
+
+      const response = await client.chat.complete({
+        prompt: 'Hello via tunnel',
+        model: modelRef,
+      });
+
+      expect(response.response).toContain('Machine learning');
+
+      // Verify peer-token endpoint was called
+      const peerTokenCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => (call[0] as string).includes('/api/v1/peer-token')
+      );
+      expect(peerTokenCall).toBeDefined();
+    });
+
+    it('should not fetch peer token for non-tunneling endpoints', async () => {
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url.includes('/api/v1/auth/me')) {
+          return new Response(JSON.stringify(mockUserResponse), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/chat') && !url.includes('/stream')) {
+          return new Response(JSON.stringify(mockChatResponse), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      const modelRef: EndpointRef = {
+        url: 'http://syftai:8080',
+        slug: 'test-model',
+      };
+
+      await client.chat.complete({
+        prompt: 'Hello',
+        model: modelRef,
+      });
+
+      // Verify peer-token endpoint was NOT called
+      const peerTokenCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => (call[0] as string).includes('/api/v1/peer-token')
+      );
+      expect(peerTokenCall).toBeUndefined();
+    });
+
+    it('should use provided peer token instead of auto-fetching', async () => {
+      mockFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+        if (url.includes('/api/v1/auth/me')) {
+          return new Response(JSON.stringify(mockUserResponse), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/chat') && !url.includes('/stream')) {
+          const body = JSON.parse(init?.body as string);
+          expect(body.peer_token).toBe('custom_token');
+          expect(body.peer_channel).toBe('custom_channel');
+          return new Response(JSON.stringify(mockChatResponse), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      const modelRef: EndpointRef = {
+        url: 'tunneling:alice',
+        slug: 'test-model',
+      };
+
+      await client.chat.complete({
+        prompt: 'Hello',
+        model: modelRef,
+        peerToken: 'custom_token',
+        peerChannel: 'custom_channel',
+      });
+
+      // Verify peer-token endpoint was NOT called (since token was provided)
+      const peerTokenCall = mockFetch.mock.calls.find(
+        (call: unknown[]) => (call[0] as string).includes('/api/v1/peer-token')
+      );
+      expect(peerTokenCall).toBeUndefined();
+    });
+  });
+
   describe('getAvailableDataSources()', () => {
     it('should return data source endpoints with URLs', async () => {
       const endpoints = [
