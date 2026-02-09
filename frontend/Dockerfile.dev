@@ -1,4 +1,5 @@
 # Development Dockerfile for SyftHub Frontend
+# Optimized for use with docker-compose volume mounts
 FROM node:20-alpine
 
 # Set working directory
@@ -7,14 +8,19 @@ WORKDIR /app
 # Copy SDK first (required for file: dependency resolution)
 COPY sdk/typescript /sdk/typescript
 
-# Copy frontend package files
+# Copy frontend package files only (source code is volume-mounted in docker-compose)
 COPY frontend/package*.json ./
 
-# Install dependencies (SDK is now available at ../sdk/typescript)
-RUN npm ci
+# Install dependencies with retry settings for reliability
+RUN npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm ci && \
+    npm cache clean --force
 
-# Copy frontend source code
-COPY frontend/ .
+# Copy only essential config files (source is volume-mounted)
+# These are copied in case volume mounts aren't used
+COPY frontend/vite.config.ts frontend/tsconfig.json frontend/tailwind.config.js ./
+COPY frontend/index.html ./
 
 # Expose development server port
 EXPOSE 3000

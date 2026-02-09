@@ -58,7 +58,8 @@ USER root
 # Install development dependencies
 RUN uv pip install -e ".[dev]" --python .venv/bin/python
 
-# Install additional dev tools
+# Install additional dev tools (optional - useful for debugging inside container)
+# Remove this block if you don't need these tools to reduce image size by ~50MB
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     make \

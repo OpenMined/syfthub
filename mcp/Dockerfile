@@ -15,10 +15,10 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Install system dependencies
+# Install system dependencies (gcc for compiling, git for pip git installs)
+# Note: curl removed - using Python for health checks
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
-    curl \
     git \
     && rm -rf /var/lib/apt/lists/*
 
