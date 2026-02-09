@@ -74,39 +74,47 @@ class CreateTransferRequest(BaseModel):
     )
 
 
+class OwnerAmountRequest(BaseModel):
+    """Per-owner amount for transaction token creation."""
+
+    owner_username: str = Field(..., description="Endpoint owner username")
+    amount: str = Field(..., description="Amount to pre-authorize for this owner")
+
+
 class CreateTransactionTokensRequest(BaseModel):
     """Request to create transaction tokens (confirmation tokens) for endpoint owners.
 
     Used by the chat flow to pre-authorize payments to endpoint owners.
+    Each owner can have a different amount based on their endpoint's pricing policy.
     This creates pending transfers that the endpoint owners can confirm.
     """
 
-    owner_usernames: list[str] = Field(
+    requests: list[OwnerAmountRequest] = Field(
         ...,
-        description="List of endpoint owner usernames to create tokens for",
+        description="List of owner/amount pairs for token creation",
         min_length=1,
         max_length=20,
     )
-    amount: str = Field(
-        ...,
-        description="Amount to pre-authorize per owner",
-    )
+
+
+class TokenInfo(BaseModel):
+    """Token information including the confirmation token and amount."""
+
+    token: str = Field(..., description="Confirmation token for the pending transfer")
+    amount: str = Field(..., description="Amount pre-authorized in this transfer")
+    transfer_id: str = Field(..., description="Transfer ID (for cancellation)")
 
 
 class TransactionTokensResponse(BaseModel):
     """Response containing confirmation tokens for endpoint owners.
 
-    Maps owner_username to their confirmation token (for pending transfers).
-    The token can be used by the endpoint owner to confirm the transfer.
+    Maps owner_username to their token info (token + amount).
+    The endpoint can verify the amount matches their pricing before confirming.
     """
 
-    tokens: dict[str, str] = Field(
+    tokens: dict[str, TokenInfo] = Field(
         default_factory=dict,
-        description="Mapping of owner_username to confirmation token",
-    )
-    transfer_ids: dict[str, str] = Field(
-        default_factory=dict,
-        description="Mapping of owner_username to transfer ID (for cancellation)",
+        description="Mapping of owner_username to token info (token, amount, transfer_id)",
     )
     errors: dict[str, str] = Field(
         default_factory=dict,
@@ -355,21 +363,23 @@ async def create_transaction_tokens(
     This endpoint is used by the chat flow to pre-authorize payments to
     endpoint owners before making requests to their endpoints.
 
-    For each owner username:
-    1. Looks up the owner's accounting account ID from the database
-    2. Creates a pending transfer to the owner's account
-    3. Returns the confirmation token (or error) for each owner
+    Each owner can have a different amount based on their endpoint's pricing.
+    The amount is extracted from the endpoint's TransactionPolicy by the SDK.
 
-    The confirmation tokens can be passed to the aggregator/Space, which
-    can then confirm the transfer after the request completes.
+    For each owner/amount pair:
+    1. Looks up the owner's accounting account ID from the database
+    2. Creates a pending transfer to the owner's account for the specified amount
+    3. Returns the token info (token + amount) for each owner
+
+    The endpoint can verify the amount matches their pricing before confirming.
 
     Args:
-        request: List of owner usernames and the amount to pre-authorize
+        request: List of owner/amount pairs for token creation
         current_user: The authenticated user (will be charged)
         user_repo: Repository for looking up user accounts
 
     Returns:
-        TransactionTokensResponse with confirmation tokens and any errors
+        TransactionTokensResponse with token info and any errors
     """
     # Check if current user has accounting configured
     if not current_user.accounting_service_url or not current_user.accounting_api_token:
@@ -388,12 +398,14 @@ async def create_transaction_tokens(
         api_token=current_user.accounting_api_token,
     )
 
-    tokens: dict[str, str] = {}
-    transfer_ids: dict[str, str] = {}
+    tokens: dict[str, TokenInfo] = {}
     errors: dict[str, str] = {}
 
     try:
-        for owner_username in request.owner_usernames:
+        for req in request.requests:
+            owner_username = req.owner_username
+            amount = req.amount
+
             # Skip if we've already processed this username (handle duplicates)
             if owner_username in tokens or owner_username in errors:
                 continue
@@ -416,12 +428,12 @@ async def create_transaction_tokens(
                 )
                 continue
 
-            # Create pending transfer to this owner
+            # Create pending transfer to this owner with their specific amount
             try:
                 result = client.create_transfer(
                     source_account_id=current_user.accounting_account_id,
                     destination_account_id=owner.accounting_account_id,
-                    amount=request.amount,
+                    amount=amount,
                     description=f"Payment to {owner_username}",
                     require_confirmation=True,
                 )
@@ -429,10 +441,14 @@ async def create_transaction_tokens(
                 if result.success:
                     transfer: LedgerTransfer = result.data  # type: ignore[assignment]
                     if transfer.confirmation_token:
-                        tokens[owner_username] = transfer.confirmation_token
-                        transfer_ids[owner_username] = transfer.id
+                        tokens[owner_username] = TokenInfo(
+                            token=transfer.confirmation_token,
+                            amount=amount,
+                            transfer_id=transfer.id,
+                        )
                         logger.debug(
-                            f"Created confirmation token for owner '{owner_username}'"
+                            f"Created confirmation token for owner '{owner_username}' "
+                            f"with amount {amount}"
                         )
                     else:
                         errors[owner_username] = "No confirmation token returned"
@@ -448,7 +464,6 @@ async def create_transaction_tokens(
 
         return TransactionTokensResponse(
             tokens=tokens,
-            transfer_ids=transfer_ids,
             errors=errors,
         )
 
