@@ -13,6 +13,38 @@ interface AuthResponse {
 }
 
 /**
+ * Request for creating a transaction token for a single owner.
+ */
+export interface OwnerAmountRequest {
+  /** Endpoint owner username */
+  ownerUsername: string;
+  /** Amount to pre-authorize (from endpoint's pricing policy) */
+  amount: string;
+}
+
+/**
+ * Token info returned for each owner.
+ */
+export interface TokenInfo {
+  /** Confirmation token for the pending transfer */
+  token: string;
+  /** Amount pre-authorized in this transfer */
+  amount: string;
+  /** Transfer ID (for cancellation) */
+  transfer_id: string;
+}
+
+/**
+ * Response from transaction tokens endpoint.
+ */
+export interface TransactionTokensResponse {
+  /** Mapping of owner_username to token info (token, amount, transfer_id) */
+  tokens: Record<string, TokenInfo>;
+  /** Mapping of owner_username to error message (for failed tokens) */
+  errors: Record<string, string>;
+}
+
+/**
  * Authentication resource for login, register, and session management.
  *
  * @example
@@ -328,35 +360,55 @@ export class AuthResource {
   /**
    * Get transaction tokens for multiple endpoint owners.
    *
-   * Transaction tokens are short-lived JWTs that pre-authorize the endpoint owner
-   * (recipient) to charge the current user (sender) for usage. These tokens are
-   * created via the accounting service and passed to the aggregator.
+   * Transaction tokens are confirmation tokens for pending transfers that
+   * pre-authorize endpoint owners (recipients) to charge the current user
+   * (sender) for usage. Each owner can have a different amount based on
+   * their endpoint's pricing policy.
    *
    * This is used by the chat flow to enable billing for endpoint usage.
    *
-   * @param ownerUsernames - Array of endpoint owner usernames
-   * @returns TransactionTokensResponse with tokens map and any errors
+   * @param ownerAmounts - Array of {ownerUsername, amount} objects
+   * @returns TransactionTokensResponse with token info and any errors
    * @throws {AuthenticationError} If not authenticated
    *
    * @example
-   * // Get transaction tokens for endpoint owners
-   * const response = await client.auth.getTransactionTokens(['alice', 'bob']);
-   * console.log(`Got ${Object.keys(response.tokens).length} tokens`);
-   * if (Object.keys(response.errors).length > 0) {
-   *   console.log('Some tokens failed:', response.errors);
+   * // Get transaction tokens with per-owner amounts from their pricing policies
+   * const response = await client.auth.getTransactionTokens([
+   *   { ownerUsername: 'alice', amount: '2.50' },
+   *   { ownerUsername: 'bob', amount: '1.00' },
+   * ]);
+   * for (const [owner, info] of Object.entries(response.tokens)) {
+   *   console.log(`${owner}: token=${info.token}, amount=${info.amount}`);
    * }
    */
-  async getTransactionTokens(ownerUsernames: string[]): Promise<TransactionTokensResponse> {
-    const uniqueOwners = [...new Set(ownerUsernames)];
+  async getTransactionTokens(
+    ownerAmounts: OwnerAmountRequest[]
+  ): Promise<TransactionTokensResponse> {
+    if (ownerAmounts.length === 0) {
+      return { tokens: {}, errors: {} };
+    }
 
-    if (uniqueOwners.length === 0) {
+    // Deduplicate by owner username (keep first occurrence)
+    const seen = new Set<string>();
+    const uniqueRequests: Array<{ owner_username: string; amount: string }> = [];
+    for (const req of ownerAmounts) {
+      if (req.ownerUsername && !seen.has(req.ownerUsername)) {
+        seen.add(req.ownerUsername);
+        uniqueRequests.push({
+          owner_username: req.ownerUsername,
+          amount: req.amount,
+        });
+      }
+    }
+
+    if (uniqueRequests.length === 0) {
       return { tokens: {}, errors: {} };
     }
 
     try {
       return await this.http.post<TransactionTokensResponse>(
         '/api/v1/accounting/transaction-tokens',
-        { owner_usernames: uniqueOwners }
+        { requests: uniqueRequests }
       );
     } catch (error) {
       // If accounting is not configured or fails, return empty tokens
@@ -389,14 +441,4 @@ export interface SatelliteTokenResponse {
   targetToken: string;
   /** Seconds until the token expires */
   expiresIn: number;
-}
-
-/**
- * Response from transaction tokens endpoint.
- */
-export interface TransactionTokensResponse {
-  /** Mapping of owner_username to transaction token */
-  tokens: Record<string, string>;
-  /** Mapping of owner_username to error message (for failed tokens) */
-  errors: Record<string, string>;
 }

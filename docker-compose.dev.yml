@@ -18,6 +18,7 @@ services:
       - aggregator
       - mcp
       - nats
+      - ledger
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
       interval: 30s
@@ -51,8 +52,9 @@ services:
       - LOG_LEVEL=debug
       # Single origin since everything goes through proxy
       - CORS_ORIGINS=http://localhost:8080
-      # Disable accounting service for local development
-      - DEFAULT_ACCOUNTING_URL=
+      # Unified Global Ledger (accounting service) URL
+      # Use internal Docker network URL for backend-to-ledger communication
+      - DEFAULT_ACCOUNTING_URL=http://ledger:3000
       # RAG/OpenAI configuration (optional - semantic search disabled if not set)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       # Redis for message queue
@@ -254,6 +256,73 @@ services:
       retries: 3
       start_period: 5s
 
+  # Unified Global Ledger (accounting service)
+  ledger:
+    build:
+      context: ./accounting_server
+      dockerfile: Dockerfile
+      target: development
+    container_name: syfthub-ledger-dev
+    # Internal only - accessed via proxy
+    expose:
+      - "3000"
+    volumes:
+      # Mount source code for hot reload
+      - ./accounting_server/src:/app/src:cached
+      - ./accounting_server/tsconfig.json:/app/tsconfig.json:cached
+      - ./accounting_server/package.json:/app/package.json:cached
+      # Exclude node_modules to avoid conflicts
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - DATABASE_URL=postgresql://ledger:ledger_dev_password@ledger-db:5432/ledger_dev
+      - DATABASE_POOL_SIZE=10
+      - JWT_SECRET=dev-ledger-jwt-secret-change-in-production
+      - JWT_ISSUER=ledger-api
+      - JWT_AUDIENCE=ledger-api
+      - LOG_LEVEL=debug
+      - CORS_ORIGIN=http://localhost:8080
+      # Transfer confirmation (for P2P transfers)
+      - TRANSFER_CONFIRMATION_SECRET=dev-transfer-confirmation-secret-32ch!
+      - TRANSFER_CONFIRMATION_EXPIRATION_HOURS=24
+      # Rate limiting
+      - RATE_LIMIT_WINDOW_MS=60000
+      - RATE_LIMIT_MAX_REQUESTS=1000
+    networks:
+      - syfthub-network
+    depends_on:
+      ledger-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # PostgreSQL database for Unified Global Ledger
+  ledger-db:
+    image: postgres:16-alpine
+    container_name: syfthub-ledger-db-dev
+    environment:
+      - POSTGRES_USER=ledger
+      - POSTGRES_PASSWORD=ledger_dev_password
+      - POSTGRES_DB=ledger_dev
+      - POSTGRES_HOST_AUTH_METHOD=md5
+    volumes:
+      - ledger_postgres_data:/var/lib/postgresql/data
+    # Exposed for direct DB access (debugging with tools like DBeaver)
+    ports:
+      - "5433:5432"
+    networks:
+      - syfthub-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledger -d ledger_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 networks:
   syfthub-network:
     driver: bridge
@@ -265,3 +334,5 @@ volumes:
     name: syfthub_redis_data_dev
   nats_data:
     name: syfthub_nats_data_dev
+  ledger_postgres_data:
+    name: syfthub_ledger_postgres_data_dev

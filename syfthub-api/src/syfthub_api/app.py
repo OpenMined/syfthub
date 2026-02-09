@@ -667,6 +667,44 @@ class SyftAPI:
         self._logger.info("Syncing %d endpoints with SyftHub...", len(self.endpoints))
         endpoints_to_sync = []
         for endpoint in self.endpoints:
+            # Export policies in backend/frontend-compatible format
+            # This transforms policy-manager's canonical format to SyftHub's expected format
+            policies_export = []
+            for policy in endpoint.get("policies", []):
+                policy_data = policy.export()
+                policy_type = policy_data.get("type", policy.name)
+                config = dict(policy_data.get("config", {}))
+
+                # Normalize type names for frontend compatibility
+                # (e.g., "TransactionPolicy" -> "transaction")
+                if policy_type.lower() == "transactionpolicy":
+                    policy_type = "transaction"
+
+                # Transform TransactionPolicy config to frontend-compatible format
+                if "price_per_request" in config:
+                    price = config["price_per_request"]
+                    config.update({
+                        "pricingMode": "per_call",
+                        "price": price,
+                        "currency": config.get("currency", "USD"),
+                    })
+
+                policies_export.append({
+                    "type": policy_type,
+                    "version": "1.0",
+                    "enabled": True,
+                    "description": "",
+                    "config": config,
+                })
+
+            # Build connect config based on mode (HTTP vs tunneling)
+            if self._is_tunneling:
+                # Tunneling mode: use tunneling:username as the URL
+                connect_config = [{"type": "nats", "config": {"url": self._space_url}}]
+            else:
+                # HTTP mode: empty path, domain is set via user.domain
+                connect_config = [{"type": "http", "config": {"url": ""}}]
+
             endpoints_to_sync.append(
                 {
                     "name": endpoint["name"],
@@ -674,7 +712,8 @@ class SyftAPI:
                     "type": endpoint["type"].value,
                     "description": endpoint["description"],
                     "visibility": Visibility.PUBLIC.value,
-                    "connect": [{"type": "http", "config": {"url": self._space_url}}],
+                    "connect": connect_config,
+                    "policies": policies_export,
                 }
             )
 
@@ -906,6 +945,7 @@ class SyftAPI:
                 "query": query,
                 "limit": payload.get("limit"),
                 "similarity_threshold": payload.get("similarity_threshold"),
+                "transaction_token": payload.get("transaction_token"),
             },
         )
 
@@ -1006,6 +1046,7 @@ class SyftAPI:
                 ],
                 "max_tokens": payload.get("max_tokens"),
                 "temperature": payload.get("temperature"),
+                "transaction_token": payload.get("transaction_token"),
             },
         )
 

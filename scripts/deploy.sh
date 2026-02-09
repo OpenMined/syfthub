@@ -130,6 +130,7 @@ backup_current_state() {
         local current_aggregator=$(docker inspect --format='{{.Config.Image}}' syfthub-aggregator 2>/dev/null || echo "none")
         local current_frontend=$(docker inspect --format='{{.Config.Image}}' syfthub-frontend-init 2>/dev/null || echo "none")
         local current_mcp=$(docker inspect --format='{{.Config.Image}}' syfthub-mcp 2>/dev/null || echo "none")
+        local current_ledger=$(docker inspect --format='{{.Config.Image}}' syfthub-ledger 2>/dev/null || echo "none")
 
         cat > "$backup_file" << EOF
 BACKUP_TIMESTAMP=$(date +%s)
@@ -137,6 +138,7 @@ BACKUP_BACKEND_IMAGE=${current_backend}
 BACKUP_AGGREGATOR_IMAGE=${current_aggregator}
 BACKUP_FRONTEND_IMAGE=${current_frontend}
 BACKUP_MCP_IMAGE=${current_mcp}
+BACKUP_LEDGER_IMAGE=${current_ledger}
 EOF
         log INFO "Backup saved to $backup_file"
     else
@@ -187,7 +189,7 @@ pull_images() {
     export GITHUB_REPOSITORY
 
     # Pull all images
-    docker compose -f "$COMPOSE_FILE" pull backend aggregator mcp || die "Failed to pull backend/aggregator/mcp images"
+    docker compose -f "$COMPOSE_FILE" pull backend aggregator mcp ledger || die "Failed to pull backend/aggregator/mcp/ledger images"
 
     # Pull frontend image (for frontend-init)
     docker pull "ghcr.io/${GITHUB_REPOSITORY}-frontend:${IMAGE_TAG}" || die "Failed to pull frontend image"
@@ -219,36 +221,67 @@ run_migrations() {
 
     cd "$DEPLOY_DIR"
 
-    # Ensure database is running and healthy
-    docker compose -f "$COMPOSE_FILE" up -d db
+    # Ensure both databases are running and healthy
+    docker compose -f "$COMPOSE_FILE" up -d db ledger-db
 
+    # Wait for main database
     local retries=30
     while [ $retries -gt 0 ]; do
         if docker compose -f "$COMPOSE_FILE" exec -T db pg_isready -U syfthub -d syfthub &>/dev/null; then
             break
         fi
-        log INFO "Waiting for database to be ready... ($retries retries left)"
+        log INFO "Waiting for main database to be ready... ($retries retries left)"
         sleep 2
         retries=$((retries - 1))
     done
 
     if [ $retries -eq 0 ]; then
-        die "Database failed to become ready"
+        die "Main database failed to become ready"
     fi
 
-    # Try to run migrations - handle case where Alembic isn't configured
+    # Wait for ledger database
+    retries=30
+    while [ $retries -gt 0 ]; do
+        if docker compose -f "$COMPOSE_FILE" exec -T ledger-db pg_isready -U ledger -d ledger &>/dev/null; then
+            break
+        fi
+        log INFO "Waiting for ledger database to be ready... ($retries retries left)"
+        sleep 2
+        retries=$((retries - 1))
+    done
+
+    if [ $retries -eq 0 ]; then
+        die "Ledger database failed to become ready"
+    fi
+
+    # Try to run main backend migrations - handle case where Alembic isn't configured
     local migration_output
     if migration_output=$(docker compose -f "$COMPOSE_FILE" --profile migrate run --rm migrate 2>&1); then
-        log INFO "Migrations completed successfully"
+        log INFO "Backend migrations completed successfully"
     else
         # Check if the error is because Alembic isn't configured
         if echo "$migration_output" | grep -q "No 'script_location' key found\|No such file or directory.*alembic"; then
-            log WARN "Alembic not configured - skipping migrations"
+            log WARN "Alembic not configured - skipping backend migrations"
             log INFO "Database schema will be created on application startup"
         else
             # Real migration error - fail the deployment
             echo "$migration_output"
-            die "Database migration failed"
+            die "Backend database migration failed"
+        fi
+    fi
+
+    # Run ledger migrations
+    log INFO "Running ledger database migrations..."
+    if migration_output=$(docker compose -f "$COMPOSE_FILE" --profile migrate run --rm ledger-migrate 2>&1); then
+        log INFO "Ledger migrations completed successfully"
+    else
+        # Check if the error is benign (no migrations to run, etc.)
+        if echo "$migration_output" | grep -q "No migrations to run\|already at latest"; then
+            log INFO "Ledger database already up to date"
+        else
+            # Real migration error - fail the deployment
+            echo "$migration_output"
+            die "Ledger database migration failed"
         fi
     fi
 }
@@ -262,22 +295,50 @@ deploy_services() {
 
     cd "$DEPLOY_DIR"
 
-    # Ensure database and redis are running
-    log INFO "Ensuring database and redis are running..."
-    docker compose -f "$COMPOSE_FILE" up -d db redis
+    # Ensure databases and redis are running
+    log INFO "Ensuring databases and redis are running..."
+    docker compose -f "$COMPOSE_FILE" up -d db ledger-db redis
 
-    # Wait for database to be healthy
-    log INFO "Waiting for database to be healthy..."
+    # Wait for main database to be healthy
+    log INFO "Waiting for main database to be healthy..."
     local retries=0
     while ! docker compose -f "$COMPOSE_FILE" exec -T db pg_isready -U syfthub -d syfthub &> /dev/null; do
         retries=$((retries + 1))
         if [[ $retries -ge 30 ]]; then
-            die "Database failed to become healthy"
+            die "Main database failed to become healthy"
         fi
         sleep 2
     done
 
-    # Rolling restart: Backend first
+    # Wait for ledger database to be healthy
+    log INFO "Waiting for ledger database to be healthy..."
+    retries=0
+    while ! docker compose -f "$COMPOSE_FILE" exec -T ledger-db pg_isready -U ledger -d ledger &> /dev/null; do
+        retries=$((retries + 1))
+        if [[ $retries -ge 30 ]]; then
+            die "Ledger database failed to become healthy"
+        fi
+        sleep 2
+    done
+
+    # Rolling restart: Ledger first (backend depends on it)
+    log INFO "Restarting ledger..."
+    docker compose -f "$COMPOSE_FILE" up -d --no-deps --force-recreate ledger
+    sleep 5
+
+    # Wait for ledger to be healthy
+    log INFO "Waiting for ledger to be healthy..."
+    retries=0
+    while ! docker compose -f "$COMPOSE_FILE" exec -T ledger curl -sf http://localhost:3000/health &> /dev/null; do
+        retries=$((retries + 1))
+        if [[ $retries -ge $HEALTH_CHECK_RETRIES ]]; then
+            die "Ledger failed health check after restart"
+        fi
+        sleep $HEALTH_CHECK_INTERVAL
+    done
+    log INFO "Ledger is healthy"
+
+    # Rolling restart: Backend
     log INFO "Restarting backend..."
     docker compose -f "$COMPOSE_FILE" up -d --no-deps --force-recreate backend
     sleep 5
@@ -393,7 +454,7 @@ cleanup() {
     docker image prune -f
 
     # Remove old images (keep last 3 versions)
-    for image in backend frontend aggregator mcp; do
+    for image in backend frontend aggregator mcp ledger; do
         local full_image="ghcr.io/${GITHUB_REPOSITORY}-${image}"
         local image_ids=$(docker images "$full_image" --format "{{.ID}}" | tail -n +4)
         if [[ -n "$image_ids" ]]; then

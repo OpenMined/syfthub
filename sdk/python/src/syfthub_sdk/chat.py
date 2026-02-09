@@ -36,7 +36,7 @@ import json
 import logging
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import httpx
 
@@ -245,8 +245,31 @@ class ChatResource:
             EndpointResolutionError: If endpoint cannot be resolved
             ValueError: If endpoint type doesn't match expected
         """
+        ref, _ = self._resolve_endpoint_with_public(endpoint, expected_type)
+        return ref
+
+    def _resolve_endpoint_with_public(
+        self,
+        endpoint: str | EndpointRef | EndpointPublic,
+        expected_type: str | None = None,
+    ) -> tuple[EndpointRef, EndpointPublic | None]:
+        """Convert any endpoint format to EndpointRef, also returning EndpointPublic if available.
+
+        This is used when we need to extract pricing info from the endpoint's policies.
+
+        Args:
+            endpoint: Endpoint path, EndpointRef, or EndpointPublic
+            expected_type: Expected endpoint type ("model" or "data_source")
+
+        Returns:
+            Tuple of (EndpointRef, EndpointPublic or None)
+
+        Raises:
+            EndpointResolutionError: If endpoint cannot be resolved
+            ValueError: If endpoint type doesn't match expected
+        """
         if isinstance(endpoint, EndpointRef):
-            return endpoint
+            return (endpoint, None)
 
         if isinstance(endpoint, EndpointPublic):
             # Validate type if expected (model_data_source matches both model and data_source)
@@ -261,13 +284,14 @@ class ChatResource:
             # Find first enabled connection with URL
             for conn in endpoint.connect:
                 if conn.enabled and conn.config.get("url"):
-                    return EndpointRef(
+                    ref = EndpointRef(
                         url=str(conn.config["url"]),
                         slug=endpoint.slug,
                         name=endpoint.name,
                         tenant_name=conn.config.get("tenant_name"),
                         owner_username=endpoint.owner_username,  # Capture owner for satellite token
                     )
+                    return (ref, endpoint)
 
             raise EndpointResolutionError(
                 f"Endpoint '{endpoint.slug}' has no connection with URL configured. "
@@ -286,7 +310,7 @@ class ChatResource:
                 ) from e
 
             # Recurse with EndpointPublic
-            return self._resolve_endpoint_ref(ep, expected_type=expected_type)
+            return self._resolve_endpoint_with_public(ep, expected_type=expected_type)
 
         raise TypeError(f"Cannot resolve endpoint from type: {type(endpoint)}")
 
@@ -359,26 +383,79 @@ class ChatResource:
 
         return list(usernames)
 
-    def _get_transaction_tokens_for_owners(
+    def _extract_pricing_from_endpoint(
         self,
-        owners: list[str],
-    ) -> dict[str, str]:
+        endpoint: EndpointPublic,
+    ) -> float:
+        """Extract per-request pricing from endpoint policies.
+
+        Looks for transaction or accounting policies and extracts the price.
+
+        Args:
+            endpoint: The endpoint with policies
+
+        Returns:
+            Price per request (0.0 if no billing policy found)
+        """
+        for policy in endpoint.policies:
+            if policy.type in ("transaction", "accounting", "TransactionPolicy"):
+                config = policy.config
+                # Check for price_per_request (from TransactionPolicy)
+                if "price_per_request" in config:
+                    return float(config["price_per_request"])
+                # Check for price (frontend-compatible format)
+                if "price" in config:
+                    return float(config["price"])
+        return 0.0
+
+    def _get_transaction_tokens_for_endpoints(
+        self,
+        endpoints_with_owners: list[tuple[str, EndpointPublic | None]],
+    ) -> dict[str, dict[str, str]]:
         """Get transaction tokens for billing authorization.
 
         Transaction tokens pre-authorize endpoint owners to charge
-        the current user for usage.
+        the current user for usage. Each owner's amount is extracted
+        from their endpoint's pricing policy.
 
         Args:
-            owners: List of owner usernames
+            endpoints_with_owners: List of (owner_username, EndpointPublic) tuples
 
         Returns:
-            Dict mapping owner username to transaction token
+            Dict mapping owner username to token info {token, amount, transfer_id}
         """
-        if not owners:
-            return {}
+        empty_result: dict[str, dict[str, str]] = {}
+        if not endpoints_with_owners:
+            return empty_result
 
-        response = self._auth.get_transaction_tokens(owners)
-        return response.get("tokens", {})
+        # Build per-owner amounts from endpoint policies
+        owner_amounts: list[dict[str, str]] = []
+        seen_owners: set[str] = set()
+
+        for owner_username, endpoint in endpoints_with_owners:
+            if not owner_username or owner_username in seen_owners:
+                continue
+            seen_owners.add(owner_username)
+
+            # Extract price from endpoint policies (0.0 if no pricing)
+            price = 0.0
+            if endpoint:
+                price = self._extract_pricing_from_endpoint(endpoint)
+
+            # Only create tokens for endpoints with pricing
+            if price > 0:
+                owner_amounts.append(
+                    {
+                        "owner_username": owner_username,
+                        "amount": str(price),
+                    }
+                )
+
+        if not owner_amounts:
+            return empty_result
+
+        response = self._auth.get_transaction_tokens(owner_amounts)
+        return cast(dict[str, dict[str, str]], response.get("tokens", {}))
 
     def _build_request_body(
         self,
@@ -386,7 +463,7 @@ class ChatResource:
         model_ref: EndpointRef,
         data_source_refs: list[EndpointRef],
         endpoint_tokens: dict[str, str],
-        transaction_tokens: dict[str, str],
+        transaction_tokens: dict[str, dict[str, str]],
         *,
         top_k: int = 5,
         max_tokens: int = 1024,
@@ -588,16 +665,36 @@ class ChatResource:
         # Use custom aggregator URL if provided, otherwise use default
         effective_aggregator_url = (aggregator_url or self._aggregator_url).rstrip("/")
 
-        model_ref = self._resolve_endpoint_ref(model, expected_type="model")
+        # Resolve endpoints with their full public data (for pricing extraction)
+        model_ref, model_public = self._resolve_endpoint_with_public(
+            model, expected_type="model"
+        )
 
         ds_refs = []
+        ds_publics: list[EndpointPublic | None] = []
         for ds in data_sources or []:
-            ds_refs.append(self._resolve_endpoint_ref(ds, expected_type="data_source"))
+            ref, public = self._resolve_endpoint_with_public(
+                ds, expected_type="data_source"
+            )
+            ds_refs.append(ref)
+            ds_publics.append(public)
 
-        # Get satellite tokens and transaction tokens for all unique endpoint owners
+        # Build list of (owner, endpoint) pairs for transaction token generation
+        endpoints_with_owners: list[tuple[str, EndpointPublic | None]] = []
+        if model_ref.owner_username:
+            endpoints_with_owners.append((model_ref.owner_username, model_public))
+        for ds_ref, ds_public in zip(ds_refs, ds_publics, strict=True):
+            if ds_ref.owner_username:
+                endpoints_with_owners.append((ds_ref.owner_username, ds_public))
+
+        # Get satellite tokens for all unique endpoint owners
         unique_owners = self._collect_unique_owners(model_ref, ds_refs)
         endpoint_tokens = self._get_satellite_tokens_for_owners(unique_owners)
-        transaction_tokens = self._get_transaction_tokens_for_owners(unique_owners)
+
+        # Get transaction tokens with per-owner amounts from their pricing policies
+        transaction_tokens = self._get_transaction_tokens_for_endpoints(
+            endpoints_with_owners
+        )
 
         # Auto-fetch peer token if tunneling endpoints detected
         peer_token = None
@@ -745,16 +842,36 @@ class ChatResource:
         # Use custom aggregator URL if provided, otherwise use default
         effective_aggregator_url = (aggregator_url or self._aggregator_url).rstrip("/")
 
-        model_ref = self._resolve_endpoint_ref(model, expected_type="model")
+        # Resolve endpoints with their full public data (for pricing extraction)
+        model_ref, model_public = self._resolve_endpoint_with_public(
+            model, expected_type="model"
+        )
 
         ds_refs = []
+        ds_publics: list[EndpointPublic | None] = []
         for ds in data_sources or []:
-            ds_refs.append(self._resolve_endpoint_ref(ds, expected_type="data_source"))
+            ref, public = self._resolve_endpoint_with_public(
+                ds, expected_type="data_source"
+            )
+            ds_refs.append(ref)
+            ds_publics.append(public)
 
-        # Get satellite tokens and transaction tokens for all unique endpoint owners
+        # Build list of (owner, endpoint) pairs for transaction token generation
+        endpoints_with_owners: list[tuple[str, EndpointPublic | None]] = []
+        if model_ref.owner_username:
+            endpoints_with_owners.append((model_ref.owner_username, model_public))
+        for ds_ref, ds_public in zip(ds_refs, ds_publics, strict=True):
+            if ds_ref.owner_username:
+                endpoints_with_owners.append((ds_ref.owner_username, ds_public))
+
+        # Get satellite tokens for all unique endpoint owners
         unique_owners = self._collect_unique_owners(model_ref, ds_refs)
         endpoint_tokens = self._get_satellite_tokens_for_owners(unique_owners)
-        transaction_tokens = self._get_transaction_tokens_for_owners(unique_owners)
+
+        # Get transaction tokens with per-owner amounts from their pricing policies
+        transaction_tokens = self._get_transaction_tokens_for_endpoints(
+            endpoints_with_owners
+        )
 
         # Auto-fetch peer token if tunneling endpoints detected
         peer_token = None

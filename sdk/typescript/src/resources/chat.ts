@@ -117,6 +117,20 @@ export class ChatResource {
         );
       }
 
+      // Extract price from transaction policy if available
+      let price: number | undefined;
+      if (endpoint.policies) {
+        for (const policy of endpoint.policies) {
+          if (policy.type === 'transaction' && policy.config) {
+            const priceValue = policy.config['price'] ?? policy.config['price_per_request'];
+            if (typeof priceValue === 'number') {
+              price = priceValue;
+              break;
+            }
+          }
+        }
+      }
+
       // Find first enabled connection with URL
       for (const conn of endpoint.connect) {
         if (conn.enabled && conn.config['url']) {
@@ -126,6 +140,7 @@ export class ChatResource {
             name: endpoint.name,
             tenantName: conn.config['tenant_name'] as string | undefined,
             ownerUsername: endpoint.ownerUsername, // Capture owner for satellite token
+            price, // Capture price from policies
           };
         }
       }
@@ -201,18 +216,53 @@ export class ChatResource {
   }
 
   /**
-   * Get transaction tokens for all unique endpoint owners.
-   * Returns a map of owner username to transaction token.
+   * Get transaction tokens for all endpoints with pricing.
+   * Returns a map of owner username to token info.
    *
    * Transaction tokens are used for billing - they authorize the endpoint
-   * owner to charge the current user for usage.
+   * owner to charge the current user for the amount specified in their
+   * endpoint's pricing policy.
+   *
+   * @param modelRef - The model endpoint reference
+   * @param dataSourceRefs - List of data source endpoint references
    */
-  private async getTransactionTokensForOwners(owners: string[]): Promise<Record<string, string>> {
-    if (owners.length === 0) {
+  private async getTransactionTokensForEndpoints(
+    modelRef: EndpointRef,
+    dataSourceRefs: EndpointRef[]
+  ): Promise<Record<string, { token: string; amount: string; transfer_id: string }>> {
+    // Build per-owner amounts from endpoint policies
+    const ownerAmounts: Array<{ ownerUsername: string; amount: string }> = [];
+    const seenOwners = new Set<string>();
+
+    // Add model owner if has pricing
+    if (modelRef.ownerUsername && modelRef.price && modelRef.price > 0) {
+      if (!seenOwners.has(modelRef.ownerUsername)) {
+        seenOwners.add(modelRef.ownerUsername);
+        ownerAmounts.push({
+          ownerUsername: modelRef.ownerUsername,
+          amount: modelRef.price.toFixed(2),
+        });
+      }
+    }
+
+    // Add data source owners if they have pricing
+    for (const ds of dataSourceRefs) {
+      if (ds.ownerUsername && ds.price && ds.price > 0) {
+        if (!seenOwners.has(ds.ownerUsername)) {
+          seenOwners.add(ds.ownerUsername);
+          ownerAmounts.push({
+            ownerUsername: ds.ownerUsername,
+            amount: ds.price.toFixed(2),
+          });
+        }
+      }
+    }
+
+    if (ownerAmounts.length === 0) {
       return {};
     }
 
-    const response = await this.auth.getTransactionTokens(owners);
+    const response = await this.auth.getTransactionTokens(ownerAmounts);
     return response.tokens;
   }
 
@@ -429,10 +479,17 @@ export class ChatResource {
     const guestMode = options.guestMode ?? false;
     const endpointTokens = await this.getSatelliteTokensForOwners(uniqueOwners, guestMode);
 
-    // Get transaction tokens for billing authorization (skip for guest mode)
-    const transactionTokens = guestMode
+    // Get transaction tokens with per-owner amounts from their pricing policies
+    // (skip for guest mode)
+    const transactionTokenInfo = guestMode
       ? {}
-      : await this.getTransactionTokensForOwners(uniqueOwners);
+      : await this.getTransactionTokensForEndpoints(modelRef, dsRefs);
+
+    // Extract just the tokens for the request body (aggregator expects string tokens)
+    const transactionTokens: Record<string, string> = {};
+    for (const [owner, info] of Object.entries(transactionTokenInfo)) {
+      transactionTokens[owner] = info.token;
+    }
 
     // Auto-fetch peer token if tunneling endpoints detected
     let peerToken = options.peerToken;
@@ -541,10 +598,17 @@ export class ChatResource {
     const guestMode = options.guestMode ?? false;
     const endpointTokens = await this.getSatelliteTokensForOwners(uniqueOwners, guestMode);
 
-    // Get transaction tokens for billing authorization (skip for guest mode)
-    const transactionTokens = guestMode
+    // Get transaction tokens with per-owner amounts from their pricing policies
+    // (skip for guest mode)
+    const transactionTokenInfo = guestMode
       ? {}
-      : await this.getTransactionTokensForOwners(uniqueOwners);
+      : await this.getTransactionTokensForEndpoints(modelRef, dsRefs);
+
+    // Extract just the tokens for the request body (aggregator expects string tokens)
+    const transactionTokens: Record<string, string> = {};
+    for (const [owner, info] of Object.entries(transactionTokenInfo)) {
+      transactionTokens[owner] = info.token;
+    }
 
     // Auto-fetch peer token if tunneling endpoints detected
     let peerToken = options.peerToken;
