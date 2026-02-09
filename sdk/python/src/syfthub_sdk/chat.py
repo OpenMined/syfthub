@@ -397,8 +397,12 @@ class ChatResource:
         Returns:
             Price per request (0.0 if no billing policy found)
         """
+        # Policy types to check (case-insensitive)
+        billing_policy_types = {"transaction", "accounting", "transactionpolicy"}
+
         for policy in endpoint.policies:
-            if policy.type in ("transaction", "accounting", "TransactionPolicy"):
+            # Case-insensitive comparison for policy type
+            if policy.type.lower() in billing_policy_types:
                 config = policy.config
                 # Check for price_per_request (from TransactionPolicy)
                 if "price_per_request" in config:

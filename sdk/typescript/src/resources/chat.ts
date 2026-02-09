@@ -117,11 +117,13 @@ export class ChatResource {
         );
       }
 
-      // Extract price from transaction policy if available
+      // Extract price from transaction/accounting policy if available
+      // Use case-insensitive comparison for policy type consistency
+      const billingPolicyTypes = new Set(['transaction', 'accounting', 'transactionpolicy']);
       let price: number | undefined;
       if (endpoint.policies) {
         for (const policy of endpoint.policies) {
-          if (policy.type === 'transaction' && policy.config) {
+          if (billingPolicyTypes.has(policy.type.toLowerCase()) && policy.config) {
             const priceValue = policy.config['price'] ?? policy.config['price_per_request'];
             if (typeof priceValue === 'number') {
               price = priceValue;

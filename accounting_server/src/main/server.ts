@@ -4,13 +4,24 @@
  * Creates and starts the Express application.
  */
 
-import express, { Express } from 'express';
+import express, { Express, Request, Response } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import morgan from 'morgan';
 
-import { loadConfig } from './config';
+import { loadConfig, Config } from './config';
 import { createContainer, Container } from './container';
+
+/**
+ * Extend Express Request to include rawBody for webhook signature verification
+ */
+declare global {
+  namespace Express {
+    interface Request {
+      rawBody?: Buffer;
+    }
+  }
+}
 
 // Controllers
 import { createAccountController } from '../infrastructure/http/controllers/AccountController';
@@ -30,20 +41,93 @@ import { createIdempotencyMiddleware } from '../infrastructure/http/middleware/i
 import { createRateLimiters } from '../infrastructure/http/middleware/rateLimiting';
 import { errorHandler, notFoundHandler } from '../infrastructure/http/middleware/errorHandler';
 
-async function createApp(container: Container, config: ReturnType<typeof loadConfig>): Promise<Express> {
+/**
+ * Get CORS origin configuration.
+ * In production, CORS_ORIGIN must be explicitly set.
+ * In development, allows '*' as fallback.
+ */
+function getCorsOrigin(config: Config): string | string[] | boolean {
+  const corsOrigin = process.env.CORS_ORIGIN;
+
+  if (corsOrigin) {
+    // Support comma-separated origins
+    if (corsOrigin.includes(',')) {
+      return corsOrigin.split(',').map(o => o.trim());
+    }
+    return corsOrigin;
+  }
+
+  // In production, reject cross-origin requests by default (same-origin only)
+  if (config.NODE_ENV === 'production') {
+    console.warn('[SECURITY] CORS_ORIGIN not set in production. Cross-origin requests will be rejected.');
+    return false;
+  }
+
+  // In development, allow all origins with a warning
+  console.warn('[SECURITY] CORS_ORIGIN not set. Allowing all origins (development mode only).');
+  return '*';
+}
+
+/**
+ * Get trusted proxy configuration.
+ * Returns the number of trusted proxies or specific IP addresses.
+ */
+function getTrustedProxies(): boolean | string | string[] | number {
+  const trustedProxies = process.env.TRUSTED_PROXIES;
+
+  if (!trustedProxies) {
+    // Default: trust loopback and private networks (common Docker/K8s setup)
+    return 'loopback';
+  }
+
+  if (trustedProxies === 'true') {
+    return true;
+  }
+
+  if (trustedProxies === 'false') {
+    return false;
+  }
+
+  // Check if it's a number (hop count)
+  const hopCount = parseInt(trustedProxies, 10);
+  if (!isNaN(hopCount)) {
+    return hopCount;
+  }
+
+  // Otherwise, treat as comma-separated IP addresses
+  return trustedProxies.split(',').map(ip => ip.trim());
+}
+
+async function createApp(container: Container, config: Config): Promise<Express> {
   const app = express();
+
+  // Configure trusted proxies for accurate IP detection
+  // This is critical for rate limiting and audit logging
+  const trustedProxies = getTrustedProxies();
+  app.set('trust proxy', trustedProxies);
 
   // Security middleware
   app.use(helmet());
   app.use(cors({
-    origin: process.env.CORS_ORIGIN ?? '*',
+    origin: getCorsOrigin(config),
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
     exposedHeaders: ['X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset', 'Retry-After'],
+    credentials: true,
   }));
 
-  // Body parsing
-  app.use(express.json({ limit: '1mb' }));
+  // Body parsing with raw body capture for webhook signature verification
+  // The 'verify' callback stores the raw buffer before JSON parsing
+  app.use(express.json({
+    limit: '1mb',
+    verify: (req: Request, _res: Response, buf: Buffer) => {
+      // Store raw body for webhook signature verification
+      // Only store for webhook routes to minimize memory overhead
+      if (req.originalUrl?.startsWith('/webhooks')) {
+        req.rawBody = buf;
+      }
+    },
+  }));
 
   // Logging
   app.use(morgan('combined'));

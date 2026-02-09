@@ -65,13 +65,15 @@ export function createIdempotencyMiddleware(config: IdempotencyConfig) {
       return;
     }
 
-    // Validate idempotency key format (should be UUID-like)
-    if (idempotencyKey.length < 16 || idempotencyKey.length > 255) {
+    // Validate idempotency key format (must be a valid UUID v4)
+    // This prevents low-entropy keys and ensures uniqueness
+    const uuidV4Regex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidV4Regex.test(idempotencyKey)) {
       res.status(400).json({
         type: 'https://api.ledger.example.com/problems/invalid-idempotency-key',
         title: 'Invalid Idempotency Key',
         status: 400,
-        detail: 'Idempotency-Key should be 16-255 characters. Use a UUID.',
+        detail: 'Idempotency-Key must be a valid UUID v4 (e.g., 550e8400-e29b-41d4-a716-446655440000)',
       });
       return;
     }

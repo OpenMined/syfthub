@@ -112,6 +112,13 @@ export class ApiToken {
   /**
    * Create a new API token
    * Returns both the full token (to show user once) and the entity (for persistence)
+   *
+   * Token format: at_<prefix>_<secret>
+   * - prefix: 16 hex chars (8 bytes = 2^64 possibilities) for database lookup
+   * - secret: 43 base64url chars (32 bytes = 256 bits) for authentication
+   *
+   * The prefix provides enumeration resistance while allowing efficient database lookups.
+   * The full token hash is stored for authentication, never the plaintext.
    */
   static create(params: {
     userId: UserId;
@@ -119,8 +126,9 @@ export class ApiToken {
     scopes: TokenScope[];
     expiresAt?: Date;
   }): CreateTokenResult {
-    // Generate 8 random hex chars for prefix (for identification)
-    const prefixBytes = randomBytes(4);
+    // Generate 16 random hex chars for prefix (8 bytes = 2^64 possibilities)
+    // This provides strong enumeration resistance for database lookups
+    const prefixBytes = randomBytes(8);
     const tokenPrefix = prefixBytes.toString('hex');
 
     // Generate 32 random bytes for secret (base64url encoded, ~43 chars)
@@ -175,7 +183,11 @@ export class ApiToken {
   }
 
   /**
-   * Parse a token string and extract the prefix
+   * Parse a token string and extract the prefix.
+   *
+   * Token format: at_<prefix>_<secret>
+   * - prefix: 16 hex chars (8 bytes = 2^64 possibilities)
+   * - secret: ~43 base64url chars (32 bytes = 256 bits)
    */
   static parseToken(token: string): { valid: boolean; prefix?: string } {
     if (!token.startsWith('at_')) {
@@ -188,7 +200,12 @@ export class ApiToken {
     }
 
     const prefix = parts[1];
-    if (!prefix || prefix.length !== 8) {
+    if (!prefix || prefix.length !== 16) {
+      return { valid: false };
+    }
+
+    // Validate prefix is valid hex
+    if (!/^[0-9a-f]+$/i.test(prefix)) {
       return { valid: false };
     }
 

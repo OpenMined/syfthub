@@ -32,12 +32,45 @@ interface WebhookLogger {
   info(message: string, data?: Record<string, unknown>): void;
   warn(message: string, data?: Record<string, unknown>): void;
   error(message: string, data?: Record<string, unknown>): void;
+  /**
+   * Log failed webhook to dead-letter queue for investigation.
+   * This should be implemented to persist failures for retry/investigation.
+   */
+  deadLetter(event: DeadLetterEntry): void;
+}
+
+/**
+ * Dead letter entry for failed webhooks
+ */
+interface DeadLetterEntry {
+  provider: string;
+  eventType?: string;
+  deliveryId?: string;
+  rawBody: string;
+  error: string;
+  errorStack?: string;
+  timestamp: Date;
+  retryable: boolean;
 }
 
 const defaultLogger: WebhookLogger = {
   info: (message, data) => console.log(`[WEBHOOK] ${message}`, data ?? ''),
   warn: (message, data) => console.warn(`[WEBHOOK] ${message}`, data ?? ''),
   error: (message, data) => console.error(`[WEBHOOK] ${message}`, data ?? ''),
+  deadLetter: (entry) => {
+    // Default implementation logs to console with structured format
+    // In production, this should write to a database table, message queue, or alerting system
+    console.error(`[WEBHOOK:DEAD_LETTER] Failed webhook requires investigation`, {
+      provider: entry.provider,
+      eventType: entry.eventType,
+      deliveryId: entry.deliveryId,
+      error: entry.error,
+      retryable: entry.retryable,
+      timestamp: entry.timestamp.toISOString(),
+      // Don't log full raw body by default (may contain sensitive data)
+      bodyLength: entry.rawBody.length,
+    });
+  },
 };
 
 interface WebhookControllerDependencies {
@@ -203,18 +236,51 @@ function createProviderWebhookHandler(
         deliveryId: event.deliveryId,
       });
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorStack = error instanceof Error ? error.stack : undefined;
+
       logger.error('Webhook processing failed', {
         provider: providerCode,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errorMessage,
       });
 
-      // Still return 200 to prevent provider from retrying
-      // Log the error for investigation but don't fail the webhook
-      res.status(200).json({
-        received: true,
-        processed: false,
-        error: 'Internal processing error',
+      // Determine if this error is retryable
+      // Transient errors (DB connection, network) should be retried
+      // Business logic errors (invalid transaction state) should not
+      const isRetryable = isRetryableError(error);
+
+      // Log to dead-letter queue for investigation
+      const rawBody = getRawBody(req);
+      logger.deadLetter({
+        provider: providerCode,
+        eventType: undefined, // Event parsing may have failed
+        deliveryId: undefined,
+        rawBody,
+        error: errorMessage,
+        errorStack,
+        timestamp: new Date(),
+        retryable: isRetryable,
       });
+
+      if (isRetryable) {
+        // Return 500 to allow provider to retry
+        // Most payment providers will retry with exponential backoff
+        res.status(500).json({
+          type: 'https://api.ledger.example.com/problems/webhook-processing-failed',
+          title: 'Webhook Processing Failed',
+          status: 500,
+          detail: 'Temporary error processing webhook. Please retry.',
+          retryable: true,
+        });
+      } else {
+        // Return 200 for non-retryable errors to prevent infinite retry loops
+        // The error is logged to dead-letter queue for manual investigation
+        res.status(200).json({
+          received: true,
+          processed: false,
+          error: 'Processing error logged for investigation',
+        });
+      }
     }
   };
 }
@@ -562,18 +628,104 @@ async function handlePaymentMethodVerified(
 }
 
 /**
- * Get raw body from request for signature verification
+ * Determine if an error is retryable (transient) or permanent.
+ *
+ * Transient errors should trigger provider retry:
+ * - Database connection errors
+ * - Network timeouts
+ * - Service unavailable errors
+ *
+ * Permanent errors should NOT trigger retry:
+ * - Invalid transaction state
+ * - Business logic errors
+ * - Authentication/authorization failures
+ */
+function isRetryableError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  const name = error.name.toLowerCase();
+
+  // Database connection errors are retryable
+  if (
+    message.includes('connection') ||
+    message.includes('timeout') ||
+    message.includes('econnrefused') ||
+    message.includes('econnreset') ||
+    message.includes('etimedout')
+  ) {
+    return true;
+  }
+
+  // PostgreSQL serialization errors are retryable
+  if (message.includes('could not serialize') || message.includes('deadlock')) {
+    return true;
+  }
+
+  // Service unavailable errors are retryable
+  if (message.includes('service unavailable') || message.includes('503')) {
+    return true;
+  }
+
+  // Redis errors are retryable
+  if (name.includes('redis') && message.includes('connection')) {
+    return true;
+  }
+
+  // Business logic errors are NOT retryable
+  if (
+    message.includes('invalid state') ||
+    message.includes('already completed') ||
+    message.includes('not found') ||
+    message.includes('insufficient funds')
+  ) {
+    return false;
+  }
+
+  // Default: not retryable (fail-safe to prevent infinite retries)
+  return false;
+}
+
+/**
+ * Get raw body from request for signature verification.
+ *
+ * CRITICAL: This function requires the express.json() middleware to be configured
+ * with a 'verify' callback that stores the raw body. Without this, webhook
+ * signature verification will fail because JSON.stringify() doesn't preserve
+ * the exact byte-for-byte content of the original request.
+ *
+ * Expected setup in server.ts:
+ * ```
+ * app.use(express.json({
+ *   verify: (req, res, buf) => {
+ *     if (req.originalUrl?.startsWith('/webhooks')) {
+ *       req.rawBody = buf;
+ *     }
+ *   },
+ * }));
+ * ```
  */
 function getRawBody(req: Request): string {
+  // Use the raw body captured by the verify callback (preferred)
+  if (req.rawBody && Buffer.isBuffer(req.rawBody)) {
+    return req.rawBody.toString('utf8');
+  }
+
   // If using express.raw() middleware, body is a Buffer
   if (Buffer.isBuffer(req.body)) {
     return req.body.toString('utf8');
   }
 
-  // If using express.json(), need to re-stringify
-  // Note: This may not preserve exact formatting, which could break signatures
-  // In production, use express.raw() for webhook endpoints
+  // FALLBACK: Re-stringify the parsed JSON
+  // WARNING: This may break signature verification as JSON.stringify()
+  // doesn't preserve original formatting (whitespace, key order, etc.)
   if (typeof req.body === 'object') {
+    console.warn(
+      '[WEBHOOK] Using fallback JSON.stringify for raw body. ' +
+      'Signature verification may fail. Configure express.json() verify callback.'
+    );
     return JSON.stringify(req.body);
   }
 

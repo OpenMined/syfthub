@@ -148,21 +148,28 @@ export function requireTokenScope(...requiredScopes: TokenScope[]) {
 }
 
 /**
- * Extract client IP from request, handling proxies
+ * Extract client IP from request.
+ *
+ * IMPORTANT: This function relies on Express's `trust proxy` setting being
+ * configured correctly in server.ts. When `trust proxy` is set, Express
+ * automatically parses X-Forwarded-For headers from trusted proxies and
+ * sets `req.ip` to the correct client IP.
+ *
+ * Without proper `trust proxy` configuration, X-Forwarded-For headers can
+ * be spoofed by malicious clients, leading to:
+ * - Rate limit bypass
+ * - Audit log manipulation
+ * - IP-based access control bypass
+ *
+ * @see https://expressjs.com/en/guide/behind-proxies.html
  */
 function getClientIp(req: Request): string {
-  // Check for forwarded header (behind proxy/load balancer)
-  const forwarded = req.headers['x-forwarded-for'];
-  if (forwarded) {
-    const ips = Array.isArray(forwarded) ? forwarded[0] : forwarded.split(',')[0];
-    return ips?.trim() ?? req.ip ?? 'unknown';
+  // req.ip is automatically set correctly when 'trust proxy' is configured
+  // Express handles X-Forwarded-For parsing based on the trust proxy setting
+  if (req.ip) {
+    return req.ip;
   }
 
-  // Check for real IP header (nginx)
-  const realIp = req.headers['x-real-ip'];
-  if (realIp) {
-    return Array.isArray(realIp) ? realIp[0] ?? 'unknown' : realIp;
-  }
-
-  return req.ip ?? 'unknown';
+  // Fallback for edge cases (should rarely be needed)
+  return req.socket?.remoteAddress ?? 'unknown';
 }

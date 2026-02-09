@@ -89,16 +89,41 @@ export function loadConfig(): Config {
 }
 
 /**
- * Default configuration for development
+ * Get development configuration template.
+ *
+ * SECURITY NOTE: This function does NOT return actual secrets.
+ * Developers must set environment variables themselves.
+ * Hardcoding secrets (even for development) creates security risks:
+ * - Secrets end up in version control
+ * - Developers may accidentally use them in production
+ * - Security scanners flag the repository
+ *
+ * @returns Configuration template with placeholders (for documentation only)
  */
-export function getDevConfig(): Partial<Config> {
+export function getDevConfigTemplate(): Record<string, string> {
   return {
-    PORT: 3000,
+    PORT: '3000',
     NODE_ENV: 'development',
     DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/ledger',
-    JWT_SECRET: 'development-secret-key-minimum-32-chars!',
+    JWT_SECRET: '<generate-random-32-char-string>',
     JWT_ISSUER: 'ledger-api-dev',
     JWT_AUDIENCE: 'ledger-api-dev',
-    TRANSFER_CONFIRMATION_SECRET: 'dev-transfer-confirmation-secret-32ch!',
+    TRANSFER_CONFIRMATION_SECRET: '<generate-random-32-char-string>',
   };
+}
+
+/**
+ * Print development configuration template to console.
+ * Useful for first-time setup.
+ */
+export function printDevConfigTemplate(): void {
+  console.log('\n=== Development Configuration Template ===\n');
+  console.log('Copy these to your .env file and replace secret placeholders:\n');
+  const template = getDevConfigTemplate();
+  for (const [key, value] of Object.entries(template)) {
+    console.log(`${key}=${value}`);
+  }
+  console.log('\nTo generate random secrets, run:');
+  console.log('  node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+  console.log('');
 }
