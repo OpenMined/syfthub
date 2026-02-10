@@ -79,7 +79,7 @@ class ErrorReporter:
             asyncio.get_running_loop().create_task(self._send(payload))
         except RuntimeError:
             # No running event loop (e.g. during testing); log and skip
-            logger.debug("error_reporter.no_event_loop", event=event)
+            logger.debug("error_reporter.no_event_loop", error_event=event)
 
     async def _send(self, payload: dict[str, Any]) -> None:
         """Send the error report to the backend. Swallows all exceptions."""

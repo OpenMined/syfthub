@@ -36,6 +36,7 @@ dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",
+    "pytest-xdist>=3.5.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
     "httpx>=0.28.0",  # For TestClient
@@ -81,6 +82,12 @@ indent-style = "space"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+addopts = [
+    "-n",
+    "auto",
+    "--dist",
+    "loadfile",
+]
 
 [tool.mypy]
 python_version = "3.11"

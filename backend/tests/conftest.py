@@ -1,5 +1,6 @@
 """Shared pytest fixtures and configuration."""
 
+import contextlib
 import os
 import tempfile
 from collections.abc import Generator
@@ -8,11 +9,31 @@ from collections.abc import Generator
 # This environment variable is read by Settings() during initialization
 os.environ["DEFAULT_ACCOUNTING_URL"] = ""
 
-import pytest
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import Session, sessionmaker
+# Set worker-specific database URL for pytest-xdist parallel execution
+# This MUST happen before any syfthub imports to ensure each worker uses its own database
+_worker_id = os.environ.get("PYTEST_XDIST_WORKER", "")
+if _worker_id:
+    # Create a unique database file for each xdist worker (gw0, gw1, etc.)
+    os.environ["DATABASE_URL"] = f"sqlite:///./test_syfthub_{_worker_id}.db"
+else:
+    # Single-process execution - use a dedicated test database
+    os.environ["DATABASE_URL"] = "sqlite:///./test_syfthub.db"
 
-from syfthub.models import Base
+import pytest  # noqa: E402
+from sqlalchemy import create_engine, event  # noqa: E402
+from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
+
+from syfthub.models import Base  # noqa: E402
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Clean up worker-specific database files after test session."""
+    worker_id = os.environ.get("PYTEST_XDIST_WORKER", "")
+    db_file = f"./test_syfthub_{worker_id}.db" if worker_id else "./test_syfthub.db"
+
+    if os.path.exists(db_file):
+        with contextlib.suppress(OSError):
+            os.unlink(db_file)
 
 
 @pytest.fixture(autouse=True)
