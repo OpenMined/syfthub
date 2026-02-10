@@ -465,7 +465,7 @@ class ModelClient:
         """Extract error detail from response."""
         try:
             data = response.json()
-            return data.get("detail", response.text[:200])
+            return str(data.get("detail", response.text[:200]))
         except Exception:
             return response.text[:200]
 
@@ -497,7 +497,7 @@ class ModelClient:
         # Extract message content
         message = summary.get("message", {})
         if isinstance(message, dict):
-            return message.get("content", "")
+            return str(message.get("content", ""))
         if isinstance(message, str):
             return message
 
@@ -542,7 +542,8 @@ class ModelClient:
                     if summary:
                         message = summary.get("message", {})
                         if isinstance(message, dict):
-                            return message.get("content")
+                            content = message.get("content")
+                            return str(content) if content is not None else None
 
                 # OpenAI-style delta (for compatibility)
                 if "choices" in parsed:
@@ -552,14 +553,15 @@ class ModelClient:
                         if isinstance(first_choice, dict):
                             delta = first_choice.get("delta", {})
                             if isinstance(delta, dict):
-                                return delta.get("content")
+                                content = delta.get("content")
+                                return str(content) if content is not None else None
 
                 # Simple content field
                 if "content" in parsed:
-                    return parsed["content"]
+                    return str(parsed["content"])
 
                 if "text" in parsed:
-                    return parsed["text"]
+                    return str(parsed["text"])
 
             except json.JSONDecodeError:
                 # Plain text data

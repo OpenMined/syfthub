@@ -4,6 +4,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncGenerator
+from typing import Any
 
 from aggregator.core.config import get_settings
 from aggregator.schemas import (
@@ -66,7 +67,7 @@ class Orchestrator:
             path=full_path,  # Full path for citations (e.g., "ionesiotest/general-knowledge")
             url=ref.url,
             slug=ref.slug,
-            endpoint_type=endpoint_type,  # type: ignore[arg-type]
+            endpoint_type=endpoint_type,
             name=ref.name or ref.slug,
             tenant_name=ref.tenant_name,
             owner_username=ref.owner_username,
@@ -332,7 +333,7 @@ class Orchestrator:
 
         generation_start = time.perf_counter()
         full_response = []
-        usage_data: dict | None = None
+        usage_data: dict[str, Any] | None = None
         settings = get_settings()
 
         try:
@@ -357,7 +358,7 @@ class Orchestrator:
             else:
                 # Non-streaming mode: get full response then yield as single token
                 # This avoids the UX issue where user sees long pause before tokens
-                result = await self.generation_service.generate(
+                gen_result = await self.generation_service.generate(
                     model_endpoint=model_endpoint,
                     messages=messages,
                     max_tokens=request.max_tokens,
@@ -365,9 +366,9 @@ class Orchestrator:
                     endpoint_tokens=endpoint_tokens,
                     transaction_tokens=transaction_tokens,
                 )
-                full_response.append(result.response)
-                usage_data = result.usage  # Capture usage from non-streaming response
-                yield self._sse_event("token", {"content": result.response})
+                full_response.append(gen_result.response)
+                usage_data = gen_result.usage  # Capture usage from non-streaming response
+                yield self._sse_event("token", {"content": gen_result.response})
         except GenerationError as e:
             yield self._sse_event("error", {"message": str(e)})
             return
@@ -393,7 +394,7 @@ class Orchestrator:
             for title, doc_source in self._build_document_sources(context).items()
         }
 
-        done_data: dict = {
+        done_data: dict[str, Any] = {
             "sources": document_sources,
             "retrieval_info": retrieval_info,
             "metadata": {
@@ -409,6 +410,6 @@ class Orchestrator:
 
         yield self._sse_event("done", done_data)
 
-    def _sse_event(self, event_type: str, data: dict) -> str:
+    def _sse_event(self, event_type: str, data: dict[str, Any]) -> str:
         """Format an SSE event."""
         return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"

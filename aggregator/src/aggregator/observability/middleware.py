@@ -5,10 +5,9 @@ Provides correlation ID injection and request/response logging.
 
 import time
 import uuid
-from collections.abc import Callable
 
 import structlog
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp
@@ -33,9 +32,7 @@ class CorrelationIDMiddleware(BaseHTTPMiddleware):
     5. Returned in the response X-Correlation-ID header
     """
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Response]
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Process the request and inject correlation ID.
 
         Args:
@@ -93,9 +90,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         self.log_response_body = log_response_body
         self.exclude_paths = exclude_paths or {"/health", "/ready", "/metrics"}
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Response]
-    ) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Process the request and log details.
 
         Args:

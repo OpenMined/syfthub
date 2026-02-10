@@ -1,6 +1,6 @@
 """Internal DTOs used within the aggregator service."""
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -54,4 +54,4 @@ class GenerationResult(BaseModel):
 
     response: str = Field(..., description="Generated response text")
     latency_ms: int = Field(..., description="Generation time in milliseconds")
-    usage: dict | None = Field(default=None, description="Token usage if available")
+    usage: dict[str, Any] | None = Field(default=None, description="Token usage if available")
