@@ -428,6 +428,10 @@ jobs:
             context: .
             dockerfile: mcp/Dockerfile
             target: production
+          - image: ledger
+            context: ./accounting_server
+            dockerfile: accounting_server/Dockerfile
+            target: production
     outputs:
       image_tag: ${{ steps.vars.outputs.sha_short }}
     steps:
@@ -591,6 +595,10 @@ jobs:
           - image: mcp
             context: .
             dockerfile: mcp/Dockerfile
+            target: production
+          - image: ledger
+            context: ./accounting_server
+            dockerfile: accounting_server/Dockerfile
             target: production
     outputs:
       image_tag: ${{ steps.vars.outputs.sha_short }}-staging
