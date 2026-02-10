@@ -109,9 +109,7 @@ class GenerationService:
                     transaction_token=self._get_token_for_endpoint(
                         model_endpoint, transaction_tokens
                     ),
-                    satellite_token=self._get_token_for_endpoint(
-                        model_endpoint, endpoint_tokens
-                    ),
+                    satellite_token=self._get_token_for_endpoint(model_endpoint, endpoint_tokens),
                 )
                 logger.info(f"NATS generation complete: latency={result.latency_ms}ms")
                 return result
