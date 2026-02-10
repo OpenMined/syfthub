@@ -4,10 +4,10 @@
  * React context for managing accounting credentials stored in the backend.
  * Credentials are fetched from the SyftHub API and updated via user profile.
  *
- * The accounting service uses:
+ * The Unified Global Ledger uses:
  * - URL: stored in user profile
  * - Email: same as SyftHub user email
- * - Password: stored in user profile (separate from SyftHub password)
+ * - API Token: stored in user profile (at_* format)
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
@@ -29,12 +29,12 @@ interface AccountingContextType {
   isLoading: boolean;
   /** Error message (null if no error) */
   error: string | null;
-  /** Whether accounting is configured (has URL and password) */
+  /** Whether accounting is configured (has URL and API token) */
   isConfigured: boolean;
   /** Fetch credentials from the backend */
   fetchCredentials: () => Promise<void>;
   /** Update accounting credentials */
-  updateCredentials: (url: string, password: string) => Promise<boolean>;
+  updateCredentials: (url: string, apiToken: string) => Promise<boolean>;
   /** Clear current error */
   clearError: () => void;
 }
@@ -73,7 +73,8 @@ export function AccountingProvider({ children }: Readonly<AccountingProviderProp
   // Derived State
   // ---------------------------------------------------------------------------
 
-  const isConfigured = credentials !== null && Boolean(credentials.url && credentials.password);
+  const isConfigured =
+    credentials !== null && Boolean(credentials.url && credentials.has_api_token);
 
   // ---------------------------------------------------------------------------
   // Actions
@@ -126,7 +127,7 @@ export function AccountingProvider({ children }: Readonly<AccountingProviderProp
   }, [isAuthenticated]);
 
   const updateCredentials = useCallback(
-    async (url: string, password: string): Promise<boolean> => {
+    async (url: string, apiToken: string): Promise<boolean> => {
       if (!isAuthenticated) {
         setError('You must be logged in to update accounting credentials');
         return false;
@@ -148,7 +149,7 @@ export function AccountingProvider({ children }: Readonly<AccountingProviderProp
           },
           body: JSON.stringify({
             accounting_service_url: url,
-            accounting_password: password
+            accounting_api_token: apiToken
           })
         });
 

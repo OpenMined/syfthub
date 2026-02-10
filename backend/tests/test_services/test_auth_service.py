@@ -8,15 +8,17 @@ from fastapi import HTTPException
 
 from syfthub.database.connection import get_db_session
 from syfthub.domain.exceptions import (
-    AccountingAccountExistsError,
     AccountingServiceUnavailableError,
     InvalidAccountingPasswordError,
     UserAlreadyExistsError,
 )
 from syfthub.schemas.auth import RefreshTokenRequest, UserLogin, UserRegister
 from syfthub.schemas.user import User
-from syfthub.services.accounting_client import AccountingUserResult
 from syfthub.services.auth_service import AuthService
+from syfthub.services.unified_ledger_client import (
+    LedgerResult,
+    ProvisionResult,
+)
 
 
 @pytest.fixture
@@ -466,151 +468,320 @@ class TestAuthServiceGetters:
             mock_get.assert_called_once_with(1)
 
 
-class TestHandleAccountingRegistration:
-    """Test accounting registration handling.
+class TestVerifyGoogleToken:
+    """Tests for the _verify_google_token method."""
 
-    These tests cover the "try-create-first" approach which supports:
-    - New users who want to set their own accounting password
-    - New users who want auto-generated passwords
-    - Existing accounting users linking their accounts
+    def test_google_oauth_disabled(self, auth_service):
+        """Test error when Google OAuth is disabled."""
+        with patch("syfthub.services.auth_service.settings") as mock_settings:
+            mock_settings.google_oauth_enabled = False
+
+            with pytest.raises(HTTPException) as exc_info:
+                auth_service._verify_google_token("fake_credential")
+
+            assert exc_info.value.status_code == 503
+            assert "not configured" in exc_info.value.detail
+
+
+class TestGenerateUniqueUsername:
+    """Tests for the _generate_unique_username method."""
+
+    def test_username_from_email(self, auth_service):
+        """Test generating username from email prefix."""
+        with patch.object(
+            auth_service.user_repository, "username_exists", return_value=False
+        ):
+            username = auth_service._generate_unique_username("testuser@example.com")
+            assert username == "testuser"
+
+    def test_username_sanitization(self, auth_service):
+        """Test username is sanitized correctly."""
+        with patch.object(
+            auth_service.user_repository, "username_exists", return_value=False
+        ):
+            username = auth_service._generate_unique_username(
+                "test.user+tag@example.com"
+            )
+            # Only alphanumeric and _- are kept
+            assert username == "testusertag"
+
+    def test_short_username_padded(self, auth_service):
+        """Test short usernames get padded."""
+        with patch.object(
+            auth_service.user_repository, "username_exists", return_value=False
+        ):
+            username = auth_service._generate_unique_username("ab@example.com")
+            # Too short, gets "user" prefix
+            assert username == "userab"
+
+    def test_username_collision_adds_suffix(self, auth_service):
+        """Test username gets suffix when collision occurs."""
+        # First call returns True (collision), second returns False (available)
+        with patch.object(
+            auth_service.user_repository,
+            "username_exists",
+            side_effect=[True, False],
+        ):
+            username = auth_service._generate_unique_username("testuser@example.com")
+            # Should have a numeric suffix
+            assert username.startswith("testuser")
+            assert len(username) > len("testuser")
+
+    def test_username_final_fallback(self, auth_service):
+        """Test final fallback with longer suffix after many collisions."""
+        # All 10 attempts fail, then final fallback
+        with patch.object(
+            auth_service.user_repository,
+            "username_exists",
+            side_effect=[True] * 11,  # All 10 + base fail, final always succeeds
+        ):
+            username = auth_service._generate_unique_username("testuser@example.com")
+            # Should have a 4-digit suffix (1000-9999)
+            assert username.startswith("testuser")
+            # Extract suffix and check it's 4 digits
+            suffix = username[len("testuser") :]
+            assert len(suffix) == 4
+            assert suffix.isdigit()
+
+
+class TestHandleAccountingSetup:
+    """Test accounting setup handling for Unified Global Ledger.
+
+    These tests cover:
+    - Auto-provisioning of new ledger accounts
+    - Validation of provided API tokens
+    - Handling of existing accounts (email conflict)
     """
 
-    def test_accounting_registration_skipped_when_no_url(self, auth_service):
-        """Test that accounting registration is skipped when no URL configured."""
-        # When default_accounting_url is empty, should return (None, None)
+    def test_accounting_setup_skipped_when_no_url(self, auth_service):
+        """Test that accounting setup is skipped when no URL configured."""
         with patch("syfthub.services.auth_service.settings") as mock_settings:
             mock_settings.default_accounting_url = ""
 
-            result = auth_service._handle_accounting_registration(
+            result = auth_service._handle_accounting_setup(
                 email="test@example.com",
                 accounting_url=None,
-                accounting_password=None,
+                accounting_api_token=None,
+                accounting_account_id=None,
             )
 
-            assert result == (None, None)
+            assert result == (None, None, None)
 
     # =========================================================================
-    # NEW USER WITH CUSTOM PASSWORD (try-create-first succeeds)
+    # AUTO-PROVISIONING (no API token provided)
     # =========================================================================
 
-    def test_new_user_with_custom_accounting_password(self, auth_service):
-        """Test new user can set their own accounting password.
+    def test_auto_provision_new_user_success(self, auth_service):
+        """Test successful auto-provisioning of new ledger account.
 
-        Scenario: User is new to both SyftHub and accounting service,
-        but wants to set their own accounting password instead of auto-generated.
+        Scenario: New user without API token, ledger auto-provisions account.
 
-        Expected: create_user succeeds, returns user's chosen password.
+        Expected: provision_ledger_user succeeds, returns token and account_id.
         """
-        mock_client = MagicMock()
-        mock_client.create_user.return_value = AccountingUserResult(
+        mock_provision_result = LedgerResult(
             success=True,
-            conflict=False,
-            error=None,
+            data=ProvisionResult(
+                user_id="user-uuid-123",
+                account_id="acc-uuid-456",
+                api_token="at_new_token_789",
+                api_token_prefix="at_new_",
+            ),
+            status_code=201,
         )
 
         with (
             patch("syfthub.services.auth_service.settings") as mock_settings,
             patch(
-                "syfthub.services.auth_service.AccountingClient",
+                "syfthub.services.auth_service.provision_ledger_user",
+                return_value=mock_provision_result,
+            ) as mock_provision,
+        ):
+            mock_settings.default_accounting_url = None
+            mock_settings.accounting_timeout = 30.0
+
+            result = auth_service._handle_accounting_setup(
+                email="newuser@example.com",
+                accounting_url="http://ledger.example.com",
+                accounting_api_token=None,
+                accounting_account_id=None,
+            )
+
+            assert result == (
+                "http://ledger.example.com",
+                "at_new_token_789",
+                "acc-uuid-456",
+            )
+            mock_provision.assert_called_once()
+
+    def test_auto_provision_email_already_exists(self, auth_service):
+        """Test auto-provisioning when email already exists in ledger.
+
+        Scenario: User email already exists in ledger (409 conflict).
+
+        Expected: Returns (url, None, None), user must configure manually.
+        """
+        mock_provision_result = LedgerResult(
+            success=False,
+            error="Email already exists in ledger",
+            status_code=409,
+        )
+
+        with (
+            patch("syfthub.services.auth_service.settings") as mock_settings,
+            patch(
+                "syfthub.services.auth_service.provision_ledger_user",
+                return_value=mock_provision_result,
+            ),
+        ):
+            mock_settings.default_accounting_url = None
+            mock_settings.accounting_timeout = 30.0
+
+            result = auth_service._handle_accounting_setup(
+                email="existing@example.com",
+                accounting_url="http://ledger.example.com",
+                accounting_api_token=None,
+                accounting_account_id=None,
+            )
+
+            # Should return URL but no token/account - user must configure manually
+            assert result == ("http://ledger.example.com", None, None)
+
+    def test_auto_provision_service_error(self, auth_service):
+        """Test auto-provisioning when ledger service errors.
+
+        Scenario: Ledger service returns error during auto-provisioning.
+
+        Expected: Returns (url, None, None), doesn't fail registration.
+        """
+        mock_provision_result = LedgerResult(
+            success=False,
+            error="Connection timeout",
+            status_code=500,
+        )
+
+        with (
+            patch("syfthub.services.auth_service.settings") as mock_settings,
+            patch(
+                "syfthub.services.auth_service.provision_ledger_user",
+                return_value=mock_provision_result,
+            ),
+        ):
+            mock_settings.default_accounting_url = None
+            mock_settings.accounting_timeout = 30.0
+
+            result = auth_service._handle_accounting_setup(
+                email="test@example.com",
+                accounting_url="http://ledger.example.com",
+                accounting_api_token=None,
+                accounting_account_id=None,
+            )
+
+            # Should not fail, just return partial result
+            assert result == ("http://ledger.example.com", None, None)
+
+    # =========================================================================
+    # API TOKEN VALIDATION (token provided)
+    # =========================================================================
+
+    def test_validate_api_token_success(self, auth_service):
+        """Test successful validation of provided API token.
+
+        Scenario: User provides valid API token.
+
+        Expected: Token is validated, returns provided credentials.
+        """
+        mock_client = MagicMock()
+        mock_client.validate_token.return_value = LedgerResult(
+            success=True,
+            status_code=200,
+        )
+
+        with (
+            patch("syfthub.services.auth_service.settings") as mock_settings,
+            patch(
+                "syfthub.services.auth_service.UnifiedLedgerClient",
                 return_value=mock_client,
             ),
         ):
             mock_settings.default_accounting_url = None
             mock_settings.accounting_timeout = 30.0
 
-            result = auth_service._handle_accounting_registration(
-                email="newuser@example.com",
-                accounting_url="http://accounting.example.com",
-                accounting_password="MyCustomPassword123!",
+            result = auth_service._handle_accounting_setup(
+                email="user@example.com",
+                accounting_url="http://ledger.example.com",
+                accounting_api_token="at_valid_token_123",
+                accounting_account_id=None,
             )
 
-            assert result == ("http://accounting.example.com", "MyCustomPassword123!")
-            # Should try to create first
-            mock_client.create_user.assert_called_once_with(
-                email="newuser@example.com",
-                password="MyCustomPassword123!",
-                organization=None,
+            assert result == (
+                "http://ledger.example.com",
+                "at_valid_token_123",
+                None,
             )
-            # Should NOT call validate (create succeeded)
-            mock_client.validate_credentials.assert_not_called()
+            mock_client.validate_token.assert_called_once()
             mock_client.close.assert_called_once()
 
-    # =========================================================================
-    # EXISTING USER WITH CORRECT PASSWORD (try-create-first → conflict → validate)
-    # =========================================================================
+    def test_validate_api_token_with_account_id(self, auth_service):
+        """Test validation of API token with account ID.
 
-    def test_existing_user_with_correct_password(self, auth_service):
-        """Test existing accounting user with correct password links successfully.
+        Scenario: User provides valid API token and account ID.
 
-        Scenario: User already has an accounting account and provides correct password.
-
-        Expected: create_user returns conflict, validate_credentials succeeds.
+        Expected: Both token and account are validated.
         """
         mock_client = MagicMock()
-        # First call: create_user returns conflict (account exists)
-        mock_client.create_user.return_value = AccountingUserResult(
-            success=False,
-            conflict=True,
-            error=None,
+        mock_client.validate_token.return_value = LedgerResult(
+            success=True,
+            status_code=200,
         )
-        # Second call: validate_credentials returns True
-        mock_client.validate_credentials.return_value = True
+        mock_client.get_account.return_value = LedgerResult(
+            success=True,
+            status_code=200,
+        )
 
         with (
             patch("syfthub.services.auth_service.settings") as mock_settings,
             patch(
-                "syfthub.services.auth_service.AccountingClient",
+                "syfthub.services.auth_service.UnifiedLedgerClient",
                 return_value=mock_client,
             ),
         ):
             mock_settings.default_accounting_url = None
             mock_settings.accounting_timeout = 30.0
 
-            result = auth_service._handle_accounting_registration(
-                email="existing@example.com",
-                accounting_url="http://accounting.example.com",
-                accounting_password="existing_password",
+            result = auth_service._handle_accounting_setup(
+                email="user@example.com",
+                accounting_url="http://ledger.example.com",
+                accounting_api_token="at_valid_token_123",
+                accounting_account_id="acc_valid_456",
             )
 
-            assert result == ("http://accounting.example.com", "existing_password")
-            # Should try to create first
-            mock_client.create_user.assert_called_once_with(
-                email="existing@example.com",
-                password="existing_password",
-                organization=None,
+            assert result == (
+                "http://ledger.example.com",
+                "at_valid_token_123",
+                "acc_valid_456",
             )
-            # Should fall back to validate after conflict
-            mock_client.validate_credentials.assert_called_once_with(
-                "existing@example.com", "existing_password"
-            )
+            mock_client.validate_token.assert_called_once()
+            mock_client.get_account.assert_called_once_with("acc_valid_456")
             mock_client.close.assert_called_once()
 
-    # =========================================================================
-    # EXISTING USER WITH WRONG PASSWORD (try-create-first → conflict → validate fails)
-    # =========================================================================
+    def test_validate_api_token_invalid(self, auth_service):
+        """Test validation of invalid API token.
 
-    def test_existing_user_with_wrong_password(self, auth_service):
-        """Test existing accounting user with wrong password fails.
+        Scenario: User provides invalid API token.
 
-        Scenario: User already has an accounting account but provides wrong password.
-
-        Expected: create_user returns conflict, validate_credentials fails,
-        raises InvalidAccountingPasswordError.
+        Expected: Raises InvalidAccountingPasswordError.
         """
         mock_client = MagicMock()
-        # First call: create_user returns conflict (account exists)
-        mock_client.create_user.return_value = AccountingUserResult(
+        mock_client.validate_token.return_value = LedgerResult(
             success=False,
-            conflict=True,
-            error=None,
+            error="Invalid or expired API token",
+            status_code=401,
         )
-        # Second call: validate_credentials returns False (wrong password)
-        mock_client.validate_credentials.return_value = False
 
         with (
             patch("syfthub.services.auth_service.settings") as mock_settings,
             patch(
-                "syfthub.services.auth_service.AccountingClient",
+                "syfthub.services.auth_service.UnifiedLedgerClient",
                 return_value=mock_client,
             ),
         ):
@@ -618,222 +789,155 @@ class TestHandleAccountingRegistration:
             mock_settings.accounting_timeout = 30.0
 
             with pytest.raises(InvalidAccountingPasswordError):
-                auth_service._handle_accounting_registration(
-                    email="existing@example.com",
-                    accounting_url="http://accounting.example.com",
-                    accounting_password="wrong_password",
+                auth_service._handle_accounting_setup(
+                    email="user@example.com",
+                    accounting_url="http://ledger.example.com",
+                    accounting_api_token="at_invalid_token",
+                    accounting_account_id=None,
                 )
 
-            # Should try to create first
-            mock_client.create_user.assert_called_once()
-            # Should fall back to validate after conflict
-            mock_client.validate_credentials.assert_called_once()
             mock_client.close.assert_called_once()
 
-    # =========================================================================
-    # ACCOUNTING SERVICE ERROR WITH PROVIDED PASSWORD
-    # =========================================================================
+    def test_validate_api_token_invalid_account_id(self, auth_service):
+        """Test validation when account ID is invalid.
 
-    def test_accounting_service_error_with_provided_password(self, auth_service):
-        """Test accounting service error when password is provided.
+        Scenario: Token is valid but account ID doesn't exist.
 
-        Scenario: User provides password but accounting service returns error.
-
-        Expected: raises AccountingServiceUnavailableError.
+        Expected: Raises InvalidAccountingPasswordError.
         """
         mock_client = MagicMock()
-        mock_client.create_user.return_value = AccountingUserResult(
-            success=False,
-            conflict=False,
-            error="Connection timeout",
-        )
-
-        with (
-            patch("syfthub.services.auth_service.settings") as mock_settings,
-            patch(
-                "syfthub.services.auth_service.AccountingClient",
-                return_value=mock_client,
-            ),
-        ):
-            mock_settings.default_accounting_url = None
-            mock_settings.accounting_timeout = 30.0
-
-            with pytest.raises(AccountingServiceUnavailableError) as exc_info:
-                auth_service._handle_accounting_registration(
-                    email="test@example.com",
-                    accounting_url="http://accounting.example.com",
-                    accounting_password="some_password",
-                )
-
-            assert "Connection timeout" in exc_info.value.detail
-            mock_client.close.assert_called_once()
-
-    # =========================================================================
-    # NEW USER WITH AUTO-GENERATED PASSWORD (no password provided)
-    # =========================================================================
-
-    def test_new_user_with_auto_generated_password(self, auth_service):
-        """Test automatic accounting account creation with generated password.
-
-        Scenario: New user doesn't provide accounting password.
-
-        Expected: Password is auto-generated, account is created.
-        """
-        mock_client = MagicMock()
-        mock_client.create_user.return_value = AccountingUserResult(
+        mock_client.validate_token.return_value = LedgerResult(
             success=True,
-            conflict=False,
-            error=None,
+            status_code=200,
         )
-
-        with (
-            patch("syfthub.services.auth_service.settings") as mock_settings,
-            patch(
-                "syfthub.services.auth_service.AccountingClient",
-                return_value=mock_client,
-            ),
-            patch(
-                "syfthub.services.auth_service.generate_accounting_password",
-                return_value="generated_password_123",
-            ),
-        ):
-            mock_settings.default_accounting_url = None
-            mock_settings.accounting_timeout = 30.0
-            mock_settings.accounting_password_length = 32
-
-            result = auth_service._handle_accounting_registration(
-                email="newuser@example.com",
-                accounting_url="http://accounting.example.com",
-                accounting_password=None,
-            )
-
-            assert result == ("http://accounting.example.com", "generated_password_123")
-            mock_client.create_user.assert_called_once()
-            mock_client.close.assert_called_once()
-
-    # =========================================================================
-    # EXISTING USER WITHOUT PASSWORD (must provide password)
-    # =========================================================================
-
-    def test_existing_user_without_password_fails(self, auth_service):
-        """Test existing accounting user must provide password.
-
-        Scenario: User has existing accounting account but doesn't provide password.
-
-        Expected: create_user returns conflict, raises AccountingAccountExistsError.
-        """
-        mock_client = MagicMock()
-        mock_client.create_user.return_value = AccountingUserResult(
+        mock_client.get_account.return_value = LedgerResult(
             success=False,
-            conflict=True,
-            error=None,
+            error="Account not found",
+            status_code=404,
         )
 
         with (
             patch("syfthub.services.auth_service.settings") as mock_settings,
             patch(
-                "syfthub.services.auth_service.AccountingClient",
+                "syfthub.services.auth_service.UnifiedLedgerClient",
                 return_value=mock_client,
-            ),
-            patch(
-                "syfthub.services.auth_service.generate_accounting_password",
-                return_value="generated_password",
             ),
         ):
             mock_settings.default_accounting_url = None
             mock_settings.accounting_timeout = 30.0
-            mock_settings.accounting_password_length = 32
 
-            with pytest.raises(AccountingAccountExistsError) as exc_info:
-                auth_service._handle_accounting_registration(
-                    email="existing@example.com",
-                    accounting_url="http://accounting.example.com",
-                    accounting_password=None,
+            with pytest.raises(InvalidAccountingPasswordError):
+                auth_service._handle_accounting_setup(
+                    email="user@example.com",
+                    accounting_url="http://ledger.example.com",
+                    accounting_api_token="at_valid_token",
+                    accounting_account_id="acc_invalid_456",
                 )
 
-            assert exc_info.value.email == "existing@example.com"
             mock_client.close.assert_called_once()
 
-    # =========================================================================
-    # ACCOUNTING SERVICE ERROR WITHOUT PASSWORD
-    # =========================================================================
+    def test_validate_api_token_service_error(self, auth_service):
+        """Test validation when ledger service errors.
 
-    def test_accounting_service_error_without_password(self, auth_service):
-        """Test accounting service error when no password provided.
+        Scenario: Ledger service returns error during validation.
 
-        Scenario: New user, no password, but accounting service returns error.
-
-        Expected: raises AccountingServiceUnavailableError.
+        Expected: Raises AccountingServiceUnavailableError.
         """
         mock_client = MagicMock()
-        mock_client.create_user.return_value = AccountingUserResult(
+        mock_client.validate_token.return_value = LedgerResult(
             success=False,
-            conflict=False,
             error="Service unavailable",
+            status_code=503,
         )
 
         with (
             patch("syfthub.services.auth_service.settings") as mock_settings,
             patch(
-                "syfthub.services.auth_service.AccountingClient",
+                "syfthub.services.auth_service.UnifiedLedgerClient",
                 return_value=mock_client,
-            ),
-            patch(
-                "syfthub.services.auth_service.generate_accounting_password",
-                return_value="generated_password",
             ),
         ):
             mock_settings.default_accounting_url = None
             mock_settings.accounting_timeout = 30.0
-            mock_settings.accounting_password_length = 32
 
             with pytest.raises(AccountingServiceUnavailableError) as exc_info:
-                auth_service._handle_accounting_registration(
-                    email="test@example.com",
-                    accounting_url="http://accounting.example.com",
-                    accounting_password=None,
+                auth_service._handle_accounting_setup(
+                    email="user@example.com",
+                    accounting_url="http://ledger.example.com",
+                    accounting_api_token="at_some_token",
+                    accounting_account_id=None,
                 )
 
             assert "Service unavailable" in exc_info.value.detail
+            mock_client.close.assert_called_once()
+
+    def test_validate_api_token_unexpected_exception(self, auth_service):
+        """Test validation when unexpected exception occurs.
+
+        Scenario: Client raises unexpected exception during validation.
+
+        Expected: Raises AccountingServiceUnavailableError wrapping the original.
+        """
+        mock_client = MagicMock()
+        mock_client.validate_token.side_effect = RuntimeError("Unexpected error")
+
+        with (
+            patch("syfthub.services.auth_service.settings") as mock_settings,
+            patch(
+                "syfthub.services.auth_service.UnifiedLedgerClient",
+                return_value=mock_client,
+            ),
+        ):
+            mock_settings.default_accounting_url = None
+            mock_settings.accounting_timeout = 30.0
+
+            with pytest.raises(AccountingServiceUnavailableError) as exc_info:
+                auth_service._handle_accounting_setup(
+                    email="user@example.com",
+                    accounting_url="http://ledger.example.com",
+                    accounting_api_token="at_some_token",
+                    accounting_account_id=None,
+                )
+
+            assert "Unexpected error" in exc_info.value.detail
             mock_client.close.assert_called_once()
 
     # =========================================================================
     # DEFAULT URL HANDLING
     # =========================================================================
 
-    def test_accounting_registration_uses_default_url(self, auth_service):
+    def test_accounting_setup_uses_default_url(self, auth_service):
         """Test that default accounting URL is used when not provided."""
-        mock_client = MagicMock()
-        mock_client.create_user.return_value = AccountingUserResult(
+        mock_provision_result = LedgerResult(
             success=True,
-            conflict=False,
-            error=None,
+            data=ProvisionResult(
+                user_id="user-uuid-123",
+                account_id="acc-uuid-456",
+                api_token="at_new_token_789",
+                api_token_prefix="at_new_",
+            ),
+            status_code=201,
         )
 
         with (
             patch("syfthub.services.auth_service.settings") as mock_settings,
             patch(
-                "syfthub.services.auth_service.AccountingClient",
-                return_value=mock_client,
-            ) as mock_client_class,
-            patch(
-                "syfthub.services.auth_service.generate_accounting_password",
-                return_value="generated_password",
-            ),
+                "syfthub.services.auth_service.provision_ledger_user",
+                return_value=mock_provision_result,
+            ) as mock_provision,
         ):
-            mock_settings.default_accounting_url = "http://default-accounting.com"
+            mock_settings.default_accounting_url = "http://default-ledger.com"
             mock_settings.accounting_timeout = 30.0
-            mock_settings.accounting_password_length = 32
 
-            result = auth_service._handle_accounting_registration(
+            result = auth_service._handle_accounting_setup(
                 email="test@example.com",
                 accounting_url=None,  # Not provided, should use default
-                accounting_password=None,
+                accounting_api_token=None,
+                accounting_account_id=None,
             )
 
             # Verify default URL was used
-            mock_client_class.assert_called_once_with(
-                base_url="http://default-accounting.com",
-                timeout=30.0,
-            )
-            assert result[0] == "http://default-accounting.com"
+            mock_provision.assert_called_once()
+            call_kwargs = mock_provision.call_args[1]
+            assert call_kwargs["base_url"] == "http://default-ledger.com"
+            assert result[0] == "http://default-ledger.com"

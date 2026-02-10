@@ -11,6 +11,9 @@
 #   - DOMAIN: Production domain (e.g., syfthub.example.com)
 #   - RSA_PRIVATE_KEY_PEM: Base64-encoded RSA private key for satellite tokens
 #   - RSA_PUBLIC_KEY_PEM: Base64-encoded RSA public key for satellite tokens
+#   - LEDGER_DB_PASSWORD: PostgreSQL password for Unified Global Ledger database
+#   - LEDGER_JWT_SECRET: JWT secret for Unified Global Ledger (min 32 chars)
+#   - LEDGER_TRANSFER_SECRET: Secret for transfer confirmation tokens (min 32 chars)
 #
 # Optional environment variables:
 #   - OPENAI_API_KEY: OpenAI API key for RAG semantic search (optional)
@@ -69,6 +72,8 @@ services:
         condition: service_healthy
       nats:
         condition: service_healthy
+      ledger:
+        condition: service_healthy
       frontend-init:
         condition: service_completed_successfully
     healthcheck:
@@ -124,6 +129,8 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       # Google OAuth configuration (optional - Google Sign-In disabled if not set)
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      # Unified Global Ledger (accounting service) URL
+      - DEFAULT_ACCOUNTING_URL=https://${DOMAIN:-localhost}/ledger
     networks:
       - syfthub-network
     depends_on:
@@ -302,6 +309,98 @@ services:
       - syfthub-network
 
   # ==========================================================================
+  # UNIFIED GLOBAL LEDGER - Accounting service
+  # ==========================================================================
+  ledger:
+    image: ghcr.io/${GITHUB_REPOSITORY}-ledger:${IMAGE_TAG:-latest}
+    container_name: syfthub-ledger
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    expose:
+      - "3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://ledger:${LEDGER_DB_PASSWORD}@ledger-db:5432/ledger
+      - DATABASE_POOL_SIZE=20
+      - JWT_SECRET=${LEDGER_JWT_SECRET}
+      - JWT_ISSUER=ledger-api
+      - JWT_AUDIENCE=ledger-api
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - CORS_ORIGIN=https://${DOMAIN:-localhost}
+      # Transfer confirmation (for P2P transfers)
+      - TRANSFER_CONFIRMATION_SECRET=${LEDGER_TRANSFER_SECRET}
+      - TRANSFER_CONFIRMATION_EXPIRATION_HOURS=24
+      # Rate limiting
+      - RATE_LIMIT_WINDOW_MS=60000
+      - RATE_LIMIT_MAX_REQUESTS=1000
+      # Optional: Redis for distributed rate limiting (uses in-memory if not set)
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
+    networks:
+      - syfthub-network
+    depends_on:
+      ledger-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # ==========================================================================
+  # LEDGER POSTGRESQL DATABASE
+  # ==========================================================================
+  ledger-db:
+    image: postgres:16-alpine
+    container_name: syfthub-ledger-db
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    expose:
+      - "5432"
+    environment:
+      - POSTGRES_USER=ledger
+      - POSTGRES_PASSWORD=${LEDGER_DB_PASSWORD}
+      - POSTGRES_DB=ledger
+      - POSTGRES_HOST_AUTH_METHOD=md5
+    volumes:
+      - ledger_postgres_data:/var/lib/postgresql/data
+      - ./backup:/backup
+    networks:
+      - syfthub-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ledger -d ledger"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # ==========================================================================
   # POSTGRESQL DATABASE
   # ==========================================================================
   db:
@@ -390,6 +489,23 @@ services:
     command: [".venv/bin/alembic", "upgrade", "head"]
 
   # ==========================================================================
+  # LEDGER DATABASE MIGRATION - Run with: docker compose --profile migrate run --rm ledger-migrate
+  # ==========================================================================
+  ledger-migrate:
+    image: ghcr.io/${GITHUB_REPOSITORY}-ledger:${IMAGE_TAG:-latest}
+    container_name: syfthub-ledger-migrate
+    environment:
+      - DATABASE_URL=postgresql://ledger:${LEDGER_DB_PASSWORD}@ledger-db:5432/ledger
+    networks:
+      - syfthub-network
+    depends_on:
+      ledger-db:
+        condition: service_healthy
+    profiles:
+      - migrate
+    command: ["npm", "run", "migrate:up"]
+
+  # ==========================================================================
   # DATABASE BACKUP - Run with: docker compose --profile backup up -d backup
   # ==========================================================================
   backup:
@@ -433,6 +549,8 @@ volumes:
     name: syfthub_frontend_dist
   postgres_data:
     name: syfthub_postgres_data
+  ledger_postgres_data:
+    name: syfthub_ledger_postgres_data
   redis_data:
     name: syfthub_redis_data
   nginx_logs:

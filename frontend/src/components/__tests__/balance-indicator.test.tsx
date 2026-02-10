@@ -54,7 +54,7 @@ describe('BalanceIndicator', () => {
     });
 
     mockUseAccountingUser.mockReturnValue({
-      user: { email: 'test@example.com', balance: 500 },
+      user: { email: 'test@example.com', balance: 500_000 },
       isLoading: false,
       error: null,
       refetch: mockRefetch
@@ -103,20 +103,21 @@ describe('BalanceIndicator', () => {
 
   it('shows compact balance for healthy balance', () => {
     render(<BalanceIndicator />);
-    // 500 is below 1000, so it shows formatted with 2 decimals
-    expect(screen.getByText('500.00')).toBeInTheDocument();
+    // 500_000 credits = $500.00 (1 USD = 1000 credits)
+    expect(screen.getByText('$500.00')).toBeInTheDocument();
   });
 
   it('shows balance with K suffix for large numbers', () => {
     mockUseAccountingUser.mockReturnValue({
-      user: { email: 'test@example.com', balance: 15_000 },
+      user: { email: 'test@example.com', balance: 15_000_000 },
       isLoading: false,
       error: null,
       refetch: mockRefetch
     });
 
     render(<BalanceIndicator />);
-    expect(screen.getByText('15.0K')).toBeInTheDocument();
+    // 15_000_000 credits = $15,000 → displays as $15.0K
+    expect(screen.getByText('$15.0K')).toBeInTheDocument();
   });
 
   it('shows "Error" text when there is an error', () => {

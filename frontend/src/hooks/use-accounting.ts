@@ -72,8 +72,8 @@ export function useAccounting() {
  * @example
  * ```tsx
  * const credentials = useAccountingCredentials();
- * if (credentials?.url && credentials?.password) {
- *   // Use credentials.url, credentials.email, credentials.password
+ * if (credentials?.url && credentials?.has_api_token) {
+ *   // Credentials are configured - use credentials.url, credentials.email, credentials.account_id
  * }
  * ```
  */

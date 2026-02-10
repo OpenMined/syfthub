@@ -25,13 +25,13 @@ dependencies = [
     "pydantic>=2.7.0,<3.0",
     "httpx>=0.27.0",
     "nats-py[aiohttp]>=2.7.0",
-    # The syfthub-sdk is a local dependency.
-    # It will be installed in editable mode.
+    "syfthub-sdk",
     "policy-manager",
 ]
 
 [tool.uv.sources]
-policy-manager = { git = "ssh://git@github.com/OpenMined/syft-policies.git" }
+syfthub-sdk = { path = "../sdk/python", editable = true }
+policy-manager = { path = "../../../workspace/policy-manager", editable = true }
 
 [project.optional-dependencies]
 dev = [

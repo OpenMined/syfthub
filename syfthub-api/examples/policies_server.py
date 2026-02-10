@@ -12,7 +12,7 @@ Policies shown:
     3. AccessGroupPolicy — restricts access to specific users
     4. PromptFilterPolicy— blocks queries matching forbidden patterns
     5. ManualReviewPolicy— holds model responses for human review
-    6. TransactionPolicy — credit-based access gating
+    6. TransactionPolicy — ledger-based payment confirmation
     7. AttributionPolicy — requires a verified attribution URL
     8. CustomPolicy      — wraps a plain callable as a policy
     9. AllOf / AnyOf / Not — composite combinators
@@ -126,7 +126,7 @@ manual_review = ManualReviewPolicy(name="human_review")
 
 transaction = TransactionPolicy(
     name="pay_per_query",
-    cost_per_request=1.0,
+    price_per_request=1.0,  # Uses LEDGER_URL and LEDGER_API_TOKEN env vars
 )
 
 async def _verify_attribution(user_id: str, url: str) -> bool:
@@ -231,19 +231,20 @@ async def reviewed_model(messages: list[Message]) -> str:
     return f"Pending review — answer to: {last}"
 
 
-# ── 5. Credit-gated model ──────────────────────────────────────────
+# ── 5. Ledger-gated model ──────────────────────────────────────────
 
 @app.model(
     slug="paid-model",
     name="Paid Model",
-    description="Costs 1 credit per request (TransactionPolicy with in-store balance).",
+    description="Costs $1.00 per request (TransactionPolicy with Unified Ledger).",
     policies=[transaction],
 )
 async def paid_model(messages: list[Message], ctx: RequestContext) -> str:
-    """Each call costs 1 credit. Users start with 0 — seed balance via startup hook."""
+    """Each call costs $1.00. Requires transaction_token from SDK pre-authorization."""
     last = next((m.content for m in reversed(messages) if m.role == "user"), "")
-    remaining = ctx.metadata.get("pay_per_query_result", {}).get("remaining_balance", "?")
-    return f"Paid response ({remaining} credits left): {last}"
+    confirmed = ctx.metadata.get("pay_per_query_confirmed", False)
+    status = "confirmed" if confirmed else "pending"
+    return f"Paid response (transaction {status}): {last}"
 
 
 # ── 6. Attribution-required model ───────────────────────────────────
@@ -330,13 +331,19 @@ async def premium_model(
 # ────────────────────────────────────────────────────────────────────
 
 @app.on_startup
-async def seed_credits():
-    """Give demo users some starting credits for the paid-model endpoint."""
-    # TransactionPolicy uses the store internally; we can seed balances
-    # once setup() has run (which happens before startup hooks in run()).
-    await transaction.set_balance("alice", 10.0)
-    await transaction.set_balance("bob", 5.0)
-    print("Seeded demo credits: alice=10, bob=5")
+async def check_ledger_config():
+    """Check that ledger is configured for the paid-model endpoint."""
+    import os
+
+    ledger_url = os.getenv("LEDGER_URL")
+    has_token = bool(os.getenv("LEDGER_API_TOKEN"))
+
+    if ledger_url and has_token:
+        print(f"Ledger configured: {ledger_url}")
+    else:
+        print("WARNING: LEDGER_URL or LEDGER_API_TOKEN not set.")
+        print("The 'paid-model' endpoint requires ledger configuration.")
+        print("Transactions will fail without valid ledger credentials.")
 
 
 @app.on_startup

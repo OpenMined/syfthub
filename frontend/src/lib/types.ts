@@ -341,8 +341,10 @@ export interface AccountingCredentials {
   url: string | null;
   /** Email for authenticating with the accounting service (same as SyftHub email) */
   email: string;
-  /** Password for authenticating with the accounting service (null if not configured) */
-  password: string | null;
+  /** User's account ID in the ledger (null if not configured) */
+  account_id: string | null;
+  /** Whether an API token is configured for the ledger */
+  has_api_token: boolean;
 }
 
 // =============================================================================

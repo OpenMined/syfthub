@@ -372,34 +372,51 @@ class AuthResource:
         return PeerTokenResponse.model_validate(data)
 
     def get_transaction_tokens(
-        self, owner_usernames: list[str]
+        self,
+        owner_amounts: list[dict[str, str]],
     ) -> dict[str, dict[str, str]]:
         """Get transaction tokens for billing authorization.
 
-        Transaction tokens are short-lived JWTs that pre-authorize endpoint owners
-        (recipients) to charge the current user (sender) for usage. This enables
-        billing workflows in the aggregator.
+        Transaction tokens are confirmation tokens for pending transfers that
+        pre-authorize endpoint owners (recipients) to charge the current user
+        (sender) for usage. Each owner has their own amount based on their
+        endpoint's pricing policy.
 
         Args:
-            owner_usernames: List of endpoint owner usernames
+            owner_amounts: List of dicts with 'owner_username' and 'amount' keys.
+                The amount comes from the endpoint's TransactionPolicy.
 
         Returns:
-            Dict with 'tokens' (owner -> token) and 'errors' (owner -> error msg)
+            Dict with 'tokens' (owner -> {token, amount, transfer_id}) and
+            'errors' (owner -> error msg)
 
         Example:
-            response = client.auth.get_transaction_tokens(["alice", "bob"])
-            print(f"Got tokens for: {list(response['tokens'].keys())}")
-            if response['errors']:
-                print(f"Failed for: {list(response['errors'].keys())}")
+            response = client.auth.get_transaction_tokens([
+                {"owner_username": "alice", "amount": "2.50"},
+                {"owner_username": "bob", "amount": "1.00"},
+            ])
+            for owner, info in response['tokens'].items():
+                print(f"{owner}: token={info['token']}, amount={info['amount']}")
         """
-        unique_owners = list(set(owner_usernames))
-        if not unique_owners:
+        if not owner_amounts:
+            return {"tokens": {}, "errors": {}}
+
+        # Deduplicate by owner_username (keep first occurrence)
+        seen: set[str] = set()
+        unique_requests: list[dict[str, str]] = []
+        for req in owner_amounts:
+            owner = req.get("owner_username", "")
+            if owner and owner not in seen:
+                seen.add(owner)
+                unique_requests.append(req)
+
+        if not unique_requests:
             return {"tokens": {}, "errors": {}}
 
         try:
             response = self._http.post(
                 "/api/v1/accounting/transaction-tokens",
-                json={"owner_usernames": unique_owners},
+                json={"requests": unique_requests},
             )
             data = response if isinstance(response, dict) else {}
             return {

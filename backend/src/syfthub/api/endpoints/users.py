@@ -58,15 +58,16 @@ async def get_current_user_profile(
 async def get_my_accounting_credentials(
     current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> AccountingCredentialsResponse:
-    """Get current user's accounting service credentials.
+    """Get current user's accounting service configuration.
 
-    Returns the accounting service URL, user's email, and accounting password.
-    This endpoint is protected and only returns credentials for the authenticated user.
+    Returns the Unified Global Ledger URL, account ID, and whether an API token
+    is configured. The API token itself is never exposed.
     """
     return AccountingCredentialsResponse(
         url=current_user.accounting_service_url,
         email=current_user.email,
-        password=current_user.accounting_password,
+        account_id=current_user.accounting_account_id,
+        has_api_token=current_user.accounting_api_token is not None,
     )
 
 

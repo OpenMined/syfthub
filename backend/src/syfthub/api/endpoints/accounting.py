@@ -1,22 +1,31 @@
-"""Accounting proxy endpoints.
+"""Accounting proxy endpoints for Unified Global Ledger.
 
-These endpoints proxy requests to the external accounting service,
+These endpoints proxy requests to the Unified Global Ledger service,
 avoiding CORS issues by making server-to-server calls.
 
-The frontend calls these endpoints instead of the accounting service directly.
+The frontend calls these endpoints instead of the ledger service directly.
+
+Migration from old accounting system:
+- Uses Bearer token auth (API tokens) instead of Basic Auth
+- Uses account IDs instead of email-based accounts
+- Transfer confirmation flow replaces transaction tokens
 """
 
 import logging
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from syfthub.auth.db_dependencies import get_current_active_user
 from syfthub.database.dependencies import get_user_repository
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.user import User
-from syfthub.services.accounting_client import AccountingClient
+from syfthub.services.unified_ledger_client import (
+    LedgerBalance,
+    LedgerTransfer,
+    UnifiedLedgerClient,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,74 +38,94 @@ router = APIRouter()
 
 
 class AccountingUserResponse(BaseModel):
-    """Accounting user info response."""
+    """Accounting user info response (balance from Unified Ledger)."""
 
-    id: str
-    email: str
-    balance: float
-    organization: Optional[str] = None
-
-
-class AccountingTransactionResponse(BaseModel):
-    """Accounting transaction response."""
-
-    id: str
-    senderEmail: str = Field(alias="sender_email")
-    recipientEmail: str = Field(alias="recipient_email")
-    amount: float
-    status: str
-    createdBy: str = Field(alias="created_by")
-    resolvedBy: Optional[str] = Field(None, alias="resolved_by")
-    createdAt: str = Field(alias="created_at")
-    resolvedAt: Optional[str] = Field(None, alias="resolved_at")
-    appName: Optional[str] = Field(None, alias="app_name")
-    appEpPath: Optional[str] = Field(None, alias="app_ep_path")
-
-    class Config:
-        populate_by_name = True
+    id: str = Field(..., description="Account ID in the ledger")
+    email: str = Field(..., description="User's email address")
+    balance: float = Field(..., description="Available balance in credits")
+    currency: str = Field(default="CREDIT", description="Currency code")
 
 
-class CreateTransactionRequest(BaseModel):
-    """Create transaction request."""
+class TransferResponse(BaseModel):
+    """Transfer response from the Unified Ledger."""
 
-    recipientEmail: str = Field(alias="recipient_email")
-    amount: float
-    appName: Optional[str] = Field(None, alias="app_name")
-    appEpPath: Optional[str] = Field(None, alias="app_ep_path")
+    id: str = Field(..., description="Transfer ID")
+    source_account_id: str = Field(..., description="Source account ID")
+    destination_account_id: str = Field(..., description="Destination account ID")
+    amount: str = Field(..., description="Transfer amount")
+    currency: str = Field(default="CREDIT", description="Currency code")
+    status: str = Field(..., description="Transfer status")
+    confirmation_token: Optional[str] = Field(
+        None, description="Token for confirming pending transfers"
+    )
+    description: Optional[str] = Field(None, description="Transfer description")
+    created_at: Optional[str] = Field(None, description="When the transfer was created")
 
-    class Config:
-        populate_by_name = True
+
+class CreateTransferRequest(BaseModel):
+    """Request to create a transfer."""
+
+    destination_account_id: str = Field(..., description="Destination account ID")
+    amount: str = Field(..., description="Amount to transfer")
+    description: Optional[str] = Field(None, description="Transfer description")
+    require_confirmation: bool = Field(
+        default=False,
+        description="If true, creates a pending transfer that requires confirmation",
+    )
+
+
+class OwnerAmountRequest(BaseModel):
+    """Per-owner amount for transaction token creation."""
+
+    owner_username: str = Field(..., description="Endpoint owner username")
+    amount: str = Field(..., description="Amount to pre-authorize for this owner")
 
 
 class CreateTransactionTokensRequest(BaseModel):
-    """Request to create transaction tokens for multiple endpoint owners.
+    """Request to create transaction tokens (confirmation tokens) for endpoint owners.
 
     Used by the chat flow to pre-authorize payments to endpoint owners.
+    Each owner can have a different amount based on their endpoint's pricing policy.
+    This creates pending transfers that the endpoint owners can confirm.
     """
 
-    owner_usernames: list[str] = Field(
+    requests: list[OwnerAmountRequest] = Field(
         ...,
-        description="List of endpoint owner usernames to create tokens for",
+        description="List of owner/amount pairs for token creation",
         min_length=1,
         max_length=20,
     )
 
 
-class TransactionTokensResponse(BaseModel):
-    """Response containing transaction tokens for endpoint owners.
+class TokenInfo(BaseModel):
+    """Token information including the confirmation token and amount."""
 
-    Maps owner_username to their transaction token.
-    Missing entries indicate the token could not be created for that owner.
+    token: str = Field(..., description="Confirmation token for the pending transfer")
+    amount: str = Field(..., description="Amount pre-authorized in this transfer")
+    transfer_id: str = Field(..., description="Transfer ID (for cancellation)")
+
+
+class TransactionTokensResponse(BaseModel):
+    """Response containing confirmation tokens for endpoint owners.
+
+    Maps owner_username to their token info (token + amount).
+    The endpoint can verify the amount matches their pricing before confirming.
     """
 
-    tokens: dict[str, str] = Field(
+    tokens: dict[str, TokenInfo] = Field(
         default_factory=dict,
-        description="Mapping of owner_username to transaction token",
+        description="Mapping of owner_username to token info (token, amount, transfer_id)",
     )
     errors: dict[str, str] = Field(
         default_factory=dict,
-        description="Mapping of owner_username to error message (if token creation failed)",
+        description="Mapping of owner_username to error message (if creation failed)",
     )
+
+
+class ConfirmTransferRequest(BaseModel):
+    """Request to confirm a pending transfer."""
+
+    confirmation_token: str = Field(..., description="The confirmation token")
 
 
 # =============================================================================
@@ -104,24 +133,36 @@ class TransactionTokensResponse(BaseModel):
 # =============================================================================
 
 
-def get_accounting_client(user: User) -> tuple[AccountingClient, str]:
-    """Get an accounting client configured with user's credentials.
+def get_ledger_client_and_account(user: User) -> tuple[UnifiedLedgerClient, str]:
+    """Get a ledger client configured with user's credentials and their account ID.
+
+    This function validates all required credentials and returns both the client
+    and the account ID, ensuring type safety for subsequent operations.
 
     Args:
         user: The current user with accounting credentials
 
     Returns:
-        Tuple of (AccountingClient, validated_password)
+        Tuple of (UnifiedLedgerClient, account_id) - both guaranteed non-None
 
     Raises:
         HTTPException: If accounting is not configured for the user
     """
-    if not user.accounting_service_url or not user.accounting_password:
+    if not user.accounting_service_url or not user.accounting_api_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Accounting not configured. Please set up billing in settings.",
         )
-    return AccountingClient(user.accounting_service_url), user.accounting_password
+    if not user.accounting_account_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No accounting account linked. Please complete billing setup.",
+        )
+    client = UnifiedLedgerClient(
+        base_url=user.accounting_service_url,
+        api_token=user.accounting_api_token,
+    )
+    return client, user.accounting_account_id
 
 
 # =============================================================================
@@ -135,268 +176,205 @@ async def get_accounting_user(
 ) -> AccountingUserResponse:
     """Get current user's accounting info including balance.
 
-    Proxies the request to the external accounting service using
-    the user's stored credentials.
+    Fetches the balance from the Unified Global Ledger using
+    the user's linked account.
     """
-    client, password = get_accounting_client(current_user)
+    client, account_id = get_ledger_client_and_account(current_user)
 
     try:
-        user_info = client.get_user(
-            current_user.email,
-            password,
-        )
+        result = client.get_balance(account_id)
 
-        if not user_info:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid accounting credentials",
-            )
-
-        return AccountingUserResponse(
-            id=user_info.id,
-            email=user_info.email,
-            balance=user_info.balance,
-            organization=user_info.organization,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Error communicating with accounting service: {e!s}",
-        ) from e
-    finally:
-        client.close()
-
-
-@router.get("/transactions", response_model=list[AccountingTransactionResponse])
-async def get_transactions(
-    current_user: Annotated[User, Depends(get_current_active_user)],
-    skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
-) -> list[AccountingTransactionResponse]:
-    """Get user's transaction history.
-
-    Proxies the request to the external accounting service.
-    """
-    client, password = get_accounting_client(current_user)
-
-    try:
-        response = client.client.get(
-            "/transactions",
-            params={"skip": skip, "limit": limit},
-            auth=(current_user.email, password),
-        )
-
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=response.status_code,
-                detail="Failed to fetch transactions",
-            )
-
-        transactions_data = response.json()
-
-        # Handle wrapped response (e.g., {"transactions": [...]}) or direct list
-        if isinstance(transactions_data, dict):
-            transactions_list = transactions_data.get("transactions", [])
-        elif isinstance(transactions_data, list):
-            transactions_list = transactions_data
-        else:
-            logger.warning(
-                "accounting.transactions.unexpected_format: %s",
-                type(transactions_data).__name__,
-            )
-            transactions_list = []
-
-        # Transform the response to match frontend expectations
-        result = []
-        for tx in transactions_list:
-            result.append(
-                AccountingTransactionResponse(
-                    id=tx.get("id", ""),
-                    sender_email=tx.get("senderEmail", ""),
-                    recipient_email=tx.get("recipientEmail", ""),
-                    amount=tx.get("amount", 0),
-                    status=tx.get("status", ""),
-                    created_by=tx.get("createdBy", ""),
-                    resolved_by=tx.get("resolvedBy"),
-                    created_at=tx.get("createdAt", ""),
-                    resolved_at=tx.get("resolvedAt"),
-                    app_name=tx.get("appName"),
-                    app_ep_path=tx.get("appEpPath"),
+        if not result.success:
+            if result.status_code == 401:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid accounting credentials. Please reconfigure billing.",
                 )
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=result.error or "Failed to fetch balance",
             )
 
-        return result
+        if result.data is None:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Ledger returned empty balance data",
+            )
+
+        balance_data: LedgerBalance = result.data
+        return AccountingUserResponse(
+            id=account_id,
+            email=current_user.email,
+            balance=float(balance_data.available_balance),
+            currency=balance_data.currency,
+        )
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Error communicating with accounting service: {e!s}",
+            detail=f"Error communicating with ledger service: {e!s}",
         ) from e
     finally:
         client.close()
 
 
-@router.post("/transactions", response_model=AccountingTransactionResponse)
-async def create_transaction(
-    request: CreateTransactionRequest,
+@router.post("/transfers", response_model=TransferResponse)
+async def create_transfer(
+    request: CreateTransferRequest,
     current_user: Annotated[User, Depends(get_current_active_user)],
-) -> AccountingTransactionResponse:
-    """Create a new transaction.
+) -> TransferResponse:
+    """Create a transfer to another account.
 
-    Proxies the request to the external accounting service.
+    If require_confirmation=True, creates a pending transfer that the
+    recipient must confirm. The response will include a confirmation_token.
     """
-    client, password = get_accounting_client(current_user)
+    client, account_id = get_ledger_client_and_account(current_user)
 
     try:
-        payload = {
-            "recipientEmail": request.recipientEmail,
-            "amount": request.amount,
-        }
-        if request.appName:
-            payload["appName"] = request.appName
-        if request.appEpPath:
-            payload["appEpPath"] = request.appEpPath
-
-        response = client.client.post(
-            "/transactions",
-            json=payload,
-            auth=(current_user.email, password),
+        result = client.create_transfer(
+            source_account_id=account_id,
+            destination_account_id=request.destination_account_id,
+            amount=request.amount,
+            description=request.description,
+            require_confirmation=request.require_confirmation,
         )
 
-        if response.status_code not in (200, 201):
-            detail = "Failed to create transaction"
-            try:
-                error_data = response.json()
-                detail = error_data.get("detail", error_data.get("message", detail))
-            except Exception:
-                pass
-            raise HTTPException(status_code=response.status_code, detail=detail)
+        if not result.success:
+            if result.status_code == 422:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=result.error or "Insufficient funds",
+                )
+            raise HTTPException(
+                status_code=result.status_code or status.HTTP_502_BAD_GATEWAY,
+                detail=result.error or "Failed to create transfer",
+            )
 
-        tx = response.json()
-        return AccountingTransactionResponse(
-            id=tx.get("id", ""),
-            sender_email=tx.get("senderEmail", ""),
-            recipient_email=tx.get("recipientEmail", ""),
-            amount=tx.get("amount", 0),
-            status=tx.get("status", ""),
-            created_by=tx.get("createdBy", ""),
-            resolved_by=tx.get("resolvedBy"),
-            created_at=tx.get("createdAt", ""),
-            resolved_at=tx.get("resolvedAt"),
-            app_name=tx.get("appName"),
-            app_ep_path=tx.get("appEpPath"),
+        if result.data is None:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Ledger returned empty transfer data",
+            )
+
+        transfer: LedgerTransfer = result.data
+        return TransferResponse(
+            id=transfer.id,
+            source_account_id=transfer.source_account_id,
+            destination_account_id=transfer.destination_account_id,
+            amount=transfer.amount,
+            currency=transfer.currency,
+            status=transfer.status,
+            confirmation_token=transfer.confirmation_token,
+            description=transfer.description,
+            created_at=transfer.created_at,
         )
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Error communicating with accounting service: {e!s}",
+            detail=f"Error communicating with ledger service: {e!s}",
         ) from e
     finally:
         client.close()
 
 
-@router.post("/transactions/{transaction_id}/confirm")
-async def confirm_transaction(
-    transaction_id: str,
+@router.post("/transfers/confirm", response_model=TransferResponse)
+async def confirm_transfer(
+    request: ConfirmTransferRequest,
     current_user: Annotated[User, Depends(get_current_active_user)],
-) -> AccountingTransactionResponse:
-    """Confirm a pending transaction.
+) -> TransferResponse:
+    """Confirm a pending transfer using its confirmation token.
 
-    Proxies the request to the external accounting service.
+    This endpoint is typically called by the recipient (or their agent)
+    to complete a transfer that was created with require_confirmation=True.
     """
-    client, password = get_accounting_client(current_user)
+    client, _ = get_ledger_client_and_account(current_user)
 
     try:
-        response = client.client.post(
-            f"/transactions/{transaction_id}/confirm",
-            auth=(current_user.email, password),
-        )
+        result = client.confirm_transfer(request.confirmation_token)
 
-        if response.status_code != 200:
-            detail = "Failed to confirm transaction"
-            try:
-                error_data = response.json()
-                detail = error_data.get("detail", error_data.get("message", detail))
-            except Exception:
-                pass
-            raise HTTPException(status_code=response.status_code, detail=detail)
+        if not result.success:
+            raise HTTPException(
+                status_code=result.status_code or status.HTTP_400_BAD_REQUEST,
+                detail=result.error or "Failed to confirm transfer",
+            )
 
-        tx = response.json()
-        return AccountingTransactionResponse(
-            id=tx.get("id", ""),
-            sender_email=tx.get("senderEmail", ""),
-            recipient_email=tx.get("recipientEmail", ""),
-            amount=tx.get("amount", 0),
-            status=tx.get("status", ""),
-            created_by=tx.get("createdBy", ""),
-            resolved_by=tx.get("resolvedBy"),
-            created_at=tx.get("createdAt", ""),
-            resolved_at=tx.get("resolvedAt"),
-            app_name=tx.get("appName"),
-            app_ep_path=tx.get("appEpPath"),
+        if result.data is None:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Ledger returned empty transfer data",
+            )
+
+        transfer: LedgerTransfer = result.data
+        return TransferResponse(
+            id=transfer.id,
+            source_account_id=transfer.source_account_id,
+            destination_account_id=transfer.destination_account_id,
+            amount=transfer.amount,
+            currency=transfer.currency,
+            status=transfer.status,
+            confirmation_token=None,  # Confirmed transfers don't have tokens
+            description=transfer.description,
+            created_at=transfer.created_at,
         )
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Error communicating with accounting service: {e!s}",
+            detail=f"Error communicating with ledger service: {e!s}",
         ) from e
     finally:
         client.close()
 
 
-@router.post("/transactions/{transaction_id}/cancel")
-async def cancel_transaction(
-    transaction_id: str,
+@router.post("/transfers/{transfer_id}/cancel", response_model=TransferResponse)
+async def cancel_transfer(
+    transfer_id: str,
     current_user: Annotated[User, Depends(get_current_active_user)],
-) -> AccountingTransactionResponse:
-    """Cancel a pending transaction.
+) -> TransferResponse:
+    """Cancel a pending transfer.
 
-    Proxies the request to the external accounting service.
+    Only the sender can cancel a pending transfer. This releases the
+    held funds back to the sender's available balance.
     """
-    client, password = get_accounting_client(current_user)
+    client, _ = get_ledger_client_and_account(current_user)
 
     try:
-        response = client.client.post(
-            f"/transactions/{transaction_id}/cancel",
-            auth=(current_user.email, password),
-        )
+        result = client.cancel_transfer(transfer_id)
 
-        if response.status_code != 200:
-            detail = "Failed to cancel transaction"
-            try:
-                error_data = response.json()
-                detail = error_data.get("detail", error_data.get("message", detail))
-            except Exception:
-                pass
-            raise HTTPException(status_code=response.status_code, detail=detail)
+        if not result.success:
+            raise HTTPException(
+                status_code=result.status_code or status.HTTP_400_BAD_REQUEST,
+                detail=result.error or "Failed to cancel transfer",
+            )
 
-        tx = response.json()
-        return AccountingTransactionResponse(
-            id=tx.get("id", ""),
-            sender_email=tx.get("senderEmail", ""),
-            recipient_email=tx.get("recipientEmail", ""),
-            amount=tx.get("amount", 0),
-            status=tx.get("status", ""),
-            created_by=tx.get("createdBy", ""),
-            resolved_by=tx.get("resolvedBy"),
-            created_at=tx.get("createdAt", ""),
-            resolved_at=tx.get("resolvedAt"),
-            app_name=tx.get("appName"),
-            app_ep_path=tx.get("appEpPath"),
+        if result.data is None:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Ledger returned empty transfer data",
+            )
+
+        transfer: LedgerTransfer = result.data
+        return TransferResponse(
+            id=transfer.id,
+            source_account_id=transfer.source_account_id,
+            destination_account_id=transfer.destination_account_id,
+            amount=transfer.amount,
+            currency=transfer.currency,
+            status=transfer.status,
+            confirmation_token=None,  # Cancelled transfers don't have tokens
+            description=transfer.description,
+            created_at=transfer.created_at,
         )
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Error communicating with accounting service: {e!s}",
+            detail=f"Error communicating with ledger service: {e!s}",
         ) from e
     finally:
         client.close()
@@ -408,48 +386,59 @@ async def create_transaction_tokens(
     current_user: Annotated[User, Depends(get_current_active_user)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> TransactionTokensResponse:
-    """Create transaction tokens for multiple endpoint owners.
+    """Create confirmation tokens for multiple endpoint owners.
 
     This endpoint is used by the chat flow to pre-authorize payments to
     endpoint owners before making requests to their endpoints.
 
-    For each owner username:
-    1. Looks up the owner's email from the database
-    2. Creates a transaction token via the accounting service
-    3. Returns the token (or error) for each owner
+    Each owner can have a different amount based on their endpoint's pricing.
+    The amount is extracted from the endpoint's TransactionPolicy by the SDK.
 
-    Transaction tokens are short-lived JWTs that authorize the recipient
-    (endpoint owner) to create a delegated transaction charging the sender
-    (current user).
+    For each owner/amount pair:
+    1. Looks up the owner's accounting account ID from the database
+    2. Creates a pending transfer to the owner's account for the specified amount
+    3. Returns the token info (token + amount) for each owner
+
+    The endpoint can verify the amount matches their pricing before confirming.
 
     Args:
-        request: List of owner usernames to create tokens for
+        request: List of owner/amount pairs for token creation
         current_user: The authenticated user (will be charged)
-        user_repo: Repository for looking up user emails
+        user_repo: Repository for looking up user accounts
 
     Returns:
-        TransactionTokensResponse with tokens and any errors
+        TransactionTokensResponse with token info and any errors
     """
     # Check if current user has accounting configured
-    if not current_user.accounting_service_url or not current_user.accounting_password:
+    if not current_user.accounting_service_url or not current_user.accounting_api_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Accounting not configured. Please set up billing in settings.",
         )
+    if not current_user.accounting_account_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No accounting account linked. Please complete billing setup.",
+        )
 
-    client = AccountingClient(current_user.accounting_service_url)
-    password = current_user.accounting_password
+    client = UnifiedLedgerClient(
+        base_url=current_user.accounting_service_url,
+        api_token=current_user.accounting_api_token,
+    )
 
-    tokens: dict[str, str] = {}
+    tokens: dict[str, TokenInfo] = {}
     errors: dict[str, str] = {}
 
     try:
-        for owner_username in request.owner_usernames:
+        for req in request.requests:
+            owner_username = req.owner_username
+            amount = req.amount
+
             # Skip if we've already processed this username (handle duplicates)
             if owner_username in tokens or owner_username in errors:
                 continue
 
-            # Look up the owner's email
+            # Look up the owner's account
             owner = user_repo.get_by_username(owner_username)
             if owner is None:
                 errors[owner_username] = f"User '{owner_username}' not found"
@@ -458,62 +447,63 @@ async def create_transaction_tokens(
                 )
                 continue
 
-            if not owner.email:
-                errors[owner_username] = f"User '{owner_username}' has no email"
+            if not owner.accounting_account_id:
+                errors[owner_username] = (
+                    f"User '{owner_username}' has no linked accounting account"
+                )
                 logger.warning(
-                    f"Transaction token request: user '{owner_username}' has no email"
+                    f"Transaction token request: user '{owner_username}' has no account"
                 )
                 continue
 
-            # Create transaction token for this owner
+            # Create pending transfer to this owner with their specific amount
+            # At this point we've validated current_user.accounting_account_id is not None
+            # (see check at line 418), so we can assert it for type safety
+            assert current_user.accounting_account_id is not None
             try:
-                response = client.client.post(
-                    "/token/create",
-                    json={"recipientEmail": owner.email},
-                    auth=(current_user.email, password),
+                result = client.create_transfer(
+                    source_account_id=current_user.accounting_account_id,
+                    destination_account_id=owner.accounting_account_id,
+                    amount=amount,
+                    description=f"Payment to {owner_username}",
+                    require_confirmation=True,
                 )
 
-                if response.status_code in (200, 201):
-                    token_data = response.json()
-                    token = token_data.get("token")
-                    if token:
-                        tokens[owner_username] = token
+                if result.success and result.data is not None:
+                    transfer: LedgerTransfer = result.data
+                    if transfer.confirmation_token:
+                        tokens[owner_username] = TokenInfo(
+                            token=transfer.confirmation_token,
+                            amount=amount,
+                            transfer_id=transfer.id,
+                        )
                         logger.debug(
-                            f"Created transaction token for owner '{owner_username}'"
+                            f"Created confirmation token for owner '{owner_username}' "
+                            f"with amount {amount}"
                         )
                     else:
-                        errors[owner_username] = (
-                            "Token not returned by accounting service"
-                        )
+                        errors[owner_username] = "No confirmation token returned"
                 else:
-                    # Extract error detail
-                    try:
-                        error_data = response.json()
-                        detail = error_data.get(
-                            "detail",
-                            error_data.get("message", f"HTTP {response.status_code}"),
-                        )
-                    except Exception:
-                        detail = f"HTTP {response.status_code}"
-                    errors[owner_username] = detail
+                    errors[owner_username] = result.error or "Transfer creation failed"
                     logger.warning(
-                        f"Failed to create transaction token for '{owner_username}': {detail}"
+                        f"Failed to create transfer for '{owner_username}': {result.error}"
                     )
 
             except Exception as e:
                 errors[owner_username] = f"Request failed: {e!s}"
-                logger.error(
-                    f"Exception creating transaction token for '{owner_username}': {e}"
-                )
+                logger.error(f"Exception creating transfer for '{owner_username}': {e}")
 
-        return TransactionTokensResponse(tokens=tokens, errors=errors)
+        return TransactionTokensResponse(
+            tokens=tokens,
+            errors=errors,
+        )
 
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Error communicating with accounting service: {e!s}",
+            detail=f"Error communicating with ledger service: {e!s}",
         ) from e
     finally:
         client.close()

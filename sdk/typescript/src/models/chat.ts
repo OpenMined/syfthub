@@ -29,6 +29,8 @@ export interface EndpointRef {
   tenantName?: string;
   /** Owner's username - used as the audience for satellite token authentication */
   ownerUsername?: string;
+  /** Price per request (from endpoint policies) for transaction token creation */
+  price?: number;
 }
 
 /**

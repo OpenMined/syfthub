@@ -55,12 +55,15 @@ class User(UserBase):
         default=AuthProvider.LOCAL, description="Authentication provider"
     )
     google_id: Optional[str] = Field(None, description="Google OAuth user ID")
-    # Accounting fields
+    # Accounting fields (Unified Global Ledger)
     accounting_service_url: Optional[str] = Field(
-        None, description="URL to external accounting service"
+        None, description="URL to Unified Global Ledger service"
     )
-    accounting_password: Optional[str] = Field(
-        None, description="Password for external accounting service"
+    accounting_api_token: Optional[str] = Field(
+        None, description="API token for Unified Global Ledger (at_* format)"
+    )
+    accounting_account_id: Optional[str] = Field(
+        None, description="UUID of user's account in Unified Global Ledger"
     )
     # Domain with protocol for dynamic endpoint URL construction
     domain: Optional[str] = Field(
@@ -96,9 +99,12 @@ class UserResponse(BaseModel):
     auth_provider: AuthProvider = Field(..., description="Authentication provider")
     created_at: datetime = Field(..., description="When the user was created")
     updated_at: datetime = Field(..., description="When the user was last updated")
-    # Accounting - only expose URL, never expose password in user response
+    # Accounting - only expose URL and account ID, never expose API token in response
     accounting_service_url: Optional[str] = Field(
-        None, description="URL to external accounting service"
+        None, description="URL to Unified Global Ledger service"
+    )
+    accounting_account_id: Optional[str] = Field(
+        None, description="UUID of user's account in Unified Global Ledger"
     )
     # Domain with protocol for dynamic endpoint URL construction
     domain: Optional[str] = Field(
@@ -134,12 +140,19 @@ class UserUpdate(BaseModel):
         None, max_length=500, description="URL to user's avatar image"
     )
     is_active: Optional[bool] = Field(None, description="Whether the user is active")
-    # Accounting service credentials
+    # Accounting service credentials (Unified Global Ledger)
     accounting_service_url: Optional[str] = Field(
-        None, max_length=500, description="URL to external accounting service"
+        None, max_length=500, description="URL to Unified Global Ledger service"
     )
-    accounting_password: Optional[str] = Field(
-        None, max_length=255, description="Password for external accounting service"
+    accounting_api_token: Optional[str] = Field(
+        None,
+        max_length=500,
+        description="API token for Unified Global Ledger (at_* format)",
+    )
+    accounting_account_id: Optional[str] = Field(
+        None,
+        max_length=36,
+        description="UUID of user's account in Unified Global Ledger",
     )
     # Domain with protocol for dynamic endpoint URL construction
     domain: Optional[str] = Field(
@@ -191,11 +204,18 @@ class UserUpdate(BaseModel):
 
 
 class AccountingCredentialsResponse(BaseModel):
-    """Schema for accounting credentials response."""
+    """Schema for accounting credentials response.
 
-    url: Optional[str] = Field(None, description="Accounting service URL")
+    Returns accounting configuration for the Unified Global Ledger.
+    Note: The API token is never exposed - users must manage tokens via the ledger UI.
+    """
+
+    url: Optional[str] = Field(None, description="Unified Global Ledger URL")
     email: str = Field(..., description="User's email (same as SyftHub email)")
-    password: Optional[str] = Field(None, description="Accounting service password")
+    account_id: Optional[str] = Field(
+        None, description="User's account ID in the ledger"
+    )
+    has_api_token: bool = Field(False, description="Whether an API token is configured")
 
     model_config = {"from_attributes": True}
 
