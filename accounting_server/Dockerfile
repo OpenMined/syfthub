@@ -102,6 +102,9 @@ COPY --from=builder --chown=ledger:ledger /app/dist ./dist
 # Copy package.json for version info
 COPY --chown=ledger:ledger package.json ./
 
+# Copy migrations folder for database migrations
+COPY --chown=ledger:ledger migrations ./migrations
+
 # Switch to non-root user
 USER ledger
 
@@ -140,6 +143,9 @@ COPY --from=builder --chown=ledger:ledger /app/dist ./dist
 
 # Copy package.json for version info
 COPY --chown=ledger:ledger package.json ./
+
+# Copy migrations folder for database migrations
+COPY --chown=ledger:ledger migrations ./migrations
 
 # Switch to non-root user
 USER ledger
