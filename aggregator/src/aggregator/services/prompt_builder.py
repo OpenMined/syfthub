@@ -154,7 +154,11 @@ Remember: If you cannot find the answer in the provided documents, say so. Never
         for source_path, documents in docs_by_source.items():
             for doc in documents:
                 # Extract title from metadata or use fallback
-                title = doc.metadata.get("title") or doc.metadata.get("document_title") or f"Document {doc_number}"
+                title = (
+                    doc.metadata.get("title")
+                    or doc.metadata.get("document_title")
+                    or f"Document {doc_number}"
+                )
                 relevance = f"{doc.score:.2f}" if doc.score > 0 else "N/A"
 
                 formatted_parts.append(f"""
@@ -171,7 +175,11 @@ Remember: If you cannot find the answer in the provided documents, say so. Never
         # If no grouped documents, fall back to flat list
         if not formatted_parts and context.documents:
             for doc in context.documents:
-                title = doc.metadata.get("title") or doc.metadata.get("document_title") or f"Document {doc_number}"
+                title = (
+                    doc.metadata.get("title")
+                    or doc.metadata.get("document_title")
+                    or f"Document {doc_number}"
+                )
                 relevance = f"{doc.score:.2f}" if doc.score > 0 else "N/A"
 
                 formatted_parts.append(f"""

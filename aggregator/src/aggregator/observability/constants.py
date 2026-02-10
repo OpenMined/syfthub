@@ -56,39 +56,43 @@ class LogEvents:
 
 
 # Fields that should be redacted in logs
-SENSITIVE_FIELDS = frozenset({
-    # Authentication
-    "password",
-    "secret",
-    "secret_key",
-    "private_key",
-    # Tokens
-    "token",
-    "access_token",
-    "refresh_token",
-    "api_key",
-    "apikey",
-    "api_secret",
-    "bearer",
-    "authorization",
-    "auth",
-    # Chat content (may contain sensitive info)
-    "system_prompt",
-    # Keys
-    "rsa_private_key",
-    "encryption_key",
-    "signing_key",
-})
+SENSITIVE_FIELDS = frozenset(
+    {
+        # Authentication
+        "password",
+        "secret",
+        "secret_key",
+        "private_key",
+        # Tokens
+        "token",
+        "access_token",
+        "refresh_token",
+        "api_key",
+        "apikey",
+        "api_secret",
+        "bearer",
+        "authorization",
+        "auth",
+        # Chat content (may contain sensitive info)
+        "system_prompt",
+        # Keys
+        "rsa_private_key",
+        "encryption_key",
+        "signing_key",
+    }
+)
 
 # Fields to redact (case-insensitive patterns)
-SENSITIVE_FIELD_PATTERNS = frozenset({
-    "password",
-    "secret",
-    "token",
-    "key",
-    "credential",
-    "auth",
-})
+SENSITIVE_FIELD_PATTERNS = frozenset(
+    {
+        "password",
+        "secret",
+        "token",
+        "key",
+        "credential",
+        "auth",
+    }
+)
 
 # Redaction placeholder
 REDACTED_VALUE = "[REDACTED]"

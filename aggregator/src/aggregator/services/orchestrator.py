@@ -53,9 +53,7 @@ class Orchestrator:
         self.generation_service = generation_service
         self.prompt_builder = prompt_builder
 
-    def _endpoint_ref_to_resolved(
-        self, ref: EndpointRef, endpoint_type: str
-    ) -> ResolvedEndpoint:
+    def _endpoint_ref_to_resolved(self, ref: EndpointRef, endpoint_type: str) -> ResolvedEndpoint:
         """Convert an EndpointRef from request to internal ResolvedEndpoint.
 
         Maps the request schema to the internal representation with all
@@ -74,9 +72,7 @@ class Orchestrator:
             owner_username=ref.owner_username,
         )
 
-    def _build_document_sources(
-        self, context: AggregatedContext
-    ) -> dict[str, DocumentSource]:
+    def _build_document_sources(self, context: AggregatedContext) -> dict[str, DocumentSource]:
         """Build document sources dict from retrieval results.
 
         Returns a dict mapping document title to DocumentSource (slug + content).
@@ -159,8 +155,7 @@ class Orchestrator:
 
         # 2. Convert data source EndpointRefs to ResolvedEndpoints
         data_sources: list[ResolvedEndpoint] = [
-            self._endpoint_ref_to_resolved(ds, "data_source")
-            for ds in request.data_sources
+            self._endpoint_ref_to_resolved(ds, "data_source") for ds in request.data_sources
         ]
         if data_sources:
             logger.info(f"Using {len(data_sources)} data sources")
@@ -270,8 +265,7 @@ class Orchestrator:
 
         # 2. Convert data source EndpointRefs to ResolvedEndpoints
         data_sources: list[ResolvedEndpoint] = [
-            self._endpoint_ref_to_resolved(ds, "data_source")
-            for ds in request.data_sources
+            self._endpoint_ref_to_resolved(ds, "data_source") for ds in request.data_sources
         ]
 
         # 3. Retrieval phase with progress events
