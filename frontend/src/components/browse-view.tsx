@@ -26,8 +26,8 @@ import { useContextSelectionStore } from '@/stores/context-selection-store';
 import {
   BrowseFiltersModal,
   createDefaultFilters,
+  extractUniqueOwners,
   extractUniqueTags,
-  getMaxStars,
   hasActiveFilters
 } from './browse-filters-modal';
 import { Badge } from './ui/badge';
@@ -123,11 +123,11 @@ export function BrowseView({
     setFilters(createDefaultFilters());
   }, [activeTab]);
 
-  // Extract available tags and max stars from current endpoints for the filter modal
+  // Extract available tags and owners from current endpoints for the filter modal
   const availableTags = useMemo(() => extractUniqueTags(endpoints), [endpoints]);
-  const maxStars = useMemo(() => getMaxStars(endpoints), [endpoints]);
+  const availableOwners = useMemo(() => extractUniqueOwners(endpoints), [endpoints]);
 
-  // Filter endpoints by search query, tags, and stars (client-side on current page)
+  // Filter endpoints by search query, tags, and owners (client-side on current page)
   const filteredEndpoints = useMemo(() => {
     if (endpoints.length === 0) return [];
 
@@ -149,9 +149,9 @@ export function BrowseView({
       result = result.filter((ds) => ds.tags.some((tag) => filters.tags.has(tag)));
     }
 
-    // Filter by minimum stars
-    if (filters.minStars > 0) {
-      result = result.filter((ds) => ds.stars_count >= filters.minStars);
+    // Filter by selected owners
+    if (filters.owners.size > 0) {
+      result = result.filter((ds) => ds.owner_username && filters.owners.has(ds.owner_username));
     }
 
     return result;
@@ -221,7 +221,7 @@ export function BrowseView({
     setFilters(createDefaultFilters());
   }, []);
 
-  const activeFilterCount = filters.tags.size + (filters.minStars > 0 ? 1 : 0);
+  const activeFilterCount = filters.tags.size + filters.owners.size;
 
   return (
     <div className='bg-background min-h-screen pb-24'>
@@ -338,21 +338,29 @@ export function BrowseView({
                 </button>
               </Badge>
             ))}
-            {filters.minStars > 0 && (
-              <Badge variant='secondary' className='font-inter flex items-center gap-1 text-xs'>
-                ≥{filters.minStars} stars
+            {[...filters.owners].map((owner) => (
+              <Badge
+                key={owner}
+                variant='secondary'
+                className='font-inter flex items-center gap-1 text-xs'
+              >
+                @{owner}
                 <button
                   type='button'
                   onClick={() => {
-                    setFilters((previous) => ({ ...previous, minStars: 0 }));
+                    setFilters((previous) => {
+                      const newOwners = new Set(previous.owners);
+                      newOwners.delete(owner);
+                      return { ...previous, owners: newOwners };
+                    });
                   }}
                   className='hover:text-foreground ml-0.5'
-                  aria-label='Remove minimum stars filter'
+                  aria-label={`Remove @${owner} filter`}
                 >
                   <X className='h-3 w-3' />
                 </button>
               </Badge>
-            )}
+            ))}
             <button
               type='button'
               onClick={handleClearFilters}
@@ -569,7 +577,7 @@ export function BrowseView({
         onApply={handleApplyFilters}
         currentFilters={filters}
         availableTags={availableTags}
-        maxStars={maxStars}
+        availableOwners={availableOwners}
       />
     </div>
   );
