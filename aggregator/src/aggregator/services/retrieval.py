@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 from aggregator.clients.data_source import DataSourceClient
-from aggregator.clients.nats_transport import is_tunneling_url, extract_tunnel_username
+from aggregator.clients.nats_transport import extract_tunnel_username, is_tunneling_url
 from aggregator.schemas.internal import AggregatedContext, ResolvedEndpoint, RetrievalResult
 
 if TYPE_CHECKING:

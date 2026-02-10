@@ -38,7 +38,7 @@ def is_tunneling_url(url: str) -> bool:
 
 def extract_tunnel_username(url: str) -> str:
     """Extract the username from a tunneling URL."""
-    return url[len(TUNNELING_PREFIX):]
+    return url[len(TUNNELING_PREFIX) :]
 
 
 class NATSTransportError(Exception):
@@ -174,9 +174,8 @@ class NATSTransport:
             try:
                 data = json.loads(msg.data.decode())
                 # Match by correlation_id
-                if data.get("correlation_id") == correlation_id:
-                    if not response_future.done():
-                        response_future.set_result(data)
+                if data.get("correlation_id") == correlation_id and not response_future.done():
+                    response_future.set_result(data)
             except Exception as e:
                 if not response_future.done():
                     response_future.set_exception(e)
@@ -198,10 +197,9 @@ class NATSTransport:
             response = await asyncio.wait_for(response_future, timeout=timeout)
             return response
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise NATSTransportError(
-                f"Timeout waiting for response from {target_username}/{slug} "
-                f"after {timeout}s",
+                f"Timeout waiting for response from {target_username}/{slug} after {timeout}s",
                 code="TIMEOUT",
             )
         finally:
@@ -281,8 +279,7 @@ class NATSTransport:
             documents = self._parse_data_source_response(resp_payload)
 
             logger.info(
-                f"Tunnel data source query complete: {len(documents)} documents, "
-                f"{latency_ms}ms",
+                f"Tunnel data source query complete: {len(documents)} documents, {latency_ms}ms",
                 extra={"endpoint_path": endpoint_path},
             )
 
@@ -404,7 +401,7 @@ class NATSTransport:
 
         The payload matches the SyftAI-Space QueryEndpointResponse format.
         """
-        documents = []
+        documents: list[Document] = []
         references = data.get("references")
         if not references:
             return documents
