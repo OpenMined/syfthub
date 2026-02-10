@@ -18,11 +18,11 @@ describe('ApiToken', () => {
         scopes: ['accounts:read', 'transactions:read'],
       });
 
-      expect(token).toMatch(/^at_[a-f0-9]{8}_[A-Za-z0-9_-]+$/);
+      expect(token).toMatch(/^at_[a-f0-9]{16}_[A-Za-z0-9_-]+$/);
       expect(entity.userId).toBe(testUserId);
       expect(entity.name).toBe('My API Token');
       expect(entity.scopes).toEqual(['accounts:read', 'transactions:read']);
-      expect(entity.prefix).toHaveLength(8);
+      expect(entity.prefix).toHaveLength(16);
       expect(entity.version).toBe(1);
       expect(entity.revokedAt).toBeNull();
       expect(entity.expiresAt).toBeNull();
@@ -126,28 +126,35 @@ describe('ApiToken', () => {
 
   describe('parseToken', () => {
     it('should parse valid token format', () => {
-      const result = ApiToken.parseToken('at_12345678_abcdefghijklmnop');
+      const result = ApiToken.parseToken('at_1234567890abcdef_secretpart');
 
       expect(result.valid).toBe(true);
-      expect(result.prefix).toBe('12345678');
+      expect(result.prefix).toBe('1234567890abcdef');
     });
 
     it('should reject token without at_ prefix', () => {
-      const result = ApiToken.parseToken('jwt_12345678_abcdefghijklmnop');
+      const result = ApiToken.parseToken('jwt_1234567890abcdef_secretpart');
 
       expect(result.valid).toBe(false);
       expect(result.prefix).toBeUndefined();
     });
 
-    it('should reject token with wrong number of parts', () => {
-      expect(ApiToken.parseToken('at_12345678').valid).toBe(false);
-      expect(ApiToken.parseToken('at_12345678_abc_extra').valid).toBe(false);
+    it('should reject token with too few parts', () => {
+      expect(ApiToken.parseToken('at_1234567890abcdef').valid).toBe(false);
       expect(ApiToken.parseToken('at_').valid).toBe(false);
     });
 
+    it('should accept token with underscores in secret (base64url encoding)', () => {
+      // Base64url encoding can produce underscores in the secret part
+      const result = ApiToken.parseToken('at_1234567890abcdef_secret_with_underscores');
+
+      expect(result.valid).toBe(true);
+      expect(result.prefix).toBe('1234567890abcdef');
+    });
+
     it('should reject token with invalid prefix length', () => {
-      expect(ApiToken.parseToken('at_1234567_secret').valid).toBe(false); // 7 chars
-      expect(ApiToken.parseToken('at_123456789_secret').valid).toBe(false); // 9 chars
+      expect(ApiToken.parseToken('at_1234567890abcde_secret').valid).toBe(false); // 15 chars
+      expect(ApiToken.parseToken('at_1234567890abcdef0_secret').valid).toBe(false); // 17 chars
     });
   });
 

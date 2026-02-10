@@ -188,6 +188,9 @@ export class ApiToken {
    * Token format: at_<prefix>_<secret>
    * - prefix: 16 hex chars (8 bytes = 2^64 possibilities)
    * - secret: ~43 base64url chars (32 bytes = 256 bits)
+   *
+   * Note: The secret is base64url encoded and may contain underscores,
+   * so we must allow for more than 3 parts when splitting.
    */
   static parseToken(token: string): { valid: boolean; prefix?: string } {
     if (!token.startsWith('at_')) {
@@ -195,7 +198,8 @@ export class ApiToken {
     }
 
     const parts = token.split('_');
-    if (parts.length !== 3) {
+    // Must have at least 3 parts: 'at', prefix, and secret (which may contain more underscores)
+    if (parts.length < 3) {
       return { valid: false };
     }
 
