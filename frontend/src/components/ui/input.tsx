@@ -11,19 +11,19 @@ import { cn } from '@/lib/utils';
 import { Button } from './button';
 
 const inputVariants = cva(
-  'flex w-full rounded-lg border px-3 py-2 text-sm transition-colors transition-shadow file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50',
+  'flex w-full rounded-lg border px-3 py-2 text-sm transition-all duration-200 file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground/70 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50',
   {
     variants: {
       variant: {
         default:
-          'border-input bg-background shadow-sm focus:border-primary focus:ring-2 focus:ring-primary/10',
+          'border-input bg-background/50 backdrop-blur-sm shadow-sm focus:border-primary focus:ring-2 focus:ring-primary/20 focus:bg-background/80 hover:bg-background/70',
         error:
-          'border-red-500 bg-background shadow-sm focus:border-red-500 focus:ring-2 focus:ring-red-500/10'
+          'border-red-500 bg-background/50 backdrop-blur-sm shadow-sm focus:border-red-500 focus:ring-2 focus:ring-red-500/20'
       },
       size: {
-        default: 'h-10 px-3',
-        sm: 'h-8 px-2 text-xs',
-        lg: 'h-12 px-4'
+        default: 'h-11 px-4',
+        sm: 'h-9 px-3 text-xs',
+        lg: 'h-13 px-5'
       }
     },
     defaultVariants: {

@@ -23,15 +23,16 @@ import { useModels } from '@/hooks/use-models';
 // =============================================================================
 
 const FEATURES = [
-  { label: 'Secure & Private', color: 'bg-chart-1' },
-  { label: 'Rare Data & Models', color: 'bg-secondary' },
-  { label: 'Federated, Permissioned Access', color: 'bg-chart-3' }
+  { label: 'Secure & Private', color: 'bg-chart-1', icon: '🔒' },
+  { label: 'Rare Data & Models', color: 'bg-chart-2', icon: '💎' },
+  { label: 'Federated Access', color: 'bg-chart-3', icon: '🌐' }
 ] as const;
 
 const SEARCH_SUGGESTIONS = [
-  'Look for genomics data',
-  'Look for news in finance',
-  'Find climate research sources'
+  'Find genomics datasets',
+  'Query financial data sources',
+  'Explore climate research',
+  'Access medical imaging data'
 ] as const;
 
 // =============================================================================
@@ -131,38 +132,43 @@ export function Hero({
 
       {/* Hero Section */}
       <section
-        className={`bg-background flex items-center justify-center px-6 ${
-          fullHeight ? 'min-h-[calc(100vh-2rem)]' : 'min-h-[50vh]'
+        className={`relative bg-background flex items-center justify-center px-6 ${
+          fullHeight ? 'min-h-[calc(100vh-2rem)]' : 'min-h-[60vh]'
         }`}
       >
-        <div className='mx-auto w-full max-w-2xl space-y-8'>
+        <div className='mx-auto w-full max-w-3xl space-y-12'>
           {/* Logo */}
-          <div className='flex items-center justify-center gap-3'>
-            <OpenMinedIcon className='h-7 w-7' />
-            <span className='font-rubik text-foreground text-xl font-normal'>SyftHub</span>
+          <div className='flex items-center justify-center gap-4'>
+            <OpenMinedIcon className='h-8 w-8' />
+            <span className='font-rubik text-foreground text-2xl font-medium tracking-tight'>SyftHub</span>
           </div>
 
           {/* Tagline */}
-          <div className='space-y-4 pb-4 text-center'>
-            <h1 className='font-rubik text-foreground text-3xl font-medium'>
+          <div className='space-y-6 pb-4 text-center'>
+            <h1 className='font-rubik text-foreground text-4xl font-medium leading-tight'>
               Access the World's{' '}
-              <span className='from-secondary via-chart-3 to-chart-1 bg-gradient-to-r bg-clip-text text-transparent'>
+              <span className='from-chart-1 via-chart-2 to-chart-3 bg-gradient-to-r bg-clip-text text-transparent'>
                 Collective Intelligence
               </span>
             </h1>
-            <p className='font-inter text-foreground text-base'>
-              Query trusted data sources — public, copyrighted, or private — directly from source.
-            </p>
+            <div className='space-y-3'>
+              <p className='font-inter text-foreground/90 text-lg font-medium'>
+                Query trusted data sources — public, copyrighted, or private — directly from source.
+              </p>
+              <p className='font-inter text-muted-foreground text-sm'>
+                Built for researchers, developers, and organizations seeking reliable data access
+              </p>
+            </div>
           </div>
 
           {/* Feature Badges and Search Bar */}
           <div className='space-y-6'>
             {/* Feature Badges */}
-            <div className='flex flex-wrap items-center justify-center gap-8'>
+            <div className='flex flex-wrap items-center justify-center gap-6'>
               {FEATURES.map((feature, index) => (
-                <div key={index} className='flex items-center gap-2'>
-                  <div className={`h-2 w-2 rounded-full ${feature.color}`}></div>
-                  <span className='font-inter text-foreground text-sm'>{feature.label}</span>
+                <div key={index} className='flex items-center gap-3 rounded-full border bg-card/50 px-4 py-2 backdrop-blur-sm'>
+                  <span className='text-base'>{feature.icon}</span>
+                  <span className='font-inter text-foreground/80 text-sm font-medium'>{feature.label}</span>
                 </div>
               ))}
             </div>
