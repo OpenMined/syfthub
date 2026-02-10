@@ -1,16 +1,17 @@
-.PHONY: help setup dev stop test check logs
+.PHONY: help setup dev stop test test-serial check logs
 
 # =============================================================================
 # SyftHub Development Commands
 # =============================================================================
 #
 # Quick Start:
-#   make setup   - Install dev dependencies (pre-commit, etc.)
-#   make dev     - Start development environment
-#   make logs    - View logs (debug issues)
-#   make test    - Run tests
-#   make check   - Run code quality checks
-#   make stop    - Stop all services
+#   make setup       - Install dev dependencies (pre-commit, etc.)
+#   make dev         - Start development environment
+#   make logs        - View logs (debug issues)
+#   make test        - Run tests (parallel, uses all CPU cores)
+#   make test-serial - Run tests sequentially (for debugging)
+#   make check       - Run code quality checks
+#   make stop        - Stop all services
 #
 # For production deployment, see README.md
 # =============================================================================
@@ -19,12 +20,13 @@ help:  ## Show available commands
 	@echo ''
 	@echo 'SyftHub Development Commands:'
 	@echo ''
-	@echo '  make setup   Install dev dependencies (pre-commit, etc.)'
-	@echo '  make dev     Start development environment (http://localhost)'
-	@echo '  make stop    Stop all services'
-	@echo '  make test    Run all tests'
-	@echo '  make check   Run code quality checks (lint, format, types)'
-	@echo '  make logs    View container logs'
+	@echo '  make setup        Install dev dependencies (pre-commit, etc.)'
+	@echo '  make dev          Start development environment (http://localhost)'
+	@echo '  make stop         Stop all services'
+	@echo '  make test         Run all tests (parallel execution)'
+	@echo '  make test-serial  Run all tests sequentially (for debugging)'
+	@echo '  make check        Run code quality checks (lint, format, types)'
+	@echo '  make logs         View container logs'
 	@echo ''
 	@echo 'Production deployment:'
 	@echo '  docker compose -f docker-compose.prod.yml up -d'
@@ -60,19 +62,53 @@ stop:  ## Stop all services
 	@docker compose -f docker-compose.deploy.yml down 2>/dev/null || true
 	@echo 'All services stopped'
 
-test:  ## Run all tests
-	@echo 'Running backend tests...'
-	@cd backend && uv run python -m pytest
+test:  ## Run all tests (parallel execution using all CPU cores)
+	@echo '═══════════════════════════════════════════════════════════════'
+	@echo '  Running all tests in PARALLEL mode (-n auto)'
+	@echo '═══════════════════════════════════════════════════════════════'
 	@echo ''
-	@echo 'Running frontend tests...'
+	@echo 'Backend tests...'
+	@cd backend && uv sync --extra dev && uv run pytest
+	@echo ''
+	@echo 'Aggregator tests...'
+	@cd aggregator && uv sync --extra dev && uv run pytest
+	@echo ''
+	@echo 'CLI tests...'
+	@cd cli && uv sync --extra dev && uv run pytest
+	@echo ''
+	@echo 'Python SDK unit tests...'
+	@cd sdk/python && uv sync --extra dev && uv run pytest tests/unit
+	@echo ''
+	@echo 'Frontend tests...'
 	@cd frontend && npm run test --if-present || echo 'Frontend tests skipped (playwright not configured)'
 	@echo ''
-	@echo 'Running SDK tests...'
-	@echo 'Python SDK dev tests...'
-	@cd sdk/python && uv run pytest tests/dev/ -v || echo 'Python SDK dev tests skipped (dev server not available)'
+	@echo '═══════════════════════════════════════════════════════════════'
+	@echo '  All tests complete!'
+	@echo '═══════════════════════════════════════════════════════════════'
+
+test-serial:  ## Run all tests sequentially (for debugging)
+	@echo '═══════════════════════════════════════════════════════════════'
+	@echo '  Running all tests in SERIAL mode (-n 0)'
+	@echo '═══════════════════════════════════════════════════════════════'
 	@echo ''
-	@echo 'TypeScript SDK dev tests...'
-	@cd sdk/typescript && npm run test:dev || echo 'TypeScript SDK dev tests skipped (dev server not available)'
+	@echo 'Backend tests...'
+	@cd backend && uv sync --extra dev && uv run pytest -n 0
+	@echo ''
+	@echo 'Aggregator tests...'
+	@cd aggregator && uv sync --extra dev && uv run pytest -n 0
+	@echo ''
+	@echo 'CLI tests...'
+	@cd cli && uv sync --extra dev && uv run pytest -n 0
+	@echo ''
+	@echo 'Python SDK unit tests...'
+	@cd sdk/python && uv sync --extra dev && uv run pytest tests/unit -n 0
+	@echo ''
+	@echo 'Frontend tests...'
+	@cd frontend && npm run test --if-present || echo 'Frontend tests skipped (playwright not configured)'
+	@echo ''
+	@echo '═══════════════════════════════════════════════════════════════'
+	@echo '  All tests complete!'
+	@echo '═══════════════════════════════════════════════════════════════'
 
 check:  ## Run code quality checks
 	@echo 'Backend checks...'
