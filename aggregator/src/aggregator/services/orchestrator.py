@@ -62,10 +62,7 @@ class Orchestrator:
         SyftAI-Space connection details including owner for token lookup.
         """
         # Construct full path as owner/slug for citation format
-        if ref.owner_username:
-            full_path = f"{ref.owner_username}/{ref.slug}"
-        else:
-            full_path = ref.slug
+        full_path = f"{ref.owner_username}/{ref.slug}" if ref.owner_username else ref.slug
 
         return ResolvedEndpoint(
             path=full_path,  # Full path for citations (e.g., "ionesiotest/general-knowledge")
