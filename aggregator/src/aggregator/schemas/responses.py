@@ -1,6 +1,6 @@
 """Response schemas for the aggregator API."""
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -10,7 +10,7 @@ class Document(BaseModel):
 
     content: str = Field(..., description="The document content")
     score: float = Field(default=0.0, description="Relevance score")
-    metadata: dict = Field(default_factory=dict, description="Additional metadata")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
 
 class QueryResponse(BaseModel):
@@ -73,8 +73,8 @@ class ChatResponse(BaseModel):
 class ChatCompletionResponse(BaseModel):
     """Response from a model endpoint's /chat interface."""
 
-    message: dict = Field(..., description="The assistant's message")
-    usage: dict | None = Field(default=None, description="Token usage information")
+    message: dict[str, Any] = Field(..., description="The assistant's message")
+    usage: dict[str, Any] | None = Field(default=None, description="Token usage information")
 
 
 class ErrorResponse(BaseModel):
@@ -82,4 +82,4 @@ class ErrorResponse(BaseModel):
 
     error: str = Field(..., description="Error type")
     message: str = Field(..., description="Error message")
-    details: dict | None = Field(default=None, description="Additional error details")
+    details: dict[str, Any] | None = Field(default=None, description="Additional error details")

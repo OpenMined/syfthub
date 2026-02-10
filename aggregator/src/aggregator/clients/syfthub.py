@@ -111,11 +111,15 @@ class SyftHubClient:
         connections = data.get("connect", []) or data.get("connections", [])
         url = self._extract_url_from_connections(connections, path)
 
+        # Extract slug from path (format: "owner/slug")
+        slug = path.split("/")[-1] if "/" in path else path
+
         return ResolvedEndpoint(
             path=path,
             url=url,
-            endpoint_type=endpoint_type,  # type: ignore[arg-type]
-            name=data.get("name", path),
+            slug=slug,
+            endpoint_type=endpoint_type,
+            name=str(data.get("name", path)),
         )
 
     def _extract_url_from_connections(
@@ -136,7 +140,7 @@ class SyftHubClient:
             url = config.get("url")
 
             if url:
-                return url
+                return str(url)
 
         # If no enabled connection with URL found, try the first one
         first_config = connections[0].get("config", {})
@@ -145,7 +149,7 @@ class SyftHubClient:
         if not url:
             raise SyftHubClientError(f"No URL found in endpoint connections: {path}")
 
-        return url
+        return str(url)
 
     async def health_check(self) -> bool:
         """Check if SyftHub is reachable."""

@@ -127,7 +127,8 @@ def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
         >>> logger = get_logger(__name__)
         >>> logger.info("chat.retrieval.started", endpoint_id="123")
     """
-    return structlog.get_logger(name)
+    logger: structlog.stdlib.BoundLogger = structlog.get_logger(name)
+    return logger
 
 
 def log_with_context(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 from aggregator.clients.data_source import DataSourceClient
@@ -144,7 +145,7 @@ class RetrievalService:
         endpoint_tokens: dict[str, str] | None = None,
         transaction_tokens: dict[str, str] | None = None,
         peer_channel: str | None = None,
-    ):
+    ) -> AsyncIterator[RetrievalResult]:
         """
         Retrieve from SyftAI-Space data sources and yield results as they complete.
 

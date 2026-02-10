@@ -1,5 +1,6 @@
 """Main FastAPI application for the aggregator service."""
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -27,7 +28,7 @@ logger = get_logger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI):
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan manager."""
     settings = get_settings()
     logger.info(f"Starting {settings.service_name}")

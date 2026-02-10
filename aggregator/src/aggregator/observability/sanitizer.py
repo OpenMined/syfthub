@@ -74,10 +74,7 @@ def sanitize_headers(headers: dict[str, str]) -> dict[str, str]:
     """
     sensitive_headers = {"authorization", "cookie", "x-api-key", "x-auth-token"}
 
-    return {
-        k: REDACTED_VALUE if k.lower() in sensitive_headers else v
-        for k, v in headers.items()
-    }
+    return {k: REDACTED_VALUE if k.lower() in sensitive_headers else v for k, v in headers.items()}
 
 
 def truncate_body(body: Any, max_length: int = 1000) -> Any:

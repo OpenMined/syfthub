@@ -284,7 +284,7 @@ class DataSourceClient:
         """Extract error detail from response."""
         try:
             data = response.json()
-            return data.get("detail", response.text[:200])
+            return str(data.get("detail", response.text[:200]))
         except Exception:
             return response.text[:200]
 
@@ -310,7 +310,7 @@ class DataSourceClient:
 
         We extract from references.documents and map similarity_score -> score.
         """
-        documents = []
+        documents: list[Document] = []
 
         # Extract references from SyftAI-Space response
         references = data.get("references")

@@ -4,7 +4,6 @@ Provides async-safe context variables for request tracing.
 """
 
 from contextvars import ContextVar
-from typing import Optional
 
 # Context variable for correlation ID - async-safe across concurrent requests
 correlation_id_var: ContextVar[str] = ContextVar("correlation_id", default="")
@@ -28,7 +27,7 @@ def set_correlation_id(correlation_id: str) -> None:
     correlation_id_var.set(correlation_id)
 
 
-def get_optional_correlation_id() -> Optional[str]:
+def get_optional_correlation_id() -> str | None:
     """Get the correlation ID if set, otherwise None.
 
     Returns:
