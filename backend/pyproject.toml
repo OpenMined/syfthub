@@ -47,6 +47,7 @@ dev = [
     "pytest>=8.0.0",
     "pytest-cov>=5.0.0",
     "pytest-asyncio>=0.24.0",
+    "pytest-xdist>=3.5.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
     "pre-commit>=3.8.0",
@@ -55,6 +56,7 @@ test = [
     "pytest>=8.0.0",
     "pytest-cov>=5.0.0",
     "pytest-asyncio>=0.24.0",
+    "pytest-xdist>=3.5.0",
 ]
 
 [project.urls]
@@ -126,6 +128,10 @@ addopts = [
     "-ra",
     "--strict-markers",
     "--strict-config",
+    "-n",
+    "auto",
+    "--dist",
+    "loadfile",
     "--cov=syfthub",
     "--cov-branch",
     "--cov-report=term-missing:skip-covered",
@@ -170,6 +176,7 @@ ignore_missing_imports = true
 [tool.coverage.run]
 source = ["src"]
 branch = true
+parallel = true
 
 [tool.coverage.report]
 exclude_lines = [
@@ -192,6 +199,7 @@ dev = [
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",
     "pytest-cov>=7.0.0",
+    "pytest-xdist>=3.5.0",
     "ruff>=0.14.4",
     "types-markdown>=3.10.0.20251106",
     "types-passlib>=1.7.7.20250602",

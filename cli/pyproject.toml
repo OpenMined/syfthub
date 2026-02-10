@@ -30,6 +30,7 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.0",
+    "pytest-xdist>=3.5.0",
     "ruff>=0.8",
     "mypy>=1.13",
 ]
@@ -77,4 +78,11 @@ warn_unused_ignores = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --tb=short"
+addopts = [
+    "-v",
+    "--tb=short",
+    "-n",
+    "auto",
+    "--dist",
+    "loadfile",
+]
