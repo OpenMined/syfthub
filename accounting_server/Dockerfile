@@ -74,7 +74,9 @@ FROM base AS builder
 
 # Copy package files and install all dependencies (need devDependencies for build)
 COPY --chown=ledger:ledger package.json package-lock.json ./
-RUN npm ci && npm cache clean --force
+# NOTE: --include=dev is required because base stage sets NODE_ENV=production
+# which would otherwise skip devDependencies (TypeScript compiler needed for build)
+RUN npm ci --include=dev && npm cache clean --force
 
 # Copy source code
 COPY --chown=ledger:ledger tsconfig.json ./
