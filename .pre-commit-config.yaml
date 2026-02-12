@@ -18,12 +18,12 @@ repos:
       # Backend hooks
       - id: ruff
         name: ruff (backend)
-        args: [--fix, --config=backend/pyproject.toml]
-        files: ^backend/
+        args: [--fix, --config=components/backend/pyproject.toml]
+        files: ^components/backend/
       - id: ruff-format
         name: ruff-format (backend)
-        args: [--config=backend/pyproject.toml]
-        files: ^backend/
+        args: [--config=components/backend/pyproject.toml]
+        files: ^components/backend/
       # Python SDK hooks
       - id: ruff
         name: ruff (sdk/python)
@@ -49,10 +49,10 @@ repos:
       # Backend mypy
       - id: mypy
         name: mypy (backend)
-        args: [--config-file=backend/pyproject.toml]
+        args: [--config-file=components/backend/pyproject.toml]
         pass_filenames: false
-        entry: sh -c 'cd backend && mypy src/'
-        files: ^backend/.*\.py$
+        entry: sh -c 'cd components/backend && mypy src/'
+        files: ^components/backend/.*\.py$
         additional_dependencies: [
           fastapi,
           uvicorn,
@@ -101,21 +101,21 @@ repos:
     hooks:
       - id: frontend-eslint
         name: ESLint (frontend)
-        entry: sh -c 'cd frontend && npm run lint'
+        entry: sh -c 'cd components/frontend && npm run lint'
         language: system
-        files: ^frontend/.*\.(js|jsx|ts|tsx)$
+        files: ^components/frontend/.*\.(js|jsx|ts|tsx)$
         pass_filenames: false
 
       - id: frontend-prettier
         name: Prettier (frontend)
-        entry: sh -c 'cd frontend && npx prettier --check src/'
+        entry: sh -c 'cd components/frontend && npx prettier --check src/'
         language: system
-        files: ^frontend/.*\.(js|jsx|ts|tsx|json|css|scss|md)$
+        files: ^components/frontend/.*\.(js|jsx|ts|tsx|json|css|scss|md)$
         pass_filenames: false
 
       - id: frontend-typecheck
         name: TypeScript check (frontend)
-        entry: sh -c 'cd frontend && npm run typecheck'
+        entry: sh -c 'cd components/frontend && npm run typecheck'
         language: system
-        files: ^frontend/.*\.(ts|tsx)$
+        files: ^components/frontend/.*\.(ts|tsx)$
         pass_filenames: false
