@@ -503,6 +503,11 @@ jobs:
         run: |
           echo "Syncing configuration files to production server..."
 
+          # Ensure destination directories exist
+          ssh -i ~/.ssh/deploy_key -p ${SSH_PORT:-22} \
+            "${SSH_USER}@${SSH_HOST}" \
+            "mkdir -p /opt/syfthub/nginx /opt/syfthub/nats"
+
           # Sync docker-compose.deploy.yml
           scp -i ~/.ssh/deploy_key -P ${SSH_PORT:-22} \
             deploy/docker-compose.deploy.yml \
@@ -512,6 +517,11 @@ jobs:
           scp -i ~/.ssh/deploy_key -P ${SSH_PORT:-22} \
             deploy/nginx/nginx.prod.conf \
             "${SSH_USER}@${SSH_HOST}:/opt/syfthub/nginx/"
+
+          # Sync NATS config
+          scp -i ~/.ssh/deploy_key -P ${SSH_PORT:-22} \
+            deploy/nats/nats.prod.conf \
+            "${SSH_USER}@${SSH_HOST}:/opt/syfthub/nats/"
 
           # Sync deploy script
           scp -i ~/.ssh/deploy_key -P ${SSH_PORT:-22} \
@@ -664,6 +674,11 @@ jobs:
         run: |
           echo "Syncing configuration files to staging server..."
 
+          # Ensure destination directories exist
+          ssh -i ~/.ssh/deploy_key -p ${SSH_PORT:-22} \
+            "${SSH_USER}@${SSH_HOST}" \
+            "mkdir -p /opt/syfthub/nginx /opt/syfthub/nats"
+
           # Sync docker-compose.deploy.yml
           scp -i ~/.ssh/deploy_key -P ${SSH_PORT:-22} \
             deploy/docker-compose.deploy.yml \
@@ -673,6 +688,11 @@ jobs:
           scp -i ~/.ssh/deploy_key -P ${SSH_PORT:-22} \
             deploy/nginx/nginx.prod.conf \
             "${SSH_USER}@${SSH_HOST}:/opt/syfthub/nginx/"
+
+          # Sync NATS config
+          scp -i ~/.ssh/deploy_key -P ${SSH_PORT:-22} \
+            deploy/nats/nats.prod.conf \
+            "${SSH_USER}@${SSH_HOST}:/opt/syfthub/nats/"
 
           # Sync deploy script
           scp -i ~/.ssh/deploy_key -P ${SSH_PORT:-22} \
