@@ -28,7 +28,7 @@ services:
   # Backend API service (internal only)
   backend:
     build:
-      context: ./backend
+      context: ../components/backend
       dockerfile: Dockerfile
       target: development
     container_name: syfthub-backend-dev
@@ -37,11 +37,11 @@ services:
       - "8000"
     volumes:
       # Mount source code for hot reload
-      - ./backend/src:/app/src:cached
-      - ./backend/tests:/app/tests:cached
-      - ./backend/pyproject.toml:/app/pyproject.toml:cached
+      - ../components/backend/src:/app/src:cached
+      - ../components/backend/tests:/app/tests:cached
+      - ../components/backend/pyproject.toml:/app/pyproject.toml:cached
       # Database volume
-      - ./backend/data:/app/data
+      - ../components/backend/data:/app/data
     environment:
       - ENVIRONMENT=development
       - DATABASE_URL=postgresql://syfthub:syfthub_dev_password@db:5432/syfthub_dev
@@ -80,25 +80,25 @@ services:
   # Frontend service (internal only)
   frontend:
     build:
-      context: .
-      dockerfile: frontend/Dockerfile.dev
+      context: ..
+      dockerfile: components/frontend/Dockerfile.dev
     container_name: syfthub-frontend-dev
     # Internal only - not exposed to host
     expose:
       - "3000"
     volumes:
       # Mount source code for hot reload
-      - ./frontend/src:/app/src:cached
-      - ./frontend/public:/app/public:cached
-      - ./frontend/package.json:/app/package.json:cached
-      - ./frontend/package-lock.json:/app/package-lock.json:cached
-      - ./frontend/vite.config.ts:/app/vite.config.ts:cached
-      - ./frontend/tsconfig.json:/app/tsconfig.json:cached
-      - ./frontend/tailwind.config.js:/app/tailwind.config.js:cached
-      - ./frontend/index.html:/app/index.html:cached
-      - ./frontend/_config.ts:/app/_config.ts:cached
+      - ../components/frontend/src:/app/src:cached
+      - ../components/frontend/public:/app/public:cached
+      - ../components/frontend/package.json:/app/package.json:cached
+      - ../components/frontend/package-lock.json:/app/package-lock.json:cached
+      - ../components/frontend/vite.config.ts:/app/vite.config.ts:cached
+      - ../components/frontend/tsconfig.json:/app/tsconfig.json:cached
+      - ../components/frontend/tailwind.config.js:/app/tailwind.config.js:cached
+      - ../components/frontend/index.html:/app/index.html:cached
+      - ../components/frontend/_config.ts:/app/_config.ts:cached
       # Mount SDK for hot reload
-      - ./sdk/typescript:/sdk/typescript:cached
+      - ../sdk/typescript:/sdk/typescript:cached
       # Exclude node_modules to avoid conflicts
       - /app/node_modules
     environment:
@@ -153,7 +153,7 @@ services:
   # Aggregator service - RAG orchestration
   aggregator:
     build:
-      context: ./aggregator
+      context: ../components/aggregator
       dockerfile: Dockerfile
     container_name: syfthub-aggregator-dev
     # Internal only - accessed via proxy
@@ -161,7 +161,7 @@ services:
       - "8001"
     volumes:
       # Mount source code for hot reload
-      - ./aggregator/src:/app/src:cached
+      - ../components/aggregator/src:/app/src:cached
     environment:
       - AGGREGATOR_DEBUG=true
       - AGGREGATOR_SYFTHUB_URL=http://backend:8000
@@ -187,7 +187,7 @@ services:
   # MCP Server - OAuth 2.1 and Model Context Protocol
   mcp:
     build:
-      context: ./mcp
+      context: ../components/mcp
       dockerfile: Dockerfile
       target: development
     container_name: syfthub-mcp-dev
@@ -196,12 +196,12 @@ services:
       - "8002"
     volumes:
       # Mount source code for hot reload
-      - ./mcp/server.py:/app/server.py:cached
-      - ./mcp/syfthub_client.py:/app/syfthub_client.py:cached
-      - ./mcp/fastmcp.json:/app/fastmcp.json:cached
-      - ./mcp/pyproject.toml:/app/pyproject.toml:cached
-      # Mount Python SDK for development (path matches pyproject.toml: ../sdk/python -> /sdk/python)
-      - ./sdk/python:/sdk/python:cached
+      - ../components/mcp/server.py:/app/server.py:cached
+      - ../components/mcp/syfthub_client.py:/app/syfthub_client.py:cached
+      - ../components/mcp/fastmcp.json:/app/fastmcp.json:cached
+      - ../components/mcp/pyproject.toml:/app/pyproject.toml:cached
+      # Mount Python SDK for development (path matches pyproject.toml: ../../sdk/python -> /sdk/python)
+      - ../sdk/python:/sdk/python:cached
     environment:
       - ENVIRONMENT=development
       - LOG_LEVEL=debug
