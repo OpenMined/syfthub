@@ -577,20 +577,20 @@ jobs:
       matrix:
         include:
           - image: backend
-            context: ./backend
-            dockerfile: backend/Dockerfile
+            context: ./components/backend
+            dockerfile: components/backend/Dockerfile
             target: production
           - image: frontend
             context: .
-            dockerfile: frontend/Dockerfile
+            dockerfile: components/frontend/Dockerfile
             target: production
           - image: aggregator
-            context: ./aggregator
-            dockerfile: aggregator/Dockerfile
+            context: ./components/aggregator
+            dockerfile: components/aggregator/Dockerfile
             target: ""
           - image: mcp
             context: .
-            dockerfile: mcp/Dockerfile
+            dockerfile: components/mcp/Dockerfile
             target: production
     outputs:
       image_tag: ${{ steps.vars.outputs.sha_short }}-staging
@@ -666,18 +666,18 @@ jobs:
 
           # Sync docker-compose.deploy.yml
           scp -i ~/.ssh/deploy_key -P ${SSH_PORT:-22} \
-            docker-compose.deploy.yml \
+            deploy/docker-compose.deploy.yml \
             "${SSH_USER}@${SSH_HOST}:/opt/syfthub/"
 
           # Sync nginx config
           scp -i ~/.ssh/deploy_key -P ${SSH_PORT:-22} \
-            nginx/nginx.prod.conf \
+            deploy/nginx/nginx.prod.conf \
             "${SSH_USER}@${SSH_HOST}:/opt/syfthub/nginx/"
 
           # Sync deploy script
           scp -i ~/.ssh/deploy_key -P ${SSH_PORT:-22} \
-            scripts/deploy.sh \
-            "${SSH_USER}@${SSH_HOST}:/opt/syfthub/scripts/"
+            deploy/scripts/deploy.sh \
+            "${SSH_USER}@${SSH_HOST}:/opt/syfthub/"
 
           echo "Config files synced successfully"
 
@@ -710,8 +710,7 @@ jobs:
             export GITHUB_REPOSITORY
 
             # Run deployment script
-            chmod +x scripts/deploy.sh
-            ./scripts/deploy.sh
+            ./deploy.sh
 
       - name: Staging deployment notification
         if: always()
