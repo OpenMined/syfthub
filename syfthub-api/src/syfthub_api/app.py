@@ -16,7 +16,8 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from functools import wraps
-from typing import Any
+from pathlib import Path
+from typing import Any, TYPE_CHECKING
 
 # Third-party
 import uvicorn
@@ -61,6 +62,9 @@ from .schemas import (
     TunnelTiming,
     TUNNEL_PROTOCOL_VERSION,
 )
+
+if TYPE_CHECKING:
+    from .file_mode import FileBasedEndpointProvider
 
 # Slug validation pattern: lowercase alphanumeric, hyphens, underscores, 1-64 chars
 # Must start with alphanumeric, can end with alphanumeric or be single char
@@ -110,6 +114,10 @@ class SyftAPI:
         heartbeat_ttl_seconds: int | None = None,
         heartbeat_interval_multiplier: float | None = None,
         store: Store | None = None,
+        # File-based endpoint mode parameters
+        endpoints_path: str | Path | None = None,
+        watch_enabled: bool = True,
+        watch_debounce_seconds: float = 1.0,
     ) -> None:
         """
         Initialize the SyftAPI application.
@@ -129,6 +137,14 @@ class SyftAPI:
                 Falls back to HEARTBEAT_INTERVAL_MULTIPLIER env var. Defaults to 0.8.
             store: Policy store backend for persisting policy state.
                 Defaults to InMemoryStore when policies are used.
+            endpoints_path: Path to directory containing file-based endpoints.
+                When provided, enables file-based endpoint mode. Each subdirectory
+                becomes an endpoint with README.md (config) and runner.py (logic).
+                Falls back to ENDPOINTS_PATH env var.
+            watch_enabled: Enable file watching for hot-reload of file-based endpoints.
+                Falls back to WATCH_ENABLED env var. Defaults to True.
+            watch_debounce_seconds: Delay before triggering reload after file changes.
+                Falls back to WATCH_DEBOUNCE_SECONDS env var. Defaults to 1.0.
 
         Raises:
             ConfigurationError: If required configuration is missing.
@@ -197,12 +213,31 @@ class SyftAPI:
         self._store: Store | None = store
         self._global_policies: list[Policy] = []
 
+        # File-based endpoint mode
+        endpoints_path_str = endpoints_path or os.environ.get("ENDPOINTS_PATH")
+        self._endpoints_path: Path | None = Path(endpoints_path_str) if endpoints_path_str else None
+
+        # Watch configuration (from args or env vars)
+        if watch_enabled is not None:
+            self._watch_enabled = watch_enabled
+        else:
+            env_val = os.environ.get("WATCH_ENABLED", "true")
+            self._watch_enabled = env_val.lower() in ("true", "1", "yes")
+
+        self._watch_debounce_seconds = watch_debounce_seconds or float(
+            os.environ.get("WATCH_DEBOUNCE_SECONDS", "1.0")
+        )
+
+        # File-based endpoint provider (initialized lazily in run())
+        self._file_provider: "FileBasedEndpointProvider | None" = None
+
         self._logger.debug(
-            "SyftAPI initialized with syfthub_url=%s, space_url=%s, heartbeat_enabled=%s, tunneling=%s",
+            "SyftAPI initialized with syfthub_url=%s, space_url=%s, heartbeat_enabled=%s, tunneling=%s, file_mode=%s",
             self._syfthub_url,
             self._space_url,
             self._heartbeat_enabled,
             self._is_tunneling,
+            self._endpoints_path is not None,
         )
 
     def on_startup(self, fn: LifecycleHook) -> LifecycleHook:
@@ -617,6 +652,46 @@ class SyftAPI:
             if not result.allowed:
                 raise PolicyDeniedError(result)
 
+    def _serialize_policy(self, policy: Policy) -> dict[str, Any]:
+        """
+        Serialize a Policy object to the dict format expected by SyftHub backend.
+
+        The backend expects:
+        - type: str (policy class name, e.g., "RateLimitPolicy")
+        - version: str (default "1.0")
+        - enabled: bool (default True)
+        - description: str (default "")
+        - config: Dict[str, Any] (policy-specific configuration)
+
+        Args:
+            policy: A Policy instance from policy_manager.
+
+        Returns:
+            Dict matching the backend's Policy schema.
+        """
+        # Get the policy class name as the type
+        policy_type = type(policy).__name__
+
+        # Extract config from policy attributes
+        # Exclude private attributes and methods
+        config: dict[str, Any] = {}
+        for key, value in policy.__dict__.items():
+            # Skip private attributes (start with _)
+            if key.startswith("_"):
+                continue
+            # Skip non-serializable types
+            if callable(value):
+                continue
+            config[key] = value
+
+        return {
+            "type": policy_type,
+            "version": "1.0",
+            "enabled": True,
+            "description": f"{policy_type}: {policy.name}",
+            "config": config,
+        }
+
     async def _sync_endpoints(self) -> None:
         """
         Synchronize registered endpoints with the SyftHub backend.
@@ -667,6 +742,10 @@ class SyftAPI:
         self._logger.info("Syncing %d endpoints with SyftHub...", len(self.endpoints))
         endpoints_to_sync = []
         for endpoint in self.endpoints:
+            # Serialize policies for this endpoint
+            policies = endpoint.get("policies", [])
+            serialized_policies = [self._serialize_policy(p) for p in policies]
+
             endpoints_to_sync.append(
                 {
                     "name": endpoint["name"],
@@ -675,6 +754,7 @@ class SyftAPI:
                     "description": endpoint["description"],
                     "visibility": Visibility.PUBLIC.value,
                     "connect": [{"type": "http", "config": {"url": self._space_url}}],
+                    "policies": serialized_policies,
                 }
             )
 
@@ -865,6 +945,10 @@ class SyftAPI:
         }
         if payload.get("transaction_token"):
             metadata["transaction_token"] = payload["transaction_token"]
+
+        # Include endpoint-specific environment variables (from file-based endpoints)
+        if endpoint.get("_env"):
+            metadata["env"] = endpoint["_env"]
 
         return RequestContext(
             user_id=user.username,
@@ -1184,9 +1268,11 @@ class SyftAPI:
         Start the SyftAI Space server.
 
         This method:
-        1. Synchronizes endpoints with the SyftHub backend (unless _skip_sync is True)
-        2. Starts the heartbeat manager (if enabled)
-        3. Starts either HTTP server or tunnel consumer based on space_url
+        1. Loads file-based endpoints (if endpoints_path is configured)
+        2. Synchronizes endpoints with the SyftHub backend (unless _skip_sync is True)
+        3. Starts file watching for hot-reload (if enabled)
+        4. Starts the heartbeat manager (if enabled)
+        5. Starts either HTTP server or tunnel consumer based on space_url
 
         In HTTP mode (space_url starts with http:// or https://):
             - Builds the FastAPI application
@@ -1201,6 +1287,10 @@ class SyftAPI:
             host: Host to bind to (default: "0.0.0.0"). Ignored in tunneling mode.
             port: Port to bind to (default: 8000). Ignored in tunneling mode.
         """
+        # Load file-based endpoints if configured
+        if self._endpoints_path is not None:
+            await self._load_file_based_endpoints()
+
         if not self._skip_sync:
             await self._sync_endpoints()
         else:
@@ -1208,6 +1298,12 @@ class SyftAPI:
 
         # Initialize policy chains (before heartbeat/server start)
         await self._setup_policies()
+
+        # Start file watching for hot-reload
+        if self._file_provider is not None and self._watch_enabled:
+            self._file_provider.on_change = self._handle_endpoint_reload
+            await self._file_provider.start_watching()
+            self._logger.info("File watching enabled for hot-reload")
 
         # Start heartbeat after successful sync/auth
         await self._start_heartbeat()
@@ -1220,8 +1316,80 @@ class SyftAPI:
                 self._logger.info("Starting HTTP server on %s:%d", host, port)
                 await self._run_http_mode(host, port)
         finally:
+            # Stop file watching
+            if self._file_provider is not None:
+                await self._file_provider.stop_watching()
+
             # Stop heartbeat on shutdown
             await self._stop_heartbeat()
+
+    async def _load_file_based_endpoints(self) -> None:
+        """
+        Load endpoints from the configured endpoints_path.
+
+        This method initializes the FileBasedEndpointProvider and loads
+        all endpoints from the directory structure.
+        """
+        if self._endpoints_path is None:
+            return
+
+        self._logger.info("Loading file-based endpoints from %s", self._endpoints_path)
+
+        # Import here to avoid circular imports
+        from .file_mode import FileBasedEndpointProvider
+
+        self._file_provider = FileBasedEndpointProvider(
+            path=self._endpoints_path,
+            watch_enabled=self._watch_enabled,
+            debounce_seconds=self._watch_debounce_seconds,
+        )
+
+        file_endpoints = await self._file_provider.load_all()
+        self.endpoints.extend(file_endpoints)
+
+        self._logger.info(
+            "Loaded %d file-based endpoints (total: %d)",
+            len(file_endpoints),
+            len(self.endpoints),
+        )
+
+    async def _handle_endpoint_reload(self, new_file_endpoints: list[dict[str, Any]]) -> None:
+        """
+        Handle hot-reload of file-based endpoints.
+
+        Called by FileBasedEndpointProvider when files change.
+        Performs atomic swap of file-based endpoints while preserving
+        decorator-registered endpoints.
+
+        Args:
+            new_file_endpoints: Updated list of file-based endpoints.
+        """
+        # Separate decorator-based endpoints (no _file_mode marker)
+        decorator_endpoints = [
+            ep for ep in self.endpoints
+            if not ep.get("_file_mode")
+        ]
+
+        # Combine with new file-based endpoints
+        self.endpoints = decorator_endpoints + new_file_endpoints
+
+        self._logger.info(
+            "Hot-reloaded endpoints: %d decorator + %d file-based = %d total",
+            len(decorator_endpoints),
+            len(new_file_endpoints),
+            len(self.endpoints),
+        )
+
+        # Re-setup policies for new endpoints
+        await self._setup_policies()
+
+        # Re-sync with SyftHub if client is authenticated
+        if not self._skip_sync and self._client is not None:
+            try:
+                await self._sync_endpoints()
+            except Exception as e:
+                self._logger.error("Failed to re-sync endpoints after hot-reload: %s", e)
+                # Don't raise - endpoints are still updated locally
 
     async def _run_http_mode(self, host: str, port: int) -> None:
         """Run the HTTP server (standard mode).

@@ -39,6 +39,16 @@ from .exceptions import (
     SyncError,
 )
 from .logging import get_logger, setup_logging
+
+# File-based endpoint mode (lazy import to avoid circular dependencies)
+from .file_mode import (
+    FileBasedEndpointProvider,
+    EndpointLoader,
+    PolicyFactory,
+    FileSystemWatcher,
+    EndpointConfig,
+    PolicyConfig,
+)
 from .schemas import (
     # Auth
     UserContext,
@@ -119,6 +129,13 @@ __all__ = [
     "TunnelRequest",
     "TunnelResponse",
     "TunnelTiming",
+    # File-based endpoint mode
+    "FileBasedEndpointProvider",
+    "EndpointLoader",
+    "PolicyFactory",
+    "FileSystemWatcher",
+    "EndpointConfig",
+    "PolicyConfig",
     # Metadata
     "__version__",
 ]

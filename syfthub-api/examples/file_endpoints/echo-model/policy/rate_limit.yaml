@@ -1,0 +1,6 @@
+# Rate limit policy for echo-model endpoint
+type: RateLimitPolicy
+name: echo_rate_limit
+config:
+  max_requests: 100
+  window_seconds: 60
