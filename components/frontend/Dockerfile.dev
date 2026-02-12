@@ -2,17 +2,21 @@
 # Build with context: .. (repository root, from components/frontend)
 FROM node:20-alpine
 
-# Set working directory
-WORKDIR /app
+# IMPORTANT: Directory structure must match repository layout for file: dependency resolution.
+# The @syfthub/sdk dependency is: "file:../../sdk/typescript"
 
 # Copy SDK first (required for file: dependency resolution)
-COPY sdk/typescript /sdk/typescript
+WORKDIR /app/sdk/typescript
+COPY sdk/typescript ./
 
-# Copy frontend package.json only (lockfile will be regenerated)
-COPY components/frontend/package.json ./
+# Set working directory for frontend (mirrors repo: components/frontend)
+WORKDIR /app/components/frontend
 
-# Install dependencies (regenerates lockfile for Docker path layout)
-RUN npm install
+# Copy frontend package.json and lockfile
+COPY components/frontend/package.json components/frontend/package-lock.json ./
+
+# Install dependencies (use ci for deterministic installs)
+RUN npm ci
 
 # Copy frontend source code
 COPY components/frontend/ .
