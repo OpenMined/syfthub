@@ -24,7 +24,6 @@ help:  ## Show available commands
 	@echo '  make dev          Start development environment (http://localhost)'
 	@echo '  make stop         Stop all services'
 	@echo '  make test         Run all tests (parallel execution)'
-	@echo '  make test-serial  Run all tests sequentially (for debugging)'
 	@echo '  make check        Run code quality checks (lint, format, types)'
 	@echo '  make logs         View container logs'
 	@echo ''
@@ -37,13 +36,15 @@ setup:  ## Install dev dependencies (pre-commit, etc.)
 	@test -d .venv || uv venv .venv
 	@. .venv/bin/activate && uv pip install pre-commit
 	@. .venv/bin/activate && pre-commit install
+	@npm install ./sdk/typescript
+	@npm --prefix sdk/typescript run build
 	@echo ''
 	@echo 'Setup complete! Activate the virtualenv with:'
 	@echo '  source .venv/bin/activate'
 	@echo ''
 
 dev:  ## Start development environment
-	@docker compose -f docker-compose.dev.yml up -d --build
+	@docker compose -f deploy/docker-compose.dev.yml up -d --build
 	@echo ''
 	@echo '══════════════════════════════════════════'
 	@echo '  SyftHub Development Environment'
@@ -58,8 +59,8 @@ dev:  ## Start development environment
 	@echo '══════════════════════════════════════════'
 
 stop:  ## Stop all services
-	@docker compose -f docker-compose.dev.yml down 2>/dev/null || true
-	@docker compose -f docker-compose.deploy.yml down 2>/dev/null || true
+	@docker compose -f deploy/docker-compose.dev.yml down 2>/dev/null || true
+	@docker compose -f deploy/docker-compose.deploy.yml down 2>/dev/null || true
 	@echo 'All services stopped'
 
 test:  ## Run all tests (parallel execution using all CPU cores)
@@ -68,10 +69,10 @@ test:  ## Run all tests (parallel execution using all CPU cores)
 	@echo '═══════════════════════════════════════════════════════════════'
 	@echo ''
 	@echo 'Backend tests...'
-	@cd backend && uv sync --extra dev && uv run pytest
+	@cd components/backend && uv sync --extra dev && uv run pytest
 	@echo ''
 	@echo 'Aggregator tests...'
-	@cd aggregator && uv sync --extra dev && uv run pytest
+	@cd components/aggregator && uv sync --extra dev && uv run pytest
 	@echo ''
 	@echo 'CLI tests...'
 	@cd cli && uv sync --extra dev && uv run pytest
@@ -86,7 +87,7 @@ test:  ## Run all tests (parallel execution using all CPU cores)
 	@cd sdk/typescript && npx vitest run --exclude 'tests/integration/**' || echo 'TypeScript SDK tests skipped'
 	@echo ''
 	@echo 'Frontend tests...'
-	@cd frontend && npm run test --if-present || echo 'Frontend tests skipped (playwright not configured)'
+	@cd components/frontend && npm run test --if-present || echo 'Frontend tests skipped (playwright not configured)'
 	@echo ''
 	@echo '═══════════════════════════════════════════════════════════════'
 	@echo '  All tests complete!'
@@ -98,10 +99,10 @@ test-serial:  ## Run all tests sequentially (for debugging)
 	@echo '═══════════════════════════════════════════════════════════════'
 	@echo ''
 	@echo 'Backend tests...'
-	@cd backend && uv sync --extra dev && uv run pytest -n 0
+	@cd components/backend && uv sync --extra dev && uv run pytest -n 0
 	@echo ''
 	@echo 'Aggregator tests...'
-	@cd aggregator && uv sync --extra dev && uv run pytest -n 0
+	@cd components/aggregator && uv sync --extra dev && uv run pytest -n 0
 	@echo ''
 	@echo 'CLI tests...'
 	@cd cli && uv sync --extra dev && uv run pytest -n 0
@@ -116,7 +117,7 @@ test-serial:  ## Run all tests sequentially (for debugging)
 	@cd sdk/typescript && npx vitest run --exclude 'tests/integration/**' || echo 'TypeScript SDK tests skipped'
 	@echo ''
 	@echo 'Frontend tests...'
-	@cd frontend && npm run test --if-present || echo 'Frontend tests skipped (playwright not configured)'
+	@cd components/frontend && npm run test --if-present || echo 'Frontend tests skipped (playwright not configured)'
 	@echo ''
 	@echo '═══════════════════════════════════════════════════════════════'
 	@echo '  All tests complete!'
@@ -134,9 +135,9 @@ test-integration:  ## Run integration tests (requires dev server running)
 
 check:  ## Run code quality checks
 	@echo 'Backend checks...'
-	@cd backend && uv run ruff check src/ tests/
-	@cd backend && uv run ruff format --check src/ tests/
-	@cd backend && uv run python -m mypy src/ || true
+	@cd components/backend && uv run ruff check src/ tests/
+	@cd components/backend && uv run ruff format --check src/ tests/
+	@cd components/backend && uv run python -m mypy src/ || true
 	@echo ''
 	@echo 'SyftHub API checks...'
 	@cd syfthub-api && uv run ruff check src/ tests/
@@ -144,10 +145,10 @@ check:  ## Run code quality checks
 	@cd syfthub-api && uv run mypy src/syfthub_api/ --ignore-missing-imports
 	@echo ''
 	@echo 'Frontend checks...'
-	@cd frontend && npm run lint --if-present || true
-	@cd frontend && npm run typecheck --if-present || true
+	@cd components/frontend && npm run lint --if-present || true
+	@cd components/frontend && npm run typecheck --if-present || true
 	@echo ''
 	@echo 'All checks complete'
 
 logs:  ## View container logs
-	@docker compose -f docker-compose.dev.yml logs -f
+	@docker compose -f deploy/docker-compose.dev.yml logs -f
