@@ -88,6 +88,36 @@ class Settings(BaseModel):
         ),
     ] = 0.8
 
+    # File-based endpoint mode settings
+    endpoints_path: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="Path to directory containing file-based endpoints",
+        ),
+    ] = None
+    watch_enabled: Annotated[
+        bool,
+        Field(
+            default=True,
+            description="Enable file watching for hot-reload of file-based endpoints",
+        ),
+    ] = True
+    watch_debounce_seconds: Annotated[
+        float,
+        Field(
+            default=1.0,
+            ge=0.1,
+            le=30.0,
+            description="Delay in seconds before triggering reload after file changes",
+        ),
+    ] = 1.0
+
+    @property
+    def is_file_mode(self) -> bool:
+        """Check if file-based endpoint mode is enabled."""
+        return self.endpoints_path is not None
+
     @property
     def is_tunneling(self) -> bool:
         """Check if running in tunneling mode based on space_url."""
@@ -214,19 +244,23 @@ def load_settings(**overrides: str | int) -> Settings:
         "heartbeat_enabled": "HEARTBEAT_ENABLED",
         "heartbeat_ttl_seconds": "HEARTBEAT_TTL_SECONDS",
         "heartbeat_interval_multiplier": "HEARTBEAT_INTERVAL_MULTIPLIER",
+        # File-based endpoint mode
+        "endpoints_path": "ENDPOINTS_PATH",
+        "watch_enabled": "WATCH_ENABLED",
+        "watch_debounce_seconds": "WATCH_DEBOUNCE_SECONDS",
     }
 
-    settings_dict: dict[str, str | int | bool | float] = {}
+    settings_dict: dict[str, str | int | bool | float | None] = {}
 
     for setting_name, env_var in env_mapping.items():
         env_value = os.environ.get(env_var)
         if env_value is not None:
             # Convert types as needed
-            if setting_name == "server_port" or setting_name == "heartbeat_ttl_seconds":
+            if setting_name in ("server_port", "heartbeat_ttl_seconds"):
                 settings_dict[setting_name] = int(env_value)
-            elif setting_name == "heartbeat_enabled":
+            elif setting_name in ("heartbeat_enabled", "watch_enabled"):
                 settings_dict[setting_name] = env_value.lower() in ("true", "1", "yes")
-            elif setting_name == "heartbeat_interval_multiplier":
+            elif setting_name in ("heartbeat_interval_multiplier", "watch_debounce_seconds"):
                 settings_dict[setting_name] = float(env_value)
             else:
                 settings_dict[setting_name] = env_value

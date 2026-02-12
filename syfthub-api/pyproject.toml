@@ -28,6 +28,14 @@ dependencies = [
     # The syfthub-sdk is a local dependency.
     # It will be installed in editable mode.
     "policy-manager",
+    # File-based endpoint mode dependencies
+    "watchdog>=3.0.0",
+    "python-frontmatter>=1.0.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+    # Subprocess isolation dependencies
+    "loky>=3.4.0",
+    "packaging>=23.0",
 ]
 
 [tool.uv.sources]
@@ -93,6 +101,8 @@ module = [
     "syfthub_sdk.*",
     "policy_manager.*",
     "uvicorn.*",
+    "watchdog.*",
+    "frontmatter.*",
 ]
 ignore_missing_imports = true
 
