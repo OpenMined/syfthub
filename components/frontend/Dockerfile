@@ -7,7 +7,7 @@ FROM node:20-alpine AS builder
 WORKDIR /sdk/typescript
 
 # Copy and build SDK first (required for file: dependency resolution)
-COPY sdk/typescript/package*.json ./
+COPY sdk/typescript/package.json sdk/typescript/package-lock.json ./
 RUN npm ci
 COPY sdk/typescript/ .
 RUN npm run build
@@ -16,7 +16,7 @@ RUN npm run build
 WORKDIR /app
 
 # Copy frontend package files
-COPY frontend/package*.json ./
+COPY components/frontend/package.json components/frontend/package-lock.json ./
 
 # Install dependencies with retry and timeout settings
 RUN npm config set fetch-retry-mintimeout 20000 && \
@@ -24,7 +24,7 @@ RUN npm config set fetch-retry-mintimeout 20000 && \
     npm ci --ignore-scripts
 
 # Copy frontend source code
-COPY frontend/ .
+COPY components/frontend/ .
 
 # Build arguments for Vite environment variables
 ARG VITE_GOOGLE_CLIENT_ID

@@ -18,9 +18,8 @@ dependencies = [
     "starlette>=0.49.1",  # CVE-2025-62727: O(n^2) DoS via Range header
     "werkzeug>=3.1.5",  # CVE-2025-66221, CVE-2026-21860: Windows device names
     "authlib>=1.6.6",  # CVE-2025-68158: Account takeover vulnerability
-    # Pydantic (pinned for compatibility)
-    "pydantic==2.11.4",
-    "pydantic-core==2.33.2",
+    # Pydantic (compatible with fastmcp>=2.14.3)
+    "pydantic>=2.11.7",
     # Authentication and crypto
     "cryptography>=41.0.0",
     "pyjwt>=2.0.0",
@@ -37,12 +36,10 @@ dependencies = [
 py-modules = ["server", "syfthub_client"]
 
 [tool.uv.sources]
-syfthub-sdk = { path = "../sdk/python", editable = true }
+syfthub-sdk = { path = "../../sdk/python", editable = true }
 
 [tool.uv]
 override-dependencies = [
-    "pydantic==2.11.4",
-    "pydantic-core==2.33.2",
     # Security overrides - force minimum secure versions even when transitive deps pin older versions
     "requests>=2.32.4",  # CVE-2024-47081: syft-accounting-sdk pins 2.32.3
     "urllib3>=2.6.3",  # CVE-2025-66471, CVE-2026-21441

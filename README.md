@@ -301,10 +301,10 @@ Or run separately:
 
 ```bash
 # Backend tests
-cd backend && uv run python -m pytest
+cd components/backend && uv run python -m pytest
 
 # Frontend tests (Playwright E2E)
-cd frontend && npm test
+cd components/frontend && npm test
 ```
 
 ### Code Quality
@@ -321,7 +321,7 @@ This runs:
 
 **Backend:**
 ```bash
-cd backend
+cd components/backend
 uv run ruff check src/ tests/       # Linting
 uv run ruff format src/ tests/      # Formatting
 uv run mypy src/                    # Type checking
@@ -329,7 +329,7 @@ uv run mypy src/                    # Type checking
 
 **Frontend:**
 ```bash
-cd frontend
+cd components/frontend
 npm run lint                        # ESLint
 npm run format                      # Prettier
 npm run typecheck                   # TypeScript

@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: backend
+        working-directory: components/backend
     steps:
       - uses: actions/checkout@v4
 
@@ -24,7 +24,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-dependency-glob: "backend/uv.lock"
+          cache-dependency-glob: "components/backend/uv.lock"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: backend
+        working-directory: components/backend
     strategy:
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
@@ -58,7 +58,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-dependency-glob: "backend/uv.lock"
+          cache-dependency-glob: "components/backend/uv.lock"
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -78,7 +78,7 @@ jobs:
         if: matrix.python-version == '3.12'
         uses: codecov/codecov-action@v5
         with:
-          file: ./backend/coverage.xml
+          file: ./components/backend/coverage.xml
           fail_ci_if_error: false
 
   # ============================================================================
@@ -88,7 +88,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: aggregator
+        working-directory: components/aggregator
     steps:
       - uses: actions/checkout@v4
 
@@ -96,7 +96,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-dependency-glob: "aggregator/uv.lock"
+          cache-dependency-glob: "components/aggregator/uv.lock"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -119,7 +119,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: aggregator
+        working-directory: components/aggregator
     strategy:
       matrix:
         python-version: ["3.11", "3.12"]
@@ -130,7 +130,7 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-dependency-glob: "aggregator/uv.lock"
+          cache-dependency-glob: "components/aggregator/uv.lock"
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -296,7 +296,7 @@ jobs:
         with:
           node-version: lts/*
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: components/frontend/package-lock.json
 
       - name: Install SDK dependencies
         working-directory: sdk/typescript
@@ -307,19 +307,19 @@ jobs:
         run: npm run build
 
       - name: Install frontend dependencies
-        working-directory: frontend
+        working-directory: components/frontend
         run: npm ci
 
       - name: Run ESLint
-        working-directory: frontend
+        working-directory: components/frontend
         run: npm run lint
 
       - name: Run Prettier check
-        working-directory: frontend
+        working-directory: components/frontend
         run: npx prettier --check src/
 
       - name: Run TypeScript type check
-        working-directory: frontend
+        working-directory: components/frontend
         run: npm run typecheck
 
   frontend-test:
@@ -332,7 +332,7 @@ jobs:
         with:
           node-version: lts/*
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: components/frontend/package-lock.json
 
       - name: Install SDK dependencies
         working-directory: sdk/typescript
@@ -343,15 +343,15 @@ jobs:
         run: npm run build
 
       - name: Install frontend dependencies
-        working-directory: frontend
+        working-directory: components/frontend
         run: npm ci
 
       - name: Install Playwright browsers
-        working-directory: frontend
+        working-directory: components/frontend
         run: npx playwright install --with-deps
 
       - name: Run Playwright tests
-        working-directory: frontend
+        working-directory: components/frontend
         run: npm test
 
       - name: Upload Playwright report
@@ -359,7 +359,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
-          path: frontend/playwright-report/
+          path: components/frontend/playwright-report/
           retention-days: 30
 
   frontend-build:
@@ -372,7 +372,7 @@ jobs:
         with:
           node-version: lts/*
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: components/frontend/package-lock.json
 
       - name: Install SDK dependencies
         working-directory: sdk/typescript
@@ -383,18 +383,18 @@ jobs:
         run: npm run build
 
       - name: Install frontend dependencies
-        working-directory: frontend
+        working-directory: components/frontend
         run: npm ci
 
       - name: Build for production
-        working-directory: frontend
+        working-directory: components/frontend
         run: npm run build
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: frontend-build
-          path: frontend/dist/
+          path: components/frontend/dist/
           retention-days: 7
 
   # ============================================================================
@@ -414,20 +414,20 @@ jobs:
       matrix:
         include:
           - image: backend
-            context: ./backend
-            dockerfile: backend/Dockerfile
+            context: ./components/backend
+            dockerfile: components/backend/Dockerfile
             target: production
           - image: frontend
             context: .
-            dockerfile: frontend/Dockerfile
+            dockerfile: components/frontend/Dockerfile
             target: production
           - image: aggregator
-            context: ./aggregator
-            dockerfile: aggregator/Dockerfile
+            context: ./components/aggregator
+            dockerfile: components/aggregator/Dockerfile
             target: ""
           - image: mcp
             context: .
-            dockerfile: mcp/Dockerfile
+            dockerfile: components/mcp/Dockerfile
             target: production
     outputs:
       image_tag: ${{ steps.vars.outputs.sha_short }}
@@ -506,17 +506,17 @@ jobs:
 
           # Sync docker-compose.deploy.yml
           scp -i ~/.ssh/deploy_key -P ${SSH_PORT:-22} \
-            docker-compose.deploy.yml \
+            deploy/docker-compose.deploy.yml \
             "${SSH_USER}@${SSH_HOST}:/opt/syfthub/"
 
           # Sync nginx config
           scp -i ~/.ssh/deploy_key -P ${SSH_PORT:-22} \
-            nginx/nginx.prod.conf \
+            deploy/nginx/nginx.prod.conf \
             "${SSH_USER}@${SSH_HOST}:/opt/syfthub/nginx/"
 
           # Sync deploy script
           scp -i ~/.ssh/deploy_key -P ${SSH_PORT:-22} \
-            scripts/deploy.sh \
+            deploy/scripts/deploy.sh \
             "${SSH_USER}@${SSH_HOST}:/opt/syfthub/"
 
           echo "Config files synced successfully"
