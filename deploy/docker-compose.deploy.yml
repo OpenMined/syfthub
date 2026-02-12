@@ -67,6 +67,8 @@ services:
         condition: service_healthy
       mcp:
         condition: service_healthy
+      nats:
+        condition: service_healthy
       frontend-init:
         condition: service_completed_successfully
     healthcheck:
@@ -114,6 +116,10 @@ services:
       # RSA keys for satellite token signing (required for multi-worker deployment)
       - RSA_PRIVATE_KEY_PEM=${RSA_PRIVATE_KEY_PEM}
       - RSA_PUBLIC_KEY_PEM=${RSA_PUBLIC_KEY_PEM}
+      # NATS configuration for P2P tunneling
+      - NATS_URL=nats://nats:4222
+      - NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN}
+      - NATS_WS_PUBLIC_URL=wss://${DOMAIN:-localhost}/nats
       # RAG/OpenAI configuration (optional - semantic search disabled if not set)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       # Google OAuth configuration (optional - Google Sign-In disabled if not set)
@@ -160,6 +166,9 @@ services:
       - AGGREGATOR_CORS_ORIGINS=["https://${DOMAIN:-localhost}"]
       - AGGREGATOR_LOG_LEVEL=${LOG_LEVEL:-info}
       - AGGREGATOR_LOG_FORMAT=${LOG_FORMAT:-json}
+      # NATS configuration for P2P tunneling
+      - AGGREGATOR_NATS_URL=nats://nats:4222
+      - AGGREGATOR_NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN}
     networks:
       - syfthub-network
     depends_on:
@@ -225,6 +234,45 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # ==========================================================================
+  # NATS - Messaging server for P2P communication between SyftAI Spaces
+  # ==========================================================================
+  nats:
+    image: nats:2.10-alpine
+    container_name: syfthub-nats
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    expose:
+      - "4222"
+      - "8222"
+      - "9222"
+    volumes:
+      - ./nats/nats.prod.conf:/etc/nats/nats.conf:ro
+      - nats_data:/data/jetstream
+    environment:
+      - NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN}
+    command: ["--config", "/etc/nats/nats.conf"]
+    networks:
+      - syfthub-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     deploy:
       resources:
         limits:
@@ -393,3 +441,5 @@ volumes:
     name: syfthub_backend_logs
   backend_data:
     name: syfthub_backend_data
+  nats_data:
+    name: syfthub_nats_data

@@ -5,7 +5,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from syfthub_sdk.aggregators import AggregatorsResource
-from syfthub_sdk.models import AccountingCredentials, User
+from syfthub_sdk.models import (
+    AccountingCredentials,
+    HeartbeatResponse,
+    NatsCredentials,
+    User,
+)
 
 if TYPE_CHECKING:
     from syfthub_sdk._http import HTTPClient
@@ -170,3 +175,74 @@ class UsersResource:
         response = self._http.get("/api/v1/users/me/accounting")
         data = response if isinstance(response, dict) else {}
         return AccountingCredentials.model_validate(data)
+
+    def get_nats_credentials(self) -> NatsCredentials:
+        """Get NATS credentials for connecting to the NATS server.
+
+        Fetches the shared NATS auth token from the hub. Spaces call this
+        after login to obtain credentials for NATS WebSocket connections.
+
+        Returns:
+            NatsCredentials with the NATS auth token.
+
+        Raises:
+            AuthenticationError: If not authenticated
+            APIError: If NATS is not configured on the hub (503)
+
+        Example:
+            creds = client.users.get_nats_credentials()
+            # Use creds.nats_auth_token to connect to NATS
+        """
+        response = self._http.get("/api/v1/nats/credentials")
+        data = response if isinstance(response, dict) else {}
+        return NatsCredentials.model_validate(data)
+
+    def send_heartbeat(
+        self,
+        url: str,
+        ttl_seconds: int = 300,
+    ) -> HeartbeatResponse:
+        """Send a heartbeat to indicate this SyftAI Space is alive.
+
+        The heartbeat mechanism allows SyftAI Spaces to signal their availability
+        to SyftHub. This should be called periodically (before the TTL expires)
+        to maintain the "active" status.
+
+        Args:
+            url: Full URL of this space (e.g., "https://myspace.example.com").
+                 The server extracts the domain from this URL.
+            ttl_seconds: Time-to-live in seconds (1-3600). The server caps this
+                        at a maximum of 600 seconds (10 minutes). Default is 300
+                        seconds (5 minutes).
+
+        Returns:
+            HeartbeatResponse containing:
+                - status: "ok" if successful
+                - received_at: When the server received the heartbeat
+                - expires_at: When the heartbeat will expire
+                - domain: Extracted domain from the URL
+                - ttl_seconds: Effective TTL (may be capped by server)
+
+        Raises:
+            AuthenticationError: If not authenticated
+            ValidationError: If URL or TTL is invalid
+
+        Example:
+            # Send heartbeat with default TTL (300 seconds)
+            response = client.users.send_heartbeat(
+                url="https://myspace.example.com"
+            )
+            print(f"Next heartbeat before: {response.expires_at}")
+
+            # Send heartbeat with custom TTL
+            response = client.users.send_heartbeat(
+                url="https://myspace.example.com",
+                ttl_seconds=600  # Maximum allowed
+            )
+        """
+        response = self._http.post(
+            "/api/v1/users/me/heartbeat",
+            json={"url": url, "ttl_seconds": ttl_seconds},
+        )
+        data = response if isinstance(response, dict) else {}
+        return HeartbeatResponse.model_validate(data)

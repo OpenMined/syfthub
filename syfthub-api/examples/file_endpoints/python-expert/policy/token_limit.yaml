@@ -1,0 +1,4 @@
+type: TokenLimitPolicy
+name: python_expert_token_limit
+config:
+  max_input_tokens: 10000

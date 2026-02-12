@@ -11,6 +11,7 @@ import respx
 
 from syfthub_sdk import SyftHubClient
 from syfthub_sdk.chat import (
+    TUNNELING_PREFIX,
     ChatStreamEvent,
     DoneEvent,
     ErrorEvent,
@@ -31,6 +32,7 @@ from syfthub_sdk.models import (
     EndpointPublic,
     EndpointRef,
     EndpointType,
+    PeerTokenResponse,
 )
 
 # =============================================================================
@@ -611,3 +613,110 @@ class TestGetAvailableEndpoints:
 
         assert len(sources) == 1
         assert sources[0].type == EndpointType.DATA_SOURCE
+
+
+class TestTunnelingDetection:
+    """Tests for tunneling endpoint detection and peer token auto-fetch."""
+
+    def test_collect_tunneling_usernames_with_tunneling_model(
+        self,
+        base_url: str,
+    ) -> None:
+        """Test that tunneling model URLs are detected."""
+        client = SyftHubClient(base_url=base_url)
+
+        model_ref = EndpointRef(url="tunneling:alice", slug="model")
+        ds_refs = [EndpointRef(url="http://normal:8080", slug="docs")]
+
+        usernames = client.chat._collect_tunneling_usernames(model_ref, ds_refs)
+        assert usernames == ["alice"]
+
+    def test_collect_tunneling_usernames_with_tunneling_datasource(
+        self,
+        base_url: str,
+    ) -> None:
+        """Test that tunneling data source URLs are detected."""
+        client = SyftHubClient(base_url=base_url)
+
+        model_ref = EndpointRef(url="http://normal:8080", slug="model")
+        ds_refs = [
+            EndpointRef(url="tunneling:bob", slug="docs"),
+            EndpointRef(url="tunneling:carol", slug="data"),
+        ]
+
+        usernames = client.chat._collect_tunneling_usernames(model_ref, ds_refs)
+        assert set(usernames) == {"bob", "carol"}
+
+    def test_collect_tunneling_usernames_no_tunneling(
+        self,
+        base_url: str,
+    ) -> None:
+        """Test that non-tunneling URLs return empty list."""
+        client = SyftHubClient(base_url=base_url)
+
+        model_ref = EndpointRef(url="http://normal:8080", slug="model")
+        ds_refs = [EndpointRef(url="http://also-normal:8080", slug="docs")]
+
+        usernames = client.chat._collect_tunneling_usernames(model_ref, ds_refs)
+        assert usernames == []
+
+    def test_tunneling_prefix_constant(self) -> None:
+        """Test that the tunneling prefix constant is correct."""
+        assert TUNNELING_PREFIX == "tunneling:"
+
+    @respx.mock
+    def test_complete_with_tunneling_endpoints_fetches_peer_token(
+        self,
+        base_url: str,
+        aggregator_url: str,
+        fake_tokens: AuthTokens,
+        mock_chat_response: dict[str, Any],
+    ) -> None:
+        """Test that complete() auto-fetches peer token for tunneling endpoints."""
+        mock_peer_token_response = {
+            "peer_token": "pt_test123",
+            "peer_channel": "peer_abc",
+            "expires_in": 120,
+            "nats_url": "ws://localhost:8080/nats",
+        }
+
+        respx.post(f"{base_url}/api/v1/peer-token").mock(
+            return_value=httpx.Response(200, json=mock_peer_token_response)
+        )
+
+        respx.post(f"{aggregator_url}/chat").mock(
+            return_value=httpx.Response(200, json=mock_chat_response)
+        )
+
+        client = SyftHubClient(base_url=base_url)
+        client._http.set_tokens(fake_tokens)
+
+        model_ref = EndpointRef(
+            url="tunneling:alice",
+            slug="test-model",
+            owner_username="alice",
+        )
+
+        response = client.chat.complete(
+            prompt="Hello via tunnel",
+            model=model_ref,
+        )
+
+        assert isinstance(response, ChatResponse)
+
+        # Verify peer-token was called
+        peer_token_call = respx.calls.last
+        assert peer_token_call is not None
+
+    def test_peer_token_response_model(self) -> None:
+        """Test PeerTokenResponse model validation."""
+        response = PeerTokenResponse(
+            peer_token="pt_abc123",
+            peer_channel="peer_def456",
+            expires_in=120,
+            nats_url="ws://localhost:8080/nats",
+        )
+        assert response.peer_token == "pt_abc123"
+        assert response.peer_channel == "peer_def456"
+        assert response.expires_in == 120
+        assert response.nats_url == "ws://localhost:8080/nats"

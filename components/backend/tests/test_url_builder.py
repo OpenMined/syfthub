@@ -145,6 +145,21 @@ class TestBuildConnectionUrl:
         result = build_connection_url("https://example.com", "wss", "path")
         assert result == "wss://example.com/path"
 
+    def test_build_url_tunneling_domain_returned_as_is(self):
+        """Test that tunneling domains are returned directly without protocol prefix."""
+        result = build_connection_url("tunneling:alice", "http", "tunneling:alice")
+        assert result == "tunneling:alice"
+
+    def test_build_url_tunneling_domain_ignores_path(self):
+        """Test that tunneling domains ignore the path argument."""
+        result = build_connection_url("tunneling:bob", "rest_api", "some/path")
+        assert result == "tunneling:bob"
+
+    def test_build_url_tunneling_domain_no_path(self):
+        """Test that tunneling domains work without a path."""
+        result = build_connection_url("tunneling:carol", "http", None)
+        assert result == "tunneling:carol"
+
 
 class TestTransformConnectionUrls:
     """Tests for transform_connection_urls function."""

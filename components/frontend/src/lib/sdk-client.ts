@@ -188,7 +188,14 @@ export type {
   Policy,
   Connection,
   UserUpdateInput,
-  PasswordChangeInput
+  PasswordChangeInput,
+  // API Token types
+  APIToken,
+  APITokenScope,
+  APITokenCreateResponse,
+  CreateAPITokenInput,
+  UpdateAPITokenInput,
+  APITokenListResponse
 } from '@syfthub/sdk';
 
 // Re-export chat types for frontend usage

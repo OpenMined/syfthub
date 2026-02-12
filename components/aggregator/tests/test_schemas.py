@@ -199,6 +199,32 @@ def test_chat_response_with_new_sources_format() -> None:
     assert response.metadata.total_time_ms == 650
 
 
+def test_chat_request_with_peer_token() -> None:
+    """Test ChatRequest with peer token fields for NATS tunneling."""
+    request = ChatRequest(
+        prompt="Hello via tunnel",
+        model=EndpointRef(url="tunneling:alice", slug="gpt-model"),
+        data_sources=[
+            EndpointRef(url="tunneling:alice", slug="docs"),
+        ],
+        peer_token="pt_abc123",
+        peer_channel="peer_def456",
+    )
+    assert request.peer_token == "pt_abc123"
+    assert request.peer_channel == "peer_def456"
+    assert request.model.url == "tunneling:alice"
+
+
+def test_chat_request_peer_token_defaults_none() -> None:
+    """Test that peer token fields default to None."""
+    request = ChatRequest(
+        prompt="Hello",
+        model=EndpointRef(url="http://localhost:8080", slug="model"),
+    )
+    assert request.peer_token is None
+    assert request.peer_channel is None
+
+
 def test_chat_response_empty_sources() -> None:
     """Test ChatResponse with no sources (no data sources queried)."""
     response = ChatResponse(
