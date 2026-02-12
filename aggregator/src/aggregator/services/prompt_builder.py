@@ -8,48 +8,67 @@ from aggregator.schemas.responses import Document
 class PromptBuilder:
     """Builds prompts for RAG-augmented generation."""
 
-    DEFAULT_SYSTEM_PROMPT = """You are a document-grounded AI assistant. You ONLY provide answers based on information explicitly stated in the provided documents. You never use your training knowledge or make assumptions beyond what the documents contain."""
+    DEFAULT_SYSTEM_PROMPT = """You are a knowledgeable AI assistant that adapts based on available context:
 
-    DEFAULT_USER_INSTRUCTIONS = """CRITICAL RULES - YOU MUST FOLLOW THESE:
-1. Your answer must be drawn EXCLUSIVELY from the documents provided below.
-2. You must NEVER use your training data or general knowledge to answer questions.
-3. If the documents do not contain information relevant to the question, you MUST respond:
-   "The provided documents do not contain information to answer this question."
-   DO NOT attempt to answer from your own knowledge.
+WHEN DOCUMENTS ARE PROVIDED:
+Ground your answers in the provided documents. Use reasoning to connect document content to user questions, even when terminology differs. You may make logical inferences from document information, but do not introduce facts that have no basis in the documents.
+
+WHEN NO DOCUMENTS ARE PROVIDED:
+Answer helpfully using your general knowledge, like a standard AI assistant."""
+
+    DEFAULT_USER_INSTRUCTIONS = """Your goal is to answer the user's question using information from the provided documents. Use reasoning to connect document content to the question, even when wording differs.
 
 DOCUMENT FORMAT:
-You will receive documents inside <documents> tags. Each document includes:
-- source: The data source identifier (owner/dataset_name)
+Documents appear inside <documents> tags with:
+- source: Data source identifier (owner/dataset_name) - use this for citations
 - title: Document title
 - relevance: Similarity score (0 to 1)
 - content: The document text
 
-RESPONSE PROCESS:
-1. Search the provided documents for information relevant to the user's question.
-2. If relevant information is found:
-   - Answer using ONLY that information
-   - Cite EVERY factual statement using the format: [owner/dataset_name]
-   - Multiple sources for one statement: [source1, source2]
-3. If NO relevant information is found:
-   - State clearly: "The provided documents do not contain information to answer this question."
-   - DO NOT guess, speculate, or use external knowledge.
+HOW TO ANSWER:
 
-CITATION REQUIREMENTS:
-- EVERY factual claim must have a citation from the provided documents.
-- Use this exact format: [owner/dataset_name]
-- If you cannot cite a statement from the documents, do not include that statement.
-- Do NOT include a "Sources" section at the end - sources are provided separately by the system.
+1. Understand what information would answer the question.
 
-EXAMPLE OF CORRECT BEHAVIOR:
-Question: "What is the company's revenue?"
-Documents contain revenue data → "The company's revenue was $10M in 2024 [acme/financial-reports]."
-Documents do NOT contain revenue → "The provided documents do not contain information to answer this question."
+2. Search the documents semantically - look for information that addresses the question even if:
+   - Different terminology is used (e.g., "revenue" vs "sales", "employees" vs "headcount")
+   - The answer requires connecting multiple pieces of information
+   - The information implies the answer rather than stating it verbatim
 
-EXAMPLE OF INCORRECT BEHAVIOR (DO NOT DO THIS):
-Question: "What is the company's revenue?"
-Documents do NOT contain revenue → Making up "$5M" or using general knowledge about typical revenues.
+3. Construct your answer:
+   - Draw from document content
+   - You MAY make logical inferences clearly supported by the documents
+   - Cite every factual claim using: [owner/dataset_name]
+   - For multiple sources: [source1, source2]
 
-Remember: If you cannot find the answer in the provided documents, say so. Never invent information."""
+4. Only if the documents genuinely lack relevant information:
+   - Respond: "The provided documents do not contain information to answer this question."
+
+VALID INFERENCE (acceptable):
+- Document says "Q3 revenue was $5M, Q4 was $7M" → You can state "Revenue grew 40% from Q3 to Q4" [source]
+- Document says "CEO is John Smith" → Answering "Who leads the company?" with "John Smith is CEO" [source]
+- Document describes a process → You can summarize or explain it
+
+HALLUCINATION (not acceptable):
+- Adding facts not present or implied in documents
+- Inventing statistics, dates, names, or details
+- Supplementing document info with external knowledge
+- Guessing what a document "probably means" without textual support
+
+CITATION FORMAT:
+- Every factual claim needs a citation: [owner/dataset_name]
+- Uncitable statements should not be included
+- Do NOT add a "Sources" section at the end (provided separately by the system)"""
+
+    NO_CONTEXT_INSTRUCTIONS = """No data sources are configured for this query. Answer the question using your general knowledge as a helpful AI assistant.
+
+If the user expected document-grounded answers, they should configure data sources for their query."""
+
+    EMPTY_CONTEXT_INSTRUCTIONS = """The configured data sources did not return any documents for this query.
+
+If the question requires specific information from those data sources, respond:
+"The provided documents do not contain information to answer this question."
+
+However, if the question is general and you can provide a helpful answer without needing the specific documents, you may do so while noting that no documents were retrieved."""
 
     def __init__(self, system_prompt: str | None = None):
         self.system_prompt = system_prompt or self.DEFAULT_SYSTEM_PROMPT
@@ -99,35 +118,35 @@ Remember: If you cannot find the answer in the provided documents, say so. Never
         user_prompt: str,
         context: AggregatedContext | None,
     ) -> str:
-        """Build the user message content with instructions, context, and question."""
+        """Build the user message content with instructions, context, and question.
+
+        Handles three scenarios:
+        1. No context (context is None): General knowledge mode - act as helpful assistant
+        2. Empty context (context.documents is empty): Hybrid mode - data sources configured
+           but no docs retrieved, can help with general questions
+        3. Documents available: Document-grounded mode - answer from documents with citations
+        """
         parts: list[str] = []
 
-        # Add instructions
+        # SCENARIO 1: No context provided at all (no data sources configured)
+        # → Act as normal helpful assistant using general knowledge
+        if context is None:
+            parts.append(self.NO_CONTEXT_INSTRUCTIONS)
+            parts.append(f"\n---\nUSER QUESTION:\n{user_prompt}\n---")
+            return "\n".join(parts)
+
+        # SCENARIO 2: Context provided but empty (data sources configured, no docs retrieved)
+        # → Hybrid mode: acknowledge empty results, but can help with general questions
+        if not context.documents:
+            parts.append(self.EMPTY_CONTEXT_INSTRUCTIONS)
+            parts.append(f"\n---\nUSER QUESTION:\n{user_prompt}\n---")
+            return "\n".join(parts)
+
+        # SCENARIO 3: Documents available - use document-grounded instructions
         parts.append(self.DEFAULT_USER_INSTRUCTIONS)
-
-        # Add context if available - using XML tags for clear structure
-        if context and context.documents:
-            parts.append("\n<documents>")
-            parts.append(self._format_context(context))
-            parts.append("</documents>")
-        elif context and not context.documents:
-            # No documents retrieved - instruct model to refuse answering
-            parts.append(
-                "\n<documents>\nNo relevant documents were retrieved from the selected data sources.\n</documents>\n"
-                "IMPORTANT: Since no relevant documents were found, you MUST respond with:\n"
-                '"The provided documents do not contain information to answer this question."\n'
-                "Do NOT attempt to answer using your own knowledge."
-            )
-        else:
-            # No context provided at all
-            parts.append(
-                "\n<documents>\nNo documents were provided.\n</documents>\n"
-                "IMPORTANT: Since no documents were provided, you MUST respond with:\n"
-                '"No documents were provided to answer this question."\n'
-                "Do NOT attempt to answer using your own knowledge."
-            )
-
-        # Add user question
+        parts.append("\n<documents>")
+        parts.append(self._format_context(context))
+        parts.append("</documents>")
         parts.append(f"\n---\nUSER QUESTION:\n{user_prompt}\n---")
 
         return "\n".join(parts)

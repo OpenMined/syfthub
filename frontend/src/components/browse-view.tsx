@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { ChatSource, EndpointType } from '@/lib/types';
+import type { BrowseFilters } from './browse-filters-modal';
 
 import Building from 'lucide-react/dist/esm/icons/building';
 import Calendar from 'lucide-react/dist/esm/icons/calendar';
@@ -15,12 +16,20 @@ import Plus from 'lucide-react/dist/esm/icons/plus';
 import Search from 'lucide-react/dist/esm/icons/search';
 import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
 import Star from 'lucide-react/dist/esm/icons/star';
+import X from 'lucide-react/dist/esm/icons/x';
 import { Link } from 'react-router-dom';
 
 import { usePaginatedPublicEndpoints } from '@/hooks/use-endpoint-queries';
 import { isDataSourceEndpoint } from '@/lib/endpoint-utils';
 import { useContextSelectionStore } from '@/stores/context-selection-store';
 
+import {
+  BrowseFiltersModal,
+  createDefaultFilters,
+  extractUniqueOwners,
+  extractUniqueTags,
+  hasActiveFilters
+} from './browse-filters-modal';
 import { Badge } from './ui/badge';
 import { LoadingSpinner } from './ui/loading-spinner';
 import { PageHeader } from './ui/page-header';
@@ -87,6 +96,8 @@ export function BrowseView({
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [activeTab, setActiveTab] = useState<BrowseTab>('data_sources');
   const [page, setPage] = useState(1);
+  const [isFiltersModalOpen, setIsFiltersModalOpen] = useState(false);
+  const [filters, setFilters] = useState<BrowseFilters>(createDefaultFilters);
 
   // Context selection store
   const toggleSource = useContextSelectionStore((s) => s.toggleSource);
@@ -106,19 +117,26 @@ export function BrowseView({
   const hasNextPage = data?.hasNextPage ?? false;
   const hasPreviousPage = page > 1;
 
-  // Reset page when tab changes
+  // Reset page and filters when tab changes
   useEffect(() => {
     setPage(1);
+    setFilters(createDefaultFilters());
   }, [activeTab]);
 
-  // Filter endpoints by search query (client-side on current page)
+  // Extract available tags and owners from current endpoints for the filter modal
+  const availableTags = useMemo(() => extractUniqueTags(endpoints), [endpoints]);
+  const availableOwners = useMemo(() => extractUniqueOwners(endpoints), [endpoints]);
+
+  // Filter endpoints by search query, tags, and owners (client-side on current page)
   const filteredEndpoints = useMemo(() => {
     if (endpoints.length === 0) return [];
+
+    let result = endpoints;
 
     // Filter by search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      return endpoints.filter(
+      result = result.filter(
         (ds) =>
           ds.name.toLowerCase().includes(query) ||
           ds.description.toLowerCase().includes(query) ||
@@ -126,8 +144,18 @@ export function BrowseView({
       );
     }
 
-    return endpoints;
-  }, [endpoints, searchQuery]);
+    // Filter by selected tags (endpoint must have at least one of the selected tags)
+    if (filters.tags.size > 0) {
+      result = result.filter((ds) => ds.tags.some((tag) => filters.tags.has(tag)));
+    }
+
+    // Filter by selected owners
+    if (filters.owners.size > 0) {
+      result = result.filter((ds) => ds.owner_username && filters.owners.has(ds.owner_username));
+    }
+
+    return result;
+  }, [endpoints, searchQuery, filters]);
 
   const getVisibilityIcon = (endpoint: ChatSource) => {
     if (endpoint.name.toLowerCase().includes('private')) {
@@ -136,6 +164,22 @@ export function BrowseView({
       return <Building className='h-3 w-3' />;
     }
     return <Globe className='h-3 w-3' />;
+  };
+
+  // Helper function to generate the "no results" message
+  const getNoResultsMessage = () => {
+    const entityName = activeTab === 'data_sources' ? 'data sources' : 'models';
+    const hasFilters = hasActiveFilters(filters);
+
+    if (!searchQuery && !hasFilters) {
+      return `No ${entityName} available`;
+    }
+
+    const parts: string[] = [];
+    if (searchQuery) parts.push('search');
+    if (hasFilters) parts.push('filters');
+
+    return `No ${entityName} match your ${parts.join(' and ')} on this page`;
   };
 
   const handleToggleSource = useCallback(
@@ -159,6 +203,25 @@ export function BrowseView({
     setActiveTab(tab);
     setSearchQuery(''); // Clear search when changing tabs
   }, []);
+
+  const handleOpenFilters = useCallback(() => {
+    setIsFiltersModalOpen(true);
+  }, []);
+
+  const handleCloseFilters = useCallback(() => {
+    setIsFiltersModalOpen(false);
+  }, []);
+
+  const handleApplyFilters = useCallback((newFilters: BrowseFilters) => {
+    setFilters(newFilters);
+    setIsFiltersModalOpen(false);
+  }, []);
+
+  const handleClearFilters = useCallback(() => {
+    setFilters(createDefaultFilters());
+  }, []);
+
+  const activeFilterCount = filters.tags.size + filters.owners.size;
 
   return (
     <div className='bg-background min-h-screen pb-24'>
@@ -231,12 +294,82 @@ export function BrowseView({
           </div>
           <button
             type='button'
-            className='font-inter border-border text-muted-foreground hover:bg-muted flex items-center gap-2 rounded-lg border px-4 py-3 transition-colors'
+            onClick={handleOpenFilters}
+            className={`font-inter flex items-center gap-2 rounded-lg border px-4 py-3 transition-colors ${
+              hasActiveFilters(filters)
+                ? 'border-primary bg-primary/5 text-primary'
+                : 'border-border text-muted-foreground hover:bg-muted'
+            }`}
           >
             <Filter className='h-5 w-5' aria-hidden='true' />
             Filters
+            {activeFilterCount > 0 && (
+              <Badge variant='secondary' className='font-inter ml-1 text-xs'>
+                {activeFilterCount}
+              </Badge>
+            )}
           </button>
         </div>
+
+        {/* Active filters bar */}
+        {hasActiveFilters(filters) && (
+          <div className='mb-4 flex flex-wrap items-center gap-2'>
+            <span className='font-inter text-muted-foreground text-sm'>Active filters:</span>
+            {[...filters.tags].map((tag) => (
+              <Badge
+                key={tag}
+                variant='secondary'
+                className='font-inter flex items-center gap-1 text-xs'
+              >
+                {tag}
+                <button
+                  type='button'
+                  onClick={() => {
+                    setFilters((previous) => {
+                      const newTags = new Set(previous.tags);
+                      newTags.delete(tag);
+                      return { ...previous, tags: newTags };
+                    });
+                  }}
+                  className='hover:text-foreground ml-0.5'
+                  aria-label={`Remove ${tag} filter`}
+                >
+                  <X className='h-3 w-3' />
+                </button>
+              </Badge>
+            ))}
+            {[...filters.owners].map((owner) => (
+              <Badge
+                key={owner}
+                variant='secondary'
+                className='font-inter flex items-center gap-1 text-xs'
+              >
+                @{owner}
+                <button
+                  type='button'
+                  onClick={() => {
+                    setFilters((previous) => {
+                      const newOwners = new Set(previous.owners);
+                      newOwners.delete(owner);
+                      return { ...previous, owners: newOwners };
+                    });
+                  }}
+                  className='hover:text-foreground ml-0.5'
+                  aria-label={`Remove @${owner} filter`}
+                >
+                  <X className='h-3 w-3' />
+                </button>
+              </Badge>
+            ))}
+            <button
+              type='button'
+              onClick={handleClearFilters}
+              className='font-inter text-muted-foreground hover:text-foreground ml-2 text-sm underline transition-colors'
+            >
+              Clear all
+            </button>
+          </div>
+        )}
 
         {/* Page info */}
         {!isLoading && !error && filteredEndpoints.length > 0 && (
@@ -279,11 +412,16 @@ export function BrowseView({
             <h3 className='font-inter text-foreground mb-2 text-lg font-medium'>
               No Results Found
             </h3>
-            <p className='font-inter text-muted-foreground'>
-              {searchQuery
-                ? `No ${activeTab === 'data_sources' ? 'data sources' : 'models'} match "${searchQuery}" on this page`
-                : `No ${activeTab === 'data_sources' ? 'data sources' : 'models'} available`}
-            </p>
+            <p className='font-inter text-muted-foreground'>{getNoResultsMessage()}</p>
+            {hasActiveFilters(filters) && (
+              <button
+                type='button'
+                onClick={handleClearFilters}
+                className='font-inter text-primary hover:text-primary/80 mt-4 text-sm underline transition-colors'
+              >
+                Clear all filters
+              </button>
+            )}
           </div>
         ) : null}
         {!isLoading && !error && filteredEndpoints.length > 0 ? (
@@ -431,6 +569,16 @@ export function BrowseView({
         {/* Bottom spacer when context bar is visible */}
         {selectedSources.size > 0 && <div className='h-16' />}
       </div>
+
+      {/* Filters Modal */}
+      <BrowseFiltersModal
+        isOpen={isFiltersModalOpen}
+        onClose={handleCloseFilters}
+        onApply={handleApplyFilters}
+        currentFilters={filters}
+        availableTags={availableTags}
+        availableOwners={availableOwners}
+      />
     </div>
   );
 }
