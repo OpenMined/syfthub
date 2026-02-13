@@ -33,7 +33,7 @@ import httpx
 from sqlalchemy import select, text, update
 from sqlalchemy.sql import label
 
-from syfthub.core.url_builder import build_connection_url, get_first_enabled_connection
+from syfthub.core.url_builder import build_connection_url
 from syfthub.database.connection import db_manager
 from syfthub.models.endpoint import EndpointModel
 from syfthub.models.organization import OrganizationModel
@@ -58,6 +58,8 @@ class EndpointHealthInfo:
     """Data class for endpoint health check information."""
 
     id: int
+    slug: str  # Endpoint slug for health check URL
+    endpoint_type: str  # "model" or "data_source"
     is_active: bool
     connect: list[dict[str, Any]]
     owner_domain: Optional[str]  # None if owner has no domain configured
@@ -127,28 +129,39 @@ class EndpointHealthMonitor:
             return False
 
     def _build_health_check_url(
-        self, owner_domain: str, connect: list[dict[str, Any]]
+        self, owner_domain: str, endpoint_type: str, slug: str
     ) -> Optional[str]:
-        """Build URL for health check from endpoint connection config.
+        """Build URL for endpoint-specific health check.
 
-        Checks the base domain to verify the server is reachable,
-        rather than hitting the specific endpoint path.
+        Constructs the health check URL based on the endpoint type:
+        - model → /api/v1/models/{slug}/health
+        - data_source → /api/v1/datasets/{slug}/health
+
+        These endpoints are exposed by SyftAI-Space nodes and verify that
+        the specific endpoint exists and is operational, not just that
+        the server is reachable.
 
         Args:
             owner_domain: The domain of the endpoint owner (user or organization)
-            connect: List of connection configurations from the endpoint
+            endpoint_type: The type of endpoint ("model" or "data_source")
+            slug: The endpoint slug for the health check URL
 
         Returns:
-            The base URL to check, or None if no valid connection is available
+            The health check URL, or None if domain is not provided
         """
-        connection = get_first_enabled_connection(connect)
-        if not connection:
+        if not owner_domain:
             return None
 
-        conn_type = connection.get("type", "rest_api")
+        # Build endpoint-specific health check path based on type
+        if endpoint_type == "model":
+            health_path = f"/api/v1/models/{slug}/health"
+        elif endpoint_type == "data_source":
+            health_path = f"/api/v1/datasets/{slug}/health"
+        else:
+            # Fallback to general health endpoint for unknown types
+            health_path = "/api/v1/health"
 
-        # Check the base domain only, not the specific endpoint path
-        return build_connection_url(owner_domain, conn_type, path=None)
+        return build_connection_url(owner_domain, "https", path=health_path)
 
     def _get_endpoints_for_health_check(
         self, session: Session
@@ -175,6 +188,8 @@ class EndpointHealthMonitor:
         # Query endpoints with user domain and heartbeat info (user-owned endpoints)
         user_endpoints_stmt = select(
             EndpointModel.id,
+            EndpointModel.slug,
+            EndpointModel.type,
             EndpointModel.is_active,
             EndpointModel.connect,
             UserModel.domain,
@@ -185,6 +200,8 @@ class EndpointHealthMonitor:
         # Query endpoints with organization domain (org-owned endpoints)
         org_endpoints_stmt = select(
             EndpointModel.id,
+            EndpointModel.slug,
+            EndpointModel.type,
             EndpointModel.is_active,
             EndpointModel.connect,
             OrganizationModel.domain,
@@ -197,15 +214,24 @@ class EndpointHealthMonitor:
         # Execute user endpoints query
         user_results = session.execute(user_endpoints_stmt).all()
         for row in user_results:
-            endpoint_id, is_active, connect, domain, owner_id, heartbeat_expires_at = (
-                row
-            )
+            (
+                endpoint_id,
+                slug,
+                endpoint_type,
+                is_active,
+                connect,
+                domain,
+                owner_id,
+                heartbeat_expires_at,
+            ) = row
             # Include endpoints with connections (even if domain is None)
             # Endpoints without domain will be marked unhealthy in health check
             if connect:
                 endpoints.append(
                     EndpointHealthInfo(
                         id=endpoint_id,
+                        slug=slug,
+                        endpoint_type=endpoint_type,
                         is_active=is_active,
                         connect=connect,
                         owner_domain=domain,  # May be None
@@ -218,15 +244,24 @@ class EndpointHealthMonitor:
         # Execute organization endpoints query
         org_results = session.execute(org_endpoints_stmt).all()
         for row in org_results:
-            endpoint_id, is_active, connect, domain, owner_id, heartbeat_expires_at = (
-                row
-            )
+            (
+                endpoint_id,
+                slug,
+                endpoint_type,
+                is_active,
+                connect,
+                domain,
+                owner_id,
+                heartbeat_expires_at,
+            ) = row
             # Include endpoints with connections (even if domain is None)
             # Endpoints without domain will be marked unhealthy in health check
             if connect:
                 endpoints.append(
                     EndpointHealthInfo(
                         id=endpoint_id,
+                        slug=slug,
+                        endpoint_type=endpoint_type,
                         is_active=is_active,
                         connect=connect,
                         owner_domain=domain,  # May be None
@@ -286,9 +321,11 @@ class EndpointHealthMonitor:
                 return (endpoint.id, is_healthy, state_changed)
 
             # Heartbeat is stale/missing -> need HTTP verification
-            url = self._build_health_check_url(endpoint.owner_domain, endpoint.connect)
+            url = self._build_health_check_url(
+                endpoint.owner_domain, endpoint.endpoint_type, endpoint.slug
+            )
             if not url:
-                # No valid URL to check (no enabled connections), don't change status
+                # No valid URL to check (no domain configured), don't change status
                 return (endpoint.id, endpoint.is_active, False)
 
             try:

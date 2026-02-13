@@ -20,6 +20,8 @@ class TestEndpointHealthInfo:
         """Test EndpointHealthInfo can be created with all fields."""
         info = EndpointHealthInfo(
             id=1,
+            slug="test-endpoint",
+            endpoint_type="model",
             is_active=True,
             connect=[{"type": "rest_api", "config": {"url": "/test"}}],
             owner_domain="https://example.com",
@@ -28,6 +30,8 @@ class TestEndpointHealthInfo:
             heartbeat_expires_at=None,
         )
         assert info.id == 1
+        assert info.slug == "test-endpoint"
+        assert info.endpoint_type == "model"
         assert info.is_active is True
         assert info.connect == [{"type": "rest_api", "config": {"url": "/test"}}]
         assert info.owner_domain == "https://example.com"
@@ -39,6 +43,8 @@ class TestEndpointHealthInfo:
         """Test EndpointHealthInfo with inactive endpoint."""
         info = EndpointHealthInfo(
             id=2,
+            slug="inactive-endpoint",
+            endpoint_type="data_source",
             is_active=False,
             connect=[],
             owner_domain="https://test.com",
@@ -47,6 +53,8 @@ class TestEndpointHealthInfo:
             heartbeat_expires_at=None,
         )
         assert info.id == 2
+        assert info.slug == "inactive-endpoint"
+        assert info.endpoint_type == "data_source"
         assert info.is_active is False
         assert info.owner_type == "organization"
 
@@ -183,103 +191,69 @@ class TestBuildHealthCheckUrl:
         settings.heartbeat_grace_period_seconds = 60
         return EndpointHealthMonitor(settings)
 
-    def test_build_url_success(self, monitor):
-        """Test successful URL building checks base domain only."""
-        connect = [
-            {
-                "type": "rest_api",
-                "enabled": True,
-                "config": {"url": "/api/health"},
-            }
-        ]
-
-        with (
-            patch(
-                "syfthub.jobs.health_monitor.get_first_enabled_connection"
-            ) as mock_get_conn,
-            patch("syfthub.jobs.health_monitor.build_connection_url") as mock_build_url,
-        ):
-            mock_get_conn.return_value = connect[0]
-            mock_build_url.return_value = "https://example.com"
-
-            url = monitor._build_health_check_url("https://example.com", connect)
-
-            assert url == "https://example.com"
-            mock_get_conn.assert_called_once_with(connect)
-            # Should check base domain, not the endpoint path
-            mock_build_url.assert_called_once_with(
-                "https://example.com", "rest_api", path=None
-            )
-
-    def test_build_url_no_enabled_connection(self, monitor):
-        """Test URL building when no connection is enabled."""
-        connect = [{"type": "rest_api", "enabled": False, "config": {"url": "/test"}}]
-
+    def test_build_url_model_endpoint(self, monitor):
+        """Test URL building for model endpoint uses /api/v1/models/{slug}/health."""
         with patch(
-            "syfthub.jobs.health_monitor.get_first_enabled_connection"
-        ) as mock_get_conn:
-            mock_get_conn.return_value = None
+            "syfthub.jobs.health_monitor.build_connection_url"
+        ) as mock_build_url:
+            mock_build_url.return_value = (
+                "https://example.com/api/v1/models/my-model/health"
+            )
 
-            url = monitor._build_health_check_url("https://example.com", connect)
+            url = monitor._build_health_check_url(
+                "https://example.com", "model", "my-model"
+            )
 
-            assert url is None
+            assert url == "https://example.com/api/v1/models/my-model/health"
+            mock_build_url.assert_called_once_with(
+                "https://example.com", "https", path="/api/v1/models/my-model/health"
+            )
 
-    def test_build_url_empty_connection_list(self, monitor):
-        """Test URL building with empty connection list."""
+    def test_build_url_data_source_endpoint(self, monitor):
+        """Test URL building for data_source endpoint uses /api/v1/datasets/{slug}/health."""
         with patch(
-            "syfthub.jobs.health_monitor.get_first_enabled_connection"
-        ) as mock_get_conn:
-            mock_get_conn.return_value = None
-
-            url = monitor._build_health_check_url("https://example.com", [])
-
-            assert url is None
-
-    def test_build_url_uses_connection_type(self, monitor):
-        """Test URL building uses connection type for protocol selection."""
-        connect = [
-            {
-                "type": "mcp",
-                "enabled": True,
-                "config": {"path": "/mcp/endpoint"},
-            }
-        ]
-
-        with (
-            patch(
-                "syfthub.jobs.health_monitor.get_first_enabled_connection"
-            ) as mock_get_conn,
-            patch("syfthub.jobs.health_monitor.build_connection_url") as mock_build_url,
-        ):
-            mock_get_conn.return_value = connect[0]
-            mock_build_url.return_value = "https://example.com"
-
-            url = monitor._build_health_check_url("https://example.com", connect)
-
-            assert url == "https://example.com"
-            # Should use the connection type but check base domain
-            mock_build_url.assert_called_once_with(
-                "https://example.com", "mcp", path=None
+            "syfthub.jobs.health_monitor.build_connection_url"
+        ) as mock_build_url:
+            mock_build_url.return_value = (
+                "https://example.com/api/v1/datasets/my-dataset/health"
             )
 
-    def test_build_url_default_type(self, monitor):
-        """Test URL building defaults to rest_api type."""
-        connect = [{"enabled": True, "config": {"url": "/test"}}]
-
-        with (
-            patch(
-                "syfthub.jobs.health_monitor.get_first_enabled_connection"
-            ) as mock_get_conn,
-            patch("syfthub.jobs.health_monitor.build_connection_url") as mock_build_url,
-        ):
-            mock_get_conn.return_value = connect[0]
-            mock_build_url.return_value = "https://example.com"
-
-            monitor._build_health_check_url("https://example.com", connect)
-
-            mock_build_url.assert_called_once_with(
-                "https://example.com", "rest_api", path=None
+            url = monitor._build_health_check_url(
+                "https://example.com", "data_source", "my-dataset"
             )
+
+            assert url == "https://example.com/api/v1/datasets/my-dataset/health"
+            mock_build_url.assert_called_once_with(
+                "https://example.com",
+                "https",
+                path="/api/v1/datasets/my-dataset/health",
+            )
+
+    def test_build_url_unknown_type_fallback(self, monitor):
+        """Test URL building for unknown type falls back to /api/v1/health."""
+        with patch(
+            "syfthub.jobs.health_monitor.build_connection_url"
+        ) as mock_build_url:
+            mock_build_url.return_value = "https://example.com/api/v1/health"
+
+            url = monitor._build_health_check_url(
+                "https://example.com", "unknown_type", "some-slug"
+            )
+
+            assert url == "https://example.com/api/v1/health"
+            mock_build_url.assert_called_once_with(
+                "https://example.com", "https", path="/api/v1/health"
+            )
+
+    def test_build_url_no_domain(self, monitor):
+        """Test URL building returns None when no domain provided."""
+        url = monitor._build_health_check_url(None, "model", "my-model")
+        assert url is None
+
+    def test_build_url_empty_domain(self, monitor):
+        """Test URL building returns None when domain is empty."""
+        url = monitor._build_health_check_url("", "model", "my-model")
+        assert url is None
 
 
 class TestGetEndpointsForHealthCheck:
@@ -310,10 +284,12 @@ class TestGetEndpointsForHealthCheck:
         """Test getting user-owned endpoints."""
         mock_session = MagicMock()
 
-        # User endpoints query result (now includes owner_id and heartbeat_expires_at)
+        # User endpoints query result (id, slug, type, is_active, connect, domain, owner_id, heartbeat_expires_at)
         user_results = [
             (
                 1,
+                "endpoint-1",
+                "model",
                 True,
                 [{"type": "rest_api", "config": {"url": "/test"}}],
                 "https://user.com",
@@ -322,6 +298,8 @@ class TestGetEndpointsForHealthCheck:
             ),
             (
                 2,
+                "endpoint-2",
+                "data_source",
                 False,
                 [{"type": "mcp", "config": {"url": "/mcp"}}],
                 "https://user2.com",
@@ -338,11 +316,15 @@ class TestGetEndpointsForHealthCheck:
 
         assert len(endpoints) == 2
         assert endpoints[0].id == 1
+        assert endpoints[0].slug == "endpoint-1"
+        assert endpoints[0].endpoint_type == "model"
         assert endpoints[0].is_active is True
         assert endpoints[0].owner_domain == "https://user.com"
         assert endpoints[0].owner_type == "user"
         assert endpoints[0].owner_id == 10
         assert endpoints[1].id == 2
+        assert endpoints[1].slug == "endpoint-2"
+        assert endpoints[1].endpoint_type == "data_source"
         assert endpoints[1].is_active is False
         assert endpoints[1].owner_domain == "https://user2.com"
         assert endpoints[1].owner_type == "user"
@@ -353,10 +335,12 @@ class TestGetEndpointsForHealthCheck:
 
         # User endpoints query result (empty)
         user_results = []
-        # Org endpoints query result (includes owner_id and heartbeat_expires_at)
+        # Org endpoints query result (id, slug, type, is_active, connect, domain, owner_id, heartbeat_expires_at)
         org_results = [
             (
                 3,
+                "org-endpoint",
+                "model",
                 True,
                 [{"type": "rest_api", "config": {"url": "/api"}}],
                 "https://org.com",
@@ -371,6 +355,8 @@ class TestGetEndpointsForHealthCheck:
 
         assert len(endpoints) == 1
         assert endpoints[0].id == 3
+        assert endpoints[0].slug == "org-endpoint"
+        assert endpoints[0].endpoint_type == "model"
         assert endpoints[0].owner_domain == "https://org.com"
         assert endpoints[0].owner_type == "organization"
         assert endpoints[0].heartbeat_expires_at is None
@@ -382,6 +368,8 @@ class TestGetEndpointsForHealthCheck:
         user_results = [
             (
                 1,
+                "user-model",
+                "model",
                 True,
                 [{"type": "rest_api", "config": {"url": "/user"}}],
                 "https://user.com",
@@ -392,6 +380,8 @@ class TestGetEndpointsForHealthCheck:
         org_results = [
             (
                 2,
+                "org-dataset",
+                "data_source",
                 True,
                 [{"type": "rest_api", "config": {"url": "/org"}}],
                 "https://org.com",
@@ -406,30 +396,30 @@ class TestGetEndpointsForHealthCheck:
 
         assert len(endpoints) == 2
         assert endpoints[0].owner_type == "user"
+        assert endpoints[0].endpoint_type == "model"
         assert endpoints[1].owner_type == "organization"
+        assert endpoints[1].endpoint_type == "data_source"
 
     def test_get_endpoints_filters_no_connect(self, monitor):
         """Test that endpoints without connect config are filtered out."""
         mock_session = MagicMock()
 
         user_results = [
-            (1, True, None, "https://user.com", 10, None),  # No connect config
-            (
-                2,
-                True,
-                [],
-                "https://user2.com",
-                20,
-                None,
-            ),  # Empty connect config (falsy)
+            # No connect config
+            (1, "ep-1", "model", True, None, "https://user.com", 10, None),
+            # Empty connect config (falsy)
+            (2, "ep-2", "model", True, [], "https://user2.com", 20, None),
+            # Has connect config
             (
                 3,
+                "ep-3",
+                "model",
                 True,
                 [{"type": "rest_api"}],
                 "https://user3.com",
                 30,
                 None,
-            ),  # Has connect config
+            ),
         ]
         org_results = []
 
@@ -446,16 +436,21 @@ class TestGetEndpointsForHealthCheck:
         mock_session = MagicMock()
 
         user_results = [
-            (1, True, [{"type": "rest_api"}], None, 10, None),  # No domain - included
-            (2, True, [{"type": "rest_api"}], "", 20, None),  # Empty domain - included
+            # No domain - included
+            (1, "ep-1", "model", True, [{"type": "rest_api"}], None, 10, None),
+            # Empty domain - included
+            (2, "ep-2", "model", True, [{"type": "rest_api"}], "", 20, None),
+            # Has domain - included
             (
                 3,
+                "ep-3",
+                "model",
                 True,
                 [{"type": "rest_api"}],
                 "https://valid.com",
                 30,
                 None,
-            ),  # Has domain - included
+            ),
         ]
         org_results = []
 
@@ -492,6 +487,8 @@ class TestCheckEndpointHealth:
         """Create sample endpoint for testing (stale heartbeat, needs HTTP check)."""
         return EndpointHealthInfo(
             id=1,
+            slug="test-model",
+            endpoint_type="model",
             is_active=True,
             connect=[{"type": "rest_api", "enabled": True, "config": {"url": "/test"}}],
             owner_domain="https://example.com",
@@ -656,6 +653,8 @@ class TestCheckEndpointHealth:
         """Test health check when inactive endpoint becomes reachable."""
         inactive_endpoint = EndpointHealthInfo(
             id=2,
+            slug="inactive-model",
+            endpoint_type="model",
             is_active=False,  # Currently inactive
             connect=[{"type": "rest_api", "enabled": True, "config": {"url": "/test"}}],
             owner_domain="https://example.com",
@@ -704,6 +703,8 @@ class TestCheckEndpointHealth:
         """Test health check when endpoint has no owner domain (None)."""
         endpoint_no_domain = EndpointHealthInfo(
             id=1,
+            slug="no-domain-model",
+            endpoint_type="model",
             is_active=True,  # Currently active
             connect=[{"type": "rest_api", "enabled": True, "config": {"url": "/test"}}],
             owner_domain=None,  # No domain configured
@@ -732,6 +733,8 @@ class TestCheckEndpointHealth:
         """Test health check when endpoint has empty owner domain."""
         endpoint_empty_domain = EndpointHealthInfo(
             id=2,
+            slug="empty-domain-model",
+            endpoint_type="model",
             is_active=True,  # Currently active
             connect=[{"type": "rest_api", "enabled": True, "config": {"url": "/test"}}],
             owner_domain="",  # Empty domain
@@ -760,6 +763,8 @@ class TestCheckEndpointHealth:
         """Test health check when endpoint without domain is already inactive."""
         endpoint_no_domain_inactive = EndpointHealthInfo(
             id=3,
+            slug="inactive-no-domain",
+            endpoint_type="data_source",
             is_active=False,  # Already inactive
             connect=[{"type": "rest_api", "enabled": True, "config": {"url": "/test"}}],
             owner_domain=None,
@@ -919,6 +924,8 @@ class TestRunHealthCheckCycle:
         endpoints = [
             EndpointHealthInfo(
                 id=1,
+                slug="test-endpoint",
+                endpoint_type="model",
                 is_active=True,
                 connect=[{"type": "rest_api", "config": {"url": "/test"}}],
                 owner_domain="https://example.com",
@@ -954,6 +961,8 @@ class TestRunHealthCheckCycle:
         endpoints = [
             EndpointHealthInfo(
                 id=1,
+                slug="test-endpoint",
+                endpoint_type="model",
                 is_active=True,
                 connect=[{"type": "rest_api", "config": {"url": "/test"}}],
                 owner_domain="https://example.com",
@@ -991,6 +1000,8 @@ class TestRunHealthCheckCycle:
         endpoints = [
             EndpointHealthInfo(
                 id=1,
+                slug="test-endpoint",
+                endpoint_type="model",
                 is_active=True,
                 connect=[{"type": "rest_api", "config": {"url": "/test"}}],
                 owner_domain="https://example.com",
