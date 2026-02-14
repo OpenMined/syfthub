@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import logging
 import sys
 import traceback
 from collections import OrderedDict
@@ -20,6 +21,8 @@ from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Type alias for async handler functions
 AsyncHandler = Callable[..., Coroutine[Any, Any, Any]]
@@ -37,6 +40,7 @@ class WorkerRequest:
     messages: list[dict[str, Any]]
     context_data: dict[str, Any] | None
     endpoint_slug: str
+    venv_path: str | None = None  # Path to endpoint's .venv for site-packages
 
 
 @dataclass
@@ -104,6 +108,10 @@ def _load_handler(runner_path: Path) -> AsyncHandler:
         ImportError: If module cannot be loaded or handler not found.
     """
     module_name = f"_worker_endpoint_{runner_path.parent.name}"
+    logger.info(
+        "Worker loading handler from: %s",
+        runner_path,
+    )
 
     # Remove old module if exists
     if module_name in sys.modules:
@@ -127,6 +135,10 @@ def _load_handler(runner_path: Path) -> AsyncHandler:
     if handler is None:
         raise ImportError("runner.py must define a 'handler' function")
 
+    logger.info(
+        "Worker handler loaded successfully for endpoint: %s",
+        runner_path.parent.name,
+    )
     return handler
 
 
@@ -200,6 +212,56 @@ async def _execute_handler_async(
     return await handler(messages=messages, ctx=context)
 
 
+def _setup_venv_environment(venv_path: str) -> None:
+    """
+    Set up the virtual environment for the worker process.
+
+    Adds the venv's site-packages to sys.path so the handler
+    can import dependencies installed in the endpoint's venv.
+
+    Args:
+        venv_path: Path to the endpoint's .venv directory.
+    """
+    import site
+
+    venv = Path(venv_path)
+    logger.info(
+        "Worker initializing with venv environment: %s",
+        venv_path,
+    )
+
+    # Determine site-packages path based on platform
+    if sys.platform == "win32":
+        site_packages = venv / "Lib" / "site-packages"
+    else:
+        # Find the Python version directory
+        lib_path = venv / "lib"
+        if lib_path.exists():
+            # Find python3.X directory
+            python_dirs = list(lib_path.glob("python3.*"))
+            if python_dirs:
+                site_packages = python_dirs[0] / "site-packages"
+            else:
+                site_packages = lib_path / "site-packages"
+        else:
+            logger.warning("Venv lib path not found: %s", lib_path)
+            return
+
+    if site_packages.exists():
+        # Add to beginning of sys.path for priority
+        site_packages_str = str(site_packages)
+        if site_packages_str not in sys.path:
+            sys.path.insert(0, site_packages_str)
+            # Also add using site module to ensure proper initialization
+            site.addsitedir(site_packages_str)
+            logger.info(
+                "Worker sys.path updated with venv site-packages: %s",
+                site_packages_str,
+            )
+    else:
+        logger.warning("Venv site-packages not found: %s", site_packages)
+
+
 def execute_in_worker(request: WorkerRequest) -> WorkerResponse:
     """
     Execute an endpoint handler in the worker process.
@@ -214,6 +276,10 @@ def execute_in_worker(request: WorkerRequest) -> WorkerResponse:
     """
     try:
         runner_path = Path(request.runner_path)
+
+        # Set up venv environment if specified
+        if request.venv_path:
+            _setup_venv_environment(request.venv_path)
 
         # Load handler (cached within worker lifetime for performance)
         handler = _get_or_load_handler(
@@ -238,6 +304,21 @@ def execute_in_worker(request: WorkerRequest) -> WorkerResponse:
         return WorkerResponse(
             success=True,
             result=result,
+        )
+
+    except ModuleNotFoundError as e:
+        # Provide helpful hint about missing dependencies
+        module_name = getattr(e, "name", str(e))
+        error_msg = (
+            f"Missing module '{module_name}' in endpoint '{request.endpoint_slug}'. "
+            f"Add '{module_name}' to the dependencies list in pyproject.toml and restart."
+        )
+        logger.error(error_msg)
+        return WorkerResponse(
+            success=False,
+            error=error_msg,
+            error_type="ModuleNotFoundError",
+            traceback=traceback.format_exc(),
         )
 
     except Exception as e:

@@ -22,21 +22,18 @@ class TestSettings:
         """Test creating Settings with all required fields."""
         settings = Settings(
             syfthub_url="http://localhost:8080",
-            syfthub_username="user",
-            syfthub_password="pass",
+            api_key="syft_pat_test_token",
             space_url="http://localhost:8001",
         )
         assert settings.syfthub_url == "http://localhost:8080"
-        assert settings.syfthub_username == "user"
-        assert isinstance(settings.syfthub_password, SecretStr)
+        assert isinstance(settings.api_key, SecretStr)
         assert settings.space_url == "http://localhost:8001"
 
     def test_settings_default_values(self) -> None:
         """Test that Settings has correct default values."""
         settings = Settings(
             syfthub_url="http://localhost:8080",
-            syfthub_username="user",
-            syfthub_password="pass",
+            api_key="syft_pat_test_token",
             space_url="http://localhost:8001",
         )
         assert settings.log_level == "INFO"
@@ -47,8 +44,7 @@ class TestSettings:
         """Test Settings with custom optional values."""
         settings = Settings(
             syfthub_url="http://localhost:8080",
-            syfthub_username="user",
-            syfthub_password="pass",
+            api_key="syft_pat_test_token",
             space_url="http://localhost:8001",
             log_level="DEBUG",
             server_host="127.0.0.1",
@@ -62,31 +58,28 @@ class TestSettings:
         """Test that missing required fields raise ValidationError."""
         with pytest.raises(ValidationError):
             Settings(
-                syfthub_username="user",
-                syfthub_password="pass",
+                api_key="syft_pat_test_token",
                 space_url="http://localhost:8001",
             )  # type: ignore - missing syfthub_url
 
-    def test_get_password_returns_plain_text(self) -> None:
-        """Test that get_password() returns the plain text password."""
+    def test_get_api_key_returns_plain_text(self) -> None:
+        """Test that get_api_key() returns the plain text API key."""
         settings = Settings(
             syfthub_url="http://localhost:8080",
-            syfthub_username="user",
-            syfthub_password="my-secret-password",
+            api_key="syft_pat_my_secret_token",
             space_url="http://localhost:8001",
         )
-        assert settings.get_password() == "my-secret-password"
+        assert settings.get_api_key() == "syft_pat_my_secret_token"
 
-    def test_password_hidden_in_repr(self) -> None:
-        """Test that password is hidden in string representation."""
+    def test_api_key_hidden_in_repr(self) -> None:
+        """Test that API key is hidden in string representation."""
         settings = Settings(
             syfthub_url="http://localhost:8080",
-            syfthub_username="user",
-            syfthub_password="my-secret-password",
+            api_key="syft_pat_my_secret_token",
             space_url="http://localhost:8001",
         )
         repr_str = repr(settings)
-        assert "my-secret-password" not in repr_str
+        assert "syft_pat_my_secret_token" not in repr_str
         assert "**********" in repr_str
 
 
@@ -98,8 +91,7 @@ class TestLogLevelValidation:
         """Test that valid log levels are accepted."""
         settings = Settings(
             syfthub_url="http://localhost:8080",
-            syfthub_username="user",
-            syfthub_password="pass",
+            api_key="syft_pat_test_token",
             space_url="http://localhost:8001",
             log_level=level,
         )
@@ -110,8 +102,7 @@ class TestLogLevelValidation:
         """Test that log levels are normalized to uppercase."""
         settings = Settings(
             syfthub_url="http://localhost:8080",
-            syfthub_username="user",
-            syfthub_password="pass",
+            api_key="syft_pat_test_token",
             space_url="http://localhost:8001",
             log_level=level,
         )
@@ -122,8 +113,7 @@ class TestLogLevelValidation:
         with pytest.raises(ValidationError, match="log_level must be one of"):
             Settings(
                 syfthub_url="http://localhost:8080",
-                syfthub_username="user",
-                syfthub_password="pass",
+                api_key="syft_pat_test_token",
                 space_url="http://localhost:8001",
                 log_level="INVALID",
             )
@@ -136,8 +126,7 @@ class TestURLValidation:
         """Test that http:// URLs are accepted."""
         settings = Settings(
             syfthub_url="http://localhost:8080",
-            syfthub_username="user",
-            syfthub_password="pass",
+            api_key="syft_pat_test_token",
             space_url="http://localhost:8001",
         )
         assert settings.syfthub_url == "http://localhost:8080"
@@ -146,8 +135,7 @@ class TestURLValidation:
         """Test that https:// URLs are accepted."""
         settings = Settings(
             syfthub_url="https://api.example.com",
-            syfthub_username="user",
-            syfthub_password="pass",
+            api_key="syft_pat_test_token",
             space_url="https://space.example.com",
         )
         assert settings.syfthub_url == "https://api.example.com"
@@ -156,8 +144,7 @@ class TestURLValidation:
         """Test that trailing slashes are removed from URLs."""
         settings = Settings(
             syfthub_url="http://localhost:8080/",
-            syfthub_username="user",
-            syfthub_password="pass",
+            api_key="syft_pat_test_token",
             space_url="http://localhost:8001/",
         )
         assert settings.syfthub_url == "http://localhost:8080"
@@ -168,8 +155,7 @@ class TestURLValidation:
         with pytest.raises(ValidationError, match="must start with http"):
             Settings(
                 syfthub_url="ftp://localhost:8080",
-                syfthub_username="user",
-                syfthub_password="pass",
+                api_key="syft_pat_test_token",
                 space_url="http://localhost:8001",
             )
 
@@ -178,8 +164,7 @@ class TestURLValidation:
         with pytest.raises(ValidationError, match="URL cannot be empty"):
             Settings(
                 syfthub_url="",
-                syfthub_username="user",
-                syfthub_password="pass",
+                api_key="syft_pat_test_token",
                 space_url="http://localhost:8001",
             )
 
@@ -191,8 +176,7 @@ class TestServerPortValidation:
         """Test that ports in valid range are accepted."""
         settings = Settings(
             syfthub_url="http://localhost:8080",
-            syfthub_username="user",
-            syfthub_password="pass",
+            api_key="syft_pat_test_token",
             space_url="http://localhost:8001",
             server_port=8080,
         )
@@ -202,8 +186,7 @@ class TestServerPortValidation:
         """Test minimum valid port (1)."""
         settings = Settings(
             syfthub_url="http://localhost:8080",
-            syfthub_username="user",
-            syfthub_password="pass",
+            api_key="syft_pat_test_token",
             space_url="http://localhost:8001",
             server_port=1,
         )
@@ -213,8 +196,7 @@ class TestServerPortValidation:
         """Test maximum valid port (65535)."""
         settings = Settings(
             syfthub_url="http://localhost:8080",
-            syfthub_username="user",
-            syfthub_password="pass",
+            api_key="syft_pat_test_token",
             space_url="http://localhost:8001",
             server_port=65535,
         )
@@ -225,8 +207,7 @@ class TestServerPortValidation:
         with pytest.raises(ValidationError):
             Settings(
                 syfthub_url="http://localhost:8080",
-                syfthub_username="user",
-                syfthub_password="pass",
+                api_key="syft_pat_test_token",
                 space_url="http://localhost:8001",
                 server_port=0,
             )
@@ -236,8 +217,7 @@ class TestServerPortValidation:
         with pytest.raises(ValidationError):
             Settings(
                 syfthub_url="http://localhost:8080",
-                syfthub_username="user",
-                syfthub_password="pass",
+                api_key="syft_pat_test_token",
                 space_url="http://localhost:8001",
                 server_port=65536,
             )
@@ -250,24 +230,21 @@ class TestLoadSettings:
         """Test loading settings from environment variables."""
         env_vars = {
             "SYFTHUB_URL": "http://env.example.com",
-            "SYFTHUB_USERNAME": "envuser",
-            "SYFTHUB_PASSWORD": "envpass",
+            "SYFTHUB_API_KEY": "syft_pat_env_token",
             "SPACE_URL": "http://space.env.com",
         }
         with patch.dict(os.environ, env_vars, clear=True):
             settings = load_settings()
 
         assert settings.syfthub_url == "http://env.example.com"
-        assert settings.syfthub_username == "envuser"
-        assert settings.get_password() == "envpass"
+        assert settings.get_api_key() == "syft_pat_env_token"
         assert settings.space_url == "http://space.env.com"
 
     def test_load_settings_with_overrides(self) -> None:
         """Test that overrides take precedence over env vars."""
         env_vars = {
             "SYFTHUB_URL": "http://env.example.com",
-            "SYFTHUB_USERNAME": "envuser",
-            "SYFTHUB_PASSWORD": "envpass",
+            "SYFTHUB_API_KEY": "syft_pat_env_token",
             "SPACE_URL": "http://space.env.com",
             "LOG_LEVEL": "INFO",
         }
@@ -281,8 +258,7 @@ class TestLoadSettings:
         """Test that SERVER_PORT env var is converted to int."""
         env_vars = {
             "SYFTHUB_URL": "http://env.example.com",
-            "SYFTHUB_USERNAME": "envuser",
-            "SYFTHUB_PASSWORD": "envpass",
+            "SYFTHUB_API_KEY": "syft_pat_env_token",
             "SPACE_URL": "http://space.env.com",
             "SERVER_PORT": "9999",
         }
@@ -302,17 +278,15 @@ class TestLoadSettings:
         """Test load_settings with partial env vars and overrides."""
         env_vars = {
             "SYFTHUB_URL": "http://env.example.com",
-            "SYFTHUB_USERNAME": "envuser",
         }
         with patch.dict(os.environ, env_vars, clear=True):
             settings = load_settings(
-                syfthub_password="override-pass",
+                api_key="syft_pat_override_token",
                 space_url="http://override.space.com",
             )
 
         assert settings.syfthub_url == "http://env.example.com"
-        assert settings.syfthub_username == "envuser"
-        assert settings.get_password() == "override-pass"
+        assert settings.get_api_key() == "syft_pat_override_token"
         assert settings.space_url == "http://override.space.com"
 
 

@@ -69,6 +69,9 @@ async def handler(messages: list[Message], ctx: RequestContext) -> str:
             assert endpoint["fn"] is not None
             assert callable(endpoint["fn"])
             assert endpoint.get("_file_mode") is True
+            # Verify version and readme body are included
+            assert endpoint["version"] == "1.0"  # Default version
+            assert "# Test Endpoint Documentation" in endpoint["_readme_body"]
 
     @pytest.mark.asyncio
     async def test_load_datasource_endpoint(self) -> None:

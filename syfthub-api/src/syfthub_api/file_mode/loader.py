@@ -198,6 +198,7 @@ class EndpointLoader:
             "slug": config.slug,
             "name": config.name,
             "description": config.description or f"File-based endpoint: {config.name}",
+            "version": config.version,
             "fn": wrapped_fn,
             "policies": policies,
             "_source_path": str(folder.absolute()),
@@ -206,6 +207,7 @@ class EndpointLoader:
             "_env": endpoint_env,  # Endpoint-specific environment variables
             "_runtime": runtime_config.model_dump(),  # Runtime execution config
             "_requirements_hash": requirements_hash,  # For detecting dep changes
+            "_readme_body": readme_content,  # README body after frontmatter
         }
 
     def _parse_readme(self, readme_path: Path) -> tuple[EndpointConfig, str]:

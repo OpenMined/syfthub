@@ -26,20 +26,17 @@ class TestSyftAPIInitialization:
         """Test initialization with explicit constructor arguments."""
         app = SyftAPI(
             syfthub_url="http://example.com",
-            username="user",
-            password="pass",
+            api_key="syft_pat_test_token",
             space_url="http://space.example.com",
         )
         assert app._syfthub_url == "http://example.com"
-        assert app._username == "user"
-        assert app._password == "pass"
+        assert app._api_key == "syft_pat_test_token"
         assert app._space_url == "http://space.example.com"
 
     def test_init_with_env_vars(self, app: SyftAPI) -> None:
         """Test initialization with environment variables (via fixture)."""
         assert app._syfthub_url == "http://test.example.com"
-        assert app._username == "testuser"
-        assert app._password == "testpassword"
+        assert app._api_key == "syft_pat_test_token"
         assert app._space_url == "http://localhost:8001"
 
     def test_init_missing_syfthub_url_raises(self) -> None:
@@ -50,21 +47,19 @@ class TestSyftAPIInitialization:
         with patch.dict(os.environ, {}, clear=True):
             with pytest.raises(ConfigurationError, match="syfthub_url"):
                 SyftAPI(
-                    username="user",
-                    password="pass",
+                    api_key="syft_pat_test_token",
                     space_url="http://space.example.com",
                 )
 
-    def test_init_missing_username_raises(self) -> None:
-        """Test that missing username raises ConfigurationError."""
+    def test_init_missing_api_key_raises(self) -> None:
+        """Test that missing api_key raises ConfigurationError."""
         import os
         from unittest.mock import patch
 
         with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ConfigurationError, match="username"):
+            with pytest.raises(ConfigurationError, match="api_key"):
                 SyftAPI(
                     syfthub_url="http://example.com",
-                    password="pass",
                     space_url="http://space.example.com",
                 )
 

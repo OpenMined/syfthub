@@ -16,8 +16,7 @@ Example:
     # Or construct directly
     settings = Settings(
         syfthub_url="http://localhost:8080",
-        syfthub_username="user",
-        syfthub_password="pass",
+        api_key="syft_pat_xxxxx...",
         space_url="http://localhost:8001",
     )
 """
@@ -44,8 +43,7 @@ class Settings(BaseModel):
 
     Attributes:
         syfthub_url: URL of the SyftHub backend.
-        syfthub_username: SyftHub username for authentication.
-        syfthub_password: SyftHub password for authentication (stored securely).
+        api_key: SyftHub API token (PAT) for authentication.
         space_url: Public URL of this SyftAI Space.
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
         server_host: Host to bind the server to.
@@ -54,8 +52,7 @@ class Settings(BaseModel):
 
     # Required settings
     syfthub_url: Annotated[str, Field(description="URL of the SyftHub backend")]
-    syfthub_username: Annotated[str, Field(min_length=1, description="SyftHub username")]
-    syfthub_password: Annotated[SecretStr, Field(description="SyftHub password")]
+    api_key: Annotated[SecretStr, Field(description="SyftHub API token (PAT) for authentication")]
     space_url: Annotated[str, Field(description="Public URL of this SyftAI Space")]
 
     # Optional settings with defaults
@@ -179,9 +176,9 @@ class Settings(BaseModel):
             )
         return v.rstrip("/")  # Normalize by removing trailing slash
 
-    def get_password(self) -> str:
-        """Get the password value (for use in SDK calls)."""
-        return self.syfthub_password.get_secret_value()
+    def get_api_key(self) -> str:
+        """Get the API key value (for use in SDK calls)."""
+        return self.api_key.get_secret_value()
 
 
 def derive_nats_ws_url(syfthub_url: str) -> str:
@@ -206,8 +203,7 @@ def load_settings(**overrides: str | int) -> Settings:
 
     Environment Variables:
         SYFTHUB_URL: URL of the SyftHub backend
-        SYFTHUB_USERNAME: SyftHub username
-        SYFTHUB_PASSWORD: SyftHub password
+        SYFTHUB_API_KEY: SyftHub API token (PAT) for authentication
         SPACE_URL: Public URL of this SyftAI Space
         LOG_LEVEL: Logging level (default: INFO)
         SERVER_HOST: Server host (default: 0.0.0.0)
@@ -235,8 +231,7 @@ def load_settings(**overrides: str | int) -> Settings:
     # Build settings dict from environment variables
     env_mapping = {
         "syfthub_url": "SYFTHUB_URL",
-        "syfthub_username": "SYFTHUB_USERNAME",
-        "syfthub_password": "SYFTHUB_PASSWORD",
+        "api_key": "SYFTHUB_API_KEY",
         "space_url": "SPACE_URL",
         "log_level": "LOG_LEVEL",
         "server_host": "SERVER_HOST",

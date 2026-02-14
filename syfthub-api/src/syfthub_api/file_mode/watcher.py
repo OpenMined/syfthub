@@ -208,8 +208,15 @@ class _DebouncedEventHandler(FileSystemEventHandler):
         self._timer_handle: asyncio.TimerHandle | None = None
         self._lock = asyncio.Lock()
 
+    # Event types that indicate actual file changes (not just reads)
+    CHANGE_EVENT_TYPES = {"created", "modified", "deleted", "moved"}
+
     def on_any_event(self, event: FileSystemEvent) -> None:
         """Handle any file system event."""
+        # Only process actual file changes, not reads (opened, closed, accessed)
+        if event.event_type not in self.CHANGE_EVENT_TYPES:
+            return
+
         # Ignore directory events (we care about files within)
         if event.is_directory and event.event_type not in ("created", "deleted"):
             return
@@ -226,7 +233,7 @@ class _DebouncedEventHandler(FileSystemEventHandler):
             return
 
         logger.debug(
-            "File event: %s %s (endpoint: %s)",
+            "File event: %s '%s' (endpoint: %s)",
             event.event_type,
             src_path.name,
             endpoint_folder.name,

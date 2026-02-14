@@ -106,8 +106,7 @@ class SyftAPI:
     def __init__(
         self,
         syfthub_url: str | None = None,
-        username: str | None = None,
-        password: str | None = None,
+        api_key: str | None = None,
         space_url: str | None = None,
         log_level: str = "INFO",
         heartbeat_enabled: bool | None = None,
@@ -124,8 +123,8 @@ class SyftAPI:
 
         Args:
             syfthub_url: URL of the SyftHub backend. Falls back to SYFTHUB_URL env var.
-            username: SyftHub username. Falls back to SYFTHUB_USERNAME env var.
-            password: SyftHub password. Falls back to SYFTHUB_PASSWORD env var.
+            api_key: SyftHub API token (PAT) for authentication.
+                Falls back to SYFTHUB_API_KEY env var.
             space_url: Public URL of this SyftAI Space. Falls back to SPACE_URL env var.
             log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
                 Falls back to LOG_LEVEL env var. Defaults to INFO.
@@ -155,16 +154,13 @@ class SyftAPI:
 
         self.endpoints: list[dict[str, Any]] = []
         self._syfthub_url = syfthub_url or os.environ.get("SYFTHUB_URL")
-        self._username = username or os.environ.get("SYFTHUB_USERNAME")
-        self._password = password or os.environ.get("SYFTHUB_PASSWORD")
+        self._api_key = api_key or os.environ.get("SYFTHUB_API_KEY")
         self._space_url = space_url or os.environ.get("SPACE_URL")
 
         if not self._syfthub_url:
             raise ConfigurationError("syfthub_url must be provided or set as SYFTHUB_URL env var")
-        if not self._username:
-            raise ConfigurationError("username must be provided or set as SYFTHUB_USERNAME env var")
-        if not self._password:
-            raise ConfigurationError("password must be provided or set as SYFTHUB_PASSWORD env var")
+        if not self._api_key:
+            raise ConfigurationError("api_key must be provided or set as SYFTHUB_API_KEY env var")
         if not self._space_url:
             raise ConfigurationError("space_url must be provided or set as SPACE_URL env var")
 
@@ -673,11 +669,16 @@ class SyftAPI:
         policy_type = type(policy).__name__
 
         # Extract config from policy attributes
-        # Exclude private attributes and methods
+        # Exclude private attributes, methods, and non-serializable objects
         config: dict[str, Any] = {}
+        # Attributes to exclude from serialization
+        exclude_attrs = {"store"}  # Store is set by policy.setup() and isn't serializable
         for key, value in policy.__dict__.items():
             # Skip private attributes (start with _)
             if key.startswith("_"):
+                continue
+            # Skip explicitly excluded attributes
+            if key in exclude_attrs:
                 continue
             # Skip non-serializable types
             if callable(value):
@@ -701,16 +702,14 @@ class SyftAPI:
             SyncError: If endpoint synchronization fails.
         """
         self._logger.info("Authenticating with SyftHub at %s...", self._syfthub_url)
-        client = SyftHubClient(base_url=self._syfthub_url)
 
-        # These are validated in __init__ so they cannot be None here
-        assert self._username is not None
-        assert self._password is not None
+        # Use API token authentication (no login needed)
+        assert self._api_key is not None  # Validated in __init__
+        client = SyftHubClient(base_url=self._syfthub_url, api_token=self._api_key)
 
         try:
-            user: User = await asyncio.to_thread(
-                client.auth.login, username=self._username, password=self._password
-            )
+            # Verify authentication by fetching current user
+            user: User = await asyncio.to_thread(client.auth.me)
             self._logger.info("Successfully authenticated as user: %s", user.username)
 
             # Update user's domain
@@ -746,12 +745,24 @@ class SyftAPI:
             policies = endpoint.get("policies", [])
             serialized_policies = [self._serialize_policy(p) for p in policies]
 
+            # Convert version to semver format (e.g., "1.0" -> "1.0.0")
+            version = endpoint.get("version", "0.1.0")
+            version_parts = version.split(".")
+            while len(version_parts) < 3:
+                version_parts.append("0")
+            semver_version = ".".join(version_parts[:3])
+
+            # Get README body content (from file-based endpoints)
+            readme_body = endpoint.get("_readme_body", "")
+
             endpoints_to_sync.append(
                 {
                     "name": endpoint["name"],
                     "slug": endpoint["slug"],
                     "type": endpoint["type"].value,
                     "description": endpoint["description"],
+                    "version": semver_version,
+                    "readme": readme_body,
                     "visibility": Visibility.PUBLIC.value,
                     "connect": [{"type": "http", "config": {"url": self._space_url}}],
                     "policies": serialized_policies,
@@ -1111,8 +1122,27 @@ class SyftAPI:
             elif hint is RequestContext:
                 kwargs[param_name] = policy_context
 
-        # Call user's async function
-        response_content = await fn(**kwargs)
+        # Call handler - use executor if available (for subprocess/container mode)
+        executor = endpoint.get("_executor")
+        if executor is not None and executor.is_started:
+            # Use the executor for isolated execution with venv dependencies
+            self._logger.info(
+                "Invoking endpoint '%s' via %s executor",
+                endpoint["slug"],
+                type(executor).__name__,
+            )
+            result = await executor.execute(messages, policy_context)
+            if result.success:
+                response_content = result.result
+            else:
+                raise RuntimeError(result.error or "Executor execution failed")
+        else:
+            # Direct call (in_process mode or no executor)
+            self._logger.info(
+                "Invoking endpoint '%s' directly (in_process mode)",
+                endpoint["slug"],
+            )
+            response_content = await fn(**kwargs)
 
         # ── Post-execution policy check ─────────────────────────
         if resolved_policies:
@@ -1408,10 +1438,15 @@ class SyftAPI:
         self._logger.info("Tunnel mode: Starting NATS consumer")
         self._shutdown_event = asyncio.Event()
 
-        # Set up signal handlers for graceful shutdown
-        loop = asyncio.get_event_loop()
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, lambda: asyncio.create_task(self._initiate_tunnel_shutdown()))
+        # Set up signal handlers for graceful shutdown (only works in main thread)
+        import threading
+
+        if threading.current_thread() is threading.main_thread():
+            loop = asyncio.get_event_loop()
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.add_signal_handler(sig, lambda: asyncio.create_task(self._initiate_tunnel_shutdown()))
+        else:
+            self._logger.debug("Running in non-main thread, signal handlers not registered")
 
         # Run startup hooks
         self._logger.debug("Running %d startup hooks...", len(self._on_startup))

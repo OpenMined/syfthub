@@ -29,8 +29,7 @@ def set_test_env_vars() -> Generator[None, None, None]:
     """Set required environment variables for all tests."""
     env_vars = {
         "SYFTHUB_URL": "http://test.example.com",
-        "SYFTHUB_USERNAME": "testuser",
-        "SYFTHUB_PASSWORD": "testpassword",
+        "SYFTHUB_API_KEY": "syft_pat_test_token",
         "SPACE_URL": "http://localhost:8001",
         "LOG_LEVEL": "DEBUG",
     }
@@ -44,10 +43,10 @@ def mock_syfthub_client() -> Generator[MagicMock, None, None]:
     with patch("syfthub_api.app.SyftHubClient") as mock_client_class:
         mock_client = MagicMock()
 
-        # Mock auth.login to return a user-like object
+        # Mock auth.me to return user (for API token auth)
         mock_user = MagicMock()
         mock_user.username = "testuser"
-        mock_client.auth.login.return_value = mock_user
+        mock_client.auth.me.return_value = mock_user
 
         # Mock users.update to return updated user
         mock_updated_user = MagicMock()

@@ -35,9 +35,7 @@ class TestSyncEndpoints:
         await app._sync_endpoints()
 
         # Verify login was called with correct credentials
-        mock_syfthub_client.auth.login.assert_called_once_with(
-            username="testuser", password="testpassword"
-        )
+        mock_syfthub_client.auth.me.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_sync_updates_user_domain(
@@ -78,6 +76,41 @@ class TestSyncEndpoints:
         assert endpoints[0]["name"] == "My Data"
         assert endpoints[0]["type"] == "data_source"
         assert endpoints[0]["description"] == "Data source"
+        # Verify readme and version are included (defaults for decorator endpoints)
+        assert endpoints[0]["readme"] == ""
+        assert endpoints[0]["version"] == "0.1.0"
+
+    @pytest.mark.asyncio
+    async def test_sync_includes_readme_and_version_for_file_endpoints(
+        self, app: SyftAPI, mock_syfthub_client: MagicMock
+    ) -> None:
+        """Test that sync includes readme and version for file-based endpoints."""
+        app._skip_sync = False
+
+        # Simulate a file-based endpoint with readme body and version
+        app.endpoints.append({
+            "type": Document.__class__,  # Using a placeholder for EndpointType
+            "slug": "file-endpoint",
+            "name": "File Endpoint",
+            "description": "A file-based endpoint",
+            "version": "2.0",
+            "_readme_body": "# My Endpoint\n\nThis is documentation.",
+            "_file_mode": True,
+            "policies": [],
+        })
+        # Fix the type to use proper EndpointType
+        from syfthub_api.schemas import EndpointType
+        app.endpoints[-1]["type"] = EndpointType.MODEL
+
+        await app._sync_endpoints()
+
+        call_args = mock_syfthub_client.my_endpoints.sync.call_args
+        endpoints = call_args.kwargs["endpoints"]
+
+        assert len(endpoints) == 1
+        assert endpoints[0]["slug"] == "file-endpoint"
+        assert endpoints[0]["version"] == "2.0.0"  # Should be converted to semver
+        assert endpoints[0]["readme"] == "# My Endpoint\n\nThis is documentation."
 
     @pytest.mark.asyncio
     async def test_sync_multiple_endpoints(
@@ -113,7 +146,7 @@ class TestSyncEndpoints:
         await app._sync_endpoints()
 
         # Auth should still happen
-        mock_syfthub_client.auth.login.assert_called_once()
+        mock_syfthub_client.auth.me.assert_called_once()
         # But sync should not be called when there are no endpoints
         mock_syfthub_client.my_endpoints.sync.assert_not_called()
 
@@ -123,7 +156,7 @@ class TestSyncEndpoints:
     ) -> None:
         """Test that authentication failure raises AuthenticationError."""
         app._skip_sync = False
-        mock_syfthub_client.auth.login.side_effect = Exception("Invalid credentials")
+        mock_syfthub_client.auth.me.side_effect = Exception("Invalid credentials")
 
         @app.datasource(slug="test", name="Test", description="Test")
         async def test_fn(query: str) -> list[Document]:
@@ -154,7 +187,7 @@ class TestSyncEndpoints:
         """Test that original exception is preserved as cause."""
         app._skip_sync = False
         original_error = ValueError("Original error")
-        mock_syfthub_client.auth.login.side_effect = original_error
+        mock_syfthub_client.auth.me.side_effect = original_error
 
         @app.datasource(slug="test", name="Test", description="Test")
         async def test_fn(query: str) -> list[Document]:
@@ -193,7 +226,7 @@ class TestRunMethod:
             await run_with_timeout()
 
             # Sync should not have been called
-            mock_syfthub_client.auth.login.assert_not_called()
+            mock_syfthub_client.auth.me.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_run_calls_sync_when_flag_not_set(
@@ -222,7 +255,7 @@ class TestRunMethod:
             await run_with_timeout()
 
             # Sync should have been called
-            mock_syfthub_client.auth.login.assert_called_once()
+            mock_syfthub_client.auth.me.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_run_uses_custom_host_and_port(
