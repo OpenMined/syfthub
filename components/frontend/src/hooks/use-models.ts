@@ -12,6 +12,18 @@ import { useAuth } from '@/context/auth-context';
 import { getChatModels, getGuestAccessibleModels } from '@/lib/endpoint-utils';
 import { useModelSelectionStore } from '@/stores/model-selection-store';
 
+/** Username to prioritize for default model selection */
+const PREFERRED_MODEL_OWNER = 'openmined-models';
+
+/**
+ * Find the preferred model for auto-selection.
+ * Prioritizes models from the preferred owner, falls back to first model.
+ */
+function findPreferredModel(models: ChatSource[]): ChatSource | undefined {
+  const preferredModel = models.find((model) => model.owner_username === PREFERRED_MODEL_OWNER);
+  return preferredModel ?? models[0];
+}
+
 export interface UseModelsOptions {
   /** Initial model to pre-select (e.g., from navigation state) */
   initialModel?: ChatSource | null;
@@ -73,15 +85,14 @@ export function useModels(options: UseModelsOptions = {}): UseModelsReturn {
 
       setModels(updatedModels);
 
-      // Auto-select first model if enabled and no current selection
+      // Auto-select preferred model if enabled and no current selection
+      // Prioritizes models from 'openmined-models' owner, falls back to first model
       const currentSelection = useModelSelectionStore.getState().selectedModel;
-      if (
-        currentSelection === null &&
-        autoSelectFirst &&
-        updatedModels.length > 0 &&
-        updatedModels[0]
-      ) {
-        setSelectedModel(updatedModels[0]);
+      if (currentSelection === null && autoSelectFirst && updatedModels.length > 0) {
+        const preferredModel = findPreferredModel(updatedModels);
+        if (preferredModel) {
+          setSelectedModel(preferredModel);
+        }
       }
     } catch (error) {
       console.error('Failed to load models:', error);
