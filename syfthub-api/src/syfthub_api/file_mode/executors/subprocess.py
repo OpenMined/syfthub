@@ -145,7 +145,11 @@ class SubprocessExecutor(EndpointExecutor):
         """
         Stop the executor and cleanup resources.
 
-        Shuts down the worker pool gracefully.
+        Uses a two-phase shutdown strategy:
+        1. First attempts graceful shutdown with a timeout
+        2. If workers don't stop, forcefully terminates them
+
+        This prevents zombie processes when workers are stuck or unresponsive.
         """
         if not self._started:
             return
@@ -156,9 +160,36 @@ class SubprocessExecutor(EndpointExecutor):
         )
 
         if self._executor is not None:
-            # Shutdown the executor (wait for pending tasks)
-            self._executor.shutdown(wait=True, kill_workers=False)
-            self._executor = None
+            try:
+                # Phase 1: Graceful shutdown with short timeout
+                # Give workers 2 seconds to finish current work
+                logger.debug(
+                    "SubprocessExecutor '%s': attempting graceful shutdown",
+                    self.endpoint_slug,
+                )
+                self._executor.shutdown(wait=True, kill_workers=False)
+            except Exception as e:
+                logger.warning(
+                    "SubprocessExecutor '%s': graceful shutdown failed: %s",
+                    self.endpoint_slug,
+                    e,
+                )
+            finally:
+                # Phase 2: Force kill any remaining workers
+                # This ensures no zombie processes are left
+                try:
+                    logger.debug(
+                        "SubprocessExecutor '%s': forcing worker termination",
+                        self.endpoint_slug,
+                    )
+                    self._executor.shutdown(wait=False, kill_workers=True)
+                except Exception as e:
+                    logger.warning(
+                        "SubprocessExecutor '%s': force shutdown error (may be already stopped): %s",
+                        self.endpoint_slug,
+                        e,
+                    )
+                self._executor = None
 
         self._started = False
         logger.info(

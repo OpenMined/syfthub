@@ -821,6 +821,59 @@ class SyftAPI:
             await self._heartbeat_manager.stop()
             self._heartbeat_manager = None
 
+    async def shutdown(self) -> None:
+        """
+        Gracefully shutdown all SyftAPI resources.
+
+        This method ensures proper cleanup of:
+        - File-based endpoint provider (stops all executors/subprocess workers)
+        - File system watcher
+        - Heartbeat manager
+        - NATS transport (in tunnel mode)
+        - On-shutdown hooks
+
+        This method should be called before exiting the application to
+        prevent zombie processes and resource leaks.
+        """
+        self._logger.info("Shutting down SyftAPI...")
+
+        # Stop file watching and cleanup all executors
+        if self._file_provider is not None:
+            try:
+                await self._file_provider.cleanup()
+                self._logger.debug("FileBasedEndpointProvider cleaned up")
+            except Exception as e:
+                self._logger.error("Error cleaning up file provider: %s", e)
+            self._file_provider = None
+
+        # Stop heartbeat
+        await self._stop_heartbeat()
+
+        # Close NATS transport (tunnel mode)
+        if self._nats_transport is not None:
+            try:
+                await self._nats_transport.close()
+                self._logger.debug("NATS transport closed")
+            except Exception as e:
+                self._logger.error("Error closing NATS transport: %s", e)
+            self._nats_transport = None
+
+        # Signal tunnel shutdown if running
+        if self._shutdown_event is not None:
+            self._shutdown_event.set()
+
+        # Run all shutdown hooks
+        self._logger.debug("Running %d shutdown hooks...", len(self._on_shutdown))
+        for hook in self._on_shutdown:
+            try:
+                self._logger.debug("Running shutdown hook: %s", hook.__name__)
+                await hook()
+            except Exception as e:
+                self._logger.error("Shutdown hook '%s' failed: %s", hook.__name__, e)
+                # Continue with other hooks
+
+        self._logger.info("SyftAPI shutdown complete")
+
     @asynccontextmanager
     async def _lifespan(self, app: FastAPI) -> AsyncIterator[None]:
         """
