@@ -40,6 +40,8 @@ export interface HeroProperties {
   fullHeight?: boolean;
   /** Optional pre-selected model (e.g., from URL params) */
   initialModel?: ChatSource | null;
+  /** Optional panel rendered to the right of the search area */
+  sidePanel?: React.ReactNode;
 }
 
 // =============================================================================
@@ -50,7 +52,8 @@ export function Hero({
   onSearch,
   onAuthRequired: _onAuthRequired,
   fullHeight = false,
-  initialModel
+  initialModel,
+  sidePanel
 }: Readonly<HeroProperties>) {
   const navigate = useNavigate();
 
@@ -125,48 +128,68 @@ export function Hero({
       {/* Hero Section */}
       <section
         className={`bg-background relative flex items-center justify-center px-6 ${
-          fullHeight ? 'min-h-[calc(100vh-2rem)]' : 'min-h-[60vh]'
+          fullHeight
+            ? 'min-h-[calc(100vh-2rem)]'
+            : sidePanel
+              ? 'py-16'
+              : 'min-h-[60vh]'
         }`}
       >
-        <div className='mx-auto w-full max-w-3xl space-y-12'>
-          {/* Logo */}
-          <div className='flex items-center justify-center gap-4'>
-            <OpenMinedIcon className='h-8 w-8' />
-            <span className='font-rubik text-foreground text-2xl font-normal tracking-tight'>
-              SyftHub
-            </span>
+        <div
+          className={`mx-auto w-full ${
+            sidePanel
+              ? 'grid max-w-7xl items-center gap-20 lg:grid-cols-[1fr_0.8fr]'
+              : 'max-w-3xl'
+          }`}
+        >
+          {/* Left / Main: Search area */}
+          <div className={sidePanel ? 'space-y-8' : 'space-y-12'}>
+            {/* Logo */}
+            <div className={`flex items-center gap-4 ${sidePanel ? 'justify-start' : 'justify-center'}`}>
+              <OpenMinedIcon className='h-8 w-8' />
+              <span className='font-rubik text-foreground text-2xl font-normal tracking-tight'>
+                SyftHub
+              </span>
+            </div>
+
+            {/* Tagline */}
+            <div className={`space-y-3 ${sidePanel ? 'text-left' : 'text-center'}`}>
+              <h1 className='font-rubik text-foreground text-4xl leading-tight font-medium'>
+                Ask{' '}
+                <span className='from-chart-1 via-chart-2 to-chart-3 bg-gradient-to-r bg-clip-text text-transparent'>
+                  anyone, anything
+                </span>{' '}
+                &mdash; at source
+              </h1>
+              <p className='font-inter text-muted-foreground text-base'>
+                A directory for querying trusted data sources with attribution and privacy built in.
+              </p>
+            </div>
+
+            {/* Search Bar */}
+            <div className='space-y-4'>
+              <QueryInput
+                variant='hero'
+                onSubmit={handleSubmit}
+                disabled={isWorkflowActive}
+                isProcessing={workflow.phase === 'streaming'}
+                placeholder='Ask a question about any connected source...'
+                autoFocus
+                id='hero-search'
+                ariaLabel='Query connected data sources'
+              />
+
+              {/* Search Suggestions Pills */}
+              <SearchSuggestions suggestions={SEARCH_SUGGESTIONS} onSelect={handleSuggestionClick} />
+            </div>
           </div>
 
-          {/* Tagline */}
-          <div className='space-y-4 text-center'>
-            <h1 className='font-rubik text-foreground text-4xl leading-tight font-medium'>
-              Ask{' '}
-              <span className='from-chart-1 via-chart-2 to-chart-3 bg-gradient-to-r bg-clip-text text-transparent'>
-                anyone, anything
-              </span>{' '}
-              &mdash; at source
-            </h1>
-            <p className='font-inter text-muted-foreground text-base'>
-              A directory for querying trusted data sources with attribution and privacy built in.
-            </p>
-          </div>
-
-          {/* Search Bar */}
-          <div className='space-y-4'>
-            <QueryInput
-              variant='hero'
-              onSubmit={handleSubmit}
-              disabled={isWorkflowActive}
-              isProcessing={workflow.phase === 'streaming'}
-              placeholder='Ask a question about any connected source...'
-              autoFocus
-              id='hero-search'
-              ariaLabel='Query connected data sources'
-            />
-
-            {/* Search Suggestions Pills */}
-            <SearchSuggestions suggestions={SEARCH_SUGGESTIONS} onSelect={handleSuggestionClick} />
-          </div>
+          {/* Right: Side panel (Global Directory) */}
+          {sidePanel && (
+            <div className='hidden lg:block'>
+              {sidePanel}
+            </div>
+          )}
         </div>
       </section>
 

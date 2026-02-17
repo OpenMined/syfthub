@@ -3,12 +3,14 @@ import type { ChatSource } from '@/lib/types';
 import UserPlus from 'lucide-react/dist/esm/icons/user-plus';
 import { useNavigate } from 'react-router-dom';
 
+import { GlobalDirectory } from '@/components/global-directory';
 import { Hero } from '@/components/hero';
 import { RecentModels } from '@/components/recent-models';
 import { RecentSources } from '@/components/recent-sources';
 import { useAuth } from '@/context/auth-context';
 import {
   usePublicEndpointCount,
+  usePublicEndpoints,
   useRecentEndpoints,
   useTrendingEndpoints
 } from '@/hooks/use-endpoint-queries';
@@ -27,6 +29,9 @@ export default function HomePage() {
 
   // Fetch trending endpoints (sorted by stars)
   const { data: trendingEndpoints, isLoading: isLoadingTrending } = useTrendingEndpoints(4);
+
+  // Fetch all public endpoints for the global directory
+  const { data: allEndpoints, isLoading: isLoadingAll } = usePublicEndpoints(50);
 
   // Fetch total endpoints count
   const { data: totalCount, isLoading: isLoadingTotalCount } = usePublicEndpointCount();
@@ -61,6 +66,9 @@ export default function HomePage() {
         onSearch={handleSearch}
         onAuthRequired={user ? undefined : openLogin}
         fullHeight={shouldCenterHero}
+        sidePanel={
+          <GlobalDirectory endpoints={allEndpoints ?? []} isLoading={isLoadingAll} />
+        }
       />
 
       {/* Active Nodes Count and Action Buttons */}
@@ -111,12 +119,14 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Only show the recent sections if there are endpoints registered */}
+      {/* Recent Sources */}
       {isLoading || hasAnyEndpoints ? (
         <section className='bg-card px-6 py-6'>
-          <div className='mx-auto grid max-w-4xl gap-10 md:grid-cols-2'>
+          <div className='mx-auto max-w-4xl'>
             <RecentSources endpoints={recentEndpoints ?? []} isLoading={isLoadingRecent} />
+            {/* TODO: Re-enable trending section
             <RecentModels endpoints={trendingEndpoints ?? []} isLoading={isLoadingTrending} />
+            */}
           </div>
         </section>
       ) : null}
