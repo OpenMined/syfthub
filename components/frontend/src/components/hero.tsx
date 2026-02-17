@@ -53,7 +53,7 @@ export interface HeroProperties {
 export function Hero({
   onSearch,
   onAuthRequired: _onAuthRequired,
-  fullHeight = false,
+  fullHeight: _fullHeight = false,
   initialModel,
   sidePanel,
   actionButtons
@@ -130,7 +130,6 @@ export function Hero({
 
       {/* Hero Section */}
       <section className='bg-background relative flex min-h-[calc(100vh-2rem)] flex-col items-center justify-center px-8 md:px-12 lg:px-16'>
-
         {/* Two-column grid: left (search) / right (directory) */}
         <div
           className={`mx-auto w-full ${
@@ -192,9 +191,7 @@ export function Hero({
         {actionButtons && (
           <div className='mx-auto mt-28 max-w-3xl pb-4'>
             <div className='bg-border/50 mb-6 h-px w-full' />
-            <div className='flex items-center justify-center gap-3'>
-              {actionButtons}
-            </div>
+            <div className='flex items-center justify-center gap-3'>{actionButtons}</div>
           </div>
         )}
       </section>

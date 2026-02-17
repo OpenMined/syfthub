@@ -200,7 +200,7 @@ export function SearchSuggestions({ suggestions, onSelect }: Readonly<SearchSugg
           onClick={() => {
             onSelect(suggestion);
           }}
-          className='font-inter border-border/40 text-muted-foreground hover:border-border hover:text-foreground focus:ring-ring whitespace-nowrap rounded-full border px-4 py-1.5 text-sm transition-colors focus:ring-2 focus:ring-offset-2 focus:outline-none'
+          className='font-inter border-border/40 text-muted-foreground hover:border-border hover:text-foreground focus:ring-ring rounded-full border px-4 py-1.5 text-sm whitespace-nowrap transition-colors focus:ring-2 focus:ring-offset-2 focus:outline-none'
         >
           {suggestion}
         </button>
