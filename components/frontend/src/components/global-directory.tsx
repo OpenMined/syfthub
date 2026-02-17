@@ -225,13 +225,6 @@ export function GlobalDirectory({ endpoints, isLoading }: Readonly<GlobalDirecto
             / collective intelligence
           </span>
         </div>
-        <Link
-          to='/browse'
-          className='text-muted-foreground hover:text-foreground group flex items-center gap-1 font-mono text-[10px] transition-colors'
-        >
-          browse all
-          <ChevronRight className='h-3 w-3 transition-transform group-hover:translate-x-0.5' />
-        </Link>
       </div>
 
       {/* Directory tree */}
@@ -280,6 +273,15 @@ export function GlobalDirectory({ endpoints, isLoading }: Readonly<GlobalDirecto
           )}
         </div>
       </div>
+
+      {/* Browse all link */}
+      <Link
+        to='/browse'
+        className='text-muted-foreground hover:text-foreground group mt-3 flex items-center gap-1 font-mono text-[10px] transition-colors'
+      >
+        browse all
+        <ChevronRight className='h-3 w-3 transition-transform group-hover:translate-x-0.5' />
+      </Link>
     </div>
   );
 }

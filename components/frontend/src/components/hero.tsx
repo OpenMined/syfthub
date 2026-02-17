@@ -8,7 +8,6 @@ import { useCallback } from 'react';
 
 import type { ChatSource } from '@/lib/types';
 
-import ArrowRight from 'lucide-react/dist/esm/icons/arrow-right';
 import { useNavigate } from 'react-router-dom';
 
 import { ModelSelector } from '@/components/chat/model-selector';
@@ -185,19 +184,7 @@ export function Hero({
           </div>
 
           {/* Right column: Global Directory — pt offsets past the logo row */}
-          {sidePanel && (
-            <div className='hidden pt-14 lg:block'>
-              {sidePanel}
-              <button
-                type='button'
-                onClick={() => navigate('/browse')}
-                className='font-inter text-muted-foreground hover:text-foreground mt-3 flex items-center gap-1.5 text-sm transition-colors'
-              >
-                Browse all
-                <ArrowRight className='h-3.5 w-3.5' />
-              </button>
-            </div>
-          )}
+          {sidePanel && <div className='hidden pt-14 lg:block'>{sidePanel}</div>}
         </div>
 
         {/* Action Buttons — centered underneath everything, with divider lines */}
