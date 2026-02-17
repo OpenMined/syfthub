@@ -317,13 +317,11 @@ for await (const ep of client.myEndpoints.list()) {
                     </div>
                   </div>
                   <div>
-                    <h4 className='mb-1 font-medium text-blue-900 dark:text-blue-300'>
-                      Why MCP?
-                    </h4>
+                    <h4 className='mb-1 font-medium text-blue-900 dark:text-blue-300'>Why MCP?</h4>
                     <p className='text-sm text-blue-700 dark:text-blue-400'>
                       MCP lets AI assistants like Claude browse and query the directory directly
-                      during a conversation. Once connected, you can ask it to find relevant data
-                      or models, run queries, and pull results — no code required.
+                      during a conversation. Once connected, you can ask it to find relevant data or
+                      models, run queries, and pull results — no code required.
                     </p>
                   </div>
                 </div>
@@ -364,7 +362,9 @@ for await (const ep of client.myEndpoints.list()) {
 
         {/* Architecture Overview */}
         <section className='space-y-4 pt-4'>
-          <h2 className='font-rubik text-foreground text-xl font-medium'>How it all fits together</h2>
+          <h2 className='font-rubik text-foreground text-xl font-medium'>
+            How it all fits together
+          </h2>
           <p className='font-inter text-muted-foreground max-w-2xl text-sm leading-relaxed'>
             Syft Space nodes publish capabilities to the directory. SDKs and MCP let you discover
             and query them — data stays where it lives, you get the results.

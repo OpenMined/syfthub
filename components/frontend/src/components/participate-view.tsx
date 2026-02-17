@@ -43,7 +43,8 @@ export function ParticipateView({
           <div>
             <p className='font-inter text-muted-foreground max-w-2xl text-lg leading-relaxed'>
               Bring your local capabilities — context, knowledge, models, and soon more — into a
-              shared directory for collective intelligence, while keeping full ownership and privacy.
+              shared directory for collective intelligence, while keeping full ownership and
+              privacy.
             </p>
           </div>
 
@@ -55,10 +56,12 @@ export function ParticipateView({
                 <div className='bg-accent mb-4 flex h-12 w-12 items-center justify-center rounded-lg'>
                   <Database className='text-secondary h-6 w-6' />
                 </div>
-                <h3 className='font-inter text-foreground mb-2 font-medium'>Bring Your Capabilities</h3>
+                <h3 className='font-inter text-foreground mb-2 font-medium'>
+                  Bring Your Capabilities
+                </h3>
                 <p className='font-inter text-muted-foreground text-sm leading-relaxed'>
-                  Connect local knowledge or models. You define the access policies,
-                  privacy budget, and metadata.
+                  Connect local knowledge or models. You define the access policies, privacy budget,
+                  and metadata.
                 </p>
               </div>
 
@@ -93,8 +96,7 @@ export function ParticipateView({
                 <h2 className='font-rubik mb-3 text-2xl font-medium'>Install Syft Space</h2>
                 <p className='font-inter text-primary-foreground/80 mb-6 text-sm leading-relaxed'>
                   Syft Space is your local control center for contributing to the directory. Bring
-                  your knowledge or models, manage permissions, and go live in a few
-                  minutes.
+                  your knowledge or models, manage permissions, and go live in a few minutes.
                 </p>
 
                 <div className='flex flex-wrap gap-4'>
