@@ -22,16 +22,9 @@ import { useModels } from '@/hooks/use-models';
 // Constants
 // =============================================================================
 
-const FEATURES = [
-  { label: 'Secure & Private', color: 'bg-chart-1' },
-  { label: 'Rare Data & Models', color: 'bg-secondary' },
-  { label: 'Federated, Permissioned Access', color: 'bg-chart-3' }
-] as const;
-
 const SEARCH_SUGGESTIONS = [
-  'What is attribution-based control?',
-  'What is paid parental leave?',
-  "What's AI data scarcity problem?"
+  'Ask Peter Thiel about startup contrarianism',
+  'Ask the WGA about parental leave for screenwriters'
 ] as const;
 
 // =============================================================================
@@ -131,61 +124,48 @@ export function Hero({
 
       {/* Hero Section */}
       <section
-        className={`bg-background flex items-center justify-center px-6 ${
-          fullHeight ? 'min-h-[calc(100vh-2rem)]' : 'min-h-[50vh]'
+        className={`bg-background relative flex items-center justify-center px-6 ${
+          fullHeight ? 'min-h-[calc(100vh-2rem)]' : 'min-h-[60vh]'
         }`}
       >
-        <div className='mx-auto w-full max-w-2xl space-y-8'>
+        <div className='mx-auto w-full max-w-3xl space-y-12'>
           {/* Logo */}
-          <div className='flex items-center justify-center gap-3'>
-            <OpenMinedIcon className='h-7 w-7' />
-            <span className='font-rubik text-foreground text-xl font-normal'>SyftHub</span>
+          <div className='flex items-center justify-center gap-4'>
+            <OpenMinedIcon className='h-8 w-8' />
+            <span className='font-rubik text-foreground text-2xl font-normal tracking-tight'>
+              SyftHub
+            </span>
           </div>
 
           {/* Tagline */}
-          <div className='space-y-4 pb-4 text-center'>
-            <h1 className='font-rubik text-foreground text-3xl font-medium'>
-              Access the World's{' '}
-              <span className='from-secondary via-chart-3 to-chart-1 bg-gradient-to-r bg-clip-text text-transparent'>
-                Collective Intelligence
-              </span>
+          <div className='space-y-4 text-center'>
+            <h1 className='font-rubik text-foreground text-4xl leading-tight font-medium'>
+              Ask{' '}
+              <span className='from-chart-1 via-chart-2 to-chart-3 bg-gradient-to-r bg-clip-text text-transparent'>
+                anyone, anything
+              </span>{' '}
+              &mdash; at source
             </h1>
-            <p className='font-inter text-foreground text-base'>
-              Query trusted data sources — public, copyrighted, or private — directly from source.
+            <p className='font-inter text-muted-foreground text-base'>
+              A directory for querying trusted data sources with attribution and privacy built in.
             </p>
           </div>
 
-          {/* Feature Badges and Search Bar */}
-          <div className='space-y-6'>
-            {/* Feature Badges */}
-            <div className='flex flex-wrap items-center justify-center gap-8'>
-              {FEATURES.map((feature, index) => (
-                <div key={index} className='flex items-center gap-2'>
-                  <div className={`h-2 w-2 rounded-full ${feature.color}`}></div>
-                  <span className='font-inter text-foreground text-sm'>{feature.label}</span>
-                </div>
-              ))}
-            </div>
+          {/* Search Bar */}
+          <div className='space-y-4'>
+            <QueryInput
+              variant='hero'
+              onSubmit={handleSubmit}
+              disabled={isWorkflowActive}
+              isProcessing={workflow.phase === 'streaming'}
+              placeholder='Ask a question about any connected source...'
+              autoFocus
+              id='hero-search'
+              ariaLabel='Query connected data sources'
+            />
 
-            {/* Search Bar */}
-            <div className='space-y-4'>
-              <QueryInput
-                variant='hero'
-                onSubmit={handleSubmit}
-                disabled={isWorkflowActive}
-                isProcessing={workflow.phase === 'streaming'}
-                placeholder='What is attribution-based control?'
-                autoFocus
-                id='hero-search'
-                ariaLabel='Search for data sources, models, or topics'
-              />
-
-              {/* Search Suggestions Pills */}
-              <SearchSuggestions
-                suggestions={SEARCH_SUGGESTIONS}
-                onSelect={handleSuggestionClick}
-              />
-            </div>
+            {/* Search Suggestions Pills */}
+            <SearchSuggestions suggestions={SEARCH_SUGGESTIONS} onSelect={handleSuggestionClick} />
           </div>
         </div>
       </section>

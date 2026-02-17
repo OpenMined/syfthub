@@ -162,6 +162,10 @@ for ep in client.my_endpoints.list():
                   </CardHeader>
                   <CardContent className='grid gap-2'>
                     <ResourceLink
+                      label='Documentation'
+                      href='https://syft.docs.openmined.org/sdk/python'
+                    />
+                    <ResourceLink
                       label='PyPI Package'
                       href='https://pypi.org/project/syfthub-sdk/'
                     />
@@ -261,6 +265,10 @@ for await (const ep of client.myEndpoints.list()) {
                   </CardHeader>
                   <CardContent className='grid gap-2'>
                     <ResourceLink
+                      label='Documentation'
+                      href='https://syft.docs.openmined.org/sdk/typescript'
+                    />
+                    <ResourceLink
                       label='npm Package'
                       href='https://www.npmjs.com/package/@syfthub/sdk'
                     />
@@ -342,6 +350,10 @@ for await (const ep of client.myEndpoints.list()) {
                     <CardTitle className='text-sm font-medium'>Resources</CardTitle>
                   </CardHeader>
                   <CardContent className='grid gap-2'>
+                    <ResourceLink
+                      label='Documentation'
+                      href='https://syft.docs.openmined.org/mcp'
+                    />
                     <ResourceLink
                       label='MCP Specification'
                       href='https://modelcontextprotocol.io/introduction'

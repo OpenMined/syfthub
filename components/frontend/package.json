@@ -22,7 +22,6 @@
     "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
-    "@react-oauth/google": "^0.12.1",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-dropdown-menu": "2.1.16",
     "@radix-ui/react-label": "^2.1.8",
@@ -31,6 +30,7 @@
     "@radix-ui/react-slot": "1.2.3",
     "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tabs": "^1.1.13",
+    "@react-oauth/google": "^0.12.2",
     "@syfthub/sdk": "file:../../sdk/typescript",
     "@tanstack/react-query": "^5.90.20",
     "@types/react-router-dom": "^5.3.3",
