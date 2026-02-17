@@ -31,7 +31,7 @@
     "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tabs": "^1.1.13",
     "@react-oauth/google": "^0.12.2",
-    "@syfthub/sdk": "file:../sdk/typescript",
+    "@syfthub/sdk": "file:../../sdk/typescript",
     "@tanstack/react-query": "^5.90.20",
     "@types/react-router-dom": "^5.3.3",
     "@types/react-syntax-highlighter": "^15.5.13",
