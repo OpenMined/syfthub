@@ -84,9 +84,7 @@ export default function HomePage() {
                 <span className='font-inter text-foreground text-lg font-semibold'>
                   {isLoadingTotalCount ? '…' : `${String(totalCount ?? 0)} Nodes`}
                 </span>
-                <span className='font-inter text-muted-foreground text-xs'>
-                  Active Sources
-                </span>
+                <span className='font-inter text-muted-foreground text-xs'>Active Sources</span>
               </div>
             </div>
 
