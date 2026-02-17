@@ -130,8 +130,8 @@ export function Hero({
 
       {/* Hero Section */}
       <section
-        className={`bg-background relative px-6 ${
-          fullHeight ? 'flex min-h-[calc(100vh-2rem)] items-center justify-center' : 'py-16'
+        className={`bg-background relative px-8 md:px-12 lg:px-16 ${
+          fullHeight ? 'flex min-h-[calc(100vh-2rem)] items-center justify-center' : 'pt-20 pb-10'
         }`}
       >
         {/* Two-column grid: left (search) / right (directory) */}
@@ -193,7 +193,7 @@ export function Hero({
 
         {/* Action Buttons — centered underneath everything, with divider lines */}
         {actionButtons && (
-          <div className='mx-auto mt-10 flex max-w-xl items-center gap-6'>
+          <div className='mx-auto mt-14 flex max-w-xl items-center gap-6 pb-4'>
             <div className='border-border/40 h-px flex-1 border-t' />
             {actionButtons}
             <div className='border-border/40 h-px flex-1 border-t' />
