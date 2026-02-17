@@ -42,6 +42,10 @@ export interface HeroProperties {
   initialModel?: ChatSource | null;
   /** Optional panel rendered to the right of the search area */
   sidePanel?: React.ReactNode;
+  /** Action buttons rendered below the search suggestions */
+  actionButtons?: React.ReactNode;
+  /** Recent sources list rendered below the action buttons on the left */
+  recentSources?: React.ReactNode;
 }
 
 // =============================================================================
@@ -53,7 +57,9 @@ export function Hero({
   onAuthRequired: _onAuthRequired,
   fullHeight = false,
   initialModel,
-  sidePanel
+  sidePanel,
+  actionButtons,
+  recentSources
 }: Readonly<HeroProperties>) {
   const navigate = useNavigate();
 
@@ -127,18 +133,18 @@ export function Hero({
 
       {/* Hero Section */}
       <section
-        className={`bg-background relative flex items-center justify-center px-6 ${
-          // eslint-disable-next-line sonarjs/no-nested-conditional, unicorn/no-nested-ternary -- simple layout toggle
-          fullHeight ? 'min-h-[calc(100vh-2rem)]' : sidePanel ? 'py-16' : 'min-h-[60vh]'
+        className={`bg-background relative px-6 ${
+          fullHeight ? 'flex min-h-[calc(100vh-2rem)] items-center justify-center' : 'py-16'
         }`}
       >
+        {/* Two-column grid: left (search + recent) / right (directory) */}
         <div
           className={`mx-auto w-full ${
-            sidePanel ? 'grid max-w-7xl items-center gap-20 lg:grid-cols-[1fr_0.8fr]' : 'max-w-3xl'
+            sidePanel ? 'grid max-w-7xl items-start gap-20 lg:grid-cols-[1fr_0.8fr]' : 'max-w-3xl'
           }`}
         >
-          {/* Left / Main: Search area */}
-          <div className={sidePanel ? 'space-y-8' : 'space-y-12'}>
+          {/* Left column */}
+          <div className='space-y-8'>
             {/* Logo */}
             <div
               className={`flex items-center gap-4 ${sidePanel ? 'justify-start' : 'justify-center'}`}
@@ -182,11 +188,23 @@ export function Hero({
                 onSelect={handleSuggestionClick}
               />
             </div>
+
+            {/* Recent Sources */}
+            {recentSources && <div>{recentSources}</div>}
           </div>
 
-          {/* Right: Side panel (Global Directory) */}
-          {sidePanel && <div className='hidden lg:block'>{sidePanel}</div>}
+          {/* Right column: Global Directory — pt offsets past the logo row */}
+          {sidePanel && <div className='hidden pt-14 lg:block'>{sidePanel}</div>}
         </div>
+
+        {/* Action Buttons — centered underneath everything, with divider lines */}
+        {actionButtons && (
+          <div className='mx-auto mt-10 flex max-w-2xl items-center gap-6'>
+            <div className='border-border/40 h-px flex-1 border-t' />
+            {actionButtons}
+            <div className='border-border/40 h-px flex-1 border-t' />
+          </div>
+        )}
       </section>
 
       {/* Workflow Overlay - shown when workflow is active */}
