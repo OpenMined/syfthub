@@ -5,9 +5,8 @@ import { useNavigate } from 'react-router-dom';
 
 import { GlobalDirectory } from '@/components/global-directory';
 import { Hero } from '@/components/hero';
-import { RecentSources } from '@/components/recent-sources';
 import { useAuth } from '@/context/auth-context';
-import { usePublicEndpoints, useRecentEndpoints } from '@/hooks/use-endpoint-queries';
+import { usePublicEndpoints } from '@/hooks/use-endpoint-queries';
 import { useModalStore } from '@/stores/modal-store';
 
 /**
@@ -17,9 +16,6 @@ export default function HomePage() {
   const { user } = useAuth();
   const { openLogin } = useModalStore();
   const navigate = useNavigate();
-
-  // Fetch recent endpoints (sorted by updated_at)
-  const { data: recentEndpoints, isLoading: isLoadingRecent } = useRecentEndpoints(4);
 
   // Fetch all public endpoints for the global directory
   const { data: allEndpoints, isLoading: isLoadingAll } = usePublicEndpoints(50);
@@ -38,14 +34,11 @@ export default function HomePage() {
     }
   };
 
-  const hasRecentEndpoints = (recentEndpoints?.length ?? 0) > 0;
-
   return (
     <>
       <Hero
         onSearch={handleSearch}
         onAuthRequired={user ? undefined : openLogin}
-        fullHeight={!isLoadingRecent && !hasRecentEndpoints}
         sidePanel={<GlobalDirectory endpoints={allEndpoints ?? []} isLoading={isLoadingAll} />}
         actionButtons={
           <div className='flex items-center gap-3'>
@@ -68,11 +61,6 @@ export default function HomePage() {
               Join the Network
             </button>
           </div>
-        }
-        recentSources={
-          isLoadingRecent || hasRecentEndpoints ? (
-            <RecentSources endpoints={recentEndpoints ?? []} isLoading={isLoadingRecent} />
-          ) : null
         }
       />
     </>

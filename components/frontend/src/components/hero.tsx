@@ -44,8 +44,6 @@ export interface HeroProperties {
   sidePanel?: React.ReactNode;
   /** Action buttons rendered below the search suggestions */
   actionButtons?: React.ReactNode;
-  /** Recent sources list rendered below the action buttons on the left */
-  recentSources?: React.ReactNode;
 }
 
 // =============================================================================
@@ -58,8 +56,7 @@ export function Hero({
   fullHeight = false,
   initialModel,
   sidePanel,
-  actionButtons,
-  recentSources
+  actionButtons
 }: Readonly<HeroProperties>) {
   const navigate = useNavigate();
 
@@ -137,10 +134,10 @@ export function Hero({
           fullHeight ? 'flex min-h-[calc(100vh-2rem)] items-center justify-center' : 'py-16'
         }`}
       >
-        {/* Two-column grid: left (search + recent) / right (directory) */}
+        {/* Two-column grid: left (search) / right (directory) */}
         <div
           className={`mx-auto w-full ${
-            sidePanel ? 'grid max-w-7xl items-start gap-20 lg:grid-cols-[1fr_0.8fr]' : 'max-w-3xl'
+            sidePanel ? 'grid max-w-6xl items-start gap-16 lg:grid-cols-[1fr_0.8fr]' : 'max-w-3xl'
           }`}
         >
           {/* Left column */}
@@ -188,9 +185,6 @@ export function Hero({
                 onSelect={handleSuggestionClick}
               />
             </div>
-
-            {/* Recent Sources */}
-            {recentSources && <div>{recentSources}</div>}
           </div>
 
           {/* Right column: Global Directory — pt offsets past the logo row */}
@@ -199,7 +193,7 @@ export function Hero({
 
         {/* Action Buttons — centered underneath everything, with divider lines */}
         {actionButtons && (
-          <div className='mx-auto mt-10 flex max-w-2xl items-center gap-6'>
+          <div className='mx-auto mt-10 flex max-w-xl items-center gap-6'>
             <div className='border-border/40 h-px flex-1 border-t' />
             {actionButtons}
             <div className='border-border/40 h-px flex-1 border-t' />
