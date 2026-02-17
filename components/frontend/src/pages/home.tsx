@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { GlobalDirectory } from '@/components/global-directory';
 import { Hero } from '@/components/hero';
-import { RecentModels } from '@/components/recent-models';
+// import { RecentModels } from '@/components/recent-models';
 import { RecentSources } from '@/components/recent-sources';
 import { useAuth } from '@/context/auth-context';
 import {
@@ -66,9 +66,7 @@ export default function HomePage() {
         onSearch={handleSearch}
         onAuthRequired={user ? undefined : openLogin}
         fullHeight={shouldCenterHero}
-        sidePanel={
-          <GlobalDirectory endpoints={allEndpoints ?? []} isLoading={isLoadingAll} />
-        }
+        sidePanel={<GlobalDirectory endpoints={allEndpoints ?? []} isLoading={isLoadingAll} />}
       />
 
       {/* Active Nodes Count and Action Buttons */}
@@ -124,7 +122,7 @@ export default function HomePage() {
         <section className='bg-card px-6 py-6'>
           <div className='mx-auto max-w-4xl'>
             <RecentSources endpoints={recentEndpoints ?? []} isLoading={isLoadingRecent} />
-            {/* TODO: Re-enable trending section
+            {/* Trending section temporarily disabled
             <RecentModels endpoints={trendingEndpoints ?? []} isLoading={isLoadingTrending} />
             */}
           </div>

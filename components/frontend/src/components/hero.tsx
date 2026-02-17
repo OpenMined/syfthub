@@ -128,24 +128,21 @@ export function Hero({
       {/* Hero Section */}
       <section
         className={`bg-background relative flex items-center justify-center px-6 ${
-          fullHeight
-            ? 'min-h-[calc(100vh-2rem)]'
-            : sidePanel
-              ? 'py-16'
-              : 'min-h-[60vh]'
+          // eslint-disable-next-line sonarjs/no-nested-conditional, unicorn/no-nested-ternary -- simple layout toggle
+          fullHeight ? 'min-h-[calc(100vh-2rem)]' : sidePanel ? 'py-16' : 'min-h-[60vh]'
         }`}
       >
         <div
           className={`mx-auto w-full ${
-            sidePanel
-              ? 'grid max-w-7xl items-center gap-20 lg:grid-cols-[1fr_0.8fr]'
-              : 'max-w-3xl'
+            sidePanel ? 'grid max-w-7xl items-center gap-20 lg:grid-cols-[1fr_0.8fr]' : 'max-w-3xl'
           }`}
         >
           {/* Left / Main: Search area */}
           <div className={sidePanel ? 'space-y-8' : 'space-y-12'}>
             {/* Logo */}
-            <div className={`flex items-center gap-4 ${sidePanel ? 'justify-start' : 'justify-center'}`}>
+            <div
+              className={`flex items-center gap-4 ${sidePanel ? 'justify-start' : 'justify-center'}`}
+            >
               <OpenMinedIcon className='h-8 w-8' />
               <span className='font-rubik text-foreground text-2xl font-normal tracking-tight'>
                 SyftHub
@@ -180,16 +177,15 @@ export function Hero({
               />
 
               {/* Search Suggestions Pills */}
-              <SearchSuggestions suggestions={SEARCH_SUGGESTIONS} onSelect={handleSuggestionClick} />
+              <SearchSuggestions
+                suggestions={SEARCH_SUGGESTIONS}
+                onSelect={handleSuggestionClick}
+              />
             </div>
           </div>
 
           {/* Right: Side panel (Global Directory) */}
-          {sidePanel && (
-            <div className='hidden lg:block'>
-              {sidePanel}
-            </div>
-          )}
+          {sidePanel && <div className='hidden lg:block'>{sidePanel}</div>}
         </div>
       </section>
 

@@ -1,11 +1,12 @@
+import { useCallback, useMemo, useState } from 'react';
+
 import type { ChatSource } from '@/lib/types';
 
 import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right';
+import Cpu from 'lucide-react/dist/esm/icons/cpu';
 import Database from 'lucide-react/dist/esm/icons/database';
 import Folder from 'lucide-react/dist/esm/icons/folder';
 import FolderOpen from 'lucide-react/dist/esm/icons/folder-open';
-import Cpu from 'lucide-react/dist/esm/icons/cpu';
-import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 // =============================================================================
@@ -26,14 +27,7 @@ interface GlobalDirectoryProps {
 // Constants
 // =============================================================================
 
-const NODE_COLORS = [
-  '#6976ae',
-  '#53bea9',
-  '#937098',
-  '#52a8c5',
-  '#f79763',
-  '#cc677b',
-] as const;
+const NODE_COLORS = ['#6976ae', '#53bea9', '#937098', '#52a8c5', '#f79763', '#cc677b'] as const;
 
 function getNodeColor(index: number): string {
   return NODE_COLORS[index % NODE_COLORS.length] as string;
@@ -46,16 +40,14 @@ function getNodeColor(index: number): string {
 function DirectoryEntry({
   endpoint,
   depth,
-  colorIndex,
+  colorIndex
 }: Readonly<{
   endpoint: ChatSource;
   depth: number;
   colorIndex: number;
 }>) {
   const color = getNodeColor(colorIndex);
-  const href = endpoint.owner_username
-    ? `/${endpoint.owner_username}/${endpoint.slug}`
-    : '/browse';
+  const href = endpoint.owner_username ? `/${endpoint.owner_username}/${endpoint.slug}` : '/browse';
 
   const isModel = endpoint.type === 'model' || endpoint.type === 'model_data_source';
   const Icon = isModel ? Cpu : Database;
@@ -68,10 +60,7 @@ function DirectoryEntry({
       style={{ paddingLeft: `${String(depth * 18 + 8)}px` }}
     >
       {/* Tree connector line */}
-      <span
-        className='text-muted-foreground/40 select-none font-mono text-xs'
-        aria-hidden='true'
-      >
+      <span className='text-muted-foreground/40 font-mono text-xs select-none' aria-hidden='true'>
         {depth > 0 ? '├─' : ''}
       </span>
 
@@ -83,13 +72,13 @@ function DirectoryEntry({
       />
 
       {/* Name */}
-      <span className='font-mono text-foreground/80 group-hover:text-foreground flex-1 truncate text-xs tracking-tight transition-colors'>
+      <span className='text-foreground/80 group-hover:text-foreground flex-1 truncate font-mono text-xs tracking-tight transition-colors'>
         {endpoint.slug}
       </span>
 
       {/* Type badge */}
       <span
-        className='rounded-sm px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider opacity-50 group-hover:opacity-80 transition-opacity'
+        className='rounded-sm px-1.5 py-0.5 font-mono text-[10px] tracking-wider uppercase opacity-50 transition-opacity group-hover:opacity-80'
         style={{ color, backgroundColor: `${color}15` }}
       >
         {isModel ? 'model' : 'data'}
@@ -101,7 +90,7 @@ function DirectoryEntry({
 function FolderNode({
   node,
   colorIndex,
-  defaultOpen,
+  defaultOpen
 }: Readonly<{
   node: DirectoryNode;
   colorIndex: number;
@@ -111,7 +100,7 @@ function FolderNode({
   const color = getNodeColor(colorIndex);
 
   const toggle = useCallback(() => {
-    setIsOpen((prev) => !prev);
+    setIsOpen((previous) => !previous);
   }, []);
 
   return (
@@ -132,21 +121,13 @@ function FolderNode({
 
         {/* Folder icon */}
         {isOpen ? (
-          <FolderOpen
-            className='h-3.5 w-3.5 flex-shrink-0'
-            style={{ color }}
-            aria-hidden='true'
-          />
+          <FolderOpen className='h-3.5 w-3.5 flex-shrink-0' style={{ color }} aria-hidden='true' />
         ) : (
-          <Folder
-            className='h-3.5 w-3.5 flex-shrink-0'
-            style={{ color }}
-            aria-hidden='true'
-          />
+          <Folder className='h-3.5 w-3.5 flex-shrink-0' style={{ color }} aria-hidden='true' />
         )}
 
         {/* Owner name */}
-        <span className='font-mono text-foreground group-hover:text-foreground flex-1 truncate text-left text-xs font-medium tracking-tight'>
+        <span className='text-foreground group-hover:text-foreground flex-1 truncate text-left font-mono text-xs font-medium tracking-tight'>
           {node.owner}/
         </span>
 
@@ -165,12 +146,12 @@ function FolderNode({
             style={{ backgroundColor: `${color}25` }}
             aria-hidden='true'
           />
-          {node.endpoints.map((endpoint, idx) => (
+          {node.endpoints.map((endpoint, index) => (
             <DirectoryEntry
               key={endpoint.id}
               endpoint={endpoint}
               depth={1}
-              colorIndex={colorIndex + idx}
+              colorIndex={colorIndex + index}
             />
           ))}
         </div>
@@ -186,8 +167,8 @@ function FolderNode({
 function DirectorySkeleton() {
   return (
     <div className='space-y-1'>
-      {[0, 1, 2, 3, 4].map((i) => (
-        <div key={i} className='flex animate-pulse items-center gap-2 px-2 py-1'>
+      {[0, 1, 2, 3, 4].map((index) => (
+        <div key={index} className='flex animate-pulse items-center gap-2 px-2 py-1'>
           <div className='bg-muted h-3 w-3 rounded-sm' />
           <div className='bg-muted h-3.5 w-3.5 rounded-sm' />
           <div className='bg-muted h-3 flex-1 rounded-sm' />
@@ -278,12 +259,12 @@ export function GlobalDirectory({ endpoints, isLoading }: Readonly<GlobalDirecto
           ) : (
             <div className='space-y-0.5'>
               {/* Folder nodes */}
-              {directoryTree.map((node, idx) => (
+              {directoryTree.map((node, index) => (
                 <FolderNode
                   key={node.owner}
                   node={node}
-                  colorIndex={idx}
-                  defaultOpen={idx < 3}
+                  colorIndex={index}
+                  defaultOpen={index < 3}
                 />
               ))}
 
