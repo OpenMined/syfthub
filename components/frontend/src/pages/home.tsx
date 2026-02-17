@@ -63,7 +63,7 @@ export default function HomePage() {
             </button>
             <button
               type='button'
-              onClick={() => navigate('/docs')}
+              onClick={() => navigate('/build')}
               className='font-inter bg-primary/10 text-primary hover:bg-primary/20 flex items-center gap-2 rounded-full px-4 py-1.5 text-sm transition-colors'
             >
               <Code className='h-3.5 w-3.5' />

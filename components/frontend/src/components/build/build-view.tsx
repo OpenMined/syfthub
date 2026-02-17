@@ -47,14 +47,14 @@ export function BuildView({ onAuthRequired: _onAuthRequired }: Readonly<BuildVie
         <div className='max-w-3xl space-y-4'>
           <div className='bg-muted text-muted-foreground inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium'>
             <Code2 className='h-3 w-3' />
-            Developer Portal
+            For Developers
           </div>
           <h1 className='font-rubik text-foreground text-3xl font-medium'>
-            Build privacy-first AI apps
+            Tap into capabilities across the directory
           </h1>
           <p className='font-inter text-muted-foreground text-lg leading-relaxed'>
-            Access high-value data and models you don't own through a unified, permissioned API.
-            Choose your stack and start building in minutes.
+            Query data and models published by others — with attribution, compensation, and privacy
+            built in. Pick your stack, explore what's available, and start experimenting.
           </p>
         </div>
 
@@ -91,32 +91,29 @@ export function BuildView({ onAuthRequired: _onAuthRequired }: Readonly<BuildVie
               <div className='space-y-6 lg:col-span-2'>
                 <Section
                   title='Installation'
-                  description='Install the SyftHub SDK via pip or uv.'
+                  description='One command to get started.'
                   icon={<Box className='h-5 w-5' />}
                 >
                   <CodeBlock code='pip install syfthub-sdk' language='bash' />
                 </Section>
 
                 <Section
-                  title='Quick Start'
-                  description='Initialize the client and start browsing endpoints.'
+                  title='Explore & Query'
+                  description='Browse what others have published and start experimenting.'
                   icon={<Terminal className='h-5 w-5' />}
                 >
                   <CodeBlock
                     code={`from syfthub_sdk import SyftHubClient
 
-# Initialize client
+# Connect to the directory
 client = SyftHubClient(base_url="https://hub.syft.com")
-
-# Login to your account
 user = client.auth.login(username="alice", password="secret123")
-print(f"Logged in as {user.username}")
 
-# Browse public endpoints
+# Discover available data and models
 for endpoint in client.hub.browse():
     print(f"{endpoint.path}: {endpoint.name}")
 
-# Get a specific endpoint
+# Dig into a specific capability
 endpoint = client.hub.get("alice/my-model")
 print(endpoint.readme)`}
                     language='python'
@@ -124,12 +121,12 @@ print(endpoint.readme)`}
                 </Section>
 
                 <Section
-                  title='Manage Your Endpoints'
-                  description='Create and manage your own endpoints.'
+                  title='Publish Your Own'
+                  description='Share your data or models so others can build with them.'
                   icon={<Code2 className='h-5 w-5' />}
                 >
                   <CodeBlock
-                    code={`# Create an endpoint
+                    code={`# Publish a capability to the directory
 endpoint = client.my_endpoints.create(
     name="My Model",
     visibility="public",
@@ -138,7 +135,7 @@ endpoint = client.my_endpoints.create(
 )
 print(f"Created: {endpoint.slug}")
 
-# List your endpoints
+# List your published capabilities
 for ep in client.my_endpoints.list():
     print(f"{ep.name} ({ep.visibility})")`}
                     language='python'
@@ -148,12 +145,12 @@ for ep in client.my_endpoints.list():
 
               <div className='space-y-6'>
                 <InfoCard
-                  title='Python SDK Features'
+                  title='What You Can Do'
                   items={[
-                    'Browse and search endpoints',
-                    'Manage your endpoints',
-                    'Make distributed RAG queries',
-                    'Authenticate and track usage'
+                    'Discover data and models others have shared',
+                    'Query capabilities with built-in privacy',
+                    'Run distributed RAG across sources',
+                    'Publish and manage your own endpoints'
                   ]}
                 />
                 <Card>
@@ -187,35 +184,32 @@ for ep in client.my_endpoints.list():
               <div className='space-y-6 lg:col-span-2'>
                 <Section
                   title='Installation'
-                  description='Install the SyftHub SDK via npm, yarn, or pnpm.'
+                  description='One command to get started.'
                   icon={<Box className='h-5 w-5' />}
                 >
                   <CodeBlock code='npm install @syfthub/sdk' language='bash' />
                 </Section>
 
                 <Section
-                  title='Quick Start'
-                  description='Initialize the client and start browsing endpoints.'
+                  title='Explore & Query'
+                  description='Browse what others have published and start experimenting.'
                   icon={<Terminal className='h-5 w-5' />}
                 >
                   <CodeBlock
                     code={`import { SyftHubClient } from '@syfthub/sdk';
 
-// Initialize client
+// Connect to the directory
 const client = new SyftHubClient({
   baseUrl: 'https://hub.syft.com'
 });
-
-// Login to your account
 const user = await client.auth.login('alice', 'secret123');
-console.log(\`Logged in as \${user.username}\`);
 
-// Browse public endpoints
+// Discover available data and models
 for await (const endpoint of client.hub.browse()) {
   console.log(\`\${endpoint.ownerUsername}/\${endpoint.slug}: \${endpoint.name}\`);
 }
 
-// Get a specific endpoint
+// Dig into a specific capability
 const endpoint = await client.hub.get('alice/my-model');
 console.log(endpoint.readme);`}
                     language='typescript'
@@ -223,14 +217,14 @@ console.log(endpoint.readme);`}
                 </Section>
 
                 <Section
-                  title='Manage Your Endpoints'
-                  description='Create and manage your own endpoints.'
+                  title='Publish Your Own'
+                  description='Share your data or models so others can build with them.'
                   icon={<Code2 className='h-5 w-5' />}
                 >
                   <CodeBlock
                     code={`import { EndpointType, Visibility } from '@syfthub/sdk';
 
-// Create an endpoint
+// Publish a capability to the directory
 const endpoint = await client.myEndpoints.create({
   name: 'My Model',
   type: EndpointType.MODEL,
@@ -240,7 +234,7 @@ const endpoint = await client.myEndpoints.create({
 });
 console.log(\`Created: \${endpoint.slug}\`);
 
-// List your endpoints
+// List your published capabilities
 for await (const ep of client.myEndpoints.list()) {
   console.log(\`\${ep.name} (\${ep.visibility})\`);
 }`}
@@ -251,12 +245,12 @@ for await (const ep of client.myEndpoints.list()) {
 
               <div className='space-y-6'>
                 <InfoCard
-                  title='TypeScript SDK Features'
+                  title='What You Can Do'
                   items={[
-                    'Browse and search endpoints',
-                    'Manage your endpoints',
-                    'Make distributed RAG queries',
-                    'Authenticate and track usage'
+                    'Discover data and models others have shared',
+                    'Query capabilities with built-in privacy',
+                    'Run distributed RAG across sources',
+                    'Publish and manage your own endpoints'
                   ]}
                 />
                 <Card>
@@ -290,7 +284,7 @@ for await (const ep of client.myEndpoints.list()) {
               <div className='space-y-6 lg:col-span-2'>
                 <Section
                   title='Claude Desktop Configuration'
-                  description='Add SyftHub remote MCP server to your Claude Desktop settings.'
+                  description='Point Claude at the directory so it can discover and use capabilities for you.'
                   icon={<Box className='h-5 w-5' />}
                 >
                   <CodeBlock
@@ -306,8 +300,8 @@ for await (const ep of client.myEndpoints.list()) {
                 </Section>
 
                 <Section
-                  title='Claude Code MCP Installation'
-                  description='Add SyftHub MCP server to Claude Code CLI.'
+                  title='Claude Code'
+                  description='One command to connect from the terminal.'
                   icon={<Terminal className='h-5 w-5' />}
                 >
                   <CodeBlock
@@ -324,13 +318,12 @@ for await (const ep of client.myEndpoints.list()) {
                   </div>
                   <div>
                     <h4 className='mb-1 font-medium text-blue-900 dark:text-blue-300'>
-                      What is MCP?
+                      Why MCP?
                     </h4>
                     <p className='text-sm text-blue-700 dark:text-blue-400'>
-                      The Model Context Protocol (MCP) allows AI assistants like Claude to directly
-                      browse and interact with SyftHub endpoints during conversation. Once
-                      configured, you can ask your AI to explore available models and data sources
-                      in real-time using our remote MCP server at https://syfthub.openmined.org
+                      MCP lets AI assistants like Claude browse and query the directory directly
+                      during a conversation. Once connected, you can ask it to find relevant data
+                      or models, run queries, and pull results — no code required.
                     </p>
                   </div>
                 </div>
@@ -338,11 +331,11 @@ for await (const ep of client.myEndpoints.list()) {
 
               <div className='space-y-6'>
                 <InfoCard
-                  title='MCP Features'
+                  title='What You Can Do'
                   items={[
-                    'Direct LLM integration',
-                    'Browse endpoints via Claude',
-                    'Works with Claude Desktop'
+                    'Let your AI find relevant data and models',
+                    'Query capabilities conversationally',
+                    'Works with Claude Desktop & Claude Code'
                   ]}
                 />
                 <Card>
@@ -368,6 +361,23 @@ for await (const ep of client.myEndpoints.list()) {
             </div>
           </TabsContent>
         </Tabs>
+
+        {/* Architecture Overview */}
+        <section className='space-y-4 pt-4'>
+          <h2 className='font-rubik text-foreground text-xl font-medium'>How it all fits together</h2>
+          <p className='font-inter text-muted-foreground max-w-2xl text-sm leading-relaxed'>
+            Syft Space nodes publish capabilities to the directory. SDKs and MCP let you discover
+            and query them — data stays where it lives, you get the results.
+          </p>
+          <div className='border-border overflow-hidden rounded-xl border'>
+            <img
+              src='/architecture-diagram.png'
+              alt='Syft full architecture setup diagram showing how Syft Space, the directory, and SDKs connect'
+              className='w-full'
+              loading='lazy'
+            />
+          </div>
+        </section>
       </div>
     </div>
   );
