@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 
+import BookOpen from 'lucide-react/dist/esm/icons/book-open';
 import FileText from 'lucide-react/dist/esm/icons/file-text';
 import Globe from 'lucide-react/dist/esm/icons/globe';
 import Info from 'lucide-react/dist/esm/icons/info';
@@ -104,6 +105,20 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Docs link pinned to bottom */}
+      <a
+        href='https://syft.docs.openmined.org'
+        target='_blank'
+        rel='noopener noreferrer'
+        className='text-muted-foreground hover:text-foreground group mt-auto flex flex-col items-center gap-1 transition-colors'
+        title='Documentation'
+      >
+        <div className='rounded-lg p-2 transition-colors group-hover:bg-muted'>
+          <BookOpen className='h-5 w-5' aria-hidden='true' />
+        </div>
+        <span className='font-inter text-[10px]'>Docs</span>
+      </a>
     </aside>
   );
 }

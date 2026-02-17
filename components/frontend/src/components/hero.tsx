@@ -142,9 +142,10 @@ export function Hero({
               <span className='from-chart-1 via-chart-2 to-chart-3 bg-gradient-to-r bg-clip-text text-transparent'>
                 anyone, anything
               </span>
+              {' '}&mdash; at source
             </h1>
             <p className='font-inter text-muted-foreground text-base'>
-              Query people, organizations, and datasets directly.
+              A directory for querying trusted data sources with attribution and privacy built in.
             </p>
           </div>
 
