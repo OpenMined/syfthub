@@ -129,11 +129,8 @@ export function Hero({
       </div>
 
       {/* Hero Section */}
-      <section
-        className={`bg-background relative px-8 md:px-12 lg:px-16 ${
-          fullHeight ? 'flex min-h-[calc(100vh-2rem)] items-center justify-center' : 'pt-20 pb-10'
-        }`}
-      >
+      <section className='bg-background relative flex min-h-[calc(100vh-2rem)] flex-col items-center justify-center px-8 md:px-12 lg:px-16'>
+
         {/* Two-column grid: left (search) / right (directory) */}
         <div
           className={`mx-auto w-full ${
@@ -146,8 +143,8 @@ export function Hero({
             <div
               className={`flex items-center gap-4 ${sidePanel ? 'justify-start' : 'justify-center'}`}
             >
-              <OpenMinedIcon className='h-8 w-8' />
-              <span className='font-rubik text-foreground text-2xl font-normal tracking-tight'>
+              <OpenMinedIcon className='h-6 w-6' />
+              <span className='font-rubik text-foreground text-xl font-normal tracking-tight'>
                 SyftHub
               </span>
             </div>
@@ -162,7 +159,7 @@ export function Hero({
                 &mdash; at source
               </h1>
               <p className='font-inter text-muted-foreground text-base'>
-                A directory for querying trusted data sources with attribution and privacy built in.
+                With attribution, compensation and privacy built in.
               </p>
             </div>
 
@@ -173,7 +170,7 @@ export function Hero({
                 onSubmit={handleSubmit}
                 disabled={isWorkflowActive}
                 isProcessing={workflow.phase === 'streaming'}
-                placeholder='Ask a question about any connected source...'
+                placeholder='Start typing — use @ for specific sources'
                 autoFocus
                 id='hero-search'
                 ariaLabel='Query connected data sources'
@@ -193,10 +190,11 @@ export function Hero({
 
         {/* Action Buttons — centered underneath everything, with divider lines */}
         {actionButtons && (
-          <div className='mx-auto mt-14 flex max-w-xl items-center gap-6 pb-4'>
-            <div className='border-border/40 h-px flex-1 border-t' />
-            {actionButtons}
-            <div className='border-border/40 h-px flex-1 border-t' />
+          <div className='mx-auto mt-28 max-w-3xl pb-4'>
+            <div className='bg-border/50 mb-6 h-px w-full' />
+            <div className='flex items-center justify-center gap-3'>
+              {actionButtons}
+            </div>
           </div>
         )}
       </section>
