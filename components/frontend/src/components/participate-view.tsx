@@ -9,14 +9,14 @@ import Shield from 'lucide-react/dist/esm/icons/shield';
 import { Button } from './ui/button';
 
 interface ParticipateViewProperties {
-  /** Custom title for the header (defaults to "Launch your node") */
+  /** Custom title for the header (defaults to "Start your first node") */
   title?: string;
   /** Optional callback to go back */
   onBack?: () => void;
 }
 
 export function ParticipateView({
-  title = 'Launch your node',
+  title = 'Start your first node',
   onBack
 }: Readonly<ParticipateViewProperties>) {
   return (
