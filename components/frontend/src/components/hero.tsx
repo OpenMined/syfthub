@@ -124,7 +124,7 @@ export function Hero({
 
       {/* Hero Section */}
       <section
-        className={`relative bg-background flex items-center justify-center px-6 ${
+        className={`bg-background relative flex items-center justify-center px-6 ${
           fullHeight ? 'min-h-[calc(100vh-2rem)]' : 'min-h-[60vh]'
         }`}
       >
@@ -132,17 +132,19 @@ export function Hero({
           {/* Logo */}
           <div className='flex items-center justify-center gap-4'>
             <OpenMinedIcon className='h-8 w-8' />
-            <span className='font-rubik text-foreground text-2xl font-normal tracking-tight'>SyftHub</span>
+            <span className='font-rubik text-foreground text-2xl font-normal tracking-tight'>
+              SyftHub
+            </span>
           </div>
 
           {/* Tagline */}
           <div className='space-y-4 text-center'>
-            <h1 className='font-rubik text-foreground text-4xl font-medium leading-tight'>
+            <h1 className='font-rubik text-foreground text-4xl leading-tight font-medium'>
               Ask{' '}
               <span className='from-chart-1 via-chart-2 to-chart-3 bg-gradient-to-r bg-clip-text text-transparent'>
                 anyone, anything
-              </span>
-              {' '}&mdash; at source
+              </span>{' '}
+              &mdash; at source
             </h1>
             <p className='font-inter text-muted-foreground text-base'>
               A directory for querying trusted data sources with attribution and privacy built in.
@@ -152,21 +154,18 @@ export function Hero({
           {/* Search Bar */}
           <div className='space-y-4'>
             <QueryInput
-                variant='hero'
-                onSubmit={handleSubmit}
-                disabled={isWorkflowActive}
-                isProcessing={workflow.phase === 'streaming'}
-                placeholder='Ask a question about any connected source...'
-                autoFocus
-                id='hero-search'
-                ariaLabel='Query connected data sources'
-              />
+              variant='hero'
+              onSubmit={handleSubmit}
+              disabled={isWorkflowActive}
+              isProcessing={workflow.phase === 'streaming'}
+              placeholder='Ask a question about any connected source...'
+              autoFocus
+              id='hero-search'
+              ariaLabel='Query connected data sources'
+            />
 
             {/* Search Suggestions Pills */}
-            <SearchSuggestions
-              suggestions={SEARCH_SUGGESTIONS}
-              onSelect={handleSuggestionClick}
-            />
+            <SearchSuggestions suggestions={SEARCH_SUGGESTIONS} onSelect={handleSuggestionClick} />
           </div>
         </div>
       </section>

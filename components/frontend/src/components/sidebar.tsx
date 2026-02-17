@@ -114,7 +114,7 @@ export function Sidebar() {
         className='text-muted-foreground hover:text-foreground group mt-auto flex flex-col items-center gap-1 transition-colors'
         title='Documentation'
       >
-        <div className='rounded-lg p-2 transition-colors group-hover:bg-muted'>
+        <div className='group-hover:bg-muted rounded-lg p-2 transition-colors'>
           <BookOpen className='h-5 w-5' aria-hidden='true' />
         </div>
         <span className='font-inter text-[10px]'>Docs</span>
