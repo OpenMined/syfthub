@@ -22,17 +22,9 @@ import { useModels } from '@/hooks/use-models';
 // Constants
 // =============================================================================
 
-const FEATURES = [
-  { label: 'Secure & Private', color: 'bg-chart-1', icon: '🔒' },
-  { label: 'Rare Data & Models', color: 'bg-chart-2', icon: '💎' },
-  { label: 'Federated Access', color: 'bg-chart-3', icon: '🌐' }
-] as const;
-
 const SEARCH_SUGGESTIONS = [
-  'Find genomics datasets',
-  'Query financial data sources',
-  'Explore climate research',
-  'Access medical imaging data'
+  'Ask Peter Thiel about startup contrarianism',
+  'Ask the WGA about parental leave for screenwriters'
 ] as const;
 
 // =============================================================================
@@ -140,64 +132,46 @@ export function Hero({
           {/* Logo */}
           <div className='flex items-center justify-center gap-4'>
             <OpenMinedIcon className='h-8 w-8' />
-            <span className='font-rubik text-foreground text-2xl font-medium tracking-tight'>SyftHub</span>
+            <span className='font-rubik text-foreground text-2xl font-normal tracking-tight'>SyftHub</span>
           </div>
 
           {/* Tagline */}
-          <div className='space-y-6 pb-4 text-center'>
+          <div className='space-y-4 text-center'>
             <h1 className='font-rubik text-foreground text-4xl font-medium leading-tight'>
-              Access the World's{' '}
+              Ask{' '}
               <span className='from-chart-1 via-chart-2 to-chart-3 bg-gradient-to-r bg-clip-text text-transparent'>
-                Collective Intelligence
+                anyone, anything
               </span>
             </h1>
-            <div className='space-y-3'>
-              <p className='font-inter text-foreground/90 text-lg font-medium'>
-                Query trusted data sources — public, copyrighted, or private — directly from source.
-              </p>
-              <p className='font-inter text-muted-foreground text-sm'>
-                Built for researchers, developers, and organizations seeking reliable data access
-              </p>
-            </div>
+            <p className='font-inter text-muted-foreground text-base'>
+              Query people, organizations, and datasets directly.
+            </p>
           </div>
 
-          {/* Feature Badges and Search Bar */}
-          <div className='space-y-6'>
-            {/* Feature Badges */}
-            <div className='flex flex-wrap items-center justify-center gap-6'>
-              {FEATURES.map((feature, index) => (
-                <div key={index} className='flex items-center gap-3 rounded-full border bg-card/50 px-4 py-2 backdrop-blur-sm'>
-                  <span className='text-base'>{feature.icon}</span>
-                  <span className='font-inter text-foreground/80 text-sm font-medium'>{feature.label}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Search Bar */}
-            <div className='space-y-4'>
-              <QueryInput
+          {/* Search Bar */}
+          <div className='space-y-4'>
+            <QueryInput
                 variant='hero'
                 onSubmit={handleSubmit}
                 disabled={isWorkflowActive}
                 isProcessing={workflow.phase === 'streaming'}
-                placeholder='What are you looking for…'
+                placeholder='Ask a question about any connected source...'
                 autoFocus
                 id='hero-search'
-                ariaLabel='Search for data sources, models, or topics'
+                ariaLabel='Query connected data sources'
               />
 
-              {/* Search Suggestions Pills */}
-              <SearchSuggestions
-                suggestions={SEARCH_SUGGESTIONS}
-                onSelect={handleSuggestionClick}
-              />
-            </div>
+            {/* Search Suggestions Pills */}
+            <SearchSuggestions
+              suggestions={SEARCH_SUGGESTIONS}
+              onSelect={handleSuggestionClick}
+            />
           </div>
         </div>
       </section>
 
       {/* Workflow Overlay - shown when workflow is active */}
-      <WorkflowOverlay workflow={workflow} availableSources={sources} />
+      <WorkflowOverlay workflow={workflow} />
     </>
   );
 }

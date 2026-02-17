@@ -296,4 +296,33 @@
   .text-pretty {
     text-wrap: pretty;
   }
+
+  /* Minimalist scrollbar - just the thumb, no background or arrows */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--muted-foreground) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--muted-foreground);
+    border-radius: 3px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--foreground);
+  }
+
+  /* Hide scrollbar arrows (buttons) */
+  *::-webkit-scrollbar-button {
+    display: none;
+  }
 }

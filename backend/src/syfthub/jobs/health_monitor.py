@@ -30,7 +30,7 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
 import httpx
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.sql import label
 
 from syfthub.core.url_builder import build_connection_url, get_first_enabled_connection
@@ -40,6 +40,7 @@ from syfthub.models.organization import OrganizationModel
 from syfthub.models.user import UserModel
 
 if TYPE_CHECKING:
+    from sqlalchemy.engine import CursorResult
     from sqlalchemy.orm import Session
 
     from syfthub.core.config import Settings
@@ -369,6 +370,11 @@ class EndpointHealthMonitor:
     ) -> bool:
         """Update the is_active status of an endpoint.
 
+        Uses a Core-level UPDATE statement to bypass the ORM's onupdate
+        hook on updated_at. Health monitor status changes should not
+        modify the updated_at timestamp, which should only reflect
+        user-initiated changes.
+
         Args:
             session: Database session to use for the update
             endpoint_id: ID of the endpoint to update
@@ -378,12 +384,14 @@ class EndpointHealthMonitor:
             True if update was successful, False otherwise
         """
         try:
-            endpoint = session.get(EndpointModel, endpoint_id)
-            if endpoint:
-                endpoint.is_active = is_active
-                session.commit()
-                return True
-            return False
+            stmt = (
+                update(EndpointModel)
+                .where(EndpointModel.id == endpoint_id)
+                .values(is_active=is_active)
+            )
+            result: CursorResult = session.execute(stmt)  # type: ignore[assignment]
+            session.commit()
+            return bool(result.rowcount > 0)
         except Exception as e:
             logger.error(f"Failed to update endpoint {endpoint_id} status: {e}")
             session.rollback()

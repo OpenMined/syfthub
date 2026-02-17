@@ -23,6 +23,17 @@ class EndpointType(str, Enum):
 
     MODEL = "model"  # Machine learning model endpoint
     DATA_SOURCE = "data_source"  # Data source endpoint
+    MODEL_DATA_SOURCE = "model_data_source"  # Both model and data source
+
+
+def get_matching_types(endpoint_type: EndpointType) -> list[str]:
+    """Get all type values that match a filter, including model_data_source for model/data_source."""
+    if endpoint_type == EndpointType.MODEL:
+        return [EndpointType.MODEL.value, EndpointType.MODEL_DATA_SOURCE.value]
+    elif endpoint_type == EndpointType.DATA_SOURCE:
+        return [EndpointType.DATA_SOURCE.value, EndpointType.MODEL_DATA_SOURCE.value]
+    else:
+        return [endpoint_type.value]
 
 
 class Policy(BaseModel):
@@ -121,7 +132,7 @@ class EndpointBase(BaseModel):
         "", max_length=500, description="Description of the endpoint"
     )
     type: EndpointType = Field(
-        ..., description="Type of endpoint (model or data_source)"
+        ..., description="Type of endpoint (model, data_source, or model_data_source)"
     )
     visibility: EndpointVisibility = Field(
         default=EndpointVisibility.PUBLIC, description="Who can access this endpoint"
@@ -347,7 +358,7 @@ class Endpoint(BaseModel):
     name: str = Field(..., description="Display name of the endpoint")
     description: str = Field(..., description="Description of the endpoint")
     type: EndpointType = Field(
-        ..., description="Type of endpoint (model or data_source)"
+        ..., description="Type of endpoint (model, data_source, or model_data_source)"
     )
     visibility: EndpointVisibility = Field(
         ..., description="Who can access this endpoint"
@@ -394,7 +405,7 @@ class EndpointResponse(BaseModel):
     slug: str = Field(..., description="URL-safe identifier")
     description: str = Field(..., description="Description of the endpoint")
     type: EndpointType = Field(
-        ..., description="Type of endpoint (model or data_source)"
+        ..., description="Type of endpoint (model, data_source, or model_data_source)"
     )
     visibility: EndpointVisibility = Field(
         ..., description="Who can access this endpoint"
@@ -426,7 +437,7 @@ class EndpointPublicResponse(BaseModel):
     slug: str = Field(..., description="URL-safe identifier")
     description: str = Field(..., description="Description of the endpoint")
     type: EndpointType = Field(
-        ..., description="Type of endpoint (model or data_source)"
+        ..., description="Type of endpoint (model, data_source, or model_data_source)"
     )
     owner_username: str = Field(..., description="Username of the endpoint owner")
     # Show contributor count (not user IDs) for privacy - users can see collaboration level

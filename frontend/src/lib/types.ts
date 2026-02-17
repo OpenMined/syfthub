@@ -101,6 +101,41 @@ export interface UserUpdate {
   aggregator_url?: string;
 }
 
+// =============================================================================
+// User Aggregator Types
+// =============================================================================
+
+/** User aggregator configuration */
+export interface UserAggregator {
+  id: number;
+  user_id: number;
+  name: string;
+  url: string;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Request to create a new user aggregator */
+export interface UserAggregatorCreate {
+  name: string;
+  url: string;
+  is_default?: boolean;
+}
+
+/** Request to update an existing user aggregator */
+export interface UserAggregatorUpdate {
+  name?: string;
+  url?: string;
+  is_default?: boolean;
+}
+
+/** Response containing list of user aggregators */
+export interface UserAggregatorListResponse {
+  aggregators: UserAggregator[];
+  default_aggregator_id: number | null;
+}
+
 // Availability check responses
 export interface AvailabilityResponse {
   available: boolean;
@@ -112,7 +147,7 @@ export interface AvailabilityResponse {
 export type EndpointVisibility = 'public' | 'private' | 'internal';
 
 // Endpoint type classification
-export type EndpointType = 'model' | 'data_source';
+export type EndpointType = 'model' | 'data_source' | 'model_data_source';
 
 // Policy and Connection types for endpoints
 export interface Policy {

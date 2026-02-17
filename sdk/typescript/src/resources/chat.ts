@@ -31,6 +31,7 @@ import type {
   ChatStreamEvent,
   DocumentSource,
   EndpointRef,
+  Message,
   SourceInfo,
   SourceStatus,
   TokenUsage,
@@ -83,6 +84,18 @@ export class ChatResource {
   ) {}
 
   /**
+   * Check if an endpoint type matches the expected type.
+   * A model_data_source endpoint matches both 'model' and 'data_source'.
+   */
+  private static typeMatches(actualType: string, expectedType: string): boolean {
+    if (actualType === expectedType) return true;
+    if (actualType === EndpointType.MODEL_DATA_SOURCE) {
+      return expectedType === EndpointType.MODEL || expectedType === EndpointType.DATA_SOURCE;
+    }
+    return false;
+  }
+
+  /**
    * Convert any endpoint format to EndpointRef with URL and owner info.
    * The ownerUsername is critical for satellite token authentication.
    */
@@ -97,8 +110,8 @@ export class ChatResource {
 
     // EndpointPublic object
     if (this.isEndpointPublic(endpoint)) {
-      // Validate type if expected
-      if (expectedType && endpoint.type !== expectedType) {
+      // Validate type if expected (model_data_source matches both model and data_source)
+      if (expectedType && !ChatResource.typeMatches(endpoint.type, expectedType)) {
         throw new Error(
           `Expected endpoint type '${expectedType}', got '${endpoint.type}' for '${endpoint.slug}'`
         );
@@ -248,9 +261,10 @@ export class ChatResource {
       temperature?: number;
       similarityThreshold?: number;
       stream?: boolean;
+      messages?: Message[];
     }
   ): Record<string, unknown> {
-    return {
+    const body: Record<string, unknown> = {
       prompt,
       model: {
         url: modelRef.url,
@@ -274,6 +288,10 @@ export class ChatResource {
       similarity_threshold: options.similarityThreshold ?? 0.5,
       stream: options.stream ?? false,
     };
+    if (options.messages && options.messages.length > 0) {
+      body.messages = options.messages.map((m) => ({ role: m.role, content: m.content }));
+    }
+    return body;
   }
 
   /**
@@ -393,6 +411,7 @@ export class ChatResource {
         temperature: options.temperature,
         similarityThreshold: options.similarityThreshold,
         stream: false,
+        messages: options.messages,
       }
     );
 
@@ -490,6 +509,7 @@ export class ChatResource {
         temperature: options.temperature,
         similarityThreshold: options.similarityThreshold,
         stream: true,
+        messages: options.messages,
       }
     );
 

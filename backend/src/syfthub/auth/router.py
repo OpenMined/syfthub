@@ -22,6 +22,7 @@ from syfthub.domain.exceptions import (
 )
 from syfthub.schemas.auth import (
     AuthResponse,
+    GoogleAuthRequest,
     PasswordChange,
     RefreshTokenRequest,
     RegistrationResponse,
@@ -171,6 +172,43 @@ async def login_for_access_token(
 ) -> AuthResponse:
     """OAuth2 compatible token login, get an access token for future requests."""
     return auth_service.login(form_data.username, form_data.password)
+
+
+@router.post(
+    "/google",
+    response_model=AuthResponse,
+    responses={
+        401: {
+            "description": "Invalid Google token",
+            "content": {
+                "application/json": {"example": {"detail": "Invalid Google token"}}
+            },
+        },
+        503: {
+            "description": "Google OAuth not configured",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "Google OAuth is not configured"}
+                }
+            },
+        },
+    },
+)
+async def google_login(
+    google_data: GoogleAuthRequest,
+    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+) -> AuthResponse:
+    """Authenticate or register user via Google OAuth.
+
+    This endpoint handles both login and registration for Google OAuth:
+    - If the user exists (by Google ID or email), they are logged in
+    - If the user doesn't exist, a new account is created
+    - If email matches an existing account, the Google account is linked
+
+    The credential should be the Google ID token (JWT) received from
+    Google Sign-In on the frontend.
+    """
+    return auth_service.google_login(google_data.credential)
 
 
 @router.post("/refresh", response_model=Token)

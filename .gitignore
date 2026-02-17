@@ -6,6 +6,10 @@ __pycache__/
 # C extensions
 *.so
 
+# LLM stuff
+.interface-design/
+CLAUDE.md
+
 # Distribution / packaging
 .Python
 build/
@@ -32,6 +36,7 @@ MANIFEST
 # PyInstaller
 *.manifest
 *.spec
+!cli/syft.spec
 
 # Installer logs
 pip-log.txt

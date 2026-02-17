@@ -147,6 +147,8 @@ export interface ChatOptions {
   aggregatorUrl?: string;
   /** Use guest mode for unauthenticated access to policy-free endpoints */
   guestMode?: boolean;
+  /** Conversation history (prior turns) for multi-turn context */
+  messages?: Message[];
 }
 
 /**

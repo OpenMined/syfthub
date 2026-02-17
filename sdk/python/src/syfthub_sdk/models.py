@@ -22,6 +22,7 @@ class EndpointType(str, Enum):
 
     MODEL = "model"
     DATA_SOURCE = "data_source"
+    MODEL_DATA_SOURCE = "model_data_source"
 
 
 class UserRole(str, Enum):
@@ -487,6 +488,45 @@ class SyncEndpointsResponse(BaseModel):
     deleted: int = Field(..., ge=0, description="Number of endpoints deleted")
     endpoints: list[Endpoint] = Field(
         ..., description="List of created endpoints with full details"
+    )
+
+    model_config = {"frozen": True}
+
+
+# =============================================================================
+# User Aggregator Models
+# =============================================================================
+
+
+class UserAggregator(BaseModel):
+    """A user's aggregator configuration.
+
+    Aggregators are custom RAG orchestration service endpoints that users can
+    configure to use for chat operations. Each user can have multiple aggregator
+    configurations, with one set as the default.
+
+    Example:
+        # List user's aggregators
+        for agg in client.users.aggregators.list():
+            print(f"{agg.name}: {agg.url} (default={agg.is_default})")
+
+        # Create a new aggregator
+        agg = client.users.aggregators.create(
+            name="My Aggregator",
+            url="https://my-aggregator.example.com"
+        )
+    """
+
+    id: int = Field(..., description="Unique aggregator configuration ID")
+    user_id: int = Field(..., description="Owner user ID")
+    name: str = Field(..., description="Display name for the aggregator")
+    url: str = Field(..., description="Aggregator service URL")
+    is_default: bool = Field(
+        default=False, description="Whether this is the user's default aggregator"
+    )
+    created_at: datetime = Field(..., description="When the aggregator was created")
+    updated_at: datetime = Field(
+        ..., description="When the aggregator was last updated"
     )
 
     model_config = {"frozen": True}

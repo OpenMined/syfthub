@@ -20,6 +20,26 @@ import type {
 import { syftClient } from './sdk-client';
 
 // ============================================================================
+// Type Matching Helpers
+// ============================================================================
+
+/**
+ * Check if an endpoint type should be treated as a model.
+ * model_data_source endpoints are included.
+ */
+export function isModelEndpoint(type: EndpointType): boolean {
+  return type === 'model' || type === 'model_data_source';
+}
+
+/**
+ * Check if an endpoint type should be treated as a data source.
+ * model_data_source endpoints are included.
+ */
+export function isDataSourceEndpoint(type: EndpointType): boolean {
+  return type === 'data_source' || type === 'model_data_source';
+}
+
+// ============================================================================
 // Type Mapping Utilities
 // ============================================================================
 
@@ -161,6 +181,120 @@ export function mapSdkEndpointToResponse(
 // ============================================================================
 
 /**
+ * Response type for paginated endpoint queries.
+ */
+export interface PaginatedEndpointsResponse {
+  items: ChatSource[];
+  hasNextPage: boolean;
+}
+
+/**
+ * Raw API response shape for public endpoints (snake_case from backend).
+ * The SDK normally transforms these to camelCase, but getPublicEndpointsPaginated
+ * uses raw fetch() to support server-side pagination, so we transform manually.
+ */
+interface RawEndpointPublic {
+  name: string;
+  slug: string;
+  description: string;
+  type: string;
+  owner_username: string;
+  contributors_count: number;
+  version: string;
+  readme: string;
+  tags: string[];
+  stars_count: number;
+  policies: Array<{
+    type: string;
+    version: string;
+    enabled: boolean;
+    description: string;
+    config: Record<string, unknown>;
+  }>;
+  connect: Array<{
+    type: string;
+    enabled: boolean;
+    description: string;
+    config: Record<string, unknown>;
+  }>;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Transform a raw API endpoint response (snake_case) to the SDK EndpointPublic
+ * format (camelCase with Date objects) that mapEndpointPublicToSource expects.
+ */
+function transformRawEndpoint(raw: RawEndpointPublic): SdkEndpointPublic {
+  return {
+    name: raw.name,
+    slug: raw.slug,
+    description: raw.description,
+    type: raw.type,
+    ownerUsername: raw.owner_username,
+    contributorsCount: raw.contributors_count,
+    version: raw.version,
+    readme: raw.readme,
+    tags: raw.tags,
+    starsCount: raw.stars_count,
+    policies: raw.policies,
+    connect: raw.connect,
+    createdAt: new Date(raw.created_at),
+    updatedAt: new Date(raw.updated_at)
+  } as unknown as SdkEndpointPublic;
+}
+
+/**
+ * Get public endpoints from the hub with pagination support.
+ *
+ * Uses the "fetch N+1" pattern to detect if there are more pages.
+ * Uses raw fetch() instead of the SDK client to support server-side
+ * pagination with skip/limit and endpoint_type filtering.
+ *
+ * @param params - Pagination and filter parameters
+ * @returns Paginated response with items and hasNextPage flag
+ */
+export async function getPublicEndpointsPaginated(
+  params: { page?: number; limit?: number; endpoint_type?: EndpointType } = {}
+): Promise<PaginatedEndpointsResponse> {
+  const { page = 1, limit = 12, endpoint_type } = params;
+  const skip = (page - 1) * limit;
+
+  try {
+    // Build query params
+    const queryParams = new URLSearchParams({
+      skip: String(skip),
+      limit: String(limit + 1) // Fetch one extra to detect if there's a next page
+    });
+
+    if (endpoint_type) {
+      queryParams.append('endpoint_type', endpoint_type);
+    }
+
+    const response = await fetch(`/api/v1/endpoints/public?${queryParams.toString()}`);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch endpoints: ${response.statusText}`);
+    }
+
+    // Raw API returns snake_case JSON; transform to camelCase SDK types
+    const rawData = (await response.json()) as RawEndpointPublic[];
+    const data = rawData.map((ep) => transformRawEndpoint(ep));
+
+    // Check if there's a next page (we fetched limit+1 items)
+    const hasNextPage = data.length > limit;
+
+    // Map only the requested number of items
+    const items = data.slice(0, limit).map((ep) => mapEndpointPublicToSource(ep));
+
+    return { items, hasNextPage };
+  } catch (error) {
+    console.error('Failed to fetch paginated public endpoints:', error);
+    return { items: [], hasNextPage: false };
+  }
+}
+
+/**
  * Get public endpoints from the hub.
  *
  * @param params - Pagination and filter parameters
@@ -177,9 +311,13 @@ export async function getPublicEndpoints(
 
     let results = endpoints.map((ep) => mapEndpointPublicToSource(ep));
 
-    // Client-side type filtering if specified
+    // Client-side type filtering if specified (inclusive: model_data_source matches both)
     if (params.endpoint_type) {
-      results = results.filter((ep) => ep.type === params.endpoint_type);
+      results = results.filter((ep) => {
+        if (params.endpoint_type === 'model') return isModelEndpoint(ep.type);
+        if (params.endpoint_type === 'data_source') return isDataSourceEndpoint(ep.type);
+        return ep.type === params.endpoint_type;
+      });
     }
 
     return results;
@@ -207,9 +345,13 @@ export async function getTrendingEndpoints(
 
     let results = endpoints.map((ep) => mapEndpointPublicToSource(ep));
 
-    // Client-side type filtering if specified
+    // Client-side type filtering if specified (inclusive: model_data_source matches both)
     if (params.endpoint_type) {
-      results = results.filter((ep) => ep.type === params.endpoint_type);
+      results = results.filter((ep) => {
+        if (params.endpoint_type === 'model') return isModelEndpoint(ep.type);
+        if (params.endpoint_type === 'data_source') return isDataSourceEndpoint(ep.type);
+        return ep.type === params.endpoint_type;
+      });
     }
 
     return results;

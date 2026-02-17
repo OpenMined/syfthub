@@ -59,14 +59,40 @@ class UserRepository(BaseRepository[UserModel]):
         except Exception:
             return None
 
+    def get_by_google_id(self, google_id: str) -> Optional[User]:
+        """Get user by Google OAuth ID."""
+        try:
+            stmt = select(self.model).where(self.model.google_id == google_id)
+            result = self.session.execute(stmt)
+            user_model = result.scalar_one_or_none()
+
+            if user_model:
+                return User.model_validate(user_model)
+            return None
+        except Exception:
+            return None
+
     def create_user(
         self,
         user_data: UserCreate,
-        password_hash: str,
+        password_hash: Optional[str] = None,
         accounting_service_url: Optional[str] = None,
         accounting_password: Optional[str] = None,
+        auth_provider: str = "local",
+        google_id: Optional[str] = None,
+        avatar_url: Optional[str] = None,
     ) -> Optional[User]:
-        """Create a new user."""
+        """Create a new user.
+
+        Args:
+            user_data: User creation data (username, email, full_name)
+            password_hash: Hashed password (required for local auth, None for OAuth)
+            accounting_service_url: URL to accounting service
+            accounting_password: Password for accounting service
+            auth_provider: Authentication provider ('local' or 'google')
+            google_id: Google OAuth user ID (for Google auth)
+            avatar_url: URL to user's avatar image
+        """
         try:
             user_model = UserModel(
                 username=user_data.username.lower(),
@@ -76,6 +102,9 @@ class UserRepository(BaseRepository[UserModel]):
                 is_active=True,
                 accounting_service_url=accounting_service_url,
                 accounting_password=accounting_password,
+                auth_provider=auth_provider,
+                google_id=google_id,
+                avatar_url=avatar_url,
             )
 
             self.session.add(user_model)
@@ -132,6 +161,34 @@ class UserRepository(BaseRepository[UserModel]):
                 return False
 
             user_model.password_hash = new_password_hash
+            self.session.commit()
+            return True
+        except Exception:
+            self.session.rollback()
+            return False
+
+    def link_google_account(
+        self, user_id: int, google_id: str, avatar_url: Optional[str] = None
+    ) -> bool:
+        """Link a Google account to an existing user.
+
+        Args:
+            user_id: ID of the user to update
+            google_id: Google OAuth user ID
+            avatar_url: Google profile picture URL (optional)
+
+        Returns:
+            True if update was successful, False otherwise
+        """
+        try:
+            user_model = self.session.get(self.model, user_id)
+            if not user_model:
+                return False
+
+            user_model.google_id = google_id
+            if avatar_url and not user_model.avatar_url:
+                user_model.avatar_url = avatar_url
+
             self.session.commit()
             return True
         except Exception:

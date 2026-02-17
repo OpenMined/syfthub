@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import type { LoginFormValues } from '@/lib/schemas';
 
 import { zodResolver } from '@hookform/resolvers/zod';
+import { GoogleLogin } from '@react-oauth/google';
 import Mail from 'lucide-react/dist/esm/icons/mail';
 import { useForm } from 'react-hook-form';
 
@@ -11,8 +12,11 @@ import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/context/auth-context';
 import { loginSchema } from '@/lib/schemas';
+import { isGoogleOAuthEnabled } from '@/lib/sdk-client';
 
 import { AuthErrorAlert, AuthLoadingOverlay } from './auth-utils';
+
+const googleOAuthEnabled = isGoogleOAuthEnabled();
 
 interface LoginModalProperties {
   isOpen: boolean;
@@ -25,7 +29,7 @@ export function LoginModal({
   onClose,
   onSwitchToRegister
 }: Readonly<LoginModalProperties>) {
-  const { login, isLoading, error, clearError } = useAuth();
+  const { login, loginWithGoogle, isLoading, error, clearError } = useAuth();
 
   const {
     register,
@@ -123,6 +127,39 @@ export function LoginModal({
             {isLoading ? 'Signing in…' : 'Sign In'}
           </Button>
         </form>
+
+        {/* Google OAuth - only shown if configured */}
+        {googleOAuthEnabled && (
+          <>
+            <div className='relative my-4'>
+              <div className='absolute inset-0 flex items-center'>
+                <span className='border-border w-full border-t' />
+              </div>
+              <div className='relative flex justify-center text-xs uppercase'>
+                <span className='bg-background text-muted-foreground px-2'>Or continue with</span>
+              </div>
+            </div>
+
+            <div className='flex justify-center'>
+              <GoogleLogin
+                onSuccess={(credentialResponse) => {
+                  if (credentialResponse.credential) {
+                    void loginWithGoogle(credentialResponse.credential).then(() => {
+                      onClose();
+                    });
+                  }
+                }}
+                onError={() => {
+                  clearError();
+                }}
+                theme='outline'
+                size='large'
+                width='100%'
+                text='signin_with'
+              />
+            </div>
+          </>
+        )}
 
         {/* Switch to Register */}
         <div className='border-border border-t pt-4 text-center text-sm'>

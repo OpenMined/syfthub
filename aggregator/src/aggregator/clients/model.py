@@ -90,9 +90,7 @@ class ModelClient:
         chat_url = f"{url.rstrip('/')}/api/v1/endpoints/{slug}/query"
 
         # Convert messages to SyftAI-Space format
-        formatted_messages = [
-            {"role": msg.role, "content": msg.content} for msg in messages
-        ]
+        formatted_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 
         # Build SyftAI-Space compatible request body
         # User identity is derived from the satellite token, not the request body
@@ -163,12 +161,18 @@ class ModelClient:
                     if response.status_code != 200:
                         error_detail = self._extract_error_detail(response)
 
+                        # Detect HTML error pages (e.g. ngrok offline page)
+                        # and use a friendly message for the user-facing error
+                        is_html = self._is_html_error_page(error_detail)
+                        user_message = (
+                            self._build_unreachable_message(slug)
+                            if is_html
+                            else f"Model request failed: HTTP {response.status_code} - {error_detail}"
+                        )
+
                         # Retry on transient upstream errors
-                        if (
-                            response.status_code in RETRYABLE_STATUS_CODES
-                            and attempt < MAX_RETRIES
-                        ):
-                            delay = RETRY_BASE_DELAY * (2 ** attempt)
+                        if response.status_code in RETRYABLE_STATUS_CODES and attempt < MAX_RETRIES:
+                            delay = RETRY_BASE_DELAY * (2**attempt)
                             logger.warning(
                                 LogEvents.MODEL_QUERY_FAILED,
                                 status_code=response.status_code,
@@ -179,7 +183,7 @@ class ModelClient:
                                 retry_delay=delay,
                             )
                             last_error = ModelClientError(
-                                f"Model request failed: HTTP {response.status_code} - {error_detail}",
+                                user_message,
                                 status_code=response.status_code,
                             )
                             await asyncio.sleep(delay)
@@ -202,7 +206,7 @@ class ModelClient:
                             request_data=request_data,
                         )
                         raise ModelClientError(
-                            f"Model request failed: HTTP {response.status_code} - {error_detail}",
+                            user_message,
                             status_code=response.status_code,
                         )
 
@@ -251,9 +255,7 @@ class ModelClient:
                     logger.warning(LogEvents.CHAT_GENERATION_TIMEOUT, chat_url=chat_url)
                     raise ModelClientError("Model request timed out") from e
                 except httpx.RequestError as e:
-                    logger.warning(
-                        LogEvents.MODEL_QUERY_FAILED, chat_url=chat_url, error=str(e)
-                    )
+                    logger.warning(LogEvents.MODEL_QUERY_FAILED, chat_url=chat_url, error=str(e))
                     raise ModelClientError(f"Network error: {e}") from e
 
         # All retries exhausted
@@ -295,9 +297,7 @@ class ModelClient:
         chat_url = f"{url.rstrip('/')}/api/v1/endpoints/{slug}/query"
 
         # Convert messages to SyftAI-Space format
-        formatted_messages = [
-            {"role": msg.role, "content": msg.content} for msg in messages
-        ]
+        formatted_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 
         # Build SyftAI-Space compatible request body
         # User identity is derived from the satellite token, not the request body
@@ -342,7 +342,11 @@ class ModelClient:
                 ) as response:
                     if response.status_code == 403:
                         error_text = await response.aread()
-                        error_str = error_text[:200].decode("utf-8", errors="replace") if isinstance(error_text, bytes) else str(error_text)[:200]
+                        error_str = (
+                            error_text[:200].decode("utf-8", errors="replace")
+                            if isinstance(error_text, bytes)
+                            else str(error_text)[:200]
+                        )
                         self._report_upstream_error(
                             event=LogEvents.SSE_STREAM_FAILED,
                             message=f"Model access denied: {error_str}",
@@ -358,7 +362,11 @@ class ModelClient:
 
                     if response.status_code != 200:
                         error_text = await response.aread()
-                        error_str = error_text[:200].decode("utf-8", errors="replace") if isinstance(error_text, bytes) else str(error_text)[:200]
+                        error_str = (
+                            error_text[:200].decode("utf-8", errors="replace")
+                            if isinstance(error_text, bytes)
+                            else str(error_text)[:200]
+                        )
                         self._report_upstream_error(
                             event=LogEvents.SSE_STREAM_FAILED,
                             message=f"Model stream failed: HTTP {response.status_code} - {error_str}",
@@ -367,8 +375,13 @@ class ModelClient:
                             error_detail=error_str,
                             request_data=request_data,
                         )
+                        user_message = (
+                            self._build_unreachable_message(slug)
+                            if self._is_html_error_page(error_str)
+                            else f"Model stream failed: HTTP {response.status_code} - {error_str}"
+                        )
                         raise ModelClientError(
-                            f"Model stream failed: HTTP {response.status_code} - {error_str}",
+                            user_message,
                             status_code=response.status_code,
                         )
 
@@ -398,9 +411,7 @@ class ModelClient:
                 logger.warning(LogEvents.SSE_STREAM_FAILED, chat_url=chat_url, error="timeout")
                 raise ModelClientError("Model stream timed out") from e
             except httpx.RequestError as e:
-                logger.warning(
-                    LogEvents.SSE_STREAM_FAILED, chat_url=chat_url, error=str(e)
-                )
+                logger.warning(LogEvents.SSE_STREAM_FAILED, chat_url=chat_url, error=str(e))
                 raise ModelClientError(f"Network error during stream: {e}") from e
 
     def _report_upstream_error(
@@ -436,11 +447,25 @@ class ModelClient:
             response_data={"detail": error_detail},
         )
 
+    @staticmethod
+    def _is_html_error_page(text: str) -> bool:
+        """Check if a response body is an HTML error page (e.g. from ngrok or a reverse proxy)."""
+        stripped = text.strip().lower()
+        return stripped.startswith("<!doctype html") or stripped.startswith("<html")
+
+    @staticmethod
+    def _build_unreachable_message(slug: str) -> str:
+        """Build a user-friendly message for unreachable endpoints."""
+        return (
+            f"The model endpoint '{slug}' is currently unreachable. "
+            "Please contact the endpoint owner for further assistance."
+        )
+
     def _extract_error_detail(self, response: httpx.Response) -> str:
         """Extract error detail from response."""
         try:
             data = response.json()
-            return data.get("detail", response.text[:200])
+            return str(data.get("detail", response.text[:200]))
         except Exception:
             return response.text[:200]
 
@@ -472,7 +497,7 @@ class ModelClient:
         # Extract message content
         message = summary.get("message", {})
         if isinstance(message, dict):
-            return message.get("content", "")
+            return str(message.get("content", ""))
         if isinstance(message, str):
             return message
 
@@ -517,7 +542,8 @@ class ModelClient:
                     if summary:
                         message = summary.get("message", {})
                         if isinstance(message, dict):
-                            return message.get("content")
+                            content = message.get("content")
+                            return str(content) if content is not None else None
 
                 # OpenAI-style delta (for compatibility)
                 if "choices" in parsed:
@@ -527,14 +553,15 @@ class ModelClient:
                         if isinstance(first_choice, dict):
                             delta = first_choice.get("delta", {})
                             if isinstance(delta, dict):
-                                return delta.get("content")
+                                content = delta.get("content")
+                                return str(content) if content is not None else None
 
                 # Simple content field
                 if "content" in parsed:
-                    return parsed["content"]
+                    return str(parsed["content"])
 
                 if "text" in parsed:
-                    return parsed["text"]
+                    return str(parsed["text"])
 
             except json.JSONDecodeError:
                 # Plain text data

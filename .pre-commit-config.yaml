@@ -33,6 +33,15 @@ repos:
         name: ruff-format (sdk/python)
         args: [--config=sdk/python/pyproject.toml]
         files: ^sdk/python/
+      # CLI hooks
+      - id: ruff
+        name: ruff (cli)
+        args: [--fix, --config=cli/pyproject.toml]
+        files: ^cli/
+      - id: ruff-format
+        name: ruff-format (cli)
+        args: [--config=cli/pyproject.toml]
+        files: ^cli/
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.18.2
@@ -59,6 +68,8 @@ repos:
           types-sqlalchemy,
           types-markdown,
           types-passlib,
+          google-auth,
+          types-urllib3,
         ]
       # Python SDK mypy
       - id: mypy
@@ -70,6 +81,19 @@ repos:
         additional_dependencies: [
           httpx,
           pydantic,
+        ]
+      # CLI mypy
+      - id: mypy
+        name: mypy (cli)
+        args: [--config-file=cli/pyproject.toml]
+        pass_filenames: false
+        entry: sh -c 'cd cli && mypy src/syfthub_cli --ignore-missing-imports'
+        files: ^cli/.*\.py$
+        additional_dependencies: [
+          typer,
+          rich,
+          pydantic,
+          httpx,
         ]
 
   # Frontend hooks

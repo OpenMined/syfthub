@@ -29,6 +29,7 @@ Example usage:
 """
 
 from syfthub_sdk._pagination import PageIterator
+from syfthub_sdk.aggregators import AggregatorsResource
 from syfthub_sdk.chat import (
     ChatResource,
     ChatStreamEvent,
@@ -84,6 +85,7 @@ from syfthub_sdk.models import (
     Transaction,
     TransactionStatus,
     User,
+    UserAggregator,
     UserRole,
     Visibility,
 )
@@ -138,6 +140,9 @@ __all__ = [
     "CreatorType",
     # Sync models
     "SyncEndpointsResponse",
+    # User Aggregator models
+    "UserAggregator",
+    "AggregatorsResource",
     # Exceptions
     "SyftHubError",
     "AuthenticationError",

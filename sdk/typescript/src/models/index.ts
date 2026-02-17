@@ -9,6 +9,9 @@ export type {
   UserUpdateInput,
   PasswordChangeInput,
   AccountingCredentials,
+  UserAggregator,
+  UserAggregatorCreateInput,
+  UserAggregatorUpdateInput,
 } from './user.js';
 
 // Endpoint types

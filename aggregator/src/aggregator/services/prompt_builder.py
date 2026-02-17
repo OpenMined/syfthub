@@ -59,6 +59,7 @@ Remember: If you cannot find the answer in the provided documents, say so. Never
         user_prompt: str,
         context: AggregatedContext | None = None,
         custom_system_prompt: str | None = None,
+        history: list[Message] | None = None,
     ) -> list[Message]:
         """
         Build a list of messages for the model, incorporating retrieved context.
@@ -67,15 +68,22 @@ Remember: If you cannot find the answer in the provided documents, say so. Never
             user_prompt: The user's original question/prompt
             context: Aggregated context from data sources (optional)
             custom_system_prompt: Override the default system prompt
+            history: Prior conversation turns for multi-turn context
 
         Returns:
-            List of messages ready to send to the model
+            List of messages ready to send to the model.
+            Format: [system, *history, user_with_RAG_context]
         """
         messages: list[Message] = []
 
         # Build simple system message
         system_content = custom_system_prompt or self.system_prompt
         messages.append(Message(role="system", content=system_content))
+
+        # Insert conversation history between system and new user message
+        if history:
+            for msg in history:
+                messages.append(Message(role=msg.role, content=msg.content))
 
         # Build user message with instructions, context, and question blended
         user_content = self._build_user_content(
@@ -146,7 +154,11 @@ Remember: If you cannot find the answer in the provided documents, say so. Never
         for source_path, documents in docs_by_source.items():
             for doc in documents:
                 # Extract title from metadata or use fallback
-                title = doc.metadata.get("title") or doc.metadata.get("document_title") or f"Document {doc_number}"
+                title = (
+                    doc.metadata.get("title")
+                    or doc.metadata.get("document_title")
+                    or f"Document {doc_number}"
+                )
                 relevance = f"{doc.score:.2f}" if doc.score > 0 else "N/A"
 
                 formatted_parts.append(f"""
@@ -163,7 +175,11 @@ Remember: If you cannot find the answer in the provided documents, say so. Never
         # If no grouped documents, fall back to flat list
         if not formatted_parts and context.documents:
             for doc in context.documents:
-                title = doc.metadata.get("title") or doc.metadata.get("document_title") or f"Document {doc_number}"
+                title = (
+                    doc.metadata.get("title")
+                    or doc.metadata.get("document_title")
+                    or f"Document {doc_number}"
+                )
                 relevance = f"{doc.score:.2f}" if doc.score > 0 else "N/A"
 
                 formatted_parts.append(f"""

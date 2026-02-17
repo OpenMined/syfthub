@@ -5,6 +5,8 @@ import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
 import ChevronUp from 'lucide-react/dist/esm/icons/chevron-up';
 import FileText from 'lucide-react/dist/esm/icons/file-text';
 
+import { OnboardingCallout } from '@/components/onboarding';
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -267,57 +269,59 @@ export function SourcesSection({ sources }: Readonly<SourcesSectionProps>) {
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.2 }}
-      className='border-border bg-card mt-3 rounded-xl border'
-    >
-      {/* Header / Toggle Button */}
-      <button
-        onClick={toggleExpanded}
-        className='hover:bg-muted flex w-full items-center justify-between px-4 py-2.5 transition-colors'
+    <OnboardingCallout step='sources-section' position='right'>
+      <motion.div
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2 }}
+        className='border-border bg-card mt-3 rounded-xl border'
       >
-        <div className='flex items-center gap-2'>
-          <FileText className='text-secondary h-4 w-4' />
-          <span className='font-inter text-muted-foreground text-sm font-medium'>Sources</span>
-          <span className='font-inter bg-secondary/10 text-secondary rounded-full px-2 py-0.5 text-xs font-medium'>
-            {documentCount} {documentCount === 1 ? 'document' : 'documents'}
-          </span>
-        </div>
+        {/* Header / Toggle Button */}
+        <button
+          onClick={toggleExpanded}
+          className='hover:bg-muted flex w-full items-center justify-between px-4 py-2.5 transition-colors'
+        >
+          <div className='flex items-center gap-2'>
+            <FileText className='text-secondary h-4 w-4' />
+            <span className='font-inter text-muted-foreground text-sm font-medium'>Sources</span>
+            <span className='font-inter bg-secondary/10 text-secondary rounded-full px-2 py-0.5 text-xs font-medium'>
+              {documentCount} {documentCount === 1 ? 'document' : 'documents'}
+            </span>
+          </div>
 
-        {isExpanded ? (
-          <ChevronUp className='text-muted-foreground h-4 w-4' />
-        ) : (
-          <ChevronDown className='text-muted-foreground h-4 w-4' />
-        )}
-      </button>
+          {isExpanded ? (
+            <ChevronUp className='text-muted-foreground h-4 w-4' />
+          ) : (
+            <ChevronDown className='text-muted-foreground h-4 w-4' />
+          )}
+        </button>
 
-      {/* Expandable Content */}
-      <AnimatePresence>
-        {isExpanded ? (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className='overflow-hidden'
-          >
-            <div className='border-border border-t px-4 py-3'>
-              <div className='space-y-0.5'>
-                {sourceEntries.map(([title, source], index) => (
-                  <SourceItem
-                    key={`${source.slug}-${title}`}
-                    title={title}
-                    source={source}
-                    index={index}
-                  />
-                ))}
+        {/* Expandable Content */}
+        <AnimatePresence>
+          {isExpanded ? (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className='overflow-hidden'
+            >
+              <div className='border-border border-t px-4 py-3'>
+                <div className='space-y-0.5'>
+                  {sourceEntries.map(([title, source], index) => (
+                    <SourceItem
+                      key={`${source.slug}-${title}`}
+                      title={title}
+                      source={source}
+                      index={index}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
-    </motion.div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      </motion.div>
+    </OnboardingCallout>
   );
 }

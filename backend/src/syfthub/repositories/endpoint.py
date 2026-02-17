@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from syfthub.core.url_builder import transform_connection_urls
 from syfthub.models.endpoint import EndpointModel, EndpointStarModel
+from syfthub.models.organization import OrganizationModel
 from syfthub.models.user import UserModel
 from syfthub.repositories.base import BaseRepository
 from syfthub.schemas.endpoint import (
@@ -19,6 +20,7 @@ from syfthub.schemas.endpoint import (
     EndpointType,
     EndpointUpdate,
     EndpointVisibility,
+    get_matching_types,
 )
 
 if TYPE_CHECKING:
@@ -31,6 +33,32 @@ class EndpointRepository(BaseRepository[EndpointModel]):
     def __init__(self, session: Session):
         """Initialize repository with database session."""
         super().__init__(session, EndpointModel)
+
+    def _build_public_select(self):
+        """Build a SELECT statement that includes both user-owned and org-owned endpoints.
+
+        Returns a select() with columns:
+            - EndpointModel (the endpoint)
+            - owner_username (user.username or org.slug)
+            - owner_domain (user.domain or org.domain)
+
+        Uses outerjoin to support both ownership types.
+        """
+        owner_username = func.coalesce(
+            UserModel.username, OrganizationModel.slug
+        ).label("owner_username")
+        owner_domain = func.coalesce(UserModel.domain, OrganizationModel.domain).label(
+            "owner_domain"
+        )
+
+        return (
+            select(self.model, owner_username, owner_domain)
+            .outerjoin(UserModel, self.model.user_id == UserModel.id)
+            .outerjoin(
+                OrganizationModel,
+                self.model.organization_id == OrganizationModel.id,
+            )
+        )
 
     def get_by_id(self, endpoint_id: int) -> Optional[Endpoint]:
         """Get endpoint by ID (only active endpoints)."""
@@ -156,21 +184,21 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         limit: int = 10,
         endpoint_type: Optional[EndpointType] = None,
     ) -> List[EndpointPublicResponse]:
-        """Get all public endpoints with owner usernames and transformed URLs."""
+        """Get all public endpoints with owner usernames and transformed URLs.
+
+        Includes both user-owned and organization-owned endpoints.
+        """
         try:
-            stmt = (
-                select(self.model, UserModel.username, UserModel.domain)
-                .join(UserModel, self.model.user_id == UserModel.id)
-                .where(
-                    and_(
-                        self.model.visibility == EndpointVisibility.PUBLIC.value,
-                        self.model.is_active,
-                    )
+            stmt = self._build_public_select().where(
+                and_(
+                    self.model.visibility == EndpointVisibility.PUBLIC.value,
+                    self.model.is_active,
                 )
             )
 
             if endpoint_type:
-                stmt = stmt.where(self.model.type == endpoint_type.value)
+                matching_types = get_matching_types(endpoint_type)
+                stmt = stmt.where(self.model.type.in_(matching_types))
 
             stmt = stmt.order_by(self.model.updated_at.desc()).offset(skip).limit(limit)
 
@@ -214,6 +242,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
 
         This method is optimized for RAG search results - it fetches endpoints
         by their IDs while preserving the input order (for ranking).
+        Includes both user-owned and organization-owned endpoints.
 
         Args:
             endpoint_ids: List of endpoint IDs to fetch (order is preserved).
@@ -227,15 +256,11 @@ class EndpointRepository(BaseRepository[EndpointModel]):
 
         try:
             # Fetch all matching endpoints in one query
-            stmt = (
-                select(self.model, UserModel.username, UserModel.domain)
-                .join(UserModel, self.model.user_id == UserModel.id)
-                .where(
-                    and_(
-                        self.model.id.in_(endpoint_ids),
-                        self.model.visibility == EndpointVisibility.PUBLIC.value,
-                        self.model.is_active,
-                    )
+            stmt = self._build_public_select().where(
+                and_(
+                    self.model.id.in_(endpoint_ids),
+                    self.model.visibility == EndpointVisibility.PUBLIC.value,
+                    self.model.is_active,
                 )
             )
 
@@ -292,6 +317,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         - Active (is_active=True)
         - Have no policies attached (policies is empty list)
 
+        Includes both user-owned and organization-owned endpoints.
+
         Args:
             skip: Number of endpoints to skip (pagination)
             limit: Maximum number of endpoints to return
@@ -301,22 +328,19 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             List of EndpointPublicResponse objects for guest-accessible endpoints
         """
         try:
-            stmt = (
-                select(self.model, UserModel.username, UserModel.domain)
-                .join(UserModel, self.model.user_id == UserModel.id)
-                .where(
-                    and_(
-                        self.model.visibility == EndpointVisibility.PUBLIC.value,
-                        self.model.is_active,
-                        # Filter for empty policies array (JSON empty array)
-                        # SQLAlchemy handles JSON comparison - empty list [] in JSON
-                        func.json_array_length(self.model.policies) == 0,
-                    )
+            stmt = self._build_public_select().where(
+                and_(
+                    self.model.visibility == EndpointVisibility.PUBLIC.value,
+                    self.model.is_active,
+                    # Filter for empty policies array (JSON empty array)
+                    # SQLAlchemy handles JSON comparison - empty list [] in JSON
+                    func.json_array_length(self.model.policies) == 0,
                 )
             )
 
             if endpoint_type:
-                stmt = stmt.where(self.model.type == endpoint_type.value)
+                matching_types = get_matching_types(endpoint_type)
+                stmt = stmt.where(self.model.type.in_(matching_types))
 
             stmt = stmt.order_by(self.model.updated_at.desc()).offset(skip).limit(limit)
 
@@ -359,16 +383,15 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         min_stars: Optional[int] = None,
         endpoint_type: Optional[EndpointType] = None,
     ) -> List[EndpointPublicResponse]:
-        """Get trending public endpoints with owner usernames and transformed URLs, sorted by stars count."""
+        """Get trending public endpoints with owner usernames and transformed URLs, sorted by stars count.
+
+        Includes both user-owned and organization-owned endpoints.
+        """
         try:
-            stmt = (
-                select(self.model, UserModel.username, UserModel.domain)
-                .join(UserModel, self.model.user_id == UserModel.id)
-                .where(
-                    and_(
-                        self.model.visibility == EndpointVisibility.PUBLIC.value,
-                        self.model.is_active,
-                    )
+            stmt = self._build_public_select().where(
+                and_(
+                    self.model.visibility == EndpointVisibility.PUBLIC.value,
+                    self.model.is_active,
                 )
             )
 
@@ -376,7 +399,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 stmt = stmt.where(self.model.stars_count >= min_stars)
 
             if endpoint_type:
-                stmt = stmt.where(self.model.type == endpoint_type.value)
+                matching_types = get_matching_types(endpoint_type)
+                stmt = stmt.where(self.model.type.in_(matching_types))
 
             stmt = (
                 stmt.order_by(self.model.stars_count.desc()).offset(skip).limit(limit)

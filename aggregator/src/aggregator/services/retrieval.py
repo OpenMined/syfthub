@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import time
+from collections.abc import AsyncIterator
 
 from aggregator.clients.data_source import DataSourceClient
 from aggregator.schemas.internal import AggregatedContext, ResolvedEndpoint, RetrievalResult
@@ -111,7 +112,7 @@ class RetrievalService:
         similarity_threshold: float = 0.5,
         endpoint_tokens: dict[str, str] | None = None,
         transaction_tokens: dict[str, str] | None = None,
-    ):
+    ) -> AsyncIterator[RetrievalResult]:
         """
         Retrieve from SyftAI-Space data sources and yield results as they complete.
 

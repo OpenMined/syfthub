@@ -157,11 +157,16 @@ class DataSourceClient:
                         latency_ms=latency_ms,
                         request_data=request_data,
                     )
+                    user_message = (
+                        self._build_unreachable_message(endpoint_path)
+                        if self._is_html_error_page(error_detail)
+                        else f"HTTP {response.status_code}: {error_detail}"
+                    )
                     return RetrievalResult(
                         endpoint_path=endpoint_path,
                         documents=[],
                         status="error",
-                        error_message=f"HTTP {response.status_code}: {error_detail}",
+                        error_message=user_message,
                         latency_ms=latency_ms,
                     )
 
@@ -261,11 +266,25 @@ class DataSourceClient:
             response_data={"detail": error_detail},
         )
 
+    @staticmethod
+    def _is_html_error_page(text: str) -> bool:
+        """Check if a response body is an HTML error page (e.g. from ngrok or a reverse proxy)."""
+        stripped = text.strip().lower()
+        return stripped.startswith("<!doctype html") or stripped.startswith("<html")
+
+    @staticmethod
+    def _build_unreachable_message(endpoint_path: str) -> str:
+        """Build a user-friendly message for unreachable endpoints."""
+        return (
+            f"The data source '{endpoint_path}' is currently unreachable. "
+            "Please contact the endpoint owner for further assistance."
+        )
+
     def _extract_error_detail(self, response: httpx.Response) -> str:
         """Extract error detail from response."""
         try:
             data = response.json()
-            return data.get("detail", response.text[:200])
+            return str(data.get("detail", response.text[:200]))
         except Exception:
             return response.text[:200]
 
@@ -291,7 +310,7 @@ class DataSourceClient:
 
         We extract from references.documents and map similarity_score -> score.
         """
-        documents = []
+        documents: list[Document] = []
 
         # Extract references from SyftAI-Space response
         references = data.get("references")

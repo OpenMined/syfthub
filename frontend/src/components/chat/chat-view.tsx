@@ -3,27 +3,29 @@
  *
  * Main chat interface for querying data sources.
  * Uses shared hooks for model management, data sources, and workflow execution.
- * Orchestrates sub-components: AdvancedPanel, ModelSelector, EndpointConfirmation, etc.
+ * Orchestrates sub-components: ModelSelector, AddSourcesModal, etc.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { WorkflowResult } from '@/hooks/use-chat-workflow';
+import type { ChatHistoryMessage, WorkflowResult } from '@/hooks/use-chat-workflow';
 import type { ChatSource } from '@/lib/types';
 import type { SourcesData } from './sources-section';
 
-import Settings2 from 'lucide-react/dist/esm/icons/settings-2';
+import Database from 'lucide-react/dist/esm/icons/database';
+import Plus from 'lucide-react/dist/esm/icons/plus';
 
-import { ChatEmptyState } from '@/components/onboarding';
+import { OnboardingCallout } from '@/components/onboarding';
 import { QueryInput } from '@/components/query/query-input';
 import { useChatWorkflow } from '@/hooks/use-chat-workflow';
 import { useDataSources } from '@/hooks/use-data-sources';
 import { useModels } from '@/hooks/use-models';
+import { useContextSelectionStore } from '@/stores/context-selection-store';
 import { useOnboardingStore } from '@/stores/onboarding-store';
 
-import { AdvancedPanel } from './advanced-panel';
-import { EndpointConfirmation } from './endpoint-confirmation';
+import { AddSourcesModal } from './add-sources-modal';
 import { MarkdownMessage } from './markdown-message';
 import { ModelSelector } from './model-selector';
+import { SelectedSourcesChips } from './selected-sources-chips';
 import { SourcesSection } from './sources-section';
 import { StatusIndicator } from './status-indicator';
 
@@ -47,6 +49,8 @@ export interface ChatViewProperties {
   initialModel?: ChatSource | null;
   /** Optional initial result if workflow was completed before navigation */
   initialResult?: WorkflowResult | null;
+  /** Optional pre-selected data sources from browse page "Add to context" flow */
+  contextSources?: ChatSource[];
 }
 
 // =============================================================================
@@ -56,7 +60,8 @@ export interface ChatViewProperties {
 export function ChatView({
   initialQuery,
   initialModel,
-  initialResult
+  initialResult,
+  contextSources
 }: Readonly<ChatViewProperties>) {
   // Use shared hooks
   const {
@@ -68,7 +73,12 @@ export function ChatView({
     initialModel
   });
   const { sources, sourcesById } = useDataSources();
-  const markFirstQueryComplete = useOnboardingStore((s) => s.markFirstQueryComplete);
+  const showSourcesStep = useOnboardingStore((s) => s.showSourcesStep);
+  const showQueryInputStep = useOnboardingStore((s) => s.showQueryInputStep);
+  const contextStore = useContextSelectionStore();
+
+  // Source modal state
+  const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
 
   // Local state for messages and UI
   const [messages, setMessages] = useState<Message[]>(() => {
@@ -92,8 +102,6 @@ export function ChatView({
     return [];
   });
 
-  const [isPanelOpen, setIsPanelOpen] = useState(false);
-  const [isFactualMode, setIsFactualMode] = useState(true);
   const messagesEndReference = useRef<HTMLDivElement>(null);
 
   // Use workflow hook
@@ -101,8 +109,9 @@ export function ChatView({
     model: selectedModel,
     dataSources: sources,
     dataSourcesById: sourcesById,
+    contextSources,
     onComplete: (result) => {
-      markFirstQueryComplete();
+      showSourcesStep();
       // Add user message and assistant response to messages
       setMessages((previous) => {
         // Check if user message already exists (avoid duplicates)
@@ -161,23 +170,59 @@ export function ChatView({
     messagesEndReference.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, workflow.streamedContent]);
 
-  // Handlers
-  const handleOpenPanel = useCallback(() => {
-    setIsPanelOpen(true);
-  }, []);
-  const handleClosePanel = useCallback(() => {
-    setIsPanelOpen(false);
-  }, []);
-  const handleModeChange = useCallback((isFactual: boolean) => {
-    setIsFactualMode(isFactual);
-  }, []);
-
   // Handle query submission
   const handleSubmit = useCallback(
     (query: string) => {
-      void workflow.submitQuery(query);
+      // Build conversation history from existing messages (prior turns only)
+      const history: ChatHistoryMessage[] = messages
+        .filter((m): m is Message & { content: string } => !!m.content)
+        .map((m) => ({ role: m.role, content: m.content }));
+
+      // Optimistically add user message immediately so it appears before the AI responds
+      setMessages((previous) => [
+        ...previous,
+        {
+          id: Date.now().toString(),
+          role: 'user' as const,
+          content: query,
+          type: 'text' as const
+        }
+      ]);
+
+      const preSelectedSources = contextStore.getSourcesArray();
+      if (preSelectedSources.length > 0) {
+        const sourceIds = new Set(preSelectedSources.map((s) => s.id));
+        void workflow.submitQuery(query, sourceIds, history);
+      } else {
+        void workflow.submitQuery(query, undefined, history);
+      }
     },
-    [workflow]
+    [workflow, contextStore, messages]
+  );
+
+  // Handle modal confirm
+  const handleSourceModalConfirm = useCallback(
+    (selectedIds: Set<string>) => {
+      // Sync context store with modal selection
+      contextStore.clearSources();
+      for (const id of selectedIds) {
+        const source = sourcesById.get(id) ?? sources.find((s) => s.id === id);
+        if (source) {
+          contextStore.addSource(source);
+        }
+      }
+      setIsSourceModalOpen(false);
+      showQueryInputStep();
+    },
+    [contextStore, sourcesById, sources, showQueryInputStep]
+  );
+
+  // Handle removing a chip
+  const handleRemoveSource = useCallback(
+    (id: string) => {
+      contextStore.removeSource(id);
+    },
+    [contextStore]
   );
 
   // Determine if workflow is in a blocking state
@@ -186,35 +231,26 @@ export function ChatView({
 
   return (
     <div className='bg-card min-h-screen pb-32'>
-      {/* Advanced Panel */}
-      <AdvancedPanel
-        isOpen={isPanelOpen}
-        onClose={handleClosePanel}
-        availableSources={sources}
-        selectedSourceIds={workflow.selectedSources}
-        onToggleSource={workflow.toggleSource}
-        isFactualMode={isFactualMode}
-        onModeChange={handleModeChange}
-        selectedModel={selectedModel}
-        availableModels={models}
-        onModelSelect={setSelectedModel}
-        isLoadingModels={isLoadingModels}
-      />
-
       {/* Model Selector - Fixed top left */}
       <div className='fixed top-4 left-24 z-40'>
-        <ModelSelector
-          selectedModel={selectedModel}
-          onModelSelect={setSelectedModel}
-          models={models}
-          isLoading={isLoadingModels}
-        />
+        <OnboardingCallout step='model-selector' position='bottom'>
+          <ModelSelector
+            selectedModel={selectedModel}
+            onModelSelect={setSelectedModel}
+            models={models}
+            isLoading={isLoadingModels}
+          />
+        </OnboardingCallout>
       </div>
 
       {/* Messages Area */}
       <div className='mx-auto max-w-4xl px-6 py-8 pt-16'>
         {messages.length === 0 && !initialQuery && workflow.phase === 'idle' ? (
-          <ChatEmptyState onSuggestionClick={handleSubmit} />
+          <div className='flex flex-col items-center justify-center px-4 py-24'>
+            <p className='font-inter text-muted-foreground text-sm'>
+              Ask anything using the input below.
+            </p>
+          </div>
         ) : (
           <div className='space-y-8'>
             {/* Existing messages */}
@@ -230,7 +266,7 @@ export function ChatView({
                     <div
                       className={`font-inter max-w-2xl rounded-2xl px-5 py-3 shadow-sm ${
                         message.role === 'user'
-                          ? 'bg-primary text-primary-foreground rounded-br-none text-[15px] leading-relaxed'
+                          ? 'bg-primary text-primary-foreground rounded-br-none text-sm leading-relaxed'
                           : 'border-border bg-muted text-foreground rounded-bl-none border'
                       }`}
                     >
@@ -251,23 +287,6 @@ export function ChatView({
                 </div>
               </div>
             ))}
-
-            {/* Workflow UI - Endpoint Confirmation */}
-            {(workflow.phase === 'searching' || workflow.phase === 'selecting') &&
-              workflow.query && (
-                <div className='flex justify-start'>
-                  <EndpointConfirmation
-                    query={workflow.query}
-                    suggestedEndpoints={workflow.suggestedEndpoints}
-                    isSearching={workflow.phase === 'searching'}
-                    selectedSources={workflow.selectedSources}
-                    availableSources={sources}
-                    onToggleSource={workflow.toggleSource}
-                    onConfirm={workflow.confirmSelection}
-                    onCancel={workflow.cancelSelection}
-                  />
-                </div>
-              )}
 
             {/* Workflow UI - Processing Status */}
             {(workflow.phase === 'preparing' || workflow.phase === 'streaming') && (
@@ -302,33 +321,69 @@ export function ChatView({
       {/* Input Area - Fixed bottom */}
       <div className='border-border bg-card fixed bottom-0 left-0 z-40 w-full border-t p-4 pl-24'>
         <div className='mx-auto max-w-3xl'>
+          {/* Selected sources chips */}
+          {contextStore.count() > 0 && (
+            <SelectedSourcesChips
+              sources={contextStore.getSourcesArray()}
+              onRemove={handleRemoveSource}
+              onEdit={() => {
+                setIsSourceModalOpen(true);
+              }}
+            />
+          )}
+
           <div className='flex gap-3'>
-            <button
-              type='button'
-              onClick={handleOpenPanel}
-              className='group border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground flex items-center justify-center rounded-xl border p-3.5 transition-colors'
-              aria-label='Open advanced configuration'
-            >
-              <Settings2
-                className='h-5 w-5 transition-transform duration-500 group-hover:rotate-45'
-                aria-hidden='true'
-              />
-            </button>
+            <OnboardingCallout step='add-sources' position='top'>
+              <button
+                type='button'
+                onClick={() => {
+                  setIsSourceModalOpen(true);
+                }}
+                className='group border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground flex items-center justify-center rounded-xl border p-3 transition-colors'
+                aria-label={
+                  contextStore.count() > 0 ? 'Edit selected sources' : 'Add sources to context'
+                }
+              >
+                {contextStore.count() > 0 ? (
+                  <Database className='h-5 w-5' aria-hidden='true' />
+                ) : (
+                  <Plus className='h-5 w-5' aria-hidden='true' />
+                )}
+              </button>
+            </OnboardingCallout>
 
             <div className='flex-1'>
-              <QueryInput
-                variant='chat'
-                onSubmit={handleSubmit}
-                disabled={isWorkflowActive}
-                isProcessing={workflow.phase === 'streaming'}
-                placeholder='Ask a follow-up question…'
-                id='chat-followup-input'
-                ariaLabel='Ask a follow-up question'
-              />
+              <OnboardingCallout step='query-input' position='top'>
+                <QueryInput
+                  variant='chat'
+                  onSubmit={handleSubmit}
+                  disabled={isWorkflowActive}
+                  isProcessing={workflow.phase === 'streaming'}
+                  placeholder={
+                    contextStore.count() > 0
+                      ? 'Ask question about these sources...'
+                      : 'Ask anything... (Use + to add sources)'
+                  }
+                  id='chat-followup-input'
+                  ariaLabel='Ask a follow-up question'
+                />
+              </OnboardingCallout>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Add Sources Modal */}
+      <AddSourcesModal
+        isOpen={isSourceModalOpen}
+        onClose={() => {
+          setIsSourceModalOpen(false);
+          showQueryInputStep();
+        }}
+        availableSources={sources}
+        selectedSourceIds={new Set(contextStore.getSourcesArray().map((s) => s.id))}
+        onConfirm={handleSourceModalConfirm}
+      />
     </div>
   );
 }

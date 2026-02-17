@@ -15,6 +15,7 @@ interface LocationState {
  * Chat page - AI-powered chat interface.
  * Receives initial query and optional pre-selected model from navigation state (e.g., from home page search).
  * Can also receive an initialResult if the query was already executed on the home page.
+ * Pre-selected data sources are read directly from the ContextSelectionStore (Zustand).
  */
 export default function ChatPage() {
   const location = useLocation();
