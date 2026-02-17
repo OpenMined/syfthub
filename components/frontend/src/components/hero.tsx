@@ -23,8 +23,8 @@ import { useModels } from '@/hooks/use-models';
 // =============================================================================
 
 const SEARCH_SUGGESTIONS = [
-  'Ask Peter Thiel about startup contrarianism',
-  'Ask the WGA about parental leave for screenwriters'
+  'Ask the WGA about parental leave for screenwriters',
+  'Ask OpenMined about attribution-based control'
 ] as const;
 
 // =============================================================================
