@@ -22,16 +22,9 @@ import { useModels } from '@/hooks/use-models';
 // Constants
 // =============================================================================
 
-const FEATURES = [
-  { label: 'Secure & Private', color: 'bg-chart-1' },
-  { label: 'Rare Data & Models', color: 'bg-secondary' },
-  { label: 'Federated, Permissioned Access', color: 'bg-chart-3' }
-] as const;
-
 const SEARCH_SUGGESTIONS = [
-  'What is attribution-based control?',
-  'What is paid parental leave?',
-  "What's AI data scarcity problem?"
+  'Ask the WGA about parental leave for screenwriters',
+  'Ask OpenMined about attribution-based control'
 ] as const;
 
 // =============================================================================
@@ -47,6 +40,10 @@ export interface HeroProperties {
   fullHeight?: boolean;
   /** Optional pre-selected model (e.g., from URL params) */
   initialModel?: ChatSource | null;
+  /** Optional panel rendered to the right of the search area */
+  sidePanel?: React.ReactNode;
+  /** Action buttons rendered below the search suggestions */
+  actionButtons?: React.ReactNode;
 }
 
 // =============================================================================
@@ -56,8 +53,10 @@ export interface HeroProperties {
 export function Hero({
   onSearch,
   onAuthRequired: _onAuthRequired,
-  fullHeight = false,
-  initialModel
+  fullHeight: _fullHeight = false,
+  initialModel,
+  sidePanel,
+  actionButtons
 }: Readonly<HeroProperties>) {
   const navigate = useNavigate();
 
@@ -130,41 +129,37 @@ export function Hero({
       </div>
 
       {/* Hero Section */}
-      <section
-        className={`bg-background flex items-center justify-center px-6 ${
-          fullHeight ? 'min-h-[calc(100vh-2rem)]' : 'min-h-[50vh]'
-        }`}
-      >
-        <div className='mx-auto w-full max-w-2xl space-y-8'>
-          {/* Logo */}
-          <div className='flex items-center justify-center gap-3'>
-            <OpenMinedIcon className='h-7 w-7' />
-            <span className='font-rubik text-foreground text-xl font-normal'>SyftHub</span>
-          </div>
-
-          {/* Tagline */}
-          <div className='space-y-4 pb-4 text-center'>
-            <h1 className='font-rubik text-foreground text-3xl font-medium'>
-              Access the World's{' '}
-              <span className='from-secondary via-chart-3 to-chart-1 bg-gradient-to-r bg-clip-text text-transparent'>
-                Collective Intelligence
+      <section className='bg-background relative flex min-h-[calc(100vh-2rem)] flex-col items-center justify-center px-8 md:px-12 lg:px-16'>
+        {/* Two-column grid: left (search) / right (directory) */}
+        <div
+          className={`mx-auto w-full ${
+            sidePanel ? 'grid max-w-6xl items-start gap-16 lg:grid-cols-[3fr_2fr]' : 'max-w-3xl'
+          }`}
+        >
+          {/* Left column */}
+          <div className='space-y-8'>
+            {/* Logo */}
+            <div
+              className={`flex items-center gap-4 ${sidePanel ? 'justify-start' : 'justify-center'}`}
+            >
+              <OpenMinedIcon className='h-6 w-6' />
+              <span className='font-rubik text-foreground text-xl font-normal tracking-tight'>
+                SyftHub
               </span>
-            </h1>
-            <p className='font-inter text-foreground text-base'>
-              Query trusted data sources — public, copyrighted, or private — directly from source.
-            </p>
-          </div>
+            </div>
 
-          {/* Feature Badges and Search Bar */}
-          <div className='space-y-6'>
-            {/* Feature Badges */}
-            <div className='flex flex-wrap items-center justify-center gap-8'>
-              {FEATURES.map((feature, index) => (
-                <div key={index} className='flex items-center gap-2'>
-                  <div className={`h-2 w-2 rounded-full ${feature.color}`}></div>
-                  <span className='font-inter text-foreground text-sm'>{feature.label}</span>
-                </div>
-              ))}
+            {/* Tagline */}
+            <div className={`space-y-3 ${sidePanel ? 'text-left' : 'text-center'}`}>
+              <h1 className='font-rubik text-foreground text-4xl leading-tight font-medium'>
+                Ask{' '}
+                <span className='from-chart-1 via-chart-2 to-chart-3 bg-gradient-to-r bg-clip-text text-transparent'>
+                  anyone, anything
+                </span>{' '}
+                &mdash; at source
+              </h1>
+              <p className='font-inter text-muted-foreground text-base'>
+                With attribution, compensation and privacy built in.
+              </p>
             </div>
 
             {/* Search Bar */}
@@ -174,10 +169,10 @@ export function Hero({
                 onSubmit={handleSubmit}
                 disabled={isWorkflowActive}
                 isProcessing={workflow.phase === 'streaming'}
-                placeholder='What is attribution-based control?'
+                placeholder='Start typing — use @ for specific sources'
                 autoFocus
                 id='hero-search'
-                ariaLabel='Search for data sources, models, or topics'
+                ariaLabel='Query connected data sources'
               />
 
               {/* Search Suggestions Pills */}
@@ -187,7 +182,18 @@ export function Hero({
               />
             </div>
           </div>
+
+          {/* Right column: Global Directory — pt offsets past the logo row */}
+          {sidePanel && <div className='hidden pt-14 lg:block'>{sidePanel}</div>}
         </div>
+
+        {/* Action Buttons — centered underneath everything, with divider lines */}
+        {actionButtons && (
+          <div className='mx-auto mt-28 max-w-3xl pb-4'>
+            <div className='bg-border/50 mb-6 h-px w-full' />
+            <div className='flex items-center justify-center gap-3'>{actionButtons}</div>
+          </div>
+        )}
       </section>
 
       {/* Workflow Overlay - shown when workflow is active */}
