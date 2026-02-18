@@ -456,6 +456,10 @@ class EndpointHealthMonitor:
                         ),
                         else_=EndpointModel.is_active,
                     ),
+                    # Preserve updated_at to prevent onupdate hook from modifying it
+                    # Health check status changes should not affect the updated_at timestamp
+                    # (prevents endpoints from dominating listings due to frequent health checks)
+                    updated_at=EndpointModel.updated_at,
                 )
                 .returning(
                     EndpointModel.is_active, EndpointModel.consecutive_failure_count
