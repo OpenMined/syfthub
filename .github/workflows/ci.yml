@@ -358,6 +358,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: 'npm'
+          cache-dependency-path: syfthub-desktop/frontend/package-lock.json
+
+      - name: Build frontend (required for go:embed)
+        working-directory: syfthub-desktop/frontend
+        run: |
+          npm ci
+          npm run build
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -392,6 +405,19 @@ jobs:
         go-version: ['1.22', '1.23']
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: 'npm'
+          cache-dependency-path: syfthub-desktop/frontend/package-lock.json
+
+      - name: Build frontend (required for go:embed)
+        working-directory: syfthub-desktop/frontend
+        run: |
+          npm ci
+          npm run build
 
       - name: Set up Go
         uses: actions/setup-go@v5
