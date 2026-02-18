@@ -549,22 +549,25 @@ export async function getChatDataSources(limit = 20): Promise<ChatSource[]> {
       getPublicEndpoints({ limit: publicLimit, endpoint_type: 'data_source' })
     ]);
 
-    // Combine and deduplicate by slug
+    // Combine and deduplicate by full_path (owner/slug) to correctly handle
+    // models from different owners with the same slug
     const combinedSources: ChatSource[] = [];
-    const seenSlugs = new Set<string>();
+    const seenPaths = new Set<string>();
 
     // Add trending first (higher priority)
     for (const source of trending) {
-      if (!seenSlugs.has(source.slug)) {
-        seenSlugs.add(source.slug);
+      const path = source.full_path ?? `${source.owner_username ?? 'unknown'}/${source.slug}`;
+      if (!seenPaths.has(path)) {
+        seenPaths.add(path);
         combinedSources.push(source);
       }
     }
 
     // Add public endpoints that aren't already included
     for (const source of publicEndpoints) {
-      if (!seenSlugs.has(source.slug)) {
-        seenSlugs.add(source.slug);
+      const path = source.full_path ?? `${source.owner_username ?? 'unknown'}/${source.slug}`;
+      if (!seenPaths.has(path)) {
+        seenPaths.add(path);
         combinedSources.push(source);
       }
     }
@@ -592,22 +595,25 @@ export async function getChatModels(limit = 20): Promise<ChatSource[]> {
       getPublicEndpoints({ limit: publicLimit, endpoint_type: 'model' })
     ]);
 
-    // Combine and deduplicate by slug
+    // Combine and deduplicate by full_path (owner/slug) to correctly handle
+    // models from different owners with the same slug
     const combinedModels: ChatSource[] = [];
-    const seenSlugs = new Set<string>();
+    const seenPaths = new Set<string>();
 
     // Add trending first (higher priority)
     for (const model of trending) {
-      if (!seenSlugs.has(model.slug)) {
-        seenSlugs.add(model.slug);
+      const path = model.full_path ?? `${model.owner_username ?? 'unknown'}/${model.slug}`;
+      if (!seenPaths.has(path)) {
+        seenPaths.add(path);
         combinedModels.push(model);
       }
     }
 
     // Add public endpoints that aren't already included
     for (const model of publicEndpoints) {
-      if (!seenSlugs.has(model.slug)) {
-        seenSlugs.add(model.slug);
+      const path = model.full_path ?? `${model.owner_username ?? 'unknown'}/${model.slug}`;
+      if (!seenPaths.has(path)) {
+        seenPaths.add(path);
         combinedModels.push(model);
       }
     }

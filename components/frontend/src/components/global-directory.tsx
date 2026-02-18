@@ -213,9 +213,9 @@ export function GlobalDirectory({ endpoints, isLoading }: Readonly<GlobalDirecto
   }
 
   return (
-    <div>
+    <div className='flex h-full flex-col'>
       {/* Section header */}
-      <div className='mb-3 flex items-center justify-between'>
+      <div className='mb-3 flex flex-shrink-0 items-center justify-between'>
         <div className='flex items-center gap-2'>
           <div className='h-5 w-1 rounded-full bg-gradient-to-b from-[#53bea9] via-[#6976ae] to-[#937098]'></div>
           <h4 className='font-rubik text-foreground text-xs tracking-wide uppercase'>
@@ -228,9 +228,9 @@ export function GlobalDirectory({ endpoints, isLoading }: Readonly<GlobalDirecto
       </div>
 
       {/* Directory tree */}
-      <div className='bg-background/50 border-border/30 overflow-hidden rounded-lg border'>
+      <div className='bg-background/80 border-border/30 flex h-full flex-col overflow-hidden rounded-lg border'>
         {/* Terminal-style header bar */}
-        <div className='border-border/30 flex items-center gap-2 border-b px-3 py-1.5'>
+        <div className='border-border/30 flex flex-shrink-0 items-center gap-2 border-b px-3 py-1.5'>
           <div className='flex gap-1.5'>
             <div className='h-2 w-2 rounded-full bg-[#ff5f57]/60' />
             <div className='h-2 w-2 rounded-full bg-[#febc2e]/60' />
@@ -246,7 +246,7 @@ export function GlobalDirectory({ endpoints, isLoading }: Readonly<GlobalDirecto
         </div>
 
         {/* Tree content */}
-        <div className='max-h-[340px] overflow-y-auto p-1.5'>
+        <div className='flex-1 overflow-y-auto p-1.5'>
           {isLoading ? (
             <DirectorySkeleton />
           ) : (

@@ -1,7 +1,6 @@
 import type { ChatSource } from '@/lib/types';
 
 import ArrowRight from 'lucide-react/dist/esm/icons/arrow-right';
-import BookOpen from 'lucide-react/dist/esm/icons/book-open';
 import Code from 'lucide-react/dist/esm/icons/code';
 import UserPlus from 'lucide-react/dist/esm/icons/user-plus';
 import { useNavigate } from 'react-router-dom';
@@ -44,19 +43,11 @@ export default function HomePage() {
         onAuthRequired={user ? undefined : openLogin}
         sidePanel={<GlobalDirectory endpoints={allEndpoints ?? []} isLoading={isLoadingAll} />}
         actionButtons={
-          <div className='flex items-center gap-3'>
-            <button
-              type='button'
-              onClick={() => navigate('/about')}
-              className='font-inter border-border/60 text-muted-foreground hover:border-border hover:text-foreground flex items-center gap-2 rounded-full border px-4 py-1.5 text-sm transition-colors'
-            >
-              <BookOpen className='h-3.5 w-3.5' />
-              How it works
-            </button>
+          <div className='flex items-center gap-4'>
             <button
               type='button'
               onClick={handleJoinNetwork}
-              className='font-inter bg-primary/10 text-primary hover:bg-primary/20 flex items-center gap-2 rounded-full px-4 py-1.5 text-sm transition-colors'
+              className='font-inter bg-primary/10 text-primary hover:bg-primary/20 focus:ring-ring flex items-center gap-2 rounded-full px-4 py-2 text-sm transition-colors focus:ring-2 focus:ring-offset-2 focus:outline-none'
             >
               <UserPlus className='h-3.5 w-3.5' />
               Join the Network
@@ -64,7 +55,7 @@ export default function HomePage() {
             <button
               type='button'
               onClick={() => navigate('/build')}
-              className='font-inter bg-primary/10 text-primary hover:bg-primary/20 flex items-center gap-2 rounded-full px-4 py-1.5 text-sm transition-colors'
+              className='font-inter bg-primary/10 text-primary hover:bg-primary/20 focus:ring-ring flex items-center gap-2 rounded-full px-4 py-2 text-sm transition-colors focus:ring-2 focus:ring-offset-2 focus:outline-none'
             >
               <Code className='h-3.5 w-3.5' />
               Build with it

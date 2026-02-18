@@ -2,17 +2,18 @@
  * Hero Component
  *
  * Landing page hero section with search input and model selection.
- * Uses shared hooks for model management and workflow execution.
+ * Uses hero-04 layout pattern with two-column grid.
  */
 import { useCallback } from 'react';
 
 import type { ChatSource } from '@/lib/types';
 
-import { useNavigate } from 'react-router-dom';
+import ArrowUpRight from 'lucide-react/dist/esm/icons/arrow-up-right';
+import { Link, useNavigate } from 'react-router-dom';
 
 import { ModelSelector } from '@/components/chat/model-selector';
 import { QueryInput, SearchSuggestions } from '@/components/query/query-input';
-import { OpenMinedIcon } from '@/components/ui/openmined-icon';
+import { Badge } from '@/components/ui/badge';
 import { WorkflowOverlay } from '@/components/workflow';
 import { useChatWorkflow } from '@/hooks/use-chat-workflow';
 import { useDataSources } from '@/hooks/use-data-sources';
@@ -23,8 +24,8 @@ import { useModels } from '@/hooks/use-models';
 // =============================================================================
 
 const SEARCH_SUGGESTIONS = [
-  'Ask the WGA about parental leave for screenwriters',
-  'Ask OpenMined about attribution-based control'
+  'Ask WGA about parental leave',
+  'Ask OpenMined about attribution'
 ] as const;
 
 // =============================================================================
@@ -128,42 +129,38 @@ export function Hero({
         />
       </div>
 
-      {/* Hero Section */}
-      <section className='bg-background relative flex min-h-[calc(100vh-2rem)] flex-col items-center justify-center px-8 md:px-12 lg:px-16'>
-        {/* Two-column grid: left (search) / right (directory) */}
-        <div
-          className={`mx-auto w-full ${
-            sidePanel ? 'grid max-w-6xl items-start gap-16 lg:grid-cols-[3fr_2fr]' : 'max-w-3xl'
-          }`}
-        >
-          {/* Left column */}
-          <div className='space-y-8'>
-            {/* Logo */}
-            <div
-              className={`flex items-center gap-4 ${sidePanel ? 'justify-start' : 'justify-center'}`}
-            >
-              <OpenMinedIcon className='h-6 w-6' />
-              <span className='font-rubik text-foreground text-xl font-normal tracking-tight'>
-                SyftHub
-              </span>
-            </div>
+      {/* Hero Section - hero-04 layout pattern */}
+      <div className='flex min-h-screen items-center justify-center overflow-hidden'>
+        <div className='mx-auto grid w-full max-w-7xl gap-16 px-6 py-12 lg:grid-cols-2 lg:py-0'>
+          {/* Left column - Main content */}
+          <div className='my-auto'>
+            {/* Announcement Badge */}
+            <Badge asChild className='border-border rounded-full py-1' variant='secondary'>
+              <Link to='/about'>
+                See how it works <ArrowUpRight className='ml-1 size-4' />
+              </Link>
+            </Badge>
 
-            {/* Tagline */}
-            <div className={`space-y-3 ${sidePanel ? 'text-left' : 'text-center'}`}>
-              <h1 className='font-rubik text-foreground text-4xl leading-tight font-medium'>
-                Ask{' '}
-                <span className='from-chart-1 via-chart-2 to-chart-3 bg-gradient-to-r bg-clip-text text-transparent'>
-                  anyone, anything
-                </span>{' '}
-                &mdash; at source
-              </h1>
-              <p className='font-inter text-muted-foreground text-base'>
-                With attribution, compensation and privacy built in.
-              </p>
-            </div>
+            {/* Headline */}
+            <h1 className='font-rubik mt-6 max-w-[20ch] text-4xl leading-[1.2] font-semibold tracking-[-0.035em] md:text-5xl lg:text-5xl xl:text-6xl'>
+              Ask{' '}
+              <span className='from-chart-1 via-chart-2 to-chart-3 bg-gradient-to-r bg-clip-text text-transparent'>
+                anyone, anything
+              </span>{' '}
+              &mdash; at source
+            </h1>
 
-            {/* Search Bar */}
-            <div className='space-y-4'>
+            {/* Subtitle */}
+            <p className='text-foreground/80 font-inter mt-6 max-w-[60ch] text-lg'>
+              Query AI models and data sources directly with attribution, compensation, and privacy
+              built in. Connect to the collective intelligence network.
+            </p>
+
+            {/* Action Buttons */}
+            {actionButtons && <div className='mt-8 flex items-center gap-4'>{actionButtons}</div>}
+
+            {/* Search Input */}
+            <div className='mt-8 max-w-xl space-y-4'>
               <QueryInput
                 variant='hero'
                 onSubmit={handleSubmit}
@@ -183,20 +180,14 @@ export function Hero({
             </div>
           </div>
 
-          {/* Right column: Global Directory — pt offsets past the logo row */}
+          {/* Right column - Global Directory Block */}
           {sidePanel && (
-            <div className='hidden min-w-0 overflow-hidden pt-14 lg:block'>{sidePanel}</div>
+            <div className='bg-accent/30 border-border/40 my-auto hidden max-h-[calc(100vh-8rem)] w-full max-w-xl overflow-hidden rounded-2xl border backdrop-blur-sm lg:block'>
+              <div className='h-full overflow-y-auto p-4'>{sidePanel}</div>
+            </div>
           )}
         </div>
-
-        {/* Action Buttons — centered underneath everything, with divider lines */}
-        {actionButtons && (
-          <div className='mx-auto mt-28 max-w-3xl pb-4'>
-            <div className='bg-border/50 mb-6 h-px w-full' />
-            <div className='flex items-center justify-center gap-3'>{actionButtons}</div>
-          </div>
-        )}
-      </section>
+      </div>
 
       {/* Workflow Overlay - shown when workflow is active */}
       <WorkflowOverlay workflow={workflow} />

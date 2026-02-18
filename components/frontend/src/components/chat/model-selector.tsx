@@ -10,6 +10,15 @@ import Search from 'lucide-react/dist/esm/icons/search';
 
 import { estimatePerRequestCost, formatPerRequestCost } from '@/lib/cost-utils';
 
+/**
+ * Get a unique identifier for a model that distinguishes models with the same name
+ * but different owners. Uses full_path (owner/slug) when available, otherwise
+ * constructs it from owner_username and slug.
+ */
+function getModelUniqueId(model: ChatSource): string {
+  return model.full_path ?? `${model.owner_username ?? 'unknown'}/${model.slug}`;
+}
+
 interface ModelSelectorProps {
   selectedModel: ChatSource | null;
   onModelSelect: (model: ChatSource) => void;
@@ -185,15 +194,15 @@ export function ModelSelector({
               ) : (
                 <div className='space-y-1'>
                   {filteredModels.map((model) => {
-                    const isSelected = selectedModel?.slug === model.slug;
+                    const modelUniqueId = getModelUniqueId(model);
+                    const isSelected =
+                      selectedModel !== null && getModelUniqueId(selectedModel) === modelUniqueId;
                     const perRequestCost = estimatePerRequestCost(model);
                     const formattedCost = formatPerRequestCost(perRequestCost);
-                    const modelPath =
-                      model.full_path ?? `${model.owner_username ?? 'unknown'}/${model.slug}`;
 
                     return (
                       <button
-                        key={model.slug}
+                        key={modelUniqueId}
                         type='button'
                         onClick={() => {
                           handleSelect(model);
@@ -236,7 +245,9 @@ export function ModelSelector({
                           ) : null}
 
                           {/* Provider path */}
-                          <span className='font-inter text-secondary text-[11px]'>{modelPath}</span>
+                          <span className='font-inter text-secondary text-[11px]'>
+                            {modelUniqueId}
+                          </span>
                         </div>
                       </button>
                     );
