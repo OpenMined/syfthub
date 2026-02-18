@@ -236,3 +236,49 @@ export function findMatchingSource(
 export function isSourceAlreadySelected(selectedIds: Set<string>, source: ChatSource): boolean {
   return selectedIds.has(source.id);
 }
+
+// =============================================================================
+// Mention Extraction (for sync)
+// =============================================================================
+
+/**
+ * Extracts all complete @owner/slug mentions from text.
+ *
+ * @param text - Input text to scan
+ * @returns Array of {owner, slug} objects for each complete mention found
+ */
+export function extractCompleteMentions(text: string): Array<{ owner: string; slug: string }> {
+  const regex = /@([a-zA-Z0-9_-]+)\/([a-zA-Z0-9_-]+)/g;
+  const mentions: Array<{ owner: string; slug: string }> = [];
+
+  for (const match of text.matchAll(regex)) {
+    const owner = match[1];
+    const slug = match[2];
+    if (owner && slug) {
+      mentions.push({ owner, slug });
+    }
+  }
+
+  return mentions;
+}
+
+/**
+ * Gets the set of source IDs that are mentioned in the text.
+ *
+ * @param text - Input text to scan
+ * @param sources - Available sources to match against
+ * @returns Set of source IDs that have complete mentions in the text
+ */
+export function getMentionedSourceIds(text: string, sources: ChatSource[]): Set<string> {
+  const mentions = extractCompleteMentions(text);
+  const ids = new Set<string>();
+
+  for (const mention of mentions) {
+    const source = findMatchingSource(sources, mention.owner, mention.slug);
+    if (source) {
+      ids.add(source.id);
+    }
+  }
+
+  return ids;
+}

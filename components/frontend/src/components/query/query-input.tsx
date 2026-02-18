@@ -13,6 +13,7 @@ import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
 import Send from 'lucide-react/dist/esm/icons/send';
 
 import { useMention } from '@/hooks/use-mention';
+import { getMentionedSourceIds } from '@/lib/mention-utils';
 
 import { EndpointPopover, OwnerPopover } from './mention-popover';
 
@@ -45,6 +46,8 @@ export interface QueryInputProps {
   sources?: ChatSource[];
   /** Callback when a mention is completed and source should be added to context */
   onMentionComplete?: (source: ChatSource) => void;
+  /** Callback to sync mention sources - called with IDs of mentions currently in text */
+  onMentionSync?: (mentionedIds: Set<string>) => void;
 }
 
 // =============================================================================
@@ -89,7 +92,8 @@ export function QueryInput({
   ariaLabel,
   enableMentions = false,
   sources = [],
-  onMentionComplete
+  onMentionComplete,
+  onMentionSync
 }: Readonly<QueryInputProps>) {
   const [value, setValue] = useState(initialValue);
   const [cursorPosition, setCursorPosition] = useState(0);
@@ -136,11 +140,20 @@ export function QueryInput({
     [value, disabled, onSubmit, variant, mention]
   );
 
-  const handleChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = event.target.value;
-    setValue(newValue);
-    setCursorPosition(event.target.selectionStart ?? newValue.length);
-  }, []);
+  const handleChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const newValue = event.target.value;
+      setValue(newValue);
+      setCursorPosition(event.target.selectionStart ?? newValue.length);
+
+      // Sync mention sources - detect deleted mentions
+      if (enableMentions && onMentionSync) {
+        const mentionedIds = getMentionedSourceIds(newValue, sources);
+        onMentionSync(mentionedIds);
+      }
+    },
+    [enableMentions, onMentionSync, sources]
+  );
 
   const handleSelect = useCallback((event: React.SyntheticEvent<HTMLInputElement>) => {
     const target = event.target as HTMLInputElement;

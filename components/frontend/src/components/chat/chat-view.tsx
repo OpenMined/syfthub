@@ -225,13 +225,21 @@ export function ChatView({
     [contextStore]
   );
 
-  // Handle mention completion - add source to context
+  // Handle mention completion - add source to context (tracked for sync)
   const handleMentionComplete = useCallback(
     (source: ChatSource) => {
       // Only add if not already selected
       if (!contextStore.isSelected(source.id)) {
-        contextStore.addSource(source);
+        contextStore.addMentionSource(source);
       }
+    },
+    [contextStore]
+  );
+
+  // Handle @mention sync - remove sources whose mentions were deleted from text
+  const handleMentionSync = useCallback(
+    (mentionedIds: Set<string>) => {
+      contextStore.syncMentionSources(mentionedIds);
     },
     [contextStore]
   );
@@ -380,6 +388,7 @@ export function ChatView({
                   enableMentions
                   sources={sources}
                   onMentionComplete={handleMentionComplete}
+                  onMentionSync={handleMentionSync}
                 />
               </OnboardingCallout>
             </div>
