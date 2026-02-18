@@ -80,8 +80,8 @@ export const ContextBar = memo(function ContextBar() {
     navigate('/chat');
   }, [navigate]);
 
-  // Hide on /chat page — the chat view already shows selected sources as chips
-  if (count === 0 || location.pathname === '/chat') return null;
+  // Hide on home and chat pages — these pages handle context selection inline
+  if (count === 0 || location.pathname === '/' || location.pathname === '/chat') return null;
 
   return (
     <div className='fixed bottom-0 left-0 z-50 w-full pl-20'>
