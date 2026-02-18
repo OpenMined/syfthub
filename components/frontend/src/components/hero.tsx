@@ -184,7 +184,9 @@ export function Hero({
           </div>
 
           {/* Right column: Global Directory — pt offsets past the logo row */}
-          {sidePanel && <div className='hidden pt-14 lg:block'>{sidePanel}</div>}
+          {sidePanel && (
+            <div className='hidden min-w-0 overflow-hidden pt-14 lg:block'>{sidePanel}</div>
+          )}
         </div>
 
         {/* Action Buttons — centered underneath everything, with divider lines */}
