@@ -45,6 +45,11 @@ class EndpointModel(BaseModel, TimestampMixin):
         String(20), nullable=False, default="public"
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Health check failure tracking - used by health monitor to track consecutive failures
+    # before marking endpoint as inactive (multi-worker safe, persisted in DB)
+    consecutive_failure_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
     version: Mapped[str] = mapped_column(String(20), nullable=False, default="0.1.0")
     readme: Mapped[str] = mapped_column(Text, nullable=False, default="")
     stars_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

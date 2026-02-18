@@ -30,8 +30,9 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
 import httpx
-from sqlalchemy import select, text, update
+from sqlalchemy import case, or_, select, text, update
 from sqlalchemy.sql import label
+from sqlalchemy.sql.expression import literal
 
 from syfthub.core.url_builder import build_connection_url
 from syfthub.database.connection import db_manager
@@ -40,7 +41,6 @@ from syfthub.models.organization import OrganizationModel
 from syfthub.models.user import UserModel
 
 if TYPE_CHECKING:
-    from sqlalchemy.engine import CursorResult
     from sqlalchemy.orm import Session
 
     from syfthub.core.config import Settings
@@ -94,8 +94,11 @@ class EndpointHealthMonitor:
         self.timeout = settings.health_check_timeout_seconds
         self.max_concurrent = settings.health_check_max_concurrent
         self.grace_period = settings.heartbeat_grace_period_seconds
+        self.failure_threshold = settings.health_check_failure_threshold
         self._running = False
         self._task: Optional[asyncio.Task[None]] = None
+        # Note: Consecutive failure tracking is stored in the database
+        # (endpoints.consecutive_failure_count) for multi-worker safety
 
     def _try_acquire_cycle_lock(self, session: Session) -> bool:
         """Try to acquire a PostgreSQL advisory lock for this health check cycle.
@@ -279,7 +282,7 @@ class EndpointHealthMonitor:
         semaphore: asyncio.Semaphore,
         client: httpx.AsyncClient,
         session: Session,
-    ) -> tuple[int, bool, bool]:
+    ) -> tuple[int, bool]:
         """Check if a single endpoint is healthy using hybrid approach.
 
         For user-owned endpoints with fresh heartbeats, skips HTTP check.
@@ -293,7 +296,9 @@ class EndpointHealthMonitor:
             session: Database session for heartbeat refresh
 
         Returns:
-            Tuple of (endpoint_id, is_healthy, state_changed)
+            Tuple of (endpoint_id, is_healthy)
+            - endpoint_id: ID of the endpoint checked
+            - is_healthy: Whether the endpoint is currently healthy
         """
         async with semaphore:
             now = datetime.now(timezone.utc)
@@ -301,32 +306,28 @@ class EndpointHealthMonitor:
             # Check if owner has a domain configured
             if not endpoint.owner_domain:
                 # No domain configured - endpoint cannot be reached
-                is_healthy = False
                 logger.debug(
                     f"Endpoint {endpoint.id} health check: no owner domain configured "
                     f"(unhealthy)"
                 )
-                state_changed = endpoint.is_active != is_healthy
-                return (endpoint.id, is_healthy, state_changed)
+                return (endpoint.id, False)
 
             # Check if heartbeat is fresh (applies to both users and organizations)
             if endpoint.heartbeat_expires_at and endpoint.heartbeat_expires_at > now:
                 # Heartbeat is fresh -> assume healthy, skip HTTP check
-                is_healthy = True
                 logger.debug(
                     f"Endpoint {endpoint.id} has fresh heartbeat "
                     f"(expires {endpoint.heartbeat_expires_at}), skipping HTTP check"
                 )
-                state_changed = endpoint.is_active != is_healthy
-                return (endpoint.id, is_healthy, state_changed)
+                return (endpoint.id, True)
 
             # Heartbeat is stale/missing -> need HTTP verification
             url = self._build_health_check_url(
                 endpoint.owner_domain, endpoint.endpoint_type, endpoint.slug
             )
             if not url:
-                # No valid URL to check (no domain configured), don't change status
-                return (endpoint.id, endpoint.is_active, False)
+                # No valid URL to check, assume current state
+                return (endpoint.id, endpoint.is_active)
 
             try:
                 # Make a simple GET request to check connectivity
@@ -349,26 +350,26 @@ class EndpointHealthMonitor:
                         f"refreshed heartbeat with {self.grace_period}s grace period"
                     )
 
+                return (endpoint.id, is_healthy)
+
             except httpx.TimeoutException:
-                is_healthy = False
                 logger.debug(f"Endpoint {endpoint.id} health check: {url} -> timeout")
+                return (endpoint.id, False)
             except httpx.RequestError as e:
-                is_healthy = False
                 logger.debug(
                     f"Endpoint {endpoint.id} health check: {url} -> error: {e}"
                 )
-
-            state_changed = endpoint.is_active != is_healthy
-            return (endpoint.id, is_healthy, state_changed)
+                return (endpoint.id, False)
 
     def _refresh_heartbeat_expiry(
         self, session: Session, owner_id: int, owner_type: str
     ) -> bool:
-        """Refresh heartbeat expiry with grace period after successful HTTP check.
+        """Atomically refresh heartbeat expiry, only if it extends the current value.
 
         This is called when HTTP verification succeeds for a user or organization
-        with a stale or missing heartbeat. It gives them a short grace period
-        before the next HTTP check is required.
+        with a stale or missing heartbeat. Uses a conditional UPDATE to ensure
+        we only extend the expiry, never shorten it (prevents race condition with
+        concurrent heartbeat updates from the client).
 
         Args:
             session: Database session to use for the update
@@ -376,25 +377,31 @@ class EndpointHealthMonitor:
             owner_type: Type of owner ("user" or "organization")
 
         Returns:
-            True if the heartbeat was successfully refreshed, False otherwise
+            True if the heartbeat was updated, False if no update was needed
+            (either owner not found or current expiry is already longer)
         """
         try:
-            if owner_type == "user":
-                owner = session.get(UserModel, owner_id)
-            else:
-                owner = session.get(OrganizationModel, owner_id)
-
-            if not owner:
-                logger.warning(
-                    f"Cannot refresh heartbeat: {owner_type} {owner_id} not found"
-                )
-                return False
-
-            owner.heartbeat_expires_at = datetime.now(timezone.utc) + timedelta(
+            model = UserModel if owner_type == "user" else OrganizationModel
+            new_expiry = datetime.now(timezone.utc) + timedelta(
                 seconds=self.grace_period
             )
+
+            # Atomic conditional UPDATE: only set expiry if new value is larger
+            # This prevents overwriting a fresher heartbeat from the client
+            stmt = (
+                update(model)
+                .where(model.id == owner_id)
+                .where(
+                    or_(
+                        model.heartbeat_expires_at.is_(None),  # type: ignore[attr-defined]
+                        model.heartbeat_expires_at < new_expiry,  # type: ignore[operator]
+                    )
+                )
+                .values(heartbeat_expires_at=new_expiry)
+            )
+            result = session.execute(stmt)
             session.commit()
-            return True
+            return bool(result.rowcount > 0)  # type: ignore[attr-defined]
         except Exception as e:
             logger.error(
                 f"Failed to refresh heartbeat for {owner_type} {owner_id}: {e}"
@@ -402,37 +409,71 @@ class EndpointHealthMonitor:
             session.rollback()
             return False
 
-    def _update_endpoint_status(
-        self, session: Session, endpoint_id: int, is_active: bool
-    ) -> bool:
-        """Update the is_active status of an endpoint.
+    def _update_endpoint_health_status(
+        self, session: Session, endpoint_id: int, is_healthy: bool
+    ) -> tuple[bool, int] | None:
+        """Atomically update endpoint health status with failure tracking.
 
-        Uses a Core-level UPDATE statement to bypass the ORM's onupdate
-        hook on updated_at. Health monitor status changes should not
-        modify the updated_at timestamp, which should only reflect
-        user-initiated changes.
+        Uses a single atomic UPDATE with CASE expressions to:
+        1. Reset consecutive_failure_count to 0 if healthy
+        2. Increment consecutive_failure_count if unhealthy
+        3. Set is_active=True if healthy
+        4. Set is_active=False only if failure count reaches threshold
+
+        This is multi-worker safe because all state is managed in the database
+        atomically, not in memory.
+
+        Uses Core-level UPDATE to bypass the ORM's onupdate hook on updated_at.
+        Health monitor status changes should not modify the updated_at timestamp.
 
         Args:
             session: Database session to use for the update
             endpoint_id: ID of the endpoint to update
-            is_active: New is_active value
+            is_healthy: Whether the endpoint is currently healthy
 
         Returns:
-            True if update was successful, False otherwise
+            Tuple of (new_is_active, new_failure_count) if successful,
+            None if the endpoint was not found
         """
         try:
+            # Build atomic UPDATE with CASE expressions
+            # Note: The CASE for is_active checks (count + 1) >= threshold because
+            # the increment happens in the same statement
             stmt = (
                 update(EndpointModel)
                 .where(EndpointModel.id == endpoint_id)
-                .values(is_active=is_active)
+                .values(
+                    consecutive_failure_count=case(
+                        (literal(is_healthy), 0),
+                        else_=EndpointModel.consecutive_failure_count + 1,  # type: ignore[operator]
+                    ),
+                    is_active=case(
+                        (literal(is_healthy), True),
+                        (
+                            EndpointModel.consecutive_failure_count + 1  # type: ignore[operator]
+                            >= self.failure_threshold,
+                            False,
+                        ),
+                        else_=EndpointModel.is_active,
+                    ),
+                )
+                .returning(
+                    EndpointModel.is_active, EndpointModel.consecutive_failure_count
+                )
             )
-            result: CursorResult = session.execute(stmt)  # type: ignore[assignment]
+            result = session.execute(stmt)
+            row = result.fetchone()
             session.commit()
-            return bool(result.rowcount > 0)
+
+            if row:
+                is_active: bool = row[0]  # type: ignore[assignment]
+                failure_count: int = row[1]  # type: ignore[assignment]
+                return (is_active, failure_count)
+            return None
         except Exception as e:
-            logger.error(f"Failed to update endpoint {endpoint_id} status: {e}")
+            logger.error(f"Failed to update endpoint {endpoint_id} health status: {e}")
             session.rollback()
-            return False
+            return None
 
     async def run_health_check_cycle(self) -> None:
         """Run one complete health check cycle for all endpoints.
@@ -442,7 +483,8 @@ class EndpointHealthMonitor:
         2. For user endpoints with fresh heartbeats: Skip HTTP, assume healthy
         3. For stale/missing heartbeats or org endpoints: Make HTTP check
         4. If HTTP succeeds for stale user: Refresh heartbeat with grace period
-        5. Updates is_active status for endpoints whose state changed
+        5. Atomically updates is_active status and failure counts in the database
+           (multi-worker safe - no in-memory state)
         """
         session = db_manager.get_session()
         try:
@@ -463,6 +505,9 @@ class EndpointHealthMonitor:
 
             logger.debug(f"Starting health check for {len(endpoints)} endpoints")
 
+            # Build a map of endpoint_id -> old_is_active for state change detection
+            old_status_map = {ep.id: ep.is_active for ep in endpoints}
+
             # Create semaphore to limit concurrent requests
             semaphore = asyncio.Semaphore(self.max_concurrent)
 
@@ -477,25 +522,53 @@ class EndpointHealthMonitor:
                 ]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Process results and update changed endpoints
-            updated_count = 0
+            # Process results and update endpoints atomically
+            state_changes = 0
             for result in results:
                 if isinstance(result, BaseException):
                     logger.error(f"Health check task failed: {result}")
                     continue
 
-                # Result is tuple[int, bool, bool] at this point
-                endpoint_id, is_healthy, state_changed = result
-                if state_changed:
-                    status_str = "active" if is_healthy else "inactive"
-                    logger.info(
-                        f"Endpoint {endpoint_id} status changed to {status_str}"
-                    )
-                    if self._update_endpoint_status(session, endpoint_id, is_healthy):
-                        updated_count += 1
+                # Result is tuple[int, bool] - simple!
+                endpoint_id, is_healthy = result
 
-            if updated_count > 0:
-                logger.info(f"Updated {updated_count} endpoint(s) status")
+                # Get the old status for comparison
+                old_is_active = old_status_map.get(endpoint_id, True)
+
+                # Atomically update failure count and status in database
+                update_result = self._update_endpoint_health_status(
+                    session, endpoint_id, is_healthy
+                )
+
+                if update_result is None:
+                    # Endpoint was deleted between query and update
+                    continue
+
+                new_is_active, failure_count = update_result
+
+                # Log state changes
+                if old_is_active != new_is_active:
+                    state_changes += 1
+                    if new_is_active:
+                        logger.info(
+                            f"Endpoint {endpoint_id} recovered, now active "
+                            f"(failure count reset to 0)"
+                        )
+                    else:
+                        logger.info(
+                            f"Endpoint {endpoint_id} marked inactive after "
+                            f"{failure_count} consecutive failures "
+                            f"(threshold: {self.failure_threshold})"
+                        )
+                elif not is_healthy and failure_count < self.failure_threshold:
+                    # Still accumulating failures
+                    logger.debug(
+                        f"Endpoint {endpoint_id} health check failed "
+                        f"({failure_count}/{self.failure_threshold})"
+                    )
+
+            if state_changes > 0:
+                logger.info(f"Updated {state_changes} endpoint(s) status")
 
         finally:
             session.close()
@@ -514,7 +587,8 @@ class EndpointHealthMonitor:
         logger.info(
             f"Starting endpoint health monitor "
             f"(interval: {self.interval}s, timeout: {self.timeout}s, "
-            f"max_concurrent: {self.max_concurrent})"
+            f"max_concurrent: {self.max_concurrent}, "
+            f"failure_threshold: {self.failure_threshold})"
         )
 
         while self._running:

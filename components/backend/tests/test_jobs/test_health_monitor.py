@@ -71,6 +71,7 @@ class TestEndpointHealthMonitorInit:
         settings.health_check_timeout_seconds = 5.0
         settings.health_check_max_concurrent = 20
         settings.heartbeat_grace_period_seconds = 60
+        settings.health_check_failure_threshold = 3
         return settings
 
     def test_init_with_enabled_settings(self, mock_settings):
@@ -116,6 +117,7 @@ class TestTryAcquireCycleLock:
         settings.health_check_timeout_seconds = 5.0
         settings.health_check_max_concurrent = 20
         settings.heartbeat_grace_period_seconds = 60
+        settings.health_check_failure_threshold = 3
         return EndpointHealthMonitor(settings)
 
     def test_lock_acquired_on_postgresql(self, monitor):
@@ -189,6 +191,7 @@ class TestBuildHealthCheckUrl:
         settings.health_check_timeout_seconds = 5.0
         settings.health_check_max_concurrent = 20
         settings.heartbeat_grace_period_seconds = 60
+        settings.health_check_failure_threshold = 3
         return EndpointHealthMonitor(settings)
 
     def test_build_url_model_endpoint(self, monitor):
@@ -268,6 +271,7 @@ class TestGetEndpointsForHealthCheck:
         settings.health_check_timeout_seconds = 5.0
         settings.health_check_max_concurrent = 20
         settings.heartbeat_grace_period_seconds = 60
+        settings.health_check_failure_threshold = 3
         return EndpointHealthMonitor(settings)
 
     def test_get_endpoints_empty(self, monitor):
@@ -480,6 +484,7 @@ class TestCheckEndpointHealth:
         settings.health_check_timeout_seconds = 5.0
         settings.health_check_max_concurrent = 20
         settings.heartbeat_grace_period_seconds = 60
+        settings.health_check_failure_threshold = 3
         return EndpointHealthMonitor(settings)
 
     @pytest.fixture
@@ -520,10 +525,9 @@ class TestCheckEndpointHealth:
                 sample_endpoint, semaphore, mock_client, mock_session
             )
 
-        endpoint_id, is_healthy, state_changed = result
+        endpoint_id, is_healthy = result
         assert endpoint_id == 1
         assert is_healthy is True
-        assert state_changed is False  # Was active, still active
 
     @pytest.mark.asyncio
     async def test_check_health_500_is_unhealthy(
@@ -543,9 +547,8 @@ class TestCheckEndpointHealth:
                 sample_endpoint, semaphore, mock_client, mock_session
             )
 
-        _endpoint_id, is_healthy, state_changed = result
+        _endpoint_id, is_healthy = result
         assert is_healthy is False  # 5xx errors are unhealthy
-        assert state_changed is True  # Was active, now unhealthy
 
     @pytest.mark.asyncio
     async def test_check_health_404_is_unhealthy(
@@ -565,9 +568,8 @@ class TestCheckEndpointHealth:
                 sample_endpoint, semaphore, mock_client, mock_session
             )
 
-        _endpoint_id, is_healthy, state_changed = result
+        _endpoint_id, is_healthy = result
         assert is_healthy is False  # 4xx errors are unhealthy
-        assert state_changed is True  # Was active, now unhealthy
 
     @pytest.mark.asyncio
     async def test_check_health_redirect_is_healthy(
@@ -587,9 +589,8 @@ class TestCheckEndpointHealth:
                 sample_endpoint, semaphore, mock_client, mock_session
             )
 
-        _endpoint_id, is_healthy, state_changed = result
+        _endpoint_id, is_healthy = result
         assert is_healthy is True  # 3xx redirects are healthy
-        assert state_changed is False  # Was active, still active
 
     @pytest.mark.asyncio
     async def test_check_health_timeout(self, monitor, sample_endpoint, mock_session):
@@ -605,10 +606,9 @@ class TestCheckEndpointHealth:
                 sample_endpoint, semaphore, mock_client, mock_session
             )
 
-        endpoint_id, is_healthy, state_changed = result
+        endpoint_id, is_healthy = result
         assert endpoint_id == 1
         assert is_healthy is False
-        assert state_changed is True  # Was active, now unhealthy
 
     @pytest.mark.asyncio
     async def test_check_health_connection_error(
@@ -626,9 +626,8 @@ class TestCheckEndpointHealth:
                 sample_endpoint, semaphore, mock_client, mock_session
             )
 
-        _endpoint_id, is_healthy, state_changed = result
+        _endpoint_id, is_healthy = result
         assert is_healthy is False
-        assert state_changed is True
 
     @pytest.mark.asyncio
     async def test_check_health_no_valid_url(
@@ -643,10 +642,9 @@ class TestCheckEndpointHealth:
                 sample_endpoint, semaphore, mock_client, mock_session
             )
 
-        endpoint_id, is_healthy, state_changed = result
+        endpoint_id, is_healthy = result
         assert endpoint_id == 1
-        assert is_healthy is True  # Returns current state
-        assert state_changed is False
+        assert is_healthy is True  # Returns current state (endpoint was active)
 
     @pytest.mark.asyncio
     async def test_check_health_inactive_becomes_healthy(self, monitor, mock_session):
@@ -675,9 +673,8 @@ class TestCheckEndpointHealth:
                 inactive_endpoint, semaphore, mock_client, mock_session
             )
 
-        _endpoint_id, is_healthy, state_changed = result
+        _endpoint_id, is_healthy = result
         assert is_healthy is True
-        assert state_changed is True  # Was inactive, now healthy
 
     @pytest.mark.asyncio
     async def test_check_health_request_error(
@@ -695,7 +692,7 @@ class TestCheckEndpointHealth:
                 sample_endpoint, semaphore, mock_client, mock_session
             )
 
-        _endpoint_id, is_healthy, _state_changed = result
+        _endpoint_id, is_healthy = result
         assert is_healthy is False
 
     @pytest.mark.asyncio
@@ -719,10 +716,9 @@ class TestCheckEndpointHealth:
             endpoint_no_domain, semaphore, mock_client, mock_session
         )
 
-        endpoint_id, is_healthy, state_changed = result
+        endpoint_id, is_healthy = result
         assert endpoint_id == 1
-        assert is_healthy is False  # Should be unhealthy
-        assert state_changed is True  # Was active, now unhealthy
+        assert is_healthy is False  # Should be unhealthy (no domain)
         # Should not have made any HTTP requests
         mock_client.get.assert_not_called()
 
@@ -749,10 +745,9 @@ class TestCheckEndpointHealth:
             endpoint_empty_domain, semaphore, mock_client, mock_session
         )
 
-        endpoint_id, is_healthy, state_changed = result
+        endpoint_id, is_healthy = result
         assert endpoint_id == 2
-        assert is_healthy is False  # Should be unhealthy
-        assert state_changed is True  # Was active, now unhealthy
+        assert is_healthy is False  # Should be unhealthy (empty domain)
         # Should not have made any HTTP requests
         mock_client.get.assert_not_called()
 
@@ -779,15 +774,14 @@ class TestCheckEndpointHealth:
             endpoint_no_domain_inactive, semaphore, mock_client, mock_session
         )
 
-        endpoint_id, is_healthy, state_changed = result
+        endpoint_id, is_healthy = result
         assert endpoint_id == 3
         assert is_healthy is False
-        assert state_changed is False  # Was inactive, still unhealthy - no change
         mock_client.get.assert_not_called()
 
 
-class TestUpdateEndpointStatus:
-    """Tests for _update_endpoint_status method."""
+class TestUpdateEndpointHealthStatus:
+    """Tests for _update_endpoint_health_status method (atomic DB update)."""
 
     @pytest.fixture
     def monitor(self):
@@ -798,55 +792,70 @@ class TestUpdateEndpointStatus:
         settings.health_check_timeout_seconds = 5.0
         settings.health_check_max_concurrent = 20
         settings.heartbeat_grace_period_seconds = 60
+        settings.health_check_failure_threshold = 3
         return EndpointHealthMonitor(settings)
 
-    def test_update_status_success(self, monitor):
-        """Test successful status update uses core-level UPDATE."""
+    def test_update_healthy_endpoint(self, monitor):
+        """Test updating endpoint to healthy state."""
         mock_session = MagicMock()
         mock_result = MagicMock()
-        mock_result.rowcount = 1
+        # RETURNING returns (is_active=True, consecutive_failure_count=0)
+        mock_result.fetchone.return_value = (True, 0)
         mock_session.execute.return_value = mock_result
 
-        result = monitor._update_endpoint_status(mock_session, 1, False)
+        result = monitor._update_endpoint_health_status(mock_session, 1, True)
 
-        assert result is True
+        assert result == (True, 0)
         mock_session.execute.assert_called_once()
         mock_session.commit.assert_called_once()
 
-    def test_update_status_endpoint_not_found(self, monitor):
-        """Test status update when endpoint not found (rowcount=0)."""
+    def test_update_unhealthy_below_threshold(self, monitor):
+        """Test updating endpoint to unhealthy but below failure threshold."""
         mock_session = MagicMock()
         mock_result = MagicMock()
-        mock_result.rowcount = 0
+        # Failure count is 1, below threshold of 3, so is_active stays True
+        mock_result.fetchone.return_value = (True, 1)
         mock_session.execute.return_value = mock_result
 
-        result = monitor._update_endpoint_status(mock_session, 999, False)
+        result = monitor._update_endpoint_health_status(mock_session, 1, False)
 
-        assert result is False
+        assert result == (True, 1)
         mock_session.commit.assert_called_once()
 
-    def test_update_status_database_error(self, monitor):
+    def test_update_unhealthy_reaches_threshold(self, monitor):
+        """Test updating endpoint to unhealthy when reaching failure threshold."""
+        mock_session = MagicMock()
+        mock_result = MagicMock()
+        # Failure count reaches 3 (threshold), so is_active becomes False
+        mock_result.fetchone.return_value = (False, 3)
+        mock_session.execute.return_value = mock_result
+
+        result = monitor._update_endpoint_health_status(mock_session, 1, False)
+
+        assert result == (False, 3)
+        mock_session.commit.assert_called_once()
+
+    def test_update_endpoint_not_found(self, monitor):
+        """Test status update when endpoint not found."""
+        mock_session = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        result = monitor._update_endpoint_health_status(mock_session, 999, False)
+
+        assert result is None
+        mock_session.commit.assert_called_once()
+
+    def test_update_database_error(self, monitor):
         """Test status update with database error."""
         mock_session = MagicMock()
         mock_session.execute.side_effect = Exception("Database error")
 
-        result = monitor._update_endpoint_status(mock_session, 1, False)
+        result = monitor._update_endpoint_health_status(mock_session, 1, False)
 
-        assert result is False
+        assert result is None
         mock_session.rollback.assert_called_once()
-
-    def test_update_status_to_active(self, monitor):
-        """Test updating status to active uses core-level UPDATE."""
-        mock_session = MagicMock()
-        mock_result = MagicMock()
-        mock_result.rowcount = 1
-        mock_session.execute.return_value = mock_result
-
-        result = monitor._update_endpoint_status(mock_session, 1, True)
-
-        assert result is True
-        mock_session.execute.assert_called_once()
-        mock_session.commit.assert_called_once()
 
 
 class TestRunHealthCheckCycle:
@@ -861,6 +870,7 @@ class TestRunHealthCheckCycle:
         settings.health_check_timeout_seconds = 5.0
         settings.health_check_max_concurrent = 20
         settings.heartbeat_grace_period_seconds = 60
+        settings.health_check_failure_threshold = 3
         return EndpointHealthMonitor(settings)
 
     @pytest.mark.asyncio
@@ -935,16 +945,20 @@ class TestRunHealthCheckCycle:
             )
         ]
 
+        async def mock_check(*args, **kwargs):
+            return (1, True)  # Healthy
+
         with (
             patch("syfthub.jobs.health_monitor.db_manager") as mock_db_manager,
             patch.object(monitor, "_try_acquire_cycle_lock", return_value=True),
             patch.object(
                 monitor, "_get_endpoints_for_health_check", return_value=endpoints
             ),
+            patch.object(monitor, "_check_endpoint_health", side_effect=mock_check),
             patch.object(
                 monitor,
-                "_check_endpoint_health",
-                return_value=(1, True, False),  # No state change
+                "_update_endpoint_health_status",
+                return_value=(True, 0),  # Still active, no failures
             ),
             patch("syfthub.jobs.health_monitor.httpx.AsyncClient"),
         ):
@@ -956,14 +970,14 @@ class TestRunHealthCheckCycle:
 
     @pytest.mark.asyncio
     async def test_cycle_with_state_changes(self, monitor):
-        """Test health check cycle with state changes."""
+        """Test health check cycle with state changes when threshold reached."""
         mock_session = MagicMock()
         endpoints = [
             EndpointHealthInfo(
                 id=1,
                 slug="test-endpoint",
                 endpoint_type="model",
-                is_active=True,
+                is_active=True,  # Was active
                 connect=[{"type": "rest_api", "config": {"url": "/test"}}],
                 owner_domain="https://example.com",
                 owner_id=10,
@@ -973,7 +987,7 @@ class TestRunHealthCheckCycle:
         ]
 
         async def mock_check(*args, **kwargs):
-            return (1, False, True)  # State changed to unhealthy
+            return (1, False)  # Unhealthy
 
         with (
             patch("syfthub.jobs.health_monitor.db_manager") as mock_db_manager,
@@ -982,14 +996,18 @@ class TestRunHealthCheckCycle:
                 monitor, "_get_endpoints_for_health_check", return_value=endpoints
             ),
             patch.object(monitor, "_check_endpoint_health", side_effect=mock_check),
-            patch.object(monitor, "_update_endpoint_status", return_value=True),
+            patch.object(
+                monitor,
+                "_update_endpoint_health_status",
+                return_value=(False, 3),  # Now inactive after 3 failures
+            ),
             patch("syfthub.jobs.health_monitor.httpx.AsyncClient"),
         ):
             mock_db_manager.get_session.return_value = mock_session
 
             await monitor.run_health_check_cycle()
 
-            monitor._update_endpoint_status.assert_called_once_with(
+            monitor._update_endpoint_health_status.assert_called_once_with(
                 mock_session, 1, False
             )
 
@@ -1044,6 +1062,7 @@ class TestHealthMonitorLifecycle:
         settings.health_check_timeout_seconds = 5.0
         settings.health_check_max_concurrent = 20
         settings.heartbeat_grace_period_seconds = 60
+        settings.health_check_failure_threshold = 3
         return EndpointHealthMonitor(settings)
 
     @pytest.fixture
@@ -1055,6 +1074,7 @@ class TestHealthMonitorLifecycle:
         settings.health_check_timeout_seconds = 5.0
         settings.health_check_max_concurrent = 20
         settings.heartbeat_grace_period_seconds = 60
+        settings.health_check_failure_threshold = 3
         return EndpointHealthMonitor(settings)
 
     @pytest.mark.asyncio
