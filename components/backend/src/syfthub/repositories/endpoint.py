@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import Text, and_, cast, delete, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from syfthub.core.url_builder import transform_connection_urls
@@ -25,6 +26,8 @@ from syfthub.schemas.endpoint import (
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 
 class EndpointRepository(BaseRepository[EndpointModel]):
@@ -217,10 +220,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                     or_(
                         self.model.name.ilike(search_pattern),
                         self.model.description.ilike(search_pattern),
-                        # Search within tags array by converting to string
-                        func.array_to_string(self.model.tags, " ").ilike(
-                            search_pattern
-                        ),
+                        # Search within tags JSON array by casting to text
+                        cast(self.model.tags, Text).ilike(search_pattern),
                     )
                 )
 
@@ -255,7 +256,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 endpoints.append(EndpointPublicResponse(**endpoint_dict))
 
             return endpoints
-        except SQLAlchemyError:
+        except SQLAlchemyError as e:
+            logger.error("Failed to query public endpoints: %s", e)
             return []
 
     def get_public_endpoints_by_ids(
