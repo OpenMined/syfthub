@@ -11,6 +11,9 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
+// Version is set at build time via ldflags
+var Version = "dev"
+
 //go:embed all:frontend/dist
 var assets embed.FS
 
@@ -62,7 +65,7 @@ func main() {
 			Appearance: mac.NSAppearanceNameDarkAqua,
 			About: &mac.AboutInfo{
 				Title:   "SyftHub Desktop",
-				Message: "Manage your SyftHub endpoints",
+				Message: "Manage your SyftHub endpoints\nVersion: " + Version,
 			},
 		},
 		// Linux: Limited title bar customization (controlled by window manager)

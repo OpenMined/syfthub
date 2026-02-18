@@ -2,6 +2,7 @@ package syfthubapi
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -733,6 +734,54 @@ func TestExecutorInput(t *testing.T) {
 
 		if len(decoded.Messages) != 1 {
 			t.Errorf("Messages length = %d", len(decoded.Messages))
+		}
+	})
+
+	t.Run("input with transaction token", func(t *testing.T) {
+		input := ExecutorInput{
+			Type:             "data_source",
+			Query:            "search query",
+			TransactionToken: "txn_abc123.salt.1234567890.signature",
+			Context: &ExecutionContext{
+				UserID:       "user-123",
+				EndpointSlug: "billing-endpoint",
+			},
+		}
+
+		data, err := json.Marshal(input)
+		if err != nil {
+			t.Fatalf("Marshal error: %v", err)
+		}
+
+		// Verify JSON contains transaction_token
+		if !strings.Contains(string(data), `"transaction_token"`) {
+			t.Errorf("JSON should contain transaction_token field")
+		}
+
+		var decoded ExecutorInput
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("Unmarshal error: %v", err)
+		}
+
+		if decoded.TransactionToken != "txn_abc123.salt.1234567890.signature" {
+			t.Errorf("TransactionToken = %q", decoded.TransactionToken)
+		}
+	})
+
+	t.Run("input without transaction token omits field", func(t *testing.T) {
+		input := ExecutorInput{
+			Type:  "data_source",
+			Query: "search query",
+		}
+
+		data, err := json.Marshal(input)
+		if err != nil {
+			t.Fatalf("Marshal error: %v", err)
+		}
+
+		// Verify JSON does not contain transaction_token when empty
+		if strings.Contains(string(data), `"transaction_token"`) {
+			t.Errorf("JSON should not contain transaction_token field when empty")
 		}
 	})
 }

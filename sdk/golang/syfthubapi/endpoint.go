@@ -145,6 +145,8 @@ func (e *Endpoint) executeDataSourceViaSubprocess(ctx context.Context, query str
 			EndpointType: string(e.Type),
 			Metadata:     reqCtx.Metadata,
 		}
+		// Pass transaction token for billing policies
+		input.TransactionToken = reqCtx.TransactionToken
 	}
 
 	output, err := e.executor.Execute(ctx, input)
@@ -199,6 +201,8 @@ func (e *Endpoint) executeModelViaSubprocess(ctx context.Context, messages []Mes
 			EndpointType: string(e.Type),
 			Metadata:     reqCtx.Metadata,
 		}
+		// Pass transaction token for billing policies
+		input.TransactionToken = reqCtx.TransactionToken
 	}
 
 	output, err := e.executor.Execute(ctx, input)

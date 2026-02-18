@@ -373,6 +373,11 @@ func (a *App) Greet(name string) string {
 	return fmt.Sprintf("Hello %s! SyftHub Desktop is ready.", name)
 }
 
+// GetVersion returns the application version.
+func (a *App) GetVersion() string {
+	return Version
+}
+
 // LogDebug logs a debug message from the frontend to Go stdout.
 func (a *App) LogDebug(component, message string) {
 	runtime.LogInfo(a.ctx, fmt.Sprintf("[FE:%s] %s", component, message))

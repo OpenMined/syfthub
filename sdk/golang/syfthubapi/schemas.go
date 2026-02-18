@@ -82,6 +82,10 @@ type RequestContext struct {
 
 	// PolicyResult contains the result of policy evaluation (set by executor).
 	PolicyResult *PolicyResultOutput
+
+	// TransactionToken is the pre-authorized billing token for this request.
+	// Used by TransactionPolicy to verify billing authorization before execution.
+	TransactionToken string
 }
 
 // NewRequestContext creates a new RequestContext with initialized fields.
@@ -442,6 +446,10 @@ type ExecutorInput struct {
 
 	// WorkDir is the working directory for the handler.
 	WorkDir string `json:"work_dir,omitempty"`
+
+	// TransactionToken is the pre-authorized billing token for this request.
+	// Used by TransactionPolicy to verify billing authorization before execution.
+	TransactionToken string `json:"transaction_token,omitempty"`
 
 	// MaxTokens is the max tokens for model responses (legacy, not used by runner).
 	MaxTokens int `json:"max_tokens,omitempty"`
