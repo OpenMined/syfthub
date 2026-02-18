@@ -3,11 +3,19 @@
  *
  * Shared input component for submitting queries.
  * Used by both Hero (centered layout) and ChatView (bottom input bar).
+ * Supports @mention autocomplete for data sources when enabled.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { ChatSource } from '@/lib/types';
+
 import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
 import Send from 'lucide-react/dist/esm/icons/send';
+
+import { useMention } from '@/hooks/use-mention';
+
+import { MentionedSources } from './mention-hover-card';
+import { EndpointPopover, OwnerPopover } from './mention-popover';
 
 // =============================================================================
 // Types
@@ -32,6 +40,16 @@ export interface QueryInputProps {
   id?: string;
   /** Accessible label for the input */
   ariaLabel?: string;
+  /** Enable @mention autocomplete for data sources */
+  enableMentions?: boolean;
+  /** Available data sources for mention autocomplete (required when enableMentions is true) */
+  sources?: ChatSource[];
+  /** Callback when a mention is completed and source should be added to context */
+  onMentionComplete?: (source: ChatSource) => void;
+  /** Currently selected sources via mentions (for displaying badges) */
+  mentionedSources?: ChatSource[];
+  /** Callback to remove a mentioned source */
+  onMentionRemove?: (source: ChatSource) => void;
 }
 
 // =============================================================================
@@ -51,13 +69,16 @@ export interface QueryInputProps {
  *   autoFocus
  * />
  *
- * // Chat variant (bottom bar, compact)
+ * // Chat variant with mentions enabled
  * <QueryInput
  *   variant="chat"
  *   onSubmit={workflow.submitQuery}
  *   disabled={workflow.phase !== 'idle'}
  *   isProcessing={workflow.phase === 'streaming'}
- *   placeholder="Ask a follow-up question…"
+ *   placeholder="Ask a question — use @ for specific sources"
+ *   enableMentions
+ *   sources={dataSources}
+ *   onMentionComplete={handleMentionComplete}
  * />
  * ```
  */
@@ -70,10 +91,23 @@ export function QueryInput({
   autoFocus = false,
   initialValue = '',
   id,
-  ariaLabel
+  ariaLabel,
+  enableMentions = false,
+  sources = [],
+  onMentionComplete,
+  mentionedSources = [],
+  onMentionRemove
 }: Readonly<QueryInputProps>) {
   const [value, setValue] = useState(initialValue);
+  const [cursorPosition, setCursorPosition] = useState(0);
   const inputReference = useRef<HTMLInputElement>(null);
+  const popoverReference = useRef<HTMLDivElement>(null);
+
+  // Initialize mention hook (always called, but only active when enableMentions is true)
+  const mention = useMention({
+    sources: enableMentions ? sources : [],
+    maxResults: 8
+  });
 
   // Auto-focus on desktop only (avoid virtual keyboard on mobile)
   useEffect(() => {
@@ -85,6 +119,13 @@ export function QueryInput({
     }
   }, [autoFocus]);
 
+  // Update mention state when value or cursor changes
+  useEffect(() => {
+    if (enableMentions) {
+      mention.updateMentionState(value, cursorPosition);
+    }
+  }, [enableMentions, value, cursorPosition, mention.updateMentionState]);
+
   const handleSubmit = useCallback(
     (event: React.FormEvent) => {
       event.preventDefault();
@@ -94,15 +135,91 @@ export function QueryInput({
         // Clear input after submission for chat variant
         if (variant === 'chat') {
           setValue('');
+          setCursorPosition(0);
+          mention.reset();
         }
       }
     },
-    [value, disabled, onSubmit, variant]
+    [value, disabled, onSubmit, variant, mention]
   );
 
   const handleChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    setValue(event.target.value);
+    const newValue = event.target.value;
+    setValue(newValue);
+    setCursorPosition(event.target.selectionStart ?? newValue.length);
   }, []);
+
+  const handleSelect = useCallback((event: React.SyntheticEvent<HTMLInputElement>) => {
+    const target = event.target as HTMLInputElement;
+    setCursorPosition(target.selectionStart ?? 0);
+  }, []);
+
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (!enableMentions) return;
+
+      // Let mention hook handle navigation keys
+      const result = mention.handleKeyDown(event, value, cursorPosition);
+
+      if (result.handled) {
+        // Update value and cursor if mention provided new values
+        if (result.newValue !== undefined) {
+          setValue(result.newValue);
+          // Set cursor position after React updates the input
+          const newCursorPos = result.newCursorPos ?? result.newValue.length;
+          setCursorPosition(newCursorPos);
+          // Also manually set selection since React state update is async
+          setTimeout(() => {
+            if (inputReference.current) {
+              inputReference.current.setSelectionRange(newCursorPos, newCursorPos);
+            }
+          }, 0);
+        }
+
+        // If a mention was completed, notify parent
+        if (result.completedSource && onMentionComplete) {
+          onMentionComplete(result.completedSource);
+        }
+      }
+    },
+    [enableMentions, mention, value, cursorPosition, onMentionComplete]
+  );
+
+  const handleOwnerSelect = useCallback(
+    (owner: string) => {
+      const result = mention.selectOwner(owner, value, cursorPosition);
+      setValue(result.newValue);
+      setCursorPosition(result.newCursorPos);
+      // Set cursor position
+      setTimeout(() => {
+        if (inputReference.current) {
+          inputReference.current.setSelectionRange(result.newCursorPos, result.newCursorPos);
+          inputReference.current.focus();
+        }
+      }, 0);
+    },
+    [mention, value, cursorPosition]
+  );
+
+  const handleEndpointSelect = useCallback(
+    (endpoint: ChatSource) => {
+      const result = mention.selectEndpoint(endpoint, value, cursorPosition);
+      setValue(result.newValue);
+      setCursorPosition(result.newCursorPos);
+      // Notify parent of completed mention
+      if (onMentionComplete) {
+        onMentionComplete(result.completedSource);
+      }
+      // Set cursor position
+      setTimeout(() => {
+        if (inputReference.current) {
+          inputReference.current.setSelectionRange(result.newCursorPos, result.newCursorPos);
+          inputReference.current.focus();
+        }
+      }, 0);
+    },
+    [mention, value, cursorPosition, onMentionComplete]
+  );
 
   // Variant-specific styles
   const isHero = variant === 'hero';
@@ -149,6 +266,11 @@ export function QueryInput({
 
   return (
     <form onSubmit={handleSubmit} role={isHero ? 'search' : undefined}>
+      {/* Mentioned sources badges (above input) */}
+      {enableMentions && mentionedSources.length > 0 && (
+        <MentionedSources sources={mentionedSources} onRemove={onMentionRemove} className='mb-2' />
+      )}
+
       <div className={isHero ? 'group relative' : 'relative'}>
         <label htmlFor={inputId} className='sr-only'>
           {label}
@@ -160,10 +282,16 @@ export function QueryInput({
           name='query'
           value={value}
           onChange={handleChange}
+          onSelect={handleSelect}
+          onKeyDown={handleKeyDown}
           placeholder={placeholder}
           className={inputClassName}
           autoComplete='off'
           disabled={disabled}
+          aria-expanded={
+            enableMentions && (mention.showOwnerPopover || mention.showEndpointPopover)
+          }
+          aria-haspopup={enableMentions ? 'listbox' : undefined}
         />
         <button
           type='submit'
@@ -173,6 +301,28 @@ export function QueryInput({
         >
           {renderButtonIcon()}
         </button>
+
+        {/* Mention popovers */}
+        {enableMentions && (
+          <>
+            <OwnerPopover
+              ref={popoverReference}
+              isOpen={mention.showOwnerPopover}
+              owners={mention.filteredOwners}
+              highlightedIndex={mention.highlightedIndex}
+              onSelect={handleOwnerSelect}
+              className='bottom-full left-0 mb-2'
+            />
+            <EndpointPopover
+              ref={popoverReference}
+              isOpen={mention.showEndpointPopover}
+              endpoints={mention.filteredEndpoints}
+              highlightedIndex={mention.highlightedIndex}
+              onSelect={handleEndpointSelect}
+              className='bottom-full left-0 mb-2'
+            />
+          </>
+        )}
       </div>
     </form>
   );
