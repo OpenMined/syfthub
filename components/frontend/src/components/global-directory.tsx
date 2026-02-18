@@ -249,7 +249,7 @@ export function GlobalDirectory({ groups, isLoading }: Readonly<GlobalDirectoryP
   }
 
   return (
-    <div className='flex h-full flex-col'>
+    <div className='flex h-full min-h-0 flex-col'>
       {/* Section header */}
       <div className='mb-3 flex flex-shrink-0 items-center justify-between'>
         <div className='flex items-center gap-2'>
@@ -264,7 +264,7 @@ export function GlobalDirectory({ groups, isLoading }: Readonly<GlobalDirectoryP
       </div>
 
       {/* Directory tree */}
-      <div className='bg-background/80 border-border/30 flex h-full flex-col overflow-hidden rounded-lg border'>
+      <div className='bg-background/80 border-border/30 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border'>
         {/* Terminal-style header bar */}
         <div className='border-border/30 flex flex-shrink-0 items-center gap-2 border-b px-3 py-1.5'>
           <div className='flex gap-1.5'>
@@ -281,8 +281,8 @@ export function GlobalDirectory({ groups, isLoading }: Readonly<GlobalDirectoryP
           </span>
         </div>
 
-        {/* Tree content */}
-        <div className='flex-1 overflow-y-auto p-1.5'>
+        {/* Tree content - with custom scrollbar styling */}
+        <div className='scrollbar-thin scrollbar-track-transparent scrollbar-thumb-border/50 hover:scrollbar-thumb-border/80 [&::-webkit-scrollbar-thumb]:bg-border/40 [&::-webkit-scrollbar-thumb:hover]:bg-border/60 flex-1 overflow-y-auto p-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent'>
           {isLoading ? (
             <DirectorySkeleton />
           ) : (
