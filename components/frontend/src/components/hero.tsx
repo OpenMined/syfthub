@@ -18,6 +18,7 @@ import { WorkflowOverlay } from '@/components/workflow';
 import { useChatWorkflow } from '@/hooks/use-chat-workflow';
 import { useDataSources } from '@/hooks/use-data-sources';
 import { useModels } from '@/hooks/use-models';
+import { useContextSelectionStore } from '@/stores/context-selection-store';
 
 // =============================================================================
 // Constants
@@ -71,6 +72,7 @@ export function Hero({
     initialModel
   });
   const { sources } = useDataSources();
+  const contextStore = useContextSelectionStore();
 
   // Use workflow hook for query execution
   const workflow = useChatWorkflow({
@@ -112,6 +114,24 @@ export function Hero({
       handleSubmit(suggestion);
     },
     [handleSubmit]
+  );
+
+  // Handle @mention completion - add source to context (tracked for sync)
+  const handleMentionComplete = useCallback(
+    (source: ChatSource) => {
+      if (!contextStore.isSelected(source.id)) {
+        contextStore.addMentionSource(source);
+      }
+    },
+    [contextStore]
+  );
+
+  // Handle @mention sync - remove sources whose mentions were deleted from text
+  const handleMentionSync = useCallback(
+    (mentionedIds: Set<string>) => {
+      contextStore.syncMentionSources(mentionedIds);
+    },
+    [contextStore]
   );
 
   // Determine if workflow is active (not idle)
@@ -170,6 +190,10 @@ export function Hero({
                 autoFocus
                 id='hero-search'
                 ariaLabel='Query connected data sources'
+                enableMentions
+                sources={sources}
+                onMentionComplete={handleMentionComplete}
+                onMentionSync={handleMentionSync}
               />
 
               {/* Search Suggestions Pills */}
