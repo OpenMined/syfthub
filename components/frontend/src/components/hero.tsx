@@ -126,14 +126,6 @@ export function Hero({
     [contextStore]
   );
 
-  // Handle @mention removal - remove source from context
-  const handleMentionRemove = useCallback(
-    (source: ChatSource) => {
-      contextStore.removeSource(source.id);
-    },
-    [contextStore]
-  );
-
   // Determine if workflow is active (not idle)
   const isWorkflowActive = workflow.phase !== 'idle';
 
@@ -193,8 +185,6 @@ export function Hero({
                 enableMentions
                 sources={sources}
                 onMentionComplete={handleMentionComplete}
-                mentionedSources={contextStore.getSourcesArray()}
-                onMentionRemove={handleMentionRemove}
               />
 
               {/* Search Suggestions Pills */}

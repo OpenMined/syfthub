@@ -14,7 +14,6 @@ import Send from 'lucide-react/dist/esm/icons/send';
 
 import { useMention } from '@/hooks/use-mention';
 
-import { MentionedSources } from './mention-hover-card';
 import { EndpointPopover, OwnerPopover } from './mention-popover';
 
 // =============================================================================
@@ -46,10 +45,6 @@ export interface QueryInputProps {
   sources?: ChatSource[];
   /** Callback when a mention is completed and source should be added to context */
   onMentionComplete?: (source: ChatSource) => void;
-  /** Currently selected sources via mentions (for displaying badges) */
-  mentionedSources?: ChatSource[];
-  /** Callback to remove a mentioned source */
-  onMentionRemove?: (source: ChatSource) => void;
 }
 
 // =============================================================================
@@ -94,9 +89,7 @@ export function QueryInput({
   ariaLabel,
   enableMentions = false,
   sources = [],
-  onMentionComplete,
-  mentionedSources = [],
-  onMentionRemove
+  onMentionComplete
 }: Readonly<QueryInputProps>) {
   const [value, setValue] = useState(initialValue);
   const [cursorPosition, setCursorPosition] = useState(0);
@@ -266,11 +259,6 @@ export function QueryInput({
 
   return (
     <form onSubmit={handleSubmit} role={isHero ? 'search' : undefined}>
-      {/* Mentioned sources badges (above input) */}
-      {enableMentions && mentionedSources.length > 0 && (
-        <MentionedSources sources={mentionedSources} onRemove={onMentionRemove} className='mb-2' />
-      )}
-
       <div className={isHero ? 'group relative' : 'relative'}>
         <label htmlFor={inputId} className='sr-only'>
           {label}

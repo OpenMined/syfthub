@@ -236,14 +236,6 @@ export function ChatView({
     [contextStore]
   );
 
-  // Handle mention remove - remove source from context
-  const handleMentionRemove = useCallback(
-    (source: ChatSource) => {
-      contextStore.removeSource(source.id);
-    },
-    [contextStore]
-  );
-
   // Determine if workflow is in a blocking state
   const isWorkflowActive =
     workflow.phase !== 'idle' && workflow.phase !== 'complete' && workflow.phase !== 'error';
@@ -388,8 +380,6 @@ export function ChatView({
                   enableMentions
                   sources={sources}
                   onMentionComplete={handleMentionComplete}
-                  mentionedSources={contextStore.getSourcesArray()}
-                  onMentionRemove={handleMentionRemove}
                 />
               </OnboardingCallout>
             </div>
