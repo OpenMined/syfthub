@@ -450,6 +450,11 @@ func (a *App) SaveSettingsData(syfthubURL, apiKey, endpointsPath string) error {
 	os.Setenv("SYFTHUB_URL", syfthubURL)
 	if apiKey != "" {
 		os.Setenv("SYFTHUB_API_KEY", apiKey)
+
+		// Fetch username from SyftHub API and set SPACE_URL for tunneling mode
+		if err := a.fetchAndSetSpaceURL(a.ctx, syfthubURL, apiKey); err != nil {
+			runtime.LogWarning(a.ctx, fmt.Sprintf("Could not fetch username from SyftHub: %v", err))
+		}
 	}
 
 	// Resolve and set endpoints path
