@@ -225,6 +225,25 @@ export function ChatView({
     [contextStore]
   );
 
+  // Handle mention completion - add source to context (tracked for sync)
+  const handleMentionComplete = useCallback(
+    (source: ChatSource) => {
+      // Only add if not already selected
+      if (!contextStore.isSelected(source.id)) {
+        contextStore.addMentionSource(source);
+      }
+    },
+    [contextStore]
+  );
+
+  // Handle @mention sync - remove sources whose mentions were deleted from text
+  const handleMentionSync = useCallback(
+    (mentionedIds: Set<string>) => {
+      contextStore.syncMentionSources(mentionedIds);
+    },
+    [contextStore]
+  );
+
   // Determine if workflow is in a blocking state
   const isWorkflowActive =
     workflow.phase !== 'idle' && workflow.phase !== 'complete' && workflow.phase !== 'error';
@@ -362,10 +381,14 @@ export function ChatView({
                   placeholder={
                     contextStore.count() > 0
                       ? 'Ask question about these sources...'
-                      : 'Ask anything... (Use + to add sources)'
+                      : 'Ask anything... (Use @ for sources or + to browse)'
                   }
                   id='chat-followup-input'
                   ariaLabel='Ask a follow-up question'
+                  enableMentions
+                  sources={sources}
+                  onMentionComplete={handleMentionComplete}
+                  onMentionSync={handleMentionSync}
                 />
               </OnboardingCallout>
             </div>

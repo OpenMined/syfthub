@@ -28,6 +28,16 @@ class EndpointModel(BaseModel, TimestampMixin):
 
     __tablename__ = "endpoints"
 
+    # Override updated_at from TimestampMixin without onupdate hook.
+    # Endpoints should only update this timestamp for user-initiated changes,
+    # not for health check status updates (which would cause endpoints to
+    # dominate listings due to frequent automated checks).
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
     # Owner fields (exactly one of user_id or organization_id must be set)
     user_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=True

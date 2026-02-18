@@ -423,9 +423,6 @@ class EndpointHealthMonitor:
         This is multi-worker safe because all state is managed in the database
         atomically, not in memory.
 
-        Uses Core-level UPDATE to bypass the ORM's onupdate hook on updated_at.
-        Health monitor status changes should not modify the updated_at timestamp.
-
         Args:
             session: Database session to use for the update
             endpoint_id: ID of the endpoint to update
@@ -456,10 +453,6 @@ class EndpointHealthMonitor:
                         ),
                         else_=EndpointModel.is_active,
                     ),
-                    # Preserve updated_at to prevent onupdate hook from modifying it
-                    # Health check status changes should not affect the updated_at timestamp
-                    # (prevents endpoints from dominating listings due to frequent health checks)
-                    updated_at=EndpointModel.updated_at,
                 )
                 .returning(
                     EndpointModel.is_active, EndpointModel.consecutive_failure_count
