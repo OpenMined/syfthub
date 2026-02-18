@@ -3,6 +3,7 @@ import type { EndpointType } from '@/lib/types';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
 import {
+  getGroupedPublicEndpoints,
   getPublicEndpoints,
   getPublicEndpointsPaginated,
   getTotalEndpointsCount,
@@ -44,6 +45,23 @@ export function usePaginatedPublicEndpoints(
 
 export function useRecentEndpoints(limit = 4) {
   return usePublicEndpoints(limit);
+}
+
+/**
+ * Hook for fetching public endpoints grouped by owner.
+ *
+ * This is designed for the Global Directory display, where showing endpoints
+ * grouped by owner provides a better representation of the network's diversity.
+ * It prevents a single owner with many endpoints from dominating the listing.
+ *
+ * @param maxPerOwner - Maximum endpoints to return per owner (default 15)
+ * @returns Query result with groups ordered by total endpoint count (descending)
+ */
+export function useGroupedPublicEndpoints(maxPerOwner = 15) {
+  return useQuery({
+    queryKey: endpointKeys.publicGrouped(maxPerOwner),
+    queryFn: () => getGroupedPublicEndpoints(maxPerOwner)
+  });
 }
 
 export function useTrendingEndpoints(limit = 4) {

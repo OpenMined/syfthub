@@ -19,6 +19,7 @@ from syfthub.schemas.endpoint import (
     EndpointType,
     EndpointUpdate,
     EndpointVisibility,
+    GroupedEndpointsResponse,
     SyncEndpointsRequest,
     SyncEndpointsResponse,
 )
@@ -89,6 +90,47 @@ async def list_public_endpoints(
     return endpoint_service.list_public_endpoints(
         skip=skip, limit=limit, endpoint_type=endpoint_type, search=search
     )
+
+
+@router.get(
+    "/public/grouped",
+    response_model=GroupedEndpointsResponse,
+    summary="List Public Endpoints Grouped by Owner",
+    description="""
+List public endpoints grouped by their owner (user or organization).
+
+**No Authentication Required** - This endpoint is public.
+
+**Purpose:**
+This endpoint is designed for the Global Directory display, where showing
+endpoints grouped by owner provides a better representation of the network's
+diversity. It prevents a single owner with many endpoints from dominating
+the entire listing.
+
+**Response Format:**
+Returns a list of groups, where each group contains:
+- `owner_username`: The username of the endpoint owner
+- `endpoints`: List of endpoints belonging to this owner (limited to `max_per_owner`)
+- `total_count`: Total number of endpoints this owner has (may be more than shown)
+- `has_more`: True if the owner has more endpoints than displayed
+
+**Ordering:**
+- Groups are ordered by total endpoint count (descending)
+- Within each group, endpoints are ordered by `updated_at` (most recent first)
+""",
+)
+async def list_public_endpoints_grouped(
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    max_per_owner: int = Query(
+        15, ge=1, le=50, description="Maximum endpoints to return per owner"
+    ),
+) -> GroupedEndpointsResponse:
+    """List public endpoints grouped by owner with a limit per owner.
+
+    This provides a balanced view across multiple owners rather than having
+    a single owner dominate the listing.
+    """
+    return endpoint_service.list_public_endpoints_grouped(max_per_owner=max_per_owner)
 
 
 @router.get("/trending", response_model=list[EndpointPublicResponse])

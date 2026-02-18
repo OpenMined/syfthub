@@ -25,6 +25,7 @@ from syfthub.schemas.endpoint import (
     EndpointType,
     EndpointUpdate,
     EndpointVisibility,
+    GroupedEndpointsResponse,
     SyncEndpointsResponse,
     SyncValidationError,
     generate_slug_from_name,
@@ -511,6 +512,26 @@ class EndpointService(BaseService):
         """
         return self.endpoint_repository.get_guest_accessible_endpoints(
             skip=skip, limit=limit, endpoint_type=endpoint_type
+        )
+
+    def list_public_endpoints_grouped(
+        self,
+        max_per_owner: int = 15,
+    ) -> GroupedEndpointsResponse:
+        """List public endpoints grouped by owner with a limit per owner.
+
+        This method returns endpoints organized by their owner, with at most
+        max_per_owner endpoints shown per owner. This prevents a single owner
+        with many endpoints from dominating the display (e.g., in Global Directory).
+
+        Args:
+            max_per_owner: Maximum number of endpoints to return per owner (default 15)
+
+        Returns:
+            GroupedEndpointsResponse with groups ordered by total endpoint count (descending)
+        """
+        return self.endpoint_repository.get_public_endpoints_grouped(
+            max_per_owner=max_per_owner
         )
 
     # ===========================================

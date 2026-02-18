@@ -1,25 +1,23 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 
-import type { ChatSource } from '@/lib/types';
+import type { ChatSource, EndpointGroup } from '@/lib/types';
 
 import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right';
 import Cpu from 'lucide-react/dist/esm/icons/cpu';
 import Database from 'lucide-react/dist/esm/icons/database';
 import Folder from 'lucide-react/dist/esm/icons/folder';
 import FolderOpen from 'lucide-react/dist/esm/icons/folder-open';
+import MoreHorizontal from 'lucide-react/dist/esm/icons/more-horizontal';
 import { Link } from 'react-router-dom';
 
 // =============================================================================
 // Types
 // =============================================================================
 
-interface DirectoryNode {
-  owner: string;
-  endpoints: ChatSource[];
-}
-
 interface GlobalDirectoryProps {
-  endpoints: ChatSource[];
+  /** Endpoint groups from the grouped API (preferred) */
+  groups?: EndpointGroup[];
+  /** Loading state */
   isLoading: boolean;
 }
 
@@ -87,12 +85,55 @@ function DirectoryEntry({
   );
 }
 
+/**
+ * "More" indicator when a folder has more endpoints than displayed.
+ */
+function MoreIndicator({
+  owner,
+  remainingCount,
+  depth,
+  colorIndex
+}: Readonly<{
+  owner: string;
+  remainingCount: number;
+  depth: number;
+  colorIndex: number;
+}>) {
+  const color = getNodeColor(colorIndex);
+
+  return (
+    <Link
+      to='/browse'
+      title='View all endpoints'
+      className='group flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-[var(--accent)]'
+      style={{ paddingLeft: `${String(depth * 18 + 8)}px` }}
+    >
+      {/* Tree connector line */}
+      <span className='text-muted-foreground/40 font-mono text-xs select-none' aria-hidden='true'>
+        └─
+      </span>
+
+      {/* More icon */}
+      <MoreHorizontal
+        className='h-3.5 w-3.5 flex-shrink-0 transition-colors'
+        style={{ color }}
+        aria-hidden='true'
+      />
+
+      {/* Label */}
+      <span className='text-muted-foreground group-hover:text-foreground flex-1 truncate font-mono text-xs tracking-tight transition-colors'>
+        +{remainingCount} more...
+      </span>
+    </Link>
+  );
+}
+
 function FolderNode({
-  node,
+  group,
   colorIndex,
   defaultOpen
 }: Readonly<{
-  node: DirectoryNode;
+  group: EndpointGroup;
   colorIndex: number;
   defaultOpen: boolean;
 }>) {
@@ -102,6 +143,10 @@ function FolderNode({
   const toggle = useCallback(() => {
     setIsOpen((previous) => !previous);
   }, []);
+
+  // Calculate remaining count for "more" indicator
+  const displayedCount = group.endpoints.length;
+  const remainingCount = group.total_count - displayedCount;
 
   return (
     <div>
@@ -128,12 +173,13 @@ function FolderNode({
 
         {/* Owner name */}
         <span className='text-foreground group-hover:text-foreground flex-1 truncate text-left font-mono text-xs font-medium tracking-tight'>
-          {node.owner}/
+          {group.owner_username}/
         </span>
 
-        {/* Count */}
+        {/* Count - show total_count, not just displayed count */}
         <span className='text-muted-foreground font-mono text-[10px] tabular-nums'>
-          {node.endpoints.length} {node.endpoints.length === 1 ? 'node' : 'nodes'}
+          {group.total_count} {group.total_count === 1 ? 'node' : 'nodes'}
+          {group.has_more && <span className='text-muted-foreground/50 ml-1'>...</span>}
         </span>
       </button>
 
@@ -146,7 +192,7 @@ function FolderNode({
             style={{ backgroundColor: `${color}25` }}
             aria-hidden='true'
           />
-          {node.endpoints.map((endpoint, index) => (
+          {group.endpoints.map((endpoint, index) => (
             <DirectoryEntry
               key={endpoint.id}
               endpoint={endpoint}
@@ -154,6 +200,15 @@ function FolderNode({
               colorIndex={colorIndex + index}
             />
           ))}
+          {/* Show "more" indicator if there are additional endpoints not displayed */}
+          {group.has_more && (
+            <MoreIndicator
+              owner={group.owner_username}
+              remainingCount={remainingCount}
+              depth={1}
+              colorIndex={colorIndex + displayedCount}
+            />
+          )}
         </div>
       )}
     </div>
@@ -183,37 +238,18 @@ function DirectorySkeleton() {
 // Main component
 // =============================================================================
 
-export function GlobalDirectory({ endpoints, isLoading }: Readonly<GlobalDirectoryProps>) {
-  // Group endpoints by owner into directory tree
-  const directoryTree = useMemo(() => {
-    const ownerMap = new Map<string, ChatSource[]>();
+export function GlobalDirectory({ groups, isLoading }: Readonly<GlobalDirectoryProps>) {
+  // Calculate totals from groups
+  const totalEndpoints = groups?.reduce((sum, g) => sum + g.total_count, 0) ?? 0;
+  const totalContributors = groups?.length ?? 0;
 
-    for (const ep of endpoints) {
-      const owner = ep.owner_username ?? 'network';
-      const existing = ownerMap.get(owner);
-      if (existing) {
-        existing.push(ep);
-      } else {
-        ownerMap.set(owner, [ep]);
-      }
-    }
-
-    // Sort by number of endpoints (descending) for visual weight
-    const nodes: DirectoryNode[] = [];
-    for (const [owner, eps] of ownerMap) {
-      nodes.push({ owner, endpoints: eps });
-    }
-    nodes.sort((a, b) => b.endpoints.length - a.endpoints.length);
-
-    return nodes;
-  }, [endpoints]);
-
-  if (!isLoading && endpoints.length === 0) {
+  // Show nothing if no groups (empty state)
+  if (!isLoading && (!groups || groups.length === 0)) {
     return null;
   }
 
   return (
-    <div className='flex h-full flex-col'>
+    <div className='flex h-full min-h-0 flex-col'>
       {/* Section header */}
       <div className='mb-3 flex flex-shrink-0 items-center justify-between'>
         <div className='flex items-center gap-2'>
@@ -228,7 +264,7 @@ export function GlobalDirectory({ endpoints, isLoading }: Readonly<GlobalDirecto
       </div>
 
       {/* Directory tree */}
-      <div className='bg-background/80 border-border/30 flex h-full flex-col overflow-hidden rounded-lg border'>
+      <div className='bg-background/80 border-border/30 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border'>
         {/* Terminal-style header bar */}
         <div className='border-border/30 flex flex-shrink-0 items-center gap-2 border-b px-3 py-1.5'>
           <div className='flex gap-1.5'>
@@ -241,31 +277,31 @@ export function GlobalDirectory({ endpoints, isLoading }: Readonly<GlobalDirecto
           </span>
           <div className='flex-1' />
           <span className='text-muted-foreground/40 font-mono text-[10px] tabular-nums'>
-            {isLoading ? '...' : `${String(endpoints.length)} nodes`}
+            {isLoading ? '...' : `${String(totalEndpoints)} nodes`}
           </span>
         </div>
 
-        {/* Tree content */}
-        <div className='flex-1 overflow-y-auto p-1.5'>
+        {/* Tree content - with custom scrollbar styling */}
+        <div className='scrollbar-thin scrollbar-track-transparent scrollbar-thumb-border/50 hover:scrollbar-thumb-border/80 [&::-webkit-scrollbar-thumb]:bg-border/40 [&::-webkit-scrollbar-thumb:hover]:bg-border/60 flex-1 overflow-y-auto p-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent'>
           {isLoading ? (
             <DirectorySkeleton />
           ) : (
             <div className='space-y-0.5'>
               {/* Folder nodes */}
-              {directoryTree.map((node, index) => (
+              {groups?.map((group, index) => (
                 <FolderNode
-                  key={node.owner}
-                  node={node}
+                  key={group.owner_username}
+                  group={group}
                   colorIndex={index}
                   defaultOpen={index < 3}
                 />
               ))}
 
               {/* Bottom indicator */}
-              {directoryTree.length > 0 && (
+              {groups && groups.length > 0 && (
                 <div className='flex items-center gap-2 px-2 py-1'>
                   <span className='text-muted-foreground/30 font-mono text-[10px]'>
-                    {directoryTree.length} contributors &middot; {endpoints.length} total nodes
+                    {totalContributors} contributors &middot; {totalEndpoints} total nodes
                   </span>
                 </div>
               )}
