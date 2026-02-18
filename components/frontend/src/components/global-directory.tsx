@@ -103,8 +103,8 @@ function MoreIndicator({
 
   return (
     <Link
-      to={`/${owner}`}
-      title={`View all endpoints from ${owner}`}
+      to='/browse'
+      title='View all endpoints'
       className='group flex items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-[var(--accent)]'
       style={{ paddingLeft: `${String(depth * 18 + 8)}px` }}
     >
