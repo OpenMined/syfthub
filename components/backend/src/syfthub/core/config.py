@@ -254,8 +254,15 @@ class Settings(BaseSettings):
 
     # Timeout for individual health check requests
     health_check_timeout_seconds: float = Field(
-        default=5.0,
+        default=15.0,
         description="Timeout for individual health check requests in seconds",
+    )
+
+    # Number of consecutive failures before marking endpoint as unhealthy
+    # This prevents transient network issues from causing false positive offline detections
+    health_check_failure_threshold: int = Field(
+        default=3,
+        description="Number of consecutive health check failures before marking endpoint unhealthy",
     )
 
     # Maximum concurrent health check requests
@@ -269,9 +276,11 @@ class Settings(BaseSettings):
     # ===========================================
 
     # Maximum TTL that clients can request for heartbeats
+    # Set to 1800s (30 min) to match SyftAI-Space heartbeat manager's max TTL
+    # (600s interval * 3 TTL multiplier = 1800s)
     heartbeat_max_ttl_seconds: int = Field(
-        default=600,
-        description="Maximum TTL clients can request for heartbeats (10 min cap)",
+        default=1800,
+        description="Maximum TTL clients can request for heartbeats (30 min cap)",
     )
 
     # Default TTL if client doesn't specify
@@ -281,9 +290,10 @@ class Settings(BaseSettings):
     )
 
     # Grace period added when HTTP verification succeeds for stale heartbeat
+    # Set to 300s (5 min) to reduce HTTP polling when heartbeat manager is at slow intervals
     heartbeat_grace_period_seconds: int = Field(
-        default=60,
-        description="Grace period after successful HTTP verification (1 min)",
+        default=300,
+        description="Grace period after successful HTTP verification (5 min)",
     )
 
     # ===========================================
