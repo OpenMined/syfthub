@@ -1,5 +1,0 @@
-type: RateLimitPolicy
-name: python_expert_rate_limit
-config:
-  max_requests: 100
-  window_seconds: 60
