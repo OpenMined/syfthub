@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import and_, delete, func, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from syfthub.core.url_builder import transform_connection_urls
@@ -183,10 +183,20 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         skip: int = 0,
         limit: int = 10,
         endpoint_type: Optional[EndpointType] = None,
+        search: Optional[str] = None,
     ) -> List[EndpointPublicResponse]:
         """Get all public endpoints with owner usernames and transformed URLs.
 
         Includes both user-owned and organization-owned endpoints.
+
+        Args:
+            skip: Number of endpoints to skip (pagination)
+            limit: Maximum number of endpoints to return
+            endpoint_type: Optional filter by endpoint type (model or data_source)
+            search: Optional search string to filter by name, description, or tags
+
+        Returns:
+            List of EndpointPublicResponse objects
         """
         try:
             stmt = self._build_public_select().where(
@@ -199,6 +209,20 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             if endpoint_type:
                 matching_types = get_matching_types(endpoint_type)
                 stmt = stmt.where(self.model.type.in_(matching_types))
+
+            # Add search filter if provided
+            if search:
+                search_pattern = f"%{search}%"
+                stmt = stmt.where(
+                    or_(
+                        self.model.name.ilike(search_pattern),
+                        self.model.description.ilike(search_pattern),
+                        # Search within tags array by converting to string
+                        func.array_to_string(self.model.tags, " ").ilike(
+                            search_pattern
+                        ),
+                    )
+                )
 
             stmt = stmt.order_by(self.model.updated_at.desc()).offset(skip).limit(limit)
 
