@@ -1,0 +1,15 @@
+[project]
+name = "python-expert-endpoint"
+version = "1.0.0"
+description = "Python Expert AI assistant endpoint"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27.0",
+    "pydantic",
+]
+
+[project.optional-dependencies]
+ml = []
+dev = [
+    "pytest>=8.0",
+]
