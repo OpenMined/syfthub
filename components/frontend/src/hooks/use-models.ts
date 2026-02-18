@@ -16,6 +16,15 @@ import { useModelSelectionStore } from '@/stores/model-selection-store';
 const PREFERRED_MODEL_OWNER = 'openmined-models';
 
 /**
+ * Get a unique identifier for a model that distinguishes models with the same name
+ * but different owners. Uses full_path (owner/slug) when available, otherwise
+ * constructs it from owner_username and slug.
+ */
+function getModelUniqueId(model: ChatSource): string {
+  return model.full_path ?? `${model.owner_username ?? 'unknown'}/${model.slug}`;
+}
+
+/**
  * Find the preferred model for auto-selection.
  * Prioritizes models from the preferred owner, falls back to first model.
  */
@@ -78,8 +87,12 @@ export function useModels(options: UseModelsOptions = {}): UseModelsReturn {
         : await getGuestAccessibleModels(limit);
 
       // If initialModel was provided but not in fetched list, prepend it
+      // Use full_path (owner/slug) for comparison to correctly handle models with same slug but different owners
       let updatedModels = fetchedModels;
-      if (initialModel && !fetchedModels.some((m) => m.slug === initialModel.slug)) {
+      if (
+        initialModel &&
+        !fetchedModels.some((m) => getModelUniqueId(m) === getModelUniqueId(initialModel))
+      ) {
         updatedModels = [initialModel, ...fetchedModels];
       }
 
