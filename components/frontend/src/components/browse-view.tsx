@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ChatSource, EndpointType } from '@/lib/types';
 import type { BrowseFilters } from './browse-filters-modal';
@@ -89,15 +89,40 @@ interface BrowseViewProperties {
   onAuthRequired?: () => void;
 }
 
+// Debounce delay for search input (ms)
+const SEARCH_DEBOUNCE_MS = 300;
+
 export function BrowseView({
   initialQuery = '',
   onAuthRequired: _onAuthRequired
 }: Readonly<BrowseViewProperties>) {
   const [searchQuery, setSearchQuery] = useState(initialQuery);
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(initialQuery);
   const [activeTab, setActiveTab] = useState<BrowseTab>('data_sources');
   const [page, setPage] = useState(1);
   const [isFiltersModalOpen, setIsFiltersModalOpen] = useState(false);
   const [filters, setFilters] = useState<BrowseFilters>(createDefaultFilters);
+
+  // Reference for debounce timer
+  const searchDebounceReference = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // Debounce the search query for server-side filtering
+  useEffect(() => {
+    // Clear any existing timer
+    clearTimeout(searchDebounceReference.current);
+
+    // Set new timer for debounced update
+    searchDebounceReference.current = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+      // Reset to page 1 when search query changes
+      setPage(1);
+    }, SEARCH_DEBOUNCE_MS);
+
+    // Cleanup on unmount or when searchQuery changes
+    return () => {
+      clearTimeout(searchDebounceReference.current);
+    };
+  }, [searchQuery]);
 
   // Context selection store
   const toggleSource = useContextSelectionStore((s) => s.toggleSource);
@@ -106,43 +131,36 @@ export function BrowseView({
   // Map tab to endpoint type for server-side filtering
   const endpointType: EndpointType = activeTab === 'data_sources' ? 'data_source' : 'model';
 
-  // Fetch paginated endpoints using TanStack Query
+  // Fetch paginated endpoints using TanStack Query with server-side search
   const { data, isLoading, error, isFetching } = usePaginatedPublicEndpoints(
     page,
     PAGE_SIZE,
-    endpointType
+    endpointType,
+    debouncedSearchQuery || undefined // Pass undefined instead of empty string
   );
 
   const endpoints = data?.items ?? [];
   const hasNextPage = data?.hasNextPage ?? false;
   const hasPreviousPage = page > 1;
 
-  // Reset page and filters when tab changes
+  // Reset page, filters, and search when tab changes
   useEffect(() => {
     setPage(1);
     setFilters(createDefaultFilters());
+    setSearchQuery('');
+    setDebouncedSearchQuery('');
   }, [activeTab]);
 
   // Extract available tags and owners from current endpoints for the filter modal
   const availableTags = useMemo(() => extractUniqueTags(endpoints), [endpoints]);
   const availableOwners = useMemo(() => extractUniqueOwners(endpoints), [endpoints]);
 
-  // Filter endpoints by search query, tags, and owners (client-side on current page)
+  // Filter endpoints by tags and owners (client-side on current page)
+  // Note: Search filtering is now done server-side via debouncedSearchQuery
   const filteredEndpoints = useMemo(() => {
     if (endpoints.length === 0) return [];
 
     let result = endpoints;
-
-    // Filter by search query
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(
-        (ds) =>
-          ds.name.toLowerCase().includes(query) ||
-          ds.description.toLowerCase().includes(query) ||
-          ds.tags.some((tag) => tag.toLowerCase().includes(query))
-      );
-    }
 
     // Filter by selected tags (endpoint must have at least one of the selected tags)
     if (filters.tags.size > 0) {
@@ -155,7 +173,7 @@ export function BrowseView({
     }
 
     return result;
-  }, [endpoints, searchQuery, filters]);
+  }, [endpoints, filters]);
 
   const getVisibilityIcon = (endpoint: ChatSource) => {
     if (endpoint.name.toLowerCase().includes('private')) {
@@ -170,16 +188,17 @@ export function BrowseView({
   const getNoResultsMessage = () => {
     const entityName = activeTab === 'data_sources' ? 'data sources' : 'models';
     const hasFilters = hasActiveFilters(filters);
+    const hasSearch = debouncedSearchQuery.trim().length > 0;
 
-    if (!searchQuery && !hasFilters) {
+    if (!hasSearch && !hasFilters) {
       return `No ${entityName} available`;
     }
 
     const parts: string[] = [];
-    if (searchQuery) parts.push('search');
+    if (hasSearch) parts.push('search');
     if (hasFilters) parts.push('filters');
 
-    return `No ${entityName} match your ${parts.join(' and ')} on this page`;
+    return `No ${entityName} match your ${parts.join(' and ')}`;
   };
 
   const handleToggleSource = useCallback(
@@ -201,7 +220,7 @@ export function BrowseView({
 
   const handleTabChange = useCallback((tab: BrowseTab) => {
     setActiveTab(tab);
-    setSearchQuery(''); // Clear search when changing tabs
+    // Search is cleared in the useEffect that reacts to activeTab changes
   }, []);
 
   const handleOpenFilters = useCallback(() => {
@@ -288,7 +307,7 @@ export function BrowseView({
               onChange={(e) => {
                 setSearchQuery(e.target.value);
               }}
-              placeholder={`Search ${activeTab === 'data_sources' ? 'data sources' : 'models'} on this page…`}
+              placeholder={`Search ${activeTab === 'data_sources' ? 'data sources' : 'models'}…`}
               className='font-inter border-border focus:border-primary focus:ring-ring/10 w-full rounded-lg border py-3 pr-4 pl-10 transition-colors transition-shadow focus:ring-2 focus:outline-none'
             />
           </div>
@@ -376,13 +395,11 @@ export function BrowseView({
           <div className='text-muted-foreground mb-4 flex items-center justify-between'>
             <span className='font-inter text-sm'>
               Page {page}
-              {isFetching && !isLoading && (
-                <span className='text-muted-foreground/60 ml-2'>(loading...)</span>
-              )}
+              {isFetching && <span className='text-muted-foreground/60 ml-2'>(loading...)</span>}
             </span>
             <span className='font-inter text-sm'>
               {filteredEndpoints.length} {filteredEndpoints.length === 1 ? 'result' : 'results'}
-              {searchQuery && ' (filtered)'}
+              {debouncedSearchQuery && ' (search results)'}
             </span>
           </div>
         )}

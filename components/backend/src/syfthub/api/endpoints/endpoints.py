@@ -78,10 +78,16 @@ async def list_public_endpoints(
     endpoint_type: Optional[EndpointType] = Query(
         None, description="Filter by endpoint type (model or data_source)"
     ),
+    search: Optional[str] = Query(
+        None,
+        min_length=1,
+        max_length=200,
+        description="Search by name, description, or tags",
+    ),
 ) -> list[EndpointPublicResponse]:
-    """List all public endpoints."""
+    """List all public endpoints with optional search filtering."""
     return endpoint_service.list_public_endpoints(
-        skip=skip, limit=limit, endpoint_type=endpoint_type
+        skip=skip, limit=limit, endpoint_type=endpoint_type, search=search
     )
 
 

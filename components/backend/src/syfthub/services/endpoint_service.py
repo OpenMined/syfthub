@@ -303,9 +303,12 @@ class EndpointService(BaseService):
         skip: int = 0,
         limit: int = 10,
         endpoint_type: Optional[EndpointType] = None,
+        search: Optional[str] = None,
     ) -> List[EndpointPublicResponse]:
-        """Get public endpoints."""
-        return self.endpoint_repository.get_public_endpoints(skip, limit, endpoint_type)
+        """Get public endpoints with optional search filtering."""
+        return self.endpoint_repository.get_public_endpoints(
+            skip, limit, endpoint_type, search
+        )
 
     def update_endpoint(
         self, endpoint_id: int, endpoint_data: EndpointUpdate, current_user: User
@@ -464,10 +467,11 @@ class EndpointService(BaseService):
         skip: int = 0,
         limit: int = 10,
         endpoint_type: Optional[EndpointType] = None,
+        search: Optional[str] = None,
     ) -> List[EndpointPublicResponse]:
         """List public endpoints - router-compatible wrapper."""
         return self.get_public_endpoints(
-            skip=skip, limit=limit, endpoint_type=endpoint_type
+            skip=skip, limit=limit, endpoint_type=endpoint_type, search=search
         )
 
     def list_trending_endpoints(

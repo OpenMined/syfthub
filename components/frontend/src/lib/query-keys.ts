@@ -1,8 +1,16 @@
 export const endpointKeys = {
   all: ['endpoints'] as const,
   public: (limit: number) => [...endpointKeys.all, 'public', limit] as const,
-  publicPaginated: (page: number, limit: number, endpointType?: string) =>
-    [...endpointKeys.all, 'public', 'paginated', page, limit, endpointType ?? 'all'] as const,
+  publicPaginated: (page: number, limit: number, endpointType?: string, search?: string) =>
+    [
+      ...endpointKeys.all,
+      'public',
+      'paginated',
+      page,
+      limit,
+      endpointType ?? 'all',
+      search ?? ''
+    ] as const,
   trending: (limit: number) => [...endpointKeys.all, 'trending', limit] as const,
   count: () => [...endpointKeys.all, 'count'] as const,
   byPath: (path: string) => [...endpointKeys.all, 'byPath', path] as const
