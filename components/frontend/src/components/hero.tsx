@@ -142,7 +142,7 @@ export function Hero({
             </Badge>
 
             {/* Headline */}
-            <h1 className='font-rubik mt-6 max-w-[20ch] text-4xl leading-[1.2] font-semibold tracking-[-0.035em] md:text-5xl lg:text-[2.75rem] xl:text-[3.25rem]'>
+            <h1 className='font-rubik mt-6 max-w-[20ch] text-4xl leading-[1.2] font-semibold tracking-[-0.035em] md:text-5xl lg:text-5xl xl:text-6xl'>
               Ask{' '}
               <span className='from-chart-1 via-chart-2 to-chart-3 bg-gradient-to-r bg-clip-text text-transparent'>
                 anyone, anything
@@ -160,7 +160,7 @@ export function Hero({
             {actionButtons && <div className='mt-8 flex items-center gap-4'>{actionButtons}</div>}
 
             {/* Search Input */}
-            <div className='mt-10 max-w-xl space-y-4'>
+            <div className='mt-8 max-w-xl space-y-4'>
               <QueryInput
                 variant='hero'
                 onSubmit={handleSubmit}
@@ -182,8 +182,8 @@ export function Hero({
 
           {/* Right column - Global Directory Block */}
           {sidePanel && (
-            <div className='bg-accent/30 border-border/40 hidden aspect-auto h-[calc(100vh-8rem)] w-full max-w-[600px] overflow-hidden rounded-2xl border backdrop-blur-sm lg:block'>
-              <div className='h-full overflow-y-auto p-6'>{sidePanel}</div>
+            <div className='bg-accent/30 border-border/40 my-auto hidden max-h-[calc(100vh-8rem)] w-full max-w-xl overflow-hidden rounded-2xl border backdrop-blur-sm lg:block'>
+              <div className='h-full overflow-y-auto p-4'>{sidePanel}</div>
             </div>
           )}
         </div>

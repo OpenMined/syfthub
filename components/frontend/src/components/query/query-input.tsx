@@ -192,7 +192,7 @@ export interface SearchSuggestionsProps {
  */
 export function SearchSuggestions({ suggestions, onSelect }: Readonly<SearchSuggestionsProps>) {
   return (
-    <div className='flex flex-wrap items-center justify-center gap-2'>
+    <div className='flex flex-wrap items-center gap-2'>
       {suggestions.map((suggestion, index) => (
         <button
           key={index}
@@ -200,7 +200,7 @@ export function SearchSuggestions({ suggestions, onSelect }: Readonly<SearchSugg
           onClick={() => {
             onSelect(suggestion);
           }}
-          className='font-inter border-border/40 text-muted-foreground hover:border-border hover:text-foreground focus:ring-ring rounded-full border px-3 py-1.5 text-sm transition-colors focus:ring-2 focus:ring-offset-2 focus:outline-none'
+          className='font-inter border-border/40 text-muted-foreground hover:border-border hover:text-foreground focus:ring-ring rounded-full border px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-offset-2 focus:outline-none'
         >
           {suggestion}
         </button>
