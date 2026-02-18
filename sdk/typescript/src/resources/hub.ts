@@ -11,6 +11,8 @@ import { PageIterator } from '../pagination.js';
  * Options for browsing endpoints.
  */
 export interface BrowseOptions {
+  /** Filter by endpoint type ('model' or 'data_source') */
+  endpointType?: string;
   /** Number of items per page (default: 20) */
   pageSize?: number;
 }
@@ -19,6 +21,8 @@ export interface BrowseOptions {
  * Options for trending endpoints.
  */
 export interface TrendingOptions {
+  /** Filter by endpoint type ('model' or 'data_source') */
+  endpointType?: string;
   /** Minimum number of stars */
   minStars?: number;
   /** Number of items per page (default: 20) */
@@ -124,18 +128,24 @@ export class HubResource {
   /**
    * Browse all public endpoints.
    *
-   * @param options - Pagination options
+   * @param options - Filter and pagination options
    * @returns PageIterator that lazily fetches endpoints
+   *
+   * @example
+   * // Browse only model endpoints
+   * const models = await client.hub.browse({ endpointType: 'model' }).firstPage();
    */
   browse(options?: BrowseOptions): PageIterator<EndpointPublic> {
     const pageSize = options?.pageSize ?? 20;
 
     return new PageIterator<EndpointPublic>(async (skip, limit) => {
-      return this.http.get<EndpointPublic[]>(
-        '/api/v1/endpoints/public',
-        { skip, limit },
-        { includeAuth: false }
-      );
+      const params: Record<string, unknown> = { skip, limit };
+      if (options?.endpointType !== undefined) {
+        params['endpoint_type'] = options.endpointType;
+      }
+      return this.http.get<EndpointPublic[]>('/api/v1/endpoints/public', params, {
+        includeAuth: false,
+      });
     }, pageSize);
   }
 
@@ -144,14 +154,21 @@ export class HubResource {
    *
    * @param options - Filter and pagination options
    * @returns PageIterator that lazily fetches endpoints
+   *
+   * @example
+   * // Get trending models only
+   * const models = await client.hub.trending({ endpointType: 'model' }).firstPage();
    */
   trending(options?: TrendingOptions): PageIterator<EndpointPublic> {
     const pageSize = options?.pageSize ?? 20;
 
     return new PageIterator<EndpointPublic>(async (skip, limit) => {
       const params: Record<string, unknown> = { skip, limit };
+      if (options?.endpointType !== undefined) {
+        params['endpoint_type'] = options.endpointType;
+      }
       if (options?.minStars !== undefined) {
-        params['minStars'] = options.minStars;
+        params['min_stars'] = options.minStars;
       }
       return this.http.get<EndpointPublic[]>('/api/v1/endpoints/trending', params, {
         includeAuth: false,

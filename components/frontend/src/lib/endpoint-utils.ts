@@ -297,30 +297,24 @@ export async function getPublicEndpointsPaginated(
 /**
  * Get public endpoints from the hub.
  *
+ * Uses server-side filtering by endpoint_type to ensure correct results
+ * even when one type dominates the endpoint list (e.g., many data sources).
+ *
  * @param params - Pagination and filter parameters
  * @returns Array of ChatSource objects
  */
 export async function getPublicEndpoints(
   params: PaginationParams & { endpoint_type?: EndpointType } = {}
 ): Promise<ChatSource[]> {
-  const { limit = 10 } = params;
+  const { limit = 10, endpoint_type } = params;
 
   try {
-    // Note: SDK doesn't support endpoint_type filter yet, we filter client-side
-    const endpoints = await syftClient.hub.browse({ pageSize: limit }).firstPage();
+    // Use server-side filtering via SDK to get correct results
+    const endpoints = await syftClient.hub
+      .browse({ pageSize: limit, endpointType: endpoint_type })
+      .firstPage();
 
-    let results = endpoints.map((ep) => mapEndpointPublicToSource(ep));
-
-    // Client-side type filtering if specified (inclusive: model_data_source matches both)
-    if (params.endpoint_type) {
-      results = results.filter((ep) => {
-        if (params.endpoint_type === 'model') return isModelEndpoint(ep.type);
-        if (params.endpoint_type === 'data_source') return isDataSourceEndpoint(ep.type);
-        return ep.type === params.endpoint_type;
-      });
-    }
-
-    return results;
+    return endpoints.map((ep) => mapEndpointPublicToSource(ep));
   } catch (error) {
     console.error('Failed to fetch public endpoints:', error);
     return [];
@@ -330,31 +324,24 @@ export async function getPublicEndpoints(
 /**
  * Get trending endpoints sorted by stars.
  *
+ * Uses server-side filtering by endpoint_type to ensure correct results
+ * even when one type dominates the endpoint list (e.g., many data sources).
+ *
  * @param params - Pagination and filter parameters
  * @returns Array of ChatSource objects
  */
 export async function getTrendingEndpoints(
   params: PaginationParams & { min_stars?: number; endpoint_type?: EndpointType } = {}
 ): Promise<ChatSource[]> {
-  const { limit = 10, min_stars } = params;
+  const { limit = 10, min_stars, endpoint_type } = params;
 
   try {
+    // Use server-side filtering via SDK to get correct results
     const endpoints = await syftClient.hub
-      .trending({ minStars: min_stars, pageSize: limit })
+      .trending({ minStars: min_stars, pageSize: limit, endpointType: endpoint_type })
       .firstPage();
 
-    let results = endpoints.map((ep) => mapEndpointPublicToSource(ep));
-
-    // Client-side type filtering if specified (inclusive: model_data_source matches both)
-    if (params.endpoint_type) {
-      results = results.filter((ep) => {
-        if (params.endpoint_type === 'model') return isModelEndpoint(ep.type);
-        if (params.endpoint_type === 'data_source') return isDataSourceEndpoint(ep.type);
-        return ep.type === params.endpoint_type;
-      });
-    }
-
-    return results;
+    return endpoints.map((ep) => mapEndpointPublicToSource(ep));
   } catch (error) {
     console.error('Failed to fetch trending endpoints:', error);
     return [];
