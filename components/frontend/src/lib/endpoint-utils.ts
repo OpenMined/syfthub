@@ -11,9 +11,11 @@ import type {
   ChatSource,
   EndpointCreate,
   EndpointFilters,
+  EndpointGroup,
   EndpointResponse,
   EndpointType,
   EndpointUpdate,
+  GroupedEndpointsResponse,
   PaginationParams
 } from './types';
 
@@ -296,6 +298,67 @@ export async function getPublicEndpointsPaginated(
   } catch (error) {
     console.error('Failed to fetch paginated public endpoints:', error);
     return { items: [], hasNextPage: false };
+  }
+}
+
+/**
+ * Raw API response shape for a single endpoint group from the grouped endpoint.
+ * The backend returns snake_case, so we transform to camelCase.
+ */
+interface RawEndpointGroup {
+  owner_username: string;
+  endpoints: RawEndpointPublic[];
+  total_count: number;
+  has_more: boolean;
+}
+
+/**
+ * Raw API response shape for the grouped endpoints endpoint.
+ */
+interface RawGroupedEndpointsResponse {
+  groups: RawEndpointGroup[];
+}
+
+/**
+ * Get public endpoints grouped by owner with a limit per owner.
+ *
+ * This is designed for the Global Directory display, where showing endpoints
+ * grouped by owner provides a better representation of the network's diversity.
+ * It prevents a single owner with many endpoints from dominating the listing.
+ *
+ * @param maxPerOwner - Maximum endpoints to return per owner (default 15)
+ * @returns GroupedEndpointsResponse with groups ordered by total count
+ */
+export async function getGroupedPublicEndpoints(
+  maxPerOwner = 15
+): Promise<GroupedEndpointsResponse> {
+  try {
+    const queryParams = new URLSearchParams({
+      max_per_owner: String(maxPerOwner)
+    });
+
+    const response = await fetch(`/api/v1/endpoints/public/grouped?${queryParams.toString()}`);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch grouped endpoints: ${response.statusText}`);
+    }
+
+    const rawData = (await response.json()) as RawGroupedEndpointsResponse;
+
+    // Transform each group's endpoints from snake_case to camelCase
+    const groups: EndpointGroup[] = rawData.groups.map((rawGroup) => ({
+      owner_username: rawGroup.owner_username,
+      endpoints: rawGroup.endpoints.map((ep) =>
+        mapEndpointPublicToSource(transformRawEndpoint(ep))
+      ),
+      total_count: rawGroup.total_count,
+      has_more: rawGroup.has_more
+    }));
+
+    return { groups };
+  } catch (error) {
+    console.error('Failed to fetch grouped public endpoints:', error);
+    return { groups: [] };
   }
 }
 

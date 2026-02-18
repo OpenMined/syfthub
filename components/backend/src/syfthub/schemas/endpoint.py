@@ -505,6 +505,44 @@ class SyncEndpointsResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ===========================================
+# GROUPED ENDPOINTS SCHEMAS
+# ===========================================
+
+
+class EndpointGroupItem(BaseModel):
+    """A group of endpoints belonging to a single owner.
+
+    Used in the grouped public endpoints response for the Global Directory.
+    """
+
+    owner_username: str = Field(..., description="Username of the endpoint owner")
+    endpoints: List[EndpointPublicResponse] = Field(
+        ..., description="Endpoints belonging to this owner (limited to max_per_owner)"
+    )
+    total_count: int = Field(
+        ...,
+        ge=0,
+        description="Total number of endpoints this owner has (may be more than shown)",
+    )
+    has_more: bool = Field(
+        ...,
+        description="True if owner has more endpoints than shown (total_count > len(endpoints))",
+    )
+
+
+class GroupedEndpointsResponse(BaseModel):
+    """Response containing endpoints grouped by owner.
+
+    Used for the Global Directory to display a balanced view across multiple owners
+    rather than having one owner dominate the listing.
+    """
+
+    groups: List[EndpointGroupItem] = Field(
+        ..., description="Endpoint groups ordered by total endpoint count (descending)"
+    )
+
+
 def generate_slug_from_name(name: str) -> str:
     """Generate a URL-safe slug from endpoint name."""
     # Convert to lowercase and replace spaces/special chars with hyphens

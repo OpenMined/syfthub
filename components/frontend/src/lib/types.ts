@@ -227,6 +227,34 @@ export interface EndpointPublicResponse {
   owner_username?: string; // Username of the endpoint owner (if exposed by backend)
 }
 
+// =============================================================================
+// Grouped Endpoints Types (for Global Directory)
+// =============================================================================
+
+/**
+ * A group of endpoints belonging to a single owner.
+ * Used in the grouped public endpoints response for the Global Directory.
+ */
+export interface EndpointGroup {
+  /** Username of the endpoint owner */
+  owner_username: string;
+  /** Endpoints belonging to this owner (limited to max_per_owner) */
+  endpoints: ChatSource[];
+  /** Total number of endpoints this owner has (may be more than shown) */
+  total_count: number;
+  /** True if owner has more endpoints than shown */
+  has_more: boolean;
+}
+
+/**
+ * Response containing endpoints grouped by owner.
+ * Used for the Global Directory to display a balanced view across multiple owners.
+ */
+export interface GroupedEndpointsResponse {
+  /** Endpoint groups ordered by total endpoint count (descending) */
+  groups: EndpointGroup[];
+}
+
 // Frontend ChatSource interface (mapped from EndpointPublicResponse)
 export interface ChatSource {
   id: string; // Use slug as ID for frontend

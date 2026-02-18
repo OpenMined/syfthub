@@ -17,10 +17,12 @@ from syfthub.schemas.endpoint import (
     Endpoint,
     EndpointAdminUpdate,
     EndpointCreate,
+    EndpointGroupItem,
     EndpointPublicResponse,
     EndpointType,
     EndpointUpdate,
     EndpointVisibility,
+    GroupedEndpointsResponse,
     get_matching_types,
 )
 
@@ -463,6 +465,145 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             return endpoints
         except SQLAlchemyError:
             return []
+
+    def get_public_endpoints_grouped(
+        self,
+        max_per_owner: int = 15,
+    ) -> GroupedEndpointsResponse:
+        """Get public endpoints grouped by owner with a limit per owner.
+
+        This method returns endpoints organized by their owner, with at most
+        max_per_owner endpoints shown per owner. This prevents a single owner
+        with many endpoints from dominating the display (e.g., in Global Directory).
+
+        Uses PostgreSQL window functions for efficient grouping and ranking.
+
+        Args:
+            max_per_owner: Maximum number of endpoints to return per owner (default 15)
+
+        Returns:
+            GroupedEndpointsResponse with groups ordered by total endpoint count (descending)
+        """
+        try:
+            # First, get the count per owner for ALL owners with public/active endpoints
+            owner_username_expr = func.coalesce(
+                UserModel.username, OrganizationModel.slug
+            )
+            owner_domain_expr = func.coalesce(
+                UserModel.domain, OrganizationModel.domain
+            )
+
+            # Subquery to rank endpoints within each owner
+            row_number = (
+                func.row_number()
+                .over(
+                    partition_by=owner_username_expr,
+                    order_by=self.model.updated_at.desc(),
+                )
+                .label("rn")
+            )
+
+            # Count per owner (using window function)
+            count_per_owner = (
+                func.count().over(partition_by=owner_username_expr).label("owner_count")
+            )
+
+            # Build the main query with ranking
+            stmt = (
+                select(
+                    self.model,
+                    owner_username_expr.label("owner_username"),
+                    owner_domain_expr.label("owner_domain"),
+                    row_number,
+                    count_per_owner,
+                )
+                .outerjoin(UserModel, self.model.user_id == UserModel.id)
+                .outerjoin(
+                    OrganizationModel,
+                    self.model.organization_id == OrganizationModel.id,
+                )
+                .where(
+                    and_(
+                        self.model.visibility == EndpointVisibility.PUBLIC.value,
+                        self.model.is_active,
+                    )
+                )
+            )
+
+            # Wrap in a subquery to filter by row number
+            subq = stmt.subquery()
+
+            # Select from the subquery, filtering to top N per owner
+            final_stmt = (
+                select(subq)
+                .where(subq.c.rn <= max_per_owner)
+                .order_by(subq.c.owner_count.desc(), subq.c.owner_username, subq.c.rn)
+            )
+
+            result = self.session.execute(final_stmt)
+            rows = result.all()
+
+            # Group results by owner
+            owner_groups: dict[str, dict] = {}
+            for row in rows:
+                username = row.owner_username
+                domain = row.owner_domain
+                total = row.owner_count
+
+                if username not in owner_groups:
+                    owner_groups[username] = {
+                        "owner_username": username,
+                        "domain": domain,
+                        "total_count": total,
+                        "endpoints": [],
+                    }
+
+                # Transform connection URLs using owner's domain
+                transformed_connect = transform_connection_urls(
+                    domain, row.connect or []
+                )
+
+                endpoint_dict = {
+                    "name": row.name,
+                    "slug": row.slug,
+                    "description": row.description,
+                    "type": row.type,
+                    "owner_username": username,
+                    "contributors_count": len(row.contributors or []),
+                    "version": row.version,
+                    "readme": row.readme,
+                    "tags": row.tags or [],
+                    "stars_count": row.stars_count,
+                    "policies": row.policies,
+                    "connect": transformed_connect,
+                    "created_at": row.created_at,
+                    "updated_at": row.updated_at,
+                }
+                owner_groups[username]["endpoints"].append(
+                    EndpointPublicResponse(**endpoint_dict)
+                )
+
+            # Build the response groups
+            groups = []
+            for owner_data in owner_groups.values():
+                groups.append(
+                    EndpointGroupItem(
+                        owner_username=owner_data["owner_username"],
+                        endpoints=owner_data["endpoints"],
+                        total_count=owner_data["total_count"],
+                        has_more=owner_data["total_count"]
+                        > len(owner_data["endpoints"]),
+                    )
+                )
+
+            # Sort by total_count descending (already ordered by query but ensure consistency)
+            groups.sort(key=lambda g: (-g.total_count, g.owner_username))
+
+            return GroupedEndpointsResponse(groups=groups)
+
+        except SQLAlchemyError as e:
+            logger.error("Failed to query grouped public endpoints: %s", e)
+            return GroupedEndpointsResponse(groups=[])
 
     def create_endpoint(
         self,

@@ -8,7 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { GlobalDirectory } from '@/components/global-directory';
 import { Hero } from '@/components/hero';
 import { useAuth } from '@/context/auth-context';
-import { usePublicEndpoints } from '@/hooks/use-endpoint-queries';
+import { useGroupedPublicEndpoints } from '@/hooks/use-endpoint-queries';
 import { useModalStore } from '@/stores/modal-store';
 
 /**
@@ -19,8 +19,8 @@ export default function HomePage() {
   const { openLogin } = useModalStore();
   const navigate = useNavigate();
 
-  // Fetch all public endpoints for the global directory
-  const { data: allEndpoints, isLoading: isLoadingAll } = usePublicEndpoints(50);
+  // Fetch grouped public endpoints for the global directory (max 15 per owner)
+  const { data: groupedEndpoints, isLoading: isLoadingGrouped } = useGroupedPublicEndpoints(15);
 
   const handleSearch = (query: string, selectedModel: ChatSource | null) => {
     // eslint-disable-next-line @typescript-eslint/no-floating-promises -- Navigation is fire-and-forget
@@ -41,7 +41,9 @@ export default function HomePage() {
       <Hero
         onSearch={handleSearch}
         onAuthRequired={user ? undefined : openLogin}
-        sidePanel={<GlobalDirectory endpoints={allEndpoints ?? []} isLoading={isLoadingAll} />}
+        sidePanel={
+          <GlobalDirectory groups={groupedEndpoints?.groups} isLoading={isLoadingGrouped} />
+        }
         actionButtons={
           <div className='flex items-center gap-4'>
             <button
