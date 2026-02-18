@@ -249,15 +249,15 @@ function transformRawEndpoint(raw: RawEndpointPublic): SdkEndpointPublic {
  *
  * Uses the "fetch N+1" pattern to detect if there are more pages.
  * Uses raw fetch() instead of the SDK client to support server-side
- * pagination with skip/limit and endpoint_type filtering.
+ * pagination with skip/limit, endpoint_type filtering, and search.
  *
- * @param params - Pagination and filter parameters
+ * @param params - Pagination, filter, and search parameters
  * @returns Paginated response with items and hasNextPage flag
  */
 export async function getPublicEndpointsPaginated(
-  params: { page?: number; limit?: number; endpoint_type?: EndpointType } = {}
+  params: { page?: number; limit?: number; endpoint_type?: EndpointType; search?: string } = {}
 ): Promise<PaginatedEndpointsResponse> {
-  const { page = 1, limit = 12, endpoint_type } = params;
+  const { page = 1, limit = 12, endpoint_type, search } = params;
   const skip = (page - 1) * limit;
 
   try {
@@ -269,6 +269,11 @@ export async function getPublicEndpointsPaginated(
 
     if (endpoint_type) {
       queryParams.append('endpoint_type', endpoint_type);
+    }
+
+    // Add search parameter if provided (trim whitespace)
+    if (search?.trim()) {
+      queryParams.append('search', search.trim());
     }
 
     const response = await fetch(`/api/v1/endpoints/public?${queryParams.toString()}`);

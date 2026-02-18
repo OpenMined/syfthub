@@ -20,22 +20,24 @@ export function usePublicEndpoints(limit = 10) {
 }
 
 /**
- * Hook for fetching paginated public endpoints with server-side type filtering.
+ * Hook for fetching paginated public endpoints with server-side type filtering and search.
  *
  * @param page - Current page number (1-indexed)
  * @param pageSize - Number of items per page
  * @param endpointType - Optional filter for endpoint type (model or data_source)
+ * @param search - Optional search query to filter by name, description, or tags
  * @returns Query result with items, hasNextPage, and loading/error states
  */
 export function usePaginatedPublicEndpoints(
   page: number,
   pageSize = 12,
-  endpointType?: EndpointType
+  endpointType?: EndpointType,
+  search?: string
 ) {
   return useQuery({
-    queryKey: endpointKeys.publicPaginated(page, pageSize, endpointType),
+    queryKey: endpointKeys.publicPaginated(page, pageSize, endpointType, search),
     queryFn: () =>
-      getPublicEndpointsPaginated({ page, limit: pageSize, endpoint_type: endpointType }),
+      getPublicEndpointsPaginated({ page, limit: pageSize, endpoint_type: endpointType, search }),
     placeholderData: keepPreviousData // Keep previous data while fetching new page
   });
 }
