@@ -108,14 +108,14 @@ export function QueryInput({
   const isHero = variant === 'hero';
 
   const inputClassName = isHero
-    ? 'font-inter border-input text-foreground placeholder:text-muted-foreground focus:ring-ring bg-background w-full rounded-xl border px-6 py-4 shadow-sm transition-colors transition-shadow focus:border-transparent focus:ring-2 focus:outline-none'
+    ? 'font-inter border-input text-foreground placeholder:text-muted-foreground focus:ring-ring bg-background w-full rounded-xl border px-6 py-4 shadow-sm transition-colors transition-shadow focus:border-transparent focus:ring-2 focus:outline-none [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden'
     : 'font-inter border-border bg-background placeholder:text-muted-foreground focus:border-foreground focus:ring-foreground/10 w-full rounded-xl border py-3.5 pr-12 pl-4 shadow-sm transition-colors transition-shadow focus:ring-2 focus:outline-none';
 
   const buttonClassName = isHero
-    ? 'group-focus-within:text-foreground hover:bg-muted absolute top-1/2 right-3 -translate-y-1/2 rounded-lg p-2 transition-colors'
+    ? 'group-focus-within:text-ring hover:bg-muted absolute top-1/2 right-3 -translate-y-1/2 rounded-lg p-2 transition-colors'
     : 'bg-primary hover:bg-primary/90 absolute top-1/2 right-2 -translate-y-1/2 rounded-lg p-2 text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50';
 
-  const heroIconColorClass = value ? 'text-foreground' : 'text-muted-foreground';
+  const heroIconColorClass = value ? 'text-ring' : 'text-muted-foreground';
   const iconClassName = isHero ? `h-5 w-5 transition-colors ${heroIconColorClass}` : 'h-4 w-4';
 
   const inputId = id ?? `query-input-${variant}`;
@@ -192,7 +192,7 @@ export interface SearchSuggestionsProps {
  */
 export function SearchSuggestions({ suggestions, onSelect }: Readonly<SearchSuggestionsProps>) {
   return (
-    <div className='flex items-center justify-center gap-2.5'>
+    <div className='flex flex-wrap items-center justify-center gap-2'>
       {suggestions.map((suggestion, index) => (
         <button
           key={index}
@@ -200,7 +200,7 @@ export function SearchSuggestions({ suggestions, onSelect }: Readonly<SearchSugg
           onClick={() => {
             onSelect(suggestion);
           }}
-          className='font-inter border-border/40 text-muted-foreground hover:border-border hover:text-foreground focus:ring-ring rounded-full border px-4 py-1.5 text-sm whitespace-nowrap transition-colors focus:ring-2 focus:ring-offset-2 focus:outline-none'
+          className='font-inter border-border/40 text-muted-foreground hover:border-border hover:text-foreground focus:ring-ring rounded-full border px-3 py-1.5 text-sm transition-colors focus:ring-2 focus:ring-offset-2 focus:outline-none'
         >
           {suggestion}
         </button>

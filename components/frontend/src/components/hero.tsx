@@ -24,8 +24,8 @@ import { useModels } from '@/hooks/use-models';
 // =============================================================================
 
 const SEARCH_SUGGESTIONS = [
-  'Ask the WGA about parental leave for screenwriters',
-  'Ask OpenMined about attribution-based control'
+  'Ask WGA about parental leave',
+  'Ask OpenMined about attribution'
 ] as const;
 
 // =============================================================================
@@ -131,13 +131,13 @@ export function Hero({
 
       {/* Hero Section - hero-04 layout pattern */}
       <div className='flex min-h-screen items-center justify-center overflow-hidden'>
-        <div className='mx-auto grid w-full max-w-7xl gap-12 px-6 py-12 lg:grid-cols-2 lg:py-0'>
+        <div className='mx-auto grid w-full max-w-7xl gap-16 px-6 py-12 lg:grid-cols-2 lg:py-0'>
           {/* Left column - Main content */}
           <div className='my-auto'>
             {/* Announcement Badge */}
             <Badge asChild className='border-border rounded-full py-1' variant='secondary'>
               <Link to='/about'>
-                Now with attribution-based control <ArrowUpRight className='ml-1 size-4' />
+                See how it works <ArrowUpRight className='ml-1 size-4' />
               </Link>
             </Badge>
 
@@ -155,6 +155,9 @@ export function Hero({
               Query AI models and data sources directly with attribution, compensation, and privacy
               built in. Connect to the collective intelligence network.
             </p>
+
+            {/* Action Buttons */}
+            {actionButtons && <div className='mt-8 flex items-center gap-4'>{actionButtons}</div>}
 
             {/* Search Input */}
             <div className='mt-10 max-w-xl space-y-4'>
@@ -175,9 +178,6 @@ export function Hero({
                 onSelect={handleSuggestionClick}
               />
             </div>
-
-            {/* Action Buttons */}
-            {actionButtons && <div className='mt-10 flex items-center gap-4'>{actionButtons}</div>}
           </div>
 
           {/* Right column - Global Directory Block */}

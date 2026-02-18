@@ -1,7 +1,6 @@
 import type { ChatSource } from '@/lib/types';
 
 import ArrowRight from 'lucide-react/dist/esm/icons/arrow-right';
-import BookOpen from 'lucide-react/dist/esm/icons/book-open';
 import Code from 'lucide-react/dist/esm/icons/code';
 import UserPlus from 'lucide-react/dist/esm/icons/user-plus';
 import { useNavigate } from 'react-router-dom';
@@ -45,14 +44,6 @@ export default function HomePage() {
         sidePanel={<GlobalDirectory endpoints={allEndpoints ?? []} isLoading={isLoadingAll} />}
         actionButtons={
           <div className='flex items-center gap-3'>
-            <button
-              type='button'
-              onClick={() => navigate('/about')}
-              className='font-inter border-border/60 text-muted-foreground hover:border-border hover:text-foreground flex items-center gap-2 rounded-full border px-4 py-1.5 text-sm transition-colors'
-            >
-              <BookOpen className='h-3.5 w-3.5' />
-              How it works
-            </button>
             <button
               type='button'
               onClick={handleJoinNetwork}
