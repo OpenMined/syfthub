@@ -58,6 +58,8 @@ export function GetSettingsDir():Promise<string>;
 
 export function GetStatus():Promise<main.StatusInfo>;
 
+export function GetVersion():Promise<string>;
+
 export function Greet(arg1:string):Promise<string>;
 
 export function HasSettings():Promise<boolean>;
