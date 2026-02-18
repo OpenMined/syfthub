@@ -5,5 +5,5 @@ import { ParticipateView } from '@/components/participate-view';
  * This is a protected route - requires authentication.
  */
 export default function EndpointsPage() {
-  return <ParticipateView title='Get Started with Endpoints' />;
+  return <ParticipateView title='Start your first node' />;
 }

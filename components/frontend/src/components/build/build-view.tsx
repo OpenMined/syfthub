@@ -370,12 +370,18 @@ for await (const ep of client.myEndpoints.list()) {
             and query them — data stays where it lives, you get the results.
           </p>
           <div className='border-border overflow-hidden rounded-xl border'>
-            <img
-              src='/architecture-diagram.png'
-              alt='Syft full architecture setup diagram showing how Syft Space, the directory, and SDKs connect'
-              className='w-full'
-              loading='lazy'
-            />
+            <a
+              href='https://syft.docs.openmined.org/assets/fullsetup-CAbzIKrJ.png'
+              target='_blank'
+              rel='noopener noreferrer'
+            >
+              <img
+                src='https://syft.docs.openmined.org/assets/fullsetup-CAbzIKrJ.png'
+                alt='Syft full architecture setup diagram showing how Syft Space, the directory, and SDKs connect'
+                className='w-full'
+                loading='lazy'
+              />
+            </a>
           </div>
         </section>
       </div>
