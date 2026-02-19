@@ -29,6 +29,12 @@ const SEARCH_SUGGESTIONS = [
   'Ask OpenMined about attribution'
 ] as const;
 
+/** Maps suggestion text to the data source full_path that should be auto-selected */
+const SUGGESTION_SOURCE_MAP: Record<string, string> = {
+  'Ask WGA about parental leave': 'openmined-data/wga-screenwriters-handbook',
+  'Ask OpenMined about attribution': 'openmined-data/attribution-based-control'
+};
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -108,12 +114,19 @@ export function Hero({
     [onSearch, selectedModel, workflow]
   );
 
-  // Handle suggestion click
+  // Handle suggestion click - auto-select the associated data source
   const handleSuggestionClick = useCallback(
     (suggestion: string) => {
+      const sourcePath = SUGGESTION_SOURCE_MAP[suggestion];
+      if (sourcePath) {
+        const source = sources.find((s) => s.full_path === sourcePath);
+        if (source && !contextStore.isSelected(source.id)) {
+          contextStore.addSource(source);
+        }
+      }
       handleSubmit(suggestion);
     },
-    [handleSubmit]
+    [handleSubmit, sources, contextStore]
   );
 
   // Handle @mention completion - add source to context (tracked for sync)
