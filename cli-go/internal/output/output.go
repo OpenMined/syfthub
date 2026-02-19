@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/fatih/color"
 	"github.com/olekukonko/tablewriter"
+	"golang.org/x/term"
 )
 
 // Color helpers
@@ -178,6 +179,131 @@ func TypeColor(endpointType string) *color.Color {
 	}
 }
 
+// Grid layout utilities for ls-style output
+
+// getTerminalWidth returns the terminal width, defaulting to 80 if unable to detect.
+func getTerminalWidth() int {
+	width, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || width <= 0 {
+		return 80 // sensible default
+	}
+	return width
+}
+
+// gridItem represents an item to display in the grid.
+type gridItem struct {
+	display string // the styled/colored string to display
+	width   int    // the visual width (without ANSI codes)
+}
+
+// printGrid prints items in a grid layout like Unix ls command.
+// Items are filled column-by-column (vertically) like ls does.
+func printGrid(items []gridItem, padding int) {
+	if len(items) == 0 {
+		return
+	}
+
+	termWidth := getTerminalWidth()
+
+	// Find the maximum item width
+	maxWidth := 0
+	for _, item := range items {
+		if item.width > maxWidth {
+			maxWidth = item.width
+		}
+	}
+
+	// Calculate column width (item width + padding)
+	colWidth := maxWidth + padding
+
+	// Calculate number of columns that fit
+	cols := termWidth / colWidth
+	if cols < 1 {
+		cols = 1
+	}
+
+	// Calculate number of rows needed
+	rows := (len(items) + cols - 1) / cols
+
+	// Print grid (fill columns vertically like ls)
+	for row := 0; row < rows; row++ {
+		for col := 0; col < cols; col++ {
+			// Calculate index: fill vertically
+			idx := col*rows + row
+			if idx >= len(items) {
+				continue
+			}
+
+			item := items[idx]
+
+			// Print item with padding
+			fmt.Print(item.display)
+
+			// Add spacing to align columns (except last column)
+			if col < cols-1 && idx+rows < len(items) {
+				// Calculate how many spaces needed to reach column width
+				spaces := colWidth - item.width
+				if spaces > 0 {
+					fmt.Print(strings.Repeat(" ", spaces))
+				}
+			}
+		}
+		fmt.Println()
+	}
+}
+
+// printGridHorizontal prints items in a grid layout filling rows first.
+// This is an alternative to the default vertical fill.
+func printGridHorizontal(items []gridItem, padding int) {
+	if len(items) == 0 {
+		return
+	}
+
+	termWidth := getTerminalWidth()
+
+	// Find the maximum item width
+	maxWidth := 0
+	for _, item := range items {
+		if item.width > maxWidth {
+			maxWidth = item.width
+		}
+	}
+
+	// Calculate column width (item width + padding)
+	colWidth := maxWidth + padding
+
+	// Calculate number of columns that fit
+	cols := termWidth / colWidth
+	if cols < 1 {
+		cols = 1
+	}
+
+	// Print grid (fill rows horizontally)
+	for i, item := range items {
+		fmt.Print(item.display)
+
+		// Add spacing or newline
+		if (i+1)%cols == 0 {
+			fmt.Println()
+		} else {
+			spaces := colWidth - item.width
+			if spaces > 0 {
+				fmt.Print(strings.Repeat(" ", spaces))
+			}
+		}
+	}
+
+	// Final newline if needed
+	if len(items)%cols != 0 {
+		fmt.Println()
+	}
+}
+
+// visualWidth returns the visual width of a string, ignoring ANSI escape codes.
+func visualWidth(s string) int {
+	return lipgloss.Width(s)
+}
+
 // EndpointInfo represents endpoint information for display.
 type EndpointInfo struct {
 	Name        string
@@ -211,46 +337,59 @@ func PrintOwnersGrid(owners []OwnerInfo) {
 		return
 	}
 
-	// Calculate column width
-	maxWidth := 32
-	columns := 3 // Approximate for typical terminal width
+	// Sort owners alphabetically
+	sort.Slice(owners, func(i, j int) bool {
+		return owners[i].Username < owners[j].Username
+	})
 
-	// Build cells
-	cells := make([]string, 0, len(owners))
+	// Build grid items
+	items := make([]gridItem, 0, len(owners))
 	for _, owner := range owners {
-		// Build badge with counts
-		var badges []string
+		// Directory-style name with trailing slash (like ls for directories)
+		name := Cyan.Sprintf("%s/", owner.Username)
+
+		// Build count indicator
+		var counts []string
 		if owner.ModelCount > 0 {
-			badges = append(badges, Magenta.Sprintf("%dm", owner.ModelCount))
+			counts = append(counts, fmt.Sprintf("%d", owner.ModelCount)+Magenta.Sprint("m"))
 		}
 		if owner.DataSourceCount > 0 {
-			badges = append(badges, Blue.Sprintf("%dd", owner.DataSourceCount))
-		}
-		// Calculate hybrid count (total - models - data_sources)
-		hybridCount := owner.EndpointCount - owner.ModelCount - owner.DataSourceCount
-		if hybridCount > 0 {
-			badges = append(badges, Yellow.Sprintf("%dh", hybridCount))
+			counts = append(counts, fmt.Sprintf("%d", owner.DataSourceCount)+Blue.Sprint("d"))
 		}
 
-		name := owner.Username
-		if len(name) > maxWidth-10 {
-			name = name[:maxWidth-12] + ".."
+		var display string
+		if len(counts) > 0 {
+			display = name + " " + Dim.Sprint("("+strings.Join(counts, ",")+")")
+		} else {
+			display = name
 		}
 
-		cell := fmt.Sprintf("%s %s", Cyan.Sprintf("%s/", name), Dim.Sprint(strings.Join(badges, " ")))
-		cells = append(cells, cell)
+		// Calculate visual width
+		width := len(owner.Username) + 1 // +1 for the slash
+		if len(counts) > 0 {
+			// Add space + parens + counts
+			countWidth := 3 // " ()"
+			for i, c := range counts {
+				if i > 0 {
+					countWidth++ // comma
+				}
+				// Count digits + letter
+				countWidth += len(fmt.Sprintf("%d", owner.ModelCount)) + 1
+				_ = c
+			}
+			// Simplified: just measure the actual count string
+			countStr := strings.Join(counts, ",")
+			width += 3 + len(countStr) // " (" + counts + ")"
+		}
+
+		items = append(items, gridItem{
+			display: display,
+			width:   visualWidth(display),
+		})
 	}
 
-	// Print in grid
-	for i, cell := range cells {
-		fmt.Printf("%-32s", cell)
-		if (i+1)%columns == 0 {
-			fmt.Println()
-		}
-	}
-	if len(cells)%columns != 0 {
-		fmt.Println()
-	}
+	// Print using ls-style grid (vertical fill)
+	printGrid(items, 2)
 }
 
 // PrintOwnersTable prints owners in a table format.
@@ -288,12 +427,8 @@ func PrintUsersGrid(users map[string][]EndpointInfo) {
 	}
 	sort.Strings(usernames)
 
-	// Calculate column width
-	maxWidth := 32
-	columns := 3 // Approximate for typical terminal width
-
-	// Build cells
-	cells := make([]string, 0, len(usernames))
+	// Build grid items
+	items := make([]gridItem, 0, len(usernames))
 	for _, username := range usernames {
 		endpoints := users[username]
 
@@ -303,37 +438,36 @@ func PrintUsersGrid(users map[string][]EndpointInfo) {
 			typeCounts[ep.Type]++
 		}
 
-		// Build badge
-		var badges []string
-		if count, ok := typeCounts["model"]; ok {
-			badges = append(badges, Magenta.Sprintf("%dm", count))
+		// Build count indicator
+		var counts []string
+		if count, ok := typeCounts["model"]; ok && count > 0 {
+			counts = append(counts, fmt.Sprintf("%d", count)+Magenta.Sprint("m"))
 		}
-		if count, ok := typeCounts["data_source"]; ok {
-			badges = append(badges, Blue.Sprintf("%dd", count))
+		if count, ok := typeCounts["data_source"]; ok && count > 0 {
+			counts = append(counts, fmt.Sprintf("%d", count)+Blue.Sprint("d"))
 		}
-		if count, ok := typeCounts["model_data_source"]; ok {
-			badges = append(badges, Yellow.Sprintf("%dh", count))
-		}
-
-		name := username
-		if len(name) > maxWidth-10 {
-			name = name[:maxWidth-12] + ".."
+		if count, ok := typeCounts["model_data_source"]; ok && count > 0 {
+			counts = append(counts, fmt.Sprintf("%d", count)+Yellow.Sprint("h"))
 		}
 
-		cell := fmt.Sprintf("%s %s", Cyan.Sprintf("%s/", name), Dim.Sprint(strings.Join(badges, " ")))
-		cells = append(cells, cell)
+		// Directory-style name with trailing slash
+		name := Cyan.Sprintf("%s/", username)
+
+		var display string
+		if len(counts) > 0 {
+			display = name + " " + Dim.Sprint("("+strings.Join(counts, ",")+")")
+		} else {
+			display = name
+		}
+
+		items = append(items, gridItem{
+			display: display,
+			width:   visualWidth(display),
+		})
 	}
 
-	// Print in grid
-	for i, cell := range cells {
-		fmt.Printf("%-32s", cell)
-		if (i+1)%columns == 0 {
-			fmt.Println()
-		}
-	}
-	if len(cells)%columns != 0 {
-		fmt.Println()
-	}
+	// Print using ls-style grid (vertical fill)
+	printGrid(items, 2)
 }
 
 // PrintUsersTable prints users in a table format.
@@ -377,7 +511,7 @@ func PrintUsersTable(users map[string][]EndpointInfo) {
 	table.Render()
 }
 
-// PrintEndpointsGrid prints endpoints in a grid layout.
+// PrintEndpointsGrid prints endpoints in a grid layout like ls.
 func PrintEndpointsGrid(endpoints []EndpointInfo, username string) {
 	if len(endpoints) == 0 {
 		if username != "" {
@@ -388,40 +522,34 @@ func PrintEndpointsGrid(endpoints []EndpointInfo, username string) {
 		return
 	}
 
+	// Print header like "username/" if provided
 	if username != "" {
 		Cyan.Printf("%s/\n", username)
-		fmt.Println()
 	}
 
-	// Sort by type then name
+	// Sort by name (like ls does alphabetically)
 	sort.Slice(endpoints, func(i, j int) bool {
-		if endpoints[i].Type != endpoints[j].Type {
-			return endpoints[i].Type < endpoints[j].Type
-		}
 		return endpoints[i].Name < endpoints[j].Name
 	})
 
-	// Build cells
-	maxWidth := 28
-	columns := 3
-
-	for i, ep := range endpoints {
-		icon := TypeIcon(ep.Type)
+	// Build grid items
+	items := make([]gridItem, 0, len(endpoints))
+	for _, ep := range endpoints {
+		// Use type-specific color for the name
 		c := TypeColor(ep.Type)
+		icon := TypeIcon(ep.Type)
 
-		name := ep.Name
-		if len(name) > maxWidth {
-			name = name[:maxWidth-2] + ".."
-		}
+		// Format: icon + name (like ls with icons)
+		display := icon + " " + c.Sprint(ep.Name)
 
-		fmt.Printf("%s %-28s", icon, c.Sprint(name))
-		if (i+1)%columns == 0 {
-			fmt.Println()
-		}
+		items = append(items, gridItem{
+			display: display,
+			width:   visualWidth(display),
+		})
 	}
-	if len(endpoints)%columns != 0 {
-		fmt.Println()
-	}
+
+	// Print using ls-style grid (vertical fill)
+	printGrid(items, 2)
 }
 
 // PrintEndpointsTable prints endpoints in a table format.
