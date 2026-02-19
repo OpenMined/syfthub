@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 import type { AvailabilityState } from './username-field';
 
-import { AnimatePresence, motion } from 'framer-motion';
 import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
 import Check from 'lucide-react/dist/esm/icons/check';
 import Globe from 'lucide-react/dist/esm/icons/globe';
@@ -22,6 +21,7 @@ import { useSettingsModalStore } from '@/stores/settings-modal-store';
 
 import { AvatarSection } from './avatar-section';
 import { DisplayNameField } from './display-name-field';
+import { StatusMessage } from './status-message';
 import { UsernameField } from './username-field';
 
 interface ProfileFormData {
@@ -273,31 +273,8 @@ export function ProfileSettingsTab() {
       </div>
 
       {/* Status Messages */}
-      <AnimatePresence>
-        {success ? (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className='flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3'
-          >
-            <Check className='h-4 w-4 text-green-600' />
-            <span className='text-sm text-green-800'>{success}</span>
-          </motion.div>
-        ) : null}
-
-        {error ? (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className='flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3'
-          >
-            <AlertCircle className='h-4 w-4 text-red-600' />
-            <span className='text-sm text-red-800'>{error}</span>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+      <StatusMessage type='success' message={success} />
+      <StatusMessage type='error' message={error} />
 
       <form onSubmit={handleSubmit} className='space-y-5'>
         {/* Avatar Preview and URL */}

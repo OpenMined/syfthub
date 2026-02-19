@@ -1,8 +1,5 @@
 import React, { useCallback, useState } from 'react';
 
-import { AnimatePresence, motion } from 'framer-motion';
-import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
-import Check from 'lucide-react/dist/esm/icons/check';
 import Key from 'lucide-react/dist/esm/icons/key';
 import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
 import Lock from 'lucide-react/dist/esm/icons/lock';
@@ -14,6 +11,8 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/context/auth-context';
 import { changePasswordAPI } from '@/lib/sdk-client';
 import { getPasswordStrength } from '@/lib/validation';
+
+import { StatusMessage } from './status-message';
 
 // Helper functions moved outside component for consistent-function-scoping
 function getPasswordStrengthInfo(password: string) {
@@ -126,6 +125,7 @@ export function SecuritySettingsTab() {
   };
 
   const passwordStrength = getPasswordStrengthInfo(formData.new_password);
+  const strengthPercent = Math.round((passwordStrength.score / 5) * 100);
 
   return (
     <div className='space-y-6'>
@@ -137,12 +137,14 @@ export function SecuritySettingsTab() {
       </div>
 
       {/* Account Info Card */}
-      <div className='rounded-lg border border-blue-200 bg-blue-50 p-4'>
+      <div className='rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950'>
         <div className='flex items-start gap-3'>
-          <Shield className='mt-0.5 h-5 w-5 text-blue-600' />
+          <Shield className='mt-0.5 h-5 w-5 text-blue-600 dark:text-blue-400' />
           <div>
-            <h4 className='text-sm font-medium text-blue-900'>Account Security</h4>
-            <p className='mt-1 text-xs text-blue-700'>
+            <h4 className='text-sm font-medium text-blue-900 dark:text-blue-100'>
+              Account Security
+            </h4>
+            <p className='mt-1 text-xs text-blue-700 dark:text-blue-300'>
               Your account is secured with industry-standard encryption. Last profile update:{' '}
               {user?.updated_at ? formatDate(user.updated_at) : 'Unknown'}
             </p>
@@ -151,35 +153,12 @@ export function SecuritySettingsTab() {
       </div>
 
       {/* Status Messages */}
-      <AnimatePresence>
-        {success ? (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className='flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3'
-          >
-            <Check className='h-4 w-4 text-green-600' />
-            <span className='text-sm text-green-800'>{success}</span>
-          </motion.div>
-        ) : null}
-
-        {error ? (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className='flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3'
-          >
-            <AlertCircle className='h-4 w-4 text-red-600' />
-            <span className='text-sm text-red-800'>{error}</span>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+      <StatusMessage type='success' message={success} />
+      <StatusMessage type='error' message={error} />
 
       {/* Password Change Form */}
       <form onSubmit={handleSubmit} className='space-y-5'>
-        <div className='border-border flex items-center gap-2 border-b pb-3'>
+        <div className='border-border flex items-center gap-2 border-t pt-4'>
           <Key className='text-muted-foreground h-4 w-4' />
           <h4 className='text-foreground font-medium'>Change Password</h4>
         </div>
@@ -215,10 +194,17 @@ export function SecuritySettingsTab() {
           {formData.new_password ? (
             <div className='space-y-1'>
               <div className='flex items-center gap-2'>
-                <div className='bg-muted h-1.5 flex-1 overflow-hidden rounded-full'>
+                <div
+                  role='progressbar'
+                  aria-label='Password strength'
+                  aria-valuenow={strengthPercent}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  className='bg-muted h-1.5 flex-1 overflow-hidden rounded-full'
+                >
                   <div
                     className={`h-full transition-[width] duration-300 ${passwordStrength.color}`}
-                    style={{ width: `${String((passwordStrength.score / 5) * 100)}%` }}
+                    style={{ width: `${String(strengthPercent)}%` }}
                   />
                 </div>
                 <span className='text-muted-foreground min-w-0 text-xs'>
@@ -226,14 +212,28 @@ export function SecuritySettingsTab() {
                 </span>
               </div>
               <ul className='text-muted-foreground text-xs'>
-                <li className={formData.new_password.length >= 8 ? 'text-green-600' : ''}>
-                  {formData.new_password.length >= 8 ? '✓' : '○'} At least 8 characters
+                <li
+                  className={
+                    formData.new_password.length >= 8 ? 'text-green-600 dark:text-green-400' : ''
+                  }
+                >
+                  {formData.new_password.length >= 8 ? '\u2713' : '\u25CB'} At least 8 characters
                 </li>
-                <li className={/\d/.test(formData.new_password) ? 'text-green-600' : ''}>
-                  {/\d/.test(formData.new_password) ? '✓' : '○'} Contains a number
+                <li
+                  className={
+                    /\d/.test(formData.new_password) ? 'text-green-600 dark:text-green-400' : ''
+                  }
+                >
+                  {/\d/.test(formData.new_password) ? '\u2713' : '\u25CB'} Contains a number
                 </li>
-                <li className={/[a-zA-Z]/.test(formData.new_password) ? 'text-green-600' : ''}>
-                  {/[a-zA-Z]/.test(formData.new_password) ? '✓' : '○'} Contains a letter
+                <li
+                  className={
+                    /[a-zA-Z]/.test(formData.new_password)
+                      ? 'text-green-600 dark:text-green-400'
+                      : ''
+                  }
+                >
+                  {/[a-zA-Z]/.test(formData.new_password) ? '\u2713' : '\u25CB'} Contains a letter
                 </li>
               </ul>
             </div>
@@ -253,15 +253,15 @@ export function SecuritySettingsTab() {
             disabled={isLoading}
           />
           {formData.confirm_password && formData.new_password !== formData.confirm_password ? (
-            <p className='text-xs text-red-600'>Passwords do not match</p>
+            <p className='text-xs text-red-600 dark:text-red-400'>Passwords do not match</p>
           ) : null}
           {formData.confirm_password && formData.new_password === formData.confirm_password ? (
-            <p className='text-xs text-green-600'>Passwords match</p>
+            <p className='text-xs text-green-600 dark:text-green-400'>Passwords match</p>
           ) : null}
         </div>
 
         {/* Submit Button */}
-        <div className='flex justify-end pt-2'>
+        <div className='border-border flex justify-end border-t pt-4'>
           <Button
             type='submit'
             disabled={
