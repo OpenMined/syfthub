@@ -109,7 +109,7 @@ export function ChatView({
     model: selectedModel,
     dataSources: sources,
     dataSourcesById: sourcesById,
-    contextSources,
+    contextSources: contextSources ?? contextStore.getSourcesArray(),
     onComplete: (result) => {
       showSourcesStep();
       // Add user message and assistant response to messages
