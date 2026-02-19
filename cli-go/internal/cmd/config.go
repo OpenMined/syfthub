@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/OpenMined/syfthub/cli-go/internal/completion"
 	"github.com/OpenMined/syfthub/cli-go/internal/config"
 	"github.com/OpenMined/syfthub/cli-go/internal/output"
 )
@@ -30,11 +31,12 @@ var configCmd = &cobra.Command{
 var configSetJSONOutput bool
 
 var configSetCmd = &cobra.Command{
-	Use:   "set <key> <value>",
-	Short: "Set a configuration value",
-	Long:  fmt.Sprintf("Set a configuration value.\n\nAllowed keys: %s", strings.Join(getAllowedKeys(), ", ")),
-	Args:  cobra.ExactArgs(2),
-	RunE:  runConfigSet,
+	Use:               "set <key> <value>",
+	Short:             "Set a configuration value",
+	Long:              fmt.Sprintf("Set a configuration value.\n\nAllowed keys: %s", strings.Join(getAllowedKeys(), ", ")),
+	Args:              cobra.ExactArgs(2),
+	RunE:              runConfigSet,
+	ValidArgsFunction: completion.CompleteConfigKey,
 }
 
 // Config show subcommand

@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/OpenMined/syfthub/cli-go/internal/completion"
 	"github.com/OpenMined/syfthub/cli-go/internal/config"
 	"github.com/OpenMined/syfthub/cli-go/internal/output"
 	"github.com/openmined/syfthub/sdk/golang/syfthub"
@@ -28,8 +29,9 @@ Usage modes:
 - syft ls           : List all active users with endpoint counts
 - syft ls <user>    : List endpoints for a specific user
 - syft ls user/ep   : Show details/README for a specific endpoint`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: runLs,
+	Args:              cobra.MaximumNArgs(1),
+	RunE:              runLs,
+	ValidArgsFunction: completion.CompleteLsTarget,
 }
 
 func init() {

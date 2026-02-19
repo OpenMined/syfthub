@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/OpenMined/syfthub/cli-go/internal/completion"
 	"github.com/OpenMined/syfthub/cli-go/internal/config"
 	"github.com/OpenMined/syfthub/cli-go/internal/output"
 	"github.com/openmined/syfthub/sdk/golang/syfthub"
@@ -35,8 +36,9 @@ Examples:
     syft query alice/gpt4 "What is machine learning?"
     syft query alice/gpt4 --source bob/docs "Explain the API"
     syft query alice/gpt4 -s bob/docs -s carol/data "Compare approaches"`,
-	Args: cobra.ExactArgs(2),
-	RunE: runQuery,
+	Args:              cobra.ExactArgs(2),
+	RunE:              runQuery,
+	ValidArgsFunction: completion.CompleteModelEndpoint,
 }
 
 func init() {
@@ -47,6 +49,10 @@ func init() {
 	queryCmd.Flags().Float64VarP(&queryTemperature, "temperature", "t", 0.7, "Sampling temperature (0.0-2.0)")
 	queryCmd.Flags().BoolVarP(&queryVerbose, "verbose", "V", false, "Show retrieval progress")
 	queryCmd.Flags().BoolVar(&queryJSONOutput, "json", false, "Output result as JSON (non-streaming)")
+
+	// Register completion for --source flag
+	_ = queryCmd.RegisterFlagCompletionFunc("source", completion.CompleteDataSource)
+	_ = queryCmd.RegisterFlagCompletionFunc("aggregator", completion.CompleteAggregatorAlias)
 }
 
 func runQuery(cmd *cobra.Command, args []string) error {
