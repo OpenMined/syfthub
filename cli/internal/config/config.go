@@ -11,12 +11,12 @@ import (
 
 // Default configuration values.
 const (
-	DefaultHubURL             = "https://syfthub.openmined.org"
-	DefaultAggregatorURL      = "https://syfthub.openmined.org/aggregator"
-	DefaultAccountingURL      = "https://syftaccounting.centralus.cloudapp.azure.com"
-	DefaultTimeout            = 30.0
-	DefaultAggregatorAlias    = "default"
-	DefaultAccountingAlias    = "default"
+	DefaultHubURL          = "https://syfthub.openmined.org"
+	DefaultAggregatorURL   = "https://syfthub.openmined.org/aggregator"
+	DefaultAccountingURL   = "https://syftaccounting.centralus.cloudapp.azure.com"
+	DefaultTimeout         = 30.0
+	DefaultAggregatorAlias = "default"
+	DefaultAccountingAlias = "default"
 )
 
 var (
@@ -48,12 +48,12 @@ type Config struct {
 	RefreshToken *string `json:"refresh_token"`
 
 	// Infrastructure aliases
-	Aggregators       map[string]AggregatorConfig  `json:"aggregators"`
+	Aggregators        map[string]AggregatorConfig `json:"aggregators"`
 	AccountingServices map[string]AccountingConfig `json:"accounting_services"`
 
 	// Default selections
-	DefaultAggregator  *string `json:"default_aggregator"`
-	DefaultAccounting  *string `json:"default_accounting"`
+	DefaultAggregator *string `json:"default_aggregator"`
+	DefaultAccounting *string `json:"default_accounting"`
 
 	// API settings
 	Timeout float64 `json:"timeout"`
