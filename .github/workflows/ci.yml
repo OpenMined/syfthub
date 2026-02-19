@@ -146,7 +146,7 @@ jobs:
         # Tests run in parallel using pytest-xdist (-n auto configured in pyproject.toml)
 
   # ============================================================================
-  # CLI (syfthub-cli)
+  # CLI (syfthub-cli) - Go
   # ============================================================================
   cli-lint:
     runs-on: ubuntu-latest
@@ -156,28 +156,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          enable-cache: true
-          cache-dependency-glob: "cli/uv.lock"
+          go-version: '1.23'
+          cache-dependency-path: cli/go.sum
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Run go vet
+        run: go vet ./...
 
-      - name: Install dependencies
-        run: uv sync --all-extras --dev
+      - name: Run go fmt check
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "The following files are not formatted:"
+            gofmt -l .
+            exit 1
+          fi
 
-      - name: Run Ruff linter
-        run: uv run ruff check src/ tests/
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@latest
 
-      - name: Run Ruff formatter
-        run: uv run ruff format --check src/ tests/
-
-      - name: Run mypy
-        run: uv run mypy src/
+      - name: Run staticcheck
+        run: staticcheck ./...
 
   cli-test:
     runs-on: ubuntu-latest
@@ -186,35 +186,28 @@ jobs:
         working-directory: cli
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
+        go-version: ['1.22', '1.23']
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          enable-cache: true
-          cache-dependency-glob: "cli/uv.lock"
+          go-version: ${{ matrix.go-version }}
+          cache-dependency-path: cli/go.sum
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
+      - name: Download dependencies
+        run: go mod download
 
-      - name: Install dependencies
-        run: |
-          uv python pin ${{ matrix.python-version }}
-          uv sync --all-extras --dev
-
-      - name: Run tests with coverage (parallel execution)
-        run: uv run pytest --cov=syfthub_cli --cov-report=xml --cov-fail-under=0
-        # Tests run in parallel using pytest-xdist (-n auto configured in pyproject.toml)
+      - name: Run tests with coverage
+        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Upload coverage reports
-        if: matrix.python-version == '3.12'
+        if: matrix.go-version == '1.23'
         uses: codecov/codecov-action@v5
         with:
-          file: ./cli/coverage.xml
+          file: ./cli/coverage.out
+          flags: cli
           fail_ci_if_error: false
 
   # ============================================================================
