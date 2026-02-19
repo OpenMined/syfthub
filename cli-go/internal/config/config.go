@@ -11,8 +11,12 @@ import (
 
 // Default configuration values.
 const (
-	DefaultHubURL  = "https://hub.syftbox.org"
-	DefaultTimeout = 30.0
+	DefaultHubURL             = "https://syfthub.openmined.org"
+	DefaultAggregatorURL      = "https://syfthub.openmined.org/aggregator"
+	DefaultAccountingURL      = "https://syftaccounting.centralus.cloudapp.azure.com"
+	DefaultTimeout            = 30.0
+	DefaultAggregatorAlias    = "default"
+	DefaultAccountingAlias    = "default"
 )
 
 var (
@@ -61,9 +65,18 @@ var configMutex sync.Mutex
 
 // NewConfig creates a new Config with default values.
 func NewConfig() *Config {
+	defaultAggregator := DefaultAggregatorAlias
+	defaultAccounting := DefaultAccountingAlias
+
 	return &Config{
-		Aggregators:       make(map[string]AggregatorConfig),
-		AccountingServices: make(map[string]AccountingConfig),
+		Aggregators: map[string]AggregatorConfig{
+			DefaultAggregatorAlias: {URL: DefaultAggregatorURL},
+		},
+		AccountingServices: map[string]AccountingConfig{
+			DefaultAccountingAlias: {URL: DefaultAccountingURL},
+		},
+		DefaultAggregator: &defaultAggregator,
+		DefaultAccounting: &defaultAccounting,
 		Timeout:           DefaultTimeout,
 		HubURL:            DefaultHubURL,
 	}
