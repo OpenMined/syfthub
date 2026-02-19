@@ -143,6 +143,65 @@ func (h *HubResource) Owners(ctx context.Context, opts ...OwnersOption) ([]Owner
 	return response.Owners, nil
 }
 
+// ByOwnerOption configures the ByOwner operation.
+type ByOwnerOption func(*byOwnerOptions)
+
+type byOwnerOptions struct {
+	skip  int
+	limit int
+}
+
+// WithByOwnerSkip sets the number of endpoints to skip.
+func WithByOwnerSkip(skip int) ByOwnerOption {
+	return func(o *byOwnerOptions) {
+		o.skip = skip
+	}
+}
+
+// WithByOwnerLimit sets the maximum number of endpoints to return.
+func WithByOwnerLimit(limit int) ByOwnerOption {
+	return func(o *byOwnerOptions) {
+		o.limit = limit
+	}
+}
+
+// ByOwner returns all public endpoints for a specific owner (user or organization).
+//
+// This uses the API route GET /api/v1/endpoints/public/by-owner/{owner_slug}
+// which is more efficient than browsing all endpoints and filtering by owner.
+//
+// Example:
+//
+//	endpoints, _ := client.Hub.ByOwner(ctx, "alice", WithByOwnerLimit(50))
+//	for _, ep := range endpoints {
+//	    fmt.Printf("%s: %s\n", ep.Slug, ep.Description)
+//	}
+func (h *HubResource) ByOwner(ctx context.Context, owner string, opts ...ByOwnerOption) ([]EndpointPublic, error) {
+	options := &byOwnerOptions{skip: 0, limit: 100}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	query := url.Values{}
+	query.Set("skip", strconv.Itoa(options.skip))
+	query.Set("limit", strconv.Itoa(options.limit))
+
+	// Use the API route: GET /api/v1/endpoints/public/by-owner/{owner_slug}
+	path := "/api/v1/endpoints/public/by-owner/" + url.PathEscape(owner)
+
+	body, err := h.http.GetRaw(ctx, path, WithoutAuth(), WithQuery(query))
+	if err != nil {
+		return nil, err
+	}
+
+	var endpoints []EndpointPublic
+	if err := json.Unmarshal(body, &endpoints); err != nil {
+		return nil, err
+	}
+
+	return endpoints, nil
+}
+
 // TrendingOption configures the Trending operation.
 type TrendingOption func(*trendingOptions)
 

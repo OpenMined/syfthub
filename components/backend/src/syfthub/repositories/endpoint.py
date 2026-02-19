@@ -262,6 +262,74 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             logger.error("Failed to query public endpoints: %s", e)
             return []
 
+    def get_public_endpoints_by_owner(
+        self,
+        owner_slug: str,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> List[EndpointPublicResponse]:
+        """Get all public endpoints for a specific owner.
+
+        Filters public endpoints by owner username (user or organization slug).
+        This is more efficient than fetching all endpoints and filtering client-side.
+
+        Args:
+            owner_slug: The username or organization slug to filter by.
+            skip: Number of endpoints to skip (for pagination).
+            limit: Maximum number of endpoints to return.
+
+        Returns:
+            List of EndpointPublicResponse objects for the given owner.
+        """
+        try:
+            # Build the base query with owner join
+            owner_username_expr = func.coalesce(
+                UserModel.username, OrganizationModel.slug
+            )
+
+            stmt = self._build_public_select().where(
+                and_(
+                    self.model.visibility == EndpointVisibility.PUBLIC.value,
+                    self.model.is_active,
+                    owner_username_expr == owner_slug,
+                )
+            )
+
+            stmt = stmt.order_by(self.model.updated_at.desc()).offset(skip).limit(limit)
+
+            result = self.session.execute(stmt)
+            rows = result.all()
+
+            endpoints = []
+            for endpoint_model, username, domain in rows:
+                # Transform connection URLs using owner's domain
+                transformed_connect = transform_connection_urls(
+                    domain, endpoint_model.connect or []
+                )
+
+                endpoint_dict = {
+                    "name": endpoint_model.name,
+                    "slug": endpoint_model.slug,
+                    "description": endpoint_model.description,
+                    "type": endpoint_model.type,
+                    "owner_username": username,
+                    "contributors_count": len(endpoint_model.contributors or []),
+                    "version": endpoint_model.version,
+                    "readme": endpoint_model.readme,
+                    "tags": endpoint_model.tags or [],
+                    "stars_count": endpoint_model.stars_count,
+                    "policies": endpoint_model.policies,
+                    "connect": transformed_connect,
+                    "created_at": endpoint_model.created_at,
+                    "updated_at": endpoint_model.updated_at,
+                }
+                endpoints.append(EndpointPublicResponse(**endpoint_dict))
+
+            return endpoints
+        except SQLAlchemyError as e:
+            logger.error("Failed to query endpoints by owner %s: %s", owner_slug, e)
+            return []
+
     def get_public_endpoints_by_ids(
         self,
         endpoint_ids: List[int],

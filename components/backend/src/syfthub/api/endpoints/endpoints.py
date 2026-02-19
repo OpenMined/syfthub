@@ -160,7 +160,7 @@ Returns a list of owners, where each owner has:
 - Then alphabetically by username
 
 **Use with:**
-- `GET /{owner_slug}` to get endpoints for a specific owner
+- `GET /endpoints/public/by-owner/{owner_slug}` to get endpoints for a specific owner
 - `GET /endpoints/public` to get full endpoint listings
 """,
 )
@@ -175,6 +175,49 @@ async def list_public_endpoint_owners(
     and counts, not full endpoint data.
     """
     return endpoint_service.list_public_endpoint_owners(skip=skip, limit=limit)
+
+
+@router.get(
+    "/public/by-owner/{owner_slug}",
+    response_model=list[EndpointPublicResponse],
+    summary="List Public Endpoints by Owner",
+    description="""
+List all public endpoints for a specific owner (user or organization).
+
+**No Authentication Required** - This endpoint is public.
+
+**Purpose:**
+This endpoint efficiently fetches all public endpoints belonging to a specific
+owner, without having to fetch and filter all endpoints. Designed for CLI
+commands like `syft ls <username>`.
+
+**Response Format:**
+Returns a list of EndpointPublicResponse objects containing:
+- name, slug, description, type
+- version, stars_count, tags
+- owner_username, connect URLs
+- created_at, updated_at
+
+**Ordering:**
+- Endpoints are ordered by `updated_at` (most recent first)
+
+**Use with:**
+- `GET /endpoints/public/owners` to list all owners first
+""",
+)
+async def list_public_endpoints_by_owner(
+    owner_slug: str,
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    skip: int = Query(0, ge=0, description="Number of endpoints to skip"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum endpoints to return"),
+) -> list[EndpointPublicResponse]:
+    """List public endpoints for a specific owner.
+
+    Returns all public, active endpoints belonging to the given user or organization.
+    """
+    return endpoint_service.list_public_endpoints_by_owner(
+        owner_slug=owner_slug, skip=skip, limit=limit
+    )
 
 
 @router.get("/trending", response_model=list[EndpointPublicResponse])
