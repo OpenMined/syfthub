@@ -83,7 +83,7 @@ export function SearchInput({
   onSubmit,
   disabled = false,
   isProcessing = false,
-  placeholder = 'Ask anything...',
+  placeholder = 'Start making queries, use @ for specific sources',
   onContextClick,
   selectedContexts = [],
   onRemoveContext,

@@ -13,7 +13,6 @@ import { Link, useNavigate } from 'react-router-dom';
 
 import { AddSourcesModal } from '@/components/chat/add-sources-modal';
 import { SearchInput } from '@/components/chat/search-input';
-import { SearchSuggestions } from '@/components/query/query-input';
 import { Badge } from '@/components/ui/badge';
 import { WorkflowOverlay } from '@/components/workflow';
 import { useChatWorkflow } from '@/hooks/use-chat-workflow';
@@ -202,7 +201,7 @@ export function Hero({
                 onSubmit={handleSubmit}
                 disabled={isWorkflowActive}
                 isProcessing={workflow.phase === 'streaming'}
-                placeholder='Ask anything...'
+                placeholder='Start making queries, use @ for specific sources'
                 onContextClick={() => {
                   setIsSourceModalOpen(true);
                 }}
@@ -251,5 +250,31 @@ export function Hero({
         onConfirm={handleSourceModalConfirm}
       />
     </>
+  );
+}
+
+// =============================================================================
+// Search Suggestions
+// =============================================================================
+
+function SearchSuggestions({
+  suggestions,
+  onSelect
+}: Readonly<{ suggestions: readonly string[]; onSelect: (suggestion: string) => void }>) {
+  return (
+    <div className='flex flex-wrap items-center gap-2'>
+      {suggestions.map((suggestion, index) => (
+        <button
+          key={index}
+          type='button'
+          onClick={() => {
+            onSelect(suggestion);
+          }}
+          className='font-inter border-border/40 text-muted-foreground hover:border-border hover:text-foreground focus:ring-ring rounded-full border px-3 py-2 text-sm transition-colors focus:ring-2 focus:ring-offset-2 focus:outline-none'
+        >
+          {suggestion}
+        </button>
+      ))}
+    </div>
   );
 }

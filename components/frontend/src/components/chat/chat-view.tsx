@@ -326,7 +326,9 @@ export function ChatView({
             disabled={isWorkflowActive}
             isProcessing={workflow.phase === 'streaming'}
             placeholder={
-              contextStore.count() > 0 ? 'Ask about these sources...' : 'Ask anything...'
+              contextStore.count() > 0
+                ? 'Ask about these sources...'
+                : 'Start making queries, use @ for specific sources'
             }
             onContextClick={() => {
               setIsSourceModalOpen(true);
