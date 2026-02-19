@@ -133,6 +133,29 @@ async def list_public_endpoints_grouped(
     return endpoint_service.list_public_endpoints_grouped(max_per_owner=max_per_owner)
 
 
+@router.get(
+    "/public/{owner_username}/{slug}",
+    response_model=EndpointPublicResponse,
+    summary="Get Public Endpoint by Owner and Slug",
+    description="""
+Get a single public endpoint by its owner username and slug.
+
+**No Authentication Required** - This endpoint is public.
+
+Uses the GitHub-style `owner/slug` path to look up an endpoint directly,
+without requiring pagination or search.
+""",
+    responses={404: {"description": "Endpoint not found"}},
+)
+async def get_public_endpoint_by_path(
+    owner_username: str,
+    slug: str,
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> EndpointPublicResponse:
+    """Get a single public endpoint by owner username and slug."""
+    return endpoint_service.get_public_endpoint_by_path(owner_username, slug)
+
+
 @router.get("/trending", response_model=list[EndpointPublicResponse])
 async def list_trending_endpoints(
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],

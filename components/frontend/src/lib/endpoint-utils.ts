@@ -302,6 +302,41 @@ export async function getPublicEndpointsPaginated(
 }
 
 /**
+ * Get a single public endpoint by its owner/slug path.
+ *
+ * Uses the dedicated backend endpoint for direct lookup, avoiding
+ * the need to fetch and search through paginated lists.
+ *
+ * @param path - Endpoint path in "owner/slug" format
+ * @returns ChatSource if found, null otherwise
+ */
+export async function getPublicEndpointByPath(path: string): Promise<ChatSource | null> {
+  const parts = path.split('/');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    return null;
+  }
+
+  const [owner, slug] = parts;
+
+  try {
+    const response = await fetch(
+      `/api/v1/endpoints/public/${encodeURIComponent(owner)}/${encodeURIComponent(slug)}`
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const rawData = (await response.json()) as RawEndpointPublic;
+    const endpoint = transformRawEndpoint(rawData);
+    return mapEndpointPublicToSource(endpoint);
+  } catch (error) {
+    console.error('Failed to fetch public endpoint by path:', error);
+    return null;
+  }
+}
+
+/**
  * Raw API response shape for a single endpoint group from the grouped endpoint.
  * The backend returns snake_case, so we transform to camelCase.
  */
