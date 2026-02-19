@@ -11,7 +11,6 @@ import type { UserAggregator, UserAggregatorUpdate } from '@/lib/types';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
-import Check from 'lucide-react/dist/esm/icons/check';
 import Edit2 from 'lucide-react/dist/esm/icons/edit-2';
 import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
 import MoreVertical from 'lucide-react/dist/esm/icons/more-vertical';
@@ -22,6 +21,7 @@ import Trash2 from 'lucide-react/dist/esm/icons/trash-2';
 import X from 'lucide-react/dist/esm/icons/x';
 
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,6 +31,8 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useUserAggregatorsStore } from '@/stores/user-aggregators-store';
+
+import { StatusMessage } from './status-message';
 
 // =============================================================================
 // Types
@@ -92,6 +94,8 @@ function AggregatorCard({
   onSetDefault,
   isProcessing
 }: AggregatorCardProps) {
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
   return (
     <motion.div
       layout
@@ -99,7 +103,7 @@ function AggregatorCard({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
       className={`border-border bg-card relative rounded-lg border p-4 transition-shadow hover:shadow-md ${
-        aggregator.is_default ? 'ring-primary ring-1' : ''
+        aggregator.is_default ? 'ring-primary ring-2' : ''
       }`}
     >
       {/* Default Badge */}
@@ -161,7 +165,7 @@ function AggregatorCard({
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => {
-                onDelete(aggregator.id);
+                setShowDeleteConfirm(true);
               }}
               className='text-red-600 focus:text-red-600'
             >
@@ -171,6 +175,51 @@ function AggregatorCard({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      {/* Inline Delete Confirmation */}
+      <AnimatePresence>
+        {showDeleteConfirm && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className='overflow-hidden'
+          >
+            <div className='mt-3 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-950'>
+              <p className='text-sm text-red-800 dark:text-red-200'>Delete this aggregator?</p>
+              <div className='flex gap-2'>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                  }}
+                  disabled={isProcessing}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant='destructive'
+                  size='sm'
+                  onClick={() => {
+                    onDelete(aggregator.id);
+                    setShowDeleteConfirm(false);
+                  }}
+                  disabled={isProcessing}
+                  className='bg-red-600 hover:bg-red-700'
+                >
+                  {isProcessing ? (
+                    <Loader2 className='h-3 w-3 animate-spin' />
+                  ) : (
+                    <Trash2 className='h-3 w-3' />
+                  )}
+                  Delete
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -235,7 +284,7 @@ function AggregatorForm({
       {/* Name Field */}
       <div className='space-y-2'>
         <Label htmlFor='aggregator-name'>
-          Name <span className='text-red-500'>*</span>
+          Name <span className='text-destructive'>*</span>
         </Label>
         <Input
           id='aggregator-name'
@@ -246,13 +295,13 @@ function AggregatorForm({
           placeholder='e.g., Production Aggregator'
           disabled={isSubmitting}
         />
-        {errors.name && <p className='text-xs text-red-500'>{errors.name}</p>}
+        {errors.name && <p className='text-destructive text-xs'>{errors.name}</p>}
       </div>
 
       {/* URL Field */}
       <div className='space-y-2'>
         <Label htmlFor='aggregator-url'>
-          URL <span className='text-red-500'>*</span>
+          URL <span className='text-destructive'>*</span>
         </Label>
         <Input
           id='aggregator-url'
@@ -264,7 +313,7 @@ function AggregatorForm({
           placeholder='https://aggregator.example.com/api/v1'
           disabled={isSubmitting}
         />
-        {errors.url && <p className='text-xs text-red-500'>{errors.url}</p>}
+        {errors.url && <p className='text-destructive text-xs'>{errors.url}</p>}
         <p className='text-muted-foreground text-xs'>
           The base URL of your aggregator service API.
         </p>
@@ -272,15 +321,13 @@ function AggregatorForm({
 
       {/* Default Checkbox */}
       <div className='flex items-center gap-2'>
-        <input
-          type='checkbox'
+        <Checkbox
           id='is-default'
           checked={formData.is_default}
-          onChange={(e) => {
-            handleChange('is_default', e.target.checked);
+          onCheckedChange={(checked) => {
+            handleChange('is_default', checked === true);
           }}
           disabled={isSubmitting}
-          className='h-4 w-4 rounded border-gray-300'
         />
         <Label htmlFor='is-default' className='text-sm font-normal'>
           Set as default aggregator
@@ -288,10 +335,10 @@ function AggregatorForm({
       </div>
 
       {/* Warning */}
-      <div className='rounded-lg border border-amber-200 bg-amber-50 p-3'>
+      <div className='rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950'>
         <div className='flex items-start gap-2'>
-          <AlertCircle className='mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600' />
-          <p className='text-xs text-amber-800'>
+          <AlertCircle className='mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400' />
+          <p className='text-xs text-amber-800 dark:text-amber-200'>
             Using a custom aggregator means your chat queries will be sent to that service. Make
             sure you trust the aggregator you configure.
           </p>
@@ -299,7 +346,7 @@ function AggregatorForm({
       </div>
 
       {/* Actions */}
-      <div className='flex items-center justify-end gap-2 pt-2'>
+      <div className='flex items-center justify-end gap-3 pt-2'>
         <Button type='button' variant='outline' onClick={onCancel} disabled={isSubmitting}>
           Cancel
         </Button>
@@ -394,11 +441,9 @@ export function AggregatorSettingsTab() {
 
   const handleDelete = useCallback(
     async (id: number) => {
-      if (globalThis.confirm('Are you sure you want to delete this aggregator?')) {
-        const success = await deleteAggregator(id);
-        if (success) {
-          setSuccessMessage('Aggregator deleted successfully!');
-        }
+      const success = await deleteAggregator(id);
+      if (success) {
+        setSuccessMessage('Aggregator deleted successfully!');
       }
     },
     [deleteAggregator]
@@ -436,12 +481,14 @@ export function AggregatorSettingsTab() {
       </div>
 
       {/* Info Banner */}
-      <div className='rounded-lg border border-blue-200 bg-blue-50 p-4'>
+      <div className='rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950'>
         <div className='flex items-start gap-3'>
-          <Server className='mt-0.5 h-5 w-5 flex-shrink-0 text-blue-600' />
+          <Server className='mt-0.5 h-5 w-5 flex-shrink-0 text-blue-600 dark:text-blue-400' />
           <div>
-            <h4 className='text-sm font-medium text-blue-900'>About Aggregators</h4>
-            <p className='mt-1 text-xs text-blue-700'>
+            <h4 className='text-sm font-medium text-blue-900 dark:text-blue-100'>
+              About Aggregators
+            </h4>
+            <p className='mt-1 text-xs text-blue-700 dark:text-blue-300'>
               Aggregators handle RAG (Retrieval-Augmented Generation) orchestration for chat
               operations. By default, SyftHub uses its built-in aggregator. You can configure custom
               aggregators to use your own RAG services.
@@ -450,43 +497,14 @@ export function AggregatorSettingsTab() {
         </div>
       </div>
 
-      {/* Success Message */}
-      <AnimatePresence>
-        {successMessage && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className='flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3'
-          >
-            <Check className='h-4 w-4 text-green-600' />
-            <span className='text-sm text-green-800'>{successMessage}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Error Message */}
-      <AnimatePresence>
-        {error && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className='flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3'
-          >
-            <AlertCircle className='h-4 w-4 text-red-600' />
-            <span className='text-sm text-red-800'>{error}</span>
-            <Button
-              variant='ghost'
-              size='sm'
-              onClick={clearError}
-              className='ml-auto h-auto py-1 text-xs'
-            >
-              Dismiss
-            </Button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Status Messages */}
+      <StatusMessage type='success' message={successMessage} />
+      <StatusMessage type='error' message={error} />
+      {error && (
+        <Button variant='ghost' size='sm' onClick={clearError} className='h-auto py-1 text-xs'>
+          Dismiss error
+        </Button>
+      )}
 
       {/* Loading State */}
       {isLoading && (
