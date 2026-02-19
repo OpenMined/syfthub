@@ -225,6 +225,21 @@ type EndpointSearchResponse struct {
 	Query   string                 `json:"query"`
 }
 
+// OwnerSummary represents a summary of an owner's endpoints for directory listing.
+// This is a lightweight response for listing owners without fetching full endpoint data.
+type OwnerSummary struct {
+	Username        string `json:"username"`
+	EndpointCount   int    `json:"endpoint_count"`
+	ModelCount      int    `json:"model_count"`
+	DataSourceCount int    `json:"data_source_count"`
+}
+
+// OwnersListResponse represents the response from the owners list API.
+type OwnersListResponse struct {
+	Owners     []OwnerSummary `json:"owners"`
+	TotalCount int            `json:"total_count"`
+}
+
 // =============================================================================
 // Accounting Models
 // =============================================================================

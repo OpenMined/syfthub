@@ -26,6 +26,7 @@ from syfthub.schemas.endpoint import (
     EndpointUpdate,
     EndpointVisibility,
     GroupedEndpointsResponse,
+    OwnersListResponse,
     SyncEndpointsResponse,
     SyncValidationError,
     generate_slug_from_name,
@@ -475,6 +476,26 @@ class EndpointService(BaseService):
             skip=skip, limit=limit, endpoint_type=endpoint_type, search=search
         )
 
+    def list_public_endpoints_by_owner(
+        self,
+        owner_slug: str,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> List[EndpointPublicResponse]:
+        """List public endpoints for a specific owner.
+
+        Args:
+            owner_slug: The username or organization slug.
+            skip: Number of endpoints to skip (for pagination).
+            limit: Maximum number of endpoints to return.
+
+        Returns:
+            List of EndpointPublicResponse objects for the owner.
+        """
+        return self.endpoint_repository.get_public_endpoints_by_owner(
+            owner_slug=owner_slug, skip=skip, limit=limit
+        )
+
     def list_trending_endpoints(
         self,
         skip: int = 0,
@@ -533,6 +554,42 @@ class EndpointService(BaseService):
         return self.endpoint_repository.get_public_endpoints_grouped(
             max_per_owner=max_per_owner
         )
+
+    def list_public_endpoint_owners(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> OwnersListResponse:
+        """List owners with public endpoints and their endpoint counts.
+
+        This is an efficient endpoint that returns only owner usernames and
+        aggregated counts, without fetching full endpoint data. Optimized
+        for CLI directory listing (syft ls).
+
+        Args:
+            skip: Number of owners to skip (pagination)
+            limit: Maximum number of owners to return
+
+        Returns:
+            OwnersListResponse with owner summaries ordered by endpoint count
+        """
+        from syfthub.schemas.endpoint import OwnersListResponse, OwnerSummary
+
+        owners_data, total_count = self.endpoint_repository.get_public_endpoint_owners(
+            skip=skip, limit=limit
+        )
+
+        owners = [
+            OwnerSummary(
+                username=o["username"],
+                endpoint_count=o["endpoint_count"],
+                model_count=o["model_count"],
+                data_source_count=o["data_source_count"],
+            )
+            for o in owners_data
+        ]
+
+        return OwnersListResponse(owners=owners, total_count=total_count)
 
     # ===========================================
     # RAG INTEGRATION METHODS

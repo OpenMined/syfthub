@@ -20,6 +20,7 @@ from syfthub.schemas.endpoint import (
     EndpointUpdate,
     EndpointVisibility,
     GroupedEndpointsResponse,
+    OwnersListResponse,
     SyncEndpointsRequest,
     SyncEndpointsResponse,
 )
@@ -131,6 +132,92 @@ async def list_public_endpoints_grouped(
     a single owner dominate the listing.
     """
     return endpoint_service.list_public_endpoints_grouped(max_per_owner=max_per_owner)
+
+
+@router.get(
+    "/public/owners",
+    response_model=OwnersListResponse,
+    summary="List Endpoint Owners",
+    description="""
+List all owners (users/organizations) that have public endpoints, with endpoint counts.
+
+**No Authentication Required** - This endpoint is public.
+
+**Purpose:**
+This is a lightweight endpoint designed for directory browsing (e.g., CLI `syft ls`).
+It returns only owner usernames and aggregated counts, NOT full endpoint data.
+This prevents performance issues when a single owner has hundreds of endpoints.
+
+**Response Format:**
+Returns a list of owners, where each owner has:
+- `username`: The username or organization slug
+- `endpoint_count`: Total number of public endpoints
+- `model_count`: Number of model endpoints
+- `data_source_count`: Number of data source endpoints
+
+**Ordering:**
+- Owners are ordered by total endpoint count (descending)
+- Then alphabetically by username
+
+**Use with:**
+- `GET /endpoints/public/by-owner/{owner_slug}` to get endpoints for a specific owner
+- `GET /endpoints/public` to get full endpoint listings
+""",
+)
+async def list_public_endpoint_owners(
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    skip: int = Query(0, ge=0, description="Number of owners to skip"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum owners to return"),
+) -> OwnersListResponse:
+    """List owners with public endpoints and their endpoint counts.
+
+    Efficient endpoint for directory browsing - returns only owner names
+    and counts, not full endpoint data.
+    """
+    return endpoint_service.list_public_endpoint_owners(skip=skip, limit=limit)
+
+
+@router.get(
+    "/public/by-owner/{owner_slug}",
+    response_model=list[EndpointPublicResponse],
+    summary="List Public Endpoints by Owner",
+    description="""
+List all public endpoints for a specific owner (user or organization).
+
+**No Authentication Required** - This endpoint is public.
+
+**Purpose:**
+This endpoint efficiently fetches all public endpoints belonging to a specific
+owner, without having to fetch and filter all endpoints. Designed for CLI
+commands like `syft ls <username>`.
+
+**Response Format:**
+Returns a list of EndpointPublicResponse objects containing:
+- name, slug, description, type
+- version, stars_count, tags
+- owner_username, connect URLs
+- created_at, updated_at
+
+**Ordering:**
+- Endpoints are ordered by `updated_at` (most recent first)
+
+**Use with:**
+- `GET /endpoints/public/owners` to list all owners first
+""",
+)
+async def list_public_endpoints_by_owner(
+    owner_slug: str,
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    skip: int = Query(0, ge=0, description="Number of endpoints to skip"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum endpoints to return"),
+) -> list[EndpointPublicResponse]:
+    """List public endpoints for a specific owner.
+
+    Returns all public, active endpoints belonging to the given user or organization.
+    """
+    return endpoint_service.list_public_endpoints_by_owner(
+        owner_slug=owner_slug, skip=skip, limit=limit
+    )
 
 
 @router.get("/trending", response_model=list[EndpointPublicResponse])

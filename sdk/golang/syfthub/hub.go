@@ -98,6 +98,110 @@ func (h *HubResource) Browse(ctx context.Context, opts ...BrowseOption) *PageIte
 	return NewPageIterator[EndpointPublic](fetchFn, options.pageSize)
 }
 
+// OwnersOption configures the Owners operation.
+type OwnersOption func(*ownersOptions)
+
+type ownersOptions struct {
+	limit int
+}
+
+// WithOwnersLimit sets the maximum number of owners to return.
+func WithOwnersLimit(limit int) OwnersOption {
+	return func(o *ownersOptions) {
+		o.limit = limit
+	}
+}
+
+// Owners returns a list of all owners (users/orgs) that have public endpoints.
+//
+// This is an efficient endpoint that returns only owner usernames and
+// aggregated endpoint counts, without fetching full endpoint data.
+// Useful for directory listing (e.g., `syft ls`).
+//
+// Example:
+//
+//	owners, _ := client.Hub.Owners(ctx, WithOwnersLimit(50))
+//	for _, owner := range owners {
+//	    fmt.Printf("%s/ (%d endpoints)\n", owner.Username, owner.EndpointCount)
+//	}
+func (h *HubResource) Owners(ctx context.Context, opts ...OwnersOption) ([]OwnerSummary, error) {
+	options := &ownersOptions{limit: 100}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	query := url.Values{}
+	query.Set("skip", "0")
+	query.Set("limit", strconv.Itoa(options.limit))
+
+	var response OwnersListResponse
+	err := h.http.Get(ctx, "/api/v1/endpoints/public/owners", &response, WithoutAuth(), WithQuery(query))
+	if err != nil {
+		return nil, err
+	}
+
+	return response.Owners, nil
+}
+
+// ByOwnerOption configures the ByOwner operation.
+type ByOwnerOption func(*byOwnerOptions)
+
+type byOwnerOptions struct {
+	skip  int
+	limit int
+}
+
+// WithByOwnerSkip sets the number of endpoints to skip.
+func WithByOwnerSkip(skip int) ByOwnerOption {
+	return func(o *byOwnerOptions) {
+		o.skip = skip
+	}
+}
+
+// WithByOwnerLimit sets the maximum number of endpoints to return.
+func WithByOwnerLimit(limit int) ByOwnerOption {
+	return func(o *byOwnerOptions) {
+		o.limit = limit
+	}
+}
+
+// ByOwner returns all public endpoints for a specific owner (user or organization).
+//
+// This uses the API route GET /api/v1/endpoints/public/by-owner/{owner_slug}
+// which is more efficient than browsing all endpoints and filtering by owner.
+//
+// Example:
+//
+//	endpoints, _ := client.Hub.ByOwner(ctx, "alice", WithByOwnerLimit(50))
+//	for _, ep := range endpoints {
+//	    fmt.Printf("%s: %s\n", ep.Slug, ep.Description)
+//	}
+func (h *HubResource) ByOwner(ctx context.Context, owner string, opts ...ByOwnerOption) ([]EndpointPublic, error) {
+	options := &byOwnerOptions{skip: 0, limit: 100}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	query := url.Values{}
+	query.Set("skip", strconv.Itoa(options.skip))
+	query.Set("limit", strconv.Itoa(options.limit))
+
+	// Use the API route: GET /api/v1/endpoints/public/by-owner/{owner_slug}
+	path := "/api/v1/endpoints/public/by-owner/" + url.PathEscape(owner)
+
+	body, err := h.http.GetRaw(ctx, path, WithoutAuth(), WithQuery(query))
+	if err != nil {
+		return nil, err
+	}
+
+	var endpoints []EndpointPublic
+	if err := json.Unmarshal(body, &endpoints); err != nil {
+		return nil, err
+	}
+
+	return endpoints, nil
+}
+
 // TrendingOption configures the Trending operation.
 type TrendingOption func(*trendingOptions)
 
