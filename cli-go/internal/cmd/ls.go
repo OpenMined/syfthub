@@ -92,79 +92,8 @@ func runLs(cmd *cobra.Command, args []string) error {
 }
 
 func listUsers(ctx context.Context, client *syfthub.Client) error {
-	// Try the efficient Owners API first (requires updated backend)
 	owners, err := client.Hub.Owners(ctx, syfthub.WithOwnersLimit(lsLimit))
 	if err != nil {
-		// Fallback: use Browse API and aggregate by owner
-		// This works with older backends that don't have the /owners endpoint
-		return listUsersFallback(ctx, client)
-	}
-
-	// Convert to output format
-	ownerInfos := make([]output.OwnerInfo, 0, len(owners))
-	for _, owner := range owners {
-		ownerInfos = append(ownerInfos, output.OwnerInfo{
-			Username:        owner.Username,
-			EndpointCount:   owner.EndpointCount,
-			ModelCount:      owner.ModelCount,
-			DataSourceCount: owner.DataSourceCount,
-		})
-	}
-
-	if lsJSONOutput {
-		result := make([]map[string]interface{}, 0, len(ownerInfos))
-		for _, owner := range ownerInfos {
-			result = append(result, map[string]interface{}{
-				"username":          owner.Username,
-				"endpoint_count":    owner.EndpointCount,
-				"model_count":       owner.ModelCount,
-				"data_source_count": owner.DataSourceCount,
-			})
-		}
-		output.JSON(map[string]interface{}{
-			"status": "success",
-			"owners": result,
-		})
-	} else if lsLongFormat {
-		output.PrintOwnersTable(ownerInfos)
-	} else {
-		output.PrintOwnersGrid(ownerInfos)
-	}
-
-	return nil
-}
-
-// listUsersFallback uses the Browse API to list users when the Owners API is not available.
-func listUsersFallback(ctx context.Context, client *syfthub.Client) error {
-	// Aggregate endpoints by owner
-	ownerMap := make(map[string]*output.OwnerInfo)
-
-	iter := client.Hub.Browse(ctx, syfthub.WithPageSize(lsLimit))
-	count := 0
-	for iter.Next(ctx) {
-		ep := iter.Value()
-
-		owner, exists := ownerMap[ep.OwnerUsername]
-		if !exists {
-			owner = &output.OwnerInfo{Username: ep.OwnerUsername}
-			ownerMap[ep.OwnerUsername] = owner
-		}
-
-		owner.EndpointCount++
-		switch ep.Type {
-		case syfthub.EndpointTypeModel:
-			owner.ModelCount++
-		case syfthub.EndpointTypeDataSource:
-			owner.DataSourceCount++
-		}
-
-		count++
-		if count >= lsLimit {
-			break
-		}
-	}
-
-	if err := iter.Err(); err != nil {
 		if lsJSONOutput {
 			output.JSON(map[string]interface{}{
 				"status":  "error",
@@ -176,10 +105,15 @@ func listUsersFallback(ctx context.Context, client *syfthub.Client) error {
 		return err
 	}
 
-	// Convert map to sorted slice
-	ownerInfos := make([]output.OwnerInfo, 0, len(ownerMap))
-	for _, owner := range ownerMap {
-		ownerInfos = append(ownerInfos, *owner)
+	// Convert to output format
+	ownerInfos := make([]output.OwnerInfo, 0, len(owners))
+	for _, owner := range owners {
+		ownerInfos = append(ownerInfos, output.OwnerInfo{
+			Username:        owner.Username,
+			EndpointCount:   owner.EndpointCount,
+			ModelCount:      owner.ModelCount,
+			DataSourceCount: owner.DataSourceCount,
+		})
 	}
 
 	if lsJSONOutput {
