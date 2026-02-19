@@ -71,6 +71,8 @@ export interface SearchInputProps {
   onMentionComplete?: (source: ChatSource) => void;
   /** Callback to sync mention sources — called with IDs of mentions currently in text */
   onMentionSync?: (mentionedIds: Set<string>) => void;
+  /** Callback fired on every input change with the current text value */
+  onTextChange?: (text: string) => void;
   /** Additional CSS classes for the outer wrapper */
   className?: string;
 }
@@ -95,6 +97,7 @@ export function SearchInput({
   sources = [],
   onMentionComplete,
   onMentionSync,
+  onTextChange,
   className
 }: Readonly<SearchInputProps>) {
   const [value, setValue] = useState('');
@@ -131,8 +134,9 @@ export function SearchInput({
     onSubmit(trimmed);
     setValue('');
     setCursorPosition(0);
+    onTextChange?.('');
     mention.reset();
-  }, [value, disabled, onSubmit, mention]);
+  }, [value, disabled, onSubmit, onTextChange, mention]);
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -171,6 +175,7 @@ export function SearchInput({
       const newValue = event.target.value;
       setValue(newValue);
       setCursorPosition(event.target.selectionStart);
+      onTextChange?.(newValue);
 
       // Sync mention sources — detect deleted mentions
       if (enableMentions && onMentionSync) {
@@ -178,7 +183,7 @@ export function SearchInput({
         onMentionSync(mentionedIds);
       }
     },
-    [enableMentions, onMentionSync, sources]
+    [enableMentions, onMentionSync, onTextChange, sources]
   );
 
   const handleSelect = useCallback((event: React.SyntheticEvent<HTMLTextAreaElement>) => {

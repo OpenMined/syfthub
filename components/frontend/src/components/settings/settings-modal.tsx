@@ -9,6 +9,7 @@ import Lock from 'lucide-react/dist/esm/icons/lock';
 import Server from 'lucide-react/dist/esm/icons/server';
 import User from 'lucide-react/dist/esm/icons/user';
 import X from 'lucide-react/dist/esm/icons/x';
+import { Dialog } from 'radix-ui';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -30,7 +31,11 @@ interface TabItem {
 const TABS: TabItem[] = [
   { id: 'profile', label: 'Profile', icon: <User className='h-4 w-4' aria-hidden='true' /> },
   { id: 'security', label: 'Security', icon: <Lock className='h-4 w-4' aria-hidden='true' /> },
-  { id: 'payment', label: 'Payment', icon: <CreditCard className='h-4 w-4' aria-hidden='true' /> },
+  {
+    id: 'payment',
+    label: 'Payment',
+    icon: <CreditCard className='h-4 w-4' aria-hidden='true' />
+  },
   {
     id: 'aggregator',
     label: 'Aggregator',
@@ -44,144 +49,118 @@ const TABS: TabItem[] = [
   }
 ];
 
-// Selector for focusable elements
-const FOCUSABLE_SELECTOR =
-  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])';
+const TAB_CONTENT: Record<SettingsTab, React.ComponentType> = {
+  profile: ProfileSettingsTab,
+  security: SecuritySettingsTab,
+  payment: PaymentSettingsTab,
+  aggregator: AggregatorSettingsTab,
+  'danger-zone': DangerZoneTab
+};
 
 export function SettingsModal() {
   const { isOpen, closeSettings, activeTab, setActiveTab } = useSettingsModalStore();
-  const modalReference = React.useRef<HTMLDivElement>(null);
-  const previousActiveElement = React.useRef<Element | null>(null);
+  const tabListReference = React.useRef<HTMLDivElement>(null);
 
-  // Handle focus management
-  React.useEffect(() => {
-    if (isOpen) {
-      previousActiveElement.current = document.activeElement;
-      const timeoutId = setTimeout(() => {
-        const focusableElements = modalReference.current?.querySelectorAll(FOCUSABLE_SELECTOR);
-        if (focusableElements && focusableElements.length > 0) {
-          (focusableElements[0] as HTMLElement).focus();
-        }
-      }, 50);
-      return () => {
-        clearTimeout(timeoutId);
-      };
-    } else if (previousActiveElement.current instanceof HTMLElement) {
-      previousActiveElement.current.focus();
-    }
-  }, [isOpen]);
+  const handleTabKeyDown = (event: React.KeyboardEvent) => {
+    const tabIds = TABS.map((t) => t.id);
+    const currentIndex = tabIds.indexOf(activeTab);
 
-  // Handle escape key and body scroll
-  React.useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && isOpen) {
-        closeSettings();
+    let nextIndex: number | null = null;
+
+    switch (event.key) {
+      case 'ArrowDown': {
+        nextIndex = (currentIndex + 1) % tabIds.length;
+        break;
       }
-    };
-
-    if (isOpen) {
-      document.addEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'hidden';
-    }
-
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = 'unset';
-    };
-  }, [isOpen, closeSettings]);
-
-  // Handle Tab key for focus trapping
-  const handleKeyDown = (event: React.KeyboardEvent) => {
-    if (event.key !== 'Tab') return;
-
-    const nodeList = modalReference.current?.querySelectorAll(FOCUSABLE_SELECTOR);
-    if (!nodeList || nodeList.length === 0) return;
-
-    const focusableElements = [...nodeList] as HTMLElement[];
-    const firstElement = focusableElements[0];
-    const lastElement = focusableElements.at(-1);
-    if (!firstElement || !lastElement) return;
-
-    if (event.shiftKey && document.activeElement === (firstElement as Element)) {
-      event.preventDefault();
-      lastElement.focus();
-    } else if (!event.shiftKey && document.activeElement === (lastElement as Element)) {
-      event.preventDefault();
-      firstElement.focus();
-    }
-  };
-
-  const handleOverlayClick = (event: React.MouseEvent) => {
-    if (event.target === event.currentTarget) {
-      closeSettings();
-    }
-  };
-
-  const renderTabContent = () => {
-    switch (activeTab) {
-      case 'profile': {
-        return <ProfileSettingsTab />;
+      case 'ArrowUp': {
+        nextIndex = (currentIndex - 1 + tabIds.length) % tabIds.length;
+        break;
       }
-      case 'security': {
-        return <SecuritySettingsTab />;
+      case 'Home': {
+        nextIndex = 0;
+        break;
       }
-      case 'payment': {
-        return <PaymentSettingsTab />;
-      }
-      case 'aggregator': {
-        return <AggregatorSettingsTab />;
-      }
-      case 'danger-zone': {
-        return <DangerZoneTab />;
+      case 'End': {
+        nextIndex = tabIds.length - 1;
+        break;
       }
       default: {
-        return <ProfileSettingsTab />;
+        break;
       }
+    }
+
+    if (nextIndex !== null) {
+      const nextTab = tabIds[nextIndex];
+      if (!nextTab) return;
+      event.preventDefault();
+      setActiveTab(nextTab);
+      const buttons = tabListReference.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]');
+      buttons?.[nextIndex]?.focus();
     }
   };
 
+  const Content = TAB_CONTENT[activeTab];
+
   return (
-    <AnimatePresence>
-      {isOpen ? (
-        <div
-          className='fixed inset-0 z-50 flex items-center justify-center p-4'
-          onKeyDown={handleKeyDown}
-        >
-          {/* Backdrop */}
+    <Dialog.Root
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) closeSettings();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay asChild>
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className='absolute inset-0 bg-black/50 backdrop-blur-sm'
-            onClick={handleOverlayClick}
+            className='fixed inset-0 z-50 bg-black/50 backdrop-blur-sm'
           />
-
-          {/* Modal Content */}
+        </Dialog.Overlay>
+        <Dialog.Content
+          asChild
+          aria-describedby='settings-modal-description'
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            const activeButton = tabListReference.current?.querySelector<HTMLButtonElement>(
+              '[role="tab"][aria-selected="true"]'
+            );
+            activeButton?.focus();
+          }}
+        >
           <motion.div
-            ref={modalReference}
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: 'spring', duration: 0.3 }}
-            className='border-border bg-card relative flex h-[600px] w-full max-w-3xl overflow-hidden rounded-xl border shadow-xl'
-            role='dialog'
-            aria-modal='true'
-            aria-labelledby='settings-modal-title'
+            className='border-border bg-card fixed top-1/2 left-1/2 z-50 flex max-h-[min(600px,85vh)] w-full max-w-3xl -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl border shadow-xl'
           >
             {/* Sidebar */}
             <div className='border-border bg-muted flex w-48 flex-col border-r'>
-              <div className='border-border border-b p-4'>
-                <h2
-                  id='settings-modal-title'
-                  className='font-rubik text-foreground text-lg font-semibold'
-                >
+              <div className='border-border border-b px-4 py-4'>
+                <Dialog.Title className='text-foreground text-lg font-semibold'>
                   Settings
-                </h2>
+                </Dialog.Title>
+                <Dialog.Description id='settings-modal-description' className='sr-only'>
+                  Manage your account settings and preferences.
+                </Dialog.Description>
               </div>
-              <nav className='flex-1 space-y-1 p-2'>
+              <div
+                ref={tabListReference}
+                role='tablist'
+                aria-label='Settings sections'
+                aria-orientation='vertical'
+                className='flex-1 space-y-1 p-2'
+                onKeyDown={handleTabKeyDown}
+              >
                 {TABS.map((tab) => (
                   <button
                     key={tab.id}
+                    role='tab'
+                    id={`settings-tab-${tab.id}`}
+                    aria-selected={activeTab === tab.id}
+                    aria-controls={`settings-panel-${tab.id}`}
+                    tabIndex={activeTab === tab.id ? 0 : -1}
                     onClick={() => {
                       setActiveTab(tab.id);
                     }}
@@ -203,28 +182,46 @@ export function SettingsModal() {
                     {tab.label}
                   </button>
                 ))}
-              </nav>
+              </div>
             </div>
 
             {/* Content Area */}
-            <div className='flex flex-1 flex-col'>
+            <div className='flex flex-1 flex-col overflow-hidden'>
               {/* Close Button */}
-              <Button
-                variant='ghost'
-                size='icon'
-                className='text-muted-foreground hover:text-foreground absolute top-3 right-3 z-10 h-8 w-8'
-                onClick={closeSettings}
-                aria-label='Close settings'
-              >
-                <X className='h-4 w-4' aria-hidden='true' />
-              </Button>
+              <Dialog.Close asChild>
+                <Button
+                  variant='ghost'
+                  size='icon'
+                  className='text-muted-foreground hover:text-foreground absolute top-3 right-3 z-10 h-8 w-8'
+                  aria-label='Close settings'
+                >
+                  <X className='h-4 w-4' aria-hidden='true' />
+                </Button>
+              </Dialog.Close>
 
-              {/* Tab Content */}
-              <div className='flex-1 overflow-y-auto p-6'>{renderTabContent()}</div>
+              {/* Tab Content with transition */}
+              <div
+                role='tabpanel'
+                id={`settings-panel-${activeTab}`}
+                aria-labelledby={`settings-tab-${activeTab}`}
+                className='flex-1 overflow-y-auto p-6'
+              >
+                <AnimatePresence mode='wait'>
+                  <motion.div
+                    key={activeTab}
+                    initial={{ opacity: 0, x: 8 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -8 }}
+                    transition={{ duration: 0.15 }}
+                  >
+                    <Content />
+                  </motion.div>
+                </AnimatePresence>
+              </div>
             </div>
           </motion.div>
-        </div>
-      ) : null}
-    </AnimatePresence>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }

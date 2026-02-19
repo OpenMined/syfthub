@@ -7,9 +7,6 @@
 
 import React, { useCallback, useState } from 'react';
 
-import { AnimatePresence, motion } from 'framer-motion';
-import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
-import Check from 'lucide-react/dist/esm/icons/check';
 import CreditCard from 'lucide-react/dist/esm/icons/credit-card';
 import Eye from 'lucide-react/dist/esm/icons/eye';
 import EyeOff from 'lucide-react/dist/esm/icons/eye-off';
@@ -20,6 +17,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAccounting } from '@/hooks/use-accounting';
+
+import { StatusMessage } from './status-message';
 
 // =============================================================================
 // Types
@@ -56,7 +55,6 @@ export function PaymentSettingsTab() {
     url: '',
     password: ''
   });
-  const [showPassword, setShowPassword] = useState(false);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -130,23 +128,14 @@ export function PaymentSettingsTab() {
         </div>
 
         {/* Success Message */}
-        <AnimatePresence>
-          {success ? (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className='flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3'
-            >
-              <Check className='h-4 w-4 text-green-600' />
-              <span className='text-sm text-green-800'>Credentials updated successfully!</span>
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
+        <StatusMessage
+          type='success'
+          message={success ? 'Credentials updated successfully!' : null}
+        />
 
         {/* Credentials Display */}
         <div className='space-y-4' data-testid='credentials-view'>
-          <div className='border-border flex items-center gap-2 border-b pb-3'>
+          <div className='border-border flex items-center gap-2 border-t pt-4'>
             <CreditCard className='text-muted-foreground h-4 w-4' />
             <h4 className='text-foreground font-medium'>Accounting Service Credentials</h4>
           </div>
@@ -173,14 +162,16 @@ export function PaymentSettingsTab() {
             <Label className='text-muted-foreground text-xs'>Password</Label>
             <div className='bg-muted flex items-center gap-2 rounded-md px-3 py-2'>
               <span className='text-foreground flex-1 text-sm'>
-                {showCurrentPassword ? credentials?.password : '••••••••••••'}
+                {showCurrentPassword
+                  ? credentials?.password
+                  : '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'}
               </span>
               <button
                 type='button'
                 onClick={() => {
                   setShowCurrentPassword(!showCurrentPassword);
                 }}
-                className='text-muted-foreground hover:text-muted-foreground'
+                className='text-muted-foreground hover:text-foreground'
                 aria-label={showCurrentPassword ? 'Hide password' : 'Show password'}
               >
                 {showCurrentPassword ? (
@@ -223,12 +214,14 @@ export function PaymentSettingsTab() {
 
       {/* Info Banner */}
       {isEditing ? null : (
-        <div className='rounded-lg border border-blue-200 bg-blue-50 p-4'>
+        <div className='rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950'>
           <div className='flex items-start gap-3'>
-            <CreditCard className='mt-0.5 h-5 w-5 flex-shrink-0 text-blue-600' />
+            <CreditCard className='mt-0.5 h-5 w-5 flex-shrink-0 text-blue-600 dark:text-blue-400' />
             <div>
-              <h4 className='text-sm font-medium text-blue-900'>Secure Storage</h4>
-              <p className='mt-1 text-xs text-blue-700'>
+              <h4 className='text-sm font-medium text-blue-900 dark:text-blue-100'>
+                Secure Storage
+              </h4>
+              <p className='mt-1 text-xs text-blue-700 dark:text-blue-300'>
                 Your accounting credentials are stored securely on our servers. Your email from
                 SyftHub will be used to authenticate with the accounting service.
               </p>
@@ -238,23 +231,11 @@ export function PaymentSettingsTab() {
       )}
 
       {/* Status Messages */}
-      <AnimatePresence>
-        {displayError ? (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className='flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3'
-          >
-            <AlertCircle className='h-4 w-4 text-red-600' />
-            <span className='text-sm text-red-800'>{displayError}</span>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+      <StatusMessage type='error' message={displayError} />
 
       {/* Setup/Edit Form */}
       <form onSubmit={handleSubmit} className='space-y-5'>
-        <div className='border-border flex items-center gap-2 border-b pb-3'>
+        <div className='border-border flex items-center gap-2 border-t pt-4'>
           <CreditCard className='text-muted-foreground h-4 w-4' />
           <h4 className='text-foreground font-medium'>Accounting Service</h4>
         </div>
@@ -291,42 +272,24 @@ export function PaymentSettingsTab() {
           </div>
         ) : null}
 
-        {/* Password */}
+        {/* Password - uses Input's built-in password toggle */}
         <div className='space-y-2'>
           <Label htmlFor='accounting-password'>{isEditing ? 'New Password' : 'Password'}</Label>
-          <div className='relative'>
-            <Input
-              id='accounting-password'
-              name='accounting_password'
-              type={showPassword ? 'text' : 'password'}
-              value={formData.password}
-              onChange={handleInputChange('password')}
-              placeholder='Your accounting service password…'
-              autoComplete='current-password'
-              disabled={isLoading}
-              className='pr-10'
-              data-testid='accounting-password'
-            />
-            <button
-              type='button'
-              onClick={() => {
-                setShowPassword(!showPassword);
-              }}
-              className='text-muted-foreground hover:text-muted-foreground absolute top-1/2 right-3 -translate-y-1/2'
-              tabIndex={-1}
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-            >
-              {showPassword ? (
-                <EyeOff className='h-4 w-4' aria-hidden='true' />
-              ) : (
-                <Eye className='h-4 w-4' aria-hidden='true' />
-              )}
-            </button>
-          </div>
+          <Input
+            id='accounting-password'
+            name='accounting_password'
+            type='password'
+            value={formData.password}
+            onChange={handleInputChange('password')}
+            placeholder='Your accounting service password…'
+            autoComplete='current-password'
+            disabled={isLoading}
+            data-testid='accounting-password'
+          />
         </div>
 
         {/* Submit Buttons */}
-        <div className='flex items-center justify-end gap-2 pt-2'>
+        <div className='border-border flex items-center justify-end gap-3 border-t pt-4'>
           {isEditing ? (
             <Button type='button' variant='outline' onClick={handleCancelEditing}>
               Cancel
