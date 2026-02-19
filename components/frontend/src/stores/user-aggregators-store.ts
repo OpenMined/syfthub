@@ -241,6 +241,17 @@ export const useUserAggregatorsStore = create<UserAggregatorsState>((set, get) =
         isUpdating: false
       });
 
+      // Sync the default aggregator URL to the user profile so it persists
+      // across page refreshes (the auth context reads user.aggregator_url on load)
+      try {
+        const { updateUserProfileAPI } = await import('@/lib/sdk-client');
+        await updateUserProfileAPI({ aggregator_url: updatedAggregator.url });
+      } catch {
+        // Non-critical: the Zustand store is already updated, so the current
+        // session works correctly. The profile sync failing only affects persistence.
+        console.error('Failed to sync default aggregator URL to user profile');
+      }
+
       return updatedAggregator;
     } catch (error) {
       set({
