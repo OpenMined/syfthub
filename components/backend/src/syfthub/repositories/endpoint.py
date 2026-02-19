@@ -605,6 +605,89 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             logger.error("Failed to query grouped public endpoints: %s", e)
             return GroupedEndpointsResponse(groups=[])
 
+    def get_public_endpoint_owners(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+    ) -> tuple[list[dict], int]:
+        """Get distinct owners with public endpoint counts.
+
+        This is an efficient query that returns only owner usernames and their
+        endpoint counts, without fetching full endpoint data. Optimized for
+        CLI directory listing (syft ls).
+
+        Uses a single aggregation query with GROUP BY for efficiency.
+        PostgreSQL will use indexes on (visibility, is_active) for filtering.
+
+        Args:
+            skip: Number of owners to skip (pagination)
+            limit: Maximum number of owners to return
+
+        Returns:
+            Tuple of (list of owner dicts with counts, total owner count)
+            Each dict has: username, endpoint_count, model_count, data_source_count
+        """
+        try:
+            # Build owner username expression
+            owner_username_expr = func.coalesce(
+                UserModel.username, OrganizationModel.slug
+            ).label("username")
+
+            # Aggregate query: group by owner, count endpoints by type
+            stmt = (
+                select(
+                    owner_username_expr,
+                    func.count().label("endpoint_count"),
+                    func.count()
+                    .filter(self.model.type == "model")
+                    .label("model_count"),
+                    func.count()
+                    .filter(self.model.type == "data_source")
+                    .label("data_source_count"),
+                )
+                .outerjoin(UserModel, self.model.user_id == UserModel.id)
+                .outerjoin(
+                    OrganizationModel,
+                    self.model.organization_id == OrganizationModel.id,
+                )
+                .where(
+                    and_(
+                        self.model.visibility == EndpointVisibility.PUBLIC.value,
+                        self.model.is_active,
+                    )
+                )
+                .group_by(owner_username_expr)
+                .order_by(func.count().desc(), owner_username_expr)
+            )
+
+            # Get total count first (without pagination)
+            count_subq = stmt.subquery()
+            total_stmt = select(func.count()).select_from(count_subq)
+            total_result = self.session.execute(total_stmt)
+            total_count = total_result.scalar() or 0
+
+            # Apply pagination
+            stmt = stmt.offset(skip).limit(limit)
+
+            result = self.session.execute(stmt)
+            rows = result.all()
+
+            owners = [
+                {
+                    "username": row.username,
+                    "endpoint_count": row.endpoint_count,
+                    "model_count": row.model_count,
+                    "data_source_count": row.data_source_count,
+                }
+                for row in rows
+            ]
+
+            return owners, total_count
+
+        except SQLAlchemyError as e:
+            logger.error("Failed to query public endpoint owners: %s", e)
+            return [], 0
+
     def create_endpoint(
         self,
         endpoint_data: EndpointCreate,

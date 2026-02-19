@@ -92,28 +92,9 @@ func runLs(cmd *cobra.Command, args []string) error {
 }
 
 func listUsers(ctx context.Context, client *syfthub.Client) error {
-	users := make(map[string][]output.EndpointInfo)
-
-	iter := client.Hub.Browse(ctx, syfthub.WithPageSize(lsLimit))
-	count := 0
-	for iter.Next(ctx) {
-		ep := iter.Value()
-		users[ep.OwnerUsername] = append(users[ep.OwnerUsername], output.EndpointInfo{
-			Name:        ep.Name,
-			Slug:        ep.Slug,
-			Type:        string(ep.Type),
-			Version:     ep.Version,
-			Stars:       ep.StarsCount,
-			Description: ep.Description,
-			Owner:       ep.OwnerUsername,
-		})
-		count++
-		if count >= lsLimit {
-			break
-		}
-	}
-
-	if err := iter.Err(); err != nil {
+	// Use the efficient Owners API that returns only usernames and counts
+	owners, err := client.Hub.Owners(ctx, syfthub.WithOwnersLimit(lsLimit))
+	if err != nil {
 		if lsJSONOutput {
 			output.JSON(map[string]interface{}{
 				"status":  "error",
@@ -125,26 +106,35 @@ func listUsers(ctx context.Context, client *syfthub.Client) error {
 		return err
 	}
 
+	// Convert to output format
+	ownerInfos := make([]output.OwnerInfo, 0, len(owners))
+	for _, owner := range owners {
+		ownerInfos = append(ownerInfos, output.OwnerInfo{
+			Username:        owner.Username,
+			EndpointCount:   owner.EndpointCount,
+			ModelCount:      owner.ModelCount,
+			DataSourceCount: owner.DataSourceCount,
+		})
+	}
+
 	if lsJSONOutput {
-		result := make(map[string][]map[string]interface{})
-		for username, endpoints := range users {
-			for _, ep := range endpoints {
-				result[username] = append(result[username], map[string]interface{}{
-					"name":    ep.Name,
-					"type":    ep.Type,
-					"version": ep.Version,
-					"stars":   ep.Stars,
-				})
-			}
+		result := make([]map[string]interface{}, 0, len(ownerInfos))
+		for _, owner := range ownerInfos {
+			result = append(result, map[string]interface{}{
+				"username":          owner.Username,
+				"endpoint_count":    owner.EndpointCount,
+				"model_count":       owner.ModelCount,
+				"data_source_count": owner.DataSourceCount,
+			})
 		}
 		output.JSON(map[string]interface{}{
 			"status": "success",
-			"users":  result,
+			"owners": result,
 		})
 	} else if lsLongFormat {
-		output.PrintUsersTable(users)
+		output.PrintOwnersTable(ownerInfos)
 	} else {
-		output.PrintUsersGrid(users)
+		output.PrintOwnersGrid(ownerInfos)
 	}
 
 	return nil

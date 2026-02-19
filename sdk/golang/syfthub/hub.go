@@ -98,6 +98,51 @@ func (h *HubResource) Browse(ctx context.Context, opts ...BrowseOption) *PageIte
 	return NewPageIterator[EndpointPublic](fetchFn, options.pageSize)
 }
 
+// OwnersOption configures the Owners operation.
+type OwnersOption func(*ownersOptions)
+
+type ownersOptions struct {
+	limit int
+}
+
+// WithOwnersLimit sets the maximum number of owners to return.
+func WithOwnersLimit(limit int) OwnersOption {
+	return func(o *ownersOptions) {
+		o.limit = limit
+	}
+}
+
+// Owners returns a list of all owners (users/orgs) that have public endpoints.
+//
+// This is an efficient endpoint that returns only owner usernames and
+// aggregated endpoint counts, without fetching full endpoint data.
+// Useful for directory listing (e.g., `syft ls`).
+//
+// Example:
+//
+//	owners, _ := client.Hub.Owners(ctx, WithOwnersLimit(50))
+//	for _, owner := range owners {
+//	    fmt.Printf("%s/ (%d endpoints)\n", owner.Username, owner.EndpointCount)
+//	}
+func (h *HubResource) Owners(ctx context.Context, opts ...OwnersOption) ([]OwnerSummary, error) {
+	options := &ownersOptions{limit: 100}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	query := url.Values{}
+	query.Set("skip", "0")
+	query.Set("limit", strconv.Itoa(options.limit))
+
+	var response OwnersListResponse
+	err := h.http.Get(ctx, "/api/v1/endpoints/public/owners", &response, WithoutAuth(), WithQuery(query))
+	if err != nil {
+		return nil, err
+	}
+
+	return response.Owners, nil
+}
+
 // TrendingOption configures the Trending operation.
 type TrendingOption func(*trendingOptions)
 

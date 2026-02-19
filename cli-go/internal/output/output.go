@@ -196,6 +196,84 @@ type UserInfo struct {
 	Endpoints []EndpointInfo
 }
 
+// OwnerInfo represents owner summary information for display.
+type OwnerInfo struct {
+	Username        string
+	EndpointCount   int
+	ModelCount      int
+	DataSourceCount int
+}
+
+// PrintOwnersGrid prints owners in a grid layout like Unix ls.
+func PrintOwnersGrid(owners []OwnerInfo) {
+	if len(owners) == 0 {
+		Dim.Println("No users found.")
+		return
+	}
+
+	// Calculate column width
+	maxWidth := 32
+	columns := 3 // Approximate for typical terminal width
+
+	// Build cells
+	cells := make([]string, 0, len(owners))
+	for _, owner := range owners {
+		// Build badge with counts
+		var badges []string
+		if owner.ModelCount > 0 {
+			badges = append(badges, Magenta.Sprintf("%dm", owner.ModelCount))
+		}
+		if owner.DataSourceCount > 0 {
+			badges = append(badges, Blue.Sprintf("%dd", owner.DataSourceCount))
+		}
+		// Calculate hybrid count (total - models - data_sources)
+		hybridCount := owner.EndpointCount - owner.ModelCount - owner.DataSourceCount
+		if hybridCount > 0 {
+			badges = append(badges, Yellow.Sprintf("%dh", hybridCount))
+		}
+
+		name := owner.Username
+		if len(name) > maxWidth-10 {
+			name = name[:maxWidth-12] + ".."
+		}
+
+		cell := fmt.Sprintf("%s %s", Cyan.Sprintf("%s/", name), Dim.Sprint(strings.Join(badges, " ")))
+		cells = append(cells, cell)
+	}
+
+	// Print in grid
+	for i, cell := range cells {
+		fmt.Printf("%-32s", cell)
+		if (i+1)%columns == 0 {
+			fmt.Println()
+		}
+	}
+	if len(cells)%columns != 0 {
+		fmt.Println()
+	}
+}
+
+// PrintOwnersTable prints owners in a table format.
+func PrintOwnersTable(owners []OwnerInfo) {
+	if len(owners) == 0 {
+		Dim.Println("No users found.")
+		return
+	}
+
+	table := TableWithTitle("Active Users", []string{"Username", "Endpoints", "Models", "Data Sources"})
+
+	for _, owner := range owners {
+		table.Append([]string{
+			owner.Username,
+			fmt.Sprintf("%d", owner.EndpointCount),
+			fmt.Sprintf("%d", owner.ModelCount),
+			fmt.Sprintf("%d", owner.DataSourceCount),
+		})
+	}
+
+	table.Render()
+}
+
 // PrintUsersGrid prints users in a grid layout like Unix ls.
 func PrintUsersGrid(users map[string][]EndpointInfo) {
 	if len(users) == 0 {
