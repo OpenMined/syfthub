@@ -11,6 +11,8 @@ export const endpointKeys = {
       endpointType ?? 'all',
       search ?? ''
     ] as const,
+  publicGrouped: (maxPerOwner: number) =>
+    [...endpointKeys.all, 'public', 'grouped', maxPerOwner] as const,
   trending: (limit: number) => [...endpointKeys.all, 'trending', limit] as const,
   count: () => [...endpointKeys.all, 'count'] as const,
   byPath: (path: string) => [...endpointKeys.all, 'byPath', path] as const
