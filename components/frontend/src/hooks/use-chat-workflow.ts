@@ -8,7 +8,7 @@
  * (via the "+" button / AddSourcesModal). If no sources are selected, the query
  * executes with the model only (no data sources).
  */
-import { useCallback, useMemo, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 
 import type { ChatStreamEvent } from '@/lib/sdk-client';
 import type { ChatSource } from '@/lib/types';
@@ -425,7 +425,18 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
 
   // Read default aggregator from the Zustand store (source of truth for aggregator selection).
   // Falls back to user.aggregator_url from auth context for backward compatibility.
-  const { aggregators, defaultAggregatorId } = useUserAggregatorsStore();
+  const { aggregators, defaultAggregatorId, hasFetched, fetchAggregators } =
+    useUserAggregatorsStore();
+
+  // Auto-hydrate the aggregators store when an authenticated user is present.
+  // Without this, the store is only populated when the user visits the settings tab,
+  // causing custom aggregator URLs to be lost after page refresh.
+  useEffect(() => {
+    if (user && !hasFetched) {
+      void fetchAggregators();
+    }
+  }, [user, hasFetched, fetchAggregators]);
+
   const aggregatorUrl = useMemo(() => {
     if (defaultAggregatorId) {
       const defaultAgg = aggregators.find((a) => a.id === defaultAggregatorId);
