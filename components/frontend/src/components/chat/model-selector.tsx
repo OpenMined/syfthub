@@ -127,24 +127,24 @@ export function ModelSelector({
         type='button'
         onClick={handleToggle}
         disabled={isLoading}
-        className={`group flex items-center gap-2 rounded-xl border px-3 py-2.5 transition-colors ${
+        className={`group flex items-center gap-1 rounded-lg px-2.5 py-2 transition-colors ${
           isOpen
-            ? 'border-foreground bg-muted text-foreground'
-            : 'border-border bg-card text-muted-foreground hover:border-input hover:bg-accent hover:text-foreground'
+            ? 'bg-accent text-foreground'
+            : 'text-muted-foreground hover:bg-accent hover:text-foreground'
         } ${isLoading ? 'cursor-wait opacity-70' : ''}`}
         aria-expanded={isOpen}
         aria-haspopup='listbox'
       >
         {isLoading ? (
-          <Loader2 className='text-secondary h-4 w-4 animate-spin' aria-hidden='true' />
+          <Loader2 className='text-muted-foreground h-3.5 w-3.5 animate-spin' aria-hidden='true' />
         ) : (
-          <Brain className='text-secondary h-4 w-4' aria-hidden='true' />
+          <Brain className='text-muted-foreground h-3.5 w-3.5' aria-hidden='true' />
         )}
-        <span className='font-inter max-w-[120px] truncate text-sm font-medium'>
+        <span className='font-inter max-w-[120px] truncate text-xs font-normal'>
           {selectedModel ? selectedModel.name : 'Select model'}
         </span>
         <ChevronDown
-          className={`h-4 w-4 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+          className={`h-3.5 w-3.5 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
           aria-hidden='true'
         />
       </button>
@@ -153,11 +153,11 @@ export function ModelSelector({
       <AnimatePresence>
         {isOpen ? (
           <motion.div
-            initial={{ opacity: 0, y: -8, scale: 0.96 }}
+            initial={{ opacity: 0, y: 8, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.96 }}
+            exit={{ opacity: 0, y: 8, scale: 0.96 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
-            className='border-border bg-card absolute top-full left-0 z-50 mt-2 w-[340px] overflow-hidden rounded-xl border shadow-lg'
+            className='border-border bg-card absolute bottom-full left-0 z-50 mb-2 w-[340px] overflow-hidden rounded-xl border shadow-lg'
           >
             {/* Header */}
             <div className='border-border border-b px-3 pt-3 pb-2'>

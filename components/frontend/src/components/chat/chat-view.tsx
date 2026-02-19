@@ -12,11 +12,6 @@ import type { SearchableChatSource } from '@/lib/search-service';
 import type { ChatSource } from '@/lib/types';
 import type { SourcesData } from './sources-section';
 
-import Database from 'lucide-react/dist/esm/icons/database';
-import Plus from 'lucide-react/dist/esm/icons/plus';
-
-import { OnboardingCallout } from '@/components/onboarding';
-import { QueryInput } from '@/components/query/query-input';
 import { useChatWorkflow } from '@/hooks/use-chat-workflow';
 import { useDataSources } from '@/hooks/use-data-sources';
 import { useModels } from '@/hooks/use-models';
@@ -26,8 +21,7 @@ import { useOnboardingStore } from '@/stores/onboarding-store';
 
 import { AddSourcesModal } from './add-sources-modal';
 import { MarkdownMessage } from './markdown-message';
-import { ModelSelector } from './model-selector';
-import { SelectedSourcesChips } from './selected-sources-chips';
+import { SearchInput } from './search-input';
 import { SourcesSection } from './sources-section';
 import { StatusIndicator } from './status-indicator';
 import { SuggestedSources } from './suggested-sources';
@@ -187,7 +181,7 @@ export function ChatView({
     maxResults: 5
   });
 
-  // Handle text changes from QueryInput (for suggested sources)
+  // Handle text changes from SearchInput (for suggested sources)
   const handleTextChange = useCallback((text: string) => {
     setInputText(text);
   }, []);
@@ -266,10 +260,9 @@ export function ChatView({
     [contextStore]
   );
 
-  // Handle mention completion - add source to context (tracked for sync)
+  // Handle @mention completion — add source to context (tracked for sync)
   const handleMentionComplete = useCallback(
     (source: ChatSource) => {
-      // Only add if not already selected
       if (!contextStore.isSelected(source.id)) {
         contextStore.addMentionSource(source);
       }
@@ -277,7 +270,7 @@ export function ChatView({
     [contextStore]
   );
 
-  // Handle @mention sync - remove sources whose mentions were deleted from text
+  // Handle @mention sync — remove sources whose mentions were deleted from text
   const handleMentionSync = useCallback(
     (mentionedIds: Set<string>) => {
       contextStore.syncMentionSources(mentionedIds);
@@ -287,18 +280,6 @@ export function ChatView({
 
   return (
     <div className='bg-card min-h-screen pb-32'>
-      {/* Model Selector - Fixed top left */}
-      <div className='fixed top-4 left-24 z-40'>
-        <OnboardingCallout step='model-selector' position='bottom'>
-          <ModelSelector
-            selectedModel={selectedModel}
-            onModelSelect={setSelectedModel}
-            models={models}
-            isLoading={isLoadingModels}
-          />
-        </OnboardingCallout>
-      </div>
-
       {/* Messages Area */}
       <div className='mx-auto max-w-4xl px-6 py-8 pt-16'>
         {messages.length === 0 && !initialQuery && workflow.phase === 'idle' ? (
@@ -375,19 +356,8 @@ export function ChatView({
       </div>
 
       {/* Input Area - Fixed bottom */}
-      <div className='border-border bg-card fixed bottom-0 left-0 z-40 w-full border-t p-4 pl-24'>
+      <div className='bg-card fixed bottom-0 left-0 z-40 w-full p-4 pl-24'>
         <div className='mx-auto max-w-3xl'>
-          {/* Selected sources chips */}
-          {contextStore.count() > 0 && (
-            <SelectedSourcesChips
-              sources={contextStore.getSourcesArray()}
-              onRemove={handleRemoveSource}
-              onEdit={() => {
-                setIsSourceModalOpen(true);
-              }}
-            />
-          )}
-
           {/* Suggested data sources based on input text */}
           <SuggestedSources
             suggestions={suggestions}
@@ -395,49 +365,32 @@ export function ChatView({
             isSearching={isSearching}
           />
 
-          <div className='flex gap-3'>
-            <OnboardingCallout step='add-sources' position='top'>
-              <button
-                type='button'
-                onClick={() => {
-                  setIsSourceModalOpen(true);
-                }}
-                className='group border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground flex items-center justify-center rounded-xl border p-3 transition-colors'
-                aria-label={
-                  contextStore.count() > 0 ? 'Edit selected sources' : 'Add sources to context'
-                }
-              >
-                {contextStore.count() > 0 ? (
-                  <Database className='h-5 w-5' aria-hidden='true' />
-                ) : (
-                  <Plus className='h-5 w-5' aria-hidden='true' />
-                )}
-              </button>
-            </OnboardingCallout>
-
-            <div className='flex-1'>
-              <OnboardingCallout step='query-input' position='top'>
-                <QueryInput
-                  variant='chat'
-                  onSubmit={handleSubmit}
-                  disabled={isWorkflowActive}
-                  isProcessing={workflow.phase === 'streaming'}
-                  placeholder={
-                    contextStore.count() > 0
-                      ? 'Ask question about these sources...'
-                      : 'Ask anything... (Use @ for sources or + to browse)'
-                  }
-                  id='chat-followup-input'
-                  ariaLabel='Ask a follow-up question'
-                  enableMentions
-                  sources={sources}
-                  onMentionComplete={handleMentionComplete}
-                  onMentionSync={handleMentionSync}
-                  onTextChange={handleTextChange}
-                />
-              </OnboardingCallout>
-            </div>
-          </div>
+          <SearchInput
+            onSubmit={handleSubmit}
+            disabled={isWorkflowActive}
+            isProcessing={workflow.phase === 'streaming'}
+            placeholder={
+              contextStore.count() > 0
+                ? 'Ask about these sources...'
+                : 'Start making queries, use @ for specific sources'
+            }
+            onContextClick={() => {
+              setIsSourceModalOpen(true);
+            }}
+            selectedContexts={contextStore
+              .getSourcesArray()
+              .map((s) => ({ id: s.id, label: s.name }))}
+            onRemoveContext={handleRemoveSource}
+            selectedModel={selectedModel}
+            onModelSelect={setSelectedModel}
+            models={models}
+            isLoadingModels={isLoadingModels}
+            enableMentions
+            sources={sources}
+            onMentionComplete={handleMentionComplete}
+            onMentionSync={handleMentionSync}
+            onTextChange={handleTextChange}
+          />
         </div>
       </div>
 
