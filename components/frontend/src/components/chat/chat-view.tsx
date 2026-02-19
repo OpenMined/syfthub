@@ -5,9 +5,10 @@
  * Uses shared hooks for model management, data sources, and workflow execution.
  * Orchestrates sub-components: ModelSelector, AddSourcesModal, etc.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ChatHistoryMessage, WorkflowResult } from '@/hooks/use-chat-workflow';
+import type { SearchableChatSource } from '@/lib/search-service';
 import type { ChatSource } from '@/lib/types';
 import type { SourcesData } from './sources-section';
 
@@ -19,6 +20,7 @@ import { QueryInput } from '@/components/query/query-input';
 import { useChatWorkflow } from '@/hooks/use-chat-workflow';
 import { useDataSources } from '@/hooks/use-data-sources';
 import { useModels } from '@/hooks/use-models';
+import { useSuggestedSources } from '@/hooks/use-suggested-sources';
 import { useContextSelectionStore } from '@/stores/context-selection-store';
 import { useOnboardingStore } from '@/stores/onboarding-store';
 
@@ -28,6 +30,7 @@ import { ModelSelector } from './model-selector';
 import { SelectedSourcesChips } from './selected-sources-chips';
 import { SourcesSection } from './sources-section';
 import { StatusIndicator } from './status-indicator';
+import { SuggestedSources } from './suggested-sources';
 
 // =============================================================================
 // Types
@@ -79,6 +82,13 @@ export function ChatView({
 
   // Source modal state
   const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
+
+  // Suggested sources: track input text and compute suggestions
+  const [inputText, setInputText] = useState('');
+  const selectedSourceIds = useMemo(
+    () => new Set(contextStore.getSourcesArray().map((s) => s.id)),
+    [contextStore]
+  );
 
   // Local state for messages and UI
   const [messages, setMessages] = useState<Message[]>(() => {
@@ -165,6 +175,33 @@ export function ChatView({
     // Only run once when dependencies are ready, not on every change
   }, [initialQuery, initialResult, selectedModel, sources.length]);
 
+  // Determine if workflow is in a blocking state
+  const isWorkflowActive =
+    workflow.phase !== 'idle' && workflow.phase !== 'complete' && workflow.phase !== 'error';
+
+  // Suggested data sources based on current input text
+  const { suggestions, isSearching, clearSuggestions } = useSuggestedSources({
+    query: inputText,
+    selectedSourceIds,
+    enabled: !isWorkflowActive,
+    maxResults: 5
+  });
+
+  // Handle text changes from QueryInput (for suggested sources)
+  const handleTextChange = useCallback((text: string) => {
+    setInputText(text);
+  }, []);
+
+  // Handle adding a suggested source to context
+  const handleAddSuggestion = useCallback(
+    (source: SearchableChatSource) => {
+      if (!contextStore.isSelected(source.id)) {
+        contextStore.addSource(source);
+      }
+    },
+    [contextStore]
+  );
+
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndReference.current?.scrollIntoView({ behavior: 'smooth' });
@@ -189,6 +226,10 @@ export function ChatView({
         }
       ]);
 
+      // Clear suggestions on submit
+      clearSuggestions();
+      setInputText('');
+
       const preSelectedSources = contextStore.getSourcesArray();
       if (preSelectedSources.length > 0) {
         const sourceIds = new Set(preSelectedSources.map((s) => s.id));
@@ -197,7 +238,7 @@ export function ChatView({
         void workflow.submitQuery(query, undefined, history);
       }
     },
-    [workflow, contextStore, messages]
+    [workflow, contextStore, messages, clearSuggestions]
   );
 
   // Handle modal confirm
@@ -243,10 +284,6 @@ export function ChatView({
     },
     [contextStore]
   );
-
-  // Determine if workflow is in a blocking state
-  const isWorkflowActive =
-    workflow.phase !== 'idle' && workflow.phase !== 'complete' && workflow.phase !== 'error';
 
   return (
     <div className='bg-card min-h-screen pb-32'>
@@ -351,6 +388,13 @@ export function ChatView({
             />
           )}
 
+          {/* Suggested data sources based on input text */}
+          <SuggestedSources
+            suggestions={suggestions}
+            onAdd={handleAddSuggestion}
+            isSearching={isSearching}
+          />
+
           <div className='flex gap-3'>
             <OnboardingCallout step='add-sources' position='top'>
               <button
@@ -389,6 +433,7 @@ export function ChatView({
                   sources={sources}
                   onMentionComplete={handleMentionComplete}
                   onMentionSync={handleMentionSync}
+                  onTextChange={handleTextChange}
                 />
               </OnboardingCallout>
             </div>

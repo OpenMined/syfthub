@@ -48,6 +48,8 @@ export interface QueryInputProps {
   onMentionComplete?: (source: ChatSource) => void;
   /** Callback to sync mention sources - called with IDs of mentions currently in text */
   onMentionSync?: (mentionedIds: Set<string>) => void;
+  /** Callback fired on every input change with the current text value */
+  onTextChange?: (text: string) => void;
 }
 
 // =============================================================================
@@ -93,7 +95,8 @@ export function QueryInput({
   enableMentions = false,
   sources = [],
   onMentionComplete,
-  onMentionSync
+  onMentionSync,
+  onTextChange
 }: Readonly<QueryInputProps>) {
   const [value, setValue] = useState(initialValue);
   const [cursorPosition, setCursorPosition] = useState(0);
@@ -134,10 +137,11 @@ export function QueryInput({
           setValue('');
           setCursorPosition(0);
           mention.reset();
+          onTextChange?.('');
         }
       }
     },
-    [value, disabled, onSubmit, variant, mention]
+    [value, disabled, onSubmit, variant, mention, onTextChange]
   );
 
   const handleChange = useCallback(
@@ -146,13 +150,16 @@ export function QueryInput({
       setValue(newValue);
       setCursorPosition(event.target.selectionStart ?? newValue.length);
 
+      // Notify parent of text changes (for suggested sources, etc.)
+      onTextChange?.(newValue);
+
       // Sync mention sources - detect deleted mentions
       if (enableMentions && onMentionSync) {
         const mentionedIds = getMentionedSourceIds(newValue, sources);
         onMentionSync(mentionedIds);
       }
     },
-    [enableMentions, onMentionSync, sources]
+    [enableMentions, onMentionSync, onTextChange, sources]
   );
 
   const handleSelect = useCallback((event: React.SyntheticEvent<HTMLInputElement>) => {
