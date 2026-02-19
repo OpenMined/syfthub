@@ -252,53 +252,6 @@ func printGrid(items []gridItem, padding int) {
 	}
 }
 
-// printGridHorizontal prints items in a grid layout filling rows first.
-// This is an alternative to the default vertical fill.
-func printGridHorizontal(items []gridItem, padding int) {
-	if len(items) == 0 {
-		return
-	}
-
-	termWidth := getTerminalWidth()
-
-	// Find the maximum item width
-	maxWidth := 0
-	for _, item := range items {
-		if item.width > maxWidth {
-			maxWidth = item.width
-		}
-	}
-
-	// Calculate column width (item width + padding)
-	colWidth := maxWidth + padding
-
-	// Calculate number of columns that fit
-	cols := termWidth / colWidth
-	if cols < 1 {
-		cols = 1
-	}
-
-	// Print grid (fill rows horizontally)
-	for i, item := range items {
-		fmt.Print(item.display)
-
-		// Add spacing or newline
-		if (i+1)%cols == 0 {
-			fmt.Println()
-		} else {
-			spaces := colWidth - item.width
-			if spaces > 0 {
-				fmt.Print(strings.Repeat(" ", spaces))
-			}
-		}
-	}
-
-	// Final newline if needed
-	if len(items)%cols != 0 {
-		fmt.Println()
-	}
-}
-
 // visualWidth returns the visual width of a string, ignoring ANSI escape codes.
 func visualWidth(s string) int {
 	return lipgloss.Width(s)
