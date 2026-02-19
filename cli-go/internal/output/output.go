@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/fatih/color"
 	"github.com/olekukonko/tablewriter"
 )
@@ -21,6 +23,54 @@ var (
 	Cyan    = color.New(color.FgCyan, color.Bold)
 	Magenta = color.New(color.FgMagenta)
 	Dim     = color.New(color.Faint)
+)
+
+// Lip Gloss styles for enhanced terminal output
+var (
+	// Card style for endpoint details
+	cardStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("63")).
+			Padding(1, 2).
+			MarginTop(1).
+			MarginBottom(1)
+
+	// Title style for endpoint name
+	titleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("212"))
+
+	// Subtle text style
+	subtleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("241"))
+
+	// Type badge styles
+	modelBadge = lipgloss.NewStyle().
+			Background(lipgloss.Color("62")).
+			Foreground(lipgloss.Color("230")).
+			Padding(0, 1).
+			MarginRight(1)
+
+	dataSourceBadge = lipgloss.NewStyle().
+			Background(lipgloss.Color("33")).
+			Foreground(lipgloss.Color("230")).
+			Padding(0, 1).
+			MarginRight(1)
+
+	hybridBadge = lipgloss.NewStyle().
+			Background(lipgloss.Color("214")).
+			Foreground(lipgloss.Color("232")).
+			Padding(0, 1).
+			MarginRight(1)
+
+	// Star style
+	starStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("220"))
+
+	// Version style
+	versionStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("243")).
+			Italic(true)
 )
 
 // Error prints an error message to stderr.
@@ -97,6 +147,20 @@ func TypeIcon(endpointType string) string {
 		return Yellow.Sprint("🔀")
 	default:
 		return "📄"
+	}
+}
+
+// TypeBadge returns a styled badge for endpoint type.
+func TypeBadge(endpointType string) string {
+	switch endpointType {
+	case "model":
+		return modelBadge.Render("model")
+	case "data_source":
+		return dataSourceBadge.Render("data")
+	case "model_data_source":
+		return hybridBadge.Render("hybrid")
+	default:
+		return endpointType
 	}
 }
 
@@ -320,25 +384,55 @@ func PrintEndpointsTable(endpoints []EndpointInfo, username string) {
 
 // PrintEndpointDetail prints detailed information about an endpoint.
 func PrintEndpointDetail(ep EndpointInfo) {
-	fmt.Println()
-	Cyan.Printf("%s/%s\n", ep.Owner, ep.Name)
-	Dim.Print("Type: ")
-	fmt.Println(ep.Type)
-	Dim.Print("Version: ")
-	fmt.Println(ep.Version)
-	Dim.Print("Stars: ")
-	fmt.Println(ep.Stars)
+	// Build the card content
+	var content strings.Builder
 
+	// Title: owner/name
+	title := titleStyle.Render(fmt.Sprintf("%s/%s", ep.Owner, ep.Name))
+	content.WriteString(title)
+	content.WriteString("\n")
+
+	// Type badge and version
+	badge := TypeBadge(ep.Type)
+	version := versionStyle.Render(fmt.Sprintf("v%s", ep.Version))
+	stars := starStyle.Render(fmt.Sprintf("★ %d", ep.Stars))
+
+	content.WriteString(fmt.Sprintf("%s  %s  %s\n", badge, version, stars))
+
+	// Description
 	if ep.Description != "" {
-		fmt.Println()
-		Dim.Println("Description:")
-		fmt.Println(ep.Description)
+		content.WriteString("\n")
+		content.WriteString(subtleStyle.Render(ep.Description))
 	}
 
+	// Render the card
+	fmt.Print(cardStyle.Render(content.String()))
+
+	// README with Glamour markdown rendering
 	if ep.Readme != "" {
 		fmt.Println()
-		fmt.Println("─── README ───")
-		fmt.Println(ep.Readme)
+
+		// Create glamour renderer with auto style detection
+		renderer, err := glamour.NewTermRenderer(
+			glamour.WithAutoStyle(),
+			glamour.WithWordWrap(80),
+		)
+		if err != nil {
+			// Fallback to plain text if glamour fails
+			fmt.Println("─── README ───")
+			fmt.Println(ep.Readme)
+			return
+		}
+
+		rendered, err := renderer.Render(ep.Readme)
+		if err != nil {
+			// Fallback to plain text
+			fmt.Println("─── README ───")
+			fmt.Println(ep.Readme)
+			return
+		}
+
+		fmt.Print(rendered)
 	}
 }
 
