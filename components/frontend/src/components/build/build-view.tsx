@@ -371,12 +371,12 @@ for await (const ep of client.myEndpoints.list()) {
           </p>
           <div className='border-border overflow-hidden rounded-xl border'>
             <a
-              href='http://syft.docs.openmined.org/assets/fullsetup-CAbzIKrJ.png'
+              href='https://syft.docs.openmined.org/assets/fullsetup-CAbzIKrJ.png'
               target='_blank'
               rel='noopener noreferrer'
             >
               <img
-                src='http://syft.docs.openmined.org/assets/fullsetup-CAbzIKrJ.png'
+                src='https://syft.docs.openmined.org/assets/fullsetup-CAbzIKrJ.png'
                 alt='Syft full architecture setup diagram showing how Syft Space, the directory, and SDKs connect'
                 className='w-full'
                 loading='lazy'
