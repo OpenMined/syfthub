@@ -9,93 +9,89 @@ concurrency:
   group: release-cli
   cancel-in-progress: false
 
+env:
+  GO_VERSION: "1.23"
+  # CLI directory - update to 'cli' after renaming cli-go
+  CLI_DIR: cli-go
+
 jobs:
   build:
-    name: Build ${{ matrix.os }}-${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
+    name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: linux
-            arch: x64
-            runner: ubuntu-latest
+          - goos: linux
+            goarch: amd64
             artifact_name: syft-linux-x64
-          # Note: darwin-x64 removed - GitHub retired Intel Mac runners (macos-13)
-          # Apple Silicon Macs run arm64 natively; Intel Macs can use Rosetta 2
-          - os: darwin
-            arch: arm64
-            runner: macos-14
+          - goos: linux
+            goarch: arm64
+            artifact_name: syft-linux-arm64
+          - goos: darwin
+            goarch: amd64
+            artifact_name: syft-darwin-x64
+          - goos: darwin
+            goarch: arm64
             artifact_name: syft-darwin-arm64
-          - os: windows
-            arch: x64
-            runner: windows-latest
+          - goos: windows
+            goarch: amd64
             artifact_name: syft-windows-x64.exe
-
-    defaults:
-      run:
-        working-directory: cli
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          python-version: "3.12"
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: ${{ env.CLI_DIR }}/go.sum
 
       - name: Extract and validate version
         id: version
-        shell: bash
         env:
           GH_REF: ${{ github.ref }}
         run: |
           # Extract version from tag (e.g., cli/v0.1.0 -> 0.1.0)
           TAG_VERSION=${GH_REF#refs/tags/cli/v}
           echo "Tag version: $TAG_VERSION"
-
-          # Extract version from pyproject.toml
-          PKG_VERSION=$(grep -Po '(?<=^version = ")[^"]+' pyproject.toml || grep -E '^version = "' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
-          echo "Package version: $PKG_VERSION"
-
-          # Validate versions match
-          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
-            echo "::error::Version mismatch! Tag version ($TAG_VERSION) does not match pyproject.toml version ($PKG_VERSION)"
-            echo "::error::Please ensure the version in cli/pyproject.toml matches your tag"
-            exit 1
-          fi
-
           echo "version=$TAG_VERSION" >> $GITHUB_OUTPUT
 
-      - name: Install dependencies
-        run: uv sync --extra build
-
       - name: Build binary
-        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+          VERSION: ${{ steps.version.outputs.version }}
+          CLI_DIR: ${{ env.CLI_DIR }}
+          ARTIFACT_NAME: ${{ matrix.artifact_name }}
         run: |
-          uv run python scripts/build.py --checksum
-          echo "Build artifacts:"
-          ls -la dist/
+          cd "${CLI_DIR}"
 
-      - name: Verify binary
-        shell: bash
+          # Build with version info embedded
+          LDFLAGS="-s -w -X github.com/OpenMined/syfthub/cli-go/internal/version.Version=${VERSION}"
+
+          go build -ldflags "${LDFLAGS}" -o "../dist/${ARTIFACT_NAME}" ./cmd/syft
+
+          echo "Build complete:"
+          ls -la ../dist/
+
+      - name: Generate checksum
         env:
           ARTIFACT_NAME: ${{ matrix.artifact_name }}
         run: |
-          ./dist/"$ARTIFACT_NAME" --version
-          ./dist/"$ARTIFACT_NAME" --help
+          cd dist
+          sha256sum "${ARTIFACT_NAME}" > "${ARTIFACT_NAME}.sha256"
+          cat "${ARTIFACT_NAME}.sha256"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
           path: |
-            cli/dist/${{ matrix.artifact_name }}
-            cli/dist/${{ matrix.artifact_name }}.sha256
+            dist/${{ matrix.artifact_name }}
+            dist/${{ matrix.artifact_name }}.sha256
           retention-days: 1
 
   release:
@@ -171,13 +167,26 @@ jobs:
             sudo mv syft /usr/local/bin/
             ```
 
-            #### macOS (Apple Silicon & Intel)
+            #### Linux (ARM64)
+            ```bash
+            curl -L -o syft https://github.com/${{ github.repository }}/releases/download/cli/v${{ steps.version.outputs.version }}/syft-linux-arm64
+            chmod +x syft
+            sudo mv syft /usr/local/bin/
+            ```
+
+            #### macOS (Apple Silicon)
             ```bash
             curl -L -o syft https://github.com/${{ github.repository }}/releases/download/cli/v${{ steps.version.outputs.version }}/syft-darwin-arm64
             chmod +x syft
             sudo mv syft /usr/local/bin/
             ```
-            > Note: Intel Macs can run the arm64 binary via Rosetta 2.
+
+            #### macOS (Intel)
+            ```bash
+            curl -L -o syft https://github.com/${{ github.repository }}/releases/download/cli/v${{ steps.version.outputs.version }}/syft-darwin-x64
+            chmod +x syft
+            sudo mv syft /usr/local/bin/
+            ```
 
             #### Windows (x64)
             ```powershell
@@ -198,6 +207,10 @@ jobs:
           files: |
             release/syft-linux-x64
             release/syft-linux-x64.sha256
+            release/syft-linux-arm64
+            release/syft-linux-arm64.sha256
+            release/syft-darwin-x64
+            release/syft-darwin-x64.sha256
             release/syft-darwin-arm64
             release/syft-darwin-arm64.sha256
             release/syft-windows-x64.exe
