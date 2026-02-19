@@ -4,15 +4,16 @@
  * Landing page hero section with search input and model selection.
  * Uses hero-04 layout pattern with two-column grid.
  */
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 
 import type { ChatSource } from '@/lib/types';
 
 import ArrowUpRight from 'lucide-react/dist/esm/icons/arrow-up-right';
 import { Link, useNavigate } from 'react-router-dom';
 
-import { ModelSelector } from '@/components/chat/model-selector';
-import { QueryInput, SearchSuggestions } from '@/components/query/query-input';
+import { AddSourcesModal } from '@/components/chat/add-sources-modal';
+import { SearchInput } from '@/components/chat/search-input';
+import { SearchSuggestions } from '@/components/query/query-input';
 import { Badge } from '@/components/ui/badge';
 import { WorkflowOverlay } from '@/components/workflow';
 import { useChatWorkflow } from '@/hooks/use-chat-workflow';
@@ -71,8 +72,11 @@ export function Hero({
   } = useModels({
     initialModel
   });
-  const { sources } = useDataSources();
+  const { sources, sourcesById } = useDataSources();
   const contextStore = useContextSelectionStore();
+
+  // Source modal state
+  const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
 
   // Use workflow hook for query execution
   const workflow = useChatWorkflow({
@@ -116,7 +120,7 @@ export function Hero({
     [handleSubmit]
   );
 
-  // Handle @mention completion - add source to context (tracked for sync)
+  // Handle @mention completion — add source to context (tracked for sync)
   const handleMentionComplete = useCallback(
     (source: ChatSource) => {
       if (!contextStore.isSelected(source.id)) {
@@ -126,7 +130,7 @@ export function Hero({
     [contextStore]
   );
 
-  // Handle @mention sync - remove sources whose mentions were deleted from text
+  // Handle @mention sync — remove sources whose mentions were deleted from text
   const handleMentionSync = useCallback(
     (mentionedIds: Set<string>) => {
       contextStore.syncMentionSources(mentionedIds);
@@ -134,21 +138,34 @@ export function Hero({
     [contextStore]
   );
 
+  // Handle removing a context source
+  const handleRemoveSource = useCallback(
+    (id: string) => {
+      contextStore.removeSource(id);
+    },
+    [contextStore]
+  );
+
+  // Handle source modal confirm
+  const handleSourceModalConfirm = useCallback(
+    (selectedIds: Set<string>) => {
+      contextStore.clearSources();
+      for (const id of selectedIds) {
+        const source = sourcesById.get(id) ?? sources.find((s) => s.id === id);
+        if (source) {
+          contextStore.addSource(source);
+        }
+      }
+      setIsSourceModalOpen(false);
+    },
+    [contextStore, sourcesById, sources]
+  );
+
   // Determine if workflow is active (not idle)
   const isWorkflowActive = workflow.phase !== 'idle';
 
   return (
     <>
-      {/* Model Selector - Fixed top left, matching chat-view layout */}
-      <div className='fixed top-4 left-24 z-40'>
-        <ModelSelector
-          selectedModel={selectedModel}
-          onModelSelect={setSelectedModel}
-          models={models}
-          isLoading={isLoadingModels}
-        />
-      </div>
-
       {/* Hero Section - hero-04 layout pattern */}
       <div className='flex min-h-screen items-center justify-center overflow-hidden'>
         <div className='mx-auto grid w-full max-w-7xl gap-16 px-6 py-12 lg:grid-cols-2 lg:py-0'>
@@ -181,15 +198,22 @@ export function Hero({
 
             {/* Search Input */}
             <div className='mt-8 max-w-xl space-y-4'>
-              <QueryInput
-                variant='hero'
+              <SearchInput
                 onSubmit={handleSubmit}
                 disabled={isWorkflowActive}
                 isProcessing={workflow.phase === 'streaming'}
-                placeholder='Start typing — use @ for specific sources'
-                autoFocus
-                id='hero-search'
-                ariaLabel='Query connected data sources'
+                placeholder='Ask anything...'
+                onContextClick={() => {
+                  setIsSourceModalOpen(true);
+                }}
+                selectedContexts={contextStore
+                  .getSourcesArray()
+                  .map((s) => ({ id: s.id, label: s.name }))}
+                onRemoveContext={handleRemoveSource}
+                selectedModel={selectedModel}
+                onModelSelect={setSelectedModel}
+                models={models}
+                isLoadingModels={isLoadingModels}
                 enableMentions
                 sources={sources}
                 onMentionComplete={handleMentionComplete}
@@ -215,6 +239,17 @@ export function Hero({
 
       {/* Workflow Overlay - shown when workflow is active */}
       <WorkflowOverlay workflow={workflow} />
+
+      {/* Add Sources Modal */}
+      <AddSourcesModal
+        isOpen={isSourceModalOpen}
+        onClose={() => {
+          setIsSourceModalOpen(false);
+        }}
+        availableSources={sources}
+        selectedSourceIds={new Set(contextStore.getSourcesArray().map((s) => s.id))}
+        onConfirm={handleSourceModalConfirm}
+      />
     </>
   );
 }
