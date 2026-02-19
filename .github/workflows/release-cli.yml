@@ -69,7 +69,7 @@ jobs:
           cd "${CLI_DIR}"
 
           # Build with version info embedded
-          LDFLAGS="-s -w -X github.com/OpenMined/syfthub/cli-go/internal/version.Version=${VERSION}"
+          LDFLAGS="-s -w -X github.com/OpenMined/syfthub/cli/internal/version.Version=${VERSION}"
 
           go build -ldflags "${LDFLAGS}" -o "../dist/${ARTIFACT_NAME}" ./cmd/syft
 
