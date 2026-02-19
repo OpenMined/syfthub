@@ -4,14 +4,13 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 
 import {
   getGroupedPublicEndpoints,
+  getPublicEndpointByPath,
   getPublicEndpoints,
   getPublicEndpointsPaginated,
   getTotalEndpointsCount,
-  getTrendingEndpoints,
-  mapEndpointPublicToSource
+  getTrendingEndpoints
 } from '@/lib/endpoint-utils';
 import { endpointKeys } from '@/lib/query-keys';
-import { syftClient } from '@/lib/sdk-client';
 
 export function usePublicEndpoints(limit = 10) {
   return useQuery({
@@ -81,12 +80,7 @@ export function usePublicEndpointCount() {
 export function useEndpointByPath(path: string | undefined) {
   return useQuery({
     queryKey: endpointKeys.byPath(path ?? ''),
-    queryFn: async () => {
-      if (!path) return null;
-      const endpoints = await syftClient.hub.browse({ pageSize: 100 }).firstPage();
-      const match = endpoints.find((ep) => `${ep.ownerUsername}/${ep.slug}` === path);
-      return match ? mapEndpointPublicToSource(match) : null;
-    },
+    queryFn: () => (path ? getPublicEndpointByPath(path) : null),
     enabled: !!path
   });
 }
