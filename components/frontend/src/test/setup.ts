@@ -23,12 +23,13 @@ Object.defineProperty(globalThis, 'matchMedia', {
   }))
 });
 
-// Mock ResizeObserver (used by Radix UI)
-globalThis.ResizeObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn()
-}));
+// Mock ResizeObserver (used by Radix UI and @floating-ui — must be a class, not arrow fn)
+class MockResizeObserver {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
+globalThis.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver;
 
 // Mock DOMRect.fromRect (used by Radix positioning)
 globalThis.DOMRect = {
@@ -45,15 +46,18 @@ globalThis.DOMRect = {
   })
 } as unknown as typeof DOMRect;
 
-// Mock IntersectionObserver (used by framer-motion)
-globalThis.IntersectionObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
-  root: null,
-  rootMargin: '',
-  thresholds: []
-}));
+// Mock IntersectionObserver (used by framer-motion — must be a class, not arrow fn)
+class MockIntersectionObserver {
+  readonly root: Element | null = null;
+  readonly rootMargin: string = '';
+  readonly thresholds: ReadonlyArray<number> = [];
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+  takeRecords = vi.fn(() => [] as IntersectionObserverEntry[]);
+}
+globalThis.IntersectionObserver =
+  MockIntersectionObserver as unknown as typeof IntersectionObserver;
 
 // Mock window.scrollTo (used by ScrollToTop)
 globalThis.scrollTo = vi.fn() as unknown as typeof globalThis.scrollTo;
