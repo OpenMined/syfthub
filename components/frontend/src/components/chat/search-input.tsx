@@ -237,7 +237,7 @@ export function SearchInput({
       )}
     >
       {/* Context chips row */}
-      {selectedContexts.length > 0 && (
+      {selectedContexts.length > 0 ? (
         <div className='mb-2 flex items-center gap-1.5 overflow-x-auto'>
           {selectedContexts.map((ctx) => (
             <span
@@ -260,6 +260,8 @@ export function SearchInput({
             </span>
           ))}
         </div>
+      ) : (
+        <div className='h-3' />
       )}
 
       {/* Visually hidden label for accessibility */}

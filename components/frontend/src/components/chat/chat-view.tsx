@@ -421,7 +421,7 @@ export function ChatView({
 
       {/* Input Area - Fixed bottom */}
       <div className='bg-card fixed right-0 bottom-0 left-20 z-40 p-4'>
-        <div className='mx-auto max-w-3xl'>
+        <div className='mx-auto max-w-4xl px-6'>
           {/* Suggested data sources based on input text */}
           <SuggestedSources
             suggestions={suggestions}
