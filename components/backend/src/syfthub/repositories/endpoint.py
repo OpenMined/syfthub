@@ -198,7 +198,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             skip: Number of endpoints to skip (pagination)
             limit: Maximum number of endpoints to return
             endpoint_type: Optional filter by endpoint type (model or data_source)
-            search: Optional search string to filter by name, description, or tags
+            search: Optional search string to filter by name, description, tags, or owner username
 
         Returns:
             List of EndpointPublicResponse objects
@@ -224,6 +224,10 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                         self.model.description.ilike(search_pattern),
                         # Search within tags JSON array by casting to text
                         cast(self.model.tags, Text).ilike(search_pattern),
+                        # Search by owner username (covers both user and org ownership)
+                        func.coalesce(UserModel.username, OrganizationModel.slug).ilike(
+                            search_pattern
+                        ),
                     )
                 )
 
