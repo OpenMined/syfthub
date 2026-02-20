@@ -73,6 +73,7 @@ export function ChatView({
   const showSourcesStep = useOnboardingStore((s) => s.showSourcesStep);
   const showQueryInputStep = useOnboardingStore((s) => s.showQueryInputStep);
   const contextStore = useContextSelectionStore();
+  const selectedSources = useContextSelectionStore((s) => s.selectedSources);
 
   // Source modal state
   const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
@@ -80,8 +81,8 @@ export function ChatView({
   // Suggested sources: track input text and compute suggestions
   const [inputText, setInputText] = useState('');
   const selectedSourceIds = useMemo(
-    () => new Set(contextStore.getSourcesArray().map((s) => s.id)),
-    [contextStore]
+    () => new Set<string>(selectedSources.keys()),
+    [selectedSources]
   );
 
   // Local state for messages and UI
@@ -90,9 +91,14 @@ export function ChatView({
     if (initialResult) {
       // If we have an initial result from Hero, add both user and assistant messages
       return [
-        { id: '1', role: 'user' as const, content: initialResult.query, type: 'text' as const },
         {
-          id: '2',
+          id: crypto.randomUUID(),
+          role: 'user' as const,
+          content: initialResult.query,
+          type: 'text' as const
+        },
+        {
+          id: crypto.randomUUID(),
           role: 'assistant' as const,
           content: initialResult.content,
           type: 'text' as const,
@@ -101,12 +107,21 @@ export function ChatView({
       ];
     }
     if (initialQuery) {
-      return [{ id: '1', role: 'user' as const, content: initialQuery, type: 'text' as const }];
+      return [
+        {
+          id: crypto.randomUUID(),
+          role: 'user' as const,
+          content: initialQuery,
+          type: 'text' as const
+        }
+      ];
     }
     return [];
   });
 
   const messagesEndReference = useRef<HTMLDivElement>(null);
+  const pendingMessageIdRef = useRef<string | null>(null);
+  const lastQueryRef = useRef<string>('');
 
   // Use workflow hook
   const workflow = useChatWorkflow({
@@ -116,29 +131,30 @@ export function ChatView({
     contextSources: contextSources ?? contextStore.getSourcesArray(),
     onComplete: (result) => {
       showSourcesStep();
-      // Add user message and assistant response to messages
       setMessages((previous) => {
-        // Check if user message already exists (avoid duplicates)
-        const hasUserMessage = previous.some(
-          (m) => m.role === 'user' && m.content === result.query
-        );
+        // User message was already added optimistically in handleSubmit
+        const hasUserMessage =
+          pendingMessageIdRef.current !== null &&
+          previous.some((m) => m.id === pendingMessageIdRef.current);
 
-        const newMessages = hasUserMessage
+        const base = hasUserMessage
           ? previous
           : [
               ...previous,
               {
-                id: Date.now().toString(),
+                id: crypto.randomUUID(),
                 role: 'user' as const,
                 content: result.query,
                 type: 'text' as const
               }
             ];
 
+        pendingMessageIdRef.current = null;
+
         return [
-          ...newMessages,
+          ...base,
           {
-            id: (Date.now() + 1).toString(),
+            id: crypto.randomUUID(),
             role: 'assistant' as const,
             content: result.content,
             type: 'text' as const,
@@ -196,9 +212,14 @@ export function ChatView({
     [contextStore]
   );
 
-  // Auto-scroll to bottom when messages change
+  // Smart auto-scroll: only scroll when user is near the bottom
   useEffect(() => {
-    messagesEndReference.current?.scrollIntoView({ behavior: 'smooth' });
+    const scrollElement = document.documentElement;
+    const isNearBottom =
+      scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight < 150;
+    if (isNearBottom) {
+      messagesEndReference.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages, workflow.streamedContent]);
 
   // Handle query submission
@@ -210,10 +231,13 @@ export function ChatView({
         .map((m) => ({ role: m.role, content: m.content }));
 
       // Optimistically add user message immediately so it appears before the AI responds
+      const messageId = crypto.randomUUID();
+      pendingMessageIdRef.current = messageId;
+      lastQueryRef.current = query;
       setMessages((previous) => [
         ...previous,
         {
-          id: Date.now().toString(),
+          id: messageId,
           role: 'user' as const,
           content: query,
           type: 'text' as const
@@ -284,9 +308,36 @@ export function ChatView({
       <div className='mx-auto max-w-4xl px-6 py-8 pt-16'>
         {messages.length === 0 && !initialQuery && workflow.phase === 'idle' ? (
           <div className='flex flex-col items-center justify-center px-4 py-24'>
-            <p className='font-inter text-muted-foreground text-sm'>
-              Ask anything using the input below.
-            </p>
+            {isLoadingModels ? (
+              <div className='space-y-3'>
+                <div className='bg-muted mx-auto h-4 w-48 animate-pulse rounded' />
+                <div className='bg-muted mx-auto h-4 w-32 animate-pulse rounded' />
+              </div>
+            ) : (
+              <>
+                <p className='font-inter text-muted-foreground mb-6 text-sm'>
+                  Ask anything using the input below.
+                </p>
+                <div className='flex flex-wrap justify-center gap-2'>
+                  {[
+                    'Summarize this dataset',
+                    'What trends do you see?',
+                    'Compare these sources'
+                  ].map((example) => (
+                    <button
+                      key={example}
+                      type='button'
+                      onClick={() => {
+                        handleSubmit(example);
+                      }}
+                      className='font-inter text-muted-foreground hover:text-foreground border-border hover:bg-muted rounded-full border px-4 py-2 text-xs transition-colors'
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         ) : (
           <div className='space-y-8'>
@@ -344,8 +395,21 @@ export function ChatView({
             {/* Error display */}
             {workflow.phase === 'error' && workflow.error && (
               <div className='flex justify-start'>
-                <div className='font-inter max-w-2xl rounded-2xl rounded-bl-none border border-red-200 bg-red-50 px-5 py-3 text-red-700 shadow-sm dark:border-red-800 dark:bg-red-950 dark:text-red-300'>
-                  {workflow.error}
+                <div className='flex max-w-2xl flex-col gap-2'>
+                  <div className='font-inter rounded-2xl rounded-bl-none border border-red-200 bg-red-50 px-5 py-3 text-red-700 shadow-sm dark:border-red-800 dark:bg-red-950 dark:text-red-300'>
+                    {workflow.error}
+                  </div>
+                  {lastQueryRef.current && (
+                    <button
+                      type='button'
+                      onClick={() => {
+                        handleSubmit(lastQueryRef.current);
+                      }}
+                      className='font-inter text-muted-foreground hover:text-foreground self-start text-xs underline underline-offset-2'
+                    >
+                      Retry
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -356,8 +420,8 @@ export function ChatView({
       </div>
 
       {/* Input Area - Fixed bottom */}
-      <div className='bg-card fixed bottom-0 left-0 z-40 w-full p-4 pl-24'>
-        <div className='mx-auto max-w-3xl'>
+      <div className='bg-card fixed right-0 bottom-0 left-20 z-40 p-4'>
+        <div className='mx-auto max-w-4xl px-6'>
           {/* Suggested data sources based on input text */}
           <SuggestedSources
             suggestions={suggestions}

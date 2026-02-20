@@ -178,12 +178,13 @@ describe('ModelSelector', () => {
   });
 
   it('closes dropdown on click outside', async () => {
+    const user = userEvent.setup();
     renderSelector();
 
-    fireEvent.click(screen.getByText('Select model'));
+    await user.click(screen.getByText('Select model'));
     expect(screen.getByPlaceholderText('Search models…')).toBeInTheDocument();
 
-    fireEvent.mouseDown(document.body);
+    await user.click(document.body);
 
     await waitFor(() => {
       expect(screen.queryByPlaceholderText('Search models…')).not.toBeInTheDocument();

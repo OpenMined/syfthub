@@ -113,12 +113,13 @@ export function SearchInput({
     maxResults: 8
   });
 
-  // Keep textarea at fixed height — content scrolls instead of growing
+  // Auto-grow textarea based on content
   useEffect(() => {
     const textarea = textareaReference.current;
     if (!textarea) return;
-    textarea.style.height = '';
-  }, []);
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
+  }, [value]);
 
   // Update mention state when value or cursor changes
   useEffect(() => {
@@ -235,29 +236,33 @@ export function SearchInput({
         className
       )}
     >
-      {/* Context chips row — fixed height so the component size doesn't shift */}
-      <div className='mb-2 flex h-4 items-center gap-1 overflow-x-auto'>
-        {selectedContexts.map((ctx) => (
-          <span
-            key={ctx.id}
-            className='border-border bg-muted text-muted-foreground inline-flex h-4 shrink-0 items-center gap-0.5 rounded-full border px-1.5 text-[10px] leading-none'
-          >
-            {ctx.label}
-            {onRemoveContext && (
-              <button
-                type='button'
-                onClick={() => {
-                  onRemoveContext(ctx.id);
-                }}
-                className='text-muted-foreground hover:text-foreground -mr-0.5 flex items-center justify-center'
-                aria-label={`Remove ${ctx.label}`}
-              >
-                <X className='h-2.5 w-2.5' aria-hidden='true' />
-              </button>
-            )}
-          </span>
-        ))}
-      </div>
+      {/* Context chips row */}
+      {selectedContexts.length > 0 ? (
+        <div className='mb-2 flex items-center gap-1.5 overflow-x-auto'>
+          {selectedContexts.map((ctx) => (
+            <span
+              key={ctx.id}
+              className='border-border bg-muted text-muted-foreground inline-flex h-6 shrink-0 items-center gap-1 rounded-full border px-2 text-xs leading-none'
+            >
+              {ctx.label}
+              {onRemoveContext && (
+                <button
+                  type='button'
+                  onClick={() => {
+                    onRemoveContext(ctx.id);
+                  }}
+                  className='text-muted-foreground hover:text-foreground -mr-1 flex h-5 w-5 items-center justify-center rounded-full'
+                  aria-label={`Remove ${ctx.label}`}
+                >
+                  <X className='h-3 w-3' aria-hidden='true' />
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className='h-3' />
+      )}
 
       {/* Visually hidden label for accessibility */}
       <label htmlFor='search-input-textarea' className='sr-only'>
@@ -276,11 +281,31 @@ export function SearchInput({
           placeholder={placeholder}
           disabled={disabled}
           rows={1}
-          className='h-[48px] resize-none overflow-y-auto border-0 p-0 text-base shadow-none focus-visible:ring-0'
+          className='max-h-[120px] min-h-[48px] resize-none overflow-y-auto border-0 p-0 text-base shadow-none focus-visible:ring-0'
+          role={enableMentions ? 'combobox' : undefined}
+          aria-autocomplete={enableMentions ? 'list' : undefined}
           aria-expanded={
             enableMentions && (mention.showOwnerPopover || mention.showEndpointPopover)
           }
           aria-haspopup={enableMentions ? 'listbox' : undefined}
+          aria-controls={
+            enableMentions && mention.showOwnerPopover
+              ? 'owner-mention-popover'
+              : enableMentions && mention.showEndpointPopover
+                ? 'endpoint-mention-popover'
+                : undefined
+          }
+          aria-activedescendant={
+            enableMentions &&
+            mention.showOwnerPopover &&
+            mention.filteredOwners[mention.highlightedIndex]
+              ? `owner-option-${mention.filteredOwners[mention.highlightedIndex]?.username}`
+              : enableMentions &&
+                  mention.showEndpointPopover &&
+                  mention.filteredEndpoints[mention.highlightedIndex]
+                ? `endpoint-option-${mention.filteredEndpoints[mention.highlightedIndex]?.id}`
+                : undefined
+          }
         />
 
         {/* Mention popovers */}
