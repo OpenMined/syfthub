@@ -13,7 +13,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import Database from 'lucide-react/dist/esm/icons/database';
 import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
 import Plus from 'lucide-react/dist/esm/icons/plus';
-import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
+import Search from 'lucide-react/dist/esm/icons/search';
 
 // =============================================================================
 // Types
@@ -44,7 +44,7 @@ export const SuggestedSources = memo(function SuggestedSources({
     <div className='mb-2' role='region' aria-label='Suggested data sources'>
       {/* Label */}
       <div className='mb-1.5 flex items-center gap-1.5'>
-        <Sparkles className='text-muted-foreground h-3 w-3' aria-hidden='true' />
+        <Search className='text-muted-foreground h-3 w-3' aria-hidden='true' />
         <span className='font-inter text-muted-foreground text-[11px] font-medium tracking-wide uppercase'>
           Suggested sources
         </span>

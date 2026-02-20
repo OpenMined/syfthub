@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
@@ -6,6 +6,7 @@ import ChevronUp from 'lucide-react/dist/esm/icons/chevron-up';
 import FileText from 'lucide-react/dist/esm/icons/file-text';
 
 import { OnboardingCallout } from '@/components/onboarding';
+import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 
 // =============================================================================
 // Types
@@ -32,195 +33,60 @@ export type SourcesData = Record<string, DocumentSource>;
 // Sub-components
 // =============================================================================
 
-interface HoverCardProps {
-  content: string;
-  isVisible: boolean;
-  position: { x: number; y: number };
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
-}
-
-/**
- * Custom hover card that displays document content preview.
- * Uses Framer Motion for smooth animations.
- * Supports mouse interaction for scrolling content.
- */
-const HoverCard = memo(function HoverCard({
-  content,
-  isVisible,
-  position,
-  onMouseEnter,
-  onMouseLeave
-}: Readonly<HoverCardProps>) {
-  // Truncate content for preview
-  const truncatedContent = content.length > 500 ? `${content.slice(0, 500).trim()}…` : content;
-
-  return (
-    <AnimatePresence>
-      {isVisible ? (
-        <motion.div
-          initial={{ opacity: 0, y: 8, scale: 0.96 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 8, scale: 0.96 }}
-          transition={{ duration: 0.15, ease: 'easeOut' }}
-          className='border-border bg-card fixed z-50 max-h-[280px] w-[360px] overflow-hidden rounded-xl border shadow-xl'
-          style={{
-            left: position.x,
-            top: position.y
-          }}
-          onMouseEnter={onMouseEnter}
-          onMouseLeave={onMouseLeave}
-        >
-          {/* Header */}
-          <div className='border-border bg-card border-b px-4 py-2.5'>
-            <div className='flex items-center gap-2'>
-              <FileText className='text-secondary h-3.5 w-3.5' />
-              <span className='font-inter text-muted-foreground text-xs font-medium'>
-                Document Preview
-              </span>
-            </div>
-          </div>
-
-          {/* Content */}
-          <div className='max-h-[220px] overflow-y-auto p-4'>
-            <p className='font-inter text-foreground text-xs leading-relaxed whitespace-pre-wrap'>
-              {truncatedContent}
-            </p>
-          </div>
-        </motion.div>
-      ) : null}
-    </AnimatePresence>
-  );
-});
-
 interface SourceItemProps {
   title: string;
   source: DocumentSource;
   index: number;
 }
 
-/** Delay in ms before hiding the hover card when mouse leaves */
-const HOVER_HIDE_DELAY = 100;
-
 /**
- * Individual source item with hover functionality.
- * Uses hover intent to allow smooth mouse transitions to the preview card.
+ * Individual source item with Radix HoverCard for content preview.
  */
 const SourceItem = memo(function SourceItem({ title, source, index }: Readonly<SourceItemProps>) {
-  const [isItemHovered, setIsItemHovered] = useState(false);
-  const [isCardHovered, setIsCardHovered] = useState(false);
-  const [hoverPosition, setHoverPosition] = useState({ x: 0, y: 0 });
-  const itemReference = useRef<HTMLDivElement>(null);
-  const hideTimeoutReference = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Clear any pending hide timeout
-  const clearHideTimeout = useCallback(() => {
-    if (hideTimeoutReference.current) {
-      clearTimeout(hideTimeoutReference.current);
-      hideTimeoutReference.current = null;
-    }
-  }, []);
-
-  // Schedule hiding the card after a delay
-  const scheduleHide = useCallback(() => {
-    clearHideTimeout();
-    hideTimeoutReference.current = setTimeout(() => {
-      setIsItemHovered(false);
-      setIsCardHovered(false);
-    }, HOVER_HIDE_DELAY);
-  }, [clearHideTimeout]);
-
-  // Cleanup timeout on unmount
-  useEffect(() => {
-    return () => {
-      clearHideTimeout();
-    };
-  }, [clearHideTimeout]);
-
-  const handleItemMouseEnter = (event: React.MouseEvent) => {
-    clearHideTimeout();
-
-    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-
-    // Position card to the right of the item, accounting for viewport bounds
-    const cardWidth = 360;
-    const cardHeight = 280;
-    const padding = 12;
-
-    let x = rect.right + padding;
-    let y = rect.top;
-
-    // If card would overflow right edge, position to the left instead
-    if (x + cardWidth > window.innerWidth - padding) {
-      x = rect.left - cardWidth - padding;
-    }
-
-    // If card would overflow bottom, adjust y position
-    if (y + cardHeight > window.innerHeight - padding) {
-      y = window.innerHeight - cardHeight - padding;
-    }
-
-    // Ensure y is not negative
-    if (y < padding) {
-      y = padding;
-    }
-
-    setHoverPosition({ x, y });
-    setIsItemHovered(true);
-  };
-
-  const handleItemMouseLeave = () => {
-    // Schedule hide with delay to allow moving to the card
-    scheduleHide();
-  };
-
-  const handleCardMouseEnter = () => {
-    // Cancel any pending hide when entering the card
-    clearHideTimeout();
-    setIsCardHovered(true);
-  };
-
-  const handleCardMouseLeave = () => {
-    // Schedule hide when leaving the card
-    scheduleHide();
-  };
-
-  // Show card if either the item or the card is hovered
-  const isVisible = isItemHovered || isCardHovered;
+  const truncatedContent =
+    source.content.length > 500 ? `${source.content.slice(0, 500).trim()}…` : source.content;
 
   return (
-    <>
-      <motion.div
-        ref={itemReference}
-        initial={{ opacity: 0, x: -8 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ delay: index * 0.03 }}
-        onMouseEnter={handleItemMouseEnter}
-        onMouseLeave={handleItemMouseLeave}
-        className='group hover:bg-accent flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 transition-colors'
-      >
-        {/* Endpoint slug (green) */}
-        <span className='font-inter shrink-0 text-xs font-medium text-green-600'>
-          {source.slug}
-        </span>
+    <HoverCard openDelay={200} closeDelay={100}>
+      <HoverCardTrigger asChild>
+        <motion.div
+          initial={{ opacity: 0, x: -8 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: index * 0.03 }}
+          className='group hover:bg-accent flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 transition-colors'
+        >
+          {/* Endpoint slug (green) */}
+          <span className='font-inter shrink-0 text-xs font-medium text-green-600'>
+            {source.slug}
+          </span>
 
-        {/* Separator */}
-        <span className='font-inter text-muted-foreground text-xs'>:</span>
+          {/* Separator */}
+          <span className='font-inter text-muted-foreground text-xs'>:</span>
 
-        {/* Document title */}
-        <span className='font-inter text-muted-foreground group-hover:text-foreground truncate text-xs'>
-          {title}
-        </span>
-      </motion.div>
-
-      <HoverCard
-        content={source.content}
-        isVisible={isVisible}
-        position={hoverPosition}
-        onMouseEnter={handleCardMouseEnter}
-        onMouseLeave={handleCardMouseLeave}
-      />
-    </>
+          {/* Document title */}
+          <span className='font-inter text-muted-foreground group-hover:text-foreground truncate text-xs'>
+            {title}
+          </span>
+        </motion.div>
+      </HoverCardTrigger>
+      <HoverCardContent side='right' align='start' className='w-[360px] p-0'>
+        {/* Header */}
+        <div className='border-border border-b px-4 py-2.5'>
+          <div className='flex items-center gap-2'>
+            <FileText className='text-secondary h-3.5 w-3.5' />
+            <span className='font-inter text-muted-foreground text-xs font-medium'>
+              Document Preview
+            </span>
+          </div>
+        </div>
+        {/* Content */}
+        <div className='max-h-[220px] overflow-y-auto p-4'>
+          <p className='font-inter text-foreground text-xs leading-relaxed whitespace-pre-wrap'>
+            {truncatedContent}
+          </p>
+        </div>
+      </HoverCardContent>
+    </HoverCard>
   );
 });
 
@@ -237,8 +103,8 @@ interface SourcesSectionProps {
  *
  * Features:
  * - Collapsed by default to keep the UI clean
- * - Grouped by endpoint slug with document titles
- * - Hover cards showing document content preview
+ * - Document titles with endpoint slugs
+ * - Radix HoverCard showing document content preview
  * - Smooth animations matching the design system
  */
 export function SourcesSection({ sources }: Readonly<SourcesSectionProps>) {
@@ -255,17 +121,6 @@ export function SourcesSection({ sources }: Readonly<SourcesSectionProps>) {
   // Don't render if no sources
   if (documentCount === 0) {
     return null;
-  }
-
-  // Group sources by endpoint slug for better organization
-  const groupedSources: Record<string, Array<{ title: string; content: string }>> = {};
-  for (const [title, source] of sourceEntries) {
-    const existingGroup = groupedSources[source.slug];
-    if (existingGroup) {
-      existingGroup.push({ title, content: source.content });
-    } else {
-      groupedSources[source.slug] = [{ title, content: source.content }];
-    }
   }
 
   return (
