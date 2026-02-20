@@ -40,6 +40,7 @@ class RAGService:
     def client(self) -> Optional[meilisearch.Client]:
         """Get the Meilisearch client, creating it lazily if needed."""
         if self._client is None and settings.rag_available:
+            assert settings.meili_url is not None
             self._client = meilisearch.Client(
                 settings.meili_url,
                 settings.meili_master_key,
