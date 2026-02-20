@@ -13,7 +13,7 @@
 #   - RSA_PUBLIC_KEY_PEM: Base64-encoded RSA public key for satellite tokens
 #
 # Optional environment variables:
-#   - OPENAI_API_KEY: OpenAI API key for RAG semantic search (optional)
+#   - MEILI_MASTER_KEY: Meilisearch master key for search (required in production)
 #
 # RSA Key Generation (required for satellite token signing):
 #   openssl genrsa -out private.pem 2048
@@ -120,8 +120,9 @@ services:
       - NATS_URL=nats://nats:4222
       - NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN}
       - NATS_WS_PUBLIC_URL=wss://${DOMAIN:-localhost}/nats
-      # RAG/OpenAI configuration (optional - semantic search disabled if not set)
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # Meilisearch configuration (semantic search disabled if MEILI_URL not set)
+      - MEILI_URL=http://meilisearch:7700
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
       # Google OAuth configuration (optional - Google Sign-In disabled if not set)
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
     networks:
@@ -130,6 +131,8 @@ services:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      meilisearch:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -145,6 +148,42 @@ services:
         reservations:
           cpus: '0.5'
           memory: 256M
+
+  # ==========================================================================
+  # MEILISEARCH - Full-text search engine for endpoint discovery
+  # ==========================================================================
+  meilisearch:
+    image: getmeili/meilisearch:latest
+    container_name: syfthub-meilisearch
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    expose:
+      - "7700"
+    volumes:
+      - meili_data:/meili_data
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+      - MEILI_ENV=production
+    networks:
+      - syfthub-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
 
   # ==========================================================================
   # AGGREGATOR SERVICE - RAG orchestration
@@ -443,3 +482,5 @@ volumes:
     name: syfthub_backend_data
   nats_data:
     name: syfthub_nats_data
+  meili_data:
+    name: syfthub_meili_data

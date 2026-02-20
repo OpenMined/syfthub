@@ -5,29 +5,26 @@
  * Uses shared hooks for model management, data sources, and workflow execution.
  * Orchestrates sub-components: ModelSelector, AddSourcesModal, etc.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ChatHistoryMessage, WorkflowResult } from '@/hooks/use-chat-workflow';
+import type { SearchableChatSource } from '@/lib/search-service';
 import type { ChatSource } from '@/lib/types';
 import type { SourcesData } from './sources-section';
 
-import Database from 'lucide-react/dist/esm/icons/database';
-import Plus from 'lucide-react/dist/esm/icons/plus';
-
-import { OnboardingCallout } from '@/components/onboarding';
-import { QueryInput } from '@/components/query/query-input';
 import { useChatWorkflow } from '@/hooks/use-chat-workflow';
 import { useDataSources } from '@/hooks/use-data-sources';
 import { useModels } from '@/hooks/use-models';
+import { useSuggestedSources } from '@/hooks/use-suggested-sources';
 import { useContextSelectionStore } from '@/stores/context-selection-store';
 import { useOnboardingStore } from '@/stores/onboarding-store';
 
 import { AddSourcesModal } from './add-sources-modal';
 import { MarkdownMessage } from './markdown-message';
-import { ModelSelector } from './model-selector';
-import { SelectedSourcesChips } from './selected-sources-chips';
+import { SearchInput } from './search-input';
 import { SourcesSection } from './sources-section';
 import { StatusIndicator } from './status-indicator';
+import { SuggestedSources } from './suggested-sources';
 
 // =============================================================================
 // Types
@@ -76,9 +73,17 @@ export function ChatView({
   const showSourcesStep = useOnboardingStore((s) => s.showSourcesStep);
   const showQueryInputStep = useOnboardingStore((s) => s.showQueryInputStep);
   const contextStore = useContextSelectionStore();
+  const selectedSources = useContextSelectionStore((s) => s.selectedSources);
 
   // Source modal state
   const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
+
+  // Suggested sources: track input text and compute suggestions
+  const [inputText, setInputText] = useState('');
+  const selectedSourceIds = useMemo(
+    () => new Set<string>(selectedSources.keys()),
+    [selectedSources]
+  );
 
   // Local state for messages and UI
   const [messages, setMessages] = useState<Message[]>(() => {
@@ -86,9 +91,14 @@ export function ChatView({
     if (initialResult) {
       // If we have an initial result from Hero, add both user and assistant messages
       return [
-        { id: '1', role: 'user' as const, content: initialResult.query, type: 'text' as const },
         {
-          id: '2',
+          id: crypto.randomUUID(),
+          role: 'user' as const,
+          content: initialResult.query,
+          type: 'text' as const
+        },
+        {
+          id: crypto.randomUUID(),
           role: 'assistant' as const,
           content: initialResult.content,
           type: 'text' as const,
@@ -97,44 +107,54 @@ export function ChatView({
       ];
     }
     if (initialQuery) {
-      return [{ id: '1', role: 'user' as const, content: initialQuery, type: 'text' as const }];
+      return [
+        {
+          id: crypto.randomUUID(),
+          role: 'user' as const,
+          content: initialQuery,
+          type: 'text' as const
+        }
+      ];
     }
     return [];
   });
 
   const messagesEndReference = useRef<HTMLDivElement>(null);
+  const pendingMessageIdRef = useRef<string | null>(null);
+  const lastQueryRef = useRef<string>('');
 
   // Use workflow hook
   const workflow = useChatWorkflow({
     model: selectedModel,
     dataSources: sources,
     dataSourcesById: sourcesById,
-    contextSources,
+    contextSources: contextSources ?? contextStore.getSourcesArray(),
     onComplete: (result) => {
       showSourcesStep();
-      // Add user message and assistant response to messages
       setMessages((previous) => {
-        // Check if user message already exists (avoid duplicates)
-        const hasUserMessage = previous.some(
-          (m) => m.role === 'user' && m.content === result.query
-        );
+        // User message was already added optimistically in handleSubmit
+        const hasUserMessage =
+          pendingMessageIdRef.current !== null &&
+          previous.some((m) => m.id === pendingMessageIdRef.current);
 
-        const newMessages = hasUserMessage
+        const base = hasUserMessage
           ? previous
           : [
               ...previous,
               {
-                id: Date.now().toString(),
+                id: crypto.randomUUID(),
                 role: 'user' as const,
                 content: result.query,
                 type: 'text' as const
               }
             ];
 
+        pendingMessageIdRef.current = null;
+
         return [
-          ...newMessages,
+          ...base,
           {
-            id: (Date.now() + 1).toString(),
+            id: crypto.randomUUID(),
             role: 'assistant' as const,
             content: result.content,
             type: 'text' as const,
@@ -165,9 +185,41 @@ export function ChatView({
     // Only run once when dependencies are ready, not on every change
   }, [initialQuery, initialResult, selectedModel, sources.length]);
 
-  // Auto-scroll to bottom when messages change
+  // Determine if workflow is in a blocking state
+  const isWorkflowActive =
+    workflow.phase !== 'idle' && workflow.phase !== 'complete' && workflow.phase !== 'error';
+
+  // Suggested data sources based on current input text
+  const { suggestions, isSearching, clearSuggestions } = useSuggestedSources({
+    query: inputText,
+    selectedSourceIds,
+    enabled: !isWorkflowActive,
+    maxResults: 5
+  });
+
+  // Handle text changes from SearchInput (for suggested sources)
+  const handleTextChange = useCallback((text: string) => {
+    setInputText(text);
+  }, []);
+
+  // Handle adding a suggested source to context
+  const handleAddSuggestion = useCallback(
+    (source: SearchableChatSource) => {
+      if (!contextStore.isSelected(source.id)) {
+        contextStore.addSource(source);
+      }
+    },
+    [contextStore]
+  );
+
+  // Smart auto-scroll: only scroll when user is near the bottom
   useEffect(() => {
-    messagesEndReference.current?.scrollIntoView({ behavior: 'smooth' });
+    const scrollElement = document.documentElement;
+    const isNearBottom =
+      scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight < 150;
+    if (isNearBottom) {
+      messagesEndReference.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages, workflow.streamedContent]);
 
   // Handle query submission
@@ -179,15 +231,22 @@ export function ChatView({
         .map((m) => ({ role: m.role, content: m.content }));
 
       // Optimistically add user message immediately so it appears before the AI responds
+      const messageId = crypto.randomUUID();
+      pendingMessageIdRef.current = messageId;
+      lastQueryRef.current = query;
       setMessages((previous) => [
         ...previous,
         {
-          id: Date.now().toString(),
+          id: messageId,
           role: 'user' as const,
           content: query,
           type: 'text' as const
         }
       ]);
+
+      // Clear suggestions on submit
+      clearSuggestions();
+      setInputText('');
 
       const preSelectedSources = contextStore.getSourcesArray();
       if (preSelectedSources.length > 0) {
@@ -197,7 +256,7 @@ export function ChatView({
         void workflow.submitQuery(query, undefined, history);
       }
     },
-    [workflow, contextStore, messages]
+    [workflow, contextStore, messages, clearSuggestions]
   );
 
   // Handle modal confirm
@@ -225,10 +284,9 @@ export function ChatView({
     [contextStore]
   );
 
-  // Handle mention completion - add source to context (tracked for sync)
+  // Handle @mention completion — add source to context (tracked for sync)
   const handleMentionComplete = useCallback(
     (source: ChatSource) => {
-      // Only add if not already selected
       if (!contextStore.isSelected(source.id)) {
         contextStore.addMentionSource(source);
       }
@@ -236,7 +294,7 @@ export function ChatView({
     [contextStore]
   );
 
-  // Handle @mention sync - remove sources whose mentions were deleted from text
+  // Handle @mention sync — remove sources whose mentions were deleted from text
   const handleMentionSync = useCallback(
     (mentionedIds: Set<string>) => {
       contextStore.syncMentionSources(mentionedIds);
@@ -244,31 +302,42 @@ export function ChatView({
     [contextStore]
   );
 
-  // Determine if workflow is in a blocking state
-  const isWorkflowActive =
-    workflow.phase !== 'idle' && workflow.phase !== 'complete' && workflow.phase !== 'error';
-
   return (
     <div className='bg-card min-h-screen pb-32'>
-      {/* Model Selector - Fixed top left */}
-      <div className='fixed top-4 left-24 z-40'>
-        <OnboardingCallout step='model-selector' position='bottom'>
-          <ModelSelector
-            selectedModel={selectedModel}
-            onModelSelect={setSelectedModel}
-            models={models}
-            isLoading={isLoadingModels}
-          />
-        </OnboardingCallout>
-      </div>
-
       {/* Messages Area */}
       <div className='mx-auto max-w-4xl px-6 py-8 pt-16'>
         {messages.length === 0 && !initialQuery && workflow.phase === 'idle' ? (
           <div className='flex flex-col items-center justify-center px-4 py-24'>
-            <p className='font-inter text-muted-foreground text-sm'>
-              Ask anything using the input below.
-            </p>
+            {isLoadingModels ? (
+              <div className='space-y-3'>
+                <div className='bg-muted mx-auto h-4 w-48 animate-pulse rounded' />
+                <div className='bg-muted mx-auto h-4 w-32 animate-pulse rounded' />
+              </div>
+            ) : (
+              <>
+                <p className='font-inter text-muted-foreground mb-6 text-sm'>
+                  Ask anything using the input below.
+                </p>
+                <div className='flex flex-wrap justify-center gap-2'>
+                  {[
+                    'Summarize this dataset',
+                    'What trends do you see?',
+                    'Compare these sources'
+                  ].map((example) => (
+                    <button
+                      key={example}
+                      type='button'
+                      onClick={() => {
+                        handleSubmit(example);
+                      }}
+                      className='font-inter text-muted-foreground hover:text-foreground border-border hover:bg-muted rounded-full border px-4 py-2 text-xs transition-colors'
+                    >
+                      {example}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         ) : (
           <div className='space-y-8'>
@@ -326,8 +395,21 @@ export function ChatView({
             {/* Error display */}
             {workflow.phase === 'error' && workflow.error && (
               <div className='flex justify-start'>
-                <div className='font-inter max-w-2xl rounded-2xl rounded-bl-none border border-red-200 bg-red-50 px-5 py-3 text-red-700 shadow-sm dark:border-red-800 dark:bg-red-950 dark:text-red-300'>
-                  {workflow.error}
+                <div className='flex max-w-2xl flex-col gap-2'>
+                  <div className='font-inter rounded-2xl rounded-bl-none border border-red-200 bg-red-50 px-5 py-3 text-red-700 shadow-sm dark:border-red-800 dark:bg-red-950 dark:text-red-300'>
+                    {workflow.error}
+                  </div>
+                  {lastQueryRef.current && (
+                    <button
+                      type='button'
+                      onClick={() => {
+                        handleSubmit(lastQueryRef.current);
+                      }}
+                      className='font-inter text-muted-foreground hover:text-foreground self-start text-xs underline underline-offset-2'
+                    >
+                      Retry
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -338,61 +420,41 @@ export function ChatView({
       </div>
 
       {/* Input Area - Fixed bottom */}
-      <div className='border-border bg-card fixed bottom-0 left-0 z-40 w-full border-t p-4 pl-24'>
-        <div className='mx-auto max-w-3xl'>
-          {/* Selected sources chips */}
-          {contextStore.count() > 0 && (
-            <SelectedSourcesChips
-              sources={contextStore.getSourcesArray()}
-              onRemove={handleRemoveSource}
-              onEdit={() => {
-                setIsSourceModalOpen(true);
-              }}
-            />
-          )}
+      <div className='bg-card fixed right-0 bottom-0 left-20 z-40 p-4'>
+        <div className='mx-auto max-w-4xl px-6'>
+          {/* Suggested data sources based on input text */}
+          <SuggestedSources
+            suggestions={suggestions}
+            onAdd={handleAddSuggestion}
+            isSearching={isSearching}
+          />
 
-          <div className='flex gap-3'>
-            <OnboardingCallout step='add-sources' position='top'>
-              <button
-                type='button'
-                onClick={() => {
-                  setIsSourceModalOpen(true);
-                }}
-                className='group border-border bg-background text-muted-foreground hover:bg-accent hover:text-foreground flex items-center justify-center rounded-xl border p-3 transition-colors'
-                aria-label={
-                  contextStore.count() > 0 ? 'Edit selected sources' : 'Add sources to context'
-                }
-              >
-                {contextStore.count() > 0 ? (
-                  <Database className='h-5 w-5' aria-hidden='true' />
-                ) : (
-                  <Plus className='h-5 w-5' aria-hidden='true' />
-                )}
-              </button>
-            </OnboardingCallout>
-
-            <div className='flex-1'>
-              <OnboardingCallout step='query-input' position='top'>
-                <QueryInput
-                  variant='chat'
-                  onSubmit={handleSubmit}
-                  disabled={isWorkflowActive}
-                  isProcessing={workflow.phase === 'streaming'}
-                  placeholder={
-                    contextStore.count() > 0
-                      ? 'Ask question about these sources...'
-                      : 'Ask anything... (Use @ for sources or + to browse)'
-                  }
-                  id='chat-followup-input'
-                  ariaLabel='Ask a follow-up question'
-                  enableMentions
-                  sources={sources}
-                  onMentionComplete={handleMentionComplete}
-                  onMentionSync={handleMentionSync}
-                />
-              </OnboardingCallout>
-            </div>
-          </div>
+          <SearchInput
+            onSubmit={handleSubmit}
+            disabled={isWorkflowActive}
+            isProcessing={workflow.phase === 'streaming'}
+            placeholder={
+              contextStore.count() > 0
+                ? 'Ask about these sources...'
+                : 'Start making queries, use @ for specific sources'
+            }
+            onContextClick={() => {
+              setIsSourceModalOpen(true);
+            }}
+            selectedContexts={contextStore
+              .getSourcesArray()
+              .map((s) => ({ id: s.id, label: s.name }))}
+            onRemoveContext={handleRemoveSource}
+            selectedModel={selectedModel}
+            onModelSelect={setSelectedModel}
+            models={models}
+            isLoadingModels={isLoadingModels}
+            enableMentions
+            sources={sources}
+            onMentionComplete={handleMentionComplete}
+            onMentionSync={handleMentionSync}
+            onTextChange={handleTextChange}
+          />
         </div>
       </div>
 

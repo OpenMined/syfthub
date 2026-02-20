@@ -18,6 +18,9 @@ interface UserAggregatorsState {
   isUpdating: boolean;
   isDeleting: boolean;
 
+  // Hydration tracking
+  hasFetched: boolean;
+
   // Error states
   error: string | null;
 
@@ -47,6 +50,7 @@ export const useUserAggregatorsStore = create<UserAggregatorsState>((set, get) =
   // Initial state
   aggregators: [],
   defaultAggregatorId: null,
+  hasFetched: false,
   isLoading: false,
   isCreating: false,
   isUpdating: false,
@@ -69,6 +73,7 @@ export const useUserAggregatorsStore = create<UserAggregatorsState>((set, get) =
       set({
         aggregators: data.aggregators,
         defaultAggregatorId: data.default_aggregator_id,
+        hasFetched: true,
         isLoading: false
       });
     } catch (error) {
@@ -104,9 +109,20 @@ export const useUserAggregatorsStore = create<UserAggregatorsState>((set, get) =
         isCreating: false
       });
 
-      // If this was set as default, update default ID
+      // If this was set as default, update default ID and sync to user profile
       if (newAggregator.is_default) {
         set({ defaultAggregatorId: newAggregator.id });
+
+        // Sync the default aggregator URL to the user profile so it persists
+        // across page refreshes (the auth context reads user.aggregator_url on load)
+        try {
+          const { updateUserProfileAPI } = await import('@/lib/sdk-client');
+          await updateUserProfileAPI({ aggregator_url: newAggregator.url });
+        } catch {
+          // Non-critical: the Zustand store is already updated, so the current
+          // session works correctly. The profile sync failing only affects persistence.
+          console.error('Failed to sync default aggregator URL to user profile');
+        }
       }
 
       return newAggregator;
@@ -240,6 +256,17 @@ export const useUserAggregatorsStore = create<UserAggregatorsState>((set, get) =
         defaultAggregatorId: id,
         isUpdating: false
       });
+
+      // Sync the default aggregator URL to the user profile so it persists
+      // across page refreshes (the auth context reads user.aggregator_url on load)
+      try {
+        const { updateUserProfileAPI } = await import('@/lib/sdk-client');
+        await updateUserProfileAPI({ aggregator_url: updatedAggregator.url });
+      } catch {
+        // Non-critical: the Zustand store is already updated, so the current
+        // session works correctly. The profile sync failing only affects persistence.
+        console.error('Failed to sync default aggregator URL to user profile');
+      }
 
       return updatedAggregator;
     } catch (error) {

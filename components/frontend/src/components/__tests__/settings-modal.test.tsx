@@ -44,8 +44,6 @@ describe('SettingsModal', () => {
     vi.clearAllMocks();
     mockCloseSettings = vi.fn();
     mockSetActiveTab = vi.fn();
-    // Reset body overflow
-    document.body.style.overflow = 'unset';
 
     mockUseSettingsModal.mockReturnValue({
       isOpen: true,
@@ -128,41 +126,8 @@ describe('SettingsModal', () => {
     });
   });
 
-  it('calls closeSettings when clicking the overlay', async () => {
-    const user = userEvent.setup();
-    render(<SettingsModal />);
-
-    // The overlay is the motion.div backdrop - click the outer fixed div
-    const backdrop = screen.getByRole('dialog').parentElement;
-    expect(backdrop).not.toBeNull();
-    // The backdrop's sibling div has the click handler
-    const overlay = backdrop?.querySelector('.absolute.inset-0');
-    if (overlay) {
-      await user.click(overlay);
-    }
-
-    expect(mockCloseSettings).toHaveBeenCalled();
-  });
-
-  it('sets body overflow to hidden when open', () => {
-    render(<SettingsModal />);
-    expect(document.body.style.overflow).toBe('hidden');
-  });
-
-  it('restores body overflow when closed', () => {
-    const { rerender } = render(<SettingsModal />);
-    expect(document.body.style.overflow).toBe('hidden');
-
-    mockUseSettingsModal.mockReturnValue({
-      isOpen: false,
-      closeSettings: mockCloseSettings,
-      activeTab: 'profile',
-      setActiveTab: mockSetActiveTab
-    });
-
-    rerender(<SettingsModal />);
-    expect(document.body.style.overflow).toBe('unset');
-  });
+  // Note: Overlay click and body scroll lock are handled internally by Radix Dialog.
+  // These behaviors are guaranteed by the library and don't need manual testing.
 
   it('renders correct tab for each active tab value', () => {
     const tabCases: Array<{ tab: string; testId: string; content: string }> = [

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Script to ingest existing public endpoints into the RAG vector store.
+"""Script to ingest existing public endpoints into Meilisearch.
 
-This script should be run once after deploying the RAG feature to index
-all existing public endpoints that don't have a RAG file ID.
+This script should be run once after deploying the Meilisearch feature to index
+all existing public endpoints that don't have a search document ID.
 
 Usage:
     python scripts/ingest_existing_endpoints.py [--dry-run] [--batch-size N]
@@ -53,7 +53,7 @@ def ingest_existing_endpoints(
     # Check if RAG is available
     if not settings.rag_available:
         logger.error(
-            "RAG is not available. Please set OPENAI_API_KEY and ensure rag_enabled=True"
+            "Search is not available. Please set MEILI_URL and ensure rag_enabled=True"
         )
         return stats
 
@@ -130,7 +130,7 @@ def ingest_existing_endpoints(
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Ingest existing public endpoints into RAG vector store"
+        description="Ingest existing public endpoints into Meilisearch"
     )
     parser.add_argument(
         "--dry-run",
@@ -147,14 +147,14 @@ def main():
     args = parser.parse_args()
 
     logger.info("=" * 60)
-    logger.info("RAG Ingestion Script for Existing Endpoints")
+    logger.info("Meilisearch Ingestion Script for Existing Endpoints")
     logger.info("=" * 60)
 
     # Check configuration
     logger.info(f"Database URL: {settings.database_url}")
     logger.info(f"RAG enabled: {settings.rag_enabled}")
-    logger.info(f"OpenAI API key configured: {bool(settings.openai_api_key)}")
-    logger.info(f"Vector store name: {settings.openai_vector_store_name}")
+    logger.info(f"Meilisearch URL: {settings.meili_url}")
+    logger.info(f"Meilisearch index name: {settings.meili_index_name}")
 
     if not settings.rag_available:
         logger.error("RAG is not available. Exiting.")

@@ -8,7 +8,7 @@
  * (via the "+" button / AddSourcesModal). If no sources are selected, the query
  * executes with the model only (no data sources).
  */
-import { useCallback, useMemo, useReducer, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 
 import type { ChatStreamEvent } from '@/lib/sdk-client';
 import type { ChatSource } from '@/lib/types';
@@ -21,6 +21,7 @@ import {
   EndpointResolutionError,
   syftClient
 } from '@/lib/sdk-client';
+import { useUserAggregatorsStore } from '@/stores/user-aggregators-store';
 
 // =============================================================================
 // Types
@@ -422,6 +423,28 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
 
   const { user } = useAuth();
 
+  // Read default aggregator from the Zustand store (source of truth for aggregator selection).
+  // Falls back to user.aggregator_url from auth context for backward compatibility.
+  const { aggregators, defaultAggregatorId, hasFetched, fetchAggregators } =
+    useUserAggregatorsStore();
+
+  // Auto-hydrate the aggregators store when an authenticated user is present.
+  // Without this, the store is only populated when the user visits the settings tab,
+  // causing custom aggregator URLs to be lost after page refresh.
+  useEffect(() => {
+    if (user && !hasFetched) {
+      void fetchAggregators();
+    }
+  }, [user, hasFetched, fetchAggregators]);
+
+  const aggregatorUrl = useMemo(() => {
+    if (defaultAggregatorId) {
+      const defaultAgg = aggregators.find((a) => a.id === defaultAggregatorId);
+      if (defaultAgg?.url) return defaultAgg.url;
+    }
+    return user?.aggregator_url;
+  }, [aggregators, defaultAggregatorId, user?.aggregator_url]);
+
   const [state, dispatch] = useReducer(workflowReducer, initialState);
   const abortControllerReference = useRef<AbortController | null>(null);
 
@@ -490,7 +513,7 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
           prompt: query,
           model: modelPath,
           dataSources: allDataSourcePaths.length > 0 ? allDataSourcePaths : undefined,
-          aggregatorUrl: user?.aggregator_url ?? undefined,
+          aggregatorUrl: aggregatorUrl ?? undefined,
           guestMode: !user,
           signal: abortControllerReference.current.signal,
           messages: history && history.length > 0 ? history : undefined
@@ -543,7 +566,7 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
         abortControllerReference.current = null;
       }
     },
-    [model, user, sourcesMap, onComplete, onError, onStreamToken]
+    [model, user, aggregatorUrl, sourcesMap, onComplete, onError, onStreamToken]
   );
 
   /**

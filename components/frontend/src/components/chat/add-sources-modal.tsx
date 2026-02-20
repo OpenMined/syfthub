@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ChatSource } from '@/lib/types';
 
@@ -143,13 +143,14 @@ export const AddSourcesModal = memo(function AddSourcesModal({
   const [searchQuery, setSearchQuery] = useState('');
 
   // Sync local state when modal opens with new external selections
-  const previousOpenRef = useMemo(() => ({ current: false }), []);
-  if (isOpen && !previousOpenRef.current) {
-    // Modal just opened — reset local state to match store
-    setLocalSelected(new Set(selectedSourceIds));
-    setSearchQuery('');
-  }
-  previousOpenRef.current = isOpen;
+  const previousOpenRef = useRef(false);
+  useEffect(() => {
+    if (isOpen && !previousOpenRef.current) {
+      setLocalSelected(new Set(selectedSourceIds));
+      setSearchQuery('');
+    }
+    previousOpenRef.current = isOpen;
+  }, [isOpen, selectedSourceIds]);
 
   // Filter to data sources only (model_data_source endpoints are included)
   const dataSourceEndpoints = useMemo(

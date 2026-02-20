@@ -39,6 +39,7 @@ dependencies = [
     "redis[hiredis]>=5.0.0",
     "nats-py>=2.7.0",
     "google-auth[urllib3]>=2.0.0",
+    "meilisearch>=0.31.0",
 ]
 
 [project.scripts]
@@ -181,6 +182,11 @@ ignore_missing_imports = true
 # Handle redis async import issues (no type stubs available)
 [[tool.mypy.overrides]]
 module = "redis.*"
+ignore_missing_imports = true
+
+# Meilisearch Python client has no type stubs
+[[tool.mypy.overrides]]
+module = "meilisearch.*"
 ignore_missing_imports = true
 
 [tool.coverage.run]

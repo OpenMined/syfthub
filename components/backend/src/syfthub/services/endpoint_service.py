@@ -496,6 +496,31 @@ class EndpointService(BaseService):
             owner_slug=owner_slug, skip=skip, limit=limit
         )
 
+    def get_public_endpoint_by_path(
+        self, owner_username: str, slug: str
+    ) -> EndpointPublicResponse:
+        """Get a single public endpoint by owner username and slug.
+
+        Args:
+            owner_username: The username of the endpoint owner
+            slug: The endpoint slug
+
+        Returns:
+            EndpointPublicResponse
+
+        Raises:
+            HTTPException: 404 if endpoint is not found
+        """
+        endpoint = self.endpoint_repository.get_public_endpoint_by_owner_and_slug(
+            owner_username, slug
+        )
+        if endpoint is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Endpoint not found",
+            )
+        return endpoint
+
     def list_trending_endpoints(
         self,
         skip: int = 0,

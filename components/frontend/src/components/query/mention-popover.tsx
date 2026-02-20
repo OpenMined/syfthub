@@ -64,6 +64,7 @@ export const OwnerPopover = forwardRef<HTMLDivElement, OwnerPopoverProps>(
     return (
       <div
         ref={ref}
+        id='owner-mention-popover'
         className={cn(
           'bg-popover text-popover-foreground absolute z-50 w-64 rounded-lg border p-1 shadow-lg',
           className
@@ -76,6 +77,7 @@ export const OwnerPopover = forwardRef<HTMLDivElement, OwnerPopoverProps>(
           {owners.map((owner, index) => (
             <li
               key={owner.username}
+              id={`owner-option-${owner.username}`}
               role='option'
               aria-selected={index === highlightedIndex}
               className={cn(
@@ -151,6 +153,7 @@ export const EndpointPopover = forwardRef<HTMLDivElement, EndpointPopoverProps>(
     return (
       <div
         ref={ref}
+        id='endpoint-mention-popover'
         className={cn(
           'bg-popover text-popover-foreground absolute z-50 w-72 rounded-lg border p-1 shadow-lg',
           className
@@ -165,6 +168,7 @@ export const EndpointPopover = forwardRef<HTMLDivElement, EndpointPopoverProps>(
           {endpoints.map((endpoint, index) => (
             <li
               key={endpoint.id}
+              id={`endpoint-option-${endpoint.id}`}
               role='option'
               aria-selected={index === highlightedIndex}
               className={cn(

@@ -198,7 +198,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             skip: Number of endpoints to skip (pagination)
             limit: Maximum number of endpoints to return
             endpoint_type: Optional filter by endpoint type (model or data_source)
-            search: Optional search string to filter by name, description, or tags
+            search: Optional search string to filter by name, description, tags, or owner username
 
         Returns:
             List of EndpointPublicResponse objects
@@ -224,6 +224,10 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                         self.model.description.ilike(search_pattern),
                         # Search within tags JSON array by casting to text
                         cast(self.model.tags, Text).ilike(search_pattern),
+                        # Search by owner username (covers both user and org ownership)
+                        func.coalesce(UserModel.username, OrganizationModel.slug).ilike(
+                            search_pattern
+                        ),
                     )
                 )
 
@@ -329,6 +333,77 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         except SQLAlchemyError as e:
             logger.error("Failed to query endpoints by owner %s: %s", owner_slug, e)
             return []
+
+    def get_public_endpoint_by_owner_and_slug(
+        self, owner_username: str, slug: str
+    ) -> Optional[EndpointPublicResponse]:
+        """Get a single public endpoint by owner username and slug.
+
+        Performs a direct lookup using the owner_username (user.username or
+        org.slug) and endpoint slug. Only returns public, active endpoints.
+
+        Args:
+            owner_username: The username of the endpoint owner (user or org)
+            slug: The endpoint slug
+
+        Returns:
+            EndpointPublicResponse if found, None otherwise
+        """
+        try:
+            owner_username_col = func.coalesce(
+                UserModel.username, OrganizationModel.slug
+            )
+
+            stmt = (
+                self._build_public_select()
+                .where(
+                    and_(
+                        self.model.visibility == EndpointVisibility.PUBLIC.value,
+                        self.model.is_active,
+                        self.model.slug == slug.lower(),
+                        owner_username_col == owner_username,
+                    )
+                )
+                .limit(1)
+            )
+
+            result = self.session.execute(stmt)
+            row = result.one_or_none()
+
+            if row is None:
+                return None
+
+            endpoint_model, _username, domain = row
+
+            transformed_connect = transform_connection_urls(
+                domain, endpoint_model.connect or []
+            )
+
+            endpoint_dict = {
+                "name": endpoint_model.name,
+                "slug": endpoint_model.slug,
+                "description": endpoint_model.description,
+                "type": endpoint_model.type,
+                "owner_username": owner_username,
+                "contributors_count": len(endpoint_model.contributors or []),
+                "version": endpoint_model.version,
+                "readme": endpoint_model.readme,
+                "tags": endpoint_model.tags or [],
+                "stars_count": endpoint_model.stars_count,
+                "policies": endpoint_model.policies,
+                "connect": transformed_connect,
+                "created_at": endpoint_model.created_at,
+                "updated_at": endpoint_model.updated_at,
+            }
+            return EndpointPublicResponse(**endpoint_dict)
+        except SQLAlchemyError as e:
+            logger.error(
+                "Failed to query public endpoint %s/%s: %s",
+                owner_username,
+                slug,
+                e,
+            )
+            return None
 
     def get_public_endpoints_by_ids(
         self,
@@ -1130,7 +1205,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
 
         Args:
             endpoint_id: The endpoint ID to update.
-            file_id: The OpenAI file ID, or None to clear.
+            file_id: The RAG file ID, or None to clear.
 
         Returns:
             True if updated successfully, False otherwise.

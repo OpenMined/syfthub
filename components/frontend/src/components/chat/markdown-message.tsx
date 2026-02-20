@@ -113,13 +113,13 @@ const CodeBlock = memo(function CodeBlock({
   }, [style]);
 
   return (
-    <div className='group relative my-3 overflow-hidden rounded-lg border border-[#3a3847] bg-[#1e1d2a]'>
+    <div className='group border-code-border bg-code-bg relative my-3 overflow-hidden rounded-lg border'>
       {/* Header with language and copy button */}
-      <div className='flex items-center justify-between border-b border-[#3a3847] bg-[#16151f] px-3 py-1.5'>
-        <span className='font-mono text-[11px] text-[#8b8a91]'>{language ?? 'text'}</span>
+      <div className='border-code-border bg-code-header-bg flex items-center justify-between border-b px-3 py-1.5'>
+        <span className='text-code-muted font-mono text-[11px]'>{language ?? 'text'}</span>
         <button
           onClick={copyToClipboard}
-          className='hover:bg-card/10 flex items-center gap-1.5 rounded px-2 py-1 text-[11px] text-[#8b8a91] transition-colors hover:text-white'
+          className='hover:bg-card/10 text-code-muted hover:text-foreground flex items-center gap-1.5 rounded px-2 py-1 text-[11px] transition-colors'
         >
           {copied ? (
             <>
@@ -292,7 +292,9 @@ export const MarkdownMessage = memo(function MarkdownMessage({
           em: ({ children }) => <em className='italic'>{children}</em>,
 
           // Delete (strikethrough from GFM)
-          del: ({ children }) => <del className='text-[#8b8a91] line-through'>{children}</del>,
+          del: ({ children }) => (
+            <del className='text-muted-foreground line-through'>{children}</del>
+          ),
 
           // Images - lazy load for better performance (Web Interface Guidelines)
           img: ({ src, alt }) => (

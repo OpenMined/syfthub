@@ -53,20 +53,23 @@ services:
       - CORS_ORIGINS=http://localhost:8080
       # Disable accounting service for local development
       - DEFAULT_ACCOUNTING_URL=
-      # RAG/OpenAI configuration (optional - semantic search disabled if not set)
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       # Redis for message queue
       - REDIS_URL=redis://redis:6379/0
       # NATS configuration for P2P tunneling
       - NATS_URL=nats://nats:4222
       - NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN:-dev-nats-token}
       - NATS_WS_PUBLIC_URL=ws://localhost:8080/nats
+      # Meilisearch configuration (optional - semantic search disabled if not set)
+      - MEILI_URL=http://meilisearch:7700
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-dev-master-key}
     networks:
       - syfthub-network
     depends_on:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      meilisearch:
         condition: service_healthy
       nats:
         condition: service_healthy
@@ -149,6 +152,29 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Meilisearch - full-text search engine for endpoint discovery
+  meilisearch:
+    image: getmeili/meilisearch:latest
+    container_name: syfthub-meilisearch-dev
+    expose:
+      - "7700"
+    # Exposed for direct access (debugging)
+    ports:
+      - "7700:7700"
+    volumes:
+      - meili_data:/meili_data
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-dev-master-key}
+      - MEILI_ENV=development
+    networks:
+      - syfthub-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # Aggregator service - RAG orchestration
   aggregator:
@@ -265,3 +291,5 @@ volumes:
     name: syfthub_redis_data_dev
   nats_data:
     name: syfthub_nats_data_dev
+  meili_data:
+    name: syfthub_meili_data_dev

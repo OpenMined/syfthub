@@ -103,6 +103,11 @@ check_prerequisites() {
         die "Environment file not found: ${DEPLOY_DIR}/.env"
     fi
 
+    # Source .env early so we can validate all required variables
+    set -a
+    source "${DEPLOY_DIR}/.env"
+    set +a
+
     # Check required environment variables
     if [[ -z "${IMAGE_TAG:-}" ]]; then
         die "IMAGE_TAG environment variable is required"
@@ -110,6 +115,10 @@ check_prerequisites() {
 
     if [[ -z "${GITHUB_REPOSITORY:-}" ]]; then
         die "GITHUB_REPOSITORY environment variable is required"
+    fi
+
+    if [[ -z "${MEILI_MASTER_KEY:-}" ]]; then
+        die "MEILI_MASTER_KEY environment variable is required. Meilisearch in production mode requires a master key (at least 16 bytes). Add MEILI_MASTER_KEY to ${DEPLOY_DIR}/.env"
     fi
 
     log INFO "Prerequisites check passed"
@@ -178,6 +187,7 @@ pull_images() {
     if [[ -n "$ci_github_repo" ]]; then
         GITHUB_REPOSITORY="$ci_github_repo"
     fi
+
 
     # Ensure GITHUB_REPOSITORY is lowercase (Docker requirement)
     GITHUB_REPOSITORY=$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
@@ -262,9 +272,9 @@ deploy_services() {
 
     cd "$DEPLOY_DIR"
 
-    # Ensure database and redis are running
-    log INFO "Ensuring database and redis are running..."
-    docker compose -f "$COMPOSE_FILE" up -d db redis
+    # Ensure database, redis, and meilisearch are running
+    log INFO "Ensuring database, redis, and meilisearch are running..."
+    docker compose -f "$COMPOSE_FILE" up -d db redis meilisearch
 
     # Wait for database to be healthy
     log INFO "Waiting for database to be healthy..."
@@ -276,6 +286,18 @@ deploy_services() {
         fi
         sleep 2
     done
+
+    # Wait for meilisearch to be healthy
+    log INFO "Waiting for meilisearch to be healthy..."
+    retries=0
+    while ! docker compose -f "$COMPOSE_FILE" exec -T meilisearch curl -sf http://localhost:7700/health &> /dev/null; do
+        retries=$((retries + 1))
+        if [[ $retries -ge 30 ]]; then
+            die "Meilisearch failed to become healthy"
+        fi
+        sleep 2
+    done
+    log INFO "Meilisearch is healthy"
 
     # Rolling restart: Backend first
     log INFO "Restarting backend..."

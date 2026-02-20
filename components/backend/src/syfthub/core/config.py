@@ -297,46 +297,46 @@ class Settings(BaseSettings):
     )
 
     # ===========================================
-    # RAG / OPENAI VECTOR STORE SETTINGS
+    # RAG / MEILISEARCH SETTINGS
     # ===========================================
 
-    # OpenAI API key for vector store operations
-    openai_api_key: Optional[str] = Field(
+    # Meilisearch server URL (e.g. http://meilisearch:7700)
+    meili_url: Optional[str] = Field(
         default=None,
-        description="OpenAI API key for RAG vector store operations",
+        description="Meilisearch server URL for endpoint search",
     )
 
-    # Vector store name - used to identify or create the store
-    openai_vector_store_name: str = Field(
-        default="syfthub-endpoints-v1",
-        description="Name for the OpenAI vector store",
+    # Meilisearch master key (optional in dev, required in production)
+    meili_master_key: Optional[str] = Field(
+        default=None,
+        description="Meilisearch master/API key",
+    )
+
+    # Meilisearch index name for endpoints
+    meili_index_name: str = Field(
+        default="syfthub-endpoints",
+        description="Meilisearch index name for endpoint documents",
     )
 
     # Feature flag to enable/disable RAG functionality
     rag_enabled: bool = Field(
         default=True,
-        description="Enable RAG-based semantic search for endpoints",
+        description="Enable search indexing for endpoints",
     )
 
-    # Timeout for OpenAI API requests
-    rag_request_timeout: float = Field(
-        default=30.0,
-        description="Timeout in seconds for OpenAI API requests",
-    )
-
-    # Maximum results to request from vector store (before filtering)
+    # Maximum results to request from Meilisearch (before filtering)
     rag_max_results: int = Field(
         default=50,
-        description="Maximum results to request from vector store search",
+        description="Maximum results to request from Meilisearch search",
     )
 
     @property
     def rag_available(self) -> bool:
-        """Check if RAG functionality is available and configured."""
+        """Check if search functionality is available and configured."""
         return (
             self.rag_enabled
-            and self.openai_api_key is not None
-            and len(self.openai_api_key.strip()) > 0
+            and self.meili_url is not None
+            and len(self.meili_url.strip()) > 0
         )
 
     # ===========================================
