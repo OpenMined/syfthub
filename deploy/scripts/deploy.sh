@@ -103,6 +103,11 @@ check_prerequisites() {
         die "Environment file not found: ${DEPLOY_DIR}/.env"
     fi
 
+    # Source .env early so we can validate all required variables
+    set -a
+    source "${DEPLOY_DIR}/.env"
+    set +a
+
     # Check required environment variables
     if [[ -z "${IMAGE_TAG:-}" ]]; then
         die "IMAGE_TAG environment variable is required"
@@ -110,6 +115,10 @@ check_prerequisites() {
 
     if [[ -z "${GITHUB_REPOSITORY:-}" ]]; then
         die "GITHUB_REPOSITORY environment variable is required"
+    fi
+
+    if [[ -z "${MEILI_MASTER_KEY:-}" ]]; then
+        die "MEILI_MASTER_KEY environment variable is required. Meilisearch in production mode requires a master key (at least 16 bytes). Add MEILI_MASTER_KEY to ${DEPLOY_DIR}/.env"
     fi
 
     log INFO "Prerequisites check passed"
@@ -153,14 +162,9 @@ pull_images() {
 
     cd "$DEPLOY_DIR"
 
-    # Export variables for docker-compose
+    # Export variables for docker-compose (.env already sourced in check_prerequisites)
     export IMAGE_TAG
     export GITHUB_REPOSITORY
-
-    # Source .env for other variables
-    set -a
-    source .env
-    set +a
 
     # Ensure GITHUB_REPOSITORY is lowercase (Docker requirement)
     GITHUB_REPOSITORY=$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')

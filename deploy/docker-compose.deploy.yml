@@ -11,9 +11,7 @@
 #   - DOMAIN: Production domain (e.g., syfthub.example.com)
 #   - RSA_PRIVATE_KEY_PEM: Base64-encoded RSA private key for satellite tokens
 #   - RSA_PUBLIC_KEY_PEM: Base64-encoded RSA public key for satellite tokens
-#
-# Optional environment variables:
-#   - MEILI_MASTER_KEY: Meilisearch master key for search (required in production)
+#   - MEILI_MASTER_KEY: Meilisearch master key (at least 16 bytes)
 #
 # RSA Key Generation (required for satellite token signing):
 #   openssl genrsa -out private.pem 2048
