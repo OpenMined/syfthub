@@ -242,9 +242,9 @@ deploy_services() {
 
     cd "$DEPLOY_DIR"
 
-    # Ensure database and redis are running
-    log INFO "Ensuring database and redis are running..."
-    docker compose -f "$COMPOSE_FILE" up -d db redis
+    # Ensure database, redis, and meilisearch are running
+    log INFO "Ensuring database, redis, and meilisearch are running..."
+    docker compose -f "$COMPOSE_FILE" up -d db redis meilisearch
 
     # Wait for database to be healthy
     log INFO "Waiting for database to be healthy..."
@@ -256,6 +256,18 @@ deploy_services() {
         fi
         sleep 2
     done
+
+    # Wait for meilisearch to be healthy
+    log INFO "Waiting for meilisearch to be healthy..."
+    retries=0
+    while ! docker compose -f "$COMPOSE_FILE" exec -T meilisearch curl -sf http://localhost:7700/health &> /dev/null; do
+        retries=$((retries + 1))
+        if [[ $retries -ge 30 ]]; then
+            die "Meilisearch failed to become healthy"
+        fi
+        sleep 2
+    done
+    log INFO "Meilisearch is healthy"
 
     # Rolling restart: Backend first
     log INFO "Restarting backend..."
