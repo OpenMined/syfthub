@@ -686,12 +686,13 @@ jobs:
           IMAGE_TAG: ${{ needs.build-images.outputs.image_tag }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MEILI_MASTER_KEY: ${{ secrets.MEILI_MASTER_KEY }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          envs: IMAGE_TAG,GITHUB_REPOSITORY,GHCR_TOKEN
+          envs: IMAGE_TAG,GITHUB_REPOSITORY,GHCR_TOKEN,MEILI_MASTER_KEY
           script: |
             set -e
             cd /opt/syfthub
@@ -704,9 +705,16 @@ jobs:
             # Login to GHCR
             echo "$GHCR_TOKEN" | docker login ghcr.io -u github-actions --password-stdin
 
+            # Ensure MEILI_MASTER_KEY is persisted in .env for docker-compose
+            if ! grep -q "^MEILI_MASTER_KEY=" .env 2>/dev/null; then
+              echo "MEILI_MASTER_KEY=${MEILI_MASTER_KEY}" >> .env
+              echo "Added MEILI_MASTER_KEY to .env"
+            fi
+
             # Export for docker-compose
             export IMAGE_TAG
             export GITHUB_REPOSITORY
+            export MEILI_MASTER_KEY
 
             # Run deployment script
             ./deploy.sh
