@@ -1,0 +1,20 @@
+# Built binary
+syft
+syft.exe
+
+# Build output
+/dist/
+
+# Test coverage
+coverage.out
+coverage.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

@@ -119,3 +119,53 @@ repos:
         language: system
         files: ^components/frontend/.*\.(ts|tsx)$
         pass_filenames: false
+
+  # Go SDK hooks (sdk/golang)
+  - repo: local
+    hooks:
+      - id: go-sdk-fmt
+        name: go fmt (sdk/golang)
+        entry: sh -c 'cd sdk/golang && test -z "$(gofmt -l .)"'
+        language: system
+        files: ^sdk/golang/.*\.go$
+        pass_filenames: false
+
+      - id: go-sdk-vet
+        name: go vet (sdk/golang)
+        entry: sh -c 'cd sdk/golang && go vet ./...'
+        language: system
+        files: ^sdk/golang/.*\.go$
+        pass_filenames: false
+
+      - id: go-sdk-test
+        name: go test (sdk/golang)
+        entry: sh -c 'cd sdk/golang && go test ./... -count=1'
+        language: system
+        files: ^sdk/golang/.*\.go$
+        pass_filenames: false
+        stages: [pre-push]
+
+  # SyftHub Desktop hooks (syfthub-desktop)
+  - repo: local
+    hooks:
+      - id: desktop-gofmt
+        name: go fmt (syfthub-desktop)
+        entry: sh -c 'cd syfthub-desktop && test -z "$(gofmt -l .)"'
+        language: system
+        files: ^syfthub-desktop/.*\.go$
+        pass_filenames: false
+
+      - id: desktop-govet
+        name: go vet (syfthub-desktop)
+        entry: sh -c 'cd syfthub-desktop && go vet ./...'
+        language: system
+        files: ^syfthub-desktop/.*\.go$
+        pass_filenames: false
+
+      - id: desktop-gotest
+        name: go test (syfthub-desktop)
+        entry: sh -c 'cd syfthub-desktop && go test ./... -count=1'
+        language: system
+        files: ^syfthub-desktop/.*\.go$
+        pass_filenames: false
+        stages: [pre-push]

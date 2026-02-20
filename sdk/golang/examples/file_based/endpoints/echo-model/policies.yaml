@@ -1,0 +1,41 @@
+# Policy configuration for echo-model endpoint
+version: "1.0"
+
+# Store configuration for stateful policies (rate limiting, etc.)
+store:
+  type: sqlite
+  path: .policy_store.db
+
+# Policies are evaluated in order during pre_execute and post_execute phases
+policies:
+  # Access control - only allow specific users
+  - name: allowed_users
+    type: access_group
+    config:
+      owner: admin
+      users:
+        - newusr654
+        - admin
+        - developer
+        - test-user
+      documents: []
+
+  # Rate limiting - max 10 requests per minute per user
+  - name: request_rate_limit
+    type: rate_limit
+    config:
+      max_requests: 10
+      window_seconds: 60
+
+  # Content filtering - block profanity and injection attempts
+  - name: content_filter
+    type: prompt_filter
+    config:
+      patterns:
+        - "(?i)\\b(password|secret|api[_-]?key)\\b"
+        - "(?i)<script>"
+        - "(?i)\\bexec\\s*\\("
+      input_path: query
+      output_path: response
+      check_input: true
+      check_output: true

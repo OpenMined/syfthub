@@ -76,7 +76,7 @@ class EndpointModel(BaseModel, TimestampMixin):
         JSON, nullable=False, default=lambda: []
     )
 
-    # RAG integration - OpenAI vector store file ID
+    # RAG integration - vector store file ID
     rag_file_id: Mapped[Optional[str]] = mapped_column(
         String(255), nullable=True, default=None
     )

@@ -55,23 +55,11 @@ detect_os() {
 
 # Detect architecture
 detect_arch() {
-    local os="$1"
-    local arch
     case "$(uname -m)" in
-        x86_64|amd64) arch="x64" ;;
-        aarch64|arm64) arch="arm64" ;;
+        x86_64|amd64) echo "x64" ;;
+        aarch64|arm64) echo "arm64" ;;
         *) error "Unsupported architecture: $(uname -m)" ;;
     esac
-
-    # macOS: only arm64 binary available (works on Intel via Rosetta 2)
-    if [ "$os" = "darwin" ]; then
-        if [ "$arch" = "x64" ]; then
-            warn "Intel Mac detected. Using arm64 binary via Rosetta 2."
-        fi
-        echo "arm64"
-    else
-        echo "$arch"
-    fi
 }
 
 # Get the latest release version
@@ -134,7 +122,7 @@ main() {
 
     # Detect platform
     OS=$(detect_os)
-    ARCH=$(detect_arch "$OS")
+    ARCH=$(detect_arch)
     info "Detected platform: ${OS}-${ARCH}"
 
     # Get version

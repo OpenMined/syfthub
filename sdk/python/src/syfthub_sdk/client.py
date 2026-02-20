@@ -13,6 +13,7 @@ else:
 
 from syfthub_sdk._http import HTTPClient
 from syfthub_sdk.accounting import AccountingResource
+from syfthub_sdk.api_tokens import APITokensResource
 from syfthub_sdk.auth import AuthResource
 from syfthub_sdk.chat import ChatResource
 from syfthub_sdk.exceptions import ConfigurationError
@@ -22,9 +23,10 @@ from syfthub_sdk.my_endpoints import MyEndpointsResource
 from syfthub_sdk.syftai import SyftAIResource
 from syfthub_sdk.users import UsersResource
 
-# Environment variable for SyftHub URL
+# Environment variables
 ENV_SYFTHUB_URL = "SYFTHUB_URL"
 ENV_AGGREGATOR_URL = "SYFTHUB_AGGREGATOR_URL"
+ENV_API_TOKEN = "SYFTHUB_API_TOKEN"
 
 
 class SyftHubClient:
@@ -38,8 +40,15 @@ class SyftHubClient:
         # Or with explicit URL
         client = SyftHubClient(base_url="https://hub.syft.com")
 
-        # Login
+        # Login with username/password
         client.auth.login(username="john", password="secret123")
+
+        # Or use API token (alternative to login)
+        client = SyftHubClient(
+            base_url="https://hub.syft.com",
+            api_token="syft_pat_xxxxx...",
+        )
+        # No login needed with API token!
 
         # Use resources
         for endpoint in client.my_endpoints.list():
@@ -47,6 +56,10 @@ class SyftHubClient:
 
         for public_ep in client.hub.browse():
             print(public_ep.path)
+
+        # Manage API tokens
+        token = client.api_tokens.create(name="CI/CD Pipeline")
+        print("Save this:", token.token)
 
         # Accounting (auto-retrieved from backend after login)
         user = client.accounting.get_user()
@@ -78,8 +91,8 @@ class SyftHubClient:
         base_url: str | None = None,
         *,
         timeout: float = 30.0,
-        # Aggregator URL (optional)
         aggregator_url: str | None = None,
+        api_token: str | None = None,
     ) -> None:
         """Initialize the SyftHub client.
 
@@ -88,6 +101,9 @@ class SyftHubClient:
             timeout: Request timeout in seconds (default 30)
             aggregator_url: Aggregator service URL (optional, defaults to
                 {base_url}/aggregator/api/v1 or from SYFTHUB_AGGREGATOR_URL env var)
+            api_token: API token for authentication (or from SYFTHUB_API_TOKEN env var).
+                If provided, the client will be authenticated immediately without
+                needing to call login().
 
         Raises:
             ConfigurationError: If base_url is not provided and
@@ -114,6 +130,11 @@ class SyftHubClient:
         # Create HTTP client
         self._http = HTTPClient(base_url=self._base_url, timeout=timeout)
 
+        # Initialize with API token if provided
+        resolved_api_token = api_token or os.environ.get(ENV_API_TOKEN)
+        if resolved_api_token:
+            self._http.set_api_token(resolved_api_token)
+
         # Create resource instances
         self._auth = AuthResource(self._http)
         self._users = UsersResource(self._http)
@@ -124,6 +145,7 @@ class SyftHubClient:
         self._chat: ChatResource | None = None
         self._syftai: SyftAIResource | None = None
         self._accounting: AccountingResource | None = None
+        self._api_tokens: APITokensResource | None = None
 
     @property
     def auth(self) -> AuthResource:
@@ -262,9 +284,41 @@ class SyftHubClient:
         return self._syftai
 
     @property
+    def api_tokens(self) -> APITokensResource:
+        """Manage API tokens (create, list, revoke).
+
+        API tokens provide an alternative to username/password authentication.
+        They are ideal for CI/CD pipelines, scripts, and programmatic access.
+
+        Example:
+            # Create a new token
+            result = client.api_tokens.create(
+                name="CI/CD Pipeline",
+                scopes=["write"],
+            )
+            print("Save this token:", result.token)
+
+            # List all tokens
+            response = client.api_tokens.list()
+            for token in response.tokens:
+                print(token.name, token.last_used_at)
+
+            # Revoke a token
+            client.api_tokens.revoke(token_id)
+        """
+        if self._api_tokens is None:
+            self._api_tokens = APITokensResource(self._http)
+        return self._api_tokens
+
+    @property
     def is_authenticated(self) -> bool:
-        """Check if the client has authentication tokens."""
+        """Check if the client has authentication (JWT or API token)."""
         return self._http.is_authenticated
+
+    @property
+    def is_using_api_token(self) -> bool:
+        """Check if the client is using API token authentication."""
+        return self._http.is_using_api_token
 
     def get_tokens(self) -> AuthTokens | None:
         """Get current authentication tokens for persistence.
