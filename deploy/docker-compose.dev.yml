@@ -17,6 +17,7 @@ services:
       - frontend
       - aggregator
       - mcp
+      - nats
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
       interval: 30s
@@ -52,6 +53,10 @@ services:
       - CORS_ORIGINS=http://localhost:8080
       # Disable accounting service for local development
       - DEFAULT_ACCOUNTING_URL=
+      # NATS configuration for P2P tunneling
+      - NATS_URL=nats://nats:4222
+      - NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN:-dev-nats-token}
+      - NATS_WS_PUBLIC_URL=ws://localhost:8080/nats
       # Meilisearch configuration (optional - semantic search disabled if not set)
       - MEILI_URL=http://meilisearch:7700
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-dev-master-key}
@@ -61,6 +66,8 @@ services:
       db:
         condition: service_healthy
       meilisearch:
+        condition: service_healthy
+      nats:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -163,6 +170,9 @@ services:
       - AGGREGATOR_DEBUG=true
       - AGGREGATOR_SYFTHUB_URL=http://backend:8000
       - AGGREGATOR_CORS_ORIGINS=["http://localhost:8080"]
+      # NATS configuration for P2P tunneling
+      - AGGREGATOR_NATS_URL=nats://nats:4222
+      - AGGREGATOR_NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN:-dev-nats-token}
     # Enable host.docker.internal on Linux/WSL2 (required for connecting to host services)
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -224,6 +234,30 @@ services:
       retries: 3
       start_period: 20s
 
+  # NATS messaging server for P2P communication
+  nats:
+    image: nats:2.10-alpine
+    container_name: syfthub-nats-dev
+    ports:
+      - "4222:4222"   # Client connections (exposed for local nats-cli)
+      - "8222:8222"   # HTTP monitoring
+    expose:
+      - "9222"        # WebSocket (proxied via nginx)
+    volumes:
+      - ./nats/nats.dev.conf:/etc/nats/nats.conf:ro
+      - nats_data:/data/jetstream
+    environment:
+      - NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN:-dev-nats-token}
+    command: ["--config", "/etc/nats/nats.conf"]
+    networks:
+      - syfthub-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
 networks:
   syfthub-network:
     driver: bridge
@@ -231,5 +265,7 @@ networks:
 volumes:
   postgres_data:
     name: syfthub_postgres_data_dev
+  nats_data:
+    name: syfthub_nats_data_dev
   meili_data:
     name: syfthub_meili_data_dev

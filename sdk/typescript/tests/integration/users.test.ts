@@ -89,4 +89,64 @@ describe('UsersResource', () => {
       expect(available).toBe(false);
     });
   });
+
+  describe('sendHeartbeat', () => {
+    it('should send heartbeat with default TTL', async () => {
+      const { client } = await createAuthenticatedClient();
+
+      const response = await client.users.sendHeartbeat({
+        url: 'https://myspace.example.com',
+      });
+
+      expect(response.status).toBe('ok');
+      expect(response.domain).toBe('myspace.example.com');
+      expect(response.ttlSeconds).toBeLessThanOrEqual(600); // Server caps at 600
+      expect(response.receivedAt).toBeInstanceOf(Date);
+      expect(response.expiresAt).toBeInstanceOf(Date);
+      expect(response.expiresAt.getTime()).toBeGreaterThan(response.receivedAt.getTime());
+    });
+
+    it('should send heartbeat with custom TTL', async () => {
+      const { client } = await createAuthenticatedClient();
+
+      const response = await client.users.sendHeartbeat({
+        url: 'https://myspace.example.com',
+        ttlSeconds: 600,
+      });
+
+      expect(response.status).toBe('ok');
+      expect(response.ttlSeconds).toBeLessThanOrEqual(600);
+    });
+
+    it('should extract domain with port', async () => {
+      const { client } = await createAuthenticatedClient();
+
+      const response = await client.users.sendHeartbeat({
+        url: 'https://myspace.example.com:8080/api/health',
+      });
+
+      expect(response.status).toBe('ok');
+      expect(response.domain).toBe('myspace.example.com:8080');
+    });
+
+    it('should cap TTL at server maximum', async () => {
+      const { client } = await createAuthenticatedClient();
+
+      const response = await client.users.sendHeartbeat({
+        url: 'https://myspace.example.com',
+        ttlSeconds: 3600, // Request 1 hour
+      });
+
+      expect(response.status).toBe('ok');
+      expect(response.ttlSeconds).toBeLessThanOrEqual(600); // Server caps at 600
+    });
+
+    it('should fail when not authenticated', async () => {
+      const client = createTestClient();
+
+      await expect(
+        client.users.sendHeartbeat({ url: 'https://myspace.example.com' })
+      ).rejects.toThrow(AuthenticationError);
+    });
+  });
 });

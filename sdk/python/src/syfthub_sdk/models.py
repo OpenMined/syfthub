@@ -85,6 +85,25 @@ class SatelliteTokenResponse(BaseModel):
     model_config = {"frozen": True}
 
 
+class PeerTokenResponse(BaseModel):
+    """Response from peer token endpoint.
+
+    Peer tokens are short-lived credentials that allow the aggregator to
+    communicate with tunneling SyftAI Spaces via NATS pub/sub.
+    """
+
+    peer_token: str = Field(
+        ..., description="Short-lived token for NATS authentication"
+    )
+    peer_channel: str = Field(
+        ..., description="Unique reply channel for receiving responses"
+    )
+    expires_in: int = Field(..., description="Seconds until the token expires")
+    nats_url: str = Field(..., description="NATS server URL for WebSocket connections")
+
+    model_config = {"frozen": True}
+
+
 class Policy(BaseModel):
     """Policy configuration for endpoints."""
 
@@ -473,6 +492,98 @@ class Message(BaseModel):
 
 
 # =============================================================================
+# API Token Models
+# =============================================================================
+
+
+class APITokenScope(str, Enum):
+    """API token permission scopes."""
+
+    READ = "read"
+    WRITE = "write"
+    FULL = "full"
+
+
+class APIToken(BaseModel):
+    """API token metadata (without the actual token value).
+
+    The full token value is only returned once during creation.
+    """
+
+    id: int
+    name: str
+    token_prefix: str = Field(
+        ..., description="First 12 chars of the token for identification"
+    )
+    scopes: list[APITokenScope] = Field(default_factory=lambda: [APITokenScope.FULL])
+    expires_at: datetime | None = None
+    last_used_at: datetime | None = None
+    last_used_ip: str | None = None
+    is_active: bool = True
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"frozen": True}
+
+
+class APITokenCreateResponse(APIToken):
+    """Response from creating an API token.
+
+    IMPORTANT: The `token` field is only returned ONCE during creation.
+    Store it securely - it cannot be retrieved later.
+    """
+
+    token: str = Field(..., description="The full token value (shown only once)")
+
+
+class CreateAPITokenInput(BaseModel):
+    """Input for creating a new API token."""
+
+    name: str = Field(..., min_length=1, max_length=100, description="Token name")
+    scopes: list[APITokenScope] = Field(
+        default_factory=lambda: [APITokenScope.FULL],
+        description="Permission scopes",
+    )
+    expires_at: datetime | None = Field(
+        default=None, description="Optional expiration date"
+    )
+
+
+class UpdateAPITokenInput(BaseModel):
+    """Input for updating an API token (only name can be changed)."""
+
+    name: str = Field(..., min_length=1, max_length=100, description="New token name")
+
+
+class APITokenListResponse(BaseModel):
+    """Response from listing API tokens."""
+
+    tokens: list[APIToken] = Field(default_factory=list)
+    total: int = 0
+
+    model_config = {"frozen": True}
+
+
+# =============================================================================
+# NATS Credentials Models
+# =============================================================================
+
+
+class NatsCredentials(BaseModel):
+    """Credentials for connecting to the NATS server.
+
+    Fetched from the hub after login so spaces can connect to NATS
+    without needing a separate environment variable.
+    """
+
+    nats_auth_token: str = Field(
+        ..., description="The shared NATS auth token for WebSocket connections"
+    )
+
+    model_config = {"frozen": True}
+
+
+# =============================================================================
 # Sync Endpoints Models
 # =============================================================================
 
@@ -488,6 +599,38 @@ class SyncEndpointsResponse(BaseModel):
     deleted: int = Field(..., ge=0, description="Number of endpoints deleted")
     endpoints: list[Endpoint] = Field(
         ..., description="List of created endpoints with full details"
+    )
+
+    model_config = {"frozen": True}
+
+
+# =============================================================================
+# Heartbeat Models
+# =============================================================================
+
+
+class HeartbeatResponse(BaseModel):
+    """Response from the heartbeat endpoint.
+
+    The heartbeat mechanism allows SyftAI Spaces to signal their availability
+    to SyftHub. The server returns the effective TTL (which may be capped)
+    and the expiration time.
+
+    Example:
+        response = client.users.send_heartbeat(
+            url="https://myspace.example.com",
+            ttl_seconds=300
+        )
+        print(f"Heartbeat expires at: {response.expires_at}")
+        print(f"Effective TTL: {response.ttl_seconds}s")
+    """
+
+    status: str = Field(..., description="Status of the heartbeat (typically 'ok')")
+    received_at: datetime = Field(..., description="When the heartbeat was received")
+    expires_at: datetime = Field(..., description="When the heartbeat will expire")
+    domain: str = Field(..., description="Extracted domain from the URL")
+    ttl_seconds: int = Field(
+        ..., description="Effective TTL applied (may be capped by server)"
     )
 
     model_config = {"frozen": True}

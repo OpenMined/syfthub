@@ -1,4 +1,4 @@
-.PHONY: help setup dev stop test test-serial check logs
+.PHONY: help setup dev stop test test-serial test-integration check logs
 
 # =============================================================================
 # SyftHub Development Commands
@@ -77,8 +77,14 @@ test:  ## Run all tests (parallel execution using all CPU cores)
 	@echo 'CLI tests...'
 	@cd cli && uv sync --extra dev && uv run pytest
 	@echo ''
+	@echo 'SyftHub API tests...'
+	@cd syfthub-api && uv sync --extra dev && uv run pytest tests/ -v
+	@echo ''
 	@echo 'Python SDK unit tests...'
 	@cd sdk/python && uv sync --extra dev && uv run pytest tests/unit
+	@echo ''
+	@echo 'TypeScript SDK unit tests...'
+	@cd sdk/typescript && npx vitest run --exclude 'tests/integration/**' || echo 'TypeScript SDK tests skipped'
 	@echo ''
 	@echo 'Frontend tests...'
 	@cd components/frontend && npm run test --if-present || echo 'Frontend tests skipped (playwright not configured)'
@@ -87,11 +93,56 @@ test:  ## Run all tests (parallel execution using all CPU cores)
 	@echo '  All tests complete!'
 	@echo '═══════════════════════════════════════════════════════════════'
 
+test-serial:  ## Run all tests sequentially (for debugging)
+	@echo '═══════════════════════════════════════════════════════════════'
+	@echo '  Running all tests in SERIAL mode (-n 0)'
+	@echo '═══════════════════════════════════════════════════════════════'
+	@echo ''
+	@echo 'Backend tests...'
+	@cd components/backend && uv sync --extra dev && uv run pytest -n 0
+	@echo ''
+	@echo 'Aggregator tests...'
+	@cd components/aggregator && uv sync --extra dev && uv run pytest -n 0
+	@echo ''
+	@echo 'CLI tests...'
+	@cd cli && uv sync --extra dev && uv run pytest -n 0
+	@echo ''
+	@echo 'SyftHub API tests...'
+	@cd syfthub-api && uv sync --extra dev && uv run pytest tests/ -v -n 0
+	@echo ''
+	@echo 'Python SDK unit tests...'
+	@cd sdk/python && uv sync --extra dev && uv run pytest tests/unit -n 0
+	@echo ''
+	@echo 'TypeScript SDK unit tests...'
+	@cd sdk/typescript && npx vitest run --exclude 'tests/integration/**' || echo 'TypeScript SDK tests skipped'
+	@echo ''
+	@echo 'Frontend tests...'
+	@cd components/frontend && npm run test --if-present || echo 'Frontend tests skipped (playwright not configured)'
+	@echo ''
+	@echo '═══════════════════════════════════════════════════════════════'
+	@echo '  All tests complete!'
+	@echo '═══════════════════════════════════════════════════════════════'
+
+test-integration:  ## Run integration tests (requires dev server running)
+	@echo 'Running SDK integration tests...'
+	@echo '(Requires: make dev to be running)'
+	@echo ''
+	@echo 'Python SDK integration tests...'
+	@cd sdk/python && uv run pytest tests/integration/ -v
+	@echo ''
+	@echo 'TypeScript SDK integration tests...'
+	@cd sdk/typescript && npx vitest run tests/integration/
+
 check:  ## Run code quality checks
 	@echo 'Backend checks...'
 	@cd components/backend && uv run ruff check src/ tests/
 	@cd components/backend && uv run ruff format --check src/ tests/
 	@cd components/backend && uv run python -m mypy src/ || true
+	@echo ''
+	@echo 'SyftHub API checks...'
+	@cd syfthub-api && uv run ruff check src/ tests/
+	@cd syfthub-api && uv run ruff format --check src/ tests/
+	@cd syfthub-api && uv run mypy src/syfthub_api/ --ignore-missing-imports
 	@echo ''
 	@echo 'Frontend checks...'
 	@cd components/frontend && npm run lint --if-present || true

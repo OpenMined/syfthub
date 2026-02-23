@@ -102,6 +102,15 @@ class ChatRequest(BaseModel):
         description="Conversation history (prior turns) for multi-turn context. "
         "Only used for LLM generation; data source retrieval remains stateless.",
     )
+    # NATS peer token fields for tunneling spaces
+    peer_token: str | None = Field(
+        default=None,
+        description="Peer token from /api/v1/peer-token for NATS tunneling authentication",
+    )
+    peer_channel: str | None = Field(
+        default=None,
+        description="Unique reply channel for receiving NATS responses (from peer token endpoint)",
+    )
 
 
 class Message(BaseModel):

@@ -147,6 +147,7 @@ class Orchestrator:
         # Extract token mappings
         endpoint_tokens = request.endpoint_tokens
         transaction_tokens = request.transaction_tokens
+        peer_channel = request.peer_channel
 
         # 1. Convert model EndpointRef to ResolvedEndpoint
         model_endpoint = self._endpoint_ref_to_resolved(request.model, "model")
@@ -170,6 +171,7 @@ class Orchestrator:
             similarity_threshold=request.similarity_threshold,
             endpoint_tokens=endpoint_tokens,
             transaction_tokens=transaction_tokens,
+            peer_channel=peer_channel,
         )
         retrieval_time_ms = int((time.perf_counter() - retrieval_start) * 1000)
 
@@ -191,6 +193,7 @@ class Orchestrator:
                 temperature=request.temperature,
                 endpoint_tokens=endpoint_tokens,
                 transaction_tokens=transaction_tokens,
+                peer_channel=peer_channel,
             )
         except GenerationError as e:
             raise OrchestratorError(f"Generation failed: {e}") from e
@@ -257,6 +260,7 @@ class Orchestrator:
         # Extract token mappings
         endpoint_tokens = request.endpoint_tokens
         transaction_tokens = request.transaction_tokens
+        peer_channel = request.peer_channel
 
         # 1. Convert model EndpointRef to ResolvedEndpoint
         model_endpoint = self._endpoint_ref_to_resolved(request.model, "model")
@@ -286,6 +290,7 @@ class Orchestrator:
                 similarity_threshold=request.similarity_threshold,
                 endpoint_tokens=endpoint_tokens,
                 transaction_tokens=transaction_tokens,
+                peer_channel=peer_channel,
             ):
                 retrieval_results.append(result)
                 yield self._sse_event(
@@ -365,6 +370,7 @@ class Orchestrator:
                     temperature=request.temperature,
                     endpoint_tokens=endpoint_tokens,
                     transaction_tokens=transaction_tokens,
+                    peer_channel=peer_channel,
                 )
                 full_response.append(gen_result.response)
                 usage_data = gen_result.usage  # Capture usage from non-streaming response

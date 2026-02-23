@@ -543,6 +543,43 @@ class GroupedEndpointsResponse(BaseModel):
     )
 
 
+# ===========================================
+# OWNER SUMMARY SCHEMAS (for CLI ls command)
+# ===========================================
+
+
+class OwnerSummary(BaseModel):
+    """Summary of an owner's endpoints for directory listing.
+
+    Lightweight response for listing owners without fetching full endpoint data.
+    Used by CLI `syft ls` command to efficiently list available users/orgs.
+    """
+
+    username: str = Field(..., description="Username or organization slug")
+    endpoint_count: int = Field(
+        ..., ge=0, description="Total number of public endpoints"
+    )
+    model_count: int = Field(..., ge=0, description="Number of model endpoints")
+    data_source_count: int = Field(
+        ..., ge=0, description="Number of data source endpoints"
+    )
+
+
+class OwnersListResponse(BaseModel):
+    """Response containing list of owners with endpoint summaries.
+
+    Efficient endpoint for directory browsing - returns only owner names
+    and counts, not full endpoint data.
+    """
+
+    owners: List[OwnerSummary] = Field(
+        ..., description="List of owners ordered by endpoint count (descending)"
+    )
+    total_count: int = Field(
+        ..., ge=0, description="Total number of owners with public endpoints"
+    )
+
+
 def generate_slug_from_name(name: str) -> str:
     """Generate a URL-safe slug from endpoint name."""
     # Convert to lowercase and replace spaces/special chars with hyphens

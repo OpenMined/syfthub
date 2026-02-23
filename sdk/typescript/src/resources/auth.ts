@@ -194,6 +194,26 @@ export class AuthResource {
   }
 
   /**
+   * Get a peer token for NATS communication with tunneling spaces.
+   *
+   * Peer tokens are short-lived credentials that allow the aggregator to
+   * communicate with tunneling SyftAI Spaces via NATS pub/sub.
+   *
+   * @param targetUsernames - Usernames of the tunneling spaces to communicate with
+   * @returns PeerTokenResponse with token, channel, expiry, and NATS URL
+   * @throws {AuthenticationError} If not authenticated
+   *
+   * @example
+   * const peer = await client.auth.getPeerToken(['alice', 'bob']);
+   * console.log(`Peer channel: ${peer.peerChannel}, expires in ${peer.expiresIn}s`);
+   */
+  async getPeerToken(targetUsernames: string[]): Promise<PeerTokenResponse> {
+    return this.http.post<PeerTokenResponse>('/api/v1/peer-token', {
+      target_usernames: targetUsernames,
+    });
+  }
+
+  /**
    * Get a satellite token for a specific audience (target service).
    *
    * Satellite tokens are short-lived, RS256-signed JWTs that allow satellite
@@ -345,6 +365,20 @@ export class AuthResource {
       return { tokens: {}, errors: {} };
     }
   }
+}
+
+/**
+ * Response from peer token endpoint.
+ */
+export interface PeerTokenResponse {
+  /** Short-lived token for NATS authentication */
+  peerToken: string;
+  /** Unique reply channel for receiving responses */
+  peerChannel: string;
+  /** Seconds until the token expires */
+  expiresIn: number;
+  /** NATS server URL for WebSocket connections */
+  natsUrl: string;
 }
 
 /**

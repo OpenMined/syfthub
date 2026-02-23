@@ -1,6 +1,12 @@
 import { create } from 'zustand';
 
-export type SettingsTab = 'profile' | 'security' | 'payment' | 'aggregator' | 'danger-zone';
+export type SettingsTab =
+  | 'profile'
+  | 'security'
+  | 'api-tokens'
+  | 'payment'
+  | 'aggregator'
+  | 'danger-zone';
 
 interface SettingsModalState {
   isOpen: boolean;

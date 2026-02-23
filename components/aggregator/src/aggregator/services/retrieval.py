@@ -1,12 +1,19 @@
 """Retrieval service for querying SyftAI-Space data sources in parallel."""
 
+from __future__ import annotations
+
 import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 from aggregator.clients.data_source import DataSourceClient
+from aggregator.clients.nats_transport import extract_tunnel_username, is_tunneling_url
 from aggregator.schemas.internal import AggregatedContext, ResolvedEndpoint, RetrievalResult
+
+if TYPE_CHECKING:
+    from aggregator.clients.nats_transport import NATSTransport
 
 logger = logging.getLogger(__name__)
 
@@ -14,8 +21,13 @@ logger = logging.getLogger(__name__)
 class RetrievalService:
     """Service for retrieving context from multiple SyftAI-Space data sources."""
 
-    def __init__(self, data_source_client: DataSourceClient):
+    def __init__(
+        self,
+        data_source_client: DataSourceClient,
+        nats_transport: NATSTransport | None = None,
+    ):
         self.data_source_client = data_source_client
+        self.nats_transport = nats_transport
 
     def _get_token_for_endpoint(
         self, endpoint: ResolvedEndpoint, token_mapping: dict[str, str]
@@ -33,6 +45,7 @@ class RetrievalService:
         similarity_threshold: float = 0.5,
         endpoint_tokens: dict[str, str] | None = None,
         transaction_tokens: dict[str, str] | None = None,
+        peer_channel: str | None = None,
     ) -> AggregatedContext:
         """
         Retrieve relevant documents from multiple SyftAI-Space data sources in parallel.
@@ -61,21 +74,40 @@ class RetrievalService:
         transaction_tokens = transaction_tokens or {}
         start_time = time.perf_counter()
 
-        # Query all data sources in parallel
-        tasks = [
-            self.data_source_client.query(
-                url=ds.url,
-                slug=ds.slug,
-                endpoint_path=ds.path,
-                query=query,
-                top_k=top_k,
-                similarity_threshold=similarity_threshold,
-                tenant_name=ds.tenant_name,
-                authorization_token=self._get_token_for_endpoint(ds, endpoint_tokens),
-                transaction_token=self._get_token_for_endpoint(ds, transaction_tokens),
-            )
-            for ds in data_sources
-        ]
+        # Query all data sources in parallel (HTTP or NATS)
+        tasks = []
+        for ds in data_sources:
+            if is_tunneling_url(ds.url) and self.nats_transport and peer_channel:
+                # Route through NATS for tunneling spaces
+                target_username = extract_tunnel_username(ds.url)
+                tasks.append(
+                    self.nats_transport.query_data_source(
+                        target_username=target_username,
+                        slug=ds.slug,
+                        endpoint_path=ds.path,
+                        query=query,
+                        peer_channel=peer_channel,
+                        top_k=top_k,
+                        similarity_threshold=similarity_threshold,
+                        transaction_token=self._get_token_for_endpoint(ds, transaction_tokens),
+                        satellite_token=self._get_token_for_endpoint(ds, endpoint_tokens),
+                    )
+                )
+            else:
+                # Standard HTTP request
+                tasks.append(
+                    self.data_source_client.query(
+                        url=ds.url,
+                        slug=ds.slug,
+                        endpoint_path=ds.path,
+                        query=query,
+                        top_k=top_k,
+                        similarity_threshold=similarity_threshold,
+                        tenant_name=ds.tenant_name,
+                        authorization_token=self._get_token_for_endpoint(ds, endpoint_tokens),
+                        transaction_token=self._get_token_for_endpoint(ds, transaction_tokens),
+                    )
+                )
 
         results: list[RetrievalResult] = await asyncio.gather(*tasks, return_exceptions=False)
 
@@ -112,6 +144,7 @@ class RetrievalService:
         similarity_threshold: float = 0.5,
         endpoint_tokens: dict[str, str] | None = None,
         transaction_tokens: dict[str, str] | None = None,
+        peer_channel: str | None = None,
     ) -> AsyncIterator[RetrievalResult]:
         """
         Retrieve from SyftAI-Space data sources and yield results as they complete.
@@ -136,23 +169,39 @@ class RetrievalService:
         endpoint_tokens = endpoint_tokens or {}
         transaction_tokens = transaction_tokens or {}
 
-        # Create tasks
-        tasks = {
-            asyncio.create_task(
-                self.data_source_client.query(
-                    url=ds.url,
-                    slug=ds.slug,
-                    endpoint_path=ds.path,
-                    query=query,
-                    top_k=top_k,
-                    similarity_threshold=similarity_threshold,
-                    tenant_name=ds.tenant_name,
-                    authorization_token=self._get_token_for_endpoint(ds, endpoint_tokens),
-                    transaction_token=self._get_token_for_endpoint(ds, transaction_tokens),
+        # Create tasks (HTTP or NATS based on URL)
+        tasks = {}
+        for ds in data_sources:
+            if is_tunneling_url(ds.url) and self.nats_transport and peer_channel:
+                target_username = extract_tunnel_username(ds.url)
+                task = asyncio.create_task(
+                    self.nats_transport.query_data_source(
+                        target_username=target_username,
+                        slug=ds.slug,
+                        endpoint_path=ds.path,
+                        query=query,
+                        peer_channel=peer_channel,
+                        top_k=top_k,
+                        similarity_threshold=similarity_threshold,
+                        transaction_token=self._get_token_for_endpoint(ds, transaction_tokens),
+                        satellite_token=self._get_token_for_endpoint(ds, endpoint_tokens),
+                    )
                 )
-            ): ds
-            for ds in data_sources
-        }
+            else:
+                task = asyncio.create_task(
+                    self.data_source_client.query(
+                        url=ds.url,
+                        slug=ds.slug,
+                        endpoint_path=ds.path,
+                        query=query,
+                        top_k=top_k,
+                        similarity_threshold=similarity_threshold,
+                        tenant_name=ds.tenant_name,
+                        authorization_token=self._get_token_for_endpoint(ds, endpoint_tokens),
+                        transaction_token=self._get_token_for_endpoint(ds, transaction_tokens),
+                    )
+                )
+            tasks[task] = ds
 
         # Yield results as they complete
         pending = set(tasks.keys())

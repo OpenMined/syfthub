@@ -10,7 +10,9 @@
 #   - DOMAIN: Production domain (e.g., syfthub.example.com)
 #   - RSA_PRIVATE_KEY_PEM: Base64-encoded RSA private key for satellite tokens
 #   - RSA_PUBLIC_KEY_PEM: Base64-encoded RSA public key for satellite tokens
-#   - MEILI_MASTER_KEY: Meilisearch master key (at least 16 bytes)
+#
+# Optional environment variables:
+#   - MEILI_MASTER_KEY: Meilisearch master key for search (required in production)
 #
 # RSA Key Generation (required for satellite token signing):
 #   openssl genrsa -out private.pem 2048
@@ -64,6 +66,8 @@ services:
         condition: service_healthy
       mcp:
         condition: service_healthy
+      nats:
+        condition: service_healthy
       frontend-init:
         condition: service_completed_successfully
     healthcheck:
@@ -110,6 +114,10 @@ services:
       # RSA keys for satellite token signing (required for multi-worker deployment)
       - RSA_PRIVATE_KEY_PEM=${RSA_PRIVATE_KEY_PEM}
       - RSA_PUBLIC_KEY_PEM=${RSA_PUBLIC_KEY_PEM}
+      # NATS configuration for P2P tunneling
+      - NATS_URL=nats://nats:4222
+      - NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN}
+      - NATS_WS_PUBLIC_URL=wss://${DOMAIN:-localhost}/nats
       # Meilisearch configuration (semantic search disabled if MEILI_URL not set)
       - MEILI_URL=http://meilisearch:7700
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
@@ -193,6 +201,9 @@ services:
       - AGGREGATOR_CORS_ORIGINS=["https://${DOMAIN:-localhost}"]
       - AGGREGATOR_LOG_LEVEL=${LOG_LEVEL:-info}
       - AGGREGATOR_LOG_FORMAT=${LOG_FORMAT:-json}
+      # NATS configuration for P2P tunneling
+      - AGGREGATOR_NATS_URL=nats://nats:4222
+      - AGGREGATOR_NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN}
     networks:
       - syfthub-network
     depends_on:
@@ -258,6 +269,45 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # ==========================================================================
+  # NATS - Messaging server for P2P communication between SyftAI Spaces
+  # ==========================================================================
+  nats:
+    image: nats:2.10-alpine
+    container_name: syfthub-nats
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    expose:
+      - "4222"
+      - "8222"
+      - "9222"
+    volumes:
+      - ./nats/nats.prod.conf:/etc/nats/nats.conf:ro
+      - nats_data:/data/jetstream
+    environment:
+      - NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN}
+    command: ["--config", "/etc/nats/nats.conf"]
+    networks:
+      - syfthub-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
     deploy:
       resources:
         limits:
@@ -391,5 +441,7 @@ volumes:
     name: syfthub_backend_logs
   backend_data:
     name: syfthub_backend_data
+  nats_data:
+    name: syfthub_nats_data
   meili_data:
     name: syfthub_meili_data
