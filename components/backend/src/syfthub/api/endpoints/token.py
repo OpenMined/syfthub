@@ -26,6 +26,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from syfthub.auth.db_dependencies import get_current_active_user
 from syfthub.auth.keys import key_manager
 from syfthub.auth.satellite_tokens import (
+    GUEST_EMAIL,
+    GUEST_ROLE,
+    GUEST_SUB,
+    GUEST_USERNAME,
     AudienceValidationResult,
     TokenVerificationResult,
     create_guest_satellite_token,
@@ -227,6 +231,10 @@ unauthenticated users to obtain tokens for accessing policy-free endpoints.
 - `aud`: The target service identifier (username of target user/service)
 - `exp`: Expiration timestamp (short-lived, typically 60 seconds)
 - `role`: "guest" (indicates unauthenticated user)
+
+**When verified via /verify:**
+- `email`: "guest@syfthub.org"
+- `username`: "guest"
 
 **Restrictions:**
 - Guest tokens can only be used with endpoints that have no policies attached
@@ -502,13 +510,13 @@ async def verify_satellite_token(
 
     # Handle guest tokens: sub="guest" is a valid guest satellite token
     # Guest tokens are issued for unauthenticated access to policy-free endpoints
-    if user_id == "guest":
+    if user_id == GUEST_SUB:
         return TokenVerifySuccessResponse(
             valid=True,
-            sub="guest",
-            email="guest",
-            username="guest",
-            role="guest",
+            sub=GUEST_SUB,
+            email=GUEST_EMAIL,
+            username=GUEST_USERNAME,
+            role=GUEST_ROLE,
             aud=result.payload.get("aud", authorized_audience),
             exp=result.payload.get("exp", 0),
             iat=result.payload.get("iat", 0),

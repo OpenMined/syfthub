@@ -42,6 +42,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Constants for guest identity (unauthenticated users)
+GUEST_SUB = "guest"
+GUEST_EMAIL = "guest@syfthub.org"
+GUEST_USERNAME = "guest"
+GUEST_ROLE = "guest"
+
 
 @dataclass
 class AudienceValidationResult:
@@ -179,6 +185,9 @@ def create_guest_satellite_token(
     - iat: Issued at timestamp
     - role: "guest" (indicates unauthenticated user)
 
+    When verified via /verify, the Hub returns email="guest@syfthub.org"
+    and username="guest" for guest tokens.
+
     Args:
         audience: Target service identifier (username of target user/service)
         key_manager: RSA key manager for signing
@@ -210,12 +219,12 @@ def create_guest_satellite_token(
     expire = now + timedelta(seconds=settings.satellite_token_expire_seconds)
 
     payload = {
-        "sub": "guest",  # Special identifier for guest users
+        "sub": GUEST_SUB,  # Special identifier for guest users
         "iss": settings.issuer_url,  # Issuer URL
         "aud": audience.strip().lower(),  # Target service (normalized)
         "exp": expire,  # Expiration
         "iat": now,  # Issued at
-        "role": "guest",  # Guest role for unauthenticated users
+        "role": GUEST_ROLE,  # Guest role for unauthenticated users
     }
 
     # Build JWT headers with key ID
