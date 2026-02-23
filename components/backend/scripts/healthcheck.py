@@ -75,26 +75,6 @@ def check_database_health() -> bool:
     return True
 
 
-def check_redis_health() -> bool:
-    """Check if Redis is accessible."""
-    redis_url = os.environ.get("REDIS_URL", "")
-
-    if not redis_url:
-        print("⚠ No REDIS_URL configured, skipping Redis check")
-        return True
-
-    try:
-        import redis
-
-        r = redis.from_url(redis_url)
-        r.ping()
-        print("✓ Redis is healthy")
-        return True
-    except Exception as e:
-        print(f"✗ Redis check failed: {e}")
-        return False
-
-
 def main():
     """Run all health checks."""
     print("Running SyftHub health checks...")
@@ -103,7 +83,6 @@ def main():
     checks = [
         ("API", check_api_health),
         ("Database", check_database_health),
-        ("Redis", check_redis_health),
     ]
 
     results = []
