@@ -85,6 +85,14 @@ export function ChatView({
     [selectedSources]
   );
 
+  // Pre-generated ID for the user message seeded by the initialQuery useState initializer.
+  // Must be declared before the messages useState so the lazy initializer can use the same ID.
+  // This ID is later assigned to pendingMessageIdRef in the auto-trigger useEffect so that
+  // onComplete can detect the pre-existing message and skip adding a duplicate.
+  const initialQueryMessageIdRef = useRef<string | null>(
+    initialQuery && !initialResult ? crypto.randomUUID() : null
+  );
+
   // Local state for messages and UI
   const [messages, setMessages] = useState<Message[]>(() => {
     // Initialize with initial query as first message if provided
@@ -109,7 +117,9 @@ export function ChatView({
     if (initialQuery) {
       return [
         {
-          id: crypto.randomUUID(),
+          // Re-use the ID from initialQueryMessageIdRef so pendingMessageIdRef can be set
+          // to this same ID in the auto-trigger useEffect, preventing a duplicate message.
+          id: initialQueryMessageIdRef.current ?? crypto.randomUUID(),
           role: 'user' as const,
           content: initialQuery,
           type: 'text' as const
@@ -180,6 +190,9 @@ export function ChatView({
       selectedModel &&
       sources.length > 0
     ) {
+      // Set pendingMessageIdRef to the pre-seeded user message ID so that onComplete
+      // treats it as an optimistic message and does not add a duplicate.
+      pendingMessageIdRef.current = initialQueryMessageIdRef.current;
       void workflow.submitQuery(initialQuery);
     }
     // Only run once when dependencies are ready, not on every change
