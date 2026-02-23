@@ -18,10 +18,7 @@ export type MessageContentProps = {
 
 const MessageContent = ({ children, className, ...props }: MessageContentProps) => (
   <div
-    className={cn(
-      'text-foreground bg-secondary prose rounded-lg p-2 break-words whitespace-normal',
-      className
-    )}
+    className={cn('text-foreground rounded-lg p-2 break-words whitespace-normal', className)}
     {...props}
   >
     {children}

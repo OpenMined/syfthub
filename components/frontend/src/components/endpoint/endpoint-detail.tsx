@@ -9,10 +9,9 @@ import ExternalLink from 'lucide-react/dist/esm/icons/external-link';
 import Package from 'lucide-react/dist/esm/icons/package';
 import Star from 'lucide-react/dist/esm/icons/star';
 import Users from 'lucide-react/dist/esm/icons/users';
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 
 import { ConnectionCard } from '@/components/connection-card';
+import { Markdown } from '@/components/prompt-kit/markdown';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useEndpointByPath } from '@/hooks/use-endpoint-queries';
@@ -348,9 +347,7 @@ export const EndpointDetail = memo(function EndpointDetail({
             <article className='border-border bg-card rounded-xl border p-6'>
               <div className='prose prose-sm text-muted-foreground max-w-none'>
                 {endpoint.readme ? (
-                  <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                    {endpoint.readme}
-                  </Markdown>
+                  <Markdown components={markdownComponents}>{endpoint.readme}</Markdown>
                 ) : (
                   <p className='font-inter text-muted-foreground italic'>
                     No documentation available for this endpoint.
