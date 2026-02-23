@@ -10,8 +10,7 @@ import { Link } from 'react-router-dom';
 
 import { OnboardingCallout } from '@/components/onboarding';
 import { Modal } from '@/components/ui/modal';
-import { isDataSourceEndpoint } from '@/lib/endpoint-utils';
-import { filterSourcesForAutocomplete } from '@/lib/validation';
+import { getPublicEndpointsPaginated, isDataSourceEndpoint } from '@/lib/endpoint-utils';
 
 // ============================================================================
 // Sub-components
@@ -141,6 +140,9 @@ export const AddSourcesModal = memo(function AddSourcesModal({
   // Local selection state — only committed on confirm
   const [localSelected, setLocalSelected] = useState<Set<string>>(new Set(selectedSourceIds));
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<ChatSource[] | null>(null);
+  const [isSearchLoading, setIsSearchLoading] = useState(false);
 
   // Sync local state when modal opens with new external selections
   const previousOpenRef = useRef(false);
@@ -148,34 +150,66 @@ export const AddSourcesModal = memo(function AddSourcesModal({
     if (isOpen && !previousOpenRef.current) {
       setLocalSelected(new Set(selectedSourceIds));
       setSearchQuery('');
+      setDebouncedSearchQuery('');
+      setSearchResults(null);
     }
     previousOpenRef.current = isOpen;
   }, [isOpen, selectedSourceIds]);
 
-  // Filter to data sources only (model_data_source endpoints are included)
+  // Debounce searchQuery → debouncedSearchQuery (300ms, matching Browse page)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [searchQuery]);
+
+  // Call server-side search when debouncedSearchQuery changes
+  useEffect(() => {
+    if (!debouncedSearchQuery.trim()) {
+      setSearchResults(null);
+      setIsSearchLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsSearchLoading(true);
+
+    void getPublicEndpointsPaginated({
+      limit: 20,
+      endpoint_type: 'data_source',
+      search: debouncedSearchQuery.trim()
+    }).then((result) => {
+      if (!cancelled) {
+        setSearchResults(result.items);
+        setIsSearchLoading(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedSearchQuery]);
+
+  // Pre-loaded list filtered to data sources only (used when not searching)
   const dataSourceEndpoints = useMemo(
     () => availableSources.filter((s) => isDataSourceEndpoint(s.type)),
     [availableSources]
   );
 
-  // Apply search filter
-  const filteredSources = useMemo(() => {
-    if (!searchQuery.trim()) return dataSourceEndpoints;
-    return filterSourcesForAutocomplete(
-      dataSourceEndpoints,
-      searchQuery,
-      dataSourceEndpoints.length
-    );
-  }, [dataSourceEndpoints, searchQuery]);
+  // Use server search results when a query is active, otherwise show pre-loaded list
+  const activeSources = searchResults ?? dataSourceEndpoints;
 
   // Sort selected endpoints to appear at the top
   const sortedSources = useMemo(() => {
-    return filteredSources.toSorted((a, b) => {
+    return activeSources.toSorted((a, b) => {
       const aSelected = localSelected.has(a.id) ? 0 : 1;
       const bSelected = localSelected.has(b.id) ? 0 : 1;
       return aSelected - bSelected;
     });
-  }, [filteredSources, localSelected]);
+  }, [activeSources, localSelected]);
 
   const toggleLocal = useCallback((id: string) => {
     setLocalSelected((previous) => {
@@ -198,6 +232,7 @@ export const AddSourcesModal = memo(function AddSourcesModal({
   }, []);
 
   const selectedCount = localSelected.size;
+  const isSearching = searchQuery.trim().length > 0;
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size='lg' showCloseButton={false}>
@@ -236,7 +271,11 @@ export const AddSourcesModal = memo(function AddSourcesModal({
 
       {/* Scrollable source list */}
       <div className='max-h-72 space-y-2 overflow-y-auto pr-1'>
-        {sortedSources.length > 0 ? (
+        {isSearchLoading ? (
+          <div className='py-8 text-center'>
+            <p className='font-inter text-muted-foreground text-sm'>Searching...</p>
+          </div>
+        ) : sortedSources.length > 0 ? (
           sortedSources.map((source) => (
             <SourceItem
               key={source.id}
@@ -250,7 +289,7 @@ export const AddSourcesModal = memo(function AddSourcesModal({
         ) : (
           <div className='py-8 text-center'>
             <p className='font-inter text-muted-foreground text-sm'>
-              {searchQuery.trim() ? 'No matching data sources found' : 'No data sources available'}
+              {isSearching ? 'No matching data sources found' : 'No data sources available'}
             </p>
           </div>
         )}
