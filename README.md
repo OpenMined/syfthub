@@ -115,12 +115,12 @@ Users can star endpoints to show appreciation and help surface popular content. 
                       │    @syfthub/sdk       │
                       └───────────────────────┤
                                               │
-                      ┌───────────────────────┴────────────────┐
-                      │                                        │
-              ┌───────▼───────┐                    ┌───────────▼───────┐
-              │  PostgreSQL   │                    │      Redis        │
-              │  Database     │                    │  Sessions/Cache   │
-              └───────────────┘                    └───────────────────┘
+              ┌───────────────────────┘
+              │
+      ┌───────▼───────┐
+      │  PostgreSQL   │
+      │  Database     │
+      └───────────────┘
 ```
 
 | Layer | Technology |
@@ -246,7 +246,7 @@ cp .env.example .env
 make dev
 ```
 
-This starts all services (backend, frontend, PostgreSQL, Redis) via Docker.
+This starts all services (backend, frontend, PostgreSQL, Meilisearch) via Docker.
 
 ## Usage
 
