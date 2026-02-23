@@ -12,10 +12,14 @@ import type { SearchableChatSource } from '@/lib/search-service';
 import type { ChatSource } from '@/lib/types';
 import type { SourcesData } from './sources-section';
 
+import { ChatContainerContent, ChatContainerRoot } from '@/components/prompt-kit/chat-container';
+import { Message, MessageContent } from '@/components/prompt-kit/message';
+import { ScrollButton } from '@/components/prompt-kit/scroll-button';
 import { useChatWorkflow } from '@/hooks/use-chat-workflow';
 import { useDataSources } from '@/hooks/use-data-sources';
 import { useModels } from '@/hooks/use-models';
 import { useSuggestedSources } from '@/hooks/use-suggested-sources';
+import { cn } from '@/lib/utils';
 import { useContextSelectionStore } from '@/stores/context-selection-store';
 import { useOnboardingStore } from '@/stores/onboarding-store';
 
@@ -119,9 +123,8 @@ export function ChatView({
     return [];
   });
 
-  const messagesEndReference = useRef<HTMLDivElement>(null);
-  const pendingMessageIdRef = useRef<string | null>(null);
-  const lastQueryRef = useRef<string>('');
+  const pendingMessageIdReference = useRef<string | null>(null);
+  const lastQueryReference = useRef<string>('');
 
   // Use workflow hook
   const workflow = useChatWorkflow({
@@ -134,8 +137,8 @@ export function ChatView({
       setMessages((previous) => {
         // User message was already added optimistically in handleSubmit
         const hasUserMessage =
-          pendingMessageIdRef.current !== null &&
-          previous.some((m) => m.id === pendingMessageIdRef.current);
+          pendingMessageIdReference.current !== null &&
+          previous.some((m) => m.id === pendingMessageIdReference.current);
 
         const base = hasUserMessage
           ? previous
@@ -149,7 +152,7 @@ export function ChatView({
               }
             ];
 
-        pendingMessageIdRef.current = null;
+        pendingMessageIdReference.current = null;
 
         return [
           ...base,
@@ -212,16 +215,6 @@ export function ChatView({
     [contextStore]
   );
 
-  // Smart auto-scroll: only scroll when user is near the bottom
-  useEffect(() => {
-    const scrollElement = document.documentElement;
-    const isNearBottom =
-      scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight < 150;
-    if (isNearBottom) {
-      messagesEndReference.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages, workflow.streamedContent]);
-
   // Handle query submission
   const handleSubmit = useCallback(
     (query: string) => {
@@ -232,8 +225,8 @@ export function ChatView({
 
       // Optimistically add user message immediately so it appears before the AI responds
       const messageId = crypto.randomUUID();
-      pendingMessageIdRef.current = messageId;
-      lastQueryRef.current = query;
+      pendingMessageIdReference.current = messageId;
+      lastQueryReference.current = query;
       setMessages((previous) => [
         ...previous,
         {
@@ -303,121 +296,129 @@ export function ChatView({
   );
 
   return (
-    <div className='bg-card min-h-screen pb-32'>
-      {/* Messages Area */}
-      <div className='mx-auto max-w-4xl px-6 py-8 pt-16'>
-        {messages.length === 0 && !initialQuery && workflow.phase === 'idle' ? (
-          <div className='flex flex-col items-center justify-center px-4 py-24'>
-            {isLoadingModels ? (
-              <div className='space-y-3'>
-                <div className='bg-muted mx-auto h-4 w-48 animate-pulse rounded' />
-                <div className='bg-muted mx-auto h-4 w-32 animate-pulse rounded' />
-              </div>
-            ) : (
-              <>
-                <p className='font-inter text-muted-foreground mb-6 text-sm'>
-                  Ask anything using the input below.
-                </p>
-                <div className='flex flex-wrap justify-center gap-2'>
-                  {[
-                    'Summarize this dataset',
-                    'What trends do you see?',
-                    'Compare these sources'
-                  ].map((example) => (
-                    <button
-                      key={example}
-                      type='button'
-                      onClick={() => {
-                        handleSubmit(example);
-                      }}
-                      className='font-inter text-muted-foreground hover:text-foreground border-border hover:bg-muted rounded-full border px-4 py-2 text-xs transition-colors'
-                    >
-                      {example}
-                    </button>
-                  ))}
+    <div className='bg-card flex min-h-screen flex-col pb-32'>
+      {/* Messages Area — prompt-kit ChatContainer handles auto-scroll */}
+      <ChatContainerRoot className='mx-auto w-full max-w-4xl flex-1 px-6 pt-16'>
+        <ChatContainerContent className='space-y-8 py-8'>
+          {messages.length === 0 && !initialQuery && workflow.phase === 'idle' ? (
+            <div className='flex flex-col items-center justify-center px-4 py-24'>
+              {isLoadingModels ? (
+                <div className='space-y-3'>
+                  <div className='bg-muted mx-auto h-4 w-48 animate-pulse rounded' />
+                  <div className='bg-muted mx-auto h-4 w-32 animate-pulse rounded' />
                 </div>
-              </>
-            )}
-          </div>
-        ) : (
-          <div className='space-y-8'>
-            {/* Existing messages */}
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                <div
-                  className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'} max-w-full`}
-                >
-                  {message.content && (
-                    <div
-                      className={`font-inter max-w-2xl rounded-2xl px-5 py-3 shadow-sm ${
-                        message.role === 'user'
-                          ? 'bg-primary text-primary-foreground rounded-br-none text-sm leading-relaxed'
-                          : 'border-border bg-muted text-foreground rounded-bl-none border'
-                      }`}
-                    >
-                      {message.role === 'assistant' ? (
-                        <MarkdownMessage content={message.content} />
-                      ) : (
-                        message.content
-                      )}
-                    </div>
-                  )}
-                  {message.role === 'assistant' &&
-                    message.aggregatorSources &&
-                    Object.keys(message.aggregatorSources).length > 0 && (
-                      <div className='mt-2 w-full max-w-2xl'>
-                        <SourcesSection sources={message.aggregatorSources} />
-                      </div>
-                    )}
-                </div>
-              </div>
-            ))}
-
-            {/* Workflow UI - Processing Status */}
-            {(workflow.phase === 'preparing' || workflow.phase === 'streaming') && (
-              <div className='flex justify-start'>
-                <div className='flex max-w-full flex-col items-start'>
-                  {workflow.processingStatus && (
-                    <StatusIndicator status={workflow.processingStatus} />
-                  )}
-                  {workflow.streamedContent && (
-                    <div className='font-inter border-border bg-muted text-foreground mt-2 max-w-2xl rounded-2xl rounded-bl-none border px-5 py-3 shadow-sm'>
-                      <MarkdownMessage content={workflow.streamedContent} />
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Error display */}
-            {workflow.phase === 'error' && workflow.error && (
-              <div className='flex justify-start'>
-                <div className='flex max-w-2xl flex-col gap-2'>
-                  <div className='font-inter rounded-2xl rounded-bl-none border border-red-200 bg-red-50 px-5 py-3 text-red-700 shadow-sm dark:border-red-800 dark:bg-red-950 dark:text-red-300'>
-                    {workflow.error}
+              ) : (
+                <>
+                  <p className='font-inter text-muted-foreground mb-6 text-sm'>
+                    Ask anything using the input below.
+                  </p>
+                  <div className='flex flex-wrap justify-center gap-2'>
+                    {[
+                      'Summarize this dataset',
+                      'What trends do you see?',
+                      'Compare these sources'
+                    ].map((example) => (
+                      <button
+                        key={example}
+                        type='button'
+                        onClick={() => {
+                          handleSubmit(example);
+                        }}
+                        className='font-inter text-muted-foreground hover:text-foreground border-border hover:bg-muted rounded-full border px-4 py-2 text-xs transition-colors'
+                      >
+                        {example}
+                      </button>
+                    ))}
                   </div>
-                  {lastQueryRef.current && (
-                    <button
-                      type='button'
-                      onClick={() => {
-                        handleSubmit(lastQueryRef.current);
-                      }}
-                      className='font-inter text-muted-foreground hover:text-foreground self-start text-xs underline underline-offset-2'
-                    >
-                      Retry
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
+                </>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* Existing messages */}
+              {messages.map((message) => (
+                <Message
+                  key={message.id}
+                  className={message.role === 'user' ? 'justify-end' : 'justify-start'}
+                >
+                  <div
+                    className={cn(
+                      'flex max-w-full flex-col',
+                      message.role === 'user' ? 'items-end' : 'items-start'
+                    )}
+                  >
+                    {message.content && (
+                      <MessageContent
+                        className={`font-inter max-w-2xl rounded-2xl px-5 py-3 shadow-sm ${
+                          message.role === 'user'
+                            ? 'bg-primary text-primary-foreground rounded-br-none text-sm leading-relaxed'
+                            : 'border-border bg-muted text-foreground rounded-bl-none border'
+                        }`}
+                      >
+                        {message.role === 'assistant' ? (
+                          <MarkdownMessage content={message.content} id={message.id} />
+                        ) : (
+                          message.content
+                        )}
+                      </MessageContent>
+                    )}
+                    {message.role === 'assistant' &&
+                      message.aggregatorSources &&
+                      Object.keys(message.aggregatorSources).length > 0 && (
+                        <div className='mt-2 w-full max-w-2xl'>
+                          <SourcesSection sources={message.aggregatorSources} />
+                        </div>
+                      )}
+                  </div>
+                </Message>
+              ))}
 
-            <div ref={messagesEndReference} />
-          </div>
-        )}
-      </div>
+              {/* Workflow UI - Processing Status */}
+              {(workflow.phase === 'preparing' || workflow.phase === 'streaming') && (
+                <Message className='justify-start'>
+                  <div className='flex max-w-full flex-col items-start'>
+                    {workflow.processingStatus && (
+                      <StatusIndicator status={workflow.processingStatus} />
+                    )}
+                    {workflow.streamedContent && (
+                      <MessageContent className='font-inter border-border bg-muted text-foreground mt-2 max-w-2xl rounded-2xl rounded-bl-none border px-5 py-3 shadow-sm'>
+                        <MarkdownMessage content={workflow.streamedContent} id='streaming' />
+                      </MessageContent>
+                    )}
+                  </div>
+                </Message>
+              )}
+
+              {/* Error display */}
+              {workflow.phase === 'error' && workflow.error && (
+                <Message className='justify-start'>
+                  <div className='flex max-w-2xl flex-col gap-2'>
+                    <div className='font-inter rounded-2xl rounded-bl-none border border-red-200 bg-red-50 px-5 py-3 text-red-700 shadow-sm dark:border-red-800 dark:bg-red-950 dark:text-red-300'>
+                      {workflow.error}
+                    </div>
+                    {lastQueryReference.current && (
+                      <button
+                        type='button'
+                        onClick={() => {
+                          handleSubmit(lastQueryReference.current);
+                        }}
+                        className='font-inter text-muted-foreground hover:text-foreground self-start text-xs underline underline-offset-2'
+                      >
+                        Retry
+                      </button>
+                    )}
+                  </div>
+                </Message>
+              )}
+            </>
+          )}
+        </ChatContainerContent>
+
+        {/* Scroll-to-bottom button — must be inside ChatContainerRoot */}
+        <div className='sticky bottom-4 flex justify-center'>
+          <ScrollButton />
+        </div>
+      </ChatContainerRoot>
 
       {/* Input Area - Fixed bottom */}
       <div className='bg-card fixed right-0 bottom-0 left-20 z-40 p-4'>

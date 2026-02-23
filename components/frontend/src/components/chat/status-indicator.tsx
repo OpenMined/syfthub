@@ -12,6 +12,8 @@ import Search from 'lucide-react/dist/esm/icons/search';
 import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
 import X from 'lucide-react/dist/esm/icons/x';
 
+import { Loader } from '@/components/prompt-kit/loader';
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -51,32 +53,6 @@ export interface ProcessingStatus {
 // =============================================================================
 // Sub-components
 // =============================================================================
-
-/**
- * Animated dots indicator (matching the original ThinkingIndicator style)
- */
-const AnimatedDots = memo(function AnimatedDots() {
-  return (
-    <div className='flex items-center gap-1'>
-      {[0, 1, 2].map((index) => (
-        <motion.span
-          key={index}
-          className='bg-secondary inline-block h-1.5 w-1.5 rounded-full'
-          animate={{
-            opacity: [0.3, 1, 0.3],
-            scale: [0.85, 1, 0.85]
-          }}
-          transition={{
-            duration: 1.2,
-            repeat: Infinity,
-            delay: index * 0.2,
-            ease: 'easeInOut'
-          }}
-        />
-      ))}
-    </div>
-  );
-});
 
 /**
  * Phase icon with appropriate animation
@@ -268,7 +244,7 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
           ) : null}
 
           {/* Animated dots (not shown for error state) */}
-          {isError ? null : <AnimatedDots />}
+          {isError ? null : <Loader variant='typing' size='sm' className='ml-1' />}
         </div>
 
         {/* Documents found summary */}
