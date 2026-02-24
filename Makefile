@@ -116,11 +116,11 @@ check:  ## Run code quality checks
 	@cd sdk/python && uv run mypy src/syfthub_sdk/ || true
 	@echo ''
 	@echo 'Frontend checks...'
-	@cd components/frontend && npm run lint --if-present || true
+	@cd components/frontend && npm install --silent && npm run lint --if-present || true
 	@cd components/frontend && npm run typecheck --if-present || true
 	@echo ''
 	@echo 'TypeScript SDK checks...'
-	@cd sdk/typescript && npm run lint --if-present || true
+	@cd sdk/typescript && npm install --silent && npm run lint --if-present || true
 	@cd sdk/typescript && npm run typecheck --if-present || true
 	@echo ''
 	@echo 'Go SDK checks...'
