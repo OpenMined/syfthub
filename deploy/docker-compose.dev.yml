@@ -131,6 +131,24 @@ services:
       timeout: 5s
       retries: 5
 
+  # Redis for caching and sessions
+  redis:
+    image: redis:7-alpine
+    container_name: syfthub-redis-dev
+    # Internal only
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - syfthub-network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # Meilisearch - full-text search engine for endpoint discovery
   meilisearch:
     image: getmeili/meilisearch:latest
@@ -265,6 +283,8 @@ networks:
 volumes:
   postgres_data:
     name: syfthub_postgres_data_dev
+  redis_data:
+    name: syfthub_redis_data_dev
   nats_data:
     name: syfthub_nats_data_dev
   meili_data:

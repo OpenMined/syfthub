@@ -7,6 +7,7 @@
 #   - IMAGE_TAG: Docker image tag (e.g., abc1234 or latest)
 #   - DB_PASSWORD: PostgreSQL password
 #   - SECRET_KEY: Application secret key
+#   - REDIS_PASSWORD: Redis password
 #   - DOMAIN: Production domain (e.g., syfthub.example.com)
 #   - RSA_PRIVATE_KEY_PEM: Base64-encoded RSA private key for satellite tokens
 #   - RSA_PUBLIC_KEY_PEM: Base64-encoded RSA public key for satellite tokens
@@ -111,6 +112,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LOG_FORMAT=${LOG_FORMAT:-json}
       - CORS_ORIGINS=https://${DOMAIN:-localhost}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       # RSA keys for satellite token signing (required for multi-worker deployment)
       - RSA_PRIVATE_KEY_PEM=${RSA_PRIVATE_KEY_PEM}
       - RSA_PUBLIC_KEY_PEM=${RSA_PUBLIC_KEY_PEM}
@@ -127,6 +129,8 @@ services:
       - syfthub-network
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       meilisearch:
         condition: service_healthy
@@ -375,6 +379,39 @@ services:
           memory: 128M
 
   # ==========================================================================
+  # REDIS - Caching and sessions
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: syfthub-redis
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - syfthub-network
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  # ==========================================================================
   # DATABASE MIGRATION - Run with: docker compose --profile migrate run --rm migrate
   # ==========================================================================
   migrate:
@@ -435,6 +472,8 @@ volumes:
     name: syfthub_frontend_dist
   postgres_data:
     name: syfthub_postgres_data
+  redis_data:
+    name: syfthub_redis_data
   nginx_logs:
     name: syfthub_nginx_logs
   backend_logs:
