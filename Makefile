@@ -139,14 +139,29 @@ check:  ## Run code quality checks
 	@cd components/backend && uv run ruff format --check src/ tests/
 	@cd components/backend && uv run python -m mypy src/ || true
 	@echo ''
-	@echo 'SyftHub API checks...'
-	@cd syfthub-api && uv run ruff check src/ tests/
-	@cd syfthub-api && uv run ruff format --check src/ tests/
-	@cd syfthub-api && uv run mypy src/syfthub_api/ --ignore-missing-imports
+	@echo 'Aggregator checks...'
+	@cd components/aggregator && uv run ruff check src/ tests/
+	@cd components/aggregator && uv run ruff format --check src/ tests/
+	@cd components/aggregator && uv run mypy src/aggregator/ || true
+	@echo ''
+	@echo 'Python SDK checks...'
+	@cd sdk/python && uv run ruff check src/ tests/
+	@cd sdk/python && uv run ruff format --check src/ tests/
+	@cd sdk/python && uv run mypy src/syfthub_sdk/ || true
 	@echo ''
 	@echo 'Frontend checks...'
 	@cd components/frontend && npm run lint --if-present || true
 	@cd components/frontend && npm run typecheck --if-present || true
+	@echo ''
+	@echo 'TypeScript SDK checks...'
+	@cd sdk/typescript && npm run lint --if-present || true
+	@cd sdk/typescript && npm run typecheck --if-present || true
+	@echo ''
+	@echo 'Go SDK checks...'
+	@cd sdk/golang && $(MAKE) lint
+	@echo ''
+	@echo 'CLI checks...'
+	@cd cli && $(MAKE) lint
 	@echo ''
 	@echo 'All checks complete'
 
