@@ -311,8 +311,8 @@ export function ChatView({
   return (
     <div className='bg-card flex h-screen flex-col'>
       {/* Messages Area — prompt-kit ChatContainer handles auto-scroll */}
-      <ChatContainerRoot className='relative mx-auto w-full max-w-4xl flex-1 px-6 pt-16'>
-        <ChatContainerContent className='space-y-8 py-8 pb-32'>
+      <ChatContainerRoot className='relative flex-1'>
+        <ChatContainerContent className='mx-auto w-full max-w-4xl space-y-8 px-6 py-8 pt-16 pb-32'>
           {messages.length === 0 && !initialQuery && workflow.phase === 'idle' ? (
             <div className='flex flex-col items-center justify-center px-4 py-24'>
               {isLoadingModels ? (
