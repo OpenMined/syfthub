@@ -33,15 +33,15 @@ repos:
         name: ruff-format (sdk/python)
         args: [--config=sdk/python/pyproject.toml]
         files: ^sdk/python/
-      # CLI hooks
+      # Aggregator hooks
       - id: ruff
-        name: ruff (cli)
-        args: [--fix, --config=cli/pyproject.toml]
-        files: ^cli/
+        name: ruff (aggregator)
+        args: [--fix, --config=components/aggregator/pyproject.toml]
+        files: ^components/aggregator/
       - id: ruff-format
-        name: ruff-format (cli)
-        args: [--config=cli/pyproject.toml]
-        files: ^cli/
+        name: ruff-format (aggregator)
+        args: [--config=components/aggregator/pyproject.toml]
+        files: ^components/aggregator/
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.18.2
@@ -82,18 +82,19 @@ repos:
           httpx,
           pydantic,
         ]
-      # CLI mypy
+      # Aggregator mypy
       - id: mypy
-        name: mypy (cli)
-        args: [--config-file=cli/pyproject.toml]
+        name: mypy (aggregator)
+        args: [--config-file=components/aggregator/pyproject.toml]
         pass_filenames: false
-        entry: sh -c 'cd cli && mypy src/syfthub_cli --ignore-missing-imports'
-        files: ^cli/.*\.py$
+        entry: sh -c 'cd components/aggregator && mypy src/aggregator/'
+        files: ^components/aggregator/.*\.py$
         additional_dependencies: [
-          typer,
-          rich,
+          fastapi,
           pydantic,
+          pydantic-settings,
           httpx,
+          structlog,
         ]
 
   # Frontend hooks
@@ -118,6 +119,23 @@ repos:
         entry: sh -c 'cd components/frontend && npm run typecheck'
         language: system
         files: ^components/frontend/.*\.(ts|tsx)$
+        pass_filenames: false
+
+  # TypeScript SDK hooks
+  - repo: local
+    hooks:
+      - id: ts-sdk-eslint
+        name: ESLint (sdk/typescript)
+        entry: sh -c 'cd sdk/typescript && npm run lint'
+        language: system
+        files: ^sdk/typescript/.*\.(js|ts)$
+        pass_filenames: false
+
+      - id: ts-sdk-typecheck
+        name: TypeScript check (sdk/typescript)
+        entry: sh -c 'cd sdk/typescript && npm run typecheck'
+        language: system
+        files: ^sdk/typescript/.*\.ts$
         pass_filenames: false
 
   # Go SDK hooks (sdk/golang)
@@ -145,27 +163,19 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
-  # SyftHub Desktop hooks (syfthub-desktop)
+  # CLI hooks (Go)
   - repo: local
     hooks:
-      - id: desktop-gofmt
-        name: go fmt (syfthub-desktop)
-        entry: sh -c 'cd syfthub-desktop && test -z "$(gofmt -l .)"'
+      - id: cli-gofmt
+        name: go fmt (cli)
+        entry: sh -c 'cd cli && test -z "$(gofmt -l .)"'
         language: system
-        files: ^syfthub-desktop/.*\.go$
+        files: ^cli/.*\.go$
         pass_filenames: false
 
-      - id: desktop-govet
-        name: go vet (syfthub-desktop)
-        entry: sh -c 'cd syfthub-desktop && go vet ./...'
+      - id: cli-govet
+        name: go vet (cli)
+        entry: sh -c 'cd cli && go vet ./...'
         language: system
-        files: ^syfthub-desktop/.*\.go$
+        files: ^cli/.*\.go$
         pass_filenames: false
-
-      - id: desktop-gotest
-        name: go test (syfthub-desktop)
-        entry: sh -c 'cd syfthub-desktop && go test ./... -count=1'
-        language: system
-        files: ^syfthub-desktop/.*\.go$
-        pass_filenames: false
-        stages: [pre-push]
