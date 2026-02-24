@@ -21,9 +21,13 @@ import ArrowUp from 'lucide-react/dist/esm/icons/arrow-up';
 import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
 import X from 'lucide-react/dist/esm/icons/x';
 
+import {
+  PromptInput,
+  PromptInputActions,
+  PromptInputTextarea
+} from '@/components/prompt-kit/prompt-input';
 import { EndpointPopover, OwnerPopover } from '@/components/query/mention-popover';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { useMention } from '@/hooks/use-mention';
 import { getMentionedSourceIds } from '@/lib/mention-utils';
 import { cn } from '@/lib/utils';
@@ -102,7 +106,6 @@ export function SearchInput({
 }: Readonly<SearchInputProps>) {
   const [value, setValue] = useState('');
   const [cursorPosition, setCursorPosition] = useState(0);
-  const textareaReference = useRef<HTMLTextAreaElement>(null);
   const popoverReference = useRef<HTMLDivElement>(null);
 
   const hasContent = value.trim().length > 0;
@@ -112,14 +115,6 @@ export function SearchInput({
     sources: enableMentions ? sources : [],
     maxResults: 8
   });
-
-  // Auto-grow textarea based on content
-  useEffect(() => {
-    const textarea = textareaReference.current;
-    if (!textarea) return;
-    textarea.style.height = 'auto';
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`;
-  }, [value]);
 
   // Update mention state when value or cursor changes
   useEffect(() => {
@@ -149,11 +144,7 @@ export function SearchInput({
             setValue(result.newValue);
             const newCursorPos = result.newCursorPos ?? result.newValue.length;
             setCursorPosition(newCursorPos);
-            setTimeout(() => {
-              if (textareaReference.current) {
-                textareaReference.current.setSelectionRange(newCursorPos, newCursorPos);
-              }
-            }, 0);
+            focusTextarea(newCursorPos);
           }
           if (result.completedSource && onMentionComplete) {
             onMentionComplete(result.completedSource);
@@ -171,25 +162,19 @@ export function SearchInput({
     [enableMentions, mention, value, cursorPosition, onMentionComplete, handleSubmit]
   );
 
-  const handleChange = useCallback(
-    (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const newValue = event.target.value;
-      setValue(newValue);
-      setCursorPosition(event.target.selectionStart);
-      onTextChange?.(newValue);
-
-      // Sync mention sources — detect deleted mentions
-      if (enableMentions && onMentionSync) {
-        const mentionedIds = getMentionedSourceIds(newValue, sources);
-        onMentionSync(mentionedIds);
-      }
-    },
-    [enableMentions, onMentionSync, onTextChange, sources]
-  );
-
   const handleSelect = useCallback((event: React.SyntheticEvent<HTMLTextAreaElement>) => {
     const target = event.target as HTMLTextAreaElement;
     setCursorPosition(target.selectionStart);
+  }, []);
+
+  const focusTextarea = useCallback((pos: number) => {
+    setTimeout(() => {
+      const element = document.querySelector<HTMLTextAreaElement>('#search-input-textarea');
+      if (element) {
+        element.setSelectionRange(pos, pos);
+        element.focus();
+      }
+    }, 0);
   }, []);
 
   const handleOwnerSelect = useCallback(
@@ -197,14 +182,9 @@ export function SearchInput({
       const result = mention.selectOwner(owner, value, cursorPosition);
       setValue(result.newValue);
       setCursorPosition(result.newCursorPos);
-      setTimeout(() => {
-        if (textareaReference.current) {
-          textareaReference.current.setSelectionRange(result.newCursorPos, result.newCursorPos);
-          textareaReference.current.focus();
-        }
-      }, 0);
+      focusTextarea(result.newCursorPos);
     },
-    [mention, value, cursorPosition]
+    [mention, value, cursorPosition, focusTextarea]
   );
 
   const handleEndpointSelect = useCallback(
@@ -215,14 +195,9 @@ export function SearchInput({
       if (onMentionComplete) {
         onMentionComplete(result.completedSource);
       }
-      setTimeout(() => {
-        if (textareaReference.current) {
-          textareaReference.current.setSelectionRange(result.newCursorPos, result.newCursorPos);
-          textareaReference.current.focus();
-        }
-      }, 0);
+      focusTextarea(result.newCursorPos);
     },
-    [mention, value, cursorPosition, onMentionComplete]
+    [mention, value, cursorPosition, onMentionComplete, focusTextarea]
   );
 
   const handleContextClick = useCallback(() => {
@@ -230,15 +205,26 @@ export function SearchInput({
   }, [onContextClick]);
 
   return (
-    <div
+    <PromptInput
+      value={value}
+      maxHeight={120}
+      onValueChange={(newValue) => {
+        setValue(newValue);
+        onTextChange?.(newValue);
+        if (enableMentions && onMentionSync) {
+          const mentionedIds = getMentionedSourceIds(newValue, sources);
+          onMentionSync(mentionedIds);
+        }
+      }}
+      disabled={disabled}
       className={cn(
-        'border-border bg-background focus-within:ring-ring/50 rounded-3xl border px-4 py-2 shadow-sm transition-shadow focus-within:ring-[3px]',
+        'border-border bg-background focus-within:ring-ring/50 shadow-sm transition-shadow focus-within:ring-[3px]',
         className
       )}
     >
       {/* Context chips row */}
       {selectedContexts.length > 0 ? (
-        <div className='mb-2 flex items-center gap-1.5 overflow-x-auto'>
+        <div className='mb-2 flex items-center gap-1.5 overflow-x-auto px-2 pt-1'>
           {selectedContexts.map((ctx) => (
             <span
               key={ctx.id}
@@ -260,9 +246,7 @@ export function SearchInput({
             </span>
           ))}
         </div>
-      ) : (
-        <div className='h-3' />
-      )}
+      ) : null}
 
       {/* Visually hidden label for accessibility */}
       <label htmlFor='search-input-textarea' className='sr-only'>
@@ -271,17 +255,12 @@ export function SearchInput({
 
       {/* Textarea with mention popovers */}
       <div className='relative'>
-        <Textarea
+        <PromptInputTextarea
           id='search-input-textarea'
-          ref={textareaReference}
-          value={value}
-          onChange={handleChange}
           onSelect={handleSelect}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          disabled={disabled}
-          rows={1}
-          className='max-h-[120px] min-h-[48px] resize-none overflow-y-auto border-0 p-0 text-base shadow-none focus-visible:ring-0'
+          className='text-base'
           role={enableMentions ? 'combobox' : undefined}
           aria-autocomplete={enableMentions ? 'list' : undefined}
           aria-expanded={
@@ -332,7 +311,7 @@ export function SearchInput({
       </div>
 
       {/* Bottom Toolbar */}
-      <div className='mt-3 flex items-center justify-between'>
+      <PromptInputActions className='mt-1 justify-between px-1 pb-1'>
         {/* Left: Context pill */}
         <ContextPill onClick={handleContextClick} disabled={disabled} />
 
@@ -366,7 +345,7 @@ export function SearchInput({
             )}
           </Button>
         </div>
-      </div>
-    </div>
+      </PromptInputActions>
+    </PromptInput>
   );
 }
