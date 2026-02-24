@@ -1,6 +1,6 @@
 module github.com/OpenMined/syfthub/cli
 
-go 1.23.0
+go 1.24.0
 
 toolchain go1.24.1
 
@@ -39,7 +39,7 @@ require (
 	github.com/yuin/goldmark v1.7.8 // indirect
 	github.com/yuin/goldmark-emoji v1.0.5 // indirect
 	golang.org/x/net v0.38.0 // indirect
-	golang.org/x/sys v0.32.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.24.0 // indirect
 )
 
