@@ -119,17 +119,17 @@ check:  ## Run code quality checks (mirrors pre-commit hooks)
 	@echo 'Backend checks (ruff, format, mypy)...'
 	@cd components/backend && uv sync --extra dev && uv run ruff check src/ tests/
 	@cd components/backend && uv run ruff format --check src/ tests/
-	@cd components/backend && uv run python -m mypy src/ || true
+	@cd components/backend && uv run python -m mypy src/
 	@echo ''
 	@echo 'Aggregator checks (ruff, format, mypy)...'
 	@cd components/aggregator && uv sync --extra dev && uv run ruff check src/ tests/
 	@cd components/aggregator && uv run ruff format --check src/ tests/
-	@cd components/aggregator && uv run mypy src/aggregator/ || true
+	@cd components/aggregator && uv run mypy src/aggregator/
 	@echo ''
 	@echo 'Python SDK checks (ruff, format, mypy)...'
 	@cd sdk/python && uv sync --extra dev && uv run ruff check src/ tests/
 	@cd sdk/python && uv run ruff format --check src/ tests/
-	@cd sdk/python && uv run mypy src/syfthub_sdk/ || true
+	@cd sdk/python && uv run mypy src/syfthub_sdk/
 	@echo ''
 	@echo 'Frontend checks (eslint, prettier, typecheck)...'
 	@cd components/frontend && npm install --silent && npm run lint
