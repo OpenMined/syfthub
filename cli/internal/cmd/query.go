@@ -225,7 +225,7 @@ func queryStream(ctx context.Context, client *syfthub.Client, target, prompt, ag
 			case *syfthub.ErrorEvent:
 				output.StreamDone()
 				output.Error("%s", e.Error)
-				return fmt.Errorf(e.Error)
+				return fmt.Errorf("%s", e.Error)
 			}
 
 		case err := <-errs:
