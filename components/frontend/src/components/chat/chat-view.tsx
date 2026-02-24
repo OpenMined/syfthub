@@ -434,7 +434,7 @@ export function ChatView({
       </ChatContainerRoot>
 
       {/* Input Area - in flex flow to prevent content overlap and eliminate double scrollbar */}
-      <div className='bg-card border-border border-t p-4'>
+      <div className='bg-card p-4'>
         <div className='mx-auto max-w-4xl px-6'>
           {/* Suggested data sources based on input text */}
           <SuggestedSources
