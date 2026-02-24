@@ -87,9 +87,9 @@ export function ChatView({
 
   // Pre-generated ID for the user message seeded by the initialQuery useState initializer.
   // Must be declared before the messages useState so the lazy initializer can use the same ID.
-  // This ID is later assigned to pendingMessageIdRef in the auto-trigger useEffect so that
+  // This ID is later assigned to pendingMessageIdReference in the auto-trigger useEffect so that
   // onComplete can detect the pre-existing message and skip adding a duplicate.
-  const initialQueryMessageIdRef = useRef<string | null>(
+  const initialQueryMessageIdReference = useRef<string | null>(
     initialQuery && !initialResult ? crypto.randomUUID() : null
   );
 
@@ -117,9 +117,9 @@ export function ChatView({
     if (initialQuery) {
       return [
         {
-          // Re-use the ID from initialQueryMessageIdRef so pendingMessageIdRef can be set
+          // Re-use the ID from initialQueryMessageIdReference so pendingMessageIdReference can be set
           // to this same ID in the auto-trigger useEffect, preventing a duplicate message.
-          id: initialQueryMessageIdRef.current ?? crypto.randomUUID(),
+          id: initialQueryMessageIdReference.current ?? crypto.randomUUID(),
           role: 'user' as const,
           content: initialQuery,
           type: 'text' as const
@@ -130,7 +130,7 @@ export function ChatView({
   });
 
   const messagesEndReference = useRef<HTMLDivElement>(null);
-  const pendingMessageIdRef = useRef<string | null>(null);
+  const pendingMessageIdReference = useRef<string | null>(null);
   const lastQueryRef = useRef<string>('');
 
   // Use workflow hook
@@ -144,8 +144,8 @@ export function ChatView({
       setMessages((previous) => {
         // User message was already added optimistically in handleSubmit
         const hasUserMessage =
-          pendingMessageIdRef.current !== null &&
-          previous.some((m) => m.id === pendingMessageIdRef.current);
+          pendingMessageIdReference.current !== null &&
+          previous.some((m) => m.id === pendingMessageIdReference.current);
 
         const base = hasUserMessage
           ? previous
@@ -159,7 +159,7 @@ export function ChatView({
               }
             ];
 
-        pendingMessageIdRef.current = null;
+        pendingMessageIdReference.current = null;
 
         return [
           ...base,
@@ -190,9 +190,9 @@ export function ChatView({
       selectedModel &&
       sources.length > 0
     ) {
-      // Set pendingMessageIdRef to the pre-seeded user message ID so that onComplete
+      // Set pendingMessageIdReference to the pre-seeded user message ID so that onComplete
       // treats it as an optimistic message and does not add a duplicate.
-      pendingMessageIdRef.current = initialQueryMessageIdRef.current;
+      pendingMessageIdReference.current = initialQueryMessageIdReference.current;
       void workflow.submitQuery(initialQuery);
     }
     // Only run once when dependencies are ready, not on every change
@@ -245,7 +245,7 @@ export function ChatView({
 
       // Optimistically add user message immediately so it appears before the AI responds
       const messageId = crypto.randomUUID();
-      pendingMessageIdRef.current = messageId;
+      pendingMessageIdReference.current = messageId;
       lastQueryRef.current = query;
       setMessages((previous) => [
         ...previous,
