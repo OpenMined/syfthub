@@ -309,10 +309,10 @@ export function ChatView({
   );
 
   return (
-    <div className='bg-card flex min-h-screen flex-col pb-32'>
+    <div className='bg-card flex h-screen flex-col'>
       {/* Messages Area — prompt-kit ChatContainer handles auto-scroll */}
-      <ChatContainerRoot className='mx-auto w-full max-w-4xl flex-1 px-6 pt-16'>
-        <ChatContainerContent className='space-y-8 py-8'>
+      <ChatContainerRoot className='relative mx-auto w-full max-w-4xl flex-1 px-6 pt-16'>
+        <ChatContainerContent className='space-y-8 py-8 pb-32'>
           {messages.length === 0 && !initialQuery && workflow.phase === 'idle' ? (
             <div className='flex flex-col items-center justify-center px-4 py-24'>
               {isLoadingModels ? (
@@ -427,8 +427,8 @@ export function ChatView({
           )}
         </ChatContainerContent>
 
-        {/* Scroll-to-bottom button — must be inside ChatContainerRoot */}
-        <div className='sticky bottom-4 flex justify-center'>
+        {/* Scroll-to-bottom button — must be inside ChatContainerRoot for StickToBottom context */}
+        <div className='absolute bottom-4 z-10 flex w-full justify-center'>
           <ScrollButton />
         </div>
       </ChatContainerRoot>
