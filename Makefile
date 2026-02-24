@@ -101,17 +101,17 @@ test-integration:  ## Run integration tests (requires dev server running)
 
 check:  ## Run code quality checks
 	@echo 'Backend checks...'
-	@cd components/backend && uv run ruff check src/ tests/
+	@cd components/backend && uv sync --extra dev && uv run ruff check src/ tests/
 	@cd components/backend && uv run ruff format --check src/ tests/
 	@cd components/backend && uv run python -m mypy src/ || true
 	@echo ''
 	@echo 'Aggregator checks...'
-	@cd components/aggregator && uv run ruff check src/ tests/
+	@cd components/aggregator && uv sync --extra dev && uv run ruff check src/ tests/
 	@cd components/aggregator && uv run ruff format --check src/ tests/
 	@cd components/aggregator && uv run mypy src/aggregator/ || true
 	@echo ''
 	@echo 'Python SDK checks...'
-	@cd sdk/python && uv run ruff check src/ tests/
+	@cd sdk/python && uv sync --extra dev && uv run ruff check src/ tests/
 	@cd sdk/python && uv run ruff format --check src/ tests/
 	@cd sdk/python && uv run mypy src/syfthub_sdk/ || true
 	@echo ''
