@@ -434,10 +434,10 @@ export class ChatResource {
       ? {}
       : await this.getTransactionTokensForOwners(uniqueOwners);
 
-    // Auto-fetch peer token if tunneling endpoints detected (skip for guest mode)
+    // Auto-fetch peer token if tunneling endpoints detected
     let peerToken = options.peerToken;
     let peerChannel = options.peerChannel;
-    if (!peerToken && !guestMode) {
+    if (!peerToken) {
       const tunnelingUsernames = this.collectTunnelingUsernames(modelRef, dsRefs);
       if (tunnelingUsernames.length > 0) {
         const peerResponse = await this.auth.getPeerToken(tunnelingUsernames);
@@ -546,10 +546,10 @@ export class ChatResource {
       ? {}
       : await this.getTransactionTokensForOwners(uniqueOwners);
 
-    // Auto-fetch peer token if tunneling endpoints detected (skip for guest mode)
+    // Auto-fetch peer token if tunneling endpoints detected
     let peerToken = options.peerToken;
     let peerChannel = options.peerChannel;
-    if (!peerToken && !guestMode) {
+    if (!peerToken) {
       const tunnelingUsernames = this.collectTunnelingUsernames(modelRef, dsRefs);
       if (tunnelingUsernames.length > 0) {
         const peerResponse = await this.auth.getPeerToken(tunnelingUsernames);
