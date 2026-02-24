@@ -217,6 +217,7 @@ Key settings in `src/syfthub/core/config.py`:
 
 ### Production Considerations
 - Use real database for user storage
+- Use Redis for token blacklisting
 - Secure secret key from environment
 - Rate limiting on auth endpoints
 - Logging and monitoring

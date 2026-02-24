@@ -13,7 +13,7 @@ from syfthub.core.config import settings
 # Password hashing context - using Argon2 for better security and no length limitations
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
-# Token blacklist (in-memory; adequate for single-process deployments)
+# Token blacklist (in-memory for development, use Redis for production)
 token_blacklist: Set[str] = set()
 
 # JWT algorithm
@@ -103,7 +103,9 @@ def is_token_blacklisted(token: str) -> bool:
 
 
 def cleanup_expired_tokens() -> None:
-    """Clean up expired tokens from blacklist."""
+    """Clean up expired tokens from blacklist (for production use with scheduled job)."""
+    # In a real application, you would implement this with Redis or database
+    # For now, this is a placeholder for the cleanup logic
     pass
 
 

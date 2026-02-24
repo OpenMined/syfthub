@@ -148,8 +148,12 @@ else:
     logger.info("RSA key pair generated successfully")
 
 # In-memory storage for OAuth server
-# Note: limited to single worker (--workers 1) because OAuth client registrations,
+# TODO: Replace in-memory storage with Redis-backed storage to support multiple workers.
+# Currently limited to single worker (--workers 1) because OAuth client registrations,
 # authorization codes, and access tokens are stored in-memory per process.
+# With multiple workers, a client registered on Worker A won't exist on Worker B,
+# causing "invalid_client" errors. Redis is already available in the stack and can be
+# used to share OAuth state across workers. See: https://redis.io/docs/data-types/hashes/
 oauth_clients: Dict[str, dict] = {}
 oauth_authorization_codes: Dict[str, dict] = {}
 oauth_access_tokens: Dict[str, dict] = {}
