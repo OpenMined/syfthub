@@ -26,9 +26,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Create non-root user
+# /app/.cache is created with mode 700 to mitigate CVE-2025-69872 (diskcache unsafe pickle
+# deserialization): the attack requires write access to the cache directory. Restricting it
+# to the syfthub user only prevents other processes from injecting malicious payloads.
 RUN useradd -m -u 1000 syfthub && \
-    mkdir -p /app /sdk/python && \
-    chown -R syfthub:syfthub /app /sdk
+    mkdir -p /app /app/.cache /sdk/python && \
+    chown -R syfthub:syfthub /app /sdk && \
+    chmod 700 /app/.cache
 
 # Set working directory
 WORKDIR /app
