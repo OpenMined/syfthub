@@ -177,6 +177,18 @@ export function SearchInput({
     }, 0);
   }, []);
 
+  // Track previous disabled state so we can detect the re-enable transition
+  const wasDisabledRef = useRef(disabled);
+
+  // Auto-focus the textarea when the input transitions from disabled → enabled
+  // (i.e. when the AI finishes generating so the user can type immediately)
+  useEffect(() => {
+    if (wasDisabledRef.current && !disabled) {
+      focusTextarea(0);
+    }
+    wasDisabledRef.current = disabled;
+  }, [disabled, focusTextarea]);
+
   const handleOwnerSelect = useCallback(
     (owner: string) => {
       const result = mention.selectOwner(owner, value, cursorPosition);
