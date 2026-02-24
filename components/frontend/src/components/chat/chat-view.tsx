@@ -309,10 +309,10 @@ export function ChatView({
   );
 
   return (
-    <div className='bg-card flex h-screen flex-col'>
+    <div className='bg-card flex h-screen flex-col overflow-hidden'>
       {/* Messages Area — prompt-kit ChatContainer handles auto-scroll */}
       <ChatContainerRoot className='relative flex-1'>
-        <ChatContainerContent className='mx-auto w-full max-w-4xl space-y-8 px-6 py-8 pt-16 pb-32'>
+        <ChatContainerContent className='mx-auto w-full max-w-4xl space-y-8 px-6 py-8 pt-16'>
           {messages.length === 0 && !initialQuery && workflow.phase === 'idle' ? (
             <div className='flex flex-col items-center justify-center px-4 py-24'>
               {isLoadingModels ? (
@@ -433,8 +433,8 @@ export function ChatView({
         </div>
       </ChatContainerRoot>
 
-      {/* Input Area - Fixed bottom */}
-      <div className='bg-card fixed right-0 bottom-0 left-20 z-40 p-4'>
+      {/* Input Area - in flex flow to prevent content overlap and eliminate double scrollbar */}
+      <div className='bg-card border-border border-t p-4'>
         <div className='mx-auto max-w-4xl px-6'>
           {/* Suggested data sources based on input text */}
           <SuggestedSources
