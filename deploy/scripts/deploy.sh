@@ -272,9 +272,9 @@ deploy_services() {
 
     cd "$DEPLOY_DIR"
 
-    # Ensure database and meilisearch are running
-    log INFO "Ensuring database and meilisearch are running..."
-    docker compose -f "$COMPOSE_FILE" up -d db meilisearch
+    # Ensure database, redis, and meilisearch are running
+    log INFO "Ensuring database, redis, and meilisearch are running..."
+    docker compose -f "$COMPOSE_FILE" up -d db redis meilisearch
 
     # Wait for database to be healthy
     log INFO "Waiting for database to be healthy..."
