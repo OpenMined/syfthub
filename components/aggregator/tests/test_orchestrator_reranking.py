@@ -10,25 +10,11 @@ from aggregator.schemas import Document
 from aggregator.schemas.internal import AggregatedContext, GenerationResult, RetrievalResult
 from aggregator.services.orchestrator import Orchestrator
 
+AGGREGATE_PATH = "aggregator.services.orchestrator.Aggregate"
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_fed_agg_mock(reranked_nodes: list[dict]) -> ModuleType:
-    """Create a mock federated_aggregation module."""
-    mock_aggregate_instance = MagicMock()
-    mock_aggregate_instance.perform_aggregation.return_value = {
-        "central_re_embedding": {"reranked_nodes": reranked_nodes}
-    }
-
-    mock_aggregate_cls = MagicMock()
-    mock_aggregate_cls.return_value = mock_aggregate_instance
-    mock_aggregate_cls.CENTRAL_REEMBEDDING = "central_re_embedding"
-
-    mock_module = MagicMock(spec=ModuleType)
-    mock_module.Aggregate = mock_aggregate_cls
-    return mock_module  # type: ignore[return-value]
 
 
 def _make_attribution_mock(profit_share: dict[str, float] | None = None) -> ModuleType:
@@ -148,12 +134,13 @@ async def test_rerank_documents_success() -> None:
         {"document": {"content": "Alice doc 1."}, "score": 0.75, "person": "alice/docs"},
         {"document": {"content": "Alice doc 2."}, "score": 0.50, "person": "alice/docs"},
     ]
-    fed_agg_mock = _make_fed_agg_mock(reranked_nodes)
+    mock_instance = MagicMock()
+    mock_instance.perform_aggregation.return_value = {
+        "central_re_embedding": {"reranked_nodes": reranked_nodes}
+    }
 
-    with patch.dict(
-        sys.modules,
-        {"federated_aggregation": fed_agg_mock, "federated_aggregation.aggregator": fed_agg_mock},
-    ):
+    with patch(AGGREGATE_PATH, return_value=mock_instance) as mock_cls:
+        mock_cls.CENTRAL_REEMBEDDING = "central_re_embedding"
         result = await orchestrator._rerank_documents(
             query="test query",
             retrieval_results=retrieval_results,
@@ -178,17 +165,11 @@ async def test_rerank_documents_failure_returns_none() -> None:
     orchestrator = _make_orchestrator()
     retrieval_results = _make_retrieval_results()
 
-    failing_mock = MagicMock(spec=ModuleType)
-    failing_mock.Aggregate = MagicMock()
-    failing_mock.Aggregate.CENTRAL_REEMBEDDING = "central_re_embedding"
-    failing_mock.Aggregate.return_value.perform_aggregation.side_effect = RuntimeError(
-        "Model download failed"
-    )
+    mock_instance = MagicMock()
+    mock_instance.perform_aggregation.side_effect = RuntimeError("Model download failed")
 
-    with patch.dict(
-        sys.modules,
-        {"federated_aggregation": failing_mock, "federated_aggregation.aggregator": failing_mock},
-    ):
+    with patch(AGGREGATE_PATH, return_value=mock_instance) as mock_cls:
+        mock_cls.CENTRAL_REEMBEDDING = "central_re_embedding"
         result = await orchestrator._rerank_documents(
             query="test query",
             retrieval_results=retrieval_results,
@@ -214,12 +195,10 @@ async def test_rerank_documents_empty_input_returns_none() -> None:
         )
     ]
 
-    fed_agg_mock = _make_fed_agg_mock([])
+    mock_instance = MagicMock()
 
-    with patch.dict(
-        sys.modules,
-        {"federated_aggregation": fed_agg_mock, "federated_aggregation.aggregator": fed_agg_mock},
-    ):
+    with patch(AGGREGATE_PATH, return_value=mock_instance) as mock_cls:
+        mock_cls.CENTRAL_REEMBEDDING = "central_re_embedding"
         result = await orchestrator._rerank_documents(
             query="test query",
             retrieval_results=empty_results,
@@ -228,7 +207,7 @@ async def test_rerank_documents_empty_input_returns_none() -> None:
 
     assert result is None
     # perform_aggregation should NOT have been called
-    fed_agg_mock.Aggregate.return_value.perform_aggregation.assert_not_called()
+    mock_instance.perform_aggregation.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -304,21 +283,18 @@ async def test_process_chat_no_datasources_skips_reranking() -> None:
         data_sources=[],  # No data sources
     )
 
-    fed_agg_mock = _make_fed_agg_mock([])
+    agg_instance = MagicMock()
     attribution_mock = _make_attribution_mock({"source": 1.0})
 
-    with patch.dict(
-        sys.modules,
-        {
-            "federated_aggregation": fed_agg_mock,
-            "federated_aggregation.aggregator": fed_agg_mock,
-            "attribution": attribution_mock,
-        },
+    with (
+        patch(AGGREGATE_PATH, return_value=agg_instance) as mock_cls,
+        patch.dict(sys.modules, {"attribution": attribution_mock}),
     ):
+        mock_cls.CENTRAL_REEMBEDDING = "central_re_embedding"
         response = await orchestrator.process_chat(request)
 
     # Neither reranking nor attribution should have been invoked
-    fed_agg_mock.Aggregate.return_value.perform_aggregation.assert_not_called()
+    agg_instance.perform_aggregation.assert_not_called()
     attribution_mock.run_llm_attribution_pipeline.assert_not_called()
     assert response.profit_share is None
 
@@ -353,20 +329,17 @@ async def test_process_chat_empty_documents_skips_reranking() -> None:
         data_sources=[EndpointRef(url="http://space", slug="docs", owner_username="alice")],
     )
 
-    fed_agg_mock = _make_fed_agg_mock([])
+    agg_instance = MagicMock()
     attribution_mock = _make_attribution_mock({"source": 1.0})
 
-    with patch.dict(
-        sys.modules,
-        {
-            "federated_aggregation": fed_agg_mock,
-            "federated_aggregation.aggregator": fed_agg_mock,
-            "attribution": attribution_mock,
-        },
+    with (
+        patch(AGGREGATE_PATH, return_value=agg_instance) as mock_cls,
+        patch.dict(sys.modules, {"attribution": attribution_mock}),
     ):
+        mock_cls.CENTRAL_REEMBEDDING = "central_re_embedding"
         response = await orchestrator.process_chat(request)
 
-    fed_agg_mock.Aggregate.return_value.perform_aggregation.assert_not_called()
+    agg_instance.perform_aggregation.assert_not_called()
     attribution_mock.run_llm_attribution_pipeline.assert_not_called()
     assert response.profit_share is None
 
@@ -405,17 +378,17 @@ async def test_process_chat_with_reranking_and_attribution() -> None:
         {"document": {"content": "Doc B."}, "score": 0.95, "person": "alice/docs"},
         {"document": {"content": "Doc A."}, "score": 0.65, "person": "alice/docs"},
     ]
-    fed_agg_mock = _make_fed_agg_mock(reranked)
+    agg_instance = MagicMock()
+    agg_instance.perform_aggregation.return_value = {
+        "central_re_embedding": {"reranked_nodes": reranked}
+    }
     attribution_mock = _make_attribution_mock({"alice/docs": 1.0})
 
-    with patch.dict(
-        sys.modules,
-        {
-            "federated_aggregation": fed_agg_mock,
-            "federated_aggregation.aggregator": fed_agg_mock,
-            "attribution": attribution_mock,
-        },
+    with (
+        patch(AGGREGATE_PATH, return_value=agg_instance) as mock_cls,
+        patch.dict(sys.modules, {"attribution": attribution_mock}),
     ):
+        mock_cls.CENTRAL_REEMBEDDING = "central_re_embedding"
         response = await orchestrator.process_chat(request)
 
     assert response.profit_share == {"alice/docs": 1.0}
