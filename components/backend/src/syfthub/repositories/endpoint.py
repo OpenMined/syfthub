@@ -852,6 +852,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 visibility=endpoint_data.visibility.value,
                 version=endpoint_data.version,
                 readme=endpoint_data.readme,
+                tags=endpoint_data.tags,
                 contributors=endpoint_data.contributors,
                 policies=[policy.model_dump() for policy in endpoint_data.policies],
                 connect=[conn.model_dump() for conn in endpoint_data.connect],
@@ -894,6 +895,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 endpoint_model.readme = endpoint_data.readme
             if endpoint_data.contributors is not None:
                 endpoint_model.contributors = endpoint_data.contributors
+            if endpoint_data.tags is not None:
+                endpoint_model.tags = endpoint_data.tags
             if endpoint_data.policies is not None:
                 endpoint_model.policies = [
                     policy.model_dump() for policy in endpoint_data.policies

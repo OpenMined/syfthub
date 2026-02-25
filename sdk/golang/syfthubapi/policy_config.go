@@ -60,30 +60,32 @@ type PolicyResultOutput struct {
 
 // Known policy types for validation.
 const (
-	PolicyTypeAccessGroup  = "access_group"
-	PolicyTypeRateLimit    = "rate_limit"
-	PolicyTypeTokenLimit   = "token_limit"
-	PolicyTypePromptFilter = "prompt_filter"
-	PolicyTypeAttribution  = "attribution"
-	PolicyTypeManualReview = "manual_review"
-	PolicyTypeTransaction  = "transaction"
-	PolicyTypeCustom       = "custom"
-	PolicyTypeAllOf        = "all_of"
-	PolicyTypeAnyOf        = "any_of"
-	PolicyTypeNot          = "not"
+	PolicyTypeAccessGroup        = "access_group"
+	PolicyTypeRateLimit          = "rate_limit"
+	PolicyTypeTokenLimit         = "token_limit"
+	PolicyTypePromptFilter       = "prompt_filter"
+	PolicyTypeAttribution        = "attribution"
+	PolicyTypeManualReview       = "manual_review"
+	PolicyTypeTransaction        = "transaction"
+	PolicyTypeCustom             = "custom"
+	PolicyTypeAllOf              = "all_of"
+	PolicyTypeAnyOf              = "any_of"
+	PolicyTypeNot                = "not"
+	PolicyTypeBundleSubscription = "bundle_subscription"
 )
 
 // ValidPolicyTypes is the set of valid policy type strings.
 var ValidPolicyTypes = map[string]bool{
-	PolicyTypeAccessGroup:  true,
-	PolicyTypeRateLimit:    true,
-	PolicyTypeTokenLimit:   true,
-	PolicyTypePromptFilter: true,
-	PolicyTypeAttribution:  true,
-	PolicyTypeManualReview: true,
-	PolicyTypeTransaction:  true,
-	PolicyTypeCustom:       true,
-	PolicyTypeAllOf:        true,
-	PolicyTypeAnyOf:        true,
-	PolicyTypeNot:          true,
+	PolicyTypeAccessGroup:        true,
+	PolicyTypeRateLimit:          true,
+	PolicyTypeTokenLimit:         true,
+	PolicyTypePromptFilter:       true,
+	PolicyTypeAttribution:        true,
+	PolicyTypeManualReview:       true,
+	PolicyTypeTransaction:        true,
+	PolicyTypeCustom:             true,
+	PolicyTypeAllOf:              true,
+	PolicyTypeAnyOf:              true,
+	PolicyTypeNot:                true,
+	PolicyTypeBundleSubscription: true,
 }
