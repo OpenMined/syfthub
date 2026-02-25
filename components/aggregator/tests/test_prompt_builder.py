@@ -1,8 +1,15 @@
 """Tests for the prompt builder service."""
 
+import sys
+from types import ModuleType
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 from aggregator.schemas import Document
 from aggregator.schemas.internal import AggregatedContext, RetrievalResult
 from aggregator.services import PromptBuilder
+from aggregator.services.prompt_builder import PromptBuilderError
 
 
 def test_prompt_builder_no_context() -> None:
@@ -199,6 +206,113 @@ def test_prompt_builder_semantic_matching_guidance() -> None:
 
     # Should allow logical inferences
     assert "logical inferences" in user_content.lower()
+
+
+def _make_attribution_mock(return_value: object) -> ModuleType:
+    """Create a mock attribution module with construct_citation_prompt."""
+    mock_module = MagicMock(spec=ModuleType)
+    mock_module.construct_citation_prompt = MagicMock(return_value=return_value)
+    return mock_module  # type: ignore[return-value]
+
+
+def test_prompt_builder_with_context_dict() -> None:
+    """Test that construct_citation_prompt is used when context_dict is provided."""
+    builder = PromptBuilder()
+
+    documents = [Document(content="Python is a programming language.", score=0.9)]
+    retrieval_results = [
+        RetrievalResult(
+            endpoint_path="docs/python",
+            documents=documents,
+            status="success",
+            latency_ms=100,
+        )
+    ]
+    context = AggregatedContext(
+        documents=documents,
+        retrieval_results=retrieval_results,
+        total_latency_ms=100,
+    )
+    context_dict = {0: "Python is a programming language."}
+
+    attribution_mock = _make_attribution_mock(
+        "Cite using <cite:[0]> tags. Question: What is Python?"
+    )
+
+    with patch.dict(sys.modules, {"attribution": attribution_mock}):
+        messages = builder.build(
+            user_prompt="What is Python?",
+            context=context,
+            context_dict=context_dict,
+        )
+
+    assert len(messages) == 2
+    assert messages[1].content == "Cite using <cite:[0]> tags. Question: What is Python?"
+    attribution_mock.construct_citation_prompt.assert_called_once_with(
+        query="What is Python?", context=context_dict
+    )
+
+
+def test_prompt_builder_context_dict_non_string_raises() -> None:
+    """Test that PromptBuilderError is raised when construct_citation_prompt returns non-str."""
+    builder = PromptBuilder()
+
+    documents = [Document(content="Some content.", score=0.9)]
+    retrieval_results = [
+        RetrievalResult(
+            endpoint_path="test/source",
+            documents=documents,
+            status="success",
+            latency_ms=100,
+        )
+    ]
+    context = AggregatedContext(
+        documents=documents,
+        retrieval_results=retrieval_results,
+        total_latency_ms=100,
+    )
+    context_dict = {0: "Some content."}
+
+    attribution_mock = _make_attribution_mock(42)  # wrong type — should raise
+
+    with (
+        patch.dict(sys.modules, {"attribution": attribution_mock}),
+        pytest.raises(PromptBuilderError, match="expected str"),
+    ):
+        builder.build(
+            user_prompt="Test?",
+            context=context,
+            context_dict=context_dict,
+        )
+
+
+def test_prompt_builder_no_context_dict_uses_xml_prompt() -> None:
+    """Test that existing XML prompt is used when context_dict is None (backward compat)."""
+    builder = PromptBuilder()
+
+    documents = [Document(content="Python is interpreted.", score=0.9)]
+    retrieval_results = [
+        RetrievalResult(
+            endpoint_path="docs/python",
+            documents=documents,
+            status="success",
+            latency_ms=100,
+        )
+    ]
+    context = AggregatedContext(
+        documents=documents,
+        retrieval_results=retrieval_results,
+        total_latency_ms=100,
+    )
+
+    # No context_dict → should use the existing XML format
+    messages = builder.build(user_prompt="What is Python?", context=context)
+
+    user_content = messages[1].content
+    assert "<documents>" in user_content
+    assert "<document index=" in user_content
+    assert "Python is interpreted." in user_content
+    assert "USER QUESTION:" in user_content
 
 
 def test_prompt_builder_refusal_as_last_resort() -> None:

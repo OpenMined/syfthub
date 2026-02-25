@@ -1,10 +1,13 @@
 """Orchestrator service - coordinates the RAG workflow with SyftAI-Space."""
 
+import asyncio
 import json
 import logging
 import time
 from collections.abc import AsyncGenerator
 from typing import Any
+
+from federated_aggregation.aggregator import Aggregate
 
 from aggregator.core.config import get_settings
 from aggregator.schemas import (
@@ -16,7 +19,8 @@ from aggregator.schemas import (
     SourceInfo,
     TokenUsage,
 )
-from aggregator.schemas.internal import AggregatedContext, ResolvedEndpoint
+from aggregator.schemas.internal import AggregatedContext, ResolvedEndpoint, RetrievalResult
+from aggregator.schemas.responses import Document
 from aggregator.services.generation import GenerationError, GenerationService
 from aggregator.services.prompt_builder import PromptBuilder
 from aggregator.services.retrieval import RetrievalService
@@ -117,6 +121,115 @@ class Orchestrator:
 
         return sources
 
+    @staticmethod
+    def _build_aggregation_input(
+        retrieval_results: list[RetrievalResult],
+    ) -> dict[str, dict[str, Any]]:
+        """Build input dict for federated_aggregation from retrieval results.
+
+        Only includes successful retrieval results with documents.
+
+        Returns:
+            Dict mapping endpoint_path to source structure expected by
+            Aggregate.perform_aggregation with CENTRAL_REEMBEDDING.
+        """
+        retrieved_nodes: dict[str, dict[str, Any]] = {}
+        for result in retrieval_results:
+            if result.status != "success" or not result.documents:
+                continue
+            retrieved_nodes[result.endpoint_path] = {
+                "sources": [
+                    {"document": {"content": doc.content}, "score": doc.score}
+                    for doc in result.documents
+                ],
+                "query_embedding": None,
+                "embedding_model_name": None,
+                "similarity_metric": None,
+            }
+        return retrieved_nodes
+
+    async def _rerank_documents(
+        self,
+        query: str,
+        retrieval_results: list[RetrievalResult],
+        top_k: int,
+    ) -> tuple[list[Document], dict[int, str], dict[int, str]] | None:
+        """Rerank documents using CENTRAL_REEMBEDDING.
+
+        Re-embeds all retrieved documents into a uniform embedding space so
+        cross-source scores are directly comparable.
+
+        Returns:
+            Tuple of (reranked_documents, context_dict, source_index_map)
+            or None if reranking fails or no documents to rerank.
+        """
+        retrieved_nodes = self._build_aggregation_input(retrieval_results)
+        if not retrieved_nodes:
+            return None
+
+        rerank_start = time.perf_counter()
+        try:
+            aggregator = Aggregate()
+            results = await asyncio.to_thread(
+                aggregator.perform_aggregation,
+                query=query,
+                retrieved_nodes=retrieved_nodes,
+                method=Aggregate.CENTRAL_REEMBEDDING,
+                top_k=top_k,
+                model_name="BAAI/bge-base-en-v1.5",
+                device="cpu",
+            )
+        except Exception:
+            logger.error("Reranking failed, falling back to raw score sort", exc_info=True)
+            return None
+
+        rerank_ms = int((time.perf_counter() - rerank_start) * 1000)
+        logger.info(f"Reranking (CENTRAL_REEMBEDDING) completed in {rerank_ms}ms")
+
+        reranked_nodes = results["central_re_embedding"]["reranked_nodes"]
+
+        reranked_docs: list[Document] = []
+        context_dict: dict[int, str] = {}
+        source_index_map: dict[int, str] = {}
+
+        for i, node in enumerate(reranked_nodes):
+            content = node["document"]["content"]
+            score = node.get("score", 0.0)
+            source = node.get("person", f"source_{i}")
+
+            reranked_docs.append(Document(content=content, score=score))
+            context_dict[i] = content
+            source_index_map[i] = source
+
+        return reranked_docs, context_dict, source_index_map
+
+    @staticmethod
+    def _compute_attribution(
+        response: str,
+        source_index_map: dict[int, str],
+    ) -> dict[str, float] | None:
+        """Compute profit share via LLM attribution pipeline.
+
+        Parses <cite:[N]> tags from the generated response and computes a
+        normalized fractional contribution per source.
+
+        Returns:
+            profit_share dict mapping owner/slug to fraction (0-1),
+            or None if attribution fails.
+        """
+        try:
+            from attribution import run_llm_attribution_pipeline  # noqa: PLC0415
+
+            contribution_info = run_llm_attribution_pipeline(
+                generated_response=response,
+                node_map=source_index_map,
+            )
+            profit_share: dict[str, float] = contribution_info.get("profit_share", {})
+            return profit_share
+        except Exception:
+            logger.error("Attribution pipeline failed", exc_info=True)
+            return None
+
     async def process_chat(
         self,
         request: ChatRequest,
@@ -175,12 +288,27 @@ class Orchestrator:
         )
         retrieval_time_ms = int((time.perf_counter() - retrieval_start) * 1000)
 
+        # 3b. Rerank documents using federated aggregation (CENTRAL_REEMBEDDING)
+        context_dict: dict[int, str] | None = None
+        source_index_map: dict[int, str] | None = None
+
+        if data_sources and context.documents:
+            rerank_result = await self._rerank_documents(
+                query=request.prompt,
+                retrieval_results=context.retrieval_results,
+                top_k=request.top_k,
+            )
+            if rerank_result is not None:
+                reranked_docs, context_dict, source_index_map = rerank_result
+                context.documents = reranked_docs
+
         # 4. Build augmented prompt
         messages = self.prompt_builder.build(
             user_prompt=request.prompt,
             context=context if data_sources else None,
             custom_system_prompt=request.custom_system_prompt,
             history=request.messages or None,
+            context_dict=context_dict,
         )
 
         # 5. Generate response via SyftAI-Space model endpoint
@@ -198,6 +326,11 @@ class Orchestrator:
         except GenerationError as e:
             raise OrchestratorError(f"Generation failed: {e}") from e
         generation_time_ms = int((time.perf_counter() - generation_start) * 1000)
+
+        # 5b. Run attribution pipeline on the generated response
+        profit_share: dict[str, float] | None = None
+        if source_index_map:
+            profit_share = self._compute_attribution(result.response, source_index_map)
 
         # 6. Build response
         total_time_ms = int((time.perf_counter() - total_start) * 1000)
@@ -235,6 +368,7 @@ class Orchestrator:
                 total_time_ms=total_time_ms,
             ),
             usage=usage,
+            profit_share=profit_share,
         )
 
     async def process_chat_stream(
@@ -304,12 +438,26 @@ class Orchestrator:
 
         retrieval_time_ms = int((time.perf_counter() - retrieval_start) * 1000)
 
-        # Aggregate documents
+        # Aggregate documents (raw sort as baseline / fallback)
         all_documents = []
         for r in retrieval_results:
             if r.status == "success":
                 all_documents.extend(r.documents)
         all_documents.sort(key=lambda d: d.score, reverse=True)
+
+        # Rerank using federated aggregation (CENTRAL_REEMBEDDING)
+        context_dict: dict[int, str] | None = None
+        source_index_map: dict[int, str] | None = None
+
+        if data_sources and all_documents:
+            rerank_result = await self._rerank_documents(
+                query=request.prompt,
+                retrieval_results=retrieval_results,
+                top_k=request.top_k,
+            )
+            if rerank_result is not None:
+                reranked_docs, context_dict, source_index_map = rerank_result
+                all_documents = reranked_docs
 
         yield self._sse_event(
             "retrieval_complete",
@@ -331,6 +479,7 @@ class Orchestrator:
             context=context if data_sources else None,
             custom_system_prompt=request.custom_system_prompt,
             history=request.messages or None,
+            context_dict=context_dict,
         )
 
         # 5. Generation phase with streaming (or non-streaming fallback)
@@ -382,6 +531,12 @@ class Orchestrator:
         generation_time_ms = int((time.perf_counter() - generation_start) * 1000)
         total_time_ms = int((time.perf_counter() - total_start) * 1000)
 
+        # 5b. Run attribution pipeline on the full generated response
+        profit_share: dict[str, float] | None = None
+        if source_index_map:
+            full_response_text = "".join(full_response)
+            profit_share = self._compute_attribution(full_response_text, source_index_map)
+
         # 6. Final event with metadata and usage
         # Build retrieval info (metadata about each data source retrieval)
         retrieval_info = [
@@ -413,6 +568,10 @@ class Orchestrator:
         # Include usage if available (only from non-streaming mode)
         if usage_data:
             done_data["usage"] = usage_data
+
+        # Include profit share if attribution succeeded
+        if profit_share is not None:
+            done_data["profit_share"] = profit_share
 
         yield self._sse_event("done", done_data)
 

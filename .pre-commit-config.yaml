@@ -91,10 +91,14 @@ repos:
         files: ^components/aggregator/.*\.py$
         additional_dependencies: [
           fastapi,
+          uvicorn,
           pydantic,
           pydantic-settings,
           httpx,
           structlog,
+          nats-py,
+          sse-starlette,
+          pyjwt,
         ]
 
   # Frontend hooks

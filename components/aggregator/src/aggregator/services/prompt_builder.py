@@ -5,6 +5,12 @@ from aggregator.schemas.requests import Message
 from aggregator.schemas.responses import Document
 
 
+class PromptBuilderError(Exception):
+    """Error in prompt construction."""
+
+    pass
+
+
 class PromptBuilder:
     """Builds prompts for RAG-augmented generation."""
 
@@ -79,6 +85,7 @@ However, if the question is general and you can provide a helpful answer without
         context: AggregatedContext | None = None,
         custom_system_prompt: str | None = None,
         history: list[Message] | None = None,
+        context_dict: dict[int, str] | None = None,
     ) -> list[Message]:
         """
         Build a list of messages for the model, incorporating retrieved context.
@@ -88,6 +95,9 @@ However, if the question is general and you can provide a helpful answer without
             context: Aggregated context from data sources (optional)
             custom_system_prompt: Override the default system prompt
             history: Prior conversation turns for multi-turn context
+            context_dict: Integer-keyed dict of document contents for citation prompt
+                          construction. When provided and documents are available,
+                          uses construct_citation_prompt instead of the XML prompt.
 
         Returns:
             List of messages ready to send to the model.
@@ -108,6 +118,7 @@ However, if the question is general and you can provide a helpful answer without
         user_content = self._build_user_content(
             user_prompt=user_prompt,
             context=context,
+            context_dict=context_dict,
         )
         messages.append(Message(role="user", content=user_content))
 
@@ -117,6 +128,7 @@ However, if the question is general and you can provide a helpful answer without
         self,
         user_prompt: str,
         context: AggregatedContext | None,
+        context_dict: dict[int, str] | None = None,
     ) -> str:
         """Build the user message content with instructions, context, and question.
 
@@ -142,7 +154,19 @@ However, if the question is general and you can provide a helpful answer without
             parts.append(f"\n---\nUSER QUESTION:\n{user_prompt}\n---")
             return "\n".join(parts)
 
-        # SCENARIO 3: Documents available - use document-grounded instructions
+        # SCENARIO 3: Documents available
+        if context_dict is not None:
+            # Use citation-aware prompt from attribution library
+            from attribution import construct_citation_prompt  # noqa: PLC0415
+
+            citation_prompt = construct_citation_prompt(query=user_prompt, context=context_dict)
+            if not isinstance(citation_prompt, str):
+                raise PromptBuilderError(
+                    f"construct_citation_prompt returned {type(citation_prompt).__name__}, expected str"
+                )
+            return citation_prompt
+
+        # Fallback: existing XML document-grounded prompt
         parts.append(self.DEFAULT_USER_INSTRUCTIONS)
         parts.append("\n<documents>")
         parts.append(self._format_context(context))

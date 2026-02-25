@@ -111,6 +111,8 @@ export interface ChatResponse {
   metadata: ChatMetadata;
   /** Token usage if available */
   usage?: TokenUsage;
+  /** Normalized contribution scores per source (owner/slug to fraction 0-1) */
+  profitShare?: Record<string, number>;
 }
 
 /**
@@ -245,6 +247,8 @@ export interface DoneEvent {
   metadata: ChatMetadata;
   /** Token usage if available (only from non-streaming mode) */
   usage?: TokenUsage;
+  /** Normalized contribution scores per source (owner/slug to fraction 0-1) */
+  profitShare?: Record<string, number>;
 }
 
 /**
