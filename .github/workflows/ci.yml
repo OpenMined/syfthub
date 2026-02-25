@@ -5,6 +5,7 @@ on:
     branches: [main, develop, dev]
   pull_request:
     branches: [main, develop, dev]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -642,7 +643,7 @@ jobs:
   # ============================================================================
   build-images-staging:
     name: Build ${{ matrix.image }} (Staging)
-    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/dev' && github.event_name == 'workflow_dispatch'
     needs: [backend-lint, backend-test, go-sdk-lint, go-sdk-test, frontend-lint, frontend-test, frontend-build]
     runs-on: ubuntu-latest
     permissions:
@@ -714,7 +715,7 @@ jobs:
   # ============================================================================
   deploy-staging:
     name: Deploy to Staging
-    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/dev' && github.event_name == 'workflow_dispatch'
     needs: [build-images-staging]
     runs-on: ubuntu-latest
     environment: staging
