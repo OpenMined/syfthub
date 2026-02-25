@@ -714,7 +714,10 @@ export class ChatResource {
         // Parse profit share if available
         const profitShare = data['profit_share'] as Record<string, number> | undefined;
 
-        return { type: 'done', sources, retrievalInfo, metadata, usage, profitShare };
+        // Parse clean response (cite-tag-stripped) if attribution ran
+        const response = data['response'] as string | undefined;
+
+        return { type: 'done', sources, retrievalInfo, metadata, usage, profitShare, response };
       }
 
       case 'error':

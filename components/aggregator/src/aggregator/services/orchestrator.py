@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import re
 import time
 from collections.abc import AsyncGenerator
 from typing import Any
@@ -142,6 +143,8 @@ class Orchestrator:
                     {"document": {"content": doc.content}, "score": doc.score}
                     for doc in result.documents
                 ],
+                # Placeholder embeddings required by flatten_query_result; overwritten by CENTRAL_REEMBEDDING
+                "document_embeddings": [[] for _ in result.documents],
                 "query_embedding": None,
                 "embedding_model_name": None,
                 "similarity_metric": None,
@@ -220,8 +223,16 @@ class Orchestrator:
         try:
             from attribution import run_llm_attribution_pipeline  # noqa: PLC0415
 
+            # Normalize [cite:N], [cite:N,M], and [cite:N-start:end] to <cite:[N]>
+            # so aggregate_server_citations can parse them with its existing regex.
+            # The position suffix (-start:end) is stripped; only source indices are kept.
+            normalized = re.sub(
+                r"\[cite:([\d,]+)(?:-\d+:\d+)?\]",
+                lambda m: f"<cite:[{m.group(1)}]>",
+                response,
+            )
             contribution_info = run_llm_attribution_pipeline(
-                generated_response=response,
+                generated_response=normalized,
                 node_map=source_index_map,
             )
             profit_share: dict[str, float] = contribution_info.get("profit_share", {})
@@ -327,10 +338,15 @@ class Orchestrator:
             raise OrchestratorError(f"Generation failed: {e}") from e
         generation_time_ms = int((time.perf_counter() - generation_start) * 1000)
 
-        # 5b. Run attribution pipeline on the generated response
+        # 5b. Annotate, attribute, and enrich the response
         profit_share: dict[str, float] | None = None
+        display_response = result.response
         if source_index_map:
-            profit_share = self._compute_attribution(result.response, source_index_map)
+            # Inject character-span info: [cite:N] → [cite:N-start:end]
+            annotated = self._annotate_cite_positions(result.response)
+            profit_share = self._compute_attribution(annotated, source_index_map)
+            # Expose the position-annotated response so consumers can highlight cited spans
+            display_response = annotated
 
         # 6. Build response
         total_time_ms = int((time.perf_counter() - total_start) * 1000)
@@ -359,7 +375,7 @@ class Orchestrator:
             )
 
         return ChatResponse(
-            response=result.response,
+            response=display_response,
             sources=document_sources,
             retrieval_info=retrieval_info,
             metadata=ResponseMetadata(
@@ -531,11 +547,15 @@ class Orchestrator:
         generation_time_ms = int((time.perf_counter() - generation_start) * 1000)
         total_time_ms = int((time.perf_counter() - total_start) * 1000)
 
-        # 5b. Run attribution pipeline on the full generated response
+        # 5b. Annotate, attribute, and enrich the full assembled response.
+        # Streamed chunks already went to the client as raw [cite:N]; the done event
+        # carries the position-annotated version so frontends can replace/highlight.
         profit_share: dict[str, float] | None = None
+        annotated_response: str | None = None
         if source_index_map:
             full_response_text = "".join(full_response)
-            profit_share = self._compute_attribution(full_response_text, source_index_map)
+            annotated_response = self._annotate_cite_positions(full_response_text)
+            profit_share = self._compute_attribution(annotated_response, source_index_map)
 
         # 6. Final event with metadata and usage
         # Build retrieval info (metadata about each data source retrieval)
@@ -569,11 +589,92 @@ class Orchestrator:
         if usage_data:
             done_data["usage"] = usage_data
 
-        # Include profit share if attribution succeeded
+        # Include profit share and position-annotated response if attribution ran
         if profit_share is not None:
             done_data["profit_share"] = profit_share
+        if annotated_response is not None:
+            done_data["response"] = annotated_response
 
         yield self._sse_event("done", done_data)
+
+    @staticmethod
+    def _annotate_cite_positions(text: str) -> str:
+        """Enrich [cite:N] end-of-sentence markers with character span information.
+
+        Converts [cite:N] → [cite:N-start:end] where start:end are the character
+        positions of the attributed sentence in the CLEAN (marker-free) response.
+
+        This allows consumers to extract the exact cited span via clean_text[start:end]
+        without any further parsing of the surrounding text.
+
+        Algorithm:
+        1. Strip all raw [cite:N] markers to build a clean response, tracking
+           where each marker sat in the clean string.
+        2. For each marker position, walk backwards to find the sentence boundary
+           (last '.', '!', '?', or newline), giving the sentence start.
+        3. Re-insert annotated [cite:N-start:end] markers from right to left
+           (so earlier insertions don't shift positions of later ones).
+        """
+        raw_pattern = re.compile(r"\[cite:([\d,]+)\]")
+        matches = list(raw_pattern.finditer(text))
+        if not matches:
+            return text
+
+        # Build clean text and collect (clean_pos, indices) for each marker
+        clean_parts: list[str] = []
+        prev_end = 0
+        clean_offset = 0
+        marker_info: list[tuple[int, str]] = []  # (position_in_clean, cite_indices)
+
+        for m in matches:
+            segment = text[prev_end : m.start()]
+            clean_parts.append(segment)
+            clean_offset += len(segment)
+            marker_info.append((clean_offset, m.group(1)))
+            prev_end = m.end()
+
+        clean_parts.append(text[prev_end:])
+        clean_text = "".join(clean_parts)
+
+        def _sentence_start(s: str, end: int) -> int:
+            """Return the index of the first character of the sentence ending at `end`."""
+            for i in range(end - 1, -1, -1):
+                if s[i] in ".!?\n":
+                    start = i + 1
+                    # Skip leading whitespace
+                    while start < end and s[start] in " \t":
+                        start += 1
+                    return start
+            return 0
+
+        # Build annotated markers and insert right-to-left into clean_text
+        result = clean_text
+        insertions = []
+        for clean_pos, indices in marker_info:
+            start = _sentence_start(clean_text, clean_pos)
+            insertions.append((clean_pos, f"[cite:{indices}-{start}:{clean_pos}]"))
+
+        for clean_pos, annotated in reversed(insertions):
+            result = result[:clean_pos] + annotated + result[clean_pos:]
+
+        return result
+
+    @staticmethod
+    def _strip_cite_tags(text: str) -> str:
+        """Remove attribution citation markers from response text.
+
+        Handles all formats:
+        - [cite:N] / [cite:N,M]          — raw prompt-native format
+        - [cite:N-start:end]             — position-annotated format
+        - <cite:[N]> / </cite>           — legacy angle-bracket format
+
+        Collapses any extra whitespace left behind after tag removal.
+        """
+        # Strip [cite:...] in any form (raw, annotated, multi-source)
+        stripped = re.sub(r"\[cite:[^\]]+\]", "", text)
+        # Strip any residual angle-bracket variants
+        stripped = re.sub(r"</?cite[^>]*>", "", stripped)
+        return re.sub(r"  +", " ", stripped)
 
     def _sse_event(self, event_type: str, data: dict[str, Any]) -> str:
         """Format an SSE event."""

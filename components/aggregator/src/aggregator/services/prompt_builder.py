@@ -65,6 +65,19 @@ CITATION FORMAT:
 - Uncitable statements should not be included
 - Do NOT add a "Sources" section at the end (provided separately by the system)"""
 
+    CITATION_USER_INSTRUCTIONS = """Answer the user's question using the numbered sources below. Write in clear prose.
+
+At the end of each sentence that draws from a source, place a citation marker: [cite:N]
+For multiple sources in one sentence: [cite:N,M]
+
+SOURCES:
+{sources}
+
+---
+USER QUESTION:
+{user_prompt}
+---"""
+
     NO_CONTEXT_INSTRUCTIONS = """No data sources are configured for this query. Answer the question using your general knowledge as a helpful AI assistant.
 
 If the user expected document-grounded answers, they should configure data sources for their query."""
@@ -124,6 +137,24 @@ However, if the question is general and you can provide a helpful answer without
 
         return messages
 
+    def _build_citation_user_content(
+        self,
+        user_prompt: str,
+        context_dict: dict[int, str],
+    ) -> str:
+        """Build a citation-aware user message from reranked, numbered sources.
+
+        Each document is indexed to match source_index_map so the attribution
+        pipeline can parse <cite:[N]> tags from the LLM response.
+        """
+        sources_str = "\n".join(
+            f"[{idx}]: {content}" for idx, content in sorted(context_dict.items())
+        )
+        return self.CITATION_USER_INSTRUCTIONS.format(
+            sources=sources_str,
+            user_prompt=user_prompt,
+        )
+
     def _build_user_content(
         self,
         user_prompt: str,
@@ -156,15 +187,10 @@ However, if the question is general and you can provide a helpful answer without
 
         # SCENARIO 3: Documents available
         if context_dict is not None:
-            # Use citation-aware prompt from attribution library
-            from attribution import construct_citation_prompt  # noqa: PLC0415
-
-            citation_prompt = construct_citation_prompt(query=user_prompt, context=context_dict)
-            if not isinstance(citation_prompt, str):
-                raise PromptBuilderError(
-                    f"construct_citation_prompt returned {type(citation_prompt).__name__}, expected str"
-                )
-            return citation_prompt
+            # Use native citation-aware prompt built from reranked context_dict.
+            # Each document is numbered to match source_index_map, allowing the
+            # attribution pipeline to parse <cite:[N]> tags from the response.
+            return self._build_citation_user_content(user_prompt, context_dict)
 
         # Fallback: existing XML document-grounded prompt
         parts.append(self.DEFAULT_USER_INSTRUCTIONS)

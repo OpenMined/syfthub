@@ -237,16 +237,17 @@ async def test_rerank_documents_empty_input_returns_none() -> None:
 
 
 def test_compute_attribution_success() -> None:
-    """Verify _compute_attribution extracts profit_share from pipeline output."""
+    """Verify _compute_attribution normalizes [cite:N] to <cite:[N]> before calling pipeline."""
     source_index_map = {0: "alice/docs", 1: "bob/data"}
     attribution_mock = _make_attribution_mock({"alice/docs": 0.6, "bob/data": 0.4})
 
     with patch.dict(sys.modules, {"attribution": attribution_mock}):
         result = Orchestrator._compute_attribution(
-            "Answer with <cite:[0]> and <cite:[1]>.", source_index_map
+            "Answer with [cite:0] and [cite:1].", source_index_map
         )
 
     assert result == {"alice/docs": 0.6, "bob/data": 0.4}
+    # The pipeline must receive the normalized <cite:[N]> format, not the raw [cite:N] format
     attribution_mock.run_llm_attribution_pipeline.assert_called_once_with(
         generated_response="Answer with <cite:[0]> and <cite:[1]>.",
         node_map=source_index_map,
@@ -391,9 +392,7 @@ async def test_process_chat_with_reranking_and_attribution() -> None:
     )
     orchestrator.retrieval_service.retrieve = AsyncMock(return_value=mock_context)
     orchestrator.generation_service.generate = AsyncMock(
-        return_value=GenerationResult(
-            response="Answer using <cite:[0]>.", latency_ms=200, usage=None
-        )
+        return_value=GenerationResult(response="Answer using [cite:0].", latency_ms=200, usage=None)
     )
 
     request = ChatRequest(
@@ -420,4 +419,95 @@ async def test_process_chat_with_reranking_and_attribution() -> None:
         response = await orchestrator.process_chat(request)
 
     assert response.profit_share == {"alice/docs": 1.0}
-    assert response.response == "Answer using <cite:[0]>."
+    # Response must contain the position-annotated marker, not the raw [cite:0]
+    assert response.response is not None
+    assert "[cite:0-" in response.response
+    # The surrounding prose must be intact
+    assert "Answer using" in response.response
+
+
+# ---------------------------------------------------------------------------
+# _annotate_cite_positions
+# ---------------------------------------------------------------------------
+
+
+def test_annotate_cite_positions_single_sentence() -> None:
+    """Verify [cite:N] at end of sentence gets annotated with correct span."""
+    text = "Python is a language [cite:0]."
+    result = Orchestrator._annotate_cite_positions(text)
+    # The annotated marker must encode the sentence start (0) and where
+    # the citation sits in the clean text (len("Python is a language ") = 21)
+    assert "[cite:0-0:21]" in result
+    # The surrounding text must be intact
+    assert "Python is a language" in result
+
+
+def test_annotate_cite_positions_multiple_sentences() -> None:
+    """Verify each [cite:N] gets the span of its own sentence."""
+    text = "First claim [cite:0]. Second claim [cite:1]."
+    result = Orchestrator._annotate_cite_positions(text)
+    # After stripping raw markers, clean text = "First claim . Second claim ."
+    # First sentence starts at 0, marker sits at 12 ("First claim ")
+    assert "[cite:0-0:12]" in result
+    # Second sentence starts after ". " → position 14, marker at 26
+    assert "[cite:1-14:27]" in result
+
+
+def test_annotate_cite_positions_no_markers_unchanged() -> None:
+    """Verify text without [cite:N] is returned as-is."""
+    text = "Plain text with no citations."
+    assert Orchestrator._annotate_cite_positions(text) == text
+
+
+def test_annotate_cite_positions_multi_source() -> None:
+    """Verify [cite:N,M] multi-source markers are also annotated."""
+    text = "A combined claim [cite:0,1]."
+    result = Orchestrator._annotate_cite_positions(text)
+    assert "[cite:0,1-" in result
+
+
+# ---------------------------------------------------------------------------
+# _strip_cite_tags
+# ---------------------------------------------------------------------------
+
+
+def test_strip_cite_tags_square_bracket_format() -> None:
+    """Verify [cite:N] (prompt-native format) markers are removed."""
+    result = Orchestrator._strip_cite_tags(
+        "Python is interpreted [cite:0]. It is dynamic [cite:1,2]."
+    )
+    assert result == "Python is interpreted . It is dynamic ."
+
+
+def test_strip_cite_tags_annotated_format() -> None:
+    """Verify position-annotated [cite:N-start:end] markers are also stripped."""
+    result = Orchestrator._strip_cite_tags(
+        "Python is interpreted [cite:0-0:21]. It is dynamic [cite:1,2-22:35]."
+    )
+    assert result == "Python is interpreted . It is dynamic ."
+
+
+def test_strip_cite_tags_legacy_angle_bracket_format() -> None:
+    """Verify legacy <cite:[N]> and </cite> formats are also stripped."""
+    result = Orchestrator._strip_cite_tags(
+        "Python is interpreted <cite:[0]>. It is dynamic <cite:[1,2]>.</cite>"
+    )
+    assert result == "Python is interpreted . It is dynamic ."
+
+
+def test_strip_cite_tags_collapses_double_spaces() -> None:
+    """Verify extra whitespace left by removed tags is collapsed to single space."""
+    result = Orchestrator._strip_cite_tags("Claim  [cite:0-0:5]  rest.")
+    assert "  " not in result
+
+
+def test_strip_cite_tags_no_tags_unchanged() -> None:
+    """Verify text without cite tags is returned unchanged."""
+    original = "Plain answer with no citations."
+    assert Orchestrator._strip_cite_tags(original) == original
+
+
+def test_strip_cite_tags_all_tags_empty_content() -> None:
+    """Verify that a response consisting entirely of cite tags becomes effectively empty."""
+    result = Orchestrator._strip_cite_tags("[cite:0][cite:1][cite:3]")
+    assert result.strip() == ""

@@ -1,15 +1,8 @@
 """Tests for the prompt builder service."""
 
-import sys
-from types import ModuleType
-from unittest.mock import MagicMock, patch
-
-import pytest
-
 from aggregator.schemas import Document
 from aggregator.schemas.internal import AggregatedContext, RetrievalResult
 from aggregator.services import PromptBuilder
-from aggregator.services.prompt_builder import PromptBuilderError
 
 
 def test_prompt_builder_no_context() -> None:
@@ -208,15 +201,8 @@ def test_prompt_builder_semantic_matching_guidance() -> None:
     assert "logical inferences" in user_content.lower()
 
 
-def _make_attribution_mock(return_value: object) -> ModuleType:
-    """Create a mock attribution module with construct_citation_prompt."""
-    mock_module = MagicMock(spec=ModuleType)
-    mock_module.construct_citation_prompt = MagicMock(return_value=return_value)
-    return mock_module  # type: ignore[return-value]
-
-
 def test_prompt_builder_with_context_dict() -> None:
-    """Test that construct_citation_prompt is used when context_dict is provided."""
+    """Test that the native citation prompt is built when context_dict is provided."""
     builder = PromptBuilder()
 
     documents = [Document(content="Python is a programming language.", score=0.9)]
@@ -235,55 +221,93 @@ def test_prompt_builder_with_context_dict() -> None:
     )
     context_dict = {0: "Python is a programming language."}
 
-    attribution_mock = _make_attribution_mock(
-        "Cite using <cite:[0]> tags. Question: What is Python?"
+    messages = builder.build(
+        user_prompt="What is Python?",
+        context=context,
+        context_dict=context_dict,
     )
-
-    with patch.dict(sys.modules, {"attribution": attribution_mock}):
-        messages = builder.build(
-            user_prompt="What is Python?",
-            context=context,
-            context_dict=context_dict,
-        )
 
     assert len(messages) == 2
-    assert messages[1].content == "Cite using <cite:[0]> tags. Question: What is Python?"
-    attribution_mock.construct_citation_prompt.assert_called_once_with(
-        query="What is Python?", context=context_dict
-    )
+    user_content = messages[1].content
+    # Source should appear with its numbered index
+    assert "[0]: Python is a programming language." in user_content
+    # Citation format instruction must be present
+    assert "[cite:N]" in user_content
+    # User question must be embedded
+    assert "What is Python?" in user_content
+    # Must NOT end with a completion-style suffix
+    assert not user_content.rstrip().endswith("Answer:")
 
 
-def test_prompt_builder_context_dict_non_string_raises() -> None:
-    """Test that PromptBuilderError is raised when construct_citation_prompt returns non-str."""
+def test_prompt_builder_with_multiple_context_dict_sources() -> None:
+    """Test that all sources appear in index order in the citation prompt."""
     builder = PromptBuilder()
 
-    documents = [Document(content="Some content.", score=0.9)]
+    documents = [
+        Document(content="Doc A content.", score=0.9),
+        Document(content="Doc B content.", score=0.8),
+        Document(content="Doc C content.", score=0.7),
+    ]
     retrieval_results = [
         RetrievalResult(
-            endpoint_path="test/source",
+            endpoint_path="source/a",
             documents=documents,
             status="success",
-            latency_ms=100,
+            latency_ms=50,
         )
     ]
     context = AggregatedContext(
         documents=documents,
         retrieval_results=retrieval_results,
-        total_latency_ms=100,
+        total_latency_ms=50,
     )
-    context_dict = {0: "Some content."}
+    context_dict = {0: "Doc A content.", 1: "Doc B content.", 2: "Doc C content."}
 
-    attribution_mock = _make_attribution_mock(42)  # wrong type — should raise
+    messages = builder.build(
+        user_prompt="Tell me about the docs.",
+        context=context,
+        context_dict=context_dict,
+    )
 
-    with (
-        patch.dict(sys.modules, {"attribution": attribution_mock}),
-        pytest.raises(PromptBuilderError, match="expected str"),
-    ):
-        builder.build(
-            user_prompt="Test?",
-            context=context,
-            context_dict=context_dict,
+    user_content = messages[1].content
+    assert "[0]: Doc A content." in user_content
+    assert "[1]: Doc B content." in user_content
+    assert "[2]: Doc C content." in user_content
+    # Sources must appear in index order
+    assert user_content.index("[0]:") < user_content.index("[1]:") < user_content.index("[2]:")
+
+
+def test_prompt_builder_citation_prompt_instructs_prose_not_only_tags() -> None:
+    """Test that the citation prompt instructs inline tags, not wrapper-only output."""
+    builder = PromptBuilder()
+
+    documents = [Document(content="Some fact.", score=0.9)]
+    retrieval_results = [
+        RetrievalResult(
+            endpoint_path="src/fact",
+            documents=documents,
+            status="success",
+            latency_ms=50,
         )
+    ]
+    context = AggregatedContext(
+        documents=documents,
+        retrieval_results=retrieval_results,
+        total_latency_ms=50,
+    )
+    context_dict = {0: "Some fact."}
+
+    messages = builder.build(
+        user_prompt="What is the fact?",
+        context=context,
+        context_dict=context_dict,
+    )
+
+    user_content = messages[1].content
+    # Must instruct end-of-sentence citation placement
+    assert "[cite:N]" in user_content
+    # Must not use a completion-style prompt suffix
+    assert not user_content.rstrip().endswith("Answer:")
 
 
 def test_prompt_builder_no_context_dict_uses_xml_prompt() -> None:

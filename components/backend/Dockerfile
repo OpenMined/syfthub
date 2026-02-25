@@ -70,7 +70,6 @@ COPY --chown=syfthub:syfthub src src
 COPY --chown=syfthub:syfthub tests tests
 COPY --chown=syfthub:syfthub requirements.txt .
 COPY --chown=syfthub:syfthub uv.lock .
-COPY --chown=syfthub:syfthub *.env* .
 COPY --chown=syfthub:syfthub README.md .
 
 # Switch to non-root user
@@ -104,7 +103,6 @@ COPY --chown=syfthub:syfthub src src
 COPY --chown=syfthub:syfthub tests tests
 COPY --chown=syfthub:syfthub requirements.txt .
 COPY --chown=syfthub:syfthub uv.lock .
-COPY --chown=syfthub:syfthub *.env* .
 COPY --chown=syfthub:syfthub README.md .
 
 # Switch to non-root user
