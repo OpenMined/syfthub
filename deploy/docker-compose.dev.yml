@@ -60,6 +60,10 @@ services:
       # Meilisearch configuration (optional - semantic search disabled if not set)
       - MEILI_URL=http://meilisearch:7700
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-dev-master-key}
+      # Redis configuration for peer token storage
+      - REDIS_URL=redis://redis:6379/0
+      # Auto-generate RSA keys for satellite token signing (dev only)
+      - AUTO_GENERATE_RSA_KEYS=true
     networks:
       - syfthub-network
     depends_on:
@@ -68,6 +72,8 @@ services:
       meilisearch:
         condition: service_healthy
       nats:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -191,6 +197,8 @@ services:
       # NATS configuration for P2P tunneling
       - AGGREGATOR_NATS_URL=nats://nats:4222
       - AGGREGATOR_NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN:-dev-nats-token}
+      # Increase tunnel timeout for RAG-augmented prompts (default 30s is too short for local LLMs)
+      - AGGREGATOR_NATS_TUNNEL_TIMEOUT=120
     # Enable host.docker.internal on Linux/WSL2 (required for connecting to host services)
     extra_hosts:
       - "host.docker.internal:host-gateway"

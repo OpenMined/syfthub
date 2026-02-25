@@ -507,12 +507,16 @@ export class ChatResource {
     const usageData = data['usage'] as Record<string, unknown> | undefined;
     const usage = usageData ? this.parseUsage(usageData) : undefined;
 
+    // Parse profit share if available
+    const profitShare = data['profit_share'] as Record<string, number> | undefined;
+
     return {
       response: String(data['response'] ?? ''),
       sources,
       retrievalInfo,
       metadata,
       usage,
+      profitShare,
     };
   }
 
@@ -707,7 +711,13 @@ export class ChatResource {
         const usageData = data['usage'] as Record<string, unknown> | undefined;
         const usage = usageData ? this.parseUsage(usageData) : undefined;
 
-        return { type: 'done', sources, retrievalInfo, metadata, usage };
+        // Parse profit share if available
+        const profitShare = data['profit_share'] as Record<string, number> | undefined;
+
+        // Parse clean response (cite-tag-stripped) if attribution ran
+        const response = data['response'] as string | undefined;
+
+        return { type: 'done', sources, retrievalInfo, metadata, usage, profitShare, response };
       }
 
       case 'error':

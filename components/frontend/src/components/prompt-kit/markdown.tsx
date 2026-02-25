@@ -4,6 +4,7 @@ import type { Components } from 'react-markdown';
 
 import { marked } from 'marked';
 import ReactMarkdown from 'react-markdown';
+import rehypeRaw from 'rehype-raw';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 
@@ -16,6 +17,8 @@ export type MarkdownProps = {
   id?: string;
   className?: string;
   components?: Partial<Components>;
+  /** Allow raw HTML elements (e.g. <mark>, <sup>) embedded in markdown content. */
+  allowRawHtml?: boolean;
 };
 
 function parseMarkdownIntoBlocks(markdown: string): string[] {
@@ -62,19 +65,27 @@ const INITIAL_COMPONENTS: Partial<Components> = {
 const MemoizedMarkdownBlock = memo(
   function MarkdownBlock({
     content,
-    components = INITIAL_COMPONENTS
+    components = INITIAL_COMPONENTS,
+    allowRawHtml = false
   }: {
     content: string;
     components?: Partial<Components>;
+    allowRawHtml?: boolean;
   }) {
     return (
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={components}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkBreaks]}
+        rehypePlugins={allowRawHtml ? [rehypeRaw] : []}
+        components={components}
+      >
         {content}
       </ReactMarkdown>
     );
   },
   function propsAreEqual(prevProps, nextProps) {
-    return prevProps.content === nextProps.content;
+    return (
+      prevProps.content === nextProps.content && prevProps.allowRawHtml === nextProps.allowRawHtml
+    );
   }
 );
 
@@ -84,7 +95,8 @@ function MarkdownComponent({
   children,
   id,
   className,
-  components = INITIAL_COMPONENTS
+  components = INITIAL_COMPONENTS,
+  allowRawHtml = false
 }: Readonly<MarkdownProps>) {
   const generatedId = useId();
   const blockId = id ?? generatedId;
@@ -97,6 +109,7 @@ function MarkdownComponent({
           key={`${blockId}-block-${index}`}
           content={block}
           components={components}
+          allowRawHtml={allowRawHtml}
         />
       ))}
     </div>

@@ -201,6 +201,144 @@ def test_prompt_builder_semantic_matching_guidance() -> None:
     assert "logical inferences" in user_content.lower()
 
 
+def test_prompt_builder_with_context_dict() -> None:
+    """Test that the native citation prompt is built when context_dict is provided."""
+    builder = PromptBuilder()
+
+    documents = [Document(content="Python is a programming language.", score=0.9)]
+    retrieval_results = [
+        RetrievalResult(
+            endpoint_path="docs/python",
+            documents=documents,
+            status="success",
+            latency_ms=100,
+        )
+    ]
+    context = AggregatedContext(
+        documents=documents,
+        retrieval_results=retrieval_results,
+        total_latency_ms=100,
+    )
+    context_dict = {0: "Python is a programming language."}
+
+    messages = builder.build(
+        user_prompt="What is Python?",
+        context=context,
+        context_dict=context_dict,
+    )
+
+    assert len(messages) == 2
+    user_content = messages[1].content
+    # Source should appear with its numbered index
+    assert "[0]: Python is a programming language." in user_content
+    # Citation format instruction must be present
+    assert "[cite:N]" in user_content
+    # User question must be embedded
+    assert "What is Python?" in user_content
+    # Must NOT end with a completion-style suffix
+    assert not user_content.rstrip().endswith("Answer:")
+
+
+def test_prompt_builder_with_multiple_context_dict_sources() -> None:
+    """Test that all sources appear in index order in the citation prompt."""
+    builder = PromptBuilder()
+
+    documents = [
+        Document(content="Doc A content.", score=0.9),
+        Document(content="Doc B content.", score=0.8),
+        Document(content="Doc C content.", score=0.7),
+    ]
+    retrieval_results = [
+        RetrievalResult(
+            endpoint_path="source/a",
+            documents=documents,
+            status="success",
+            latency_ms=50,
+        )
+    ]
+    context = AggregatedContext(
+        documents=documents,
+        retrieval_results=retrieval_results,
+        total_latency_ms=50,
+    )
+    context_dict = {0: "Doc A content.", 1: "Doc B content.", 2: "Doc C content."}
+
+    messages = builder.build(
+        user_prompt="Tell me about the docs.",
+        context=context,
+        context_dict=context_dict,
+    )
+
+    user_content = messages[1].content
+    assert "[0]: Doc A content." in user_content
+    assert "[1]: Doc B content." in user_content
+    assert "[2]: Doc C content." in user_content
+    # Sources must appear in index order
+    assert user_content.index("[0]:") < user_content.index("[1]:") < user_content.index("[2]:")
+
+
+def test_prompt_builder_citation_prompt_instructs_prose_not_only_tags() -> None:
+    """Test that the citation prompt instructs inline tags, not wrapper-only output."""
+    builder = PromptBuilder()
+
+    documents = [Document(content="Some fact.", score=0.9)]
+    retrieval_results = [
+        RetrievalResult(
+            endpoint_path="src/fact",
+            documents=documents,
+            status="success",
+            latency_ms=50,
+        )
+    ]
+    context = AggregatedContext(
+        documents=documents,
+        retrieval_results=retrieval_results,
+        total_latency_ms=50,
+    )
+    context_dict = {0: "Some fact."}
+
+    messages = builder.build(
+        user_prompt="What is the fact?",
+        context=context,
+        context_dict=context_dict,
+    )
+
+    user_content = messages[1].content
+    # Must instruct end-of-sentence citation placement
+    assert "[cite:N]" in user_content
+    # Must not use a completion-style prompt suffix
+    assert not user_content.rstrip().endswith("Answer:")
+
+
+def test_prompt_builder_no_context_dict_uses_xml_prompt() -> None:
+    """Test that existing XML prompt is used when context_dict is None (backward compat)."""
+    builder = PromptBuilder()
+
+    documents = [Document(content="Python is interpreted.", score=0.9)]
+    retrieval_results = [
+        RetrievalResult(
+            endpoint_path="docs/python",
+            documents=documents,
+            status="success",
+            latency_ms=100,
+        )
+    ]
+    context = AggregatedContext(
+        documents=documents,
+        retrieval_results=retrieval_results,
+        total_latency_ms=100,
+    )
+
+    # No context_dict → should use the existing XML format
+    messages = builder.build(user_prompt="What is Python?", context=context)
+
+    user_content = messages[1].content
+    assert "<documents>" in user_content
+    assert "<document index=" in user_content
+    assert "Python is interpreted." in user_content
+    assert "USER QUESTION:" in user_content
+
+
 def test_prompt_builder_refusal_as_last_resort() -> None:
     """Test that refusal is positioned as last resort, not default.
 

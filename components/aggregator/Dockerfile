@@ -14,6 +14,9 @@ WORKDIR /app
 # Copy dependency files and README (required by hatchling)
 COPY pyproject.toml README.md ./
 
+# Install git (required to fetch git-hosted dependencies)
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
 # Create virtual environment and install dependencies
 RUN uv venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
