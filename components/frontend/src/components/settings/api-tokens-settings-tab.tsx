@@ -19,8 +19,17 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@/components/ui/select';
 import { syftClient } from '@/lib/sdk-client';
 import { cn } from '@/lib/utils';
+
+import { StatusMessage } from './status-message';
 
 // Constants
 const MAX_TOKENS_PER_USER = 50;
@@ -73,16 +82,17 @@ function getExpirationDate(expiration: string, customDate: string): Date | null 
   }
 }
 
+// Fix #3: Added dark: variants to all scope badge color classes
 function getScopeBadgeClass(scope: APITokenScope): string {
   switch (scope) {
     case 'full': {
-      return 'bg-blue-100 text-blue-700 border-blue-200';
+      return 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900 dark:text-blue-300 dark:border-blue-700';
     }
     case 'write': {
-      return 'bg-amber-100 text-amber-700 border-amber-200';
+      return 'bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900 dark:text-amber-300 dark:border-amber-700';
     }
     case 'read': {
-      return 'bg-green-100 text-green-700 border-green-200';
+      return 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900 dark:text-green-300 dark:border-green-700';
     }
     default: {
       return '';
@@ -130,27 +140,43 @@ function TokenRow({ token, onEdit, onRevoke }: Readonly<TokenRowProps>) {
   const expired = isTokenExpired(token);
 
   return (
+    // Fix #8: Removed blunt opacity-60; expired state now uses bg-muted/50 and muted token name
     <div
       className={cn(
         'rounded-lg border p-4 transition-colors',
-        expired ? 'border-gray-200 bg-gray-50 opacity-60' : 'border-border bg-card'
+        expired ? 'border-border bg-muted/50' : 'border-border bg-card'
       )}
     >
       <div className='flex items-start justify-between gap-4'>
         <div className='min-w-0 flex-1'>
           <div className='flex items-center gap-2'>
             <Key className='text-muted-foreground h-4 w-4 shrink-0' aria-hidden='true' />
-            <span className='text-foreground truncate font-medium'>{token.name}</span>
+            <span
+              className={cn(
+                'truncate font-medium',
+                expired ? 'text-muted-foreground' : 'text-foreground'
+              )}
+            >
+              {token.name}
+            </span>
             {token.scopes.map((scope: APITokenScope) => (
               <ScopeBadge key={scope} scope={scope} />
             ))}
             {expired ? (
-              <Badge variant='outline' className='border-red-200 bg-red-50 text-xs text-red-600'>
+              // Fix #1: Added dark: variants
+              <Badge
+                variant='outline'
+                className='border-red-200 bg-red-50 text-xs text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-400'
+              >
                 Expired
               </Badge>
             ) : null}
             {token.isActive ? null : (
-              <Badge variant='outline' className='border-gray-200 bg-gray-50 text-xs text-gray-600'>
+              // Fix #1: Added dark: variants
+              <Badge
+                variant='outline'
+                className='border-gray-200 bg-gray-50 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400'
+              >
                 Revoked
               </Badge>
             )}
@@ -167,7 +193,7 @@ function TokenRow({ token, onEdit, onRevoke }: Readonly<TokenRowProps>) {
             {token.expiresAt ? (
               <>
                 <span>·</span>
-                <span className={expired ? 'text-red-600' : ''}>
+                <span className={expired ? 'text-red-600 dark:text-red-400' : ''}>
                   {expired ? 'Expired' : 'Expires'}: {formatDate(token.expiresAt)}
                 </span>
               </>
@@ -193,7 +219,8 @@ function TokenRow({ token, onEdit, onRevoke }: Readonly<TokenRowProps>) {
               onClick={() => {
                 onRevoke(token);
               }}
-              className='h-8 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700'
+              // Fix #1: Added dark: variants to destructive outline button
+              className='h-8 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950 dark:hover:text-red-300'
             >
               <Trash2 className='mr-1 h-3 w-3' aria-hidden='true' />
               Revoke
@@ -314,16 +341,8 @@ function CreateTokenModal({ isOpen, onClose, onSuccess }: Readonly<CreateTokenMo
         </div>
 
         <form onSubmit={handleSubmit} className='space-y-4'>
-          {error ? (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className='flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3'
-            >
-              <AlertCircle className='h-4 w-4 text-red-600' aria-hidden='true' />
-              <span className='text-sm text-red-800'>{error}</span>
-            </motion.div>
-          ) : null}
+          {/* Fix #2: Replaced custom inline error div with StatusMessage (adds role/aria-live) */}
+          <StatusMessage type='error' message={error} />
 
           <div className='space-y-2'>
             <Label htmlFor='token-name'>Token Name</Label>
@@ -350,8 +369,9 @@ function CreateTokenModal({ isOpen, onClose, onSuccess }: Readonly<CreateTokenMo
                   key={scope}
                   className={cn(
                     'flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-colors',
+                    // Fix #7: Use design tokens instead of hardcoded blue
                     formData.scope === scope
-                      ? 'border-blue-500 bg-blue-50'
+                      ? 'border-primary bg-primary/5'
                       : 'border-border hover:bg-muted'
                   )}
                 >
@@ -363,7 +383,7 @@ function CreateTokenModal({ isOpen, onClose, onSuccess }: Readonly<CreateTokenMo
                     onChange={(event) => {
                       handleInputChange('scope', event.target.value);
                     }}
-                    className='h-4 w-4 text-blue-600'
+                    className='text-primary h-4 w-4'
                     disabled={isLoading}
                   />
                   <div>
@@ -381,22 +401,26 @@ function CreateTokenModal({ isOpen, onClose, onSuccess }: Readonly<CreateTokenMo
 
           <div className='space-y-2'>
             <Label htmlFor='expiration'>Expiration</Label>
-            <select
-              id='expiration'
+            {/* Fix #6: Replace raw <select> with shared Select UI component */}
+            <Select
               value={formData.expiration}
-              onChange={(event) => {
-                handleInputChange('expiration', event.target.value);
+              onValueChange={(value) => {
+                handleInputChange('expiration', value);
               }}
-              className='border-input bg-background text-foreground focus:ring-ring flex h-9 w-full rounded-md border px-3 py-1 text-sm shadow-sm focus:ring-1 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50'
               disabled={isLoading}
             >
-              <option value='none'>No expiration</option>
-              <option value='30d'>30 days</option>
-              <option value='60d'>60 days</option>
-              <option value='90d'>90 days</option>
-              <option value='1y'>1 year</option>
-              <option value='custom'>Custom date</option>
-            </select>
+              <SelectTrigger id='expiration'>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value='none'>No expiration</SelectItem>
+                <SelectItem value='30d'>30 days</SelectItem>
+                <SelectItem value='60d'>60 days</SelectItem>
+                <SelectItem value='90d'>90 days</SelectItem>
+                <SelectItem value='1y'>1 year</SelectItem>
+                <SelectItem value='custom'>Custom date</SelectItem>
+              </SelectContent>
+            </Select>
             {formData.expiration === 'custom' ? (
               <Input
                 type='date'
@@ -448,9 +472,10 @@ function TokenCreatedModal({ token, onClose }: Readonly<TokenCreatedModalProps>)
     try {
       await navigator.clipboard.writeText(token.token);
       setCopied(true);
+      // Fix #12: Increased copy feedback duration from 2s to 3s
       setTimeout(() => {
         setCopied(false);
-      }, 2000);
+      }, 3000);
     } catch {
       // Fallback for older browsers that don't support Clipboard API
       const textArea = document.createElement('textarea');
@@ -461,9 +486,10 @@ function TokenCreatedModal({ token, onClose }: Readonly<TokenCreatedModalProps>)
       document.execCommand('copy');
       textArea.remove();
       setCopied(true);
+      // Fix #12: Increased copy feedback duration from 2s to 3s
       setTimeout(() => {
         setCopied(false);
-      }, 2000);
+      }, 3000);
     }
   };
 
@@ -476,6 +502,8 @@ function TokenCreatedModal({ token, onClose }: Readonly<TokenCreatedModalProps>)
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         className='absolute inset-0 bg-black/50 backdrop-blur-sm'
+        // Fix #5: Added backdrop click dismiss
+        onClick={onClose}
       />
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -485,21 +513,14 @@ function TokenCreatedModal({ token, onClose }: Readonly<TokenCreatedModalProps>)
         className='border-border bg-card relative w-full max-w-lg rounded-xl border p-6 shadow-xl'
       >
         <div className='mb-4 flex items-center gap-3'>
-          <div className='flex h-10 w-10 items-center justify-center rounded-full bg-green-100'>
-            <Check className='h-5 w-5 text-green-600' aria-hidden='true' />
+          {/* Fix #1: Added dark: variant to success icon bg */}
+          <div className='flex h-10 w-10 items-center justify-center rounded-full bg-green-100 dark:bg-green-900'>
+            <Check className='h-5 w-5 text-green-600 dark:text-green-400' aria-hidden='true' />
           </div>
           <h3 className='text-foreground text-lg font-semibold'>Token Created Successfully</h3>
         </div>
 
-        <div className='mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3'>
-          <div className='flex items-start gap-2'>
-            <AlertCircle className='mt-0.5 h-4 w-4 shrink-0 text-amber-600' aria-hidden='true' />
-            <p className='text-sm text-amber-800'>
-              <strong>Make sure to copy your token now!</strong> You won't be able to see it again.
-            </p>
-          </div>
-        </div>
-
+        {/* Fix #11: Token display moved above warning for better information priority */}
         <div className='mb-4'>
           <Label className='mb-2 block'>Your new API token:</Label>
           <div className='flex items-center gap-2'>
@@ -510,7 +531,11 @@ function TokenCreatedModal({ token, onClose }: Readonly<TokenCreatedModalProps>)
               variant='outline'
               size='icon'
               onClick={handleCopy}
-              className={cn('h-10 w-10 shrink-0', copied && 'border-green-500 text-green-600')}
+              className={cn(
+                'h-10 w-10 shrink-0',
+                copied &&
+                  'border-green-500 text-green-600 dark:border-green-600 dark:text-green-400'
+              )}
               aria-label={copied ? 'Copied!' : 'Copy token'}
             >
               {copied ? (
@@ -519,6 +544,19 @@ function TokenCreatedModal({ token, onClose }: Readonly<TokenCreatedModalProps>)
                 <Copy className='h-4 w-4' aria-hidden='true' />
               )}
             </Button>
+          </div>
+        </div>
+
+        {/* Fix #1 + #11: Warning now below token display; added dark: variants */}
+        <div className='mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950'>
+          <div className='flex items-start gap-2'>
+            <AlertCircle
+              className='mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400'
+              aria-hidden='true'
+            />
+            <p className='text-sm text-amber-800 dark:text-amber-200'>
+              <strong>Make sure to copy your token now!</strong> You won't be able to see it again.
+            </p>
           </div>
         </div>
 
@@ -621,16 +659,8 @@ function EditTokenModal({ token, onClose, onSuccess }: Readonly<EditTokenModalPr
         </div>
 
         <form onSubmit={handleSubmit} className='space-y-4'>
-          {error ? (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className='flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3'
-            >
-              <AlertCircle className='h-4 w-4 text-red-600' aria-hidden='true' />
-              <span className='text-sm text-red-800'>{error}</span>
-            </motion.div>
-          ) : null}
+          {/* Fix #2: Replaced custom inline error div with StatusMessage (adds role/aria-live) */}
+          <StatusMessage type='error' message={error} />
 
           <div className='space-y-2'>
             <Label htmlFor='edit-token-name'>Token Name</Label>
@@ -701,8 +731,9 @@ function RevokeTokenModal({
         className='border-border bg-card relative w-full max-w-md rounded-xl border p-6 shadow-xl'
       >
         <div className='mb-4 flex items-center gap-3'>
-          <div className='flex h-10 w-10 items-center justify-center rounded-full bg-red-100'>
-            <Trash2 className='h-5 w-5 text-red-600' aria-hidden='true' />
+          {/* Fix #1: Added dark: variant to destructive icon bg */}
+          <div className='flex h-10 w-10 items-center justify-center rounded-full bg-red-100 dark:bg-red-900'>
+            <Trash2 className='h-5 w-5 text-red-600 dark:text-red-400' aria-hidden='true' />
           </div>
           <h3 className='text-foreground text-lg font-semibold'>Revoke Token</h3>
         </div>
@@ -724,7 +755,7 @@ function RevokeTokenModal({
             variant='destructive'
             onClick={onConfirm}
             disabled={isLoading}
-            className='bg-red-600 hover:bg-red-700'
+            className='bg-red-600 hover:bg-red-700 dark:bg-red-700 dark:hover:bg-red-600'
           >
             {isLoading ? (
               <>
@@ -821,13 +852,15 @@ export function APITokensSettingsTab() {
         </p>
       </div>
 
-      {/* Info Banner */}
-      <div className='rounded-lg border border-blue-200 bg-blue-50 p-4'>
+      {/* Fix #1: Info Banner — added dark: variants */}
+      <div className='rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950'>
         <div className='flex items-start gap-3'>
-          <Shield className='mt-0.5 h-5 w-5 text-blue-600' aria-hidden='true' />
+          <Shield className='mt-0.5 h-5 w-5 text-blue-600 dark:text-blue-400' aria-hidden='true' />
           <div>
-            <h4 className='text-sm font-medium text-blue-900'>Personal Access Tokens</h4>
-            <p className='mt-1 text-xs text-blue-700'>
+            <h4 className='text-sm font-medium text-blue-900 dark:text-blue-100'>
+              Personal Access Tokens
+            </h4>
+            <p className='mt-1 text-xs text-blue-700 dark:text-blue-300'>
               Tokens provide secure API access without sharing your password. Keep them secret and
               revoke any tokens you no longer need.
             </p>
@@ -835,37 +868,27 @@ export function APITokensSettingsTab() {
         </div>
       </div>
 
-      {/* Error Message */}
-      <AnimatePresence>
-        {error ? (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className='flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3'
-          >
-            <AlertCircle className='h-4 w-4 text-red-600' aria-hidden='true' />
-            <span className='text-sm text-red-800'>{error}</span>
-            <Button
-              variant='ghost'
-              size='sm'
-              onClick={fetchTokens}
-              className='ml-auto h-7 text-red-700 hover:text-red-800'
-            >
-              Retry
-            </Button>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+      {/* Fix #4: Replaced custom inline error with StatusMessage + action prop */}
+      <StatusMessage
+        type='error'
+        message={error}
+        action={{
+          label: 'Retry',
+          onClick: () => {
+            void fetchTokens();
+          }
+        }}
+      />
 
       {/* Create Token Button */}
       <div className='border-border flex items-center justify-between border-b pb-3'>
         <div className='flex items-center gap-2'>
           <Key className='text-muted-foreground h-4 w-4' aria-hidden='true' />
           <h4 className='text-foreground font-medium'>Your Tokens</h4>
-          <span className='text-muted-foreground text-sm'>
-            ({tokens.length}/{MAX_TOKENS_PER_USER})
-          </span>
+          {/* Fix #9: Token counter as Badge instead of plain parenthesized text */}
+          <Badge variant='outline' className='text-xs'>
+            {tokens.length}/{MAX_TOKENS_PER_USER}
+          </Badge>
         </div>
         <Button
           onClick={() => {
@@ -879,20 +902,20 @@ export function APITokensSettingsTab() {
         </Button>
       </div>
 
-      {/* Max Tokens Warning */}
+      {/* Fix #1: Max Tokens Warning — added dark: variants */}
       {atMaxTokens ? (
-        <div className='flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3'>
-          <Clock className='h-4 w-4 text-amber-600' aria-hidden='true' />
-          <span className='text-sm text-amber-800'>
+        <div className='flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950'>
+          <Clock className='h-4 w-4 text-amber-600 dark:text-amber-400' aria-hidden='true' />
+          <span className='text-sm text-amber-800 dark:text-amber-200'>
             You've reached the maximum of {MAX_TOKENS_PER_USER} tokens. Revoke unused tokens to
             create new ones.
           </span>
         </div>
       ) : null}
 
-      {/* Token List */}
+      {/* Fix #10: Aligned loading spinner padding to py-8 (matches Aggregator tab) */}
       {isLoading ? (
-        <div className='flex items-center justify-center py-12'>
+        <div className='flex items-center justify-center py-8'>
           <Loader2 className='text-muted-foreground h-8 w-8 animate-spin' aria-hidden='true' />
         </div>
       ) : null}
