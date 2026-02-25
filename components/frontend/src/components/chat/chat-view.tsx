@@ -41,6 +41,8 @@ interface Message {
   type?: 'text';
   isThinking?: boolean;
   aggregatorSources?: SourcesData;
+  /** Position-annotated response for citation highlighting (from done event). */
+  annotatedResponse?: string;
 }
 
 export interface ChatViewProperties {
@@ -114,7 +116,8 @@ export function ChatView({
           role: 'assistant' as const,
           content: initialResult.content,
           type: 'text' as const,
-          aggregatorSources: initialResult.sources
+          aggregatorSources: initialResult.sources,
+          annotatedResponse: initialResult.annotatedResponse
         }
       ];
     }
@@ -171,7 +174,8 @@ export function ChatView({
             role: 'assistant' as const,
             content: result.content,
             type: 'text' as const,
-            aggregatorSources: result.sources
+            aggregatorSources: result.sources,
+            annotatedResponse: result.annotatedResponse
           }
         ];
       });
@@ -369,7 +373,11 @@ export function ChatView({
                         }`}
                       >
                         {message.role === 'assistant' ? (
-                          <MarkdownMessage content={message.content} id={message.id} />
+                          <MarkdownMessage
+                            content={message.content}
+                            annotatedContent={message.annotatedResponse}
+                            id={message.id}
+                          />
                         ) : (
                           message.content
                         )}

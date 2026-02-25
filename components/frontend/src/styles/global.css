@@ -349,6 +349,53 @@
   }
 }
 
+/* =============================================================================
+   Citation highlighting — rendered by MarkdownMessage with buildCitedMarkdown()
+   <mark class="cite-highlight"> wraps the cited sentence span
+   <sup class="cite-badge"> is the inline [N] source badge
+   ============================================================================= */
+
+.markdown-message mark.cite-highlight {
+  background-color: oklch(0.55 0.12 180 / 0.1);
+  color: inherit;
+  border-radius: 2px;
+  text-decoration: underline;
+  text-decoration-color: oklch(0.55 0.12 180 / 0.6);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 2px;
+}
+
+.dark .markdown-message mark.cite-highlight {
+  background-color: oklch(0.7 0.14 180 / 0.12);
+  text-decoration-color: oklch(0.7 0.14 180 / 0.7);
+}
+
+.markdown-message sup.cite-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15em;
+  padding: 0 0.2em;
+  margin-left: 1px;
+  font-size: 0.62em;
+  font-weight: 600;
+  font-family: 'Inter', system-ui, sans-serif;
+  line-height: 1.5;
+  vertical-align: super;
+  border-radius: 3px;
+  background-color: oklch(0.55 0.12 180 / 0.12);
+  color: oklch(0.4 0.1 180);
+  border: 1px solid oklch(0.55 0.12 180 / 0.25);
+  cursor: default;
+  user-select: none;
+}
+
+.dark .markdown-message sup.cite-badge {
+  background-color: oklch(0.7 0.14 180 / 0.15);
+  color: oklch(0.72 0.14 180);
+  border-color: oklch(0.7 0.14 180 / 0.3);
+}
+
 /* prompt-kit Loader animation keyframes */
 @keyframes typing {
   0%,
