@@ -158,15 +158,11 @@ EOF
 # =============================================================================
 
 pull_images() {
-    log INFO "Pulling new images with tag: ${IMAGE_TAG}..."
+    # CI_IMAGE_TAG and CI_GITHUB_REPO are globals set in main() before any
+    # .env sourcing, so they always reflect what was passed in from CI.
+    log INFO "Pulling new images with tag: ${CI_IMAGE_TAG}..."
 
     cd "$DEPLOY_DIR"
-
-    # IMPORTANT: Save CI-provided values BEFORE sourcing .env
-    # These values are passed from the CI/CD pipeline and must take precedence
-    # over any defaults in .env (which may have IMAGE_TAG=latest)
-    local ci_image_tag="${IMAGE_TAG:-}"
-    local ci_github_repo="${GITHUB_REPOSITORY:-}"
 
     # Source .env for secrets and other configuration
     # (DB_PASSWORD, SECRET_KEY, REDIS_PASSWORD, etc.)
@@ -175,17 +171,16 @@ pull_images() {
     set +a
 
     # Restore CI-provided values - they MUST override .env defaults
-    # This fixes a bug where .env's IMAGE_TAG=latest would override
-    # the staging tag (e.g., fc8ca7b-staging) passed from CI
-    if [[ -n "$ci_image_tag" ]]; then
-        IMAGE_TAG="$ci_image_tag"
+    # (.env may have a stale IMAGE_TAG from the previous deploy)
+    if [[ -n "$CI_IMAGE_TAG" ]]; then
+        IMAGE_TAG="$CI_IMAGE_TAG"
         log INFO "Using CI-provided IMAGE_TAG: ${IMAGE_TAG}"
     else
         log WARN "No CI-provided IMAGE_TAG, using .env value: ${IMAGE_TAG:-not set}"
     fi
 
-    if [[ -n "$ci_github_repo" ]]; then
-        GITHUB_REPOSITORY="$ci_github_repo"
+    if [[ -n "$CI_GITHUB_REPO" ]]; then
+        GITHUB_REPOSITORY="$CI_GITHUB_REPO"
     fi
 
 
@@ -463,10 +458,16 @@ rollback() {
 # =============================================================================
 
 main() {
+    # Capture CI-provided values BEFORE anything sources .env, which would
+    # overwrite them with stale values (e.g., IMAGE_TAG from the previous deploy).
+    # These are exported as globals so pull_images() and deploy_services() see them.
+    CI_IMAGE_TAG="${IMAGE_TAG:-}"
+    CI_GITHUB_REPO="${GITHUB_REPOSITORY:-}"
+
     log INFO "=========================================="
     log INFO "SyftHub Deployment Starting"
-    log INFO "Image Tag: ${IMAGE_TAG:-not set}"
-    log INFO "Repository: ${GITHUB_REPOSITORY:-not set}"
+    log INFO "Image Tag: ${CI_IMAGE_TAG:-not set}"
+    log INFO "Repository: ${CI_GITHUB_REPO:-not set}"
     log INFO "=========================================="
 
     # Create log directory if needed
@@ -487,6 +488,13 @@ main() {
 
     # Remove trap on success
     trap - ERR
+
+    # Persist the new IMAGE_TAG into .env so manual restarts and future
+    # deployments that read .env get a consistent value.
+    if [[ -n "$IMAGE_TAG" ]]; then
+        sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${IMAGE_TAG}|" "${DEPLOY_DIR}/.env"
+        log INFO "Updated IMAGE_TAG in .env to: ${IMAGE_TAG}"
+    fi
 
     log INFO "=========================================="
     log INFO "Deployment completed successfully!"
