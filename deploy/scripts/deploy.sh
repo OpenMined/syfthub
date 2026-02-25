@@ -158,38 +158,9 @@ EOF
 # =============================================================================
 
 pull_images() {
-    # CI_IMAGE_TAG and CI_GITHUB_REPO are globals set in main() before any
-    # .env sourcing, so they always reflect what was passed in from CI.
-    log INFO "Pulling new images with tag: ${CI_IMAGE_TAG}..."
+    log INFO "Pulling new images with tag: ${IMAGE_TAG}..."
 
     cd "$DEPLOY_DIR"
-
-    # Source .env for secrets and other configuration
-    # (DB_PASSWORD, SECRET_KEY, REDIS_PASSWORD, etc.)
-    set -a
-    source .env
-    set +a
-
-    # Restore CI-provided values - they MUST override .env defaults
-    # (.env may have a stale IMAGE_TAG from the previous deploy)
-    if [[ -n "$CI_IMAGE_TAG" ]]; then
-        IMAGE_TAG="$CI_IMAGE_TAG"
-        log INFO "Using CI-provided IMAGE_TAG: ${IMAGE_TAG}"
-    else
-        log WARN "No CI-provided IMAGE_TAG, using .env value: ${IMAGE_TAG:-not set}"
-    fi
-
-    if [[ -n "$CI_GITHUB_REPO" ]]; then
-        GITHUB_REPOSITORY="$CI_GITHUB_REPO"
-    fi
-
-
-    # Ensure GITHUB_REPOSITORY is lowercase (Docker requirement)
-    GITHUB_REPOSITORY=$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
-
-    # Export for docker-compose
-    export IMAGE_TAG
-    export GITHUB_REPOSITORY
 
     # Pull all images
     docker compose -f "$COMPOSE_FILE" pull backend aggregator mcp || die "Failed to pull backend/aggregator/mcp images"
@@ -478,6 +449,20 @@ main() {
 
     # Run deployment steps
     check_prerequisites
+
+    # check_prerequisites sources .env which overwrites IMAGE_TAG with its stale
+    # value. Restore the CI-provided tag here so every subsequent step (including
+    # a no-op pull_images injected by local-build-deploy.sh) uses the right tag.
+    if [[ -n "$CI_IMAGE_TAG" ]]; then
+        IMAGE_TAG="$CI_IMAGE_TAG"
+        export IMAGE_TAG
+        log INFO "Restored IMAGE_TAG from CI: ${IMAGE_TAG}"
+    fi
+    if [[ -n "$CI_GITHUB_REPO" ]]; then
+        GITHUB_REPOSITORY=$(echo "$CI_GITHUB_REPO" | tr '[:upper:]' '[:lower:]')
+        export GITHUB_REPOSITORY
+    fi
+
     backup_current_state
     pull_images
     update_frontend
