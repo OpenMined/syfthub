@@ -350,6 +350,120 @@
 }
 
 /* =============================================================================
+   Markdown prose typography — AI response content
+   Applied via .markdown-message on the MarkdownMessage wrapper.
+   Provides proper spacing, hierarchy, and readability for long-form content.
+   ============================================================================= */
+
+.markdown-message p {
+  margin-bottom: 0.875em;
+}
+
+.markdown-message p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-message h1,
+.markdown-message h2,
+.markdown-message h3,
+.markdown-message h4 {
+  font-family: 'Rubik', system-ui, sans-serif;
+  font-weight: 600;
+  line-height: 1.35;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  color: var(--foreground);
+}
+
+.markdown-message h1:first-child,
+.markdown-message h2:first-child,
+.markdown-message h3:first-child,
+.markdown-message h4:first-child {
+  margin-top: 0;
+}
+
+.markdown-message h1 {
+  font-size: 1.375em;
+  letter-spacing: -0.01em;
+}
+
+.markdown-message h2 {
+  font-size: 1.175em;
+  letter-spacing: -0.005em;
+}
+
+.markdown-message h3 {
+  font-size: 1.05em;
+}
+
+.markdown-message h4 {
+  font-size: 1em;
+  font-weight: 500;
+}
+
+.markdown-message ul,
+.markdown-message ol {
+  margin: 0.625em 0;
+  padding-left: 1.5em;
+}
+
+.markdown-message li {
+  margin-bottom: 0.3em;
+}
+
+.markdown-message li > p {
+  margin-bottom: 0.375em;
+}
+
+.markdown-message blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 1em;
+  margin: 1em 0;
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+.markdown-message hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.5em 0;
+}
+
+.markdown-message a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+
+.markdown-message a:hover {
+  text-decoration-thickness: 2px;
+}
+
+.markdown-message table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-size: 0.9em;
+}
+
+.markdown-message th,
+.markdown-message td {
+  padding: 0.5em 0.75em;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.markdown-message th {
+  font-weight: 600;
+  background-color: var(--muted);
+}
+
+.markdown-message strong {
+  font-weight: 600;
+}
+
+/* =============================================================================
    Citation highlighting — rendered by MarkdownMessage with buildCitedMarkdown()
    <mark class="cite-highlight"> wraps the cited sentence span
    <sup class="cite-badge"> is the inline [N] source badge

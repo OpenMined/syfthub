@@ -19,7 +19,6 @@ import { useChatWorkflow } from '@/hooks/use-chat-workflow';
 import { useDataSources } from '@/hooks/use-data-sources';
 import { useModels } from '@/hooks/use-models';
 import { useSuggestedSources } from '@/hooks/use-suggested-sources';
-import { cn } from '@/lib/utils';
 import { useContextSelectionStore } from '@/stores/context-selection-store';
 import { useOnboardingStore } from '@/stores/onboarding-store';
 
@@ -353,83 +352,68 @@ export function ChatView({
           ) : (
             <>
               {/* Existing messages */}
-              {messages.map((message) => (
-                <Message
-                  key={message.id}
-                  className={message.role === 'user' ? 'justify-end' : 'justify-start'}
-                >
-                  <div
-                    className={cn(
-                      'flex max-w-full flex-col',
-                      message.role === 'user' ? 'items-end' : 'items-start'
-                    )}
-                  >
+              {messages.map((message) =>
+                message.role === 'user' ? (
+                  /* ── User bubble ── right-aligned pill */
+                  <Message key={message.id} className='justify-end'>
+                    <div className='flex max-w-full flex-col items-end'>
+                      {message.content && (
+                        <MessageContent className='font-inter bg-primary text-primary-foreground max-w-2xl rounded-2xl rounded-br-none px-5 py-3 text-sm leading-relaxed shadow-sm'>
+                          {message.content}
+                        </MessageContent>
+                      )}
+                    </div>
+                  </Message>
+                ) : (
+                  /* ── Assistant response ── free-flowing content, no bubble */
+                  <div key={message.id} className='max-w-3xl'>
                     {message.content && (
-                      <MessageContent
-                        className={`font-inter max-w-2xl rounded-2xl px-5 py-3 shadow-sm ${
-                          message.role === 'user'
-                            ? 'bg-primary text-primary-foreground rounded-br-none text-sm leading-relaxed'
-                            : 'border-border bg-muted text-foreground rounded-bl-none border'
-                        }`}
-                      >
-                        {message.role === 'assistant' ? (
-                          <MarkdownMessage
-                            content={message.content}
-                            annotatedContent={message.annotatedResponse}
-                            id={message.id}
-                          />
-                        ) : (
-                          message.content
-                        )}
-                      </MessageContent>
+                      <MarkdownMessage
+                        content={message.content}
+                        annotatedContent={message.annotatedResponse}
+                        id={message.id}
+                      />
                     )}
-                    {message.role === 'assistant' &&
-                      message.aggregatorSources &&
+                    {message.aggregatorSources &&
                       Object.keys(message.aggregatorSources).length > 0 && (
-                        <div className='mt-2 w-full max-w-2xl'>
+                        <div className='mt-4'>
                           <SourcesSection sources={message.aggregatorSources} />
                         </div>
                       )}
                   </div>
-                </Message>
-              ))}
+                )
+              )}
 
-              {/* Workflow UI - Processing Status */}
+              {/* Workflow UI - Processing Status & Streaming */}
               {(workflow.phase === 'preparing' || workflow.phase === 'streaming') && (
-                <Message className='justify-start'>
-                  <div className='flex max-w-full flex-col items-start'>
-                    {workflow.processingStatus && (
-                      <StatusIndicator status={workflow.processingStatus} />
-                    )}
-                    {workflow.streamedContent && (
-                      <MessageContent className='font-inter border-border bg-muted text-foreground mt-2 max-w-2xl rounded-2xl rounded-bl-none border px-5 py-3 shadow-sm'>
-                        <MarkdownMessage content={workflow.streamedContent} id='streaming' />
-                      </MessageContent>
-                    )}
-                  </div>
-                </Message>
+                <div className='flex max-w-3xl flex-col gap-3'>
+                  {workflow.processingStatus && (
+                    <StatusIndicator status={workflow.processingStatus} />
+                  )}
+                  {workflow.streamedContent && (
+                    <MarkdownMessage content={workflow.streamedContent} id='streaming' />
+                  )}
+                </div>
               )}
 
               {/* Error display */}
               {workflow.phase === 'error' && workflow.error && (
-                <Message className='justify-start'>
-                  <div className='flex max-w-2xl flex-col gap-2'>
-                    <div className='font-inter rounded-2xl rounded-bl-none border border-red-200 bg-red-50 px-5 py-3 text-red-700 shadow-sm dark:border-red-800 dark:bg-red-950 dark:text-red-300'>
-                      {workflow.error}
-                    </div>
-                    {lastQueryReference.current && (
-                      <button
-                        type='button'
-                        onClick={() => {
-                          handleSubmit(lastQueryReference.current);
-                        }}
-                        className='font-inter text-muted-foreground hover:text-foreground self-start text-xs underline underline-offset-2'
-                      >
-                        Retry
-                      </button>
-                    )}
+                <div className='max-w-3xl'>
+                  <div className='font-inter flex items-start gap-2.5 rounded-lg border border-red-200/60 bg-red-50/60 px-4 py-3 text-sm text-red-700 dark:border-red-800/40 dark:bg-red-950/40 dark:text-red-300'>
+                    <span>{workflow.error}</span>
                   </div>
-                </Message>
+                  {lastQueryReference.current && (
+                    <button
+                      type='button'
+                      onClick={() => {
+                        handleSubmit(lastQueryReference.current);
+                      }}
+                      className='font-inter text-muted-foreground hover:text-foreground mt-2 text-xs underline underline-offset-2'
+                    >
+                      Retry
+                    </button>
+                  )}
+                </div>
               )}
             </>
           )}

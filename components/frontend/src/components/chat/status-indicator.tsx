@@ -213,80 +213,77 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -8 }}
-      className='border-border bg-muted rounded-2xl rounded-bl-none border shadow-sm'
+      exit={{ opacity: 0, y: -6 }}
     >
-      {/* Main Status Line */}
-      <div className='px-5 py-3'>
-        <div className='flex items-center gap-2'>
-          <PhaseIcon phase={status.phase} />
+      {/* Main Status Line — minimal inline treatment */}
+      <div className='flex items-center gap-2.5 py-1'>
+        <PhaseIcon phase={status.phase} />
 
-          <AnimatePresence mode='wait'>
-            <motion.span
-              key={status.message}
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -5 }}
-              transition={{ duration: 0.2 }}
-              className={`font-inter text-sm ${isError ? 'text-red-600' : 'text-muted-foreground'}`}
-            >
-              {status.message}
-            </motion.span>
-          </AnimatePresence>
-
-          {/* Progress fraction */}
-          {status.retrieval && status.phase === 'retrieving' ? (
-            <span className='font-inter text-muted-foreground text-xs'>
-              ({status.retrieval.completed}/{status.retrieval.total})
-            </span>
-          ) : null}
-
-          {/* Animated dots (not shown for error state) */}
-          {isError ? null : <Loader variant='typing' size='sm' className='ml-1' />}
-        </div>
-
-        {/* Documents found summary */}
-        {status.retrieval && status.retrieval.documentsFound > 0 && status.phase !== 'error' ? (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            className='mt-1 flex items-center gap-1.5 pl-6'
+        <AnimatePresence mode='wait'>
+          <motion.span
+            key={status.message}
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.2 }}
+            className={`font-inter text-[13px] ${isError ? 'text-red-600' : 'text-muted-foreground'}`}
           >
-            <FileText className='text-muted-foreground h-3 w-3' />
-            <span className='font-inter text-muted-foreground text-xs'>
-              {status.retrieval.documentsFound}{' '}
-              {status.retrieval.documentsFound === 1 ? 'document' : 'documents'} found
-            </span>
-          </motion.div>
+            {status.message}
+          </motion.span>
+        </AnimatePresence>
+
+        {/* Progress fraction */}
+        {status.retrieval && status.phase === 'retrieving' ? (
+          <span className='font-inter text-muted-foreground/60 text-xs tabular-nums'>
+            {status.retrieval.completed}/{status.retrieval.total}
+          </span>
         ) : null}
 
-        {/* Expand/Collapse button */}
-        {hasDetails ? (
-          <motion.button
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 0.3 }}
-            onClick={toggleExpanded}
-            className='text-secondary hover:text-foreground mt-2 flex items-center gap-1 pl-6 text-xs transition-colors'
-          >
-            {isExpanded ? (
-              <>
-                <ChevronUp className='h-3 w-3' />
-                <span>Hide details</span>
-              </>
-            ) : (
-              <>
-                <ChevronDown className='h-3 w-3' />
-                <span>Show details</span>
-              </>
-            )}
-          </motion.button>
-        ) : null}
+        {/* Animated dots (not shown for error state) */}
+        {isError ? null : <Loader variant='typing' size='sm' className='ml-0.5' />}
       </div>
 
-      {/* Expandable Details */}
+      {/* Documents found summary */}
+      {status.retrieval && status.retrieval.documentsFound > 0 && status.phase !== 'error' ? (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: 'auto' }}
+          className='mt-0.5 flex items-center gap-1.5 pl-[26px]'
+        >
+          <FileText className='text-muted-foreground/60 h-3 w-3' />
+          <span className='font-inter text-muted-foreground/70 text-xs'>
+            {status.retrieval.documentsFound}{' '}
+            {status.retrieval.documentsFound === 1 ? 'document' : 'documents'} found
+          </span>
+        </motion.div>
+      ) : null}
+
+      {/* Expand/Collapse button */}
+      {hasDetails ? (
+        <motion.button
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.3 }}
+          onClick={toggleExpanded}
+          className='text-muted-foreground hover:text-foreground mt-1.5 flex items-center gap-1 pl-[26px] text-xs transition-colors'
+        >
+          {isExpanded ? (
+            <>
+              <ChevronUp className='h-3 w-3' />
+              <span>Hide details</span>
+            </>
+          ) : (
+            <>
+              <ChevronDown className='h-3 w-3' />
+              <span>Show details</span>
+            </>
+          )}
+        </motion.button>
+      ) : null}
+
+      {/* Expandable Details — subtle card only for the detail list */}
       <AnimatePresence>
         {isExpanded && hasDetails ? (
           <motion.div
@@ -296,8 +293,8 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
             transition={{ duration: 0.2 }}
             className='overflow-hidden'
           >
-            <div className='border-border bg-card/50 border-t px-5 py-3'>
-              <div className='space-y-0.5 pl-1'>
+            <div className='border-border/60 bg-muted/40 mt-2 rounded-lg border px-4 py-3'>
+              <div className='space-y-0.5'>
                 {status.completedSources.map((source, index) => (
                   <SourceStatusRow key={source.path} source={source} index={index} />
                 ))}
@@ -326,7 +323,7 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className='border-border text-muted-foreground mt-2 flex items-center gap-1.5 border-t pt-2'
+                    className='border-border/40 text-muted-foreground mt-2 flex items-center gap-1.5 border-t pt-2'
                   >
                     <Clock className='h-3 w-3' />
                     <span className='font-inter text-xs'>

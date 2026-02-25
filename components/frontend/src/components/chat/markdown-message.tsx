@@ -32,7 +32,12 @@ export const MarkdownMessage = memo(function MarkdownMessage({
   }, [content, annotatedContent]);
 
   return (
-    <div className={cn('markdown-message font-inter text-[15px] leading-relaxed', className)}>
+    <div
+      className={cn(
+        'markdown-message font-inter text-foreground text-[15px] leading-[1.7]',
+        className
+      )}
+    >
       <Markdown id={id} allowRawHtml={hasCitations}>
         {renderedContent}
       </Markdown>
