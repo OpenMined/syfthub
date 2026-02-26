@@ -3,6 +3,7 @@
 Provides correlation ID injection and request/response logging.
 """
 
+import json
 import time
 import uuid
 
@@ -17,6 +18,7 @@ from aggregator.observability.constants import (
     LogEvents,
 )
 from aggregator.observability.context import set_correlation_id
+from aggregator.observability.sanitizer import sanitize, sanitize_headers, truncate_body
 
 logger = structlog.get_logger(__name__)
 
@@ -73,6 +75,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
     def __init__(
         self,
         app: ASGIApp,
+        log_request_headers: bool = False,
         log_request_body: bool = False,
         log_response_body: bool = False,
         exclude_paths: set[str] | None = None,
@@ -81,11 +84,13 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
         Args:
             app: The ASGI application.
+            log_request_headers: Whether to log sanitized request headers (dev/debug only).
             log_request_body: Whether to log request bodies (performance impact).
             log_response_body: Whether to log response bodies (on error only recommended).
             exclude_paths: Paths to exclude from logging (e.g., health checks).
         """
         super().__init__(app)
+        self.log_request_headers = log_request_headers
         self.log_request_body = log_request_body
         self.log_response_body = log_response_body
         self.exclude_paths = exclude_paths or {"/health", "/ready", "/metrics"}
@@ -108,13 +113,29 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         start_time = time.perf_counter()
 
         # Build request context
-        request_context = {
+        request_context: dict[str, object] = {
             "method": request.method,
+            "url": str(request.url),
             "path": request.url.path,
             "query": str(request.query_params) if request.query_params else None,
             "client_ip": self._get_client_ip(request),
             "user_agent": request.headers.get("user-agent"),
         }
+
+        if self.log_request_headers:
+            request_context["headers"] = sanitize_headers(dict(request.headers))
+
+        if self.log_request_body:
+            try:
+                raw_body = await request.body()
+                if raw_body:
+                    try:
+                        parsed = json.loads(raw_body)
+                        request_context["body"] = truncate_body(sanitize(parsed))
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        request_context["body"] = truncate_body(raw_body)
+            except Exception:
+                logger.warning("request.body_read_failed")
 
         # Log request started
         logger.info(

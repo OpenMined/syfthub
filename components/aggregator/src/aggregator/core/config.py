@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     # Logging & Observability
     log_level: str = "INFO"
     log_format: str = "json"  # "json" for production, "console" for development
+    log_request_headers: bool = (
+        False  # Enable via AGGREGATOR_LOG_REQUEST_HEADERS=true (dev/debug only)
+    )
+    log_request_body: bool = (
+        False  # Enable via AGGREGATOR_LOG_REQUEST_BODY=true (dev/debug only, performance impact)
+    )
 
     # Server configuration
     host: str = "0.0.0.0"
