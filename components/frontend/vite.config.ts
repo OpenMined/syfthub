@@ -29,7 +29,12 @@ export default defineConfig({
   ],
   server: {
     host: config.server.host,
-    port: config.server.port
+    port: config.server.port,
+    watch: {
+      // Use polling for Docker bind mounts where inotify events may not propagate
+      usePolling: true,
+      interval: 1000,
+    },
   },
   preview: {
     host: config.server.host,
