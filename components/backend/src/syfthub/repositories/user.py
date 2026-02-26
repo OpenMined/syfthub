@@ -139,7 +139,7 @@ class UserRepository(BaseRepository[UserModel]):
                 user_model.accounting_service_url = user_data.accounting_service_url
             if user_data.accounting_password is not None:
                 user_model.accounting_password = user_data.accounting_password
-            if user_data.domain is not None:
+            if "domain" in user_data.model_fields_set:
                 user_model.domain = user_data.domain
             # Aggregator URL
             if user_data.aggregator_url is not None:
