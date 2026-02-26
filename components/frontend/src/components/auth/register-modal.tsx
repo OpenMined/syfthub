@@ -9,17 +9,16 @@ import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
 import Lock from 'lucide-react/dist/esm/icons/lock';
 import Mail from 'lucide-react/dist/esm/icons/mail';
 import User from 'lucide-react/dist/esm/icons/user';
-import { useForm } from 'react-hook-form';
-import { useNavigate } from 'react-router-dom';
+import { Controller, useForm } from 'react-hook-form';
 
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/context/auth-context';
 import { registerSchema } from '@/lib/schemas';
 import { AccountingAccountExistsError, isGoogleOAuthEnabled } from '@/lib/sdk-client';
 import { getPasswordStrength } from '@/lib/validation';
-import { useOnboardingStore } from '@/stores/onboarding-store';
 
 import { AuthErrorAlert, AuthLoadingOverlay } from './auth-utils';
 
@@ -45,7 +44,6 @@ export function RegisterModal({
   onSwitchToLogin
 }: Readonly<RegisterModalProperties>) {
   const { register: authRegister, loginWithGoogle, isLoading, error, clearError } = useAuth();
-  const navigate = useNavigate();
   const [requiresAccountingPassword, setRequiresAccountingPassword] = useState(false);
 
   const {
@@ -53,6 +51,7 @@ export function RegisterModal({
     handleSubmit,
     reset,
     watch,
+    control,
     formState: { errors }
   } = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
@@ -61,7 +60,8 @@ export function RegisterModal({
       email: '',
       password: '',
       confirmPassword: '',
-      accountingPassword: ''
+      accountingPassword: '',
+      termsAccepted: false
     }
   });
 
@@ -77,8 +77,6 @@ export function RegisterModal({
         accountingPassword: data.accountingPassword || undefined
       });
       onClose();
-      useOnboardingStore.getState().startOnboarding();
-      navigate('/chat');
     } catch (error_) {
       if (error_ instanceof AccountingAccountExistsError) {
         setRequiresAccountingPassword(true);
@@ -224,25 +222,27 @@ export function RegisterModal({
 
           <div className='space-y-2 text-sm'>
             <label htmlFor='terms-agreement' className='flex cursor-pointer items-start space-x-2'>
-              <input
-                type='checkbox'
-                id='terms-agreement'
-                name='terms-agreement'
-                required
-                className='border-border text-foreground focus:ring-ring mt-0.5 rounded focus:ring-offset-0'
-                disabled={isLoading}
+              <Controller
+                name='termsAccepted'
+                control={control}
+                render={({ field }) => (
+                  <Checkbox
+                    id='terms-agreement'
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={isLoading}
+                    className='mt-0.5'
+                  />
+                )}
               />
               <span className='font-inter text-muted-foreground text-xs leading-relaxed'>
-                I agree to the{' '}
-                <a href='#' className='text-foreground hover:text-secondary underline'>
-                  Terms of Service
-                </a>{' '}
-                and{' '}
-                <a href='#' className='text-foreground hover:text-secondary underline'>
-                  Privacy Policy
-                </a>
+                I agree to the <span className='text-foreground font-medium'>Terms of Service</span>{' '}
+                and <span className='text-foreground font-medium'>Privacy Policy</span>
               </span>
             </label>
+            {errors.termsAccepted && (
+              <p className='font-inter text-xs text-red-500'>{errors.termsAccepted.message}</p>
+            )}
           </div>
 
           <Button type='submit' size='lg' className='font-inter w-full' disabled={isLoading}>
@@ -268,8 +268,6 @@ export function RegisterModal({
                   if (credentialResponse.credential) {
                     void loginWithGoogle(credentialResponse.credential).then(() => {
                       onClose();
-                      useOnboardingStore.getState().startOnboarding();
-                      navigate('/chat');
                     });
                   }
                 }}
