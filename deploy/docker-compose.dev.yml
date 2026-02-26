@@ -92,20 +92,20 @@ services:
     expose:
       - "3000"
     volumes:
-      # Mount source code for hot reload
-      - ../components/frontend/src:/app/src:cached
-      - ../components/frontend/public:/app/public:cached
-      - ../components/frontend/package.json:/app/package.json:cached
-      - ../components/frontend/package-lock.json:/app/package-lock.json:cached
-      - ../components/frontend/vite.config.ts:/app/vite.config.ts:cached
-      - ../components/frontend/tsconfig.json:/app/tsconfig.json:cached
-      - ../components/frontend/tailwind.config.js:/app/tailwind.config.js:cached
-      - ../components/frontend/index.html:/app/index.html:cached
-      - ../components/frontend/_config.ts:/app/_config.ts:cached
-      # Mount SDK for hot reload
-      - ../sdk/typescript:/sdk/typescript:cached
-      # Exclude node_modules to avoid conflicts
-      - /app/node_modules
+      # Mount source code for hot reload (targets match Dockerfile.dev WORKDIR: /app/components/frontend)
+      - ../components/frontend/src:/app/components/frontend/src:cached
+      - ../components/frontend/public:/app/components/frontend/public:cached
+      - ../components/frontend/package.json:/app/components/frontend/package.json:cached
+      - ../components/frontend/package-lock.json:/app/components/frontend/package-lock.json:cached
+      - ../components/frontend/vite.config.ts:/app/components/frontend/vite.config.ts:cached
+      - ../components/frontend/tsconfig.json:/app/components/frontend/tsconfig.json:cached
+      - ../components/frontend/tailwind.config.js:/app/components/frontend/tailwind.config.js:cached
+      - ../components/frontend/index.html:/app/components/frontend/index.html:cached
+      - ../components/frontend/_config.ts:/app/components/frontend/_config.ts:cached
+      # Mount SDK (path matches npm file: resolution: /app/components/frontend/../../sdk/typescript)
+      - ../sdk/typescript:/app/sdk/typescript:cached
+      # Exclude node_modules to avoid conflicts with container-installed packages
+      - /app/components/frontend/node_modules
     environment:
       - NODE_ENV=development
       # Empty - API calls use relative paths (same origin via proxy)
@@ -183,6 +183,7 @@ services:
     build:
       context: ../components/aggregator
       dockerfile: Dockerfile
+      target: development
     container_name: syfthub-aggregator-dev
     # Internal only - accessed via proxy
     expose:
@@ -190,6 +191,7 @@ services:
     volumes:
       # Mount source code for hot reload
       - ../components/aggregator/src:/app/src:cached
+      - ../components/aggregator/pyproject.toml:/app/pyproject.toml:cached
     environment:
       - AGGREGATOR_DEBUG=true
       - AGGREGATOR_SYFTHUB_URL=http://backend:8000

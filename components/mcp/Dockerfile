@@ -68,9 +68,10 @@ ENV ENVIRONMENT=development \
 # Development entrypoint - hot reload enabled
 # SDK will be mounted at /sdk/python via docker-compose
 # Use pip directly (uv has path normalization restrictions that break mounted volumes)
-CMD .venv/bin/pip install -e /sdk/python && \
-    .venv/bin/pip install -e . && \
-    /app/.venv/bin/uvicorn server:create_app \
+# --quiet suppresses per-package output; exec replaces shell so uvicorn receives SIGTERM directly
+CMD .venv/bin/pip install --quiet -e /sdk/python && \
+    .venv/bin/pip install --quiet -e . && \
+    exec /app/.venv/bin/uvicorn server:create_app \
     --host 0.0.0.0 \
     --port 8002 \
     --reload \

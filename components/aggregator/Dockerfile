@@ -23,7 +23,45 @@ ENV PATH="/app/.venv/bin:$PATH"
 RUN uv pip install --no-cache .
 
 # ============================================
-# Stage 2: Runtime
+# Stage 2: Development
+# ============================================
+FROM builder AS development
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH="/app/src" \
+    ENVIRONMENT=development \
+    LOG_LEVEL=debug
+
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash appuser
+
+# Reinstall as editable for hot reload (source changes picked up without rebuild)
+RUN uv pip install --no-cache -e ".[dev]"
+
+# Copy source code
+COPY src/ ./src/
+
+# Change ownership to non-root user
+RUN chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
+# Expose port
+EXPOSE 8001
+
+# Development entrypoint - hot reload enabled
+CMD ["uvicorn", "aggregator.main:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8001", \
+     "--reload", \
+     "--reload-dir", "src"]
+
+# ============================================
+# Stage 3: Runtime
 # ============================================
 FROM python:3.12-slim AS runtime
 
