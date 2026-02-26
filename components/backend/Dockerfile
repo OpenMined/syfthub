@@ -22,7 +22,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 # Create non-root user and data directory
 RUN useradd -m -u 1000 syfthub && \
-    mkdir -p /app /app/data && \
+    mkdir -p /app /app/data /app/data/rsa_keys && \
     chown -R syfthub:syfthub /app
 
 # Set working directory

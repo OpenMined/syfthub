@@ -42,6 +42,9 @@ services:
       - ../components/backend/pyproject.toml:/app/pyproject.toml:cached
       # Database volume
       - ../components/backend/data:/app/data
+      # Named volume for RSA keys so the syfthub user (uid 1000) has write access
+      # (bind-mounted parent dirs are created by Docker as root, blocking auto-generation)
+      - rsa_keys_data:/app/data/rsa_keys
     environment:
       - ENVIRONMENT=development
       - DATABASE_URL=postgresql://syfthub:syfthub_dev_password@db:5432/syfthub_dev
@@ -297,3 +300,5 @@ volumes:
     name: syfthub_nats_data_dev
   meili_data:
     name: syfthub_meili_data_dev
+  rsa_keys_data:
+    name: syfthub_rsa_keys_data_dev
