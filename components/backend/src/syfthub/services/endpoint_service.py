@@ -162,6 +162,16 @@ class EndpointService(BaseService):
 
         return valid_contributors
 
+    @staticmethod
+    def _inject_subscription_tag(
+        tags: List[str], policies: list[dict[str, Any]]
+    ) -> List[str]:
+        """Inject 'subscription' tag if a bundle_subscription policy is present."""
+        has_bundle_sub = any(p.get("type") == "bundle_subscription" for p in policies)
+        if has_bundle_sub and "subscription" not in tags:
+            return [*tags, "subscription"]
+        return tags
+
     def create_endpoint(
         self,
         endpoint_data: EndpointCreate,
@@ -211,6 +221,10 @@ class EndpointService(BaseService):
                     detail="slug already exists - already taken",
                 )
 
+        # Auto-inject 'subscription' tag for bundle_subscription policies
+        policies_dicts = [p.model_dump() for p in endpoint_data.policies]
+        tags = self._inject_subscription_tag(endpoint_data.tags or [], policies_dicts)
+
         # Create a validated endpoint creation object that includes server-managed fields
         validated_data = EndpointCreate(
             name=endpoint_data.name,
@@ -219,6 +233,7 @@ class EndpointService(BaseService):
             visibility=endpoint_data.visibility,
             version=endpoint_data.version,
             readme=endpoint_data.readme,
+            tags=tags,
             policies=endpoint_data.policies,
             connect=endpoint_data.connect,
             slug=final_slug,
@@ -346,6 +361,18 @@ class EndpointService(BaseService):
                 valid_contributors.append(current_user.id)
             endpoint_data.contributors = valid_contributors
 
+        # Auto-inject 'subscription' tag for bundle_subscription policies
+        if endpoint_data.policies is not None:
+            policies_dicts = [p.model_dump() for p in endpoint_data.policies]
+            current_tags = (
+                endpoint_data.tags
+                if endpoint_data.tags is not None
+                else (endpoint.tags or [])
+            )
+            injected_tags = self._inject_subscription_tag(current_tags, policies_dicts)
+            if injected_tags != current_tags:
+                endpoint_data.tags = injected_tags
+
         updated_endpoint = self.endpoint_repository.update_endpoint(
             endpoint_id, endpoint_data
         )
@@ -397,6 +424,18 @@ class EndpointService(BaseService):
                 # Org-owned endpoint: ensure at least the updating user is a contributor
                 valid_contributors.append(current_user.id)
             endpoint_data.contributors = valid_contributors
+
+        # Auto-inject 'subscription' tag for bundle_subscription policies
+        if endpoint_data.policies is not None:
+            policies_dicts = [p.model_dump() for p in endpoint_data.policies]
+            current_tags = (
+                endpoint_data.tags
+                if endpoint_data.tags is not None
+                else (endpoint.tags or [])
+            )
+            injected_tags = self._inject_subscription_tag(current_tags, policies_dicts)
+            if injected_tags != current_tags:
+                endpoint_data.tags = injected_tags
 
         updated_endpoint = self.endpoint_repository.update_endpoint(
             endpoint.id, endpoint_data
@@ -1121,6 +1160,10 @@ class EndpointService(BaseService):
                 valid_contributors.append(current_user.id)
 
             # Prepare the validated endpoint data
+            policies_dicts = [p.model_dump() for p in endpoint_data.policies]
+            tags = self._inject_subscription_tag(
+                endpoint_data.tags or [], policies_dicts
+            )
             validated_endpoint = {
                 "name": endpoint_data.name,
                 "slug": slug,
@@ -1129,9 +1172,9 @@ class EndpointService(BaseService):
                 "visibility": endpoint_data.visibility.value,
                 "version": endpoint_data.version,
                 "readme": endpoint_data.readme or "",
-                "tags": endpoint_data.tags or [],
+                "tags": tags,
                 "contributors": valid_contributors,
-                "policies": [p.model_dump() for p in endpoint_data.policies],
+                "policies": policies_dicts,
                 "connect": [c.model_dump() for c in endpoint_data.connect],
             }
             validated_endpoints.append(validated_endpoint)

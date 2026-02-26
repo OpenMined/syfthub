@@ -1395,6 +1395,24 @@ config:
   initial_balance: 100
 `, req.Name)
 
+	case "BundleSubscriptionPolicy":
+		return fmt.Sprintf(`# Bundle Subscription Policy
+# Gates access behind an active subscription plan
+type: bundle_subscription
+name: %s
+config:
+  # Display name of the subscription plan
+  plan_name: "Pro"
+  # Price amount
+  price: 29.99
+  # Currency code (e.g. USD, EUR)
+  currency: "USD"
+  # Billing cycle: one_time, monthly, or yearly
+  billing_cycle: "monthly"
+  # External billing/subscription URL (shown to users)
+  invoice_url: ""
+`, req.Name)
+
 	case "AllOfPolicy":
 		// Build child policies list
 		childPoliciesYAML := ""
@@ -1758,32 +1776,35 @@ def handler(messages: list, context: dict = None) -> str:
 Data Source Endpoint Runner
 
 This endpoint provides access to data sources (databases, APIs, files).
-Implement the query() function to handle data requests.
+Implement the handler() function to handle data requests.
 """
 
 
-def query(request):
+def handler(query: str, context: dict = None) -> list[dict]:
     """
     Query data from your data source.
 
     Args:
-        request: The incoming request object containing:
-            - query: SQL query or search parameters
-            - filters: Optional filter criteria
-            - user: User information for access control
+        query: The search query string
+        context: Optional context metadata
 
     Returns:
-        Data matching the query - typically a dict with 'data' array
+        List of document dicts, each with keys:
+            - document_id (str): Unique identifier for the document
+            - content (str): The document text content
+            - metadata (dict): Additional metadata (title, source, etc.)
+            - similarity_score (float): Relevance score between 0.0 and 1.0
     """
-    query_text = getattr(request, 'query', '')
-
     # TODO: Implement your data source logic here
-    # Example: Execute SQL, call external API, read files, etc.
+    # Example: Execute SQL, call external API, search a vector store, etc.
 
-    return {
-        "data": [],
-        "count": 0,
-        "message": f"Query received: {query_text}"
-    }
+    return [
+        {
+            "document_id": "doc-001",
+            "content": "Example document content matching the query.",
+            "metadata": {"title": "Example Document", "source": "example"},
+            "similarity_score": 1.0,
+        }
+    ]
 `
 }

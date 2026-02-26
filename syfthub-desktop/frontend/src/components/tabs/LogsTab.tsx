@@ -465,7 +465,7 @@ export function LogsTab() {
                   className="hover:bg-card/30 cursor-pointer"
                   onClick={() => setSelectedLog(log)}
                 >
-                  <td className="px-4 py-2 text-secondary-foreground">
+                  <td className="px-4 py-2 text-foreground">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <span>{formatTimestamp(log.timestamp)}</span>
@@ -475,7 +475,7 @@ export function LogsTab() {
                       </TooltipContent>
                     </Tooltip>
                   </td>
-                  <td className="px-4 py-2 text-secondary-foreground">
+                  <td className="px-4 py-2 text-foreground">
                     {log.user?.username || log.user?.id || 'Unknown'}
                   </td>
                   <td className="px-4 py-2">

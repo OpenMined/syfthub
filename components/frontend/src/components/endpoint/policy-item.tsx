@@ -3,6 +3,7 @@ import React, { memo } from 'react';
 import type { Policy } from '@/lib/types';
 
 import Coins from 'lucide-react/dist/esm/icons/coins';
+import CreditCard from 'lucide-react/dist/esm/icons/credit-card';
 import Gauge from 'lucide-react/dist/esm/icons/gauge';
 import Globe from 'lucide-react/dist/esm/icons/globe';
 import Key from 'lucide-react/dist/esm/icons/key';
@@ -15,6 +16,7 @@ import Zap from 'lucide-react/dist/esm/icons/zap';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
+import { BundleSubscriptionPolicyContent } from './bundle-subscription-policy-content';
 import { GenericPolicyContent } from './generic-policy-content';
 import { formatConfigKey, TransactionPolicyContent } from './transaction-policy-content';
 
@@ -30,6 +32,15 @@ const POLICY_TYPE_CONFIG: Record<
     description: string;
   }
 > = {
+  // Subscription policies
+  bundle_subscription: {
+    icon: CreditCard,
+    label: 'Bundle Subscription',
+    color: 'text-violet-600 dark:text-violet-400',
+    bgColor: 'bg-violet-50 dark:bg-violet-950/30',
+    borderColor: 'border-violet-200 dark:border-violet-800',
+    description: 'Subscription plan required to access this endpoint'
+  },
   // Transaction/Pricing policies
   transaction: {
     icon: Coins,
@@ -121,7 +132,20 @@ export interface PolicyItemProperties {
 export const PolicyItem = memo(function PolicyItem({ policy }: Readonly<PolicyItemProperties>) {
   const config = getPolicyConfig(policy.type);
   const Icon = config.icon;
+  const isBundleSubscription = policy.type.toLowerCase() === 'bundle_subscription';
   const isTransaction = policy.type.toLowerCase() === 'transaction';
+
+  const hasConfig = Object.keys(policy.config).length > 0;
+  let policySpecificContent: React.ReactNode = null;
+  if (hasConfig) {
+    if (isBundleSubscription) {
+      policySpecificContent = <BundleSubscriptionPolicyContent config={policy.config} />;
+    } else if (isTransaction) {
+      policySpecificContent = <TransactionPolicyContent config={policy.config} />;
+    } else {
+      policySpecificContent = <GenericPolicyContent config={policy.config} />;
+    }
+  }
 
   // For unknown policy types, use the type as the label
   const displayLabel = POLICY_TYPE_CONFIG[policy.type.toLowerCase()]
@@ -171,11 +195,7 @@ export const PolicyItem = memo(function PolicyItem({ policy }: Readonly<PolicyIt
           </p>
 
           {/* Policy-specific content */}
-          {isTransaction && Object.keys(policy.config).length > 0 ? (
-            <TransactionPolicyContent config={policy.config} />
-          ) : (
-            Object.keys(policy.config).length > 0 && <GenericPolicyContent config={policy.config} />
-          )}
+          {policySpecificContent}
 
           {policy.version ? (
             <p className='text-muted-foreground mt-2 text-[10px]'>Version {policy.version}</p>

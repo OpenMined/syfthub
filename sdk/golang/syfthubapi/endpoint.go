@@ -38,6 +38,9 @@ type Endpoint struct {
 	// Readme is the markdown documentation (body after frontmatter).
 	Readme string
 
+	// Policies holds the policy configurations for this endpoint.
+	Policies []PolicyConfig
+
 	// dataSourceHandler is the handler for data source endpoints.
 	dataSourceHandler DataSourceHandler
 
@@ -59,6 +62,13 @@ type Executor interface {
 
 // Info returns the endpoint information for sync.
 func (e *Endpoint) Info() EndpointInfo {
+	var policies []map[string]any
+	for _, p := range e.Policies {
+		policies = append(policies, map[string]any{
+			"type":   p.Type,
+			"config": p.Config,
+		})
+	}
 	return EndpointInfo{
 		Slug:        e.Slug,
 		Name:        e.Name,
@@ -67,6 +77,7 @@ func (e *Endpoint) Info() EndpointInfo {
 		Enabled:     e.Enabled,
 		Version:     e.Version,
 		Readme:      e.Readme,
+		Policies:    policies,
 	}
 }
 
