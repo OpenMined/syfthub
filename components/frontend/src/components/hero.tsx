@@ -31,8 +31,8 @@ const SEARCH_SUGGESTIONS = [
 
 /** Maps suggestion text to the data source full_path that should be auto-selected */
 const SUGGESTION_SOURCE_MAP: Record<string, string> = {
-  'Ask WGA about parental leave': 'openmined-data/wga-screenwriters-handbook',
-  'Ask OpenMined about attribution': 'openmined-data/attribution-based-control'
+  'Ask WGA about parental leave': 'openmined-data/screenwriters-handbook',
+  'Ask OpenMined about attribution': 'openmined-data/abc-openmined'
 };
 
 // =============================================================================
