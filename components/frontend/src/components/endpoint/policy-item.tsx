@@ -3,6 +3,7 @@ import React, { memo } from 'react';
 import type { Policy } from '@/lib/types';
 
 import Coins from 'lucide-react/dist/esm/icons/coins';
+import CreditCard from 'lucide-react/dist/esm/icons/credit-card';
 import Gauge from 'lucide-react/dist/esm/icons/gauge';
 import Globe from 'lucide-react/dist/esm/icons/globe';
 import Key from 'lucide-react/dist/esm/icons/key';
@@ -15,6 +16,7 @@ import Zap from 'lucide-react/dist/esm/icons/zap';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
+import { BundleSubscriptionPolicyContent } from './bundle-subscription-policy-content';
 import { GenericPolicyContent } from './generic-policy-content';
 import { formatConfigKey, TransactionPolicyContent } from './transaction-policy-content';
 
@@ -38,6 +40,14 @@ const POLICY_TYPE_CONFIG: Record<
     bgColor: 'bg-emerald-50 dark:bg-emerald-950/30',
     borderColor: 'border-emerald-200 dark:border-emerald-800',
     description: 'Pay-per-use pricing for this endpoint'
+  },
+  bundle_subscription: {
+    icon: CreditCard,
+    label: 'Bundle Subscription',
+    color: 'text-violet-600 dark:text-violet-400',
+    bgColor: 'bg-violet-50 dark:bg-violet-950/30',
+    borderColor: 'border-violet-200 dark:border-violet-800',
+    description: 'Subscription required to access this endpoint'
   },
   // Access control policies
   public: {
@@ -117,11 +127,27 @@ export interface PolicyItemProperties {
   policy: Policy;
 }
 
+function renderPolicyContent(
+  policy: Policy,
+  isTransaction: boolean,
+  isBundleSubscription: boolean
+): React.ReactElement {
+  if (isTransaction) {
+    return <TransactionPolicyContent config={policy.config} />;
+  }
+  if (isBundleSubscription) {
+    return <BundleSubscriptionPolicyContent config={policy.config} enabled={policy.enabled} />;
+  }
+  return <GenericPolicyContent config={policy.config} />;
+}
+
 // Single policy item component - memoized to prevent unnecessary re-renders
 export const PolicyItem = memo(function PolicyItem({ policy }: Readonly<PolicyItemProperties>) {
   const config = getPolicyConfig(policy.type);
   const Icon = config.icon;
-  const isTransaction = policy.type.toLowerCase() === 'transaction';
+  const policyTypeLower = policy.type.toLowerCase();
+  const isTransaction = policyTypeLower === 'transaction';
+  const isBundleSubscription = policyTypeLower === 'bundle_subscription';
 
   // For unknown policy types, use the type as the label
   const displayLabel = POLICY_TYPE_CONFIG[policy.type.toLowerCase()]
@@ -171,11 +197,8 @@ export const PolicyItem = memo(function PolicyItem({ policy }: Readonly<PolicyIt
           </p>
 
           {/* Policy-specific content */}
-          {isTransaction && Object.keys(policy.config).length > 0 ? (
-            <TransactionPolicyContent config={policy.config} />
-          ) : (
-            Object.keys(policy.config).length > 0 && <GenericPolicyContent config={policy.config} />
-          )}
+          {Object.keys(policy.config).length > 0 &&
+            renderPolicyContent(policy, isTransaction, isBundleSubscription)}
 
           {policy.version ? (
             <p className='text-muted-foreground mt-2 text-[10px]'>Version {policy.version}</p>
