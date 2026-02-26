@@ -77,6 +77,15 @@ export function ChatView({
   const { sources, sourcesById } = useDataSources();
   const showSourcesStep = useOnboardingStore((s) => s.showSourcesStep);
   const showQueryInputStep = useOnboardingStore((s) => s.showQueryInputStep);
+
+  // Start onboarding when user arrives at /chat, but only if they haven't
+  // completed it and no step is already active (avoids resetting mid-tour).
+  useEffect(() => {
+    const { hasCompletedOnboarding, currentStep } = useOnboardingStore.getState();
+    if (!hasCompletedOnboarding && currentStep === null) {
+      useOnboardingStore.getState().startOnboarding();
+    }
+  }, []);
   const contextStore = useContextSelectionStore();
   const selectedSources = useContextSelectionStore((s) => s.selectedSources);
 

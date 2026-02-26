@@ -14,7 +14,6 @@ import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/context/auth-context';
 import { loginSchema } from '@/lib/schemas';
 import { isGoogleOAuthEnabled } from '@/lib/sdk-client';
-import { useOnboardingStore } from '@/stores/onboarding-store';
 
 import { AuthErrorAlert, AuthLoadingOverlay } from './auth-utils';
 
@@ -50,7 +49,6 @@ export function LoginModal({
         password: data.password
       });
       onClose();
-      useOnboardingStore.getState().startOnboarding();
     } catch {
       // Error is handled by the auth context
     }
@@ -149,7 +147,6 @@ export function LoginModal({
                   if (credentialResponse.credential) {
                     void loginWithGoogle(credentialResponse.credential).then(() => {
                       onClose();
-                      useOnboardingStore.getState().startOnboarding();
                     });
                   }
                 }}
