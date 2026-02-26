@@ -68,6 +68,10 @@ class ChatResponse(BaseModel):
     )
     metadata: ResponseMetadata = Field(..., description="Timing metadata")
     usage: TokenUsage | None = Field(default=None, description="Token usage if available")
+    profit_share: dict[str, float] | None = Field(
+        default=None,
+        description="Normalized contribution scores per source (owner/slug to fraction 0-1)",
+    )
 
 
 class ChatCompletionResponse(BaseModel):

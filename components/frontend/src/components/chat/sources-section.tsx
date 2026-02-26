@@ -129,7 +129,7 @@ export function SourcesSection({ sources }: Readonly<SourcesSectionProps>) {
         initial={{ opacity: 0, y: 4 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
-        className='border-border bg-card mt-3 rounded-xl border'
+        className='border-border bg-card rounded-xl border'
       >
         {/* Header / Toggle Button */}
         <button

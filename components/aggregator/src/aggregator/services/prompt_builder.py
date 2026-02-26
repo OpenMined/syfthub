@@ -5,6 +5,12 @@ from aggregator.schemas.requests import Message
 from aggregator.schemas.responses import Document
 
 
+class PromptBuilderError(Exception):
+    """Error in prompt construction."""
+
+    pass
+
+
 class PromptBuilder:
     """Builds prompts for RAG-augmented generation."""
 
@@ -59,6 +65,19 @@ CITATION FORMAT:
 - Uncitable statements should not be included
 - Do NOT add a "Sources" section at the end (provided separately by the system)"""
 
+    CITATION_USER_INSTRUCTIONS = """Answer the user's question using the numbered sources below. Write in clear prose.
+
+At the end of each sentence that draws from a source, place a citation marker: [cite:N]
+For multiple sources in one sentence: [cite:N,M]
+
+SOURCES:
+{sources}
+
+---
+USER QUESTION:
+{user_prompt}
+---"""
+
     NO_CONTEXT_INSTRUCTIONS = """No data sources are configured for this query. Answer the question using your general knowledge as a helpful AI assistant.
 
 If the user expected document-grounded answers, they should configure data sources for their query."""
@@ -79,6 +98,7 @@ However, if the question is general and you can provide a helpful answer without
         context: AggregatedContext | None = None,
         custom_system_prompt: str | None = None,
         history: list[Message] | None = None,
+        context_dict: dict[int, str] | None = None,
     ) -> list[Message]:
         """
         Build a list of messages for the model, incorporating retrieved context.
@@ -88,6 +108,9 @@ However, if the question is general and you can provide a helpful answer without
             context: Aggregated context from data sources (optional)
             custom_system_prompt: Override the default system prompt
             history: Prior conversation turns for multi-turn context
+            context_dict: Integer-keyed dict of document contents for citation prompt
+                          construction. When provided and documents are available,
+                          uses construct_citation_prompt instead of the XML prompt.
 
         Returns:
             List of messages ready to send to the model.
@@ -108,15 +131,35 @@ However, if the question is general and you can provide a helpful answer without
         user_content = self._build_user_content(
             user_prompt=user_prompt,
             context=context,
+            context_dict=context_dict,
         )
         messages.append(Message(role="user", content=user_content))
 
         return messages
 
+    def _build_citation_user_content(
+        self,
+        user_prompt: str,
+        context_dict: dict[int, str],
+    ) -> str:
+        """Build a citation-aware user message from reranked, numbered sources.
+
+        Each document is indexed to match source_index_map so the attribution
+        pipeline can parse <cite:[N]> tags from the LLM response.
+        """
+        sources_str = "\n".join(
+            f"[{idx}]: {content}" for idx, content in sorted(context_dict.items())
+        )
+        return self.CITATION_USER_INSTRUCTIONS.format(
+            sources=sources_str,
+            user_prompt=user_prompt,
+        )
+
     def _build_user_content(
         self,
         user_prompt: str,
         context: AggregatedContext | None,
+        context_dict: dict[int, str] | None = None,
     ) -> str:
         """Build the user message content with instructions, context, and question.
 
@@ -142,7 +185,14 @@ However, if the question is general and you can provide a helpful answer without
             parts.append(f"\n---\nUSER QUESTION:\n{user_prompt}\n---")
             return "\n".join(parts)
 
-        # SCENARIO 3: Documents available - use document-grounded instructions
+        # SCENARIO 3: Documents available
+        if context_dict is not None:
+            # Use native citation-aware prompt built from reranked context_dict.
+            # Each document is numbered to match source_index_map, allowing the
+            # attribution pipeline to parse <cite:[N]> tags from the response.
+            return self._build_citation_user_content(user_prompt, context_dict)
+
+        # Fallback: existing XML document-grounded prompt
         parts.append(self.DEFAULT_USER_INSTRUCTIONS)
         parts.append("\n<documents>")
         parts.append(self._format_context(context))

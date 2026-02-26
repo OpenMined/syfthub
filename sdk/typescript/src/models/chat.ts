@@ -111,6 +111,8 @@ export interface ChatResponse {
   metadata: ChatMetadata;
   /** Token usage if available */
   usage?: TokenUsage;
+  /** Normalized contribution scores per source (owner/slug to fraction 0-1) */
+  profitShare?: Record<string, number>;
 }
 
 /**
@@ -245,6 +247,14 @@ export interface DoneEvent {
   metadata: ChatMetadata;
   /** Token usage if available (only from non-streaming mode) */
   usage?: TokenUsage;
+  /** Normalized contribution scores per source (owner/slug to fraction 0-1) */
+  profitShare?: Record<string, number>;
+  /**
+   * Clean response text with attribution markers stripped.
+   * Present when attribution ran (data sources were used). Frontends should
+   * replace the streamed content with this field to remove raw <cite:[N]> tags.
+   */
+  response?: string;
 }
 
 /**

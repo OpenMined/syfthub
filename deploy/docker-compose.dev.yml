@@ -42,6 +42,9 @@ services:
       - ../components/backend/pyproject.toml:/app/pyproject.toml:cached
       # Database volume
       - ../components/backend/data:/app/data
+      # Named volume for RSA keys so the syfthub user (uid 1000) has write access
+      # (bind-mounted parent dirs are created by Docker as root, blocking auto-generation)
+      - rsa_keys_data:/app/data/rsa_keys
     environment:
       - ENVIRONMENT=development
       - DATABASE_URL=postgresql://syfthub:syfthub_dev_password@db:5432/syfthub_dev
@@ -60,6 +63,10 @@ services:
       # Meilisearch configuration (optional - semantic search disabled if not set)
       - MEILI_URL=http://meilisearch:7700
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-dev-master-key}
+      # Redis configuration for peer token storage
+      - REDIS_URL=redis://redis:6379/0
+      # Auto-generate RSA keys for satellite token signing (dev only)
+      - AUTO_GENERATE_RSA_KEYS=true
     networks:
       - syfthub-network
     depends_on:
@@ -68,6 +75,8 @@ services:
       meilisearch:
         condition: service_healthy
       nats:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -86,20 +95,20 @@ services:
     expose:
       - "3000"
     volumes:
-      # Mount source code for hot reload
-      - ../components/frontend/src:/app/src:cached
-      - ../components/frontend/public:/app/public:cached
-      - ../components/frontend/package.json:/app/package.json:cached
-      - ../components/frontend/package-lock.json:/app/package-lock.json:cached
-      - ../components/frontend/vite.config.ts:/app/vite.config.ts:cached
-      - ../components/frontend/tsconfig.json:/app/tsconfig.json:cached
-      - ../components/frontend/tailwind.config.js:/app/tailwind.config.js:cached
-      - ../components/frontend/index.html:/app/index.html:cached
-      - ../components/frontend/_config.ts:/app/_config.ts:cached
-      # Mount SDK for hot reload
-      - ../sdk/typescript:/sdk/typescript:cached
-      # Exclude node_modules to avoid conflicts
-      - /app/node_modules
+      # Mount source code for hot reload (targets match Dockerfile.dev WORKDIR: /app/components/frontend)
+      - ../components/frontend/src:/app/components/frontend/src:cached
+      - ../components/frontend/public:/app/components/frontend/public:cached
+      - ../components/frontend/package.json:/app/components/frontend/package.json:cached
+      - ../components/frontend/package-lock.json:/app/components/frontend/package-lock.json:cached
+      - ../components/frontend/vite.config.ts:/app/components/frontend/vite.config.ts:cached
+      - ../components/frontend/tsconfig.json:/app/components/frontend/tsconfig.json:cached
+      - ../components/frontend/tailwind.config.js:/app/components/frontend/tailwind.config.js:cached
+      - ../components/frontend/index.html:/app/components/frontend/index.html:cached
+      - ../components/frontend/_config.ts:/app/components/frontend/_config.ts:cached
+      # Mount SDK (path matches npm file: resolution: /app/components/frontend/../../sdk/typescript)
+      - ../sdk/typescript:/app/sdk/typescript:cached
+      # Exclude node_modules to avoid conflicts with container-installed packages
+      - /app/components/frontend/node_modules
     environment:
       - NODE_ENV=development
       # Empty - API calls use relative paths (same origin via proxy)
@@ -177,6 +186,7 @@ services:
     build:
       context: ../components/aggregator
       dockerfile: Dockerfile
+      target: development
     container_name: syfthub-aggregator-dev
     # Internal only - accessed via proxy
     expose:
@@ -184,13 +194,18 @@ services:
     volumes:
       # Mount source code for hot reload
       - ../components/aggregator/src:/app/src:cached
+      - ../components/aggregator/pyproject.toml:/app/pyproject.toml:cached
     environment:
       - AGGREGATOR_DEBUG=true
       - AGGREGATOR_SYFTHUB_URL=http://backend:8000
       - AGGREGATOR_CORS_ORIGINS=["http://localhost:8080"]
+      - AGGREGATOR_LOG_REQUEST_HEADERS=true
+      - AGGREGATOR_LOG_REQUEST_BODY=true
       # NATS configuration for P2P tunneling
       - AGGREGATOR_NATS_URL=nats://nats:4222
       - AGGREGATOR_NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN:-dev-nats-token}
+      # Increase tunnel timeout for RAG-augmented prompts (default 30s is too short for local LLMs)
+      - AGGREGATOR_NATS_TUNNEL_TIMEOUT=120
     # Enable host.docker.internal on Linux/WSL2 (required for connecting to host services)
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -289,3 +304,5 @@ volumes:
     name: syfthub_nats_data_dev
   meili_data:
     name: syfthub_meili_data_dev
+  rsa_keys_data:
+    name: syfthub_rsa_keys_data_dev
