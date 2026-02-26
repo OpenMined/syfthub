@@ -21,6 +21,7 @@ import ArrowUp from 'lucide-react/dist/esm/icons/arrow-up';
 import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
 import X from 'lucide-react/dist/esm/icons/x';
 
+import { OnboardingCallout } from '@/components/onboarding';
 import {
   PromptInput,
   PromptInputActions,
@@ -266,76 +267,82 @@ export function SearchInput({
       </label>
 
       {/* Textarea with mention popovers */}
-      <div className='relative'>
-        <PromptInputTextarea
-          id='search-input-textarea'
-          onSelect={handleSelect}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          className='text-base'
-          role={enableMentions ? 'combobox' : undefined}
-          aria-autocomplete={enableMentions ? 'list' : undefined}
-          aria-expanded={
-            enableMentions && (mention.showOwnerPopover || mention.showEndpointPopover)
-          }
-          aria-haspopup={enableMentions ? 'listbox' : undefined}
-          aria-controls={
-            enableMentions && mention.showOwnerPopover
-              ? 'owner-mention-popover'
-              : enableMentions && mention.showEndpointPopover
-                ? 'endpoint-mention-popover'
-                : undefined
-          }
-          aria-activedescendant={
-            enableMentions &&
-            mention.showOwnerPopover &&
-            mention.filteredOwners[mention.highlightedIndex]
-              ? `owner-option-${mention.filteredOwners[mention.highlightedIndex]?.username}`
-              : enableMentions &&
-                  mention.showEndpointPopover &&
-                  mention.filteredEndpoints[mention.highlightedIndex]
-                ? `endpoint-option-${mention.filteredEndpoints[mention.highlightedIndex]?.id}`
-                : undefined
-          }
-        />
+      <OnboardingCallout step='query-input' position='top'>
+        <div className='relative'>
+          <PromptInputTextarea
+            id='search-input-textarea'
+            onSelect={handleSelect}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
+            className='text-base'
+            role={enableMentions ? 'combobox' : undefined}
+            aria-autocomplete={enableMentions ? 'list' : undefined}
+            aria-expanded={
+              enableMentions && (mention.showOwnerPopover || mention.showEndpointPopover)
+            }
+            aria-haspopup={enableMentions ? 'listbox' : undefined}
+            aria-controls={
+              enableMentions && mention.showOwnerPopover
+                ? 'owner-mention-popover'
+                : enableMentions && mention.showEndpointPopover
+                  ? 'endpoint-mention-popover'
+                  : undefined
+            }
+            aria-activedescendant={
+              enableMentions &&
+              mention.showOwnerPopover &&
+              mention.filteredOwners[mention.highlightedIndex]
+                ? `owner-option-${mention.filteredOwners[mention.highlightedIndex]?.username}`
+                : enableMentions &&
+                    mention.showEndpointPopover &&
+                    mention.filteredEndpoints[mention.highlightedIndex]
+                  ? `endpoint-option-${mention.filteredEndpoints[mention.highlightedIndex]?.id}`
+                  : undefined
+            }
+          />
 
-        {/* Mention popovers */}
-        {enableMentions && (
-          <>
-            <OwnerPopover
-              ref={popoverReference}
-              isOpen={mention.showOwnerPopover}
-              owners={mention.filteredOwners}
-              highlightedIndex={mention.highlightedIndex}
-              onSelect={handleOwnerSelect}
-              className='bottom-full left-0 mb-2'
-            />
-            <EndpointPopover
-              ref={popoverReference}
-              isOpen={mention.showEndpointPopover}
-              endpoints={mention.filteredEndpoints}
-              highlightedIndex={mention.highlightedIndex}
-              onSelect={handleEndpointSelect}
-              className='bottom-full left-0 mb-2'
-            />
-          </>
-        )}
-      </div>
+          {/* Mention popovers */}
+          {enableMentions && (
+            <>
+              <OwnerPopover
+                ref={popoverReference}
+                isOpen={mention.showOwnerPopover}
+                owners={mention.filteredOwners}
+                highlightedIndex={mention.highlightedIndex}
+                onSelect={handleOwnerSelect}
+                className='bottom-full left-0 mb-2'
+              />
+              <EndpointPopover
+                ref={popoverReference}
+                isOpen={mention.showEndpointPopover}
+                endpoints={mention.filteredEndpoints}
+                highlightedIndex={mention.highlightedIndex}
+                onSelect={handleEndpointSelect}
+                className='bottom-full left-0 mb-2'
+              />
+            </>
+          )}
+        </div>
+      </OnboardingCallout>
 
       {/* Bottom Toolbar */}
       <PromptInputActions className='mt-1 justify-between px-1 pb-1'>
         {/* Left: Context pill */}
-        <ContextPill onClick={handleContextClick} disabled={disabled} />
+        <OnboardingCallout step='add-sources' position='top'>
+          <ContextPill onClick={handleContextClick} disabled={disabled} />
+        </OnboardingCallout>
 
         {/* Right: Model selector + Submit button */}
         <div className='flex items-center gap-1'>
           {onModelSelect && (
-            <ModelSelector
-              selectedModel={selectedModel}
-              onModelSelect={onModelSelect}
-              models={models}
-              isLoading={isLoadingModels}
-            />
+            <OnboardingCallout step='model-selector' position='top'>
+              <ModelSelector
+                selectedModel={selectedModel}
+                onModelSelect={onModelSelect}
+                models={models}
+                isLoading={isLoadingModels}
+              />
+            </OnboardingCallout>
           )}
           <Button
             type='button'
