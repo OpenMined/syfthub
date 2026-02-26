@@ -88,6 +88,8 @@ responses using model endpoints registered in SyftHub.
     app.add_middleware(
         RequestLoggingMiddleware,
         exclude_paths={"/health", "/ready", "/metrics", "/docs", "/openapi.json", "/redoc"},
+        log_request_headers=settings.log_request_headers,
+        log_request_body=settings.log_request_body,
     )
     app.add_middleware(CorrelationIDMiddleware)
 

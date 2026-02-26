@@ -199,6 +199,8 @@ services:
       - AGGREGATOR_DEBUG=true
       - AGGREGATOR_SYFTHUB_URL=http://backend:8000
       - AGGREGATOR_CORS_ORIGINS=["http://localhost:8080"]
+      - AGGREGATOR_LOG_REQUEST_HEADERS=true
+      - AGGREGATOR_LOG_REQUEST_BODY=true
       # NATS configuration for P2P tunneling
       - AGGREGATOR_NATS_URL=nats://nats:4222
       - AGGREGATOR_NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN:-dev-nats-token}
