@@ -10,7 +10,6 @@ import Lock from 'lucide-react/dist/esm/icons/lock';
 import Mail from 'lucide-react/dist/esm/icons/mail';
 import User from 'lucide-react/dist/esm/icons/user';
 import { Controller, useForm } from 'react-hook-form';
-import { useNavigate } from 'react-router-dom';
 
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -20,7 +19,6 @@ import { useAuth } from '@/context/auth-context';
 import { registerSchema } from '@/lib/schemas';
 import { AccountingAccountExistsError, isGoogleOAuthEnabled } from '@/lib/sdk-client';
 import { getPasswordStrength } from '@/lib/validation';
-import { useOnboardingStore } from '@/stores/onboarding-store';
 
 import { AuthErrorAlert, AuthLoadingOverlay } from './auth-utils';
 
@@ -46,7 +44,6 @@ export function RegisterModal({
   onSwitchToLogin
 }: Readonly<RegisterModalProperties>) {
   const { register: authRegister, loginWithGoogle, isLoading, error, clearError } = useAuth();
-  const navigate = useNavigate();
   const [requiresAccountingPassword, setRequiresAccountingPassword] = useState(false);
 
   const {
@@ -80,8 +77,6 @@ export function RegisterModal({
         accountingPassword: data.accountingPassword || undefined
       });
       onClose();
-      useOnboardingStore.getState().startOnboarding();
-      navigate('/chat');
     } catch (error_) {
       if (error_ instanceof AccountingAccountExistsError) {
         setRequiresAccountingPassword(true);
@@ -273,8 +268,6 @@ export function RegisterModal({
                   if (credentialResponse.credential) {
                     void loginWithGoogle(credentialResponse.credential).then(() => {
                       onClose();
-                      useOnboardingStore.getState().startOnboarding();
-                      navigate('/chat');
                     });
                   }
                 }}
