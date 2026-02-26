@@ -12,6 +12,7 @@ import type { SearchableChatSource } from '@/lib/search-service';
 import type { ChatSource } from '@/lib/types';
 import type { SourcesData } from './sources-section';
 
+import { OnboardingWelcomeBanner } from '@/components/onboarding';
 import { ChatContainerContent, ChatContainerRoot } from '@/components/prompt-kit/chat-container';
 import { Message, MessageContent } from '@/components/prompt-kit/message';
 import { ScrollButton } from '@/components/prompt-kit/scroll-button';
@@ -78,16 +79,18 @@ export function ChatView({
   const showSourcesStep = useOnboardingStore((s) => s.showSourcesStep);
   const showQueryInputStep = useOnboardingStore((s) => s.showQueryInputStep);
 
-  // Start onboarding when user arrives at /chat, but only if they haven't
-  // completed it and no step is already active (avoids resetting mid-tour).
+  const contextStore = useContextSelectionStore();
+  const selectedSources = useContextSelectionStore((s) => s.selectedSources);
+
+  // Welcome banner: shown on first arrival at /chat for users who haven't
+  // completed onboarding and aren't already mid-tour.
+  const [showWelcomeBanner, setShowWelcomeBanner] = useState(false);
   useEffect(() => {
     const { hasCompletedOnboarding, currentStep } = useOnboardingStore.getState();
     if (!hasCompletedOnboarding && currentStep === null) {
-      useOnboardingStore.getState().startOnboarding();
+      setShowWelcomeBanner(true);
     }
   }, []);
-  const contextStore = useContextSelectionStore();
-  const selectedSources = useContextSelectionStore((s) => s.selectedSources);
 
   // Source modal state
   const [isSourceModalOpen, setIsSourceModalOpen] = useState(false);
@@ -483,6 +486,14 @@ export function ChatView({
         availableSources={sources}
         selectedSourceIds={new Set(contextStore.getSourcesArray().map((s) => s.id))}
         onConfirm={handleSourceModalConfirm}
+      />
+
+      {/* Onboarding welcome banner */}
+      <OnboardingWelcomeBanner
+        isVisible={showWelcomeBanner}
+        onDismiss={() => {
+          setShowWelcomeBanner(false);
+        }}
       />
     </div>
   );
