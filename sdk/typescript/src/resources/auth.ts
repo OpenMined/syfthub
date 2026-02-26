@@ -261,12 +261,16 @@ export class AuthResource {
       })
     );
 
-    // Collect successful results
-    for (const result of results) {
+    // Collect successful results; warn on failures so misconfigured IDPs are visible
+    for (const [i, result] of results.entries()) {
       if (result.status === 'fulfilled') {
         tokenMap.set(result.value.audience, result.value.token);
+      } else {
+        console.warn(
+          `[SyftHub] Failed to fetch satellite token for "${uniqueAudiences[i]}":`,
+          result.reason
+        );
       }
-      // Failed tokens are silently skipped - the aggregator will handle missing tokens
     }
 
     return tokenMap;
