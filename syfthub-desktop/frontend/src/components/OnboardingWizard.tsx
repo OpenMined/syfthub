@@ -1,8 +1,11 @@
 import { useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 import { useSettings } from '@/contexts/SettingsContext';
 import { BrowseForFolder } from '../../wailsjs/go/main/App';
 
@@ -94,12 +97,21 @@ export function OnboardingWizard() {
           </div>
         </div>
 
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={step}
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            transition={{ duration: 0.2, ease: 'easeInOut' }}
+          >
+
         {/* Welcome Step */}
         {step === 'welcome' && (
           <Card className="bg-card/50 border-border">
             <CardHeader className="text-center">
-              <div className="mx-auto w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-chart-4 flex items-center justify-center mb-4">
-                <span className="text-3xl font-bold text-primary-foreground">S</span>
+              <div className="mx-auto w-16 h-16 flex items-center justify-center mb-4">
+                <OpenMinedIcon className="w-14 h-14" />
               </div>
               <CardTitle className="text-2xl text-foreground">Welcome to SyftHub Desktop</CardTitle>
               <CardDescription className="text-muted-foreground mt-2">
@@ -258,19 +270,7 @@ export function OnboardingWizard() {
           <Card className="bg-card/50 border-border">
             <CardHeader className="text-center">
               <div className="mx-auto w-16 h-16 rounded-full bg-chart-2/20 flex items-center justify-center mb-4">
-                <svg
-                  className="w-8 h-8 text-chart-2"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M5 13l4 4L19 7"
-                  />
-                </svg>
+                <Check className="w-8 h-8 text-chart-2" strokeWidth={2} />
               </div>
               <CardTitle className="text-2xl text-foreground">You're All Set!</CardTitle>
               <CardDescription className="text-muted-foreground mt-2">
@@ -308,6 +308,9 @@ export function OnboardingWizard() {
             </CardContent>
           </Card>
         )}
+
+          </motion.div>
+        </AnimatePresence>
       </div>
     </div>
   );

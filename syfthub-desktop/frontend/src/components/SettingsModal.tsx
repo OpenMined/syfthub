@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Globe, KeyRound, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -92,10 +93,11 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="space-y-5 py-4">
           {/* SyftHub URL */}
           <div className="space-y-2">
-            <Label htmlFor="settings-syfthubUrl" className="text-foreground">
+            <Label htmlFor="settings-syfthubUrl" className="flex items-center gap-1.5 text-foreground">
+              <Globe className="w-4 h-4 text-muted-foreground" />
               SyftHub URL
             </Label>
             <Input
@@ -113,7 +115,8 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
 
           {/* API Key */}
           <div className="space-y-2">
-            <Label htmlFor="settings-apiKey" className="text-foreground">
+            <Label htmlFor="settings-apiKey" className="flex items-center gap-1.5 text-foreground">
+              <KeyRound className="w-4 h-4 text-muted-foreground" />
               API Key <span className="text-muted-foreground text-xs">(optional)</span>
             </Label>
             <Input
@@ -127,7 +130,8 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
 
           {/* Endpoints Path */}
           <div className="space-y-2">
-            <Label htmlFor="settings-endpointsPath" className="text-foreground">
+            <Label htmlFor="settings-endpointsPath" className="flex items-center gap-1.5 text-foreground">
+              <FolderOpen className="w-4 h-4 text-muted-foreground" />
               Endpoints Directory
             </Label>
             <div className="flex gap-2">
