@@ -41,7 +41,7 @@ export function AppShell({ sidebar, children }: AppShellProps) {
       {/* Main content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Sidebar */}
-        <aside className="w-64 flex-shrink-0 border-r border-border/50 bg-card/30">
+        <aside className="w-64 flex-shrink-0 border-r border-sidebar-border bg-sidebar">
           {sidebar}
         </aside>
 
