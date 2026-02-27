@@ -486,8 +486,10 @@ def test_update_profile_duplicate_username(
     headers = {"Authorization": f"Bearer {regular_user_token}"}
     update_data = {"username": "adminuser"}  # This username exists
     response = client.put("/api/v1/users/me", json=update_data, headers=headers)
-    assert response.status_code == 400
-    assert "username" in response.json()["detail"].lower()
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["code"] == "CONFLICT"
+    assert detail["field"] == "username"
 
 
 def test_update_profile_duplicate_email(
@@ -498,8 +500,10 @@ def test_update_profile_duplicate_email(
     headers = {"Authorization": f"Bearer {regular_user_token}"}
     update_data = {"email": "admin@example.com"}  # This email exists
     response = client.put("/api/v1/users/me", json=update_data, headers=headers)
-    assert response.status_code == 400
-    assert "email" in response.json()["detail"].lower()
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["code"] == "CONFLICT"
+    assert detail["field"] == "email"
 
 
 def test_update_profile_with_own_username(
