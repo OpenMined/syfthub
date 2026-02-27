@@ -1,7 +1,11 @@
 export namespace main {
 
 	export class ChatEndpointRef {
+	    url: string;
 	    slug: string;
+	    name: string;
+	    tenant_name?: string;
+	    owner_username?: string;
 
 	    static createFrom(source: any = {}) {
 	        return new ChatEndpointRef(source);
@@ -9,7 +13,11 @@ export namespace main {
 
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.url = source["url"];
 	        this.slug = source["slug"];
+	        this.name = source["name"];
+	        this.tenant_name = source["tenant_name"];
+	        this.owner_username = source["owner_username"];
 	    }
 	}
 	export class ChatMessage {
@@ -30,7 +38,10 @@ export namespace main {
 	    prompt: string;
 	    model: ChatEndpointRef;
 	    dataSources: ChatEndpointRef[];
-	    history: ChatMessage[];
+	    messages?: ChatMessage[];
+	    topK?: number;
+	    maxTokens?: number;
+	    temperature?: number;
 
 	    static createFrom(source: any = {}) {
 	        return new ChatRequest(source);
@@ -41,7 +52,10 @@ export namespace main {
 	        this.prompt = source["prompt"];
 	        this.model = this.convertValues(source["model"], ChatEndpointRef);
 	        this.dataSources = this.convertValues(source["dataSources"], ChatEndpointRef);
-	        this.history = this.convertValues(source["history"], ChatMessage);
+	        this.messages = this.convertValues(source["messages"], ChatMessage);
+	        this.topK = source["topK"];
+	        this.maxTokens = source["maxTokens"];
+	        this.temperature = source["temperature"];
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -70,6 +84,7 @@ export namespace main {
 	    watchEnabled: boolean;
 	    useEmbeddedPython: boolean;
 	    pythonPath?: string;
+	    aggregatorUrl?: string;
 
 	    static createFrom(source: any = {}) {
 	        return new ConfigInfo(source);
@@ -84,6 +99,7 @@ export namespace main {
 	        this.watchEnabled = source["watchEnabled"];
 	        this.useEmbeddedPython = source["useEmbeddedPython"];
 	        this.pythonPath = source["pythonPath"];
+	        this.aggregatorUrl = source["aggregatorUrl"];
 	    }
 	}
 	export class CreateEndpointRequest {
@@ -503,6 +519,7 @@ export namespace main {
 	    apiKey?: string;
 	    endpointsPath: string;
 	    isConfigured: boolean;
+	    aggregatorUrl?: string;
 
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -514,6 +531,7 @@ export namespace main {
 	        this.apiKey = source["apiKey"];
 	        this.endpointsPath = source["endpointsPath"];
 	        this.isConfigured = source["isConfigured"];
+	        this.aggregatorUrl = source["aggregatorUrl"];
 	    }
 	}
 	export class StatusInfo {

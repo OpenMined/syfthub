@@ -1,4 +1,4 @@
-import AtSign from 'lucide-react/dist/esm/icons/at-sign';
+import { AtSign } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';

@@ -1,16 +1,7 @@
 import { memo, useCallback, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
-import Check from 'lucide-react/dist/esm/icons/check';
-import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
-import ChevronUp from 'lucide-react/dist/esm/icons/chevron-up';
-import Clock from 'lucide-react/dist/esm/icons/clock';
-import FileText from 'lucide-react/dist/esm/icons/file-text';
-import Pencil from 'lucide-react/dist/esm/icons/pencil';
-import Search from 'lucide-react/dist/esm/icons/search';
-import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
-import X from 'lucide-react/dist/esm/icons/x';
+import { AlertCircle, Check, ChevronDown, ChevronUp, Clock, FileText, Pencil, Search, Sparkles, X } from 'lucide-react';
 
 import { Loader } from '@/components/prompt-kit/loader';
 

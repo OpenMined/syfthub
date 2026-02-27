@@ -1,11 +1,7 @@
 import { useCallback, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import ArrowUp from 'lucide-react/dist/esm/icons/arrow-up';
-import Bot from 'lucide-react/dist/esm/icons/bot';
-import MessageSquarePlus from 'lucide-react/dist/esm/icons/message-square-plus';
-import Square from 'lucide-react/dist/esm/icons/square';
-import WifiOff from 'lucide-react/dist/esm/icons/wifi-off';
+import { ArrowUp, Bot, MessageSquarePlus, Square, WifiOff } from 'lucide-react';
 
 import { ChatContainerContent, ChatContainerRoot } from '@/components/prompt-kit/chat-container';
 import { Loader } from '@/components/prompt-kit/loader';
@@ -119,13 +115,7 @@ export function ChatView() {
     chatSelectedModel,
     chatSelectedSources,
     setChatSelectedModel,
-  } = useAppStore((s) => ({
-    endpoints: s.endpoints,
-    aggregatorURL: s.aggregatorURL,
-    chatSelectedModel: s.chatSelectedModel,
-    chatSelectedSources: s.chatSelectedSources,
-    setChatSelectedModel: s.setChatSelectedModel,
-  }));
+  } = useAppStore();
 
   const [inputValue, setInputValue] = useState('');
 

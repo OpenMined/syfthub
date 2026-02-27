@@ -1,9 +1,7 @@
 import { memo, useCallback, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
-import ChevronUp from 'lucide-react/dist/esm/icons/chevron-up';
-import FileText from 'lucide-react/dist/esm/icons/file-text';
+import { ChevronDown, ChevronUp, FileText } from 'lucide-react';
 
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 

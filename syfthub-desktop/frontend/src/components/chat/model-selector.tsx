@@ -1,9 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 
-import Brain from 'lucide-react/dist/esm/icons/brain';
-import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
-import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
-import Search from 'lucide-react/dist/esm/icons/search';
+import { Brain, ChevronDown, Loader2, Search } from 'lucide-react';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
