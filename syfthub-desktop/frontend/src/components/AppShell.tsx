@@ -3,6 +3,7 @@ import { useAppStore } from '../stores/appStore';
 import { CreateEndpointDialog } from './CreateEndpointDialog';
 import { DeleteEndpointDialog } from './DeleteEndpointDialog';
 import { ChatView } from './ChatView';
+import { WindowMinimise, WindowToggleMaximise, Quit } from '../../wailsjs/runtime/runtime';
 
 interface AppShellProps {
   sidebar: ReactNode;
@@ -26,29 +27,54 @@ export function AppShell({ sidebar, children }: AppShellProps) {
 
   return (
     <div className="h-screen flex flex-col bg-background text-foreground">
-      {/* Unified title bar with centered navigation tabs */}
-      <div className="wails-drag h-7 flex-shrink-0 border-b border-border/30 bg-card/30 flex items-center justify-center">
-        <div className="flex items-center gap-1">
+      {/* Custom title bar */}
+      <div className="wails-drag h-9 flex-shrink-0 border-b border-border/30 bg-card/30 flex items-center px-3">
+        {/* Left spacer for centering */}
+        <div className="w-32" />
+
+        {/* Center: Navigation tabs */}
+        <div className="flex-1 flex items-center justify-center">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setMainView('endpoints')}
+              className={`h-5 px-3 text-xs rounded transition-colors duration-150 ${
+                mainView === 'endpoints'
+                  ? 'bg-secondary text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Endpoints
+            </button>
+            <button
+              onClick={() => setMainView('chat')}
+              className={`h-5 px-3 text-xs rounded transition-colors duration-150 ${
+                mainView === 'chat'
+                  ? 'bg-secondary text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Chat
+            </button>
+          </div>
+        </div>
+
+        {/* Right: Window controls */}
+        <div className="flex items-center gap-1.5 w-32 justify-end">
           <button
-            onClick={() => setMainView('endpoints')}
-            className={`h-5 px-3 text-xs rounded transition-colors duration-150 ${
-              mainView === 'endpoints'
-                ? 'bg-secondary text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Endpoints
-          </button>
+            onClick={WindowMinimise}
+            className="w-3 h-3 rounded-full bg-[#f5bf4f] hover:brightness-110 transition-all"
+            title="Minimize"
+          />
           <button
-            onClick={() => setMainView('chat')}
-            className={`h-5 px-3 text-xs rounded transition-colors duration-150 ${
-              mainView === 'chat'
-                ? 'bg-secondary text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Chat
-          </button>
+            onClick={WindowToggleMaximise}
+            className="w-3 h-3 rounded-full bg-[#5bbf45] hover:brightness-110 transition-all"
+            title="Maximize"
+          />
+          <button
+            onClick={Quit}
+            className="w-3 h-3 rounded-full bg-[#ed6a5e] hover:brightness-110 transition-all"
+            title="Close"
+          />
         </div>
       </div>
 

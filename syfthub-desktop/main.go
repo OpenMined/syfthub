@@ -29,11 +29,14 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:     "SyftHub Desktop",
-		Width:     1280,
-		Height:    800,
-		MinWidth:  800,
-		MinHeight: 600,
+		Title:           "SyftHub Desktop",
+		Width:           1280,
+		Height:          800,
+		MinWidth:        800,
+		MinHeight:       600,
+		Frameless:       true,
+		CSSDragProperty: "--wails-draggable",
+		CSSDragValue:    "drag",
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
