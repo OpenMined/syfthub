@@ -105,6 +105,8 @@ check:  ## Run code quality checks (mirrors pre-commit hooks)
 	@echo '  (mirrors pre-commit hooks — pass here, pass on commit)'
 	@echo '═══════════════════════════════════════════════════════════════'
 	@echo ''
+	@echo 'Executing make setup'
+	@make setup
 	@echo 'General checks (whitespace, yaml, toml, merge conflicts)...'
 	@. .venv/bin/activate && pre-commit run trailing-whitespace --all-files
 	@. .venv/bin/activate && pre-commit run end-of-file-fixer --all-files
