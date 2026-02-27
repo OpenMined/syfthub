@@ -29,7 +29,6 @@ def upgrade() -> None:
     - VARCHAR(500): sufficient for a 32-byte key in base64url (44 chars) plus headroom
     - No index needed: lookups are by username (already indexed), not by key value
     """
-    op.execute("SET LOCAL lock_timeout = '3s'")
     op.add_column(
         "users",
         sa.Column("encryption_public_key", sa.String(500), nullable=True),

@@ -322,7 +322,7 @@ async def test_send_and_receive_decrypts_response():
     }
 
     # Patch _build_tunnel_request to return our controlled correlation_id + ephemeral_priv
-    def fake_build(slug, endpoint_type, _payload, peer_channel, _space_public_key, **_kw):
+    def fake_build(slug, endpoint_type, peer_channel, **_kw):
         msg = {
             "protocol": "syfthub-tunnel/v1",
             "type": "endpoint_request",
@@ -397,7 +397,7 @@ async def test_send_and_receive_raises_on_missing_encrypted_payload():
         correlation_id=correlation_id,
     )
 
-    def fake_build(_slug, _ep_type, _payload, _peer_ch, _pub_key, **_kw):
+    def fake_build(**_kw):
         return correlation_id, {}, ephemeral_priv
 
     transport._build_tunnel_request = fake_build
