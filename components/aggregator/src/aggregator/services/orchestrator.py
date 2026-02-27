@@ -195,7 +195,7 @@ class Orchestrator:
         context_dict: dict[int, str] = {}
         source_index_map: dict[int, str] = {}
 
-        for i, node in enumerate(reranked_nodes):
+        for i, node in enumerate(reranked_nodes, start=1):
             content = node["document"]["content"]
             score = node.get("score", 0.0)
             source = node.get("person", f"source_{i}")
