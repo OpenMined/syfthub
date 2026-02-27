@@ -288,6 +288,17 @@ func (api *SyftAPI) Run(ctx context.Context) error {
 	}
 	api.transport.SetRequestHandler(api.handleRequest)
 
+	// Register X25519 encryption public key if the transport supports it (NATS tunnel mode).
+	// The aggregator fetches this key to encrypt requests before sending them.
+	if ekp, ok := api.transport.(interface{ PublicKeyB64() string }); ok {
+		pubKeyB64 := ekp.PublicKeyB64()
+		api.logger.Info("registering X25519 encryption public key with hub")
+		if err := api.authClient.RegisterEncryptionPublicKey(ctx, pubKeyB64); err != nil {
+			return fmt.Errorf("failed to register encryption public key: %w", err)
+		}
+		api.logger.Info("registered X25519 encryption public key")
+	}
+
 	// Start components concurrently
 	g, gCtx := errgroup.WithContext(ctx)
 

@@ -8,8 +8,11 @@ Subject namespace:
 - `syfthub.spaces.{username}` — space listens here for incoming requests
 - `syfthub.peer.{peer_channel}` — aggregator subscribes here for replies
 
-Message format: syfthub-tunnel/v1 protocol (see syfthub-api schemas)
+Message format: syfthub-tunnel/v1 protocol with mandatory E2E encryption.
+All payloads are encrypted using X25519 ECDH + AES-256-GCM (see aggregator/crypto.py).
 """
+
+from __future__ import annotations
 
 import asyncio
 import json
@@ -18,9 +21,12 @@ import time
 import uuid
 from typing import Any
 
+import httpx
 import nats
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from nats.aio.client import Client as NATSClient
 
+from aggregator import crypto
 from aggregator.core.config import get_settings
 from aggregator.schemas.internal import GenerationResult, RetrievalResult
 from aggregator.schemas.responses import Document
@@ -29,6 +35,9 @@ logger = logging.getLogger(__name__)
 
 TUNNEL_PROTOCOL_VERSION = "syfthub-tunnel/v1"
 TUNNELING_PREFIX = "tunneling:"
+
+# Key cache TTL in seconds — refresh the cached public key after this interval
+_KEY_CACHE_TTL = 300.0
 
 
 def is_tunneling_url(url: str) -> bool:
@@ -53,21 +62,25 @@ class NATSTransport:
     """Transport for sending requests to tunneling spaces via NATS.
 
     This client connects to NATS and implements the syfthub-tunnel/v1
-    protocol for request/response communication with tunneling spaces.
+    protocol with mandatory E2E encryption for all request/response payloads.
     """
 
     def __init__(
         self,
         nats_url: str | None = None,
         nats_auth_token: str | None = None,
+        backend_url: str | None = None,
         default_timeout: float = 30.0,
     ):
         settings = get_settings()
         self._nats_url = nats_url or settings.nats_url
         self._nats_auth_token = nats_auth_token or settings.nats_auth_token
+        self._backend_url = (backend_url or settings.syfthub_url).rstrip("/")
         self._default_timeout = default_timeout
         self._nc: NATSClient | None = None
         self._lock = asyncio.Lock()
+        # Key cache: username -> (public_key_b64, fetched_at_timestamp)
+        self._key_cache: dict[str, tuple[str, float]] = {}
 
     async def _ensure_connected(self) -> NATSClient:
         """Ensure we have an active NATS connection."""
@@ -93,22 +106,106 @@ class NATSTransport:
             await self._nc.close()
             self._nc = None
 
+    async def _get_space_public_key(self, username: str) -> str:
+        """Fetch and cache the X25519 public key for a tunneling space.
+
+        Calls GET {backend_url}/api/v1/nats/encryption-key/{username}.
+        Result is cached for _KEY_CACHE_TTL seconds.
+
+        Args:
+            username: The tunneling space's username.
+
+        Returns:
+            Base64url-encoded X25519 public key.
+
+        Raises:
+            NATSTransportError: If the key cannot be retrieved or is not registered.
+        """
+        now = time.monotonic()
+        cached = self._key_cache.get(username)
+        if cached is not None:
+            key_b64, fetched_at = cached
+            if now - fetched_at < _KEY_CACHE_TTL:
+                return key_b64
+
+        url = f"{self._backend_url}/api/v1/nats/encryption-key/{username}"
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(url)
+        except httpx.RequestError as exc:
+            raise NATSTransportError(
+                f"Failed to fetch encryption key for {username}: {exc}",
+                code="ENCRYPTION_KEY_FETCH_FAILED",
+            ) from exc
+
+        if resp.status_code == 404:
+            raise NATSTransportError(
+                f"Space '{username}' not found or has not registered an encryption key",
+                code="ENCRYPTION_KEY_MISSING",
+            )
+        if resp.status_code != 200:
+            raise NATSTransportError(
+                f"Unexpected response fetching encryption key for {username}: HTTP {resp.status_code}",
+                code="ENCRYPTION_KEY_FETCH_FAILED",
+            )
+
+        data = resp.json()
+        raw_key = data.get("encryption_public_key")
+        if not raw_key:
+            raise NATSTransportError(
+                f"Space '{username}' has not registered an encryption key. "
+                "The space must call PUT /api/v1/nats/encryption-key on startup.",
+                code="ENCRYPTION_KEY_MISSING",
+            )
+
+        key_b64 = str(raw_key)
+        # Cache the key
+        self._key_cache[username] = (key_b64, now)
+        return key_b64
+
+    def _evict_key_cache(self, username: str) -> None:
+        """Evict a cached key (called after decryption failure to force re-fetch)."""
+        self._key_cache.pop(username, None)
+
     def _build_tunnel_request(
         self,
         slug: str,
         endpoint_type: str,
         payload: dict[str, Any],
         peer_channel: str,
+        space_public_key: str,
         timeout_ms: int = 30000,
         satellite_token: str | None = None,
-    ) -> tuple[str, dict[str, Any]]:
-        """Build a syfthub-tunnel/v1 request message.
+    ) -> tuple[str, dict[str, Any], X25519PrivateKey]:
+        """Build a syfthub-tunnel/v1 encrypted request message.
+
+        Generates a fresh ephemeral X25519 keypair, encrypts the payload,
+        and returns the request dict alongside the ephemeral private key
+        (needed to decrypt the response).
+
+        Args:
+            slug: Endpoint slug.
+            endpoint_type: "model" or "data_source".
+            payload: Plaintext request payload dict.
+            peer_channel: Reply channel identifier (no "syfthub.peer." prefix).
+            space_public_key: Base64url-encoded X25519 public key of the target space.
+            timeout_ms: Request timeout in milliseconds.
+            satellite_token: Optional RS256 satellite token for authentication.
 
         Returns:
-            Tuple of (correlation_id, message_dict)
+            Tuple of (correlation_id, message_dict, ephemeral_private_key).
+            The caller must retain the ephemeral_private_key to decrypt the response.
         """
         correlation_id = str(uuid.uuid4())
-        message = {
+        payload_json = json.dumps(payload)
+
+        encryption_info, ephemeral_priv = crypto.encrypt_tunnel_request(
+            payload_json=payload_json,
+            space_public_key_b64=space_public_key,
+            correlation_id=correlation_id,
+        )
+
+        message: dict[str, Any] = {
             "protocol": TUNNEL_PROTOCOL_VERSION,
             "type": "endpoint_request",
             "correlation_id": correlation_id,
@@ -117,12 +214,19 @@ class NATSTransport:
                 "slug": slug,
                 "type": endpoint_type,
             },
-            "payload": payload,
+            "payload": None,
             "timeout_ms": timeout_ms,
+            "encryption_info": {
+                "algorithm": encryption_info["algorithm"],
+                "ephemeral_public_key": encryption_info["ephemeral_public_key"],
+                "nonce": encryption_info["nonce"],
+            },
+            "encrypted_payload": encryption_info["encrypted_payload"],
         }
         if satellite_token:
             message["satellite_token"] = satellite_token
-        return correlation_id, message
+
+        return correlation_id, message, ephemeral_priv
 
     async def _send_and_receive(
         self,
@@ -134,68 +238,73 @@ class NATSTransport:
         timeout: float | None = None,
         satellite_token: str | None = None,
     ) -> dict[str, Any]:
-        """Send a tunnel request and wait for the response.
+        """Send an encrypted tunnel request and wait for the encrypted response.
+
+        Fetches the target space's public key (with cache), encrypts the request,
+        sends via NATS, waits for the response, and decrypts it.
 
         Args:
             target_username: Username of the tunneling space.
             peer_channel: Unique peer channel for receiving the reply.
             slug: Endpoint slug.
             endpoint_type: "model" or "data_source".
-            payload: Request payload matching HTTP request body.
+            payload: Plaintext request payload.
             timeout: Timeout in seconds (defaults to self._default_timeout).
             satellite_token: Optional satellite token for authenticated endpoints.
 
         Returns:
-            The parsed TunnelResponse dict.
+            The decrypted, parsed TunnelResponse dict (with plaintext payload).
 
         Raises:
-            NATSTransportError: On timeout, connection failure, or error response.
+            NATSTransportError: On timeout, connection failure, encryption error,
+                or error response.
         """
         timeout = timeout or self._default_timeout
         timeout_ms = int(timeout * 1000)
 
+        # Fetch the space's encryption public key (raises on missing key)
+        space_public_key = await self._get_space_public_key(target_username)
+
         nc = await self._ensure_connected()
 
-        # Build the request message
-        correlation_id, request_msg = self._build_tunnel_request(
+        # Build the encrypted request message; retain ephemeral_priv for response decryption
+        correlation_id, request_msg, ephemeral_priv = self._build_tunnel_request(
             slug=slug,
             endpoint_type=endpoint_type,
             payload=payload,
             peer_channel=peer_channel,
+            space_public_key=space_public_key,
             timeout_ms=timeout_ms,
             satellite_token=satellite_token,
         )
 
-        # Subscribe to reply channel before publishing
+        # Subscribe to reply channel BEFORE publishing (prevents race condition)
         reply_subject = f"syfthub.peer.{peer_channel}"
         response_future: asyncio.Future[dict[str, Any]] = asyncio.get_event_loop().create_future()
 
         async def message_handler(msg: Any) -> None:
             try:
                 data = json.loads(msg.data.decode())
-                # Match by correlation_id
                 if data.get("correlation_id") == correlation_id and not response_future.done():
                     response_future.set_result(data)
-            except Exception as e:
+            except Exception as exc:
                 if not response_future.done():
-                    response_future.set_exception(e)
+                    response_future.set_exception(exc)
 
         sub = await nc.subscribe(reply_subject, cb=message_handler)
 
         try:
-            # Publish request to the space's channel
             publish_subject = f"syfthub.spaces.{target_username}"
             await nc.publish(publish_subject, json.dumps(request_msg).encode())
             await nc.flush()
 
             logger.info(
-                f"Published tunnel request to {publish_subject} "
+                f"Published encrypted tunnel request to {publish_subject} "
                 f"(correlation_id={correlation_id}, slug={slug})"
             )
 
             # Wait for response with timeout
-            response = await asyncio.wait_for(response_future, timeout=timeout)
-            return response
+            raw_response = await asyncio.wait_for(response_future, timeout=timeout)
 
         except TimeoutError:
             raise NATSTransportError(
@@ -204,6 +313,38 @@ class NATSTransport:
             )
         finally:
             await sub.unsubscribe()
+
+        # Decrypt the response payload
+        enc_info = raw_response.get("encryption_info")
+        encrypted_payload_b64 = raw_response.get("encrypted_payload")
+
+        if not enc_info or not encrypted_payload_b64:
+            raise NATSTransportError(
+                f"Response from {target_username}/{slug} is missing encryption_info "
+                "or encrypted_payload. Space may be running an old SDK version.",
+                code="DECRYPTION_FAILED",
+            )
+
+        try:
+            decrypted_json = crypto.decrypt_tunnel_response(
+                encrypted_payload_b64=encrypted_payload_b64,
+                encryption_info=enc_info,
+                ephemeral_private_key=ephemeral_priv,
+                correlation_id=correlation_id,
+            )
+        except crypto.InvalidTag as exc:
+            # Evict cached key in case it was rotated; caller may retry once
+            self._evict_key_cache(target_username)
+            raise NATSTransportError(
+                f"Response decryption failed for {target_username}/{slug}: "
+                "GCM authentication tag mismatch. Possible key rotation — cached key evicted.",
+                code="DECRYPTION_FAILED",
+            ) from exc
+
+        # Replace encrypted fields with decrypted payload in the response dict
+        raw_response = dict(raw_response)
+        raw_response["payload"] = json.loads(decrypted_json)
+        return raw_response
 
     async def query_data_source(
         self,
@@ -290,30 +431,30 @@ class NATSTransport:
                 latency_ms=latency_ms,
             )
 
-        except NATSTransportError as e:
+        except NATSTransportError as exc:
             latency_ms = int((time.perf_counter() - start_time) * 1000)
             logger.warning(
-                f"Tunnel transport error for data source {endpoint_path}: {e}",
+                f"Tunnel transport error for data source {endpoint_path}: {exc}",
             )
-            status = "timeout" if e.code == "TIMEOUT" else "error"
+            status = "timeout" if exc.code == "TIMEOUT" else "error"
             return RetrievalResult(
                 endpoint_path=endpoint_path,
                 documents=[],
                 status=status,
-                error_message=str(e),
+                error_message=str(exc),
                 latency_ms=latency_ms,
             )
 
-        except Exception as e:
+        except Exception as exc:
             latency_ms = int((time.perf_counter() - start_time) * 1000)
             logger.exception(
-                f"Unexpected error querying tunnel data source {endpoint_path}: {e}",
+                f"Unexpected error querying tunnel data source {endpoint_path}: {exc}",
             )
             return RetrievalResult(
                 endpoint_path=endpoint_path,
                 documents=[],
                 status="error",
-                error_message=f"Unexpected error: {e}",
+                error_message=f"Unexpected error: {exc}",
                 latency_ms=latency_ms,
             )
 
@@ -392,9 +533,9 @@ class NATSTransport:
 
         except NATSTransportError:
             raise
-        except Exception as e:
+        except Exception as exc:
             latency_ms = int((time.perf_counter() - start_time) * 1000)
-            raise NATSTransportError(f"Unexpected error: {e}") from e
+            raise NATSTransportError(f"Unexpected error: {exc}") from exc
 
     def _parse_data_source_response(self, data: dict[str, Any]) -> list[Document]:
         """Parse documents from tunnel response payload.
