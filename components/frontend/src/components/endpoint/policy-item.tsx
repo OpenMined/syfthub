@@ -128,18 +128,35 @@ export interface PolicyItemProperties {
   policy: Policy;
 }
 
+function renderPolicyContent(
+  policy: Policy,
+  isTransaction: boolean,
+  isBundleSubscription: boolean
+): React.ReactElement {
+  if (isTransaction) {
+    return <TransactionPolicyContent config={policy.config} />;
+  }
+  if (isBundleSubscription) {
+    return <BundleSubscriptionPolicyContent config={policy.config} enabled={policy.enabled} />;
+  }
+  return <GenericPolicyContent config={policy.config} />;
+}
+
 // Single policy item component - memoized to prevent unnecessary re-renders
 export const PolicyItem = memo(function PolicyItem({ policy }: Readonly<PolicyItemProperties>) {
   const config = getPolicyConfig(policy.type);
   const Icon = config.icon;
-  const isBundleSubscription = policy.type.toLowerCase() === 'bundle_subscription';
-  const isTransaction = policy.type.toLowerCase() === 'transaction';
+  const policyTypeLower = policy.type.toLowerCase();
+  const isTransaction = policyTypeLower === 'transaction';
+  const isBundleSubscription = policyTypeLower === 'bundle_subscription';
 
   const hasConfig = Object.keys(policy.config).length > 0;
   let policySpecificContent: React.ReactNode = null;
   if (hasConfig) {
     if (isBundleSubscription) {
-      policySpecificContent = <BundleSubscriptionPolicyContent config={policy.config} />;
+      policySpecificContent = (
+        <BundleSubscriptionPolicyContent config={policy.config} enabled={policy.enabled} />
+      );
     } else if (isTransaction) {
       policySpecificContent = <TransactionPolicyContent config={policy.config} />;
     } else {
@@ -195,7 +212,8 @@ export const PolicyItem = memo(function PolicyItem({ policy }: Readonly<PolicyIt
           </p>
 
           {/* Policy-specific content */}
-          {policySpecificContent}
+          {Object.keys(policy.config).length > 0 &&
+            renderPolicyContent(policy, isTransaction, isBundleSubscription)}
 
           {policy.version ? (
             <p className='text-muted-foreground mt-2 text-[10px]'>Version {policy.version}</p>

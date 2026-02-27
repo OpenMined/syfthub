@@ -159,7 +159,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version: '1.24'
           cache-dependency-path: cli/go.sum
 
       - name: Run go vet
@@ -186,7 +186,7 @@ jobs:
         working-directory: cli
     strategy:
       matrix:
-        go-version: ['1.22', '1.23']
+        go-version: ['1.23', '1.24']
     steps:
       - uses: actions/checkout@v4
 
@@ -203,7 +203,7 @@ jobs:
         run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
 
       - name: Upload coverage reports
-        if: matrix.go-version == '1.23'
+        if: matrix.go-version == '1.24'
         uses: codecov/codecov-action@v5
         with:
           file: ./cli/coverage.out
@@ -341,98 +341,6 @@ jobs:
           fail_ci_if_error: false
 
   # ============================================================================
-  # SyftHub Desktop (syfthub-desktop)
-  # ============================================================================
-  desktop-lint:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: syfthub-desktop
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-          cache: 'npm'
-          cache-dependency-path: syfthub-desktop/frontend/package-lock.json
-
-      - name: Build frontend (required for go:embed)
-        working-directory: syfthub-desktop/frontend
-        run: |
-          npm ci
-          npm run build
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
-          cache-dependency-path: syfthub-desktop/go.sum
-
-      - name: Run go vet
-        run: go vet ./...
-
-      - name: Run go fmt check
-        run: |
-          if [ -n "$(gofmt -l .)" ]; then
-            echo "The following files are not formatted:"
-            gofmt -l .
-            exit 1
-          fi
-
-      - name: Install staticcheck
-        run: go install honnef.co/go/tools/cmd/staticcheck@latest
-
-      - name: Run staticcheck
-        run: staticcheck ./...
-
-  desktop-test:
-    runs-on: ubuntu-latest
-    needs: [go-sdk-test]  # Desktop depends on Go SDK
-    defaults:
-      run:
-        working-directory: syfthub-desktop
-    strategy:
-      matrix:
-        go-version: ['1.22', '1.23']
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-          cache: 'npm'
-          cache-dependency-path: syfthub-desktop/frontend/package-lock.json
-
-      - name: Build frontend (required for go:embed)
-        working-directory: syfthub-desktop/frontend
-        run: |
-          npm ci
-          npm run build
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ matrix.go-version }}
-          cache-dependency-path: syfthub-desktop/go.sum
-
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Run tests with coverage
-        run: go test -v -race -coverprofile=coverage.out -covermode=atomic ./...
-
-      - name: Upload coverage reports
-        if: matrix.go-version == '1.23'
-        uses: codecov/codecov-action@v5
-        with:
-          file: ./syfthub-desktop/coverage.out
-          flags: desktop
-          fail_ci_if_error: false
-
-  # ============================================================================
   # Frontend
   # ============================================================================
   frontend-lint:
@@ -553,7 +461,7 @@ jobs:
   build-images:
     name: Build ${{ matrix.image }}
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [backend-lint, backend-test, aggregator-lint, aggregator-test, cli-lint, cli-test, python-sdk-lint, python-sdk-test, go-sdk-lint, go-sdk-test, desktop-lint, desktop-test, frontend-lint, frontend-test, frontend-build]
+    needs: [backend-lint, backend-test, aggregator-lint, aggregator-test, cli-lint, cli-test, python-sdk-lint, python-sdk-test, go-sdk-lint, go-sdk-test, frontend-lint, frontend-test, frontend-build]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -735,7 +643,7 @@ jobs:
   build-images-staging:
     name: Build ${{ matrix.image }} (Staging)
     if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
-    needs: [backend-lint, backend-test, go-sdk-lint, go-sdk-test, desktop-lint, desktop-test, frontend-lint, frontend-test, frontend-build]
+    needs: [backend-lint, backend-test, go-sdk-lint, go-sdk-test, frontend-lint, frontend-test, frontend-build]
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -91,6 +91,14 @@ export interface WorkflowResult {
   sources: SourcesData;
   modelPath: string;
   dataSourcePaths: string[];
+  /**
+   * Position-annotated response from the done event ([cite:N-start:end] format).
+   * Present when the aggregator ran reranking + attribution over data sources.
+   * Use this to render citation highlights; falls back to content if absent.
+   */
+  annotatedResponse?: string;
+  /** Fractional contribution per source owner/slug (0–1). */
+  profitShare?: Record<string, number>;
 }
 
 /**
@@ -535,7 +543,9 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
               content: accumulatedContent,
               sources: event.sources,
               modelPath,
-              dataSourcePaths: allDataSourcePaths
+              dataSourcePaths: allDataSourcePaths,
+              annotatedResponse: event.response,
+              profitShare: event.profitShare
             };
 
             dispatch({ type: 'COMPLETE', sources: event.sources });

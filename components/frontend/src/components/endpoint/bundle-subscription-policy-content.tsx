@@ -1,10 +1,7 @@
 import React, { memo } from 'react';
 
-import ExternalLink from 'lucide-react/dist/esm/icons/external-link';
-
 import { Badge } from '@/components/ui/badge';
-
-import { formatConfigKey } from './transaction-policy-content';
+import { cn } from '@/lib/utils';
 
 const BILLING_CYCLE_LABELS: Record<string, string> = {
   one_time: 'One Time',
@@ -12,43 +9,41 @@ const BILLING_CYCLE_LABELS: Record<string, string> = {
   yearly: 'Yearly'
 };
 
-function isValidUrl(url: string): boolean {
-  return url.startsWith('https://') || url.startsWith('http://');
+function isValidInvoiceUrl(url: string | undefined): url is string {
+  return typeof url === 'string' && (url.startsWith('https://') || url.startsWith('http://'));
 }
 
 export interface BundleSubscriptionPolicyContentProperties {
   config: Record<string, unknown>;
+  enabled: boolean;
 }
 
 export const BundleSubscriptionPolicyContent = memo(function BundleSubscriptionPolicyContent({
-  config
+  config,
+  enabled
 }: Readonly<BundleSubscriptionPolicyContentProperties>) {
   const planName = config.plan_name as string | undefined;
-  const price = config.price as number | undefined;
-  const currency = config.currency as string | undefined;
+  const price = typeof config.price === 'number' ? config.price : undefined;
+  const currency = (config.currency as string | undefined) ?? 'USD';
   const billingCycle = config.billing_cycle as string | undefined;
   const invoiceUrl = config.invoice_url as string | undefined;
 
-  let formattedPrice: string | undefined;
-  if (price !== undefined) {
-    formattedPrice = currency ? `${currency} ${price.toFixed(2)}` : `$${price.toFixed(2)}`;
-  }
-
-  const formattedCycle = billingCycle
-    ? (BILLING_CYCLE_LABELS[billingCycle] ?? formatConfigKey(billingCycle))
+  const validUrl = isValidInvoiceUrl(invoiceUrl);
+  const billingCycleLabel = billingCycle
+    ? (BILLING_CYCLE_LABELS[billingCycle] ?? billingCycle)
     : undefined;
-
-  const validInvoiceUrl = invoiceUrl && isValidUrl(invoiceUrl) ? invoiceUrl : undefined;
 
   return (
     <div className='mt-3 space-y-2'>
+      {/* Subscription Required badge */}
       <Badge
         variant='outline'
-        className='border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-400'
+        className='border-violet-200 bg-violet-50 text-[10px] font-medium text-violet-700 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-400'
       >
         Subscription Required
       </Badge>
 
+      {/* Plan details */}
       <div className='bg-card/60 rounded-md border border-violet-200 dark:border-violet-800'>
         <div className='border-b border-violet-100 px-3 py-1.5 dark:border-violet-800'>
           <span className='text-[10px] font-semibold tracking-wide text-violet-700 uppercase dark:text-violet-400'>
@@ -59,37 +54,52 @@ export const BundleSubscriptionPolicyContent = memo(function BundleSubscriptionP
           {planName ? (
             <div className='flex items-center justify-between px-3 py-1.5'>
               <span className='text-muted-foreground text-xs'>Plan</span>
-              <span className='text-foreground text-xs font-medium'>{planName}</span>
+              <span className='text-foreground font-mono text-xs font-medium'>{planName}</span>
             </div>
           ) : null}
-          {formattedPrice ? (
+          {price === undefined ? null : (
             <div className='flex items-center justify-between px-3 py-1.5'>
               <span className='text-muted-foreground text-xs'>Price</span>
               <span className='text-foreground font-mono text-xs font-medium'>
-                {formattedPrice}
+                {currency} {price.toFixed(2)}
+                {billingCycleLabel ? ` / ${billingCycleLabel}` : ''}
               </span>
             </div>
-          ) : null}
-          {formattedCycle ? (
+          )}
+          {billingCycleLabel && price === undefined ? (
             <div className='flex items-center justify-between px-3 py-1.5'>
               <span className='text-muted-foreground text-xs'>Billing Cycle</span>
-              <span className='text-foreground text-xs font-medium'>{formattedCycle}</span>
+              <span className='text-foreground font-mono text-xs font-medium'>
+                {billingCycleLabel}
+              </span>
             </div>
           ) : null}
         </div>
       </div>
 
-      {validInvoiceUrl ? (
-        <a
-          href={validInvoiceUrl}
-          target='_blank'
-          rel='noopener noreferrer'
-          className='inline-flex items-center gap-1.5 rounded-md bg-violet-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-600'
-        >
-          Subscribe
-          <ExternalLink className='h-3 w-3' />
-        </a>
-      ) : null}
+      {/* Subscribe CTA */}
+      <a
+        href={validUrl ? invoiceUrl : undefined}
+        target='_blank'
+        rel='noopener noreferrer'
+        aria-disabled={!enabled || !validUrl}
+        className={cn(
+          'inline-flex items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+          'border border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-700 dark:bg-violet-950/30 dark:text-violet-300',
+          enabled && validUrl
+            ? 'cursor-pointer hover:bg-violet-100 dark:hover:bg-violet-900/40'
+            : 'pointer-events-none cursor-not-allowed opacity-50'
+        )}
+        onClick={
+          !enabled || !validUrl
+            ? (e) => {
+                e.preventDefault();
+              }
+            : undefined
+        }
+      >
+        Subscribe
+      </a>
     </div>
   );
 });

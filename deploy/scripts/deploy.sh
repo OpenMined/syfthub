@@ -196,6 +196,7 @@ pull_images() {
     export IMAGE_TAG
     export GITHUB_REPOSITORY
 
+
     # Pull all images
     docker compose -f "$COMPOSE_FILE" pull backend aggregator mcp || die "Failed to pull backend/aggregator/mcp images"
 
@@ -272,9 +273,9 @@ deploy_services() {
 
     cd "$DEPLOY_DIR"
 
-    # Ensure database and meilisearch are running
-    log INFO "Ensuring database and meilisearch are running..."
-    docker compose -f "$COMPOSE_FILE" up -d db meilisearch
+    # Ensure database, redis, and meilisearch are running
+    log INFO "Ensuring database, redis, and meilisearch are running..."
+    docker compose -f "$COMPOSE_FILE" up -d db redis meilisearch
 
     # Wait for database to be healthy
     log INFO "Waiting for database to be healthy..."
@@ -463,10 +464,16 @@ rollback() {
 # =============================================================================
 
 main() {
+    # Capture CI-provided values BEFORE anything sources .env, which would
+    # overwrite them with stale values (e.g., IMAGE_TAG from the previous deploy).
+    # These are exported as globals so pull_images() and deploy_services() see them.
+    CI_IMAGE_TAG="${IMAGE_TAG:-}"
+    CI_GITHUB_REPO="${GITHUB_REPOSITORY:-}"
+
     log INFO "=========================================="
     log INFO "SyftHub Deployment Starting"
-    log INFO "Image Tag: ${IMAGE_TAG:-not set}"
-    log INFO "Repository: ${GITHUB_REPOSITORY:-not set}"
+    log INFO "Image Tag: ${CI_IMAGE_TAG:-not set}"
+    log INFO "Repository: ${CI_GITHUB_REPO:-not set}"
     log INFO "=========================================="
 
     # Create log directory if needed
@@ -477,6 +484,20 @@ main() {
 
     # Run deployment steps
     check_prerequisites
+
+    # check_prerequisites sources .env which overwrites IMAGE_TAG with its stale
+    # value. Restore the CI-provided tag here so every subsequent step (including
+    # a no-op pull_images injected by local-build-deploy.sh) uses the right tag.
+    if [[ -n "$CI_IMAGE_TAG" ]]; then
+        IMAGE_TAG="$CI_IMAGE_TAG"
+        export IMAGE_TAG
+        log INFO "Restored IMAGE_TAG from CI: ${IMAGE_TAG}"
+    fi
+    if [[ -n "$CI_GITHUB_REPO" ]]; then
+        GITHUB_REPOSITORY=$(echo "$CI_GITHUB_REPO" | tr '[:upper:]' '[:lower:]')
+        export GITHUB_REPOSITORY
+    fi
+
     backup_current_state
     pull_images
     update_frontend
@@ -487,6 +508,13 @@ main() {
 
     # Remove trap on success
     trap - ERR
+
+    # Persist the new IMAGE_TAG into .env so manual restarts and future
+    # deployments that read .env get a consistent value.
+    if [[ -n "$IMAGE_TAG" ]]; then
+        sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${IMAGE_TAG}|" "${DEPLOY_DIR}/.env"
+        log INFO "Updated IMAGE_TAG in .env to: ${IMAGE_TAG}"
+    fi
 
     log INFO "=========================================="
     log INFO "Deployment completed successfully!"

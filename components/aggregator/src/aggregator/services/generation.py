@@ -96,6 +96,13 @@ class GenerationService:
         if is_tunneling_url(model_endpoint.url) and self.nats_transport and peer_channel:
             try:
                 target_username = extract_tunnel_username(model_endpoint.url)
+                satellite_token = self._get_token_for_endpoint(model_endpoint, endpoint_tokens)
+                if satellite_token is None:
+                    raise GenerationError(
+                        f"Missing satellite token for tunneling endpoint owner "
+                        f"'{model_endpoint.owner_username}'. The Identity Provider may not be "
+                        f"configured — ensure RSA keys are available in the backend."
+                    )
                 formatted_messages = [
                     {"role": msg.role, "content": msg.content} for msg in messages
                 ]
@@ -109,7 +116,7 @@ class GenerationService:
                     transaction_token=self._get_token_for_endpoint(
                         model_endpoint, transaction_tokens
                     ),
-                    satellite_token=self._get_token_for_endpoint(model_endpoint, endpoint_tokens),
+                    satellite_token=satellite_token,
                 )
                 logger.info(f"NATS generation complete: latency={result.latency_ms}ms")
                 return result

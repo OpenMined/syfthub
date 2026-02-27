@@ -852,7 +852,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 visibility=endpoint_data.visibility.value,
                 version=endpoint_data.version,
                 readme=endpoint_data.readme,
-                tags=endpoint_data.tags or [],
+                tags=endpoint_data.tags,
                 contributors=endpoint_data.contributors,
                 policies=[policy.model_dump() for policy in endpoint_data.policies],
                 connect=[conn.model_dump() for conn in endpoint_data.connect],

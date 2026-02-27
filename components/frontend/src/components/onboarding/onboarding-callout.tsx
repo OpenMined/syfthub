@@ -44,6 +44,7 @@ export function OnboardingCallout({
 }: Readonly<OnboardingCalloutProps>) {
   const currentStep = useOnboardingStore((s) => s.currentStep);
   const dismissStep = useOnboardingStore((s) => s.dismissStep);
+  const completeOnboarding = useOnboardingStore((s) => s.completeOnboarding);
   const isActive = currentStep === step;
 
   // Auto-hide the balance step after 5 seconds
@@ -57,6 +58,20 @@ export function OnboardingCallout({
       };
     }
   }, [isActive, step, dismissStep]);
+
+  // Dismiss on Escape key
+  useEffect(() => {
+    if (!isActive) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        dismissStep();
+      }
+    };
+    globalThis.addEventListener('keydown', handleKeyDown);
+    return () => {
+      globalThis.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isActive, dismissStep]);
 
   const stepNumber = STEP_INDEX[step];
   const message = STEP_MESSAGES[step];
@@ -90,7 +105,7 @@ export function OnboardingCallout({
 
   // Tooltip positioning classes
   const tooltipClasses = cn(
-    'absolute z-50 w-72',
+    'absolute z-50 w-72 max-w-[calc(100vw-2rem)]',
     position === 'top' && 'bottom-full left-1/2 mb-3 -translate-x-1/2',
     position === 'bottom' && 'top-full left-1/2 mt-3 -translate-x-1/2',
     position === 'left' && 'right-full top-1/2 mr-3 -translate-y-1/2',
@@ -108,7 +123,10 @@ export function OnboardingCallout({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
             className={tooltipClasses}
-            role='tooltip'
+            role='dialog'
+            aria-label='Onboarding tip'
+            aria-live='polite'
+            aria-modal='false'
           >
             <div className='bg-primary text-primary-foreground rounded-lg px-4 py-3 shadow-lg'>
               <div className={arrowClasses} />
@@ -117,13 +135,22 @@ export function OnboardingCallout({
                 <span className='font-inter text-primary-foreground/70 text-xs'>
                   {stepNumber} of {TOTAL_STEPS}
                 </span>
-                <button
-                  type='button'
-                  onClick={dismissStep}
-                  className='font-inter bg-primary-foreground/20 hover:bg-primary-foreground/30 rounded px-2.5 py-1 text-xs font-medium transition-colors'
-                >
-                  Got it
-                </button>
+                <div className='flex items-center gap-1.5'>
+                  <button
+                    type='button'
+                    onClick={completeOnboarding}
+                    className='font-inter text-primary-foreground/60 hover:text-primary-foreground/80 rounded px-2 py-1 text-xs transition-colors'
+                  >
+                    Skip tour
+                  </button>
+                  <button
+                    type='button'
+                    onClick={dismissStep}
+                    className='font-inter bg-primary-foreground/20 hover:bg-primary-foreground/30 rounded px-2.5 py-1 text-xs font-medium transition-colors'
+                  >
+                    Got it
+                  </button>
+                </div>
               </div>
             </div>
           </motion.div>

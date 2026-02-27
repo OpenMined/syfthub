@@ -348,3 +348,190 @@
     display: none;
   }
 }
+
+/* =============================================================================
+   Markdown prose typography — AI response content
+   Applied via .markdown-message on the MarkdownMessage wrapper.
+   Provides proper spacing, hierarchy, and readability for long-form content.
+   ============================================================================= */
+
+.markdown-message p {
+  margin-bottom: 0.875em;
+}
+
+.markdown-message p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-message h1,
+.markdown-message h2,
+.markdown-message h3,
+.markdown-message h4 {
+  font-family: 'Rubik', system-ui, sans-serif;
+  font-weight: 600;
+  line-height: 1.35;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  color: var(--foreground);
+}
+
+.markdown-message h1:first-child,
+.markdown-message h2:first-child,
+.markdown-message h3:first-child,
+.markdown-message h4:first-child {
+  margin-top: 0;
+}
+
+.markdown-message h1 {
+  font-size: 1.375em;
+  letter-spacing: -0.01em;
+}
+
+.markdown-message h2 {
+  font-size: 1.175em;
+  letter-spacing: -0.005em;
+}
+
+.markdown-message h3 {
+  font-size: 1.05em;
+}
+
+.markdown-message h4 {
+  font-size: 1em;
+  font-weight: 500;
+}
+
+.markdown-message ul,
+.markdown-message ol {
+  margin: 0.625em 0;
+  padding-left: 1.5em;
+}
+
+.markdown-message li {
+  margin-bottom: 0.3em;
+}
+
+.markdown-message li > p {
+  margin-bottom: 0.375em;
+}
+
+.markdown-message blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 1em;
+  margin: 1em 0;
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+.markdown-message hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.5em 0;
+}
+
+.markdown-message a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+
+.markdown-message a:hover {
+  text-decoration-thickness: 2px;
+}
+
+.markdown-message table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-size: 0.9em;
+}
+
+.markdown-message th,
+.markdown-message td {
+  padding: 0.5em 0.75em;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.markdown-message th {
+  font-weight: 600;
+  background-color: var(--muted);
+}
+
+.markdown-message strong {
+  font-weight: 600;
+}
+
+/* =============================================================================
+   Citation highlighting — rendered by MarkdownMessage with buildCitedMarkdown()
+   <mark class="cite-highlight"> wraps the cited sentence span
+   <sup class="cite-badge"> is the inline [N] source badge
+   ============================================================================= */
+
+.markdown-message mark.cite-highlight {
+  background-color: oklch(0.55 0.12 180 / 0.1);
+  color: inherit;
+  border-radius: 2px;
+  text-decoration: underline;
+  text-decoration-color: oklch(0.55 0.12 180 / 0.6);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 2px;
+}
+
+.dark .markdown-message mark.cite-highlight {
+  background-color: oklch(0.7 0.14 180 / 0.12);
+  text-decoration-color: oklch(0.7 0.14 180 / 0.7);
+}
+
+.markdown-message sup.cite-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15em;
+  padding: 0 0.2em;
+  margin-left: 1px;
+  font-size: 0.62em;
+  font-weight: 600;
+  font-family: 'Inter', system-ui, sans-serif;
+  line-height: 1.5;
+  vertical-align: super;
+  border-radius: 3px;
+  background-color: oklch(0.55 0.12 180 / 0.12);
+  color: oklch(0.4 0.1 180);
+  border: 1px solid oklch(0.55 0.12 180 / 0.25);
+  cursor: default;
+  user-select: none;
+}
+
+.dark .markdown-message sup.cite-badge {
+  background-color: oklch(0.7 0.14 180 / 0.15);
+  color: oklch(0.72 0.14 180);
+  border-color: oklch(0.7 0.14 180 / 0.3);
+}
+
+/* prompt-kit Loader animation keyframes */
+@keyframes typing {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes bounce-dots {
+  0%,
+  80%,
+  100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}

@@ -1349,6 +1349,171 @@ def test_complex_policy_configurations(client: TestClient, user1_token: str) -> 
     assert config["null_value"] is None
 
 
+# ---------------------------------------------------------------------------
+# bundle_subscription policy tests
+# ---------------------------------------------------------------------------
+
+
+def test_create_endpoint_with_bundle_subscription_policy(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test that bundle_subscription policy config fields round-trip correctly."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    endpoint_data = {
+        "name": "Bundle Subscription Endpoint",
+        "type": "model",
+        "visibility": "public",
+        "policies": [
+            {
+                "type": "bundle_subscription",
+                "version": "1.0",
+                "enabled": True,
+                "description": "Monthly pro plan",
+                "config": {
+                    "invoice_url": "https://billing.example.com/checkout",
+                    "plan_name": "Pro",
+                    "price": 29.99,
+                    "currency": "USD",
+                    "billing_cycle": "monthly",
+                },
+            }
+        ],
+    }
+
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    assert response.status_code == 201
+
+    data = response.json()
+    assert len(data["policies"]) == 1
+    policy = data["policies"][0]
+    assert policy["type"] == "bundle_subscription"
+    assert policy["version"] == "1.0"
+    assert policy["enabled"] is True
+    assert policy["description"] == "Monthly pro plan"
+    assert policy["config"]["invoice_url"] == "https://billing.example.com/checkout"
+    assert policy["config"]["plan_name"] == "Pro"
+    assert policy["config"]["price"] == 29.99
+    assert policy["config"]["currency"] == "USD"
+    assert policy["config"]["billing_cycle"] == "monthly"
+
+
+def test_bundle_subscription_policy_auto_injects_subscription_tag_on_create(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test that creating an endpoint with bundle_subscription policy auto-injects 'subscription' tag."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    endpoint_data = {
+        "name": "Tagged Subscription Endpoint",
+        "type": "model",
+        "visibility": "public",
+        "tags": ["ml", "nlp"],
+        "policies": [
+            {
+                "type": "bundle_subscription",
+                "config": {"plan_name": "Basic", "price": 9.99, "currency": "USD"},
+            }
+        ],
+    }
+
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    assert response.status_code == 201
+
+    data = response.json()
+    assert "subscription" in data["tags"]
+    assert "ml" in data["tags"]
+    assert "nlp" in data["tags"]
+
+
+def test_bundle_subscription_policy_auto_injects_subscription_tag_on_update(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test that updating an endpoint to add bundle_subscription policy injects 'subscription' tag."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    # Create endpoint without bundle_subscription policy
+    create_data = {
+        "name": "Updatable Subscription Endpoint",
+        "type": "model",
+        "visibility": "public",
+        "tags": ["api"],
+    }
+    response = client.post("/api/v1/endpoints", json=create_data, headers=headers)
+    assert response.status_code == 201
+    endpoint_id = response.json()["id"]
+    assert "subscription" not in response.json()["tags"]
+
+    # Update to add bundle_subscription policy
+    update_data = {
+        "policies": [
+            {
+                "type": "bundle_subscription",
+                "config": {"plan_name": "Enterprise", "price": 99.0, "currency": "USD"},
+            }
+        ]
+    }
+    response = client.patch(
+        f"/api/v1/endpoints/{endpoint_id}", json=update_data, headers=headers
+    )
+    assert response.status_code == 200
+    assert "subscription" in response.json()["tags"]
+
+
+def test_bundle_subscription_auto_tag_skips_when_tag_limit_reached(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test that auto-tag injection is silently skipped when endpoint already has 10 tags."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    ten_tags = [f"tag{i}" for i in range(10)]
+    endpoint_data = {
+        "name": "Full Tags Subscription Endpoint",
+        "type": "model",
+        "visibility": "public",
+        "tags": ten_tags,
+        "policies": [
+            {
+                "type": "bundle_subscription",
+                "config": {"plan_name": "Starter", "price": 4.99, "currency": "USD"},
+            }
+        ],
+    }
+
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    assert response.status_code == 201
+
+    data = response.json()
+    assert len(data["tags"]) == 10
+    assert "subscription" not in data["tags"]
+
+
+def test_bundle_subscription_auto_tag_is_idempotent(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test that 'subscription' tag is not duplicated if already present."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    endpoint_data = {
+        "name": "Idempotent Subscription Endpoint",
+        "type": "model",
+        "visibility": "public",
+        "tags": ["subscription", "ai"],
+        "policies": [
+            {
+                "type": "bundle_subscription",
+                "config": {"plan_name": "Pro", "price": 19.99, "currency": "USD"},
+            }
+        ],
+    }
+
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    assert response.status_code == 201
+
+    data = response.json()
+    assert data["tags"].count("subscription") == 1
+
+
 def test_create_endpoint_with_connections(client: TestClient, user1_token: str) -> None:
     """Test creating a endpoint with connection configurations."""
     headers = {"Authorization": f"Bearer {user1_token}"}
@@ -2060,7 +2225,7 @@ def test_sync_endpoints_stars_reset(client: TestClient, user1_token: str) -> Non
 # ---- Bundle Subscription Policy Tests ----
 
 
-def test_create_endpoint_with_bundle_subscription_policy(
+def test_create_endpoint_with_bundle_subscription_policy_auto_tags(
     client: TestClient, user1_token: str
 ) -> None:
     """Test creating an endpoint with a bundle_subscription policy persists config and auto-tags."""

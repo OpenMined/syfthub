@@ -15,8 +15,8 @@ WORKDIR /app/components/frontend
 # Copy frontend package.json and lockfile
 COPY components/frontend/package.json components/frontend/package-lock.json ./
 
-# Install dependencies (use ci for deterministic installs)
-RUN npm ci
+# Install dependencies (skip postinstall: husky needs .git, playwright downloads ~200MB of browsers)
+RUN npm ci --ignore-scripts
 
 # Copy frontend source code
 COPY components/frontend/ .
