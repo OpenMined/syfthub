@@ -6,9 +6,26 @@ from typing import Any, Optional, cast
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from syfthub.database.connection import SessionLocal
+from syfthub.domain.exceptions import (
+    AccountingAccountExistsError,
+    AccountingServiceUnavailableError,
+    AudienceInactiveError,
+    AudienceNotFoundError,
+    ConflictError,
+    DomainException,
+    IdPException,
+    InvalidAccountingPasswordError,
+    KeyLoadError,
+    KeyNotConfiguredError,
+    NotFoundError,
+    PermissionDeniedError,
+    UserAlreadyExistsError,
+    ValidationError,
+)
 from syfthub.observability.constants import (
     CORRELATION_ID_HEADER,
     SERVICE_NAME,
@@ -20,6 +37,60 @@ from syfthub.observability.repository import ErrorLogRepository
 from syfthub.observability.sanitizer import sanitize, truncate_body
 
 logger = get_logger(__name__)
+
+
+class ErrorResponse(BaseModel):
+    """Standard error response body shape.
+
+    All error responses use ``{"detail": <ErrorResponse>}`` as the envelope,
+    matching Starlette's existing convention. Extra exception-specific fields
+    (e.g. ``field``, ``audience``, ``requires_accounting_password``) are
+    transparently passed through via the ``extra="allow"`` config.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    code: str
+    message: str
+
+
+# Maps domain exception types to HTTP status codes.
+# More specific types MUST come before their parent classes.
+# The lookup walks the exception's MRO and returns the first match.
+DOMAIN_EXCEPTION_STATUS_MAP: dict[type[DomainException], int] = {
+    # User registration
+    UserAlreadyExistsError: status.HTTP_409_CONFLICT,
+    # General CRUD
+    NotFoundError: status.HTTP_404_NOT_FOUND,
+    PermissionDeniedError: status.HTTP_403_FORBIDDEN,
+    ConflictError: status.HTTP_409_CONFLICT,
+    # Validation
+    ValidationError: status.HTTP_422_UNPROCESSABLE_ENTITY,
+    # IdP — specific before base
+    AudienceNotFoundError: status.HTTP_404_NOT_FOUND,
+    AudienceInactiveError: status.HTTP_400_BAD_REQUEST,
+    KeyNotConfiguredError: status.HTTP_503_SERVICE_UNAVAILABLE,
+    KeyLoadError: status.HTTP_503_SERVICE_UNAVAILABLE,
+    IdPException: status.HTTP_400_BAD_REQUEST,
+    # Accounting — specific before base
+    AccountingAccountExistsError: status.HTTP_424_FAILED_DEPENDENCY,
+    InvalidAccountingPasswordError: status.HTTP_401_UNAUTHORIZED,
+    AccountingServiceUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
+    # Base fallback — must be last
+    DomainException: status.HTTP_500_INTERNAL_SERVER_ERROR,
+}
+
+
+def _get_domain_exception_status(exc: DomainException) -> int:
+    """Resolve HTTP status code for a domain exception via MRO lookup.
+
+    Walks the exception's MRO and returns the status code for the first
+    matching type in DOMAIN_EXCEPTION_STATUS_MAP.
+    """
+    for exc_type in type(exc).__mro__:
+        if exc_type in DOMAIN_EXCEPTION_STATUS_MAP:
+            return DOMAIN_EXCEPTION_STATUS_MAP[exc_type]
+    return status.HTTP_500_INTERNAL_SERVER_ERROR
 
 
 def _get_user_id_from_request(request: Request) -> Optional[int]:
@@ -205,6 +276,62 @@ def register_exception_handlers(app: FastAPI) -> None:
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             content={"detail": errors},
+            headers={CORRELATION_ID_HEADER: correlation_id},
+        )
+
+    @app.exception_handler(DomainException)
+    async def domain_exception_handler(
+        request: Request, exc: DomainException
+    ) -> JSONResponse:
+        """Handle domain exceptions with automatic HTTP status mapping.
+
+        Converts any ``DomainException`` subclass into a structured JSON
+        response using ``DOMAIN_EXCEPTION_STATUS_MAP`` for status code lookup.
+        Extra instance attributes beyond ``message`` and ``error_code`` are
+        included in the response detail (e.g. ``field``, ``audience``).
+
+        Args:
+            request: The incoming request.
+            exc: The domain exception.
+
+        Returns:
+            JSON response with structured error detail.
+        """
+        correlation_id = get_correlation_id()
+        http_status = _get_domain_exception_status(exc)
+
+        # Build response content: always include code + message, then any extras
+        content: dict[str, Any] = {"code": exc.error_code, "message": exc.message}
+        excluded = frozenset({"message", "error_code", "args"})
+        for attr, value in vars(exc).items():
+            if not attr.startswith("_") and attr not in excluded:
+                content[attr] = value
+
+        log_method = logger.warning if http_status < 500 else logger.error
+        log_method(
+            LogEvents.ERROR_DOMAIN,
+            status_code=http_status,
+            error_code=exc.error_code,
+            error_type=type(exc).__name__,
+            message=exc.message,
+            path=str(request.url.path),
+            method=request.method,
+        )
+
+        if http_status >= 500:
+            await _persist_error(
+                correlation_id=correlation_id,
+                event=LogEvents.ERROR_DOMAIN,
+                message=exc.message,
+                request=request,
+                error_type=type(exc).__name__,
+                error_code=exc.error_code,
+                stack_trace=traceback.format_exc(),
+            )
+
+        return JSONResponse(
+            status_code=http_status,
+            content={"detail": content},
             headers={CORRELATION_ID_HEADER: correlation_id},
         )
 

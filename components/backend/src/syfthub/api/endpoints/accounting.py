@@ -6,7 +6,6 @@ avoiding CORS issues by making server-to-server calls.
 The frontend calls these endpoints instead of the accounting service directly.
 """
 
-import logging
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -14,11 +13,12 @@ from pydantic import BaseModel, Field
 
 from syfthub.auth.db_dependencies import get_current_active_user
 from syfthub.database.dependencies import get_user_repository
+from syfthub.observability.logger import get_logger
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.user import User
 from syfthub.services.accounting_client import AccountingClient
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -119,7 +119,10 @@ def get_accounting_client(user: User) -> tuple[AccountingClient, str]:
     if not user.accounting_service_url or not user.accounting_password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Accounting not configured. Please set up billing in settings.",
+            detail={
+                "code": "ACCOUNTING_NOT_CONFIGURED",
+                "message": "Accounting not configured. Please set up billing in settings.",
+            },
         )
     return AccountingClient(user.accounting_service_url), user.accounting_password
 
@@ -149,7 +152,10 @@ async def get_accounting_user(
         if not user_info:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid accounting credentials",
+                detail={
+                    "code": "INVALID_ACCOUNTING_CREDENTIALS",
+                    "message": "Invalid accounting credentials",
+                },
             )
 
         return AccountingUserResponse(
@@ -161,9 +167,15 @@ async def get_accounting_user(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(
+            "accounting.proxy.error", error=str(e), endpoint="get_user", exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Error communicating with accounting service: {e!s}",
+            detail={
+                "code": "ACCOUNTING_PROXY_ERROR",
+                "message": "Error communicating with accounting service",
+            },
         ) from e
     finally:
         client.close()
@@ -189,9 +201,17 @@ async def get_transactions(
         )
 
         if response.status_code != 200:
+            upstream_status = (
+                response.status_code
+                if response.status_code < 500
+                else status.HTTP_502_BAD_GATEWAY
+            )
             raise HTTPException(
-                status_code=response.status_code,
-                detail="Failed to fetch transactions",
+                status_code=upstream_status,
+                detail={
+                    "code": "ACCOUNTING_UPSTREAM_ERROR",
+                    "message": "Failed to fetch transactions",
+                },
             )
 
         transactions_data = response.json()
@@ -231,9 +251,18 @@ async def get_transactions(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(
+            "accounting.proxy.error",
+            error=str(e),
+            endpoint="get_transactions",
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Error communicating with accounting service: {e!s}",
+            detail={
+                "code": "ACCOUNTING_PROXY_ERROR",
+                "message": "Error communicating with accounting service",
+            },
         ) from e
     finally:
         client.close()
@@ -267,13 +296,21 @@ async def create_transaction(
         )
 
         if response.status_code not in (200, 201):
-            detail = "Failed to create transaction"
+            default_msg = "Failed to create transaction"
             try:
                 error_data = response.json()
-                detail = error_data.get("detail", error_data.get("message", detail))
+                msg = error_data.get("detail", error_data.get("message", default_msg))
             except Exception:
-                pass
-            raise HTTPException(status_code=response.status_code, detail=detail)
+                msg = default_msg
+            upstream_status = (
+                response.status_code
+                if response.status_code < 500
+                else status.HTTP_502_BAD_GATEWAY
+            )
+            raise HTTPException(
+                status_code=upstream_status,
+                detail={"code": "ACCOUNTING_UPSTREAM_ERROR", "message": msg},
+            )
 
         tx = response.json()
         return AccountingTransactionResponse(
@@ -292,9 +329,18 @@ async def create_transaction(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(
+            "accounting.proxy.error",
+            error=str(e),
+            endpoint="create_transaction",
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Error communicating with accounting service: {e!s}",
+            detail={
+                "code": "ACCOUNTING_PROXY_ERROR",
+                "message": "Error communicating with accounting service",
+            },
         ) from e
     finally:
         client.close()
@@ -318,13 +364,21 @@ async def confirm_transaction(
         )
 
         if response.status_code != 200:
-            detail = "Failed to confirm transaction"
+            default_msg = "Failed to confirm transaction"
             try:
                 error_data = response.json()
-                detail = error_data.get("detail", error_data.get("message", detail))
+                msg = error_data.get("detail", error_data.get("message", default_msg))
             except Exception:
-                pass
-            raise HTTPException(status_code=response.status_code, detail=detail)
+                msg = default_msg
+            upstream_status = (
+                response.status_code
+                if response.status_code < 500
+                else status.HTTP_502_BAD_GATEWAY
+            )
+            raise HTTPException(
+                status_code=upstream_status,
+                detail={"code": "ACCOUNTING_UPSTREAM_ERROR", "message": msg},
+            )
 
         tx = response.json()
         return AccountingTransactionResponse(
@@ -343,9 +397,18 @@ async def confirm_transaction(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(
+            "accounting.proxy.error",
+            error=str(e),
+            endpoint="confirm_transaction",
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Error communicating with accounting service: {e!s}",
+            detail={
+                "code": "ACCOUNTING_PROXY_ERROR",
+                "message": "Error communicating with accounting service",
+            },
         ) from e
     finally:
         client.close()
@@ -369,13 +432,21 @@ async def cancel_transaction(
         )
 
         if response.status_code != 200:
-            detail = "Failed to cancel transaction"
+            default_msg = "Failed to cancel transaction"
             try:
                 error_data = response.json()
-                detail = error_data.get("detail", error_data.get("message", detail))
+                msg = error_data.get("detail", error_data.get("message", default_msg))
             except Exception:
-                pass
-            raise HTTPException(status_code=response.status_code, detail=detail)
+                msg = default_msg
+            upstream_status = (
+                response.status_code
+                if response.status_code < 500
+                else status.HTTP_502_BAD_GATEWAY
+            )
+            raise HTTPException(
+                status_code=upstream_status,
+                detail={"code": "ACCOUNTING_UPSTREAM_ERROR", "message": msg},
+            )
 
         tx = response.json()
         return AccountingTransactionResponse(
@@ -394,9 +465,18 @@ async def cancel_transaction(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(
+            "accounting.proxy.error",
+            error=str(e),
+            endpoint="cancel_transaction",
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Error communicating with accounting service: {e!s}",
+            detail={
+                "code": "ACCOUNTING_PROXY_ERROR",
+                "message": "Error communicating with accounting service",
+            },
         ) from e
     finally:
         client.close()
@@ -434,7 +514,10 @@ async def create_transaction_tokens(
     if not current_user.accounting_service_url or not current_user.accounting_password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Accounting not configured. Please set up billing in settings.",
+            detail={
+                "code": "ACCOUNTING_NOT_CONFIGURED",
+                "message": "Accounting not configured. Please set up billing in settings.",
+            },
         )
 
     client = AccountingClient(current_user.accounting_service_url)
@@ -501,9 +584,13 @@ async def create_transaction_tokens(
                     )
 
             except Exception as e:
-                errors[owner_username] = f"Request failed: {e!s}"
+                errors[owner_username] = "Request failed"
                 logger.error(
-                    f"Exception creating transaction token for '{owner_username}': {e}"
+                    "accounting.proxy.error",
+                    error=str(e),
+                    endpoint="create_transaction_tokens",
+                    owner=owner_username,
+                    exc_info=True,
                 )
 
         return TransactionTokensResponse(tokens=tokens, errors=errors)
@@ -511,9 +598,18 @@ async def create_transaction_tokens(
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(
+            "accounting.proxy.error",
+            error=str(e),
+            endpoint="create_transaction_tokens",
+            exc_info=True,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Error communicating with accounting service: {e!s}",
+            detail={
+                "code": "ACCOUNTING_PROXY_ERROR",
+                "message": "Error communicating with accounting service",
+            },
         ) from e
     finally:
         client.close()

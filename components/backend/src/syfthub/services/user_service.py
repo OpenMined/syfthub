@@ -9,6 +9,12 @@ from urllib.parse import urlparse
 from fastapi import HTTPException, status
 
 from syfthub.core.config import settings
+from syfthub.domain.exceptions import (
+    ConflictError,
+    NotFoundError,
+    PermissionDeniedError,
+    ValidationError,
+)
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.user import (
     TUNNELING_PREFIX,
@@ -67,10 +73,7 @@ class UserService(BaseService):
         """Update user profile."""
         # Check permissions - users can only update their own profile, admins can update any
         if current_user.id != user_id and current_user.role != "admin":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Permission denied: can only update your own profile",
-            )
+            raise PermissionDeniedError("Can only update your own profile")
 
         # Validate username uniqueness if being updated
         if user_data.username and self.user_repository.username_exists(
@@ -78,27 +81,18 @@ class UserService(BaseService):
         ):
             existing_user = self.user_repository.get_by_username(user_data.username)
             if existing_user and existing_user.id != user_id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Username already exists",
-                )
+                raise ConflictError("user", "username")
 
         # Validate email uniqueness if being updated
         if user_data.email and self.user_repository.email_exists(user_data.email):
             existing_user = self.user_repository.get_by_email(user_data.email)
             if existing_user and existing_user.id != user_id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Email already exists",
-                )
+                raise ConflictError("user", "email")
 
         # Update user
         updated_user = self.user_repository.update_user(user_id, user_data)
         if not updated_user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found",
-            )
+            raise NotFoundError("User")
 
         return UserResponse.model_validate(updated_user)
 
@@ -106,24 +100,15 @@ class UserService(BaseService):
         """Deactivate a user account."""
         # Check permissions - only admins can deactivate users
         if current_user.role != "admin":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Permission denied: admin role required",
-            )
+            raise PermissionDeniedError("Admin role required")
 
         # Prevent self-deactivation
         if current_user.id == user_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot deactivate your own account",
-            )
+            raise ValidationError("Cannot deactivate your own account")
 
         success = self.user_repository.deactivate_user(user_id)
         if not success:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found",
-            )
+            raise NotFoundError("User")
 
         return success
 
@@ -154,10 +139,7 @@ class UserService(BaseService):
         # For now, return basic stats
         user = self.user_repository.get_by_id(user_id)
         if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found",
-            )
+            raise NotFoundError("User")
 
         return {
             "user_id": user.id,
