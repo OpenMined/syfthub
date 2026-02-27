@@ -686,8 +686,27 @@ export class ChatResource {
           timeMs: Number(data['time_ms'] ?? 0),
         };
 
+      case 'reranking_start':
+        return {
+          type: 'reranking_start',
+          documents: Number(data['documents'] ?? 0),
+        };
+
+      case 'reranking_complete':
+        return {
+          type: 'reranking_complete',
+          documents: Number(data['documents'] ?? 0),
+          timeMs: Number(data['time_ms'] ?? 0),
+        };
+
       case 'generation_start':
         return { type: 'generation_start' };
+
+      case 'generation_heartbeat':
+        return {
+          type: 'generation_heartbeat',
+          elapsedMs: Number(data['elapsed_ms'] ?? 0),
+        };
 
       case 'token':
         return {

@@ -1,110 +1,61 @@
-import { memo, useCallback, useState } from 'react';
+import { memo } from 'react';
 
-import { AnimatePresence, motion } from 'framer-motion';
-import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
+import type { PipelineStep, ProcessingStatus, SourceProgressInfo } from '@/hooks/use-chat-workflow';
+
+import { motion } from 'framer-motion';
 import Check from 'lucide-react/dist/esm/icons/check';
-import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
-import ChevronUp from 'lucide-react/dist/esm/icons/chevron-up';
 import Clock from 'lucide-react/dist/esm/icons/clock';
 import FileText from 'lucide-react/dist/esm/icons/file-text';
-import Pencil from 'lucide-react/dist/esm/icons/pencil';
+import Layers from 'lucide-react/dist/esm/icons/layers';
 import Search from 'lucide-react/dist/esm/icons/search';
 import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
 import X from 'lucide-react/dist/esm/icons/x';
 
+import {
+  ChainOfThought,
+  ChainOfThoughtContent,
+  ChainOfThoughtItem,
+  ChainOfThoughtStep,
+  ChainOfThoughtTrigger
+} from '@/components/prompt-kit/chain-of-thought';
 import { Loader } from '@/components/prompt-kit/loader';
 
 // =============================================================================
-// Types
+// Step icon helpers
 // =============================================================================
 
-/**
- * Status of an individual source during retrieval
- */
-export interface SourceProgressInfo {
-  path: string;
-  displayName: string;
-  status: 'pending' | 'success' | 'error' | 'timeout';
-  documents: number;
-}
+const stepIcons: Record<string, React.ReactNode> = {
+  retrieval: <Search className='h-3.5 w-3.5' />,
+  reranking: <Layers className='h-3.5 w-3.5' />,
+  generation: <Sparkles className='h-3.5 w-3.5' />
+};
 
-/**
- * Progress tracking for retrieval phase
- */
-export interface RetrievalProgress {
-  completed: number;
-  total: number;
-  documentsFound: number;
-}
-
-/**
- * Overall processing status for the chat request
- */
-export interface ProcessingStatus {
-  phase: 'retrieving' | 'generating' | 'streaming' | 'error';
-  message: string;
-  retrieval?: RetrievalProgress;
-  completedSources: SourceProgressInfo[];
-  timing?: {
-    retrievalMs?: number;
-  };
-}
-
-// =============================================================================
-// Sub-components
-// =============================================================================
-
-/**
- * Phase icon with appropriate animation
- */
-const PhaseIcon = memo(function PhaseIcon({
-  phase
-}: Readonly<{ phase: ProcessingStatus['phase'] }>) {
-  const iconClass = 'h-4 w-4';
-
-  switch (phase) {
-    case 'retrieving': {
-      return (
-        <motion.div
-          animate={{ scale: [1, 1.1, 1] }}
-          transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
-        >
-          <Search className={`${iconClass} text-secondary`} />
-        </motion.div>
-      );
-    }
-    case 'generating': {
-      return (
-        <motion.div
-          animate={{ rotate: [0, 10, -10, 0] }}
-          transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-        >
-          <Sparkles className={`${iconClass} text-secondary`} />
-        </motion.div>
-      );
-    }
-    case 'streaming': {
-      return (
-        <motion.div
-          animate={{ y: [0, -2, 0] }}
-          transition={{ duration: 0.8, repeat: Infinity, ease: 'easeInOut' }}
-        >
-          <Pencil className={`${iconClass} text-secondary`} />
-        </motion.div>
-      );
-    }
-    case 'error': {
-      return <AlertCircle className={`${iconClass} text-red-500`} />;
-    }
-    default: {
-      return <FileText className={`${iconClass} text-muted-foreground`} />;
-    }
+function StepStatusIcon({ step }: Readonly<{ step: PipelineStep }>) {
+  if (step.status === 'complete') {
+    return (
+      <motion.div
+        initial={{ scale: 0 }}
+        animate={{ scale: 1 }}
+        transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+      >
+        <Check className='h-3.5 w-3.5 text-green-500' />
+      </motion.div>
+    );
   }
-});
+  if (step.status === 'active') {
+    return <Loader variant='circular' size='sm' />;
+  }
+  return (
+    <span className='text-muted-foreground/40'>
+      {stepIcons[step.id] ?? <FileText className='h-3.5 w-3.5' />}
+    </span>
+  );
+}
 
-/**
- * Status icon for a completed source
- */
+// =============================================================================
+// Source status sub-components (reused in retrieval step content)
+// =============================================================================
+
 const SourceStatusIcon = memo(function SourceStatusIcon({
   status
 }: Readonly<{ status: SourceProgressInfo['status'] }>) {
@@ -144,9 +95,6 @@ const SourceStatusIcon = memo(function SourceStatusIcon({
   }
 });
 
-/**
- * Row showing status of a single source
- */
 const SourceStatusRow = memo(function SourceStatusRow({
   source,
   index
@@ -156,7 +104,7 @@ const SourceStatusRow = memo(function SourceStatusRow({
       initial={{ opacity: 0, x: -10 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: index * 0.05 }}
-      className='flex items-center gap-2 py-1.5'
+      className='flex items-center gap-2 py-1'
     >
       <SourceStatusIcon status={source.status} />
       <span className='font-inter text-foreground text-xs font-medium'>{source.displayName}</span>
@@ -188,28 +136,28 @@ interface StatusIndicatorProps {
 }
 
 /**
- * Interactive status indicator that shows real-time progress during chat processing.
+ * Chain-of-thought status indicator showing real-time pipeline progress.
  *
- * Features:
- * - Single status line that updates as phases change
- * - Optional expandable details showing per-source progress
- * - Smooth animations for all transitions
+ * Renders each pipeline phase (retrieval → reranking → generation) as a
+ * collapsible step. Steps complete as SSE events arrive, providing clear
+ * progressive feedback to the user.
  */
 export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
-  const [isExpanded, setIsExpanded] = useState(false);
-
-  const hasDetails = status.completedSources.length > 0;
   const isError = status.phase === 'error';
 
-  // Calculate pending sources count during retrieval
-  const pendingCount =
-    status.phase === 'retrieving' && status.retrieval
-      ? status.retrieval.total - status.retrieval.completed
-      : 0;
-
-  const toggleExpanded = useCallback(() => {
-    setIsExpanded((previous) => !previous);
-  }, []);
+  if (isError) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -6 }}
+        className='flex items-center gap-2 py-1 text-sm text-red-600'
+      >
+        <X className='h-4 w-4' />
+        <span>{status.message}</span>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div
@@ -217,125 +165,74 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -6 }}
     >
-      {/* Main Status Line — minimal inline treatment */}
-      <div className='flex items-center gap-2.5 py-1'>
-        <PhaseIcon phase={status.phase} />
+      <ChainOfThought>
+        {status.steps.map((step) => {
+          const isRetrievalWithSources =
+            step.id === 'retrieval' && status.completedSources.length > 0;
 
-        <AnimatePresence mode='wait'>
-          <motion.span
-            key={status.message}
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.2 }}
-            className={`font-inter text-[13px] ${isError ? 'text-red-600' : 'text-muted-foreground'}`}
-          >
-            {status.message}
-          </motion.span>
-        </AnimatePresence>
+          const triggerLabel = step.description
+            ? `${step.label} — ${step.description}`
+            : step.label;
 
-        {/* Progress fraction */}
-        {status.retrieval && status.phase === 'retrieving' ? (
-          <span className='font-inter text-muted-foreground/60 text-xs tabular-nums'>
-            {status.retrieval.completed}/{status.retrieval.total}
-          </span>
-        ) : null}
+          let stepClassName: string;
+          if (step.status === 'active') {
+            stepClassName = 'text-foreground';
+          } else if (step.status === 'complete') {
+            stepClassName = 'text-muted-foreground';
+          } else {
+            stepClassName = 'text-muted-foreground/50';
+          }
 
-        {/* Animated dots (not shown for error state) */}
-        {isError ? null : <Loader variant='typing' size='sm' className='ml-0.5' />}
-      </div>
+          return (
+            <ChainOfThoughtStep
+              key={step.id}
+              defaultOpen={step.status === 'active' && isRetrievalWithSources}
+            >
+              <ChainOfThoughtTrigger
+                leftIcon={<StepStatusIcon step={step} />}
+                swapIconOnHover={isRetrievalWithSources}
+                className={stepClassName}
+              >
+                <span className='font-inter text-[13px]'>
+                  {triggerLabel}
+                  {step.status === 'active' && step.id !== 'retrieval' ? (
+                    <Loader variant='typing' size='sm' className='ml-1.5 inline-flex' />
+                  ) : null}
+                </span>
+              </ChainOfThoughtTrigger>
 
-      {/* Documents found summary */}
-      {status.retrieval && status.retrieval.documentsFound > 0 && status.phase !== 'error' ? (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 'auto' }}
-          className='mt-0.5 flex items-center gap-1.5 pl-[26px]'
-        >
-          <FileText className='text-muted-foreground/60 h-3 w-3' />
-          <span className='font-inter text-muted-foreground/70 text-xs'>
-            {status.retrieval.documentsFound}{' '}
-            {status.retrieval.documentsFound === 1 ? 'document' : 'documents'} found
-          </span>
-        </motion.div>
-      ) : null}
-
-      {/* Expand/Collapse button */}
-      {hasDetails ? (
-        <motion.button
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.3 }}
-          onClick={toggleExpanded}
-          className='text-muted-foreground hover:text-foreground mt-1.5 flex items-center gap-1 pl-[26px] text-xs transition-colors'
-        >
-          {isExpanded ? (
-            <>
-              <ChevronUp className='h-3 w-3' />
-              <span>Hide details</span>
-            </>
-          ) : (
-            <>
-              <ChevronDown className='h-3 w-3' />
-              <span>Show details</span>
-            </>
-          )}
-        </motion.button>
-      ) : null}
-
-      {/* Expandable Details — subtle card only for the detail list */}
-      <AnimatePresence>
-        {isExpanded && hasDetails ? (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className='overflow-hidden'
-          >
-            <div className='border-border/60 bg-muted/40 mt-2 rounded-lg border px-4 py-3'>
-              <div className='space-y-0.5'>
-                {status.completedSources.map((source, index) => (
-                  <SourceStatusRow key={source.path} source={source} index={index} />
-                ))}
-
-                {/* Show pending sources indicator */}
-                {pendingCount > 0 ? (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className='text-muted-foreground flex items-center gap-2 py-1.5'
-                  >
-                    <motion.div
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-                    >
-                      <div className='border-muted border-t-secondary h-3.5 w-3.5 rounded-full border-2' />
-                    </motion.div>
-                    <span className='font-inter text-xs'>
-                      {pendingCount} more {pendingCount === 1 ? 'source' : 'sources'} searching…
-                    </span>
-                  </motion.div>
-                ) : null}
-
-                {/* Timing information */}
-                {status.timing?.retrievalMs && status.phase !== 'retrieving' ? (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className='border-border/40 text-muted-foreground mt-2 flex items-center gap-1.5 border-t pt-2'
-                  >
-                    <Clock className='h-3 w-3' />
-                    <span className='font-inter text-xs'>
-                      Retrieved in {(status.timing.retrievalMs / 1000).toFixed(1)}s
-                    </span>
-                  </motion.div>
-                ) : null}
-              </div>
-            </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+              {isRetrievalWithSources ? (
+                <ChainOfThoughtContent>
+                  {status.completedSources.map((source, index) => (
+                    <ChainOfThoughtItem key={source.path}>
+                      <SourceStatusRow source={source} index={index} />
+                    </ChainOfThoughtItem>
+                  ))}
+                  {status.retrieval && status.retrieval.total > status.retrieval.completed ? (
+                    <ChainOfThoughtItem>
+                      <span className='font-inter text-muted-foreground text-xs'>
+                        {status.retrieval.total - status.retrieval.completed} more{' '}
+                        {status.retrieval.total - status.retrieval.completed === 1
+                          ? 'source'
+                          : 'sources'}{' '}
+                        searching…
+                      </span>
+                    </ChainOfThoughtItem>
+                  ) : null}
+                  {status.timing?.retrievalMs && step.status === 'complete' ? (
+                    <ChainOfThoughtItem>
+                      <span className='font-inter text-muted-foreground/60 flex items-center gap-1 text-xs'>
+                        <Clock className='h-3 w-3' />
+                        Retrieved in {(status.timing.retrievalMs / 1000).toFixed(1)}s
+                      </span>
+                    </ChainOfThoughtItem>
+                  ) : null}
+                </ChainOfThoughtContent>
+              ) : null}
+            </ChainOfThoughtStep>
+          );
+        })}
+      </ChainOfThought>
     </motion.div>
   );
 }
