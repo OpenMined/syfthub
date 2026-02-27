@@ -505,13 +505,16 @@ type PaginatedResponse[T any] struct {
 type ChatEventType string
 
 const (
-	ChatEventTypeRetrievalStart    ChatEventType = "retrieval_start"
-	ChatEventTypeSourceComplete    ChatEventType = "source_complete"
-	ChatEventTypeRetrievalComplete ChatEventType = "retrieval_complete"
-	ChatEventTypeGenerationStart   ChatEventType = "generation_start"
-	ChatEventTypeToken             ChatEventType = "token"
-	ChatEventTypeDone              ChatEventType = "done"
-	ChatEventTypeError             ChatEventType = "error"
+	ChatEventTypeRetrievalStart      ChatEventType = "retrieval_start"
+	ChatEventTypeSourceComplete      ChatEventType = "source_complete"
+	ChatEventTypeRetrievalComplete   ChatEventType = "retrieval_complete"
+	ChatEventTypeRerankingStart      ChatEventType = "reranking_start"
+	ChatEventTypeRerankingComplete   ChatEventType = "reranking_complete"
+	ChatEventTypeGenerationStart     ChatEventType = "generation_start"
+	ChatEventTypeGenerationHeartbeat ChatEventType = "generation_heartbeat"
+	ChatEventTypeToken               ChatEventType = "token"
+	ChatEventTypeDone                ChatEventType = "done"
+	ChatEventTypeError               ChatEventType = "error"
 )
 
 // ChatEvent is the interface for all chat streaming events.
@@ -544,6 +547,30 @@ type GenerationStartEvent struct {
 }
 
 func (e *GenerationStartEvent) EventType() ChatEventType { return ChatEventTypeGenerationStart }
+
+// GenerationHeartbeatEvent is emitted periodically while waiting for model generation.
+type GenerationHeartbeatEvent struct {
+	ElapsedMs int `json:"elapsed_ms"`
+}
+
+func (e *GenerationHeartbeatEvent) EventType() ChatEventType {
+	return ChatEventTypeGenerationHeartbeat
+}
+
+// RerankingStartEvent indicates document reranking has started.
+type RerankingStartEvent struct {
+	Documents int `json:"documents"`
+}
+
+func (e *RerankingStartEvent) EventType() ChatEventType { return ChatEventTypeRerankingStart }
+
+// RerankingCompleteEvent indicates document reranking is complete.
+type RerankingCompleteEvent struct {
+	Documents int `json:"documents"`
+	TimeMs    int `json:"time_ms"`
+}
+
+func (e *RerankingCompleteEvent) EventType() ChatEventType { return ChatEventTypeRerankingComplete }
 
 // TokenEvent represents a single generated token.
 type TokenEvent struct {

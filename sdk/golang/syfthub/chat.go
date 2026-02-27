@@ -371,9 +371,25 @@ func (c *ChatResource) parseSSEEvent(eventType, dataStr string) ChatEvent {
 	case "retrieval_complete":
 		return &RetrievalCompleteEvent{}
 
+	case "reranking_start":
+		return &RerankingStartEvent{
+			Documents: getInt(data, "documents"),
+		}
+
+	case "reranking_complete":
+		return &RerankingCompleteEvent{
+			Documents: getInt(data, "documents"),
+			TimeMs:    getInt(data, "time_ms"),
+		}
+
 	case "generation_start":
 		return &GenerationStartEvent{
 			Model: getString(data, "model"),
+		}
+
+	case "generation_heartbeat":
+		return &GenerationHeartbeatEvent{
+			ElapsedMs: getInt(data, "elapsed_ms"),
 		}
 
 	case "token":

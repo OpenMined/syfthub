@@ -864,8 +864,14 @@ func (a *App) dispatchSDKEvent(event syfthub.ChatEvent, request ChatRequest) {
 		}
 	case *syfthub.RetrievalCompleteEvent:
 		evt = ChatStreamEvent{Type: "retrieval_complete"}
+	case *syfthub.RerankingStartEvent:
+		evt = ChatStreamEvent{Type: "reranking_start", TotalDocuments: e.Documents}
+	case *syfthub.RerankingCompleteEvent:
+		evt = ChatStreamEvent{Type: "reranking_complete", TotalDocuments: e.Documents, TimeMs: e.TimeMs}
 	case *syfthub.GenerationStartEvent:
 		evt = ChatStreamEvent{Type: "generation_start"}
+	case *syfthub.GenerationHeartbeatEvent:
+		evt = ChatStreamEvent{Type: "generation_heartbeat", TimeMs: e.ElapsedMs}
 	case *syfthub.TokenEvent:
 		evt = ChatStreamEvent{Type: "token", Content: e.Content}
 	case *syfthub.DoneEvent:

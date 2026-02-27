@@ -1,10 +1,15 @@
 import { useCallback, useMemo, useState } from 'react';
 
-import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowUp, Bot, MessageSquarePlus, Square, WifiOff } from 'lucide-react';
+import { ArrowUp, Bot, Check, Copy, MessageSquarePlus, Square, WifiOff } from 'lucide-react';
 
 import { ChatContainerContent, ChatContainerRoot } from '@/components/prompt-kit/chat-container';
 import { Loader } from '@/components/prompt-kit/loader';
+import {
+  Message,
+  MessageAction,
+  MessageActions,
+  MessageContent,
+} from '@/components/prompt-kit/message';
 import {
   PromptInput,
   PromptInputAction,
@@ -18,6 +23,7 @@ import { ModelSelector } from '@/components/chat/model-selector';
 import { SourceSelector } from '@/components/chat/source-selector';
 import { SourcesSection } from '@/components/chat/sources-section';
 import { StatusIndicator } from '@/components/chat/status-indicator';
+import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 
 import { useChatWorkflow } from '@/hooks/use-chat-workflow';
 import type { AssistantMessage } from '@/hooks/use-chat-workflow';
@@ -57,51 +63,14 @@ function EmptyState({ hasAggregator }: Readonly<{ hasAggregator: boolean }>) {
 }
 
 // =============================================================================
-// Message Bubbles
+// Avatar
 // =============================================================================
 
-function UserBubble({ content }: Readonly<{ content: string }>) {
+function AssistantAvatar() {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      className='flex justify-end px-4'
-    >
-      <div className='bg-muted text-foreground max-w-[80%] rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm leading-relaxed'>
-        {content}
-      </div>
-    </motion.div>
-  );
-}
-
-function AssistantBubble({ message }: Readonly<{ message: AssistantMessage }>) {
-  const showLoader = message.isStreaming && message.content.length === 0;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      className='px-4'
-    >
-      <div className='max-w-[90%]'>
-        {showLoader ? (
-          <div className='py-2'>
-            <Loader variant='typing' size='sm' />
-          </div>
-        ) : (
-          <MarkdownMessage
-            content={message.content}
-            annotatedContent={message.isStreaming ? undefined : message.annotatedResponse}
-          />
-        )}
-
-        {!message.isStreaming && message.sources && Object.keys(message.sources).length > 0 ? (
-          <div className='mt-3'>
-            <SourcesSection sources={message.sources} />
-          </div>
-        ) : null}
-      </div>
-    </motion.div>
+    <div className='bg-muted mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full'>
+      <OpenMinedIcon className='h-5 w-5' />
+    </div>
   );
 }
 
@@ -136,6 +105,16 @@ export function ChatView() {
       selectedModel: chatSelectedModel,
       selectedSources: chatSelectedSources,
     });
+
+  // Copy-to-clipboard state
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const handleCopy = useCallback((content: string, messageId: string) => {
+    void navigator.clipboard.writeText(content);
+    setCopiedId(messageId);
+    setTimeout(() => {
+      setCopiedId((prev) => (prev === messageId ? null : prev));
+    }, 2000);
+  }, []);
 
   const handleSubmit = useCallback(async () => {
     const prompt = inputValue.trim();
@@ -176,29 +155,83 @@ export function ChatView() {
       {/* Scrollable message area */}
       <div className='relative min-h-0 flex-1'>
         <ChatContainerRoot className='h-full'>
-          <ChatContainerContent className='py-6'>
+          <ChatContainerContent className='mx-auto w-full max-w-4xl space-y-8 px-6 py-8'>
             {messages.length === 0 ? (
               <EmptyState hasAggregator={hasAggregator} />
             ) : (
-              <div className='space-y-6'>
-                {messages.map((msg) =>
-                  msg.role === 'user' ? (
-                    <UserBubble key={msg.id} content={msg.content} />
-                  ) : (
-                    <AssistantBubble key={msg.id} message={msg as AssistantMessage} />
-                  )
-                )}
-              </div>
+              <>
+                {messages.map((msg) => {
+                  if (msg.role === 'user') {
+                    /* ── User bubble ── right-aligned pill */
+                    return (
+                      <Message key={msg.id} className='justify-end'>
+                        <div className='flex max-w-full flex-col items-end'>
+                          <MessageContent className='font-inter bg-primary text-primary-foreground max-w-2xl rounded-2xl rounded-br-none px-5 py-3 text-sm leading-relaxed shadow-sm'>
+                            {msg.content}
+                          </MessageContent>
+                        </div>
+                      </Message>
+                    );
+                  }
+
+                  /* ── Assistant response ── avatar + free-flowing content + hover actions */
+                  const assistant = msg as AssistantMessage;
+                  const showLoader = assistant.isStreaming && assistant.content.length === 0;
+
+                  return (
+                    <Message key={msg.id} className='group/message max-w-3xl items-start'>
+                      <AssistantAvatar />
+                      <div className='flex min-w-0 flex-1 flex-col'>
+                        {showLoader ? (
+                          <div className='flex min-w-0 flex-1 flex-col gap-3'>
+                            <Loader variant='typing' size='sm' />
+                            {workflowState.processingStatus && (
+                              <StatusIndicator status={workflowState.processingStatus} />
+                            )}
+                          </div>
+                        ) : (
+                          <MarkdownMessage
+                            content={assistant.content}
+                            annotatedContent={
+                              assistant.isStreaming ? undefined : assistant.annotatedResponse
+                            }
+                          />
+                        )}
+                        {!assistant.isStreaming &&
+                          assistant.sources &&
+                          Object.keys(assistant.sources).length > 0 && (
+                            <div className='mt-4'>
+                              <SourcesSection sources={assistant.sources} />
+                            </div>
+                          )}
+                        {!assistant.isStreaming && assistant.content && (
+                          <MessageActions className='mt-2 opacity-0 transition-opacity group-hover/message:opacity-100'>
+                            <MessageAction tooltip='Copy message'>
+                              <button
+                                type='button'
+                                aria-label='Copy message'
+                                onClick={() => {
+                                  handleCopy(assistant.content, msg.id);
+                                }}
+                                className='hover:text-foreground text-muted-foreground rounded p-1 transition-colors'
+                              >
+                                {copiedId === msg.id ? (
+                                  <Check className='h-3.5 w-3.5 text-green-500' />
+                                ) : (
+                                  <Copy className='h-3.5 w-3.5' />
+                                )}
+                              </button>
+                            </MessageAction>
+                          </MessageActions>
+                        )}
+                      </div>
+                    </Message>
+                  );
+                })}
+              </>
             )}
 
-            {/* Processing status */}
-            <AnimatePresence>
-              {workflowState.processingStatus ? (
-                <div className='px-4 pt-4'>
-                  <StatusIndicator status={workflowState.processingStatus} />
-                </div>
-              ) : null}
-            </AnimatePresence>
+            {/* Processing status — shown inline inside the streaming assistant message */}
           </ChatContainerContent>
 
           <ScrollButton className='absolute bottom-4 right-4' />
@@ -206,78 +239,80 @@ export function ChatView() {
       </div>
 
       {/* Input area */}
-      <div className='bg-card shrink-0 px-4 py-3'>
-        <PromptInput
-          isLoading={isStreaming}
-          value={inputValue}
-          onValueChange={setInputValue}
-          onSubmit={handleSubmit}
-          disabled={!hasAggregator}
-          className='shadow-sm'
-        >
-          <PromptInputTextarea
-            placeholder={
-              !hasAggregator
-                ? 'Chat unavailable — aggregator not configured'
-                : !chatSelectedModel
-                  ? 'Select a model to start chatting…'
-                  : 'Ask a question…'
-            }
+      <div className='bg-card shrink-0 p-4'>
+        <div className='mx-auto max-w-4xl px-6'>
+          <PromptInput
+            isLoading={isStreaming}
+            value={inputValue}
+            onValueChange={setInputValue}
+            onSubmit={handleSubmit}
             disabled={!hasAggregator}
-          />
-
-          <PromptInputActions className='justify-between pt-1'>
-            {/* Left: source / context selector */}
-            <SourceSelector
-              endpoints={dataSourceEndpoints}
-              selectedSources={chatSelectedSources}
-              onToggle={toggleChatSource}
+            className='shadow-sm'
+          >
+            <PromptInputTextarea
+              placeholder={
+                !hasAggregator
+                  ? 'Chat unavailable — aggregator not configured'
+                  : !chatSelectedModel
+                    ? 'Select a model to start chatting…'
+                    : 'Ask a question…'
+              }
               disabled={!hasAggregator}
             />
 
-            {/* Right: model selector + send / stop */}
-            <div className='flex items-center gap-1'>
-              <ModelSelector
-                models={modelEndpoints}
-                selectedModel={chatSelectedModel}
-                onModelSelect={setChatSelectedModel}
-                isLoading={false}
+            <PromptInputActions className='justify-between pt-1'>
+              {/* Left: source / context selector */}
+              <SourceSelector
+                endpoints={dataSourceEndpoints}
+                selectedSources={chatSelectedSources}
+                onToggle={toggleChatSource}
+                disabled={!hasAggregator}
               />
-              {isStreaming ? (
-                <PromptInputAction tooltip='Stop generation'>
-                  <button
-                    type='button'
-                    onClick={handleStop}
-                    className='bg-foreground text-background flex h-8 w-8 items-center justify-center rounded-full transition-opacity hover:opacity-80'
-                  >
-                    <Square className='h-3 w-3 fill-current' aria-hidden='true' />
-                  </button>
-                </PromptInputAction>
-              ) : (
-                <PromptInputAction tooltip='Send message (Enter)'>
-                  <button
-                    type='button'
-                    onClick={handleSubmit}
-                    disabled={!canSubmit}
-                    className='bg-foreground text-background flex h-8 w-8 items-center justify-center rounded-full transition-opacity disabled:opacity-30 hover:opacity-80'
-                  >
-                    <ArrowUp className='h-4 w-4' aria-hidden='true' />
-                  </button>
-                </PromptInputAction>
-              )}
-            </div>
-          </PromptInputActions>
-        </PromptInput>
 
-        {/* Hint text */}
-        {chatSelectedModel ? (
-          <p className='text-muted-foreground mt-1.5 text-center text-[10px]'>
-            Using <span className='font-medium'>{chatSelectedModel.name}</span>
-            {chatSelectedSources.length > 0
-              ? ` · ${chatSelectedSources.length} source${chatSelectedSources.length === 1 ? '' : 's'}`
-              : ''}
-          </p>
-        ) : null}
+              {/* Right: model selector + send / stop */}
+              <div className='flex items-center gap-1'>
+                <ModelSelector
+                  models={modelEndpoints}
+                  selectedModel={chatSelectedModel}
+                  onModelSelect={setChatSelectedModel}
+                  isLoading={false}
+                />
+                {isStreaming ? (
+                  <PromptInputAction tooltip='Stop generation'>
+                    <button
+                      type='button'
+                      onClick={handleStop}
+                      className='bg-foreground text-background flex h-8 w-8 items-center justify-center rounded-full transition-opacity hover:opacity-80'
+                    >
+                      <Square className='h-3 w-3 fill-current' aria-hidden='true' />
+                    </button>
+                  </PromptInputAction>
+                ) : (
+                  <PromptInputAction tooltip='Send message (Enter)'>
+                    <button
+                      type='button'
+                      onClick={handleSubmit}
+                      disabled={!canSubmit}
+                      className='bg-foreground text-background flex h-8 w-8 items-center justify-center rounded-full transition-opacity disabled:opacity-30 hover:opacity-80'
+                    >
+                      <ArrowUp className='h-4 w-4' aria-hidden='true' />
+                    </button>
+                  </PromptInputAction>
+                )}
+              </div>
+            </PromptInputActions>
+          </PromptInput>
+
+          {/* Hint text */}
+          {chatSelectedModel ? (
+            <p className='text-muted-foreground mt-1.5 text-center text-[10px]'>
+              Using <span className='font-medium'>{chatSelectedModel.name}</span>
+              {chatSelectedSources.length > 0
+                ? ` · ${chatSelectedSources.length} source${chatSelectedSources.length === 1 ? '' : 's'}`
+                : ''}
+            </p>
+          ) : null}
+        </div>
       </div>
     </div>
   );

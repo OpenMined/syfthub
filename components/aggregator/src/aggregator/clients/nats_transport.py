@@ -237,6 +237,7 @@ class NATSTransport:
         payload: dict[str, Any],
         timeout: float | None = None,
         satellite_token: str | None = None,
+        _retry: bool = True,
     ) -> dict[str, Any]:
         """Send an encrypted tunnel request and wait for the encrypted response.
 
@@ -251,6 +252,8 @@ class NATSTransport:
             payload: Plaintext request payload.
             timeout: Timeout in seconds (defaults to self._default_timeout).
             satellite_token: Optional satellite token for authenticated endpoints.
+            _retry: Internal flag — allows one automatic retry when the space
+                reports DECRYPTION_FAILED (e.g. after a keypair rotation).
 
         Returns:
             The decrypted, parsed TunnelResponse dict (with plaintext payload).
@@ -344,6 +347,33 @@ class NATSTransport:
         # Replace encrypted fields with decrypted payload in the response dict
         raw_response = dict(raw_response)
         raw_response["payload"] = json.loads(decrypted_json)
+
+        # If the space reported DECRYPTION_FAILED, it couldn't decrypt our request —
+        # most likely because the space restarted and registered a new X25519 keypair
+        # while we still have the old public key in cache. Evict the stale entry and
+        # retry once so the caller does not see a spurious error.
+        if (
+            _retry
+            and raw_response.get("status") == "error"
+            and (raw_response.get("error") or {}).get("code") == "DECRYPTION_FAILED"
+        ):
+            logger.warning(
+                "Space %s reported DECRYPTION_FAILED (likely keypair rotation) — "
+                "evicting cached key and retrying",
+                target_username,
+            )
+            self._evict_key_cache(target_username)
+            return await self._send_and_receive(
+                target_username=target_username,
+                peer_channel=peer_channel,
+                slug=slug,
+                endpoint_type=endpoint_type,
+                payload=payload,
+                timeout=timeout,
+                satellite_token=satellite_token,
+                _retry=False,
+            )
+
         return raw_response
 
     async def query_data_source(

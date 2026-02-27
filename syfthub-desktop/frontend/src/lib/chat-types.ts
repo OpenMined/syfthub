@@ -14,7 +14,10 @@ export type ChatStreamEvent =
   | RetrievalStartEvent
   | SourceCompleteEvent
   | RetrievalCompleteEvent
+  | RerankingStartEvent
+  | RerankingCompleteEvent
   | GenerationStartEvent
+  | GenerationHeartbeatEvent
   | TokenEvent
   | DoneEvent
   | ErrorEvent;
@@ -37,8 +40,24 @@ export interface RetrievalCompleteEvent {
   timeMs: number;
 }
 
+export interface RerankingStartEvent {
+  type: 'reranking_start';
+  totalDocuments: number;
+}
+
+export interface RerankingCompleteEvent {
+  type: 'reranking_complete';
+  totalDocuments: number;
+  timeMs: number;
+}
+
 export interface GenerationStartEvent {
   type: 'generation_start';
+}
+
+export interface GenerationHeartbeatEvent {
+  type: 'generation_heartbeat';
+  timeMs: number;
 }
 
 export interface TokenEvent {

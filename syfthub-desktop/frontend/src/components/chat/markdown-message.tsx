@@ -34,7 +34,7 @@ export const MarkdownMessage = memo(function MarkdownMessage({
   return (
     <div
       className={cn(
-        'markdown-message text-foreground text-[15px] leading-[1.7]',
+        'markdown-message font-inter text-foreground text-[15px] leading-[1.7]',
         className
       )}
     >

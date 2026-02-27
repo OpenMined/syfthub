@@ -1,7 +1,7 @@
-import { memo, useCallback, useState } from 'react';
+import { memo, useState } from 'react';
 
-import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronDown, ChevronUp, FileText } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { FileText } from 'lucide-react';
 
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/hover-card';
 
@@ -9,52 +9,68 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/h
 // Types
 // =============================================================================
 
+/**
+ * Document source with endpoint path and content.
+ * Matches the SDK's DocumentSource type.
+ */
 export interface DocumentSource {
+  /** Endpoint path (owner/slug) where document was retrieved */
   slug: string;
+  /** The actual document content */
   content: string;
 }
 
+/**
+ * Sources data from the aggregator response.
+ * Key is the document title, value contains the endpoint slug and content.
+ */
 export type SourcesData = Record<string, DocumentSource>;
+
+// =============================================================================
+// Constants
+// =============================================================================
+
+const VISIBLE_PILLS = 3;
 
 // =============================================================================
 // Sub-components
 // =============================================================================
 
-interface SourceItemProps {
+interface SourcePillProps {
   title: string;
   source: DocumentSource;
   index: number;
 }
 
-const SourceItem = memo(function SourceItem({ title, source, index }: Readonly<SourceItemProps>) {
+/**
+ * Individual source rendered as a ghost pill with HoverCard content preview.
+ */
+const SourcePill = memo(function SourcePill({ title, source, index }: Readonly<SourcePillProps>) {
   const truncatedContent =
     source.content.length > 500 ? `${source.content.slice(0, 500).trim()}…` : source.content;
 
   return (
     <HoverCard openDelay={200} closeDelay={100}>
       <HoverCardTrigger asChild>
-        <motion.div
-          initial={{ opacity: 0, x: -8 }}
-          animate={{ opacity: 1, x: 0 }}
+        <motion.button
+          type='button'
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: index * 0.03 }}
-          className='group hover:bg-accent flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 transition-colors'
+          className='border-border/50 hover:border-border hover:bg-muted/50 hover:text-foreground text-muted-foreground rounded-full border px-2.5 py-0.5 text-xs transition-colors'
         >
-          <span className='shrink-0 text-xs font-medium text-green-600'>
-            {source.slug}
-          </span>
-          <span className='text-muted-foreground text-xs'>:</span>
-          <span className='text-muted-foreground group-hover:text-foreground truncate text-xs'>
-            {title}
-          </span>
-        </motion.div>
+          <span className='text-green-600/80 dark:text-green-500/80'>{source.slug}</span>
+        </motion.button>
       </HoverCardTrigger>
-      <HoverCardContent side='right' align='start' className='w-[360px] p-0'>
+      <HoverCardContent side='top' align='start' className='w-[360px] p-0'>
+        {/* Header */}
         <div className='border-border border-b px-4 py-2.5'>
           <div className='flex items-center gap-2'>
             <FileText className='text-muted-foreground h-3.5 w-3.5' />
             <span className='text-muted-foreground text-xs font-medium'>{title}</span>
           </div>
         </div>
+        {/* Content */}
         <div className='max-h-[220px] overflow-y-auto p-4'>
           <p className='text-foreground text-xs leading-relaxed whitespace-pre-wrap'>
             {truncatedContent}
@@ -73,71 +89,66 @@ interface SourcesSectionProps {
   sources: SourcesData;
 }
 
+/**
+ * Sources displayed as ghost inline pills below the assistant message.
+ *
+ * Features:
+ * - No card chrome -- pills sit flush below the message text
+ * - Shows first 3 pills by default; overflow handled by "+N more" pill
+ * - HoverCard on each pill shows document title + content preview
+ */
 export function SourcesSection({ sources }: Readonly<SourcesSectionProps>) {
-  const [isExpanded, setIsExpanded] = useState(false);
-
-  const toggleExpanded = useCallback(() => {
-    setIsExpanded((previous) => !previous);
-  }, []);
+  const [showAll, setShowAll] = useState(false);
 
   const sourceEntries = Object.entries(sources);
   const documentCount = sourceEntries.length;
 
-  if (documentCount === 0) {
-    return null;
-  }
+  if (documentCount === 0) return null;
+
+  const visibleEntries = showAll ? sourceEntries : sourceEntries.slice(0, VISIBLE_PILLS);
+  const overflowCount = documentCount - VISIBLE_PILLS;
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.2 }}
-      className='border-border bg-card rounded-xl border'
+      className='flex flex-wrap items-center gap-1.5'
     >
-      <button
-        type='button'
-        onClick={toggleExpanded}
-        className='hover:bg-muted flex w-full items-center justify-between px-4 py-2.5 transition-colors'
-      >
-        <div className='flex items-center gap-2'>
-          <FileText className='text-muted-foreground h-4 w-4' />
-          <span className='text-muted-foreground text-sm font-medium'>Sources</span>
-          <span className='bg-secondary/10 text-secondary rounded-full px-2 py-0.5 text-xs font-medium'>
-            {documentCount} {documentCount === 1 ? 'document' : 'documents'}
-          </span>
-        </div>
+      {visibleEntries.map(([title, source], index) => (
+        <SourcePill key={`${source.slug}-${title}`} title={title} source={source} index={index} />
+      ))}
 
-        {isExpanded ? (
-          <ChevronUp className='text-muted-foreground h-4 w-4' />
-        ) : (
-          <ChevronDown className='text-muted-foreground h-4 w-4' />
-        )}
-      </button>
+      {/* Overflow: expand */}
+      {!showAll && overflowCount > 0 && (
+        <motion.button
+          type='button'
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: VISIBLE_PILLS * 0.03 }}
+          onClick={() => {
+            setShowAll(true);
+          }}
+          className='border-border/40 text-muted-foreground/60 hover:border-border/60 hover:text-muted-foreground rounded-full border border-dashed px-2.5 py-0.5 text-xs transition-colors'
+        >
+          +{overflowCount} more
+        </motion.button>
+      )}
 
-      <AnimatePresence>
-        {isExpanded ? (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className='overflow-hidden'
-          >
-            <div className='border-border border-t px-4 py-3'>
-              <div className='space-y-0.5'>
-                {sourceEntries.map(([title, source], index) => (
-                  <SourceItem
-                    key={`${source.slug}-${title}`}
-                    title={title}
-                    source={source}
-                    index={index}
-                  />
-                ))}
-              </div>
-            </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+      {/* Overflow: collapse */}
+      {showAll && documentCount > VISIBLE_PILLS && (
+        <motion.button
+          type='button'
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          onClick={() => {
+            setShowAll(false);
+          }}
+          className='border-border/40 text-muted-foreground/60 hover:border-border/60 hover:text-muted-foreground rounded-full border border-dashed px-2.5 py-0.5 text-xs transition-colors'
+        >
+          collapse
+        </motion.button>
+      )}
     </motion.div>
   );
 }

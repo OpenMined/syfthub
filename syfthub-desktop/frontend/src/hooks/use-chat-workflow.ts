@@ -130,6 +130,21 @@ function processStreamEvent(
       };
     }
 
+    case 'generation_heartbeat': {
+      if (!status || status.phase !== 'generating') return status;
+      const elapsedSec = Math.floor((event.timeMs ?? 0) / 1000);
+      return {
+        ...status,
+        generationElapsedMs: event.timeMs,
+        message: `Generating response… ${String(elapsedSec)}s`,
+        steps: status.steps.map((step) =>
+          step.id === 'generation'
+            ? { ...step, description: `${String(elapsedSec)}s elapsed` }
+            : step,
+        ),
+      };
+    }
+
     case 'token': {
       if (!status || status.phase === 'streaming') return status;
       return {
