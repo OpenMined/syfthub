@@ -155,8 +155,8 @@ async def test_rerank_documents_success() -> None:
     assert reranked_docs[0].score == 0.95
     assert reranked_docs[1].content == "Alice doc 1."
 
-    assert context_dict == {0: "Bob doc 1.", 1: "Alice doc 1.", 2: "Alice doc 2."}
-    assert source_index_map == {0: "bob/data", 1: "alice/docs", 2: "alice/docs"}
+    assert context_dict == {1: "Bob doc 1.", 2: "Alice doc 1.", 3: "Alice doc 2."}
+    assert source_index_map == {1: "bob/data", 2: "alice/docs", 3: "alice/docs"}
 
 
 @pytest.mark.asyncio
