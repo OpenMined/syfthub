@@ -1,5 +1,67 @@
 export namespace main {
 
+	export class ChatEndpointRef {
+	    slug: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ChatEndpointRef(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.slug = source["slug"];
+	    }
+	}
+	export class ChatMessage {
+	    role: string;
+	    content: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ChatMessage(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.role = source["role"];
+	        this.content = source["content"];
+	    }
+	}
+	export class ChatRequest {
+	    prompt: string;
+	    model: ChatEndpointRef;
+	    dataSources: ChatEndpointRef[];
+	    history: ChatMessage[];
+
+	    static createFrom(source: any = {}) {
+	        return new ChatRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.prompt = source["prompt"];
+	        this.model = this.convertValues(source["model"], ChatEndpointRef);
+	        this.dataSources = this.convertValues(source["dataSources"], ChatEndpointRef);
+	        this.history = this.convertValues(source["history"], ChatMessage);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ConfigInfo {
 	    syfthubUrl: string;
 	    spaceUrl: string;

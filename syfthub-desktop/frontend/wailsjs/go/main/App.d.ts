@@ -24,6 +24,8 @@ export function DeletePolicy(arg1:string,arg2:string):Promise<void>;
 
 export function DeletePolicyFile(arg1:string,arg2:string):Promise<void>;
 
+export function GetAggregatorURL():Promise<string>;
+
 export function GetConfig():Promise<main.ConfigInfo>;
 
 export function GetDefaultEndpointsPath():Promise<string>;
@@ -91,6 +93,10 @@ export function SetEnvironment(arg1:string,arg2:string,arg3:string):Promise<void
 export function Start():Promise<void>;
 
 export function Stop():Promise<void>;
+
+export function StopChat():Promise<void>;
+
+export function StreamChat(arg1:main.ChatRequest):Promise<void>;
 
 export function ToggleEndpointEnabled(arg1:string):Promise<boolean>;
 

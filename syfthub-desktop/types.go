@@ -41,6 +41,61 @@ type ConfigInfo struct {
 	WatchEnabled      bool   `json:"watchEnabled"`
 	UseEmbeddedPython bool   `json:"useEmbeddedPython"`
 	PythonPath        string `json:"pythonPath,omitempty"`
+	AggregatorURL     string `json:"aggregatorUrl,omitempty"`
+}
+
+// ============================================================================
+// Chat Types
+// ============================================================================
+
+// ChatEndpointRef identifies a model or data-source endpoint for the aggregator.
+type ChatEndpointRef struct {
+	URL           string `json:"url"`
+	Slug          string `json:"slug"`
+	Name          string `json:"name"`
+	TenantName    string `json:"tenant_name,omitempty"`
+	OwnerUsername string `json:"owner_username,omitempty"`
+}
+
+// ChatMessage represents a prior conversation turn for multi-turn chat.
+type ChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+// ChatRequest is the payload sent from the frontend to the Go StreamChat method.
+type ChatRequest struct {
+	Prompt      string            `json:"prompt"`
+	Model       ChatEndpointRef   `json:"model"`
+	DataSources []ChatEndpointRef `json:"dataSources"`
+	Messages    []ChatMessage     `json:"messages,omitempty"`
+	TopK        int               `json:"topK,omitempty"`
+	MaxTokens   int               `json:"maxTokens,omitempty"`
+	Temperature float64           `json:"temperature,omitempty"`
+}
+
+// ChatDocumentSource is an individual document source in the done event.
+type ChatDocumentSource struct {
+	Slug    string `json:"slug"`
+	Content string `json:"content"`
+}
+
+// ChatStreamEvent is the typed event emitted from Go to the frontend via
+// Wails runtime.EventsEmit on the "chat:stream-event" channel.
+// The Type field acts as a discriminant matching the aggregator SSE event names.
+type ChatStreamEvent struct {
+	Type               string                        `json:"type"`
+	Content            string                        `json:"content,omitempty"`
+	SourceCount        int                           `json:"sourceCount,omitempty"`
+	Path               string                        `json:"path,omitempty"`
+	Status             string                        `json:"status,omitempty"`
+	DocumentsRetrieved int                           `json:"documentsRetrieved,omitempty"`
+	TotalDocuments     int                           `json:"totalDocuments,omitempty"`
+	TimeMs             int                           `json:"timeMs,omitempty"`
+	Message            string                        `json:"message,omitempty"`
+	Sources            map[string]ChatDocumentSource `json:"sources,omitempty"`
+	Response           string                        `json:"response,omitempty"`
+	ProfitShare        map[string]float64            `json:"profitShare,omitempty"`
 }
 
 // ConfigRequest represents a configuration update from the frontend.

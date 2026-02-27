@@ -46,6 +46,10 @@ export function DeletePolicyFile(arg1, arg2) {
   return window['go']['main']['App']['DeletePolicyFile'](arg1, arg2);
 }
 
+export function GetAggregatorURL() {
+  return window['go']['main']['App']['GetAggregatorURL']();
+}
+
 export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
@@ -180,6 +184,14 @@ export function Start() {
 
 export function Stop() {
   return window['go']['main']['App']['Stop']();
+}
+
+export function StopChat() {
+  return window['go']['main']['App']['StopChat']();
+}
+
+export function StreamChat(arg1) {
+  return window['go']['main']['App']['StreamChat'](arg1);
 }
 
 export function ToggleEndpointEnabled(arg1) {

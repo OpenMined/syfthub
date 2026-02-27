@@ -4,10 +4,15 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,16 +25,19 @@ import (
 // App is the main application struct that bridges Go backend with React frontend.
 // All public methods are exposed to JavaScript via Wails bindings.
 type App struct {
-	ctx       context.Context    // Wails runtime context
-	core      *app.App           // Core application logic
-	config    *app.Config        // Current configuration
-	settings  *Settings          // Persistent user settings
-	state     AppState           // Current app state
-	stateErr  string             // Error message if state is StateError
-	startTime time.Time          // When the app started running
-	mu        sync.RWMutex       // Protects state, stateErr, startTime, settings
-	cancel    context.CancelFunc // Cancels the background Run() goroutine
-	runDone   chan struct{}      // Signals when Run() goroutine completes
+	ctx          context.Context    // Wails runtime context
+	core         *app.App           // Core application logic
+	config       *app.Config        // Current configuration
+	settings     *Settings          // Persistent user settings
+	state        AppState           // Current app state
+	stateErr     string             // Error message if state is StateError
+	startTime    time.Time          // When the app started running
+	mu           sync.RWMutex       // Protects state, stateErr, startTime, settings
+	cancel       context.CancelFunc // Cancels the background Run() goroutine
+	runDone      chan struct{}      // Signals when Run() goroutine completes
+	chatCancel   context.CancelFunc // Cancels the in-flight StreamChat goroutine
+	chatStreamID uint64             // Monotonically increasing stream counter
+	chatMu       sync.Mutex         // Protects chatCancel and chatStreamID
 }
 
 // NewApp creates a new App application struct.
@@ -66,6 +74,13 @@ func (a *App) startup(ctx context.Context) {
 			// Fetch username from SyftHub API and set SPACE_URL for tunneling mode
 			if err := a.fetchAndSetSpaceURL(ctx, settings.SyftHubURL, settings.APIKey); err != nil {
 				runtime.LogWarning(ctx, fmt.Sprintf("Could not fetch username from SyftHub: %v", err))
+			}
+
+			// Fetch aggregator URL from user profile
+			if aggURL, err := a.fetchAggregatorURL(ctx, settings.SyftHubURL, settings.APIKey); err != nil {
+				runtime.LogWarning(ctx, fmt.Sprintf("Could not fetch aggregator URL: %v", err))
+			} else if aggURL != "" {
+				a.settings.AggregatorURL = aggURL
 			}
 		}
 
@@ -126,6 +141,40 @@ func (a *App) fetchAndSetSpaceURL(ctx context.Context, syfthubURL, apiKey string
 
 	runtime.LogInfo(ctx, fmt.Sprintf("Authenticated as %s, using tunnel mode", user.Username))
 	return nil
+}
+
+// fetchAggregatorURL fetches the aggregator_url from the SyftHub user profile.
+// The Go SDK's UserContext struct doesn't include this field, so we parse it directly.
+func (a *App) fetchAggregatorURL(ctx context.Context, syfthubURL, apiKey string) (string, error) {
+	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	reqURL := strings.TrimRight(syfthubURL, "/") + "/api/v1/auth/me"
+	req, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch user profile: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("user profile request returned %d", resp.StatusCode)
+	}
+
+	var profile struct {
+		AggregatorURL string `json:"aggregator_url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&profile); err != nil {
+		return "", fmt.Errorf("failed to decode user profile: %w", err)
+	}
+
+	return profile.AggregatorURL, nil
 }
 
 // shutdown is called when the Wails app is closing.
@@ -202,6 +251,11 @@ func (a *App) GetConfig() ConfigInfo {
 		return ConfigInfo{}
 	}
 
+	aggURL := ""
+	if a.settings != nil {
+		aggURL = a.settings.AggregatorURL
+	}
+
 	return ConfigInfo{
 		SyftHubURL:        os.Getenv("SYFTHUB_URL"),
 		SpaceURL:          os.Getenv("SPACE_URL"),
@@ -210,6 +264,7 @@ func (a *App) GetConfig() ConfigInfo {
 		WatchEnabled:      a.config.WatchEnabled,
 		UseEmbeddedPython: a.config.UseEmbeddedPython,
 		PythonPath:        a.config.PythonPath,
+		AggregatorURL:     aggURL,
 	}
 }
 
@@ -455,6 +510,13 @@ func (a *App) SaveSettingsData(syfthubURL, apiKey, endpointsPath string) error {
 		if err := a.fetchAndSetSpaceURL(a.ctx, syfthubURL, apiKey); err != nil {
 			runtime.LogWarning(a.ctx, fmt.Sprintf("Could not fetch username from SyftHub: %v", err))
 		}
+
+		// Fetch and cache aggregator URL
+		if aggURL, err := a.fetchAggregatorURL(a.ctx, syfthubURL, apiKey); err != nil {
+			runtime.LogWarning(a.ctx, fmt.Sprintf("Could not fetch aggregator URL: %v", err))
+		} else if aggURL != "" {
+			settings.AggregatorURL = aggURL
+		}
 	}
 
 	// Resolve and set endpoints path
@@ -687,4 +749,235 @@ func convertLogStats(stats *syfthubapi.LogStats) *LogStats {
 	}
 
 	return result
+}
+
+// ============================================================================
+// Chat Bindings
+// ============================================================================
+
+// GetAggregatorURL returns the cached aggregator URL from settings.
+func (a *App) GetAggregatorURL() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.settings == nil {
+		return ""
+	}
+	return a.settings.AggregatorURL
+}
+
+// StreamChat starts an SSE streaming chat session with the aggregator.
+// It returns immediately; all streaming data flows through Wails events:
+//   - "chat:stream-event" with a ChatStreamEvent payload for every SSE event
+//
+// Any previously running stream is cancelled before starting the new one.
+func (a *App) StreamChat(request ChatRequest) error {
+	a.mu.RLock()
+	aggURL := ""
+	if a.settings != nil {
+		aggURL = a.settings.AggregatorURL
+	}
+	a.mu.RUnlock()
+
+	if aggURL == "" {
+		return fmt.Errorf("aggregator URL not configured — save SyftHub settings first")
+	}
+
+	// Cancel any existing in-flight stream.
+	a.chatMu.Lock()
+	if a.chatCancel != nil {
+		a.chatCancel()
+		a.chatCancel = nil
+	}
+	chatCtx, cancel := context.WithCancel(context.Background())
+	a.chatCancel = cancel
+	a.chatStreamID++
+	myStreamID := a.chatStreamID
+	a.chatMu.Unlock()
+
+	go func() {
+		defer func() {
+			a.chatMu.Lock()
+			if a.chatStreamID == myStreamID {
+				a.chatCancel = nil
+			}
+			a.chatMu.Unlock()
+		}()
+
+		if err := a.runChatStream(chatCtx, aggURL, request); err != nil {
+			// Only emit error if the context wasn't cancelled (user stop).
+			if chatCtx.Err() == nil {
+				evt := ChatStreamEvent{Type: "error", Message: err.Error()}
+				runtime.EventsEmit(a.ctx, "chat:stream-event", evt)
+			}
+		}
+	}()
+
+	return nil
+}
+
+// runChatStream performs the actual HTTP SSE call and emits Wails events.
+func (a *App) runChatStream(ctx context.Context, aggURL string, request ChatRequest) error {
+	topK := request.TopK
+	if topK == 0 {
+		topK = 5
+	}
+	maxTokens := request.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = 1024
+	}
+	temperature := request.Temperature
+	if temperature == 0 {
+		temperature = 0.7
+	}
+
+	type aggRef struct {
+		URL           string `json:"url"`
+		Slug          string `json:"slug"`
+		Name          string `json:"name"`
+		TenantName    string `json:"tenant_name,omitempty"`
+		OwnerUsername string `json:"owner_username,omitempty"`
+	}
+
+	toAggRef := func(r ChatEndpointRef) aggRef {
+		return aggRef{URL: r.URL, Slug: r.Slug, Name: r.Name, TenantName: r.TenantName, OwnerUsername: r.OwnerUsername}
+	}
+
+	dataSources := make([]aggRef, 0, len(request.DataSources))
+	for _, ds := range request.DataSources {
+		dataSources = append(dataSources, toAggRef(ds))
+	}
+
+	messages := make([]map[string]string, 0, len(request.Messages))
+	for _, m := range request.Messages {
+		messages = append(messages, map[string]string{"role": m.Role, "content": m.Content})
+	}
+
+	bodyMap := map[string]any{
+		"prompt":             request.Prompt,
+		"model":              toAggRef(request.Model),
+		"data_sources":       dataSources,
+		"endpoint_tokens":    map[string]string{},
+		"transaction_tokens": map[string]string{},
+		"top_k":              topK,
+		"max_tokens":         maxTokens,
+		"temperature":        temperature,
+		"stream":             true,
+	}
+	if len(messages) > 0 {
+		bodyMap["messages"] = messages
+	}
+
+	bodyBytes, err := json.Marshal(bodyMap)
+	if err != nil {
+		return fmt.Errorf("failed to marshal chat request: %w", err)
+	}
+
+	endpoint := strings.TrimRight(aggURL, "/") + "/chat/stream"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("aggregator request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("aggregator returned status %d", resp.StatusCode)
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	var eventType string
+	var dataBuffer strings.Builder
+
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
+		line := scanner.Text()
+
+		switch {
+		case strings.HasPrefix(line, "event: "):
+			eventType = strings.TrimPrefix(line, "event: ")
+		case strings.HasPrefix(line, "data: "):
+			dataBuffer.WriteString(strings.TrimPrefix(line, "data: "))
+		case line == "":
+			if eventType != "" && dataBuffer.Len() > 0 {
+				a.dispatchSSEEvent(eventType, dataBuffer.String())
+			}
+			eventType = ""
+			dataBuffer.Reset()
+		}
+	}
+
+	if err := scanner.Err(); err != nil && ctx.Err() == nil {
+		return fmt.Errorf("SSE read error: %w", err)
+	}
+
+	return nil
+}
+
+// dispatchSSEEvent parses a raw SSE data payload and emits a ChatStreamEvent.
+func (a *App) dispatchSSEEvent(eventType, data string) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(data), &raw); err != nil {
+		runtime.LogWarning(a.ctx, fmt.Sprintf("chat: failed to parse SSE data for event %q: %v", eventType, err))
+		return
+	}
+
+	evt := ChatStreamEvent{Type: eventType}
+
+	if v, ok := raw["content"]; ok {
+		_ = json.Unmarshal(v, &evt.Content)
+	}
+	if v, ok := raw["sources"]; ok {
+		if eventType == "retrieval_start" {
+			_ = json.Unmarshal(v, &evt.SourceCount)
+		} else {
+			_ = json.Unmarshal(v, &evt.Sources)
+		}
+	}
+	if v, ok := raw["path"]; ok {
+		_ = json.Unmarshal(v, &evt.Path)
+	}
+	if v, ok := raw["status"]; ok {
+		_ = json.Unmarshal(v, &evt.Status)
+	}
+	if v, ok := raw["documents_retrieved"]; ok {
+		_ = json.Unmarshal(v, &evt.DocumentsRetrieved)
+	}
+	if v, ok := raw["total_documents"]; ok {
+		_ = json.Unmarshal(v, &evt.TotalDocuments)
+	}
+	if v, ok := raw["time_ms"]; ok {
+		_ = json.Unmarshal(v, &evt.TimeMs)
+	}
+	if v, ok := raw["message"]; ok {
+		_ = json.Unmarshal(v, &evt.Message)
+	}
+	if v, ok := raw["response"]; ok {
+		_ = json.Unmarshal(v, &evt.Response)
+	}
+	if v, ok := raw["profit_share"]; ok {
+		_ = json.Unmarshal(v, &evt.ProfitShare)
+	}
+
+	runtime.EventsEmit(a.ctx, "chat:stream-event", evt)
+}
+
+// StopChat cancels any in-flight StreamChat goroutine.
+func (a *App) StopChat() {
+	a.chatMu.Lock()
+	defer a.chatMu.Unlock()
+	if a.chatCancel != nil {
+		a.chatCancel()
+		a.chatCancel = nil
+	}
 }

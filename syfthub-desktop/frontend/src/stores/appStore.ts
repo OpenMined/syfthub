@@ -5,6 +5,7 @@ import {
   GetStatus,
   GetEndpoints,
   GetConfig,
+  GetAggregatorURL,
   Start,
   Stop,
   ReloadEndpoints,
@@ -35,6 +36,7 @@ export type RequestLogEntry = main.RequestLogEntry;
 export type LogQueryResult = main.LogQueryResult;
 export type LogStats = main.LogStats;
 export type CreateEndpointRequest = main.CreateEndpointRequest;
+export type ChatRequest = main.ChatRequest;
 
 // Utility to parse YAML frontmatter from markdown content
 function parseFrontmatter(content: string): { frontmatter: string; body: string } {
@@ -103,6 +105,11 @@ interface AppState {
   isDeleteDialogOpen: boolean;
   isDeletingEndpoint: boolean;
 
+  // Chat state
+  chatSelectedModel: EndpointInfo | null;
+  chatSelectedSources: EndpointInfo[];
+  aggregatorURL: string | null;
+
   // Actions - Core
   initialize: () => Promise<void>; // Initial app load
   fetchStatus: () => Promise<void>;
@@ -160,6 +167,11 @@ interface AppState {
   // Actions - Delete Endpoint
   setDeleteDialogOpen: (open: boolean) => void;
   deleteEndpoint: () => Promise<void>;
+
+  // Actions - Chat
+  setChatSelectedModel: (model: EndpointInfo | null) => void;
+  setChatSelectedSources: (sources: EndpointInfo[]) => void;
+  toggleChatSource: (source: EndpointInfo) => void;
 }
 
 const initialStatus: StatusInfo = {
@@ -206,6 +218,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Delete endpoint initial state
   isDeleteDialogOpen: false,
   isDeletingEndpoint: false,
+
+  // Chat initial state
+  chatSelectedModel: null,
+  chatSelectedSources: [],
+  aggregatorURL: null,
 
   // Core actions
   initialize: async () => {
@@ -254,11 +271,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Now reload endpoints from disk
       await ReloadEndpoints();
 
-      // Fetch all data
+      // Fetch all data including aggregator URL
       await Promise.all([
         get().fetchStatus(),
         get().fetchEndpoints(),
         get().fetchConfig(),
+        GetAggregatorURL().then((url) => set({ aggregatorURL: url || null })).catch(() => {}),
       ]);
 
       // Listen for file watcher events (auto-refresh when files change)
@@ -760,6 +778,25 @@ export const useAppStore = create<AppState>((set, get) => ({
     } finally {
       set({ isCreatingEndpoint: false });
     }
+  },
+
+  // Chat actions
+  setChatSelectedModel: (model: EndpointInfo | null) => {
+    set({ chatSelectedModel: model });
+  },
+
+  setChatSelectedSources: (sources: EndpointInfo[]) => {
+    set({ chatSelectedSources: sources });
+  },
+
+  toggleChatSource: (source: EndpointInfo) => {
+    const current = get().chatSelectedSources;
+    const exists = current.some((s) => s.slug === source.slug);
+    set({
+      chatSelectedSources: exists
+        ? current.filter((s) => s.slug !== source.slug)
+        : [...current, source],
+    });
   },
 
   // Delete endpoint actions
