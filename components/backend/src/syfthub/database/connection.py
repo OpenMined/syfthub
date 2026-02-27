@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Generator
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import create_engine, event
@@ -10,6 +12,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from syfthub.core.config import settings
 from syfthub.models import Base
+
+logger = logging.getLogger(__name__)
 
 
 # Create SQLAlchemy engine
@@ -46,9 +50,58 @@ def set_sqlite_pragma(dbapi_connection: Any, _connection_record: Any) -> None:
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+def _run_alembic_migrations() -> bool:
+    """Run Alembic migrations programmatically.
+
+    Handles three cases:
+    1. Fresh database: runs all migrations from scratch.
+    2. Existing database (created via create_all, no alembic_version table):
+       stamps the initial migration as applied, then runs remaining migrations.
+    3. Previously migrated database: runs only pending migrations.
+
+    Returns True if migrations were applied, False if Alembic files are unavailable.
+    """
+    alembic_ini = Path("alembic.ini")
+    alembic_dir = Path("alembic")
+    if not alembic_ini.exists() or not alembic_dir.exists():
+        return False
+
+    try:
+        from alembic import command
+        from alembic.config import Config
+        from sqlalchemy import inspect
+
+        alembic_cfg = Config(str(alembic_ini))
+        alembic_cfg.set_main_option("sqlalchemy.url", settings.database_url)
+
+        inspector = inspect(engine)
+        table_names = inspector.get_table_names()
+        has_app_tables = "users" in table_names
+        has_alembic_version = "alembic_version" in table_names
+
+        if has_app_tables and not has_alembic_version:
+            # Existing DB created via create_all() — stamp up to the last
+            # migration that create_all() already covers (api_tokens table
+            # exists from the model definitions). This prevents Alembic from
+            # trying to recreate existing tables/columns.
+            logger.info(
+                "Existing database without alembic_version detected. "
+                "Stamping baseline migration (002_api_tokens)."
+            )
+            command.stamp(alembic_cfg, "002_api_tokens")
+
+        command.upgrade(alembic_cfg, "head")
+        logger.info("Alembic migrations applied successfully.")
+        return True
+    except Exception:
+        logger.exception("Alembic migration failed, falling back to create_all()")
+        return False
+
+
 def create_tables() -> None:
-    """Create all database tables."""
-    Base.metadata.create_all(bind=engine)
+    """Create all database tables, applying Alembic migrations if available."""
+    if not _run_alembic_migrations():
+        Base.metadata.create_all(bind=engine)
 
 
 def drop_tables() -> None:
