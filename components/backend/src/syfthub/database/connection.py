@@ -7,7 +7,7 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from syfthub.core.config import settings
@@ -105,8 +105,11 @@ def create_tables() -> None:
 
 
 def drop_tables() -> None:
-    """Drop all database tables."""
+    """Drop all database tables including Alembic version tracking."""
     Base.metadata.drop_all(bind=engine)
+    # Drop alembic_version so migrations re-run on next create_tables() call
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
 
 
 def get_db_session() -> Generator[Session, None, None]:
