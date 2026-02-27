@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"crypto/ecdh"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -20,12 +21,19 @@ type NATSTransport struct {
 	config  *Config
 	logger  *slog.Logger
 
+	// privateKey is the long-term X25519 private key used to decrypt incoming
+	// tunnel requests. Generated at construction time; never rotated at runtime.
+	privateKey *ecdh.PrivateKey
+
 	mu      sync.Mutex
 	running bool
 	stopCh  chan struct{}
 }
 
 // NewNATSTransport creates a new NATS transport.
+// A fresh X25519 keypair is generated immediately at construction time.
+// Call PublicKeyB64() to retrieve the public key, then register it with the hub
+// via APIAuthenticator.RegisterEncryptionPublicKey before starting the transport.
 func NewNATSTransport(cfg *Config) (*NATSTransport, error) {
 	logger := slog.Default()
 	if cfg.Logger != nil {
@@ -41,11 +49,26 @@ func NewNATSTransport(cfg *Config) (*NATSTransport, error) {
 		}
 	}
 
+	privateKey, err := GenerateX25519Keypair()
+	if err != nil {
+		return nil, &syfthubapi.ConfigurationError{
+			Field:   "encryption_keypair",
+			Message: fmt.Sprintf("failed to generate X25519 keypair: %v", err),
+		}
+	}
+
 	return &NATSTransport{
-		config: cfg,
-		logger: logger,
-		stopCh: make(chan struct{}),
+		config:     cfg,
+		logger:     logger,
+		privateKey: privateKey,
+		stopCh:     make(chan struct{}),
 	}, nil
+}
+
+// PublicKeyB64 returns the base64url-encoded X25519 public key for this transport.
+// Register this with the hub so the aggregator can encrypt requests to this space.
+func (t *NATSTransport) PublicKeyB64() string {
+	return b64urlEncode(t.privateKey.PublicKey().Bytes())
 }
 
 // Start begins listening for NATS messages.
@@ -173,7 +196,7 @@ func (t *NATSTransport) handleMessage(msg *nats.Msg) {
 		return
 	}
 
-	// Parse the tunnel request
+	// Parse the tunnel request envelope
 	var req syfthubapi.TunnelRequest
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		t.logger.Error("failed to parse request",
@@ -189,6 +212,31 @@ func (t *NATSTransport) handleMessage(msg *nats.Msg) {
 		"endpoint", req.Endpoint.Slug,
 		"reply_to", req.ReplyTo,
 	)
+
+	// Decrypt the request payload — all requests must be encrypted (no plaintext fallback).
+	if req.EncryptionInfo == nil || req.EncryptedPayload == "" {
+		t.logger.Error("request missing encryption fields — plaintext requests are not accepted",
+			"correlation_id", req.CorrelationID,
+		)
+		t.sendErrorResponse(msg, &req, "DECRYPTION_FAILED", "request must be encrypted (encryption_info and encrypted_payload are required)")
+		return
+	}
+
+	plaintext, err := DecryptTunnelRequest(
+		req.EncryptedPayload,
+		req.EncryptionInfo,
+		t.privateKey,
+		req.CorrelationID,
+	)
+	if err != nil {
+		t.logger.Error("failed to decrypt request payload",
+			"correlation_id", req.CorrelationID,
+			"error", err,
+		)
+		t.sendErrorResponse(msg, &req, "DECRYPTION_FAILED", "failed to decrypt request payload")
+		return
+	}
+	req.Payload = json.RawMessage(plaintext)
 
 	// Create context with timeout (use request timeout or default to 120s)
 	timeout := 120 * time.Second
@@ -210,25 +258,20 @@ func (t *NATSTransport) handleMessage(msg *nats.Msg) {
 	}
 
 	// Send response
-	t.sendResponse(msg, resp)
+	t.sendResponse(msg, &req, resp)
 }
 
 // sendResponse sends a response to the reply subject.
-func (t *NATSTransport) sendResponse(msg *nats.Msg, resp *syfthubapi.TunnelResponse) {
-	// Parse the original request to get reply_to
-	var req syfthubapi.TunnelRequest
-	if err := json.Unmarshal(msg.Data, &req); err != nil {
-		t.logger.Error("failed to parse request for reply", "error", err)
-		return
-	}
-
-	// Build reply subject with syfthub.peer. prefix
-	// The aggregator subscribes to "syfthub.peer.{peer_channel}" for replies
+// req is the original parsed request; it may be nil only when the request envelope
+// itself could not be parsed (in which case no encryption is applied).
+func (t *NATSTransport) sendResponse(msg *nats.Msg, req *syfthubapi.TunnelRequest, resp *syfthubapi.TunnelResponse) {
+	// Build reply subject — use ReplyTo from the parsed request when available.
 	replySubject := ""
-	if req.ReplyTo != "" {
+	if req != nil && req.ReplyTo != "" {
+		// The aggregator subscribes to "syfthub.peer.{peer_channel}" for replies.
 		replySubject = "syfthub.peer." + req.ReplyTo
 	} else if msg.Reply != "" {
-		// Fall back to NATS reply subject (already fully qualified)
+		// Fall back to NATS reply subject (already fully qualified).
 		replySubject = msg.Reply
 	}
 
@@ -237,6 +280,35 @@ func (t *NATSTransport) sendResponse(msg *nats.Msg, resp *syfthubapi.TunnelRespo
 			"correlation_id", resp.CorrelationID,
 		)
 		return
+	}
+
+	// Encrypt the response payload.
+	// All responses to encrypted requests MUST carry encrypted_payload so the aggregator
+	// can decrypt them. For error responses with no payload we encrypt JSON null.
+	if req != nil && req.EncryptionInfo != nil {
+		payloadToEncrypt := resp.Payload
+		if len(payloadToEncrypt) == 0 {
+			payloadToEncrypt = []byte("null")
+		}
+
+		encInfo, encPayloadB64, err := EncryptTunnelResponse(
+			payloadToEncrypt,
+			req.EncryptionInfo.EphemeralPublicKey,
+			resp.CorrelationID,
+		)
+		if err != nil {
+			t.logger.Error("failed to encrypt response — dropping message",
+				"correlation_id", resp.CorrelationID,
+				"error", err,
+			)
+			// Cannot produce an encrypted response; drop the message so the aggregator
+			// times out rather than receiving a malformed unencrypted reply.
+			return
+		}
+
+		resp.EncryptionInfo = encInfo
+		resp.EncryptedPayload = encPayloadB64
+		resp.Payload = nil // clear plaintext; only encrypted_payload is sent
 	}
 
 	// Serialize response
@@ -299,7 +371,7 @@ func (t *NATSTransport) sendErrorResponse(msg *nats.Msg, req *syfthubapi.TunnelR
 			Message: message,
 		},
 	}
-	t.sendResponse(msg, resp)
+	t.sendResponse(msg, req, resp)
 }
 
 // Ensure NATSTransport implements Transport.

@@ -99,6 +99,7 @@ repos:
           nats-py,
           sse-starlette,
           pyjwt,
+          cryptography,
         ]
 
   # Frontend hooks
