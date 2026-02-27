@@ -439,4 +439,118 @@ describe('ChatResource', () => {
       expect(sources[0].type).toBe('data_source');
     });
   });
+
+  // ============================================================================
+  // parseSSEEvent - new event types
+  // ============================================================================
+
+  describe('parseSSEEvent — new event types', () => {
+    /**
+     * Build a ReadableStream<Uint8Array> from an array of SSE event descriptors,
+     * followed by a done event so the generator terminates cleanly.
+     */
+    function makeSseStream(
+      events: { event: string; data: Record<string, unknown> }[]
+    ): ReadableStream<Uint8Array> {
+      const encoder = new TextEncoder();
+      const donePayload = {
+        sources: {},
+        retrieval_info: [],
+        metadata: { retrieval_time_ms: 0, generation_time_ms: 0, total_time_ms: 0 },
+      };
+      const allEvents = [
+        ...events,
+        { event: 'done', data: donePayload },
+      ];
+      const sseText = allEvents
+        .map((e) => `event: ${e.event}\ndata: ${JSON.stringify(e.data)}\n\n`)
+        .join('');
+      return new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(sseText));
+          controller.close();
+        },
+      });
+    }
+
+    /**
+     * Mock fetch to return a SSE stream and collect all yielded events.
+     */
+    async function collectParseEvents(
+      events: { event: string; data: Record<string, unknown> }[]
+    ) {
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url.includes('/chat/stream')) {
+          return new Response(makeSseStream(events), {
+            status: 200,
+            headers: { 'content-type': 'text/event-stream' },
+          });
+        }
+        // Satisfy any auth calls in guest mode (should be none but just in case)
+        return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+      });
+
+      const collected = [];
+      for await (const event of client.chat.stream({
+        prompt: 'test query',
+        model: { url: 'http://syftai:8080', slug: 'test-model' },
+        guestMode: true,
+        aggregatorUrl: baseUrl + '/aggregator/api/v1',
+      })) {
+        collected.push(event);
+      }
+      return collected;
+    }
+
+    it('parses reranking_start event with documents field', async () => {
+      const events = await collectParseEvents([
+        { event: 'retrieval_start', data: { sources: 1 } },
+        { event: 'reranking_start', data: { documents: 7 } },
+        { event: 'generation_start', data: {} },
+        { event: 'token', data: { content: 'Hello' } },
+      ]);
+
+      const rerankingStart = events.find((e) => e.type === 'reranking_start');
+      expect(rerankingStart).toBeDefined();
+      expect(rerankingStart?.type).toBe('reranking_start');
+      if (rerankingStart?.type === 'reranking_start') {
+        expect(rerankingStart.documents).toBe(7);
+      }
+    });
+
+    it('parses reranking_complete event with documents and timeMs fields', async () => {
+      const events = await collectParseEvents([
+        { event: 'reranking_start', data: { documents: 5 } },
+        { event: 'reranking_complete', data: { documents: 5, time_ms: 1234 } },
+        { event: 'generation_start', data: {} },
+        { event: 'token', data: { content: 'Hi' } },
+      ]);
+
+      const rerankingComplete = events.find((e) => e.type === 'reranking_complete');
+      expect(rerankingComplete).toBeDefined();
+      expect(rerankingComplete?.type).toBe('reranking_complete');
+      if (rerankingComplete?.type === 'reranking_complete') {
+        expect(rerankingComplete.documents).toBe(5);
+        expect(rerankingComplete.timeMs).toBe(1234);
+      }
+    });
+
+    it('parses generation_heartbeat event with elapsedMs field (camelCased from elapsed_ms)', async () => {
+      const events = await collectParseEvents([
+        { event: 'generation_start', data: {} },
+        { event: 'generation_heartbeat', data: { elapsed_ms: 3000 } },
+        { event: 'generation_heartbeat', data: { elapsed_ms: 6000 } },
+        { event: 'token', data: { content: 'Result' } },
+      ]);
+
+      const heartbeats = events.filter((e) => e.type === 'generation_heartbeat');
+      expect(heartbeats).toHaveLength(2);
+      if (heartbeats[0]?.type === 'generation_heartbeat') {
+        expect(heartbeats[0].elapsedMs).toBe(3000);
+      }
+      if (heartbeats[1]?.type === 'generation_heartbeat') {
+        expect(heartbeats[1].elapsedMs).toBe(6000);
+      }
+    });
+  });
 });

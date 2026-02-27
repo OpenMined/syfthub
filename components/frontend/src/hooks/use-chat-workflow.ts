@@ -57,15 +57,28 @@ export interface RetrievalProgress {
 }
 
 /**
+ * A single step in the chain-of-thought pipeline display.
+ */
+export interface PipelineStep {
+  id: string;
+  label: string;
+  description?: string;
+  status: 'pending' | 'active' | 'complete';
+}
+
+/**
  * Processing status during streaming phase.
  */
 export interface ProcessingStatus {
-  phase: 'retrieving' | 'generating' | 'streaming' | 'error';
+  phase: 'retrieving' | 'reranking' | 'generating' | 'streaming' | 'error';
   message: string;
   retrieval?: RetrievalProgress;
   completedSources: SourceProgressInfo[];
+  steps: PipelineStep[];
+  generationElapsedMs?: number;
   timing?: {
     retrievalMs?: number;
+    rerankMs?: number;
   };
 }
 
@@ -214,7 +227,8 @@ export function processStreamEventForStatus(
         return {
           phase: 'retrieving',
           message: 'Preparing request…',
-          completedSources: []
+          completedSources: [],
+          steps: [{ id: 'generation', label: 'Generating response', status: 'pending' }]
         };
       }
       return {
@@ -225,7 +239,11 @@ export function processStreamEventForStatus(
           total: event.sourceCount,
           documentsFound: 0
         },
-        completedSources: []
+        completedSources: [],
+        steps: [
+          { id: 'retrieval', label: 'Searching sources', status: 'active' },
+          { id: 'generation', label: 'Generating response', status: 'pending' }
+        ]
       };
     }
 
@@ -273,13 +291,82 @@ export function processStreamEventForStatus(
       };
     }
 
+    case 'reranking_start': {
+      if (!status) return null;
+      const documentLabel = event.documents === 1 ? 'document' : 'documents';
+      return {
+        ...status,
+        phase: 'reranking',
+        message: `Re-ranking ${String(event.documents)} ${documentLabel}…`,
+        steps: [
+          ...status.steps.map((step) =>
+            step.id === 'retrieval'
+              ? { ...step, status: 'complete' as const }
+              : step.id === 'reranking'
+                ? { ...step, status: 'active' as const }
+                : step
+          ),
+          ...(status.steps.some((s) => s.id === 'reranking')
+            ? []
+            : [{ id: 'reranking', label: 'Re-ranking documents', status: 'active' as const }])
+        ].toSorted((a, b) => {
+          const order = ['retrieval', 'reranking', 'generation'];
+          return order.indexOf(a.id) - order.indexOf(b.id);
+        })
+      };
+    }
+
+    case 'reranking_complete': {
+      if (!status) return null;
+      return {
+        ...status,
+        steps: status.steps.map((step) =>
+          step.id === 'reranking'
+            ? {
+                ...step,
+                status: 'complete' as const,
+                description: `${String(event.documents)} docs · ${(event.timeMs / 1000).toFixed(1)}s`
+              }
+            : step
+        ),
+        timing: {
+          ...status.timing,
+          rerankMs: event.timeMs
+        }
+      };
+    }
+
     case 'generation_start': {
       return {
         phase: 'generating',
         message: 'Generating response…',
         completedSources: status?.completedSources ?? [],
         retrieval: status?.retrieval,
-        timing: status?.timing
+        timing: status?.timing,
+        steps: (
+          status?.steps ?? [{ id: 'generation', label: 'Generating response', status: 'pending' }]
+        ).map((step) =>
+          step.id === 'generation'
+            ? { ...step, status: 'active' as const, description: undefined }
+            : step.status === 'complete'
+              ? step
+              : { ...step, status: 'complete' as const }
+        )
+      };
+    }
+
+    case 'generation_heartbeat': {
+      if (!status || status.phase !== 'generating') return status;
+      const elapsedSec = Math.floor(event.elapsedMs / 1000);
+      return {
+        ...status,
+        generationElapsedMs: event.elapsedMs,
+        message: `Generating response… ${String(elapsedSec)}s`,
+        steps: status.steps.map((step) =>
+          step.id === 'generation'
+            ? { ...step, description: `${String(elapsedSec)}s elapsed` }
+            : step
+        )
       };
     }
 
@@ -288,7 +375,10 @@ export function processStreamEventForStatus(
       return {
         ...status,
         phase: 'streaming',
-        message: 'Writing response…'
+        message: 'Writing response…',
+        steps: status.steps.map((step) =>
+          step.id === 'generation' ? { ...step, status: 'complete' as const } : step
+        )
       };
     }
 
@@ -302,7 +392,8 @@ export function processStreamEventForStatus(
         message: event.message,
         completedSources: status?.completedSources ?? [],
         retrieval: status?.retrieval,
-        timing: status?.timing
+        timing: status?.timing,
+        steps: status?.steps ?? []
       };
     }
 
@@ -508,7 +599,8 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
       const initialProcessingStatus: ProcessingStatus = {
         phase: 'retrieving',
         message: totalSourceCount > 0 ? 'Starting...' : 'Preparing request...',
-        completedSources: []
+        completedSources: [],
+        steps: []
       };
 
       dispatch({ type: 'START_STREAMING', status: initialProcessingStatus });

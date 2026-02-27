@@ -466,14 +466,20 @@ class Orchestrator:
         source_index_map: dict[int, str] | None = None
 
         if data_sources and all_documents:
+            yield self._sse_event("reranking_start", {"documents": len(all_documents)})
+            rerank_start = time.perf_counter()
             rerank_result = await self._rerank_documents(
                 query=request.prompt,
                 retrieval_results=retrieval_results,
                 top_k=request.top_k,
             )
+            rerank_time_ms = int((time.perf_counter() - rerank_start) * 1000)
             if rerank_result is not None:
                 reranked_docs, context_dict, source_index_map = rerank_result
                 all_documents = reranked_docs
+            yield self._sse_event(
+                "reranking_complete", {"documents": len(all_documents), "time_ms": rerank_time_ms}
+            )
 
         yield self._sse_event(
             "retrieval_complete",
@@ -526,17 +532,31 @@ class Orchestrator:
                     full_response.append(chunk)
                     yield self._sse_event("token", {"content": chunk})
             else:
-                # Non-streaming mode: get full response then yield as single token
-                # This avoids the UX issue where user sees long pause before tokens
-                gen_result = await self.generation_service.generate(
-                    model_endpoint=model_endpoint,
-                    messages=messages,
-                    max_tokens=request.max_tokens,
-                    temperature=request.temperature,
-                    endpoint_tokens=endpoint_tokens,
-                    transaction_tokens=transaction_tokens,
-                    peer_channel=peer_channel,
+                # Non-streaming mode: get full response then yield as single token.
+                # Emit periodic heartbeat events so the frontend can show elapsed time.
+                gen_start = time.monotonic()
+                gen_task = asyncio.create_task(
+                    self.generation_service.generate(
+                        model_endpoint=model_endpoint,
+                        messages=messages,
+                        max_tokens=request.max_tokens,
+                        temperature=request.temperature,
+                        endpoint_tokens=endpoint_tokens,
+                        transaction_tokens=transaction_tokens,
+                        peer_channel=peer_channel,
+                    )
                 )
+                try:
+                    while True:
+                        done, _ = await asyncio.wait({gen_task}, timeout=3.0)
+                        if done:
+                            gen_result = gen_task.result()
+                            break
+                        elapsed_ms = int((time.monotonic() - gen_start) * 1000)
+                        yield self._sse_event("generation_heartbeat", {"elapsed_ms": elapsed_ms})
+                finally:
+                    if not gen_task.done():
+                        gen_task.cancel()
                 full_response.append(gen_result.response)
                 usage_data = gen_result.usage  # Capture usage from non-streaming response
                 yield self._sse_event("token", {"content": gen_result.response})
