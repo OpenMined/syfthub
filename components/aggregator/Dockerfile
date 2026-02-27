@@ -36,16 +36,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     LOG_LEVEL=debug
 
 # Create non-root user
-RUN useradd --create-home --shell /bin/bash appuser
+# /app/.cache is created with mode 700 to mitigate CVE-2025-69872 (diskcache unsafe pickle
+# deserialization): the attack requires write access to the cache directory. Restricting it
+# to the appuser only prevents other processes from injecting malicious payloads.
+RUN useradd --create-home --shell /bin/bash appuser && \
+    mkdir -p /app/.cache && \
+    chown -R appuser:appuser /app && \
+    chmod 700 /app/.cache
 
 # Reinstall as editable for hot reload (source changes picked up without rebuild)
 RUN uv pip install --no-cache -e ".[dev]"
 
 # Copy source code
 COPY src/ ./src/
-
-# Change ownership to non-root user
-RUN chown -R appuser:appuser /app
 
 # Switch to non-root user
 USER appuser
@@ -71,7 +74,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH"
 
 # Create non-root user
-RUN useradd --create-home --shell /bin/bash appuser
+# /app/.cache is created with mode 700 to mitigate CVE-2025-69872 (diskcache unsafe pickle
+# deserialization): the attack requires write access to the cache directory. Restricting it
+# to the appuser only prevents other processes from injecting malicious payloads.
+RUN useradd --create-home --shell /bin/bash appuser && \
+    mkdir -p /app/.cache && \
+    chmod 700 /app/.cache
 
 # Set working directory
 WORKDIR /app
@@ -86,7 +94,7 @@ COPY src/ ./src/
 ENV PYTHONPATH="/app/src"
 
 # Change ownership to non-root user
-RUN chown -R appuser:appuser /app
+RUN chown -R appuser:appuser /app /app/.cache
 
 # Switch to non-root user
 USER appuser
