@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowUp, Bot, MessageSquarePlus, Square, WifiOff } from 'lucide-react';
@@ -15,6 +15,7 @@ import { ScrollButton } from '@/components/prompt-kit/scroll-button';
 
 import { MarkdownMessage } from '@/components/chat/markdown-message';
 import { ModelSelector } from '@/components/chat/model-selector';
+import { SourceSelector } from '@/components/chat/source-selector';
 import { SourcesSection } from '@/components/chat/sources-section';
 import { StatusIndicator } from '@/components/chat/status-indicator';
 
@@ -115,7 +116,18 @@ export function ChatView() {
     chatSelectedModel,
     chatSelectedSources,
     setChatSelectedModel,
+    toggleChatSource,
   } = useAppStore();
+
+  // Endpoints split by type: models go to ModelSelector, everything else to SourceSelector
+  const modelEndpoints = useMemo(
+    () => endpoints.filter((e) => e.type === 'model'),
+    [endpoints],
+  );
+  const dataSourceEndpoints = useMemo(
+    () => endpoints.filter((e) => e.type !== 'model'),
+    [endpoints],
+  );
 
   const [inputValue, setInputValue] = useState('');
 
@@ -164,7 +176,7 @@ export function ChatView() {
       {/* Scrollable message area */}
       <div className='relative min-h-0 flex-1'>
         <ChatContainerRoot className='h-full'>
-          <ChatContainerContent className='py-4'>
+          <ChatContainerContent className='py-6'>
             {messages.length === 0 ? (
               <EmptyState hasAggregator={hasAggregator} />
             ) : (
@@ -194,7 +206,7 @@ export function ChatView() {
       </div>
 
       {/* Input area */}
-      <div className='border-border shrink-0 border-t px-4 py-3'>
+      <div className='bg-card shrink-0 px-4 py-3'>
         <PromptInput
           isLoading={isStreaming}
           value={inputValue}
@@ -215,18 +227,22 @@ export function ChatView() {
           />
 
           <PromptInputActions className='justify-between pt-1'>
-            {/* Left: model selector */}
-            <div className='flex items-center gap-2'>
+            {/* Left: source / context selector */}
+            <SourceSelector
+              endpoints={dataSourceEndpoints}
+              selectedSources={chatSelectedSources}
+              onToggle={toggleChatSource}
+              disabled={!hasAggregator}
+            />
+
+            {/* Right: model selector + send / stop */}
+            <div className='flex items-center gap-1'>
               <ModelSelector
-                models={endpoints}
+                models={modelEndpoints}
                 selectedModel={chatSelectedModel}
                 onModelSelect={setChatSelectedModel}
                 isLoading={false}
               />
-            </div>
-
-            {/* Right: send / stop */}
-            <div className='flex items-center gap-1'>
               {isStreaming ? (
                 <PromptInputAction tooltip='Stop generation'>
                   <button

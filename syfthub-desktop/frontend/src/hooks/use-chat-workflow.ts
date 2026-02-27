@@ -6,12 +6,16 @@ import { EventsOn } from '../../wailsjs/runtime/runtime';
 
 import type {
   ChatStreamEvent,
+  PipelineStep,
   ProcessingStatus,
   SourceProgressInfo,
   SourcesData,
   WorkflowAction,
   WorkflowState,
 } from '@/lib/chat-types';
+
+// Re-export types consumed by status-indicator and other chat components
+export type { PipelineStep, ProcessingStatus, SourceProgressInfo } from '@/lib/chat-types';
 import type { EndpointInfo } from '@/stores/appStore';
 
 // =============================================================================
@@ -40,6 +44,128 @@ export type ChatMessage = UserMessage | AssistantMessage;
 // Reducer
 // =============================================================================
 
+// =============================================================================
+// Stream event → ProcessingStatus reducer helper
+// =============================================================================
+
+function processStreamEvent(
+  status: ProcessingStatus | null,
+  event: ChatStreamEvent,
+): ProcessingStatus | null {
+  switch (event.type) {
+    case 'retrieval_start': {
+      if (event.sourceCount === 0) {
+        return {
+          phase: 'retrieving',
+          message: 'Preparing request…',
+          completedSources: [],
+          steps: [{ id: 'generation', label: 'Generating response', status: 'pending' }],
+        };
+      }
+      return {
+        phase: 'retrieving',
+        message: `Searching ${event.sourceCount} ${event.sourceCount === 1 ? 'source' : 'sources'}…`,
+        retrieval: { completed: 0, total: event.sourceCount, documentsFound: 0 },
+        completedSources: [],
+        steps: [
+          { id: 'retrieval', label: 'Searching sources', status: 'active' },
+          { id: 'generation', label: 'Generating response', status: 'pending' },
+        ] satisfies PipelineStep[],
+      };
+    }
+
+    case 'source_complete': {
+      if (!status) return null;
+      const newSource: SourceProgressInfo = {
+        path: event.path,
+        displayName: event.path.split('/').pop() ?? event.path,
+        status: event.status,
+        documents: event.documentsRetrieved,
+      };
+      const completedSources = [...status.completedSources, newSource];
+      const completed = completedSources.length;
+      const total = status.retrieval?.total ?? completed;
+      const documentsFound =
+        (status.retrieval?.documentsFound ?? 0) +
+        (event.status === 'success' ? event.documentsRetrieved : 0);
+      return {
+        ...status,
+        message: `Retrieved from ${completed}/${total} ${total === 1 ? 'source' : 'sources'}…`,
+        retrieval: { completed, total, documentsFound },
+        completedSources,
+      };
+    }
+
+    case 'retrieval_complete': {
+      if (!status) return null;
+      const documentCount = event.totalDocuments;
+      const documentLabel = documentCount === 1 ? 'document' : 'documents';
+      const message =
+        documentCount > 0
+          ? `Found ${documentCount} relevant ${documentLabel}`
+          : 'No relevant documents found';
+      return {
+        ...status,
+        message,
+        timing: { ...status.timing, retrievalMs: event.timeMs },
+      };
+    }
+
+    case 'generation_start': {
+      return {
+        phase: 'generating',
+        message: 'Generating response…',
+        completedSources: status?.completedSources ?? [],
+        retrieval: status?.retrieval,
+        timing: status?.timing,
+        steps: (
+          status?.steps ?? [{ id: 'generation', label: 'Generating response', status: 'pending' }]
+        ).map((step) =>
+          step.id === 'generation'
+            ? { ...step, status: 'active' as const }
+            : step.status === 'complete'
+              ? step
+              : { ...step, status: 'complete' as const },
+        ),
+      };
+    }
+
+    case 'token': {
+      if (!status || status.phase === 'streaming') return status;
+      return {
+        ...status,
+        phase: 'streaming',
+        message: 'Writing response…',
+        steps: status.steps.map((step) =>
+          step.id === 'generation' ? { ...step, status: 'complete' as const } : step,
+        ),
+      };
+    }
+
+    case 'done': {
+      return null;
+    }
+
+    case 'error': {
+      return {
+        phase: 'error',
+        message: event.message,
+        completedSources: status?.completedSources ?? [],
+        retrieval: status?.retrieval,
+        timing: status?.timing,
+        steps: status?.steps ?? [],
+      };
+    }
+
+    default:
+      return status;
+  }
+}
+
+// =============================================================================
+// State
+// =============================================================================
+
 const initialWorkflowState: WorkflowState = {
   phase: 'idle',
   query: null,
@@ -66,107 +192,31 @@ function workflowReducer(state: WorkflowState, action: WorkflowAction): Workflow
     }
 
     case 'STREAM_EVENT': {
-      const { event } = action;
-      switch (event.type) {
-        case 'retrieval_start': {
-          return {
-            ...state,
-            phase: 'streaming',
-            processingStatus: {
-              phase: 'retrieving',
-              message: `Searching ${event.sourceCount} source${event.sourceCount === 1 ? '' : 's'}…`,
-              retrieval: { completed: 0, total: event.sourceCount, documentsFound: 0 },
-              completedSources: [],
-            },
-          };
-        }
-
-        case 'source_complete': {
-          const prev = state.processingStatus;
-          const newSource: SourceProgressInfo = {
-            path: event.path,
-            displayName: event.path.split('/').pop() ?? event.path,
-            status: event.status,
-            documents: event.documentsRetrieved,
-          };
-          const completedSources = [...(prev?.completedSources ?? []), newSource];
-          const completed = completedSources.length;
-          const total = prev?.retrieval?.total ?? completed;
-          const documentsFound =
-            (prev?.retrieval?.documentsFound ?? 0) +
-            (event.status === 'success' ? event.documentsRetrieved : 0);
-
-          return {
-            ...state,
-            processingStatus: {
-              phase: 'retrieving',
-              message: `Searching sources… (${completed}/${total})`,
-              retrieval: { completed, total, documentsFound },
-              completedSources,
-              timing: prev?.timing,
-            },
-          };
-        }
-
-        case 'retrieval_complete': {
-          const prev = state.processingStatus;
-          return {
-            ...state,
-            processingStatus: {
-              ...(prev as ProcessingStatus),
-              timing: { retrievalMs: event.timeMs },
-            },
-          };
-        }
-
-        case 'generation_start': {
-          const prev = state.processingStatus;
-          return {
-            ...state,
-            processingStatus: {
-              phase: 'generating',
-              message: 'Generating response…',
-              completedSources: prev?.completedSources ?? [],
-              retrieval: prev?.retrieval,
-              timing: prev?.timing,
-            },
-          };
-        }
-
-        case 'token': {
-          const prev = state.processingStatus;
-          return {
-            ...state,
-            streamedContent: state.streamedContent + event.content,
-            processingStatus: prev
-              ? { ...prev, phase: 'streaming', message: 'Streaming response…' }
-              : { phase: 'streaming', message: 'Streaming response…', completedSources: [] },
-          };
-        }
-
-        case 'done': {
-          return {
-            ...state,
-            phase: 'complete',
-            aggregatorSources: event.sources ?? {},
-            processingStatus: null,
-          };
-        }
-
-        case 'error': {
-          return {
-            ...state,
-            phase: 'error',
-            error: event.message,
-            processingStatus: state.processingStatus
-              ? { ...state.processingStatus, phase: 'error', message: event.message }
-              : { phase: 'error', message: event.message, completedSources: [] },
-          };
-        }
-
-        default:
-          return state;
+      const newStatus = processStreamEvent(state.processingStatus, action.event);
+      if (action.event.type === 'done') {
+        return {
+          ...state,
+          phase: 'complete',
+          aggregatorSources: action.event.sources ?? {},
+          processingStatus: null,
+        };
       }
+      if (action.event.type === 'error') {
+        return {
+          ...state,
+          phase: 'error',
+          error: action.event.message,
+          processingStatus: newStatus,
+        };
+      }
+      if (action.event.type === 'token') {
+        return {
+          ...state,
+          streamedContent: state.streamedContent + action.event.content,
+          processingStatus: newStatus,
+        };
+      }
+      return { ...state, phase: 'streaming', processingStatus: newStatus };
     }
 
     case 'ERROR': {
@@ -299,7 +349,7 @@ export function useChatWorkflow({
           prompt,
           model: { slug: selectedModel.slug },
           dataSources: selectedSources.map((s) => ({ slug: s.slug })),
-          history: historySnapshot,
+          messages: historySnapshot,
         });
 
         await StreamChat(request);

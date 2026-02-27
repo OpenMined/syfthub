@@ -519,7 +519,6 @@ export namespace main {
 	    apiKey?: string;
 	    endpointsPath: string;
 	    isConfigured: boolean;
-	    aggregatorUrl?: string;
 
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -531,7 +530,6 @@ export namespace main {
 	        this.apiKey = source["apiKey"];
 	        this.endpointsPath = source["endpointsPath"];
 	        this.isConfigured = source["isConfigured"];
-	        this.aggregatorUrl = source["aggregatorUrl"];
 	    }
 	}
 	export class StatusInfo {
@@ -550,6 +548,26 @@ export namespace main {
 	        this.errorMessage = source["errorMessage"];
 	        this.mode = source["mode"];
 	        this.uptime = source["uptime"];
+	    }
+	}
+	export class UserAggregator {
+	    id: number;
+	    name: string;
+	    url: string;
+	    is_default: boolean;
+	    created_at: string;
+
+	    static createFrom(source: any = {}) {
+	        return new UserAggregator(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.url = source["url"];
+	        this.is_default = source["is_default"];
+	        this.created_at = source["created_at"];
 	    }
 	}
 

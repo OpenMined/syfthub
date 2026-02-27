@@ -52,7 +52,7 @@ const SourceItem = memo(function SourceItem({ title, source, index }: Readonly<S
         <div className='border-border border-b px-4 py-2.5'>
           <div className='flex items-center gap-2'>
             <FileText className='text-muted-foreground h-3.5 w-3.5' />
-            <span className='text-muted-foreground text-xs font-medium'>Document Preview</span>
+            <span className='text-muted-foreground text-xs font-medium'>{title}</span>
           </div>
         </div>
         <div className='max-h-[220px] overflow-y-auto p-4'>
@@ -95,6 +95,7 @@ export function SourcesSection({ sources }: Readonly<SourcesSectionProps>) {
       className='border-border bg-card rounded-xl border'
     >
       <button
+        type='button'
         onClick={toggleExpanded}
         className='hover:bg-muted flex w-full items-center justify-between px-4 py-2.5 transition-colors'
       >

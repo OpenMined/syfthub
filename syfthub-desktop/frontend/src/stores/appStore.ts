@@ -24,6 +24,7 @@ import {
   CreateEndpoint,
   CheckEndpointExists,
   DeleteEndpoint,
+  GetUserAggregators,
 } from '../../wailsjs/go/main/App';
 
 // Re-export types from models
@@ -172,6 +173,7 @@ interface AppState {
   setChatSelectedModel: (model: EndpointInfo | null) => void;
   setChatSelectedSources: (sources: EndpointInfo[]) => void;
   toggleChatSource: (source: EndpointInfo) => void;
+  refreshAggregatorURL: () => Promise<void>;
 }
 
 const initialStatus: StatusInfo = {
@@ -276,7 +278,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         get().fetchStatus(),
         get().fetchEndpoints(),
         get().fetchConfig(),
-        GetAggregatorURL().then((url) => set({ aggregatorURL: url || null })).catch(() => {}),
+        get().refreshAggregatorURL(),
       ]);
 
       // Listen for file watcher events (auto-refresh when files change)
@@ -797,6 +799,23 @@ export const useAppStore = create<AppState>((set, get) => ({
         ? current.filter((s) => s.slug !== source.slug)
         : [...current, source],
     });
+  },
+
+  // Aggregator URL refresh — prefers the user's default custom aggregator URL;
+  // falls back to the SDK default ({syfthubURL}/aggregator/api/v1) when no
+  // custom aggregator is configured or the list call fails.
+  refreshAggregatorURL: async () => {
+    try {
+      const aggregators = await GetUserAggregators();
+      const defaultAgg = aggregators?.find((a) => a.is_default) ?? null;
+      // If no custom default, fall back to the SDK-derived URL
+      const url = defaultAgg?.url || (await GetAggregatorURL().catch(() => ''));
+      set({ aggregatorURL: url || null });
+    } catch {
+      // GetUserAggregators failed (e.g. not yet configured) — use SDK URL
+      const url = await GetAggregatorURL().catch(() => '');
+      set({ aggregatorURL: url || null });
+    }
   },
 
   // Delete endpoint actions

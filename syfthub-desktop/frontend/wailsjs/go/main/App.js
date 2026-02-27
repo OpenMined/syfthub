@@ -22,6 +22,10 @@ export function CreatePolicyFile(arg1, arg2) {
   return window['go']['main']['App']['CreatePolicyFile'](arg1, arg2);
 }
 
+export function CreateUserAggregator(arg1, arg2, arg3) {
+  return window['go']['main']['App']['CreateUserAggregator'](arg1, arg2, arg3);
+}
+
 export function DeleteDependency(arg1, arg2) {
   return window['go']['main']['App']['DeleteDependency'](arg1, arg2);
 }
@@ -44,6 +48,10 @@ export function DeletePolicy(arg1, arg2) {
 
 export function DeletePolicyFile(arg1, arg2) {
   return window['go']['main']['App']['DeletePolicyFile'](arg1, arg2);
+}
+
+export function DeleteUserAggregator(arg1) {
+  return window['go']['main']['App']['DeleteUserAggregator'](arg1);
 }
 
 export function GetAggregatorURL() {
@@ -118,6 +126,10 @@ export function GetStatus() {
   return window['go']['main']['App']['GetStatus']();
 }
 
+export function GetUserAggregators() {
+  return window['go']['main']['App']['GetUserAggregators']();
+}
+
 export function GetVersion() {
   return window['go']['main']['App']['GetVersion']();
 }
@@ -174,6 +186,10 @@ export function SaveSettingsData(arg1, arg2, arg3) {
   return window['go']['main']['App']['SaveSettingsData'](arg1, arg2, arg3);
 }
 
+export function SetDefaultUserAggregator(arg1) {
+  return window['go']['main']['App']['SetDefaultUserAggregator'](arg1);
+}
+
 export function SetEnvironment(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetEnvironment'](arg1, arg2, arg3);
 }
@@ -200,4 +216,8 @@ export function ToggleEndpointEnabled(arg1) {
 
 export function UpdateEndpointOverview(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['UpdateEndpointOverview'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function UpdateUserAggregator(arg1, arg2, arg3) {
+  return window['go']['main']['App']['UpdateUserAggregator'](arg1, arg2, arg3);
 }

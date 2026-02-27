@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { useSettings } from '@/contexts/SettingsContext';
 import { BrowseForFolder } from '../../wailsjs/go/main/App';
+import { AggregatorSection } from './AggregatorSection';
 
 interface SettingsModalProps {
   open: boolean;
@@ -160,6 +161,14 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
             <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
               {error}
             </div>
+          )}
+
+          {/* Aggregator management — only shown when app is configured */}
+          {settings?.isConfigured && (
+            <>
+              <div className="border-t border-border" />
+              <AggregatorSection isConfigured={settings.isConfigured} />
+            </>
           )}
         </div>
 

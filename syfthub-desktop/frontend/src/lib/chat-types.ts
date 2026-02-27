@@ -105,11 +105,20 @@ export interface RetrievalProgress {
   documentsFound: number;
 }
 
+export interface PipelineStep {
+  id: string;
+  label: string;
+  description?: string;
+  status: 'pending' | 'active' | 'complete';
+}
+
 export interface ProcessingStatus {
   phase: 'retrieving' | 'generating' | 'streaming' | 'error';
   message: string;
   retrieval?: RetrievalProgress;
   completedSources: SourceProgressInfo[];
+  steps: PipelineStep[];
+  generationElapsedMs?: number;
   timing?: {
     retrievalMs?: number;
   };

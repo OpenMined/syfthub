@@ -4,20 +4,16 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/openmined/syfthub-desktop-gui/internal/app"
+	syfthub "github.com/openmined/syfthub/sdk/golang/syfthub"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -32,12 +28,14 @@ type App struct {
 	state        AppState           // Current app state
 	stateErr     string             // Error message if state is StateError
 	startTime    time.Time          // When the app started running
-	mu           sync.RWMutex       // Protects state, stateErr, startTime, settings
+	mu           sync.RWMutex       // Protects state, stateErr, startTime, settings, syftClient, username
 	cancel       context.CancelFunc // Cancels the background Run() goroutine
 	runDone      chan struct{}      // Signals when Run() goroutine completes
 	chatCancel   context.CancelFunc // Cancels the in-flight StreamChat goroutine
 	chatStreamID uint64             // Monotonically increasing stream counter
 	chatMu       sync.Mutex         // Protects chatCancel and chatStreamID
+	syftClient   *syfthub.Client    // Hub API client; nil if not configured
+	username     string             // Authenticated user's username (set after login)
 }
 
 // NewApp creates a new App application struct.
@@ -71,17 +69,8 @@ func (a *App) startup(ctx context.Context) {
 		if settings.APIKey != "" {
 			os.Setenv("SYFTHUB_API_KEY", settings.APIKey)
 
-			// Fetch username from SyftHub API and set SPACE_URL for tunneling mode
-			if err := a.fetchAndSetSpaceURL(ctx, settings.SyftHubURL, settings.APIKey); err != nil {
-				runtime.LogWarning(ctx, fmt.Sprintf("Could not fetch username from SyftHub: %v", err))
-			}
-
-			// Fetch aggregator URL from user profile
-			if aggURL, err := a.fetchAggregatorURL(ctx, settings.SyftHubURL, settings.APIKey); err != nil {
-				runtime.LogWarning(ctx, fmt.Sprintf("Could not fetch aggregator URL: %v", err))
-			} else if aggURL != "" {
-				a.settings.AggregatorURL = aggURL
-			}
+			// Initialize the SDK client (fetches username, sets SPACE_URL)
+			a.initSyftClient(ctx, settings.SyftHubURL, settings.APIKey)
 		}
 
 		// Resolve and set endpoints path
@@ -117,64 +106,42 @@ func (a *App) startup(ctx context.Context) {
 	runtime.LogInfo(ctx, fmt.Sprintf("Settings configured: %v", settings.IsConfigured))
 }
 
-// fetchAndSetSpaceURL fetches the username from SyftHub API and sets SPACE_URL for tunneling mode.
-func (a *App) fetchAndSetSpaceURL(ctx context.Context, syfthubURL, apiKey string) error {
-	// Create auth client to get user info
-	authClient := syfthubapi.NewAuthClient(syfthubURL, apiKey, nil)
+// initSyftClient creates a new syfthub.Client and authenticates to fetch the username.
+// It stores the client in a.syftClient, the username in a.username, and sets SPACE_URL.
+// Safe to call without a.mu held — acquires it internally for state updates.
+func (a *App) initSyftClient(ctx context.Context, syfthubURL, apiKey string) {
+	client, err := syfthub.NewClient(
+		syfthub.WithBaseURL(syfthubURL),
+		syfthub.WithAPIToken(apiKey),
+	)
+	if err != nil {
+		runtime.LogWarning(ctx, fmt.Sprintf("Could not create syfthub client: %v", err))
+		return
+	}
 
-	// Fetch user info with a timeout
+	// Fetch user info with a timeout to get the username for tunneling mode
 	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	user, err := authClient.GetMe(fetchCtx)
+	user, err := client.Auth.Me(fetchCtx)
 	if err != nil {
-		return fmt.Errorf("failed to get user info: %w", err)
+		runtime.LogWarning(ctx, fmt.Sprintf("Could not fetch user info: %v", err))
+		// Store the client even if user info failed — aggregator URL still works
+		a.mu.Lock()
+		a.syftClient = client
+		a.mu.Unlock()
+		return
 	}
 
-	if user.Username == "" {
-		return fmt.Errorf("username not found in response")
-	}
-
-	// Set SPACE_URL for tunneling mode
 	spaceURL := fmt.Sprintf("tunneling:%s", user.Username)
 	os.Setenv("SPACE_URL", spaceURL)
 
+	a.mu.Lock()
+	a.syftClient = client
+	a.username = user.Username
+	a.mu.Unlock()
+
 	runtime.LogInfo(ctx, fmt.Sprintf("Authenticated as %s, using tunnel mode", user.Username))
-	return nil
-}
-
-// fetchAggregatorURL fetches the aggregator_url from the SyftHub user profile.
-// The Go SDK's UserContext struct doesn't include this field, so we parse it directly.
-func (a *App) fetchAggregatorURL(ctx context.Context, syfthubURL, apiKey string) (string, error) {
-	fetchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
-	reqURL := strings.TrimRight(syfthubURL, "/") + "/api/v1/auth/me"
-	req, err := http.NewRequestWithContext(fetchCtx, http.MethodGet, reqURL, nil)
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to fetch user profile: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("user profile request returned %d", resp.StatusCode)
-	}
-
-	var profile struct {
-		AggregatorURL string `json:"aggregator_url"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&profile); err != nil {
-		return "", fmt.Errorf("failed to decode user profile: %w", err)
-	}
-
-	return profile.AggregatorURL, nil
 }
 
 // shutdown is called when the Wails app is closing.
@@ -252,8 +219,8 @@ func (a *App) GetConfig() ConfigInfo {
 	}
 
 	aggURL := ""
-	if a.settings != nil {
-		aggURL = a.settings.AggregatorURL
+	if a.syftClient != nil {
+		aggURL = a.syftClient.AggregatorURL()
 	}
 
 	return ConfigInfo{
@@ -480,9 +447,6 @@ func (a *App) GetSettings() *Settings {
 // SaveSettingsData saves the provided settings and applies them.
 // This is the method exposed to the frontend.
 func (a *App) SaveSettingsData(syfthubURL, apiKey, endpointsPath string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	// Create settings
 	settings := &Settings{
 		SyftHubURL:    syfthubURL,
@@ -506,17 +470,8 @@ func (a *App) SaveSettingsData(syfthubURL, apiKey, endpointsPath string) error {
 	if apiKey != "" {
 		os.Setenv("SYFTHUB_API_KEY", apiKey)
 
-		// Fetch username from SyftHub API and set SPACE_URL for tunneling mode
-		if err := a.fetchAndSetSpaceURL(a.ctx, syfthubURL, apiKey); err != nil {
-			runtime.LogWarning(a.ctx, fmt.Sprintf("Could not fetch username from SyftHub: %v", err))
-		}
-
-		// Fetch and cache aggregator URL
-		if aggURL, err := a.fetchAggregatorURL(a.ctx, syfthubURL, apiKey); err != nil {
-			runtime.LogWarning(a.ctx, fmt.Sprintf("Could not fetch aggregator URL: %v", err))
-		} else if aggURL != "" {
-			settings.AggregatorURL = aggURL
-		}
+		// Initialize the SDK client (network call — acquires a.mu internally)
+		a.initSyftClient(a.ctx, syfthubURL, apiKey)
 	}
 
 	// Resolve and set endpoints path
@@ -526,8 +481,10 @@ func (a *App) SaveSettingsData(syfthubURL, apiKey, endpointsPath string) error {
 	}
 
 	// Update internal state
+	a.mu.Lock()
 	a.settings = settings
 	a.config = app.ConfigFromEnv()
+	a.mu.Unlock()
 
 	runtime.LogInfo(a.ctx, "Settings saved successfully")
 	runtime.LogInfo(a.ctx, fmt.Sprintf("SyftHub URL: %s", syfthubURL))
@@ -755,31 +712,34 @@ func convertLogStats(stats *syfthubapi.LogStats) *LogStats {
 // Chat Bindings
 // ============================================================================
 
-// GetAggregatorURL returns the cached aggregator URL from settings.
+// GetAggregatorURL returns the aggregator URL from the SDK client.
+// Returns a non-empty string whenever the app is configured (defaults to
+// {syfthubURL}/aggregator/api/v1 if no custom aggregator is set).
 func (a *App) GetAggregatorURL() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	if a.settings == nil {
+	if a.syftClient == nil {
+		runtime.LogInfo(a.ctx, "[aggregator] GetAggregatorURL: syftClient is nil, returning empty")
 		return ""
 	}
-	return a.settings.AggregatorURL
+	url := a.syftClient.AggregatorURL()
+	runtime.LogInfo(a.ctx, fmt.Sprintf("[aggregator] GetAggregatorURL: %q", url))
+	return url
 }
 
-// StreamChat starts an SSE streaming chat session with the aggregator.
+// StreamChat starts a streaming chat session via the syfthub SDK.
 // It returns immediately; all streaming data flows through Wails events:
-//   - "chat:stream-event" with a ChatStreamEvent payload for every SSE event
+//   - "chat:stream-event" with a ChatStreamEvent payload for every event
 //
 // Any previously running stream is cancelled before starting the new one.
 func (a *App) StreamChat(request ChatRequest) error {
 	a.mu.RLock()
-	aggURL := ""
-	if a.settings != nil {
-		aggURL = a.settings.AggregatorURL
-	}
+	client := a.syftClient
+	username := a.username
 	a.mu.RUnlock()
 
-	if aggURL == "" {
-		return fmt.Errorf("aggregator URL not configured — save SyftHub settings first")
+	if client == nil {
+		return fmt.Errorf("not configured — save SyftHub settings first")
 	}
 
 	// Cancel any existing in-flight stream.
@@ -803,7 +763,7 @@ func (a *App) StreamChat(request ChatRequest) error {
 			a.chatMu.Unlock()
 		}()
 
-		if err := a.runChatStream(chatCtx, aggURL, request); err != nil {
+		if err := a.runSDKChatStream(chatCtx, client, username, request); err != nil {
 			// Only emit error if the context wasn't cancelled (user stop).
 			if chatCtx.Err() == nil {
 				evt := ChatStreamEvent{Type: "error", Message: err.Error()}
@@ -815,8 +775,8 @@ func (a *App) StreamChat(request ChatRequest) error {
 	return nil
 }
 
-// runChatStream performs the actual HTTP SSE call and emits Wails events.
-func (a *App) runChatStream(ctx context.Context, aggURL string, request ChatRequest) error {
+// runSDKChatStream performs the SDK streaming chat call and emits Wails events.
+func (a *App) runSDKChatStream(ctx context.Context, client *syfthub.Client, username string, request ChatRequest) error {
 	topK := request.TopK
 	if topK == 0 {
 		topK = 5
@@ -830,143 +790,94 @@ func (a *App) runChatStream(ctx context.Context, aggURL string, request ChatRequ
 		temperature = 0.7
 	}
 
-	type aggRef struct {
-		URL           string `json:"url"`
-		Slug          string `json:"slug"`
-		Name          string `json:"name"`
-		TenantName    string `json:"tenant_name,omitempty"`
-		OwnerUsername string `json:"owner_username,omitempty"`
+	// Build model path: "username/slug"
+	modelPath := request.Model.Slug
+	if username != "" {
+		modelPath = username + "/" + request.Model.Slug
 	}
 
-	toAggRef := func(r ChatEndpointRef) aggRef {
-		return aggRef{URL: r.URL, Slug: r.Slug, Name: r.Name, TenantName: r.TenantName, OwnerUsername: r.OwnerUsername}
-	}
-
-	dataSources := make([]aggRef, 0, len(request.DataSources))
+	// Build data source paths
+	dataSources := make([]string, 0, len(request.DataSources))
 	for _, ds := range request.DataSources {
-		dataSources = append(dataSources, toAggRef(ds))
+		if username != "" {
+			dataSources = append(dataSources, username+"/"+ds.Slug)
+		} else {
+			dataSources = append(dataSources, ds.Slug)
+		}
 	}
 
-	messages := make([]map[string]string, 0, len(request.Messages))
+	// Convert conversation history
+	messages := make([]syfthub.Message, 0, len(request.Messages))
 	for _, m := range request.Messages {
-		messages = append(messages, map[string]string{"role": m.Role, "content": m.Content})
+		messages = append(messages, syfthub.Message{Role: m.Role, Content: m.Content})
 	}
 
-	bodyMap := map[string]any{
-		"prompt":             request.Prompt,
-		"model":              toAggRef(request.Model),
-		"data_sources":       dataSources,
-		"endpoint_tokens":    map[string]string{},
-		"transaction_tokens": map[string]string{},
-		"top_k":              topK,
-		"max_tokens":         maxTokens,
-		"temperature":        temperature,
-		"stream":             true,
-	}
-	if len(messages) > 0 {
-		bodyMap["messages"] = messages
+	chatReq := &syfthub.ChatCompleteRequest{
+		Prompt:      request.Prompt,
+		Model:       modelPath,
+		DataSources: dataSources,
+		TopK:        topK,
+		MaxTokens:   maxTokens,
+		Temperature: temperature,
+		Messages:    messages,
 	}
 
-	bodyBytes, err := json.Marshal(bodyMap)
-	if err != nil {
-		return fmt.Errorf("failed to marshal chat request: %w", err)
-	}
+	eventCh, errCh := client.Chat().Stream(ctx, chatReq)
 
-	endpoint := strings.TrimRight(aggURL, "/") + "/chat/stream"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return fmt.Errorf("failed to create HTTP request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "text/event-stream")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("aggregator request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("aggregator returned status %d", resp.StatusCode)
-	}
-
-	scanner := bufio.NewScanner(resp.Body)
-	var eventType string
-	var dataBuffer strings.Builder
-
-	for scanner.Scan() {
+	for eventCh != nil {
 		select {
 		case <-ctx.Done():
 			return nil
-		default:
-		}
-
-		line := scanner.Text()
-
-		switch {
-		case strings.HasPrefix(line, "event: "):
-			eventType = strings.TrimPrefix(line, "event: ")
-		case strings.HasPrefix(line, "data: "):
-			dataBuffer.WriteString(strings.TrimPrefix(line, "data: "))
-		case line == "":
-			if eventType != "" && dataBuffer.Len() > 0 {
-				a.dispatchSSEEvent(eventType, dataBuffer.String())
+		case err, ok := <-errCh:
+			if !ok {
+				errCh = nil
+			} else if err != nil {
+				return err
 			}
-			eventType = ""
-			dataBuffer.Reset()
+		case event, ok := <-eventCh:
+			if !ok {
+				return nil // stream complete
+			}
+			a.dispatchSDKEvent(event, request)
 		}
-	}
-
-	if err := scanner.Err(); err != nil && ctx.Err() == nil {
-		return fmt.Errorf("SSE read error: %w", err)
 	}
 
 	return nil
 }
 
-// dispatchSSEEvent parses a raw SSE data payload and emits a ChatStreamEvent.
-func (a *App) dispatchSSEEvent(eventType, data string) {
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(data), &raw); err != nil {
-		runtime.LogWarning(a.ctx, fmt.Sprintf("chat: failed to parse SSE data for event %q: %v", eventType, err))
-		return
-	}
+// dispatchSDKEvent converts a typed SDK ChatEvent to a ChatStreamEvent and emits it.
+func (a *App) dispatchSDKEvent(event syfthub.ChatEvent, request ChatRequest) {
+	var evt ChatStreamEvent
 
-	evt := ChatStreamEvent{Type: eventType}
-
-	if v, ok := raw["content"]; ok {
-		_ = json.Unmarshal(v, &evt.Content)
-	}
-	if v, ok := raw["sources"]; ok {
-		if eventType == "retrieval_start" {
-			_ = json.Unmarshal(v, &evt.SourceCount)
-		} else {
-			_ = json.Unmarshal(v, &evt.Sources)
+	switch e := event.(type) {
+	case *syfthub.RetrievalStartEvent:
+		evt = ChatStreamEvent{
+			Type:        "retrieval_start",
+			SourceCount: len(request.DataSources),
 		}
-	}
-	if v, ok := raw["path"]; ok {
-		_ = json.Unmarshal(v, &evt.Path)
-	}
-	if v, ok := raw["status"]; ok {
-		_ = json.Unmarshal(v, &evt.Status)
-	}
-	if v, ok := raw["documents_retrieved"]; ok {
-		_ = json.Unmarshal(v, &evt.DocumentsRetrieved)
-	}
-	if v, ok := raw["total_documents"]; ok {
-		_ = json.Unmarshal(v, &evt.TotalDocuments)
-	}
-	if v, ok := raw["time_ms"]; ok {
-		_ = json.Unmarshal(v, &evt.TimeMs)
-	}
-	if v, ok := raw["message"]; ok {
-		_ = json.Unmarshal(v, &evt.Message)
-	}
-	if v, ok := raw["response"]; ok {
-		_ = json.Unmarshal(v, &evt.Response)
-	}
-	if v, ok := raw["profit_share"]; ok {
-		_ = json.Unmarshal(v, &evt.ProfitShare)
+	case *syfthub.SourceCompleteEvent:
+		evt = ChatStreamEvent{
+			Type:               "source_complete",
+			Path:               e.Source.Path,
+			Status:             string(e.Source.Status),
+			DocumentsRetrieved: e.Source.DocumentsRetrieved,
+		}
+	case *syfthub.RetrievalCompleteEvent:
+		evt = ChatStreamEvent{Type: "retrieval_complete"}
+	case *syfthub.GenerationStartEvent:
+		evt = ChatStreamEvent{Type: "generation_start"}
+	case *syfthub.TokenEvent:
+		evt = ChatStreamEvent{Type: "token", Content: e.Content}
+	case *syfthub.DoneEvent:
+		sources := make(map[string]ChatDocumentSource, len(e.Sources))
+		for k, v := range e.Sources {
+			sources[k] = ChatDocumentSource{Slug: v.Slug, Content: v.Content}
+		}
+		evt = ChatStreamEvent{Type: "done", Response: e.Response, Sources: sources}
+	case *syfthub.ErrorEvent:
+		evt = ChatStreamEvent{Type: "error", Message: e.Error}
+	default:
+		return
 	}
 
 	runtime.EventsEmit(a.ctx, "chat:stream-event", evt)
@@ -980,4 +891,141 @@ func (a *App) StopChat() {
 		a.chatCancel()
 		a.chatCancel = nil
 	}
+}
+
+// ============================================================================
+// Aggregator Management Bindings
+// ============================================================================
+
+// toUserAggregator converts the SDK's UserAggregator to the desktop's UserAggregator type.
+func toUserAggregator(a syfthub.UserAggregator) UserAggregator {
+	return UserAggregator{
+		ID:        a.ID,
+		Name:      a.Name,
+		URL:       a.URL,
+		IsDefault: a.IsDefault,
+		CreatedAt: a.CreatedAt.Format(time.RFC3339),
+	}
+}
+
+// GetUserAggregators fetches the list of aggregators for the current user via the SDK.
+func (a *App) GetUserAggregators() ([]UserAggregator, error) {
+	a.mu.RLock()
+	client := a.syftClient
+	a.mu.RUnlock()
+
+	if client == nil {
+		runtime.LogWarning(a.ctx, "[aggregator] GetUserAggregators: app not configured")
+		return nil, fmt.Errorf("app not configured")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	sdkAggregators, err := client.Users.Aggregators.List(ctx)
+	if err != nil {
+		runtime.LogError(a.ctx, fmt.Sprintf("[aggregator] List error: %v", err))
+		return nil, fmt.Errorf("failed to fetch aggregators: %w", err)
+	}
+
+	runtime.LogInfo(a.ctx, fmt.Sprintf("[aggregator] fetched %d aggregators", len(sdkAggregators)))
+
+	result := make([]UserAggregator, 0, len(sdkAggregators))
+	for _, agg := range sdkAggregators {
+		result = append(result, toUserAggregator(agg))
+	}
+	return result, nil
+}
+
+// CreateUserAggregator creates a new aggregator for the current user via the SDK.
+func (a *App) CreateUserAggregator(name, url string, isDefault bool) (UserAggregator, error) {
+	a.mu.RLock()
+	client := a.syftClient
+	a.mu.RUnlock()
+
+	if client == nil {
+		return UserAggregator{}, fmt.Errorf("app not configured")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	created, err := client.Users.Aggregators.Create(ctx, name, url)
+	if err != nil {
+		return UserAggregator{}, fmt.Errorf("failed to create aggregator: %w", err)
+	}
+
+	// If the caller wants this to be default but the server didn't set it as default, set it now.
+	if isDefault && !created.IsDefault {
+		updated, err := client.Users.Aggregators.SetDefault(ctx, created.ID)
+		if err != nil {
+			runtime.LogWarning(a.ctx, fmt.Sprintf("[aggregator] Failed to set default: %v", err))
+			return toUserAggregator(*created), nil
+		}
+		return toUserAggregator(*updated), nil
+	}
+
+	return toUserAggregator(*created), nil
+}
+
+// UpdateUserAggregator updates an existing aggregator by ID via the SDK.
+func (a *App) UpdateUserAggregator(id int, name, url string) (UserAggregator, error) {
+	a.mu.RLock()
+	client := a.syftClient
+	a.mu.RUnlock()
+
+	if client == nil {
+		return UserAggregator{}, fmt.Errorf("app not configured")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	req := &syfthub.UpdateAggregatorRequest{
+		Name: &name,
+		URL:  &url,
+	}
+	updated, err := client.Users.Aggregators.Update(ctx, id, req)
+	if err != nil {
+		return UserAggregator{}, fmt.Errorf("failed to update aggregator: %w", err)
+	}
+
+	return toUserAggregator(*updated), nil
+}
+
+// DeleteUserAggregator deletes an aggregator by ID via the SDK.
+func (a *App) DeleteUserAggregator(id int) error {
+	a.mu.RLock()
+	client := a.syftClient
+	a.mu.RUnlock()
+
+	if client == nil {
+		return fmt.Errorf("app not configured")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	return client.Users.Aggregators.Delete(ctx, id)
+}
+
+// SetDefaultUserAggregator sets the given aggregator as the default via the SDK.
+func (a *App) SetDefaultUserAggregator(id int) (UserAggregator, error) {
+	a.mu.RLock()
+	client := a.syftClient
+	a.mu.RUnlock()
+
+	if client == nil {
+		return UserAggregator{}, fmt.Errorf("app not configured")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	updated, err := client.Users.Aggregators.SetDefault(ctx, id)
+	if err != nil {
+		return UserAggregator{}, fmt.Errorf("failed to set default aggregator: %w", err)
+	}
+
+	return toUserAggregator(*updated), nil
 }

@@ -17,7 +17,6 @@ type Settings struct {
 	APIKey        string `json:"apiKey,omitempty"`
 	EndpointsPath string `json:"endpointsPath"`
 	IsConfigured  bool   `json:"isConfigured"`
-	AggregatorURL string `json:"aggregatorUrl,omitempty"`
 }
 
 // DefaultSettings returns settings with sensible defaults.

@@ -12,6 +12,8 @@ export function CreateEndpoint(arg1:main.CreateEndpointRequest):Promise<string>;
 
 export function CreatePolicyFile(arg1:string,arg2:main.NewPolicyRequest):Promise<void>;
 
+export function CreateUserAggregator(arg1:string,arg2:string,arg3:boolean):Promise<main.UserAggregator>;
+
 export function DeleteDependency(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteEndpoint(arg1:string):Promise<void>;
@@ -23,6 +25,8 @@ export function DeleteLogs(arg1:string):Promise<void>;
 export function DeletePolicy(arg1:string,arg2:string):Promise<void>;
 
 export function DeletePolicyFile(arg1:string,arg2:string):Promise<void>;
+
+export function DeleteUserAggregator(arg1:number):Promise<void>;
 
 export function GetAggregatorURL():Promise<string>;
 
@@ -60,6 +64,8 @@ export function GetSettingsDir():Promise<string>;
 
 export function GetStatus():Promise<main.StatusInfo>;
 
+export function GetUserAggregators():Promise<Array<main.UserAggregator>>;
+
 export function GetVersion():Promise<string>;
 
 export function Greet(arg1:string):Promise<string>;
@@ -88,6 +94,8 @@ export function SaveRunnerCode(arg1:string,arg2:string):Promise<void>;
 
 export function SaveSettingsData(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function SetDefaultUserAggregator(arg1:number):Promise<main.UserAggregator>;
+
 export function SetEnvironment(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function Start():Promise<void>;
@@ -101,3 +109,5 @@ export function StreamChat(arg1:main.ChatRequest):Promise<void>;
 export function ToggleEndpointEnabled(arg1:string):Promise<boolean>;
 
 export function UpdateEndpointOverview(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
+
+export function UpdateUserAggregator(arg1:number,arg2:string,arg3:string):Promise<main.UserAggregator>;

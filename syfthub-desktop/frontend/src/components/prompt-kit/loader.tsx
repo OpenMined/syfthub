@@ -1,11 +1,25 @@
 import { cn } from '@/lib/utils';
 
-type LoaderVariant = 'circular' | 'dots' | 'typing';
+type LoaderVariant =
+  | 'circular'
+  | 'classic'
+  | 'pulse'
+  | 'pulse-dot'
+  | 'dots'
+  | 'typing'
+  | 'wave'
+  | 'bars'
+  | 'terminal'
+  | 'text-blink'
+  | 'text-shimmer'
+  | 'loading-dots';
+
 type LoaderSize = 'sm' | 'md' | 'lg';
 
 export type LoaderProps = {
   variant?: LoaderVariant;
   size?: LoaderSize;
+  text?: string;
   className?: string;
 };
 
