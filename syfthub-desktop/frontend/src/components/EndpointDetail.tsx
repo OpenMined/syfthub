@@ -10,8 +10,6 @@ import { LogsTab } from './tabs/LogsTab';
 function EmptyState() {
   return (
     <div className="h-full flex flex-col text-muted-foreground">
-      {/* Draggable header region for macOS title bar */}
-      <div className="wails-drag h-7 flex-shrink-0" />
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
           <svg
@@ -39,8 +37,6 @@ function EmptyState() {
 function LoadingState() {
   return (
     <div className="h-full flex flex-col">
-      {/* Draggable header region for macOS title bar */}
-      <div className="wails-drag h-7 flex-shrink-0" />
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-secondary border-t-primary rounded-full animate-spin mx-auto mb-3" />
@@ -76,8 +72,6 @@ export function EndpointDetail() {
   if (!selectedEndpointDetail) {
     return (
       <div className="h-full flex flex-col text-destructive">
-        {/* Draggable header region for macOS title bar */}
-        <div className="wails-drag h-7 flex-shrink-0" />
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <p className="text-lg font-medium">Endpoint Not Found</p>
@@ -96,9 +90,6 @@ export function EndpointDetail() {
       onValueChange={(v) => setActiveTab(v as typeof activeTab)}
       className="h-full flex flex-col"
     >
-      {/* Draggable header region for macOS title bar */}
-      <div className="wails-drag h-7 flex-shrink-0 bg-card/30" />
-
       {/* Single-line header: Name | Tabs (centered) | Toggle */}
       <div className="flex-shrink-0 h-11 px-4 border-b border-border/50 bg-card/30 flex items-center">
         {/* Left: Name */}

@@ -84,6 +84,7 @@ interface AppState {
   error: string | null;
   activeTab: 'settings' | 'code' | 'docs' | 'logs';
   settingsSection: 'overview' | 'environment' | 'dependencies' | 'policies';
+  mainView: 'endpoints' | 'chat';
 
   // Logs state
   logs: RequestLogEntry[];
@@ -115,6 +116,7 @@ interface AppState {
   selectEndpoint: (slug: string | null) => Promise<void>;
   setActiveTab: (tab: 'settings' | 'code' | 'docs' | 'logs') => void;
   setSettingsSection: (section: 'overview' | 'environment' | 'dependencies' | 'policies') => void;
+  setMainView: (view: 'endpoints' | 'chat') => void;
 
   // Actions - Logs
   fetchLogs: (status?: string) => Promise<void>;
@@ -186,6 +188,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   error: null,
   activeTab: 'settings',
   settingsSection: 'overview',
+  mainView: 'endpoints',
 
   // Logs initial state
   logs: [],
@@ -431,6 +434,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setSettingsSection: (section) => {
     set({ settingsSection: section });
+  },
+
+  setMainView: (view) => {
+    set({ mainView: view });
   },
 
   // Code actions

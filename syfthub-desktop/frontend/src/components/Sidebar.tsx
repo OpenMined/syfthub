@@ -289,9 +289,6 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Draggable header region for macOS title bar */}
-      <div className="wails-drag h-7 flex-shrink-0" />
-
       {/* Brand row */}
       <div className="px-3 pb-2 flex items-center gap-2 flex-shrink-0">
         <OpenMinedIcon className="w-5 h-5" />
