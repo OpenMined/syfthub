@@ -26,7 +26,6 @@ type NATSTransport struct {
 	privateKey *ecdh.PrivateKey
 
 	mu      sync.Mutex
-	wg      sync.WaitGroup
 	running bool
 	stopCh  chan struct{}
 }
@@ -90,8 +89,7 @@ func (t *NATSTransport) Start(ctx context.Context) error {
 		"subject", creds.Subject,
 	)
 
-	tokenPreviewLen := min(20, len(creds.Token))
-	t.logger.Debug("connecting with token", "token_prefix", creds.Token[:tokenPreviewLen])
+	t.logger.Debug("connecting with token", "token_prefix", creds.Token[:20])
 
 	// Connect to NATS with token auth (exactly like Python: nats.connect(url, token=token, name=name))
 	// Note: ProxyPath("/nats") is required for nginx-proxied WebSocket connections
@@ -131,25 +129,8 @@ func (t *NATSTransport) Start(ctx context.Context) error {
 
 	t.logger.Info("connected to NATS", "server", conn.ConnectedUrl())
 
-	// Subscribe to the space's subject.
-	// Each message is dispatched in its own goroutine so the NATS delivery
-	// goroutine is never blocked by a long-running Python subprocess. Without
-	// this, a handler that internally triggers a second NATS request to the
-	// same subject (e.g. a model endpoint calling back through SyftHub into
-	// the same user's tunneling space) would deadlock: the outer handler
-	// holds the dispatch goroutine, so the inner request is never delivered.
-	sub, err := conn.Subscribe(creds.Subject, func(msg *nats.Msg) {
-		t.wg.Add(1)
-		go func() {
-			defer t.wg.Done()
-			defer func() {
-				if r := recover(); r != nil {
-					t.logger.Error("panic recovered in message handler", "panic", r)
-				}
-			}()
-			t.handleMessage(msg)
-		}()
-	})
+	// Subscribe to the space's subject
+	sub, err := conn.Subscribe(creds.Subject, t.handleMessage)
 	if err != nil {
 		conn.Close()
 		return &syfthubapi.TransportError{
@@ -184,27 +165,11 @@ func (t *NATSTransport) Stop(ctx context.Context) error {
 
 	t.logger.Info("stopping NATS transport")
 
-	// Unsubscribe — no new messages will be dispatched after this returns.
+	// Unsubscribe
 	if t.sub != nil {
 		if err := t.sub.Unsubscribe(); err != nil {
 			t.logger.Warn("error unsubscribing", "error", err)
 		}
-	}
-
-	// Wait for all in-flight message handlers to finish before tearing down
-	// the connection. Handlers may still be publishing responses, so closing
-	// the connection first would cause spurious publish errors.
-	// Respect the caller's context deadline to avoid hanging indefinitely.
-	waitDone := make(chan struct{})
-	go func() {
-		t.wg.Wait()
-		close(waitDone)
-	}()
-	select {
-	case <-waitDone:
-		t.logger.Info("all in-flight handlers completed")
-	case <-ctx.Done():
-		t.logger.Warn("timed out waiting for in-flight handlers to complete")
 	}
 
 	// Drain and close connection

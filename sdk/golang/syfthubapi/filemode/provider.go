@@ -388,7 +388,6 @@ func (p *Provider) createEndpoint(loaded *LoadedEndpoint) (*syfthubapi.Endpoint,
 		Enabled:     enabled,
 		Version:     loaded.Config.Version,
 		Readme:      loaded.ReadmeBody,
-		Policies:    loaded.PolicyConfigs,
 	}
 
 	// Set the executor for file-based execution

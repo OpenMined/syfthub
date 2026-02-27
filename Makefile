@@ -1,4 +1,4 @@
-.PHONY: help setup dev stop test test-serial test-integration check logs
+.PHONY: help setup dev stop test test-integration check logs
 
 # =============================================================================
 # SyftHub Development Commands
@@ -76,9 +76,6 @@ test:  ## Run all tests (parallel execution using all CPU cores)
 	@echo 'CLI tests...'
 	@cd cli && uv sync --extra dev && uv run pytest
 	@echo ''
-	@echo 'SyftHub API tests...'
-	@cd syfthub-api && uv sync --extra dev && uv run pytest tests/ -v
-	@echo ''
 	@echo 'Python SDK unit tests...'
 	@cd sdk/python && uv sync --extra dev && uv run pytest tests/unit
 	@echo ''
@@ -91,37 +88,6 @@ test:  ## Run all tests (parallel execution using all CPU cores)
 	@echo '═══════════════════════════════════════════════════════════════'
 	@echo '  All tests complete!'
 	@echo '═══════════════════════════════════════════════════════════════'
-
-test-serial:  ## Run all tests sequentially (for debugging)
-	@echo '═══════════════════════════════════════════════════════════════'
-	@echo '  Running all tests in SERIAL mode (-n 0)'
-	@echo '═══════════════════════════════════════════════════════════════'
-	@echo ''
-	@echo 'Backend tests...'
-	@cd components/backend && uv sync --extra dev && uv run pytest -n 0
-	@echo ''
-	@echo 'Aggregator tests...'
-	@cd components/aggregator && uv sync --extra dev && uv run pytest -n 0
-	@echo ''
-	@echo 'CLI tests...'
-	@cd cli && uv sync --extra dev && uv run pytest -n 0
-	@echo ''
-	@echo 'SyftHub API tests...'
-	@cd syfthub-api && uv sync --extra dev && uv run pytest tests/ -v -n 0
-	@echo ''
-	@echo 'Python SDK unit tests...'
-	@cd sdk/python && uv sync --extra dev && uv run pytest tests/unit -n 0
-	@echo ''
-	@echo 'TypeScript SDK unit tests...'
-	@cd sdk/typescript && npx vitest run --exclude 'tests/integration/**' || echo 'TypeScript SDK tests skipped'
-	@echo ''
-	@echo 'Frontend tests...'
-	@cd components/frontend && npm run test --if-present || echo 'Frontend tests skipped (playwright not configured)'
-	@echo ''
-	@echo '═══════════════════════════════════════════════════════════════'
-	@echo '  All tests complete!'
-	@echo '═══════════════════════════════════════════════════════════════'
-
 
 test-integration:  ## Run integration tests (requires dev server running)
 	@echo 'Running SDK integration tests...'
@@ -139,6 +105,8 @@ check:  ## Run code quality checks (mirrors pre-commit hooks)
 	@echo '  (mirrors pre-commit hooks — pass here, pass on commit)'
 	@echo '═══════════════════════════════════════════════════════════════'
 	@echo ''
+	@echo 'Executing make setup'
+	@make setup
 	@echo 'General checks (whitespace, yaml, toml, merge conflicts)...'
 	@. .venv/bin/activate && pre-commit run trailing-whitespace --all-files
 	@. .venv/bin/activate && pre-commit run end-of-file-fixer --all-files
@@ -154,11 +122,6 @@ check:  ## Run code quality checks (mirrors pre-commit hooks)
 	@cd components/backend && uv sync --extra dev && uv run ruff check src/ tests/
 	@cd components/backend && uv run ruff format --check src/ tests/
 	@cd components/backend && uv run python -m mypy src/
-	@echo ''
-	@echo 'SyftHub API checks...'
-	@cd syfthub-api && uv run ruff check src/ tests/
-	@cd syfthub-api && uv run ruff format --check src/ tests/
-	@cd syfthub-api && uv run mypy src/syfthub_api/ --ignore-missing-imports
 	@echo ''
 	@echo 'Aggregator checks (ruff, format, mypy)...'
 	@cd components/aggregator && uv sync --extra dev && uv run ruff check src/ tests/

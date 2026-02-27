@@ -40,6 +40,9 @@ services:
       - ../components/backend/src:/app/src:cached
       - ../components/backend/tests:/app/tests:cached
       - ../components/backend/pyproject.toml:/app/pyproject.toml:cached
+      # Alembic migrations for auto-migration on startup
+      - ../components/backend/alembic.ini:/app/alembic.ini:cached
+      - ../components/backend/alembic:/app/alembic:cached
       # Database volume
       - ../components/backend/data:/app/data
       # Named volume for RSA keys so the syfthub user (uid 1000) has write access

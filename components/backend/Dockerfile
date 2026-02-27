@@ -71,6 +71,8 @@ COPY --chown=syfthub:syfthub tests tests
 COPY --chown=syfthub:syfthub requirements.txt .
 COPY --chown=syfthub:syfthub uv.lock .
 COPY --chown=syfthub:syfthub README.md .
+COPY --chown=syfthub:syfthub alembic.ini .
+COPY --chown=syfthub:syfthub alembic alembic
 
 # Switch to non-root user
 USER syfthub
@@ -104,6 +106,8 @@ COPY --chown=syfthub:syfthub tests tests
 COPY --chown=syfthub:syfthub requirements.txt .
 COPY --chown=syfthub:syfthub uv.lock .
 COPY --chown=syfthub:syfthub README.md .
+COPY --chown=syfthub:syfthub alembic.ini .
+COPY --chown=syfthub:syfthub alembic alembic
 
 # Switch to non-root user
 USER syfthub
@@ -119,6 +123,8 @@ FROM dependencies AS builder
 COPY --chown=syfthub:syfthub src src
 COPY --chown=syfthub:syfthub LICENSE* ./
 COPY --chown=syfthub:syfthub CHANGELOG* ./
+COPY --chown=syfthub:syfthub alembic.ini .
+COPY --chown=syfthub:syfthub alembic alembic
 
 # Build the package
 RUN uv build --wheel
@@ -154,6 +160,10 @@ COPY --from=builder --chown=syfthub:syfthub /app/dist/*.whl /tmp/
 RUN uv venv .venv && \
     uv pip install /tmp/*.whl --python .venv/bin/python && \
     rm -rf /tmp/*.whl
+
+# Copy Alembic migration files for auto-migration on startup
+COPY --from=builder --chown=syfthub:syfthub /app/alembic.ini .
+COPY --from=builder --chown=syfthub:syfthub /app/alembic alembic
 
 # Create necessary directories
 RUN mkdir -p /app/data && \
@@ -214,6 +224,10 @@ RUN uv venv .venv && \
     uv pip install /tmp/*.whl --python .venv/bin/python && \
     rm -rf /tmp/*.whl && \
     apk del .build-deps
+
+# Copy Alembic migration files for auto-migration on startup
+COPY --from=builder --chown=syfthub:syfthub /app/alembic.ini .
+COPY --from=builder --chown=syfthub:syfthub /app/alembic alembic
 
 # Create necessary directories
 RUN mkdir -p /app/data && \

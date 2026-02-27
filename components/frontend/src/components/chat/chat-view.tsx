@@ -12,9 +12,18 @@ import type { SearchableChatSource } from '@/lib/search-service';
 import type { ChatSource } from '@/lib/types';
 import type { SourcesData } from './sources-section';
 
+import Check from 'lucide-react/dist/esm/icons/check';
+import Copy from 'lucide-react/dist/esm/icons/copy';
+
 import { OnboardingWelcomeBanner } from '@/components/onboarding';
 import { ChatContainerContent, ChatContainerRoot } from '@/components/prompt-kit/chat-container';
-import { Message, MessageContent } from '@/components/prompt-kit/message';
+import {
+  Message,
+  MessageAction,
+  MessageActions,
+  MessageAvatar,
+  MessageContent
+} from '@/components/prompt-kit/message';
 import { ScrollButton } from '@/components/prompt-kit/scroll-button';
 import { useChatWorkflow } from '@/hooks/use-chat-workflow';
 import { useDataSources } from '@/hooks/use-data-sources';
@@ -149,6 +158,16 @@ export function ChatView({
 
   const pendingMessageIdReference = useRef<string | null>(null);
   const lastQueryReference = useRef<string>('');
+
+  // Copy-to-clipboard state for assistant messages
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const handleCopy = useCallback((content: string, messageId: string) => {
+    void navigator.clipboard.writeText(content);
+    setCopiedId(messageId);
+    setTimeout(() => {
+      setCopiedId((prev) => (prev === messageId ? null : prev));
+    }, 2000);
+  }, []);
 
   // Use workflow hook
   const workflow = useChatWorkflow({
@@ -377,35 +396,69 @@ export function ChatView({
                     </div>
                   </Message>
                 ) : (
-                  /* ── Assistant response ── free-flowing content, no bubble */
-                  <div key={message.id} className='max-w-3xl'>
-                    {message.content && (
-                      <MarkdownMessage
-                        content={message.content}
-                        annotatedContent={message.annotatedResponse}
-                        id={message.id}
-                      />
-                    )}
-                    {message.aggregatorSources &&
-                      Object.keys(message.aggregatorSources).length > 0 && (
-                        <div className='mt-4'>
-                          <SourcesSection sources={message.aggregatorSources} />
-                        </div>
+                  /* ── Assistant response ── avatar + free-flowing content + hover actions */
+                  <Message key={message.id} className='group/message max-w-3xl items-start'>
+                    <MessageAvatar
+                      src='/favicon/openmined-icon.svg'
+                      alt='SyftHub'
+                      fallback='S'
+                      className='mt-0.5'
+                    />
+                    <div className='flex min-w-0 flex-1 flex-col'>
+                      {message.content && (
+                        <MarkdownMessage
+                          content={message.content}
+                          annotatedContent={message.annotatedResponse}
+                          id={message.id}
+                        />
                       )}
-                  </div>
+                      {message.aggregatorSources &&
+                        Object.keys(message.aggregatorSources).length > 0 && (
+                          <div className='mt-4'>
+                            <SourcesSection sources={message.aggregatorSources} />
+                          </div>
+                        )}
+                      <MessageActions className='mt-2 opacity-0 transition-opacity group-hover/message:opacity-100'>
+                        <MessageAction tooltip='Copy message'>
+                          <button
+                            type='button'
+                            aria-label='Copy message'
+                            onClick={() => {
+                              handleCopy(message.content ?? '', message.id);
+                            }}
+                            className='hover:text-foreground text-muted-foreground rounded p-1 transition-colors'
+                          >
+                            {copiedId === message.id ? (
+                              <Check className='h-3.5 w-3.5 text-green-500' />
+                            ) : (
+                              <Copy className='h-3.5 w-3.5' />
+                            )}
+                          </button>
+                        </MessageAction>
+                      </MessageActions>
+                    </div>
+                  </Message>
                 )
               )}
 
               {/* Workflow UI - Processing Status & Streaming */}
               {(workflow.phase === 'preparing' || workflow.phase === 'streaming') && (
-                <div className='flex max-w-3xl flex-col gap-3'>
-                  {workflow.processingStatus && (
-                    <StatusIndicator status={workflow.processingStatus} />
-                  )}
-                  {workflow.streamedContent && (
-                    <MarkdownMessage content={workflow.streamedContent} id='streaming' />
-                  )}
-                </div>
+                <Message className='max-w-3xl items-start'>
+                  <MessageAvatar
+                    src='/favicon/openmined-icon.svg'
+                    alt='SyftHub'
+                    fallback='S'
+                    className='mt-0.5'
+                  />
+                  <div className='flex min-w-0 flex-1 flex-col gap-3'>
+                    {workflow.processingStatus && (
+                      <StatusIndicator status={workflow.processingStatus} />
+                    )}
+                    {workflow.streamedContent && (
+                      <MarkdownMessage content={workflow.streamedContent} id='streaming' />
+                    )}
+                  </div>
+                </Message>
               )}
 
               {/* Error display */}

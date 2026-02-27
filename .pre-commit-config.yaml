@@ -99,6 +99,7 @@ repos:
           nats-py,
           sse-starlette,
           pyjwt,
+          cryptography,
         ]
 
   # Frontend hooks
@@ -142,7 +143,6 @@ repos:
         files: ^sdk/typescript/.*\.ts$
         pass_filenames: false
 
-
   # Go SDK hooks (sdk/golang)
   - repo: local
     hooks:
@@ -165,31 +165,6 @@ repos:
         entry: sh -c 'cd sdk/golang && go test ./... -count=1'
         language: system
         files: ^sdk/golang/.*\.go$
-        pass_filenames: false
-        stages: [pre-push]
-
-  # SyftHub Desktop hooks (syfthub-desktop)
-  - repo: local
-    hooks:
-      - id: desktop-gofmt
-        name: go fmt (syfthub-desktop)
-        entry: sh -c 'cd syfthub-desktop && test -z "$(gofmt -l .)"'
-        language: system
-        files: ^syfthub-desktop/.*\.go$
-        pass_filenames: false
-
-      - id: desktop-govet
-        name: go vet (syfthub-desktop)
-        entry: sh -c 'cd syfthub-desktop && go vet ./...'
-        language: system
-        files: ^syfthub-desktop/.*\.go$
-        pass_filenames: false
-
-      - id: desktop-gotest
-        name: go test (syfthub-desktop)
-        entry: sh -c 'cd syfthub-desktop && go test ./... -count=1'
-        language: system
-        files: ^syfthub-desktop/.*\.go$
         pass_filenames: false
         stages: [pre-push]
 

@@ -32,15 +32,6 @@ const POLICY_TYPE_CONFIG: Record<
     description: string;
   }
 > = {
-  // Subscription policies
-  bundle_subscription: {
-    icon: CreditCard,
-    label: 'Bundle Subscription',
-    color: 'text-violet-600 dark:text-violet-400',
-    bgColor: 'bg-violet-50 dark:bg-violet-950/30',
-    borderColor: 'border-violet-200 dark:border-violet-800',
-    description: 'Subscription plan required to access this endpoint'
-  },
   // Transaction/Pricing policies
   transaction: {
     icon: Coins,
@@ -49,6 +40,14 @@ const POLICY_TYPE_CONFIG: Record<
     bgColor: 'bg-emerald-50 dark:bg-emerald-950/30',
     borderColor: 'border-emerald-200 dark:border-emerald-800',
     description: 'Pay-per-use pricing for this endpoint'
+  },
+  bundle_subscription: {
+    icon: CreditCard,
+    label: 'Bundle Subscription',
+    color: 'text-violet-600 dark:text-violet-400',
+    bgColor: 'bg-violet-50 dark:bg-violet-950/30',
+    borderColor: 'border-violet-200 dark:border-violet-800',
+    description: 'Subscription required to access this endpoint'
   },
   // Access control policies
   public: {
@@ -149,20 +148,6 @@ export const PolicyItem = memo(function PolicyItem({ policy }: Readonly<PolicyIt
   const policyTypeLower = policy.type.toLowerCase();
   const isTransaction = policyTypeLower === 'transaction';
   const isBundleSubscription = policyTypeLower === 'bundle_subscription';
-
-  const hasConfig = Object.keys(policy.config).length > 0;
-  let policySpecificContent: React.ReactNode = null;
-  if (hasConfig) {
-    if (isBundleSubscription) {
-      policySpecificContent = (
-        <BundleSubscriptionPolicyContent config={policy.config} enabled={policy.enabled} />
-      );
-    } else if (isTransaction) {
-      policySpecificContent = <TransactionPolicyContent config={policy.config} />;
-    } else {
-      policySpecificContent = <GenericPolicyContent config={policy.config} />;
-    }
-  }
 
   // For unknown policy types, use the type as the label
   const displayLabel = POLICY_TYPE_CONFIG[policy.type.toLowerCase()]

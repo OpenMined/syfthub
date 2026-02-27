@@ -98,10 +98,39 @@ class RetrievalCompleteEvent:
 
 
 @dataclass(frozen=True)
+class RerankingStartEvent:
+    """Fired when document reranking begins (after all sources complete)."""
+
+    type: Literal["reranking_start"] = field(default="reranking_start", repr=False)
+    documents: int = 0
+
+
+@dataclass(frozen=True)
+class RerankingCompleteEvent:
+    """Fired when document reranking completes."""
+
+    type: Literal["reranking_complete"] = field(
+        default="reranking_complete", repr=False
+    )
+    documents: int = 0
+    time_ms: int = 0
+
+
+@dataclass(frozen=True)
 class GenerationStartEvent:
     """Fired when model generation begins."""
 
     type: Literal["generation_start"] = field(default="generation_start", repr=False)
+
+
+@dataclass(frozen=True)
+class GenerationHeartbeatEvent:
+    """Fired periodically during non-streaming model generation (~every 3s)."""
+
+    type: Literal["generation_heartbeat"] = field(
+        default="generation_heartbeat", repr=False
+    )
+    elapsed_ms: int = 0
 
 
 @dataclass(frozen=True)
@@ -137,7 +166,10 @@ ChatStreamEvent = (
     RetrievalStartEvent
     | SourceCompleteEvent
     | RetrievalCompleteEvent
+    | RerankingStartEvent
+    | RerankingCompleteEvent
     | GenerationStartEvent
+    | GenerationHeartbeatEvent
     | TokenEvent
     | DoneEvent
     | ErrorEvent
@@ -475,8 +507,20 @@ class ChatResource:
                 time_ms=data.get("time_ms", 0),
             )
 
+        elif event_type == "reranking_start":
+            return RerankingStartEvent(documents=data.get("documents", 0))
+
+        elif event_type == "reranking_complete":
+            return RerankingCompleteEvent(
+                documents=data.get("documents", 0),
+                time_ms=data.get("time_ms", 0),
+            )
+
         elif event_type == "generation_start":
             return GenerationStartEvent()
+
+        elif event_type == "generation_heartbeat":
+            return GenerationHeartbeatEvent(elapsed_ms=data.get("elapsed_ms", 0))
 
         elif event_type == "token":
             return TokenEvent(content=data.get("content", ""))
