@@ -26,13 +26,13 @@ import { useContextSelectionStore } from '@/stores/context-selection-store';
 
 const SEARCH_SUGGESTIONS = [
   'Ask WGA about parental leave',
-  'Ask OpenMined about attribution'
+  'Ask OpenMined about attribution-based control'
 ] as const;
 
 /** Maps suggestion text to the data source full_path that should be auto-selected */
 const SUGGESTION_SOURCE_MAP: Record<string, string> = {
   'Ask WGA about parental leave': 'openmined-data/screenwriters-handbook',
-  'Ask OpenMined about attribution': 'openmined-data/abc-openmined'
+  'Ask OpenMined about attribution-based control': 'openmined-data/abc-openmined'
 };
 
 // =============================================================================
