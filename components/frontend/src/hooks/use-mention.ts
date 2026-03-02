@@ -186,6 +186,7 @@ export function useMention({ sources, maxResults = 8 }: UseMentionOptions): UseM
     const seen = new Set<string>();
     const merged: ChatSource[] = [];
     for (const ep of fetchedEndpoints) {
+      if (ep.type !== 'data_source' && ep.type !== 'model_data_source') continue;
       const key = ep.full_path ?? (ep.owner_username ?? '') + '/' + ep.slug;
       if (!seen.has(key)) {
         seen.add(key);
