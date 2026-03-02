@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Optional
@@ -166,6 +167,40 @@ class EndpointHealthMonitor:
 
         return build_connection_url(owner_domain, "https", path=health_path)
 
+    @staticmethod
+    def _rows_to_health_infos(
+        rows: list[Any], owner_type: str
+    ) -> list[EndpointHealthInfo]:
+        """Convert query rows to EndpointHealthInfo objects, skipping rows without connect."""
+        infos: list[EndpointHealthInfo] = []
+        for row in rows:
+            (
+                endpoint_id,
+                slug,
+                endpoint_type,
+                is_active,
+                connect,
+                domain,
+                owner_id,
+                heartbeat_expires_at,
+            ) = row
+            # Endpoints without domain will be marked unhealthy in health check
+            if connect:
+                infos.append(
+                    EndpointHealthInfo(
+                        id=endpoint_id,
+                        slug=slug,
+                        endpoint_type=endpoint_type,
+                        is_active=is_active,
+                        connect=connect,
+                        owner_domain=domain,  # May be None
+                        owner_id=owner_id,
+                        owner_type=owner_type,
+                        heartbeat_expires_at=heartbeat_expires_at,
+                    )
+                )
+        return infos
+
     def _get_endpoints_for_health_check(
         self, session: Session
     ) -> list[EndpointHealthInfo]:
@@ -212,69 +247,11 @@ class EndpointHealthMonitor:
             OrganizationModel.heartbeat_expires_at,
         ).join(OrganizationModel, EndpointModel.organization_id == OrganizationModel.id)
 
-        endpoints: list[EndpointHealthInfo] = []
-
-        # Execute user endpoints query
-        user_results = session.execute(user_endpoints_stmt).all()
-        for row in user_results:
-            (
-                endpoint_id,
-                slug,
-                endpoint_type,
-                is_active,
-                connect,
-                domain,
-                owner_id,
-                heartbeat_expires_at,
-            ) = row
-            # Include endpoints with connections (even if domain is None)
-            # Endpoints without domain will be marked unhealthy in health check
-            if connect:
-                endpoints.append(
-                    EndpointHealthInfo(
-                        id=endpoint_id,
-                        slug=slug,
-                        endpoint_type=endpoint_type,
-                        is_active=is_active,
-                        connect=connect,
-                        owner_domain=domain,  # May be None
-                        owner_id=owner_id,
-                        owner_type="user",
-                        heartbeat_expires_at=heartbeat_expires_at,
-                    )
-                )
-
-        # Execute organization endpoints query
-        org_results = session.execute(org_endpoints_stmt).all()
-        for row in org_results:
-            (
-                endpoint_id,
-                slug,
-                endpoint_type,
-                is_active,
-                connect,
-                domain,
-                owner_id,
-                heartbeat_expires_at,
-            ) = row
-            # Include endpoints with connections (even if domain is None)
-            # Endpoints without domain will be marked unhealthy in health check
-            if connect:
-                endpoints.append(
-                    EndpointHealthInfo(
-                        id=endpoint_id,
-                        slug=slug,
-                        endpoint_type=endpoint_type,
-                        is_active=is_active,
-                        connect=connect,
-                        owner_domain=domain,  # May be None
-                        owner_id=owner_id,
-                        owner_type="organization",
-                        heartbeat_expires_at=heartbeat_expires_at,
-                    )
-                )
-
-        return endpoints
+        return self._rows_to_health_infos(
+            session.execute(user_endpoints_stmt).all(), "user"
+        ) + self._rows_to_health_infos(
+            session.execute(org_endpoints_stmt).all(), "organization"
+        )
 
     async def _check_endpoint_health(
         self,
@@ -589,6 +566,7 @@ class EndpointHealthMonitor:
         )
 
         while self._running:
+            cycle_start = time.monotonic()
             try:
                 await self.run_health_check_cycle()
             except asyncio.CancelledError:
@@ -597,9 +575,12 @@ class EndpointHealthMonitor:
             except Exception as e:
                 logger.error(f"Health check cycle failed: {e}", exc_info=True)
 
-            # Wait for the next cycle
+            # Drift-correcting sleep: subtract time spent in the cycle so the
+            # next cycle starts roughly self.interval seconds after the last one began.
+            elapsed = time.monotonic() - cycle_start
+            sleep_for = max(0.0, self.interval - elapsed)
             try:
-                await asyncio.sleep(self.interval)
+                await asyncio.sleep(sleep_for)
             except asyncio.CancelledError:
                 logger.info("Health monitor sleep cancelled")
                 break

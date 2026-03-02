@@ -139,29 +139,26 @@ class EndpointService(BaseService):
         return f"{base_slug[:50]}-{timestamp}"
 
     def _validate_contributors(self, contributor_ids: List[int]) -> List[int]:
-        """Validate that contributor user IDs exist and are active."""
+        """Validate that contributor user IDs exist and are active.
+
+        Uses a single batch query instead of N individual lookups.
+        """
         if not contributor_ids:
             return []
 
         # Remove duplicates while preserving order
-        unique_ids = []
-        seen = set()
-        for user_id in contributor_ids:
-            if user_id not in seen:
-                unique_ids.append(user_id)
-                seen.add(user_id)
+        seen: set[int] = set()
+        unique_ids: List[int] = []
+        for uid in contributor_ids:
+            if uid not in seen:
+                unique_ids.append(uid)
+                seen.add(uid)
 
-        # Validate each user ID exists and is active
-        valid_contributors = []
-        for user_id in unique_ids:
-            user = self.user_repository.get_by_id(user_id)
-            if user and user.is_active:
-                valid_contributors.append(user_id)
-            else:
-                # Log warning but don't fail - just skip invalid contributors
-                continue
+        # Batch fetch all users in one query
+        users = self.user_repository.get_by_ids(unique_ids)
+        active_ids = {u.id for u in users if u.is_active}
 
-        return valid_contributors
+        return [uid for uid in unique_ids if uid in active_ids]
 
     @staticmethod
     def _inject_subscription_tag(tags: list[str], policies: list[Policy]) -> list[str]:
@@ -334,90 +331,14 @@ class EndpointService(BaseService):
             skip, limit, endpoint_type, search
         )
 
-    def update_endpoint(
-        self, endpoint_id: int, endpoint_data: EndpointUpdate, current_user: User
+    def _apply_endpoint_update(
+        self, endpoint: Endpoint, endpoint_data: EndpointUpdate, current_user: User
     ) -> EndpointResponse:
-        """Update endpoint."""
-        endpoint = self.endpoint_repository.get_by_id(endpoint_id)
-        if not endpoint:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Endpoint not found",
-            )
+        """Apply validated update data to an already-fetched endpoint.
 
-        # Check permissions
-        if not self._can_modify_endpoint(endpoint, current_user):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Permission denied: insufficient permissions",
-            )
-
-        # Track old visibility for RAG update
-        old_visibility = endpoint.visibility.value
-
-        # Validate contributors if they are being updated
-        if endpoint_data.contributors is not None:
-            valid_contributors = self._validate_contributors(endpoint_data.contributors)
-            # Ensure at least one contributor exists (the user performing the update)
-            # For user-owned endpoints, the owner should always be included
-            # For org-owned endpoints, ensure the updating user is included if list would be empty
-            if endpoint.user_id and endpoint.user_id not in valid_contributors:
-                valid_contributors.append(endpoint.user_id)
-            elif not endpoint.user_id and current_user.id not in valid_contributors:
-                # Org-owned endpoint: ensure at least the updating user is a contributor
-                valid_contributors.append(current_user.id)
-            endpoint_data.contributors = valid_contributors
-
-        # Auto-inject 'subscription' tag when a bundle_subscription policy is present
-        if endpoint_data.policies is not None:
-            effective_tags = (
-                endpoint_data.tags
-                if endpoint_data.tags is not None
-                else (endpoint.tags or [])
-            )
-            new_tags = self._inject_subscription_tag(
-                effective_tags, endpoint_data.policies
-            )
-            if new_tags != effective_tags:
-                endpoint_data.tags = new_tags
-
-        updated_endpoint = self.endpoint_repository.update_endpoint(
-            endpoint_id, endpoint_data
-        )
-        if not updated_endpoint:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to update endpoint",
-            )
-
-        # Handle RAG update based on visibility change or content change
-        new_visibility = updated_endpoint.visibility.value
-        self._update_rag_on_visibility_change(
-            endpoint_id, old_visibility, new_visibility
-        )
-
-        return self._to_response_with_urls(updated_endpoint)
-
-    def update_endpoint_by_slug(
-        self, endpoint_slug: str, endpoint_data: EndpointUpdate, current_user: User
-    ) -> EndpointResponse:
-        """Update endpoint by slug."""
-        endpoint = self.endpoint_repository.get_by_user_and_slug(
-            current_user.id, endpoint_slug
-        )
-        if not endpoint:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Endpoint not found",
-            )
-
-        if not self._can_modify_endpoint(endpoint, current_user):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Permission denied: insufficient permissions",
-            )
-
-        # Track old visibility for RAG update
+        Shared implementation for update_endpoint and update_endpoint_by_slug.
+        Assumes permission check has already been performed by the caller.
+        """
         old_visibility = endpoint.visibility.value
 
         # Validate contributors if they are being updated
@@ -455,13 +376,52 @@ class EndpointService(BaseService):
                 detail="Failed to update endpoint",
             )
 
-        # Handle RAG update based on visibility change or content change
         new_visibility = updated_endpoint.visibility.value
         self._update_rag_on_visibility_change(
             endpoint.id, old_visibility, new_visibility
         )
 
         return self._to_response_with_urls(updated_endpoint)
+
+    def update_endpoint(
+        self, endpoint_id: int, endpoint_data: EndpointUpdate, current_user: User
+    ) -> EndpointResponse:
+        """Update endpoint."""
+        endpoint = self.endpoint_repository.get_by_id(endpoint_id)
+        if not endpoint:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Endpoint not found",
+            )
+
+        if not self._can_modify_endpoint(endpoint, current_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Permission denied: insufficient permissions",
+            )
+
+        return self._apply_endpoint_update(endpoint, endpoint_data, current_user)
+
+    def update_endpoint_by_slug(
+        self, endpoint_slug: str, endpoint_data: EndpointUpdate, current_user: User
+    ) -> EndpointResponse:
+        """Update endpoint by slug."""
+        endpoint = self.endpoint_repository.get_by_user_and_slug(
+            current_user.id, endpoint_slug
+        )
+        if not endpoint:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Endpoint not found",
+            )
+
+        if not self._can_modify_endpoint(endpoint, current_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Permission denied: insufficient permissions",
+            )
+
+        return self._apply_endpoint_update(endpoint, endpoint_data, current_user)
 
     def admin_update_endpoint(
         self, endpoint_id: int, admin_data: EndpointAdminUpdate, current_user: User
