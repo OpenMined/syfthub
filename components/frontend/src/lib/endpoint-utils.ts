@@ -371,7 +371,9 @@ export async function getPublicEndpointOwners(): Promise<OwnerInfo[]> {
     }
 
     const rawData = (await response.json()) as RawOwnersListResponse;
-    return rawData.owners.map((o) => ({ username: o.username, endpointCount: o.endpoint_count }));
+    return rawData.owners
+      .filter((o) => o.data_source_count > 0)
+      .map((o) => ({ username: o.username, endpointCount: o.data_source_count }));
   } catch (error) {
     console.error('Failed to fetch public endpoint owners:', error);
     return [];
