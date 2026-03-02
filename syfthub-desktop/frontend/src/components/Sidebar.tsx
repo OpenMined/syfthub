@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Search, Settings, FolderOpen, Plus, ShieldCheck } from 'lucide-react';
+import { Search, Settings, FolderOpen, Plus, ShieldCheck, Store } from 'lucide-react';
 import { useAppStore, type EndpointInfo } from '../stores/appStore';
 import {
   Tooltip,
@@ -255,7 +255,7 @@ function EndpointItem({
 }
 
 export function Sidebar({ onSettingsClick }: SidebarProps) {
-  const { endpoints, selectedEndpointSlug, selectEndpoint, isInitializing, setCreateDialogOpen } = useAppStore();
+  const { endpoints, selectedEndpointSlug, selectEndpoint, isInitializing, setCreateDialogOpen, showMarketplace, setShowMarketplace } = useAppStore();
 
   // Local filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -373,6 +373,24 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Marketplace button */}
+      <div className="px-2 pb-1 flex-shrink-0">
+        <button
+          onClick={() => setShowMarketplace(!showMarketplace)}
+          className={`
+            w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium
+            transition-colors duration-150
+            ${showMarketplace
+              ? 'bg-primary/10 text-primary border border-primary/20'
+              : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50 border border-transparent'
+            }
+          `}
+        >
+          <Store className="w-4 h-4 flex-shrink-0" />
+          Marketplace
+        </button>
       </div>
 
       {/* Footer with status and settings */}

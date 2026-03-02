@@ -12,7 +12,7 @@ interface AppShellProps {
 }
 
 export function AppShell({ sidebar, children }: AppShellProps) {
-  const { error, refreshAll, clearError, mainView, setMainView } = useAppStore();
+  const { error, refreshAll, clearError, mainView, setMainView, showMarketplace } = useAppStore();
 
   // Initial data load
   useEffect(() => {
@@ -55,16 +55,6 @@ export function AppShell({ sidebar, children }: AppShellProps) {
               }`}
             >
               Chat
-            </button>
-            <button
-              onClick={() => setMainView('marketplace')}
-              className={`h-5 px-3 text-xs rounded transition-colors duration-150 ${
-                mainView === 'marketplace'
-                  ? 'bg-secondary text-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Marketplace
             </button>
           </div>
         </div>
@@ -110,20 +100,15 @@ export function AppShell({ sidebar, children }: AppShellProps) {
             {sidebar}
           </aside>
 
-          {/* Content area */}
+          {/* Content area — marketplace or endpoint detail */}
           <main className="flex-1 overflow-y-auto bg-background">
-            {children}
+            {showMarketplace ? <MarketplaceView /> : children}
           </main>
         </div>
       )}
       {mainView === 'chat' && (
         <div className="flex-1 overflow-hidden bg-background">
           <ChatView />
-        </div>
-      )}
-      {mainView === 'marketplace' && (
-        <div className="flex-1 overflow-hidden bg-background">
-          <MarketplaceView />
         </div>
       )}
 

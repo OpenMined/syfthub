@@ -91,7 +91,8 @@ interface AppState {
   error: string | null;
   activeTab: 'settings' | 'code' | 'docs' | 'logs';
   settingsSection: 'overview' | 'environment' | 'dependencies' | 'policies';
-  mainView: 'endpoints' | 'chat' | 'marketplace';
+  mainView: 'endpoints' | 'chat';
+  showMarketplace: boolean;
 
   // Logs state
   logs: RequestLogEntry[];
@@ -134,7 +135,8 @@ interface AppState {
   selectEndpoint: (slug: string | null) => Promise<void>;
   setActiveTab: (tab: 'settings' | 'code' | 'docs' | 'logs') => void;
   setSettingsSection: (section: 'overview' | 'environment' | 'dependencies' | 'policies') => void;
-  setMainView: (view: 'endpoints' | 'chat' | 'marketplace') => void;
+  setMainView: (view: 'endpoints' | 'chat') => void;
+  setShowMarketplace: (show: boolean) => void;
 
   // Actions - Logs
   fetchLogs: (status?: string) => Promise<void>;
@@ -218,6 +220,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeTab: 'settings',
   settingsSection: 'overview',
   mainView: 'endpoints',
+  showMarketplace: false,
 
   // Logs initial state
   logs: [],
@@ -427,7 +430,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     try {
-      set({ isLoading: true, error: null });
+      set({ isLoading: true, error: null, showMarketplace: false });
 
       // Fetch endpoint detail - includes runnerCode and readmeContent
       const detail = await GetEndpointDetail(slug);
@@ -478,7 +481,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setMainView: (view) => {
-    set({ mainView: view });
+    set({ mainView: view, showMarketplace: false });
+  },
+
+  setShowMarketplace: (show) => {
+    if (show) {
+      set({ showMarketplace: true, selectedEndpointSlug: null, selectedEndpointDetail: null });
+    } else {
+      set({ showMarketplace: false });
+    }
   },
 
   // Code actions
