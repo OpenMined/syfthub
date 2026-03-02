@@ -487,6 +487,119 @@ class ChatResource:
             detail=response.text,
         )
 
+    # ------------------------------------------------------------------
+    # Response parsing helpers (shared by complete() and _parse_sse_event)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _parse_sources(data: dict[str, Any]) -> dict[str, DocumentSource]:
+        """Parse the 'sources' dict from an aggregator response."""
+        sources: dict[str, DocumentSource] = {}
+        sources_data = data.get("sources", {})
+        if isinstance(sources_data, dict):
+            for title, source_data in sources_data.items():
+                if isinstance(source_data, dict):
+                    sources[title] = DocumentSource(
+                        slug=source_data.get("slug", ""),
+                        content=source_data.get("content", ""),
+                    )
+        return sources
+
+    @staticmethod
+    def _parse_retrieval_info(data: dict[str, Any]) -> list[SourceInfo]:
+        """Parse the 'retrieval_info' list from an aggregator response."""
+        retrieval_info: list[SourceInfo] = []
+        for s in data.get("retrieval_info", []):
+            retrieval_info.append(
+                SourceInfo(
+                    path=s.get("path", ""),
+                    documents_retrieved=s.get("documents_retrieved", 0),
+                    status=SourceStatus(s.get("status", "success")),
+                    error_message=s.get("error_message"),
+                )
+            )
+        return retrieval_info
+
+    @staticmethod
+    def _parse_metadata(data: dict[str, Any]) -> ChatMetadata | None:
+        """Parse the 'metadata' dict from an aggregator response."""
+        m = data.get("metadata")
+        if not m:
+            return None
+        return ChatMetadata(
+            retrieval_time_ms=m.get("retrieval_time_ms", 0),
+            generation_time_ms=m.get("generation_time_ms", 0),
+            total_time_ms=m.get("total_time_ms", 0),
+        )
+
+    @staticmethod
+    def _parse_usage(data: dict[str, Any]) -> TokenUsage | None:
+        """Parse the 'usage' dict from an aggregator response."""
+        u = data.get("usage")
+        if not u:
+            return None
+        return TokenUsage(
+            prompt_tokens=u.get("prompt_tokens", 0),
+            completion_tokens=u.get("completion_tokens", 0),
+            total_tokens=u.get("total_tokens", 0),
+        )
+
+    def _prepare_request(
+        self,
+        prompt: str,
+        model: str | EndpointRef | EndpointPublic,
+        data_sources: list[str | EndpointRef | EndpointPublic] | None,
+        *,
+        top_k: int,
+        max_tokens: int,
+        temperature: float,
+        similarity_threshold: float,
+        stream: bool,
+        messages: list[dict[str, str]] | None,
+        aggregator_url: str | None,
+    ) -> tuple[dict[str, Any], str]:
+        """Resolve endpoints, fetch tokens, and build the aggregator request body.
+
+        Returns (request_body, effective_aggregator_url). Called by both
+        complete() and stream() to avoid duplicating ~35 lines of setup.
+        """
+        effective_aggregator_url = (aggregator_url or self._aggregator_url).rstrip("/")
+
+        model_ref = self._resolve_endpoint_ref(model, expected_type="model")
+        ds_refs = [
+            self._resolve_endpoint_ref(ds, expected_type="data_source")
+            for ds in (data_sources or [])
+        ]
+
+        unique_owners = self._collect_unique_owners(model_ref, ds_refs)
+        endpoint_tokens = self._get_satellite_tokens_for_owners(unique_owners)
+        transaction_tokens = self._get_transaction_tokens_for_owners(unique_owners)
+
+        peer_token = None
+        peer_channel = None
+        tunneling_usernames = self._collect_tunneling_usernames(model_ref, ds_refs)
+        if tunneling_usernames:
+            peer_response = self._auth.get_peer_token(tunneling_usernames)
+            peer_token = peer_response.peer_token
+            peer_channel = peer_response.peer_channel
+
+        request_body = self._build_request_body(
+            prompt=prompt,
+            model_ref=model_ref,
+            data_source_refs=ds_refs,
+            endpoint_tokens=endpoint_tokens,
+            transaction_tokens=transaction_tokens,
+            top_k=top_k,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            similarity_threshold=similarity_threshold,
+            stream=stream,
+            messages=messages,
+            peer_token=peer_token,
+            peer_channel=peer_channel,
+        )
+        return request_body, effective_aggregator_url
+
     def _parse_sse_event(
         self, event_type: str, data: dict[str, Any]
     ) -> ChatStreamEvent:
@@ -526,53 +639,11 @@ class ChatResource:
             return TokenEvent(content=data.get("content", ""))
 
         elif event_type == "done":
-            # Parse document sources (new format: dict of title -> {slug, content})
-            sources: dict[str, DocumentSource] = {}
-            sources_data = data.get("sources", {})
-            if isinstance(sources_data, dict):
-                for title, source_data in sources_data.items():
-                    if isinstance(source_data, dict):
-                        sources[title] = DocumentSource(
-                            slug=source_data.get("slug", ""),
-                            content=source_data.get("content", ""),
-                        )
-
-            # Parse retrieval info (metadata about each data source retrieval)
-            retrieval_info: list[SourceInfo] = []
-            for s in data.get("retrieval_info", []):
-                retrieval_info.append(
-                    SourceInfo(
-                        path=s.get("path", ""),
-                        documents_retrieved=s.get("documents_retrieved", 0),
-                        status=SourceStatus(s.get("status", "success")),
-                        error_message=s.get("error_message"),
-                    )
-                )
-
-            metadata = None
-            if "metadata" in data:
-                m = data["metadata"]
-                metadata = ChatMetadata(
-                    retrieval_time_ms=m.get("retrieval_time_ms", 0),
-                    generation_time_ms=m.get("generation_time_ms", 0),
-                    total_time_ms=m.get("total_time_ms", 0),
-                )
-
-            # Parse usage if available (only from non-streaming mode)
-            usage = None
-            if "usage" in data:
-                u = data["usage"]
-                usage = TokenUsage(
-                    prompt_tokens=u.get("prompt_tokens", 0),
-                    completion_tokens=u.get("completion_tokens", 0),
-                    total_tokens=u.get("total_tokens", 0),
-                )
-
             return DoneEvent(
-                sources=sources,
-                retrieval_info=retrieval_info,
-                metadata=metadata,
-                usage=usage,
+                sources=self._parse_sources(data),
+                retrieval_info=self._parse_retrieval_info(data),
+                metadata=self._parse_metadata(data),
+                usage=self._parse_usage(data),
             )
 
         elif event_type == "error":
@@ -629,43 +700,17 @@ class ChatResource:
             print(response.response)
             print(f"Used {len(response.sources)} sources")
         """
-        # Use custom aggregator URL if provided, otherwise use default
-        effective_aggregator_url = (aggregator_url or self._aggregator_url).rstrip("/")
-
-        model_ref = self._resolve_endpoint_ref(model, expected_type="model")
-
-        ds_refs = []
-        for ds in data_sources or []:
-            ds_refs.append(self._resolve_endpoint_ref(ds, expected_type="data_source"))
-
-        # Get satellite tokens and transaction tokens for all unique endpoint owners
-        unique_owners = self._collect_unique_owners(model_ref, ds_refs)
-        endpoint_tokens = self._get_satellite_tokens_for_owners(unique_owners)
-        transaction_tokens = self._get_transaction_tokens_for_owners(unique_owners)
-
-        # Auto-fetch peer token if tunneling endpoints detected
-        peer_token = None
-        peer_channel = None
-        tunneling_usernames = self._collect_tunneling_usernames(model_ref, ds_refs)
-        if tunneling_usernames:
-            peer_response = self._auth.get_peer_token(tunneling_usernames)
-            peer_token = peer_response.peer_token
-            peer_channel = peer_response.peer_channel
-
-        request_body = self._build_request_body(
+        request_body, effective_aggregator_url = self._prepare_request(
             prompt=prompt,
-            model_ref=model_ref,
-            data_source_refs=ds_refs,
-            endpoint_tokens=endpoint_tokens,
-            transaction_tokens=transaction_tokens,
+            model=model,
+            data_sources=data_sources,
             top_k=top_k,
             max_tokens=max_tokens,
             temperature=temperature,
             similarity_threshold=similarity_threshold,
             stream=False,
             messages=messages,
-            peer_token=peer_token,
-            peer_channel=peer_channel,
+            aggregator_url=aggregator_url,
         )
 
         try:
@@ -685,53 +730,18 @@ class ChatResource:
 
         data = response.json()
 
-        # Parse document sources (new format: dict of title -> {slug, content})
-        sources: dict[str, DocumentSource] = {}
-        sources_data = data.get("sources", {})
-        if isinstance(sources_data, dict):
-            for title, source_data in sources_data.items():
-                if isinstance(source_data, dict):
-                    sources[title] = DocumentSource(
-                        slug=source_data.get("slug", ""),
-                        content=source_data.get("content", ""),
-                    )
-
-        # Parse retrieval info (metadata about each data source retrieval)
-        retrieval_info: list[SourceInfo] = []
-        for s in data.get("retrieval_info", []):
-            retrieval_info.append(
-                SourceInfo(
-                    path=s.get("path", ""),
-                    documents_retrieved=s.get("documents_retrieved", 0),
-                    status=SourceStatus(s.get("status", "success")),
-                    error_message=s.get("error_message"),
-                )
-            )
-
-        # Parse metadata
-        m = data.get("metadata", {})
-        metadata = ChatMetadata(
-            retrieval_time_ms=m.get("retrieval_time_ms", 0),
-            generation_time_ms=m.get("generation_time_ms", 0),
-            total_time_ms=m.get("total_time_ms", 0),
+        metadata = self._parse_metadata(data) or ChatMetadata(
+            retrieval_time_ms=0,
+            generation_time_ms=0,
+            total_time_ms=0,
         )
-
-        # Parse usage if available
-        usage = None
-        if "usage" in data and data["usage"]:
-            u = data["usage"]
-            usage = TokenUsage(
-                prompt_tokens=u.get("prompt_tokens", 0),
-                completion_tokens=u.get("completion_tokens", 0),
-                total_tokens=u.get("total_tokens", 0),
-            )
 
         return ChatResponse(
             response=data.get("response", ""),
-            sources=sources,
-            retrieval_info=retrieval_info,
+            sources=self._parse_sources(data),
+            retrieval_info=self._parse_retrieval_info(data),
             metadata=metadata,
-            usage=usage,
+            usage=self._parse_usage(data),
         )
 
     def stream(
@@ -786,43 +796,17 @@ class ChatResource:
                 elif event.type == "done":
                     print(f"\\nCompleted in {event.metadata.total_time_ms}ms")
         """
-        # Use custom aggregator URL if provided, otherwise use default
-        effective_aggregator_url = (aggregator_url or self._aggregator_url).rstrip("/")
-
-        model_ref = self._resolve_endpoint_ref(model, expected_type="model")
-
-        ds_refs = []
-        for ds in data_sources or []:
-            ds_refs.append(self._resolve_endpoint_ref(ds, expected_type="data_source"))
-
-        # Get satellite tokens and transaction tokens for all unique endpoint owners
-        unique_owners = self._collect_unique_owners(model_ref, ds_refs)
-        endpoint_tokens = self._get_satellite_tokens_for_owners(unique_owners)
-        transaction_tokens = self._get_transaction_tokens_for_owners(unique_owners)
-
-        # Auto-fetch peer token if tunneling endpoints detected
-        peer_token = None
-        peer_channel = None
-        tunneling_usernames = self._collect_tunneling_usernames(model_ref, ds_refs)
-        if tunneling_usernames:
-            peer_response = self._auth.get_peer_token(tunneling_usernames)
-            peer_token = peer_response.peer_token
-            peer_channel = peer_response.peer_channel
-
-        request_body = self._build_request_body(
+        request_body, effective_aggregator_url = self._prepare_request(
             prompt=prompt,
-            model_ref=model_ref,
-            data_source_refs=ds_refs,
-            endpoint_tokens=endpoint_tokens,
-            transaction_tokens=transaction_tokens,
+            model=model,
+            data_sources=data_sources,
             top_k=top_k,
             max_tokens=max_tokens,
             temperature=temperature,
             similarity_threshold=similarity_threshold,
             stream=True,
             messages=messages,
-            peer_token=peer_token,
-            peer_channel=peer_channel,
+            aggregator_url=aggregator_url,
         )
 
         try:
