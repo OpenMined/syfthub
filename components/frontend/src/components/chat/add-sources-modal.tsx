@@ -127,7 +127,7 @@ export interface AddSourcesModalProps {
   onClose: () => void;
   availableSources: ChatSource[];
   selectedSourceIds: Set<string>;
-  onConfirm: (selectedIds: Set<string>) => void;
+  onConfirm: (selectedSources: ChatSource[]) => void;
 }
 
 export const AddSourcesModal = memo(function AddSourcesModal({
@@ -139,6 +139,8 @@ export const AddSourcesModal = memo(function AddSourcesModal({
 }: Readonly<AddSourcesModalProps>) {
   // Local selection state — only committed on confirm
   const [localSelected, setLocalSelected] = useState<Set<string>>(new Set(selectedSourceIds));
+  // Resolved source objects for all currently selected IDs (needed for search results not in availableSources)
+  const [resolvedSourcesMap, setResolvedSourcesMap] = useState<Map<string, ChatSource>>(new Map());
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<ChatSource[] | null>(null);
@@ -149,12 +151,20 @@ export const AddSourcesModal = memo(function AddSourcesModal({
   useEffect(() => {
     if (isOpen && !previousOpenRef.current) {
       setLocalSelected(new Set(selectedSourceIds));
+      // Rebuild resolved map from pre-loaded sources matching the initial selection
+      const initialMap = new Map<string, ChatSource>();
+      for (const source of availableSources) {
+        if (selectedSourceIds.has(source.id)) {
+          initialMap.set(source.id, source);
+        }
+      }
+      setResolvedSourcesMap(initialMap);
       setSearchQuery('');
       setDebouncedSearchQuery('');
       setSearchResults(null);
     }
     previousOpenRef.current = isOpen;
-  }, [isOpen, selectedSourceIds]);
+  }, [isOpen, selectedSourceIds, availableSources]);
 
   // Debounce searchQuery → debouncedSearchQuery (300ms, matching Browse page)
   useEffect(() => {
@@ -211,21 +221,31 @@ export const AddSourcesModal = memo(function AddSourcesModal({
     });
   }, [activeSources, localSelected]);
 
-  const toggleLocal = useCallback((id: string) => {
+  const toggleLocal = useCallback((source: ChatSource) => {
     setLocalSelected((previous) => {
       const next = new Set(previous);
-      if (next.has(id)) {
-        next.delete(id);
+      if (next.has(source.id)) {
+        next.delete(source.id);
       } else {
-        next.add(id);
+        next.add(source.id);
+      }
+      return next;
+    });
+    setResolvedSourcesMap((previous) => {
+      const next = new Map(previous);
+      if (next.has(source.id)) {
+        next.delete(source.id);
+      } else {
+        next.set(source.id, source);
       }
       return next;
     });
   }, []);
 
   const handleConfirm = useCallback(() => {
-    onConfirm(localSelected);
-  }, [localSelected, onConfirm]);
+    const selectedSources = [...resolvedSourcesMap.values()];
+    onConfirm(selectedSources);
+  }, [resolvedSourcesMap, onConfirm]);
 
   const handleSearchChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value);
@@ -282,7 +302,7 @@ export const AddSourcesModal = memo(function AddSourcesModal({
               source={source}
               isSelected={localSelected.has(source.id)}
               onToggle={() => {
-                toggleLocal(source.id);
+                toggleLocal(source);
               }}
             />
           ))

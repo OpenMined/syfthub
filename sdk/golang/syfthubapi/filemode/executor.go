@@ -27,7 +27,7 @@ type SubprocessExecutor struct {
 	storeConfig     *syfthubapi.StoreConfig
 	usePolicyRunner bool // Use policy_manager.runner instead of inline script
 
-	mu     sync.Mutex
+	mu     sync.RWMutex
 	closed bool
 }
 
@@ -86,12 +86,12 @@ func NewSubprocessExecutor(cfg *ExecutorConfig) (*SubprocessExecutor, error) {
 
 // Execute runs the Python handler with the given input.
 func (e *SubprocessExecutor) Execute(ctx context.Context, input *syfthubapi.ExecutorInput) (*syfthubapi.ExecutorOutput, error) {
-	e.mu.Lock()
-	if e.closed {
-		e.mu.Unlock()
+	e.mu.RLock()
+	closed := e.closed
+	e.mu.RUnlock()
+	if closed {
 		return nil, fmt.Errorf("executor is closed")
 	}
-	e.mu.Unlock()
 
 	// Log execution start with context
 	e.logger.Info("[POLICY-EXEC] Starting execution",
@@ -103,24 +103,20 @@ func (e *SubprocessExecutor) Execute(ctx context.Context, input *syfthubapi.Exec
 
 	// Log user context if available
 	if input.Context != nil {
-		e.logger.Info("[POLICY-EXEC] Request context",
+		e.logger.Debug("[POLICY-EXEC] Request context",
 			"user_id", input.Context.UserID,
 			"endpoint_slug", input.Context.EndpointSlug,
 			"endpoint_type", input.Context.EndpointType,
-			"metadata", fmt.Sprintf("%+v", input.Context.Metadata),
 		)
 	}
 
-	// Log query content
+	// Log query shape (not content — content may contain PII)
 	if input.Type == "model" {
-		e.logger.Info("[POLICY-EXEC] Model query",
+		e.logger.Debug("[POLICY-EXEC] Model query",
 			"messages_count", len(input.Messages),
-			"messages", fmt.Sprintf("%+v", input.Messages),
 		)
 	} else {
-		e.logger.Info("[POLICY-EXEC] Data source query",
-			"query", input.Query,
-		)
+		e.logger.Debug("[POLICY-EXEC] Data source query")
 	}
 
 	// Log configured policies
@@ -129,7 +125,6 @@ func (e *SubprocessExecutor) Execute(ctx context.Context, input *syfthubapi.Exec
 			"index", i,
 			"name", p.Name,
 			"type", p.Type,
-			"config", fmt.Sprintf("%+v", p.Config),
 		)
 	}
 
@@ -225,11 +220,9 @@ func (e *SubprocessExecutor) Execute(ctx context.Context, input *syfthubapi.Exec
 		e.logger.Info("[POLICY-EXEC] Python stderr output", "stderr", stderr.String())
 	}
 
-	// Log stdout
-	e.logger.Info("[POLICY-EXEC] Python stdout output",
-		"length", stdout.Len(),
-		"content", stdout.String(),
-	)
+	// Log stdout length at Info; full content only at Debug to avoid leaking handler output
+	e.logger.Info("[POLICY-EXEC] Python stdout output", "length", stdout.Len())
+	e.logger.Debug("[POLICY-EXEC] Python stdout content", "content", stdout.String())
 
 	// Parse output even if there was an error (handler might have returned error JSON)
 	if stdout.Len() > 0 {
@@ -345,16 +338,20 @@ if __name__ == "__main__":
 }
 
 // serializeInput serializes executor input to JSON.
+// For the policy runner path, additional fields are added via a copy to avoid mutating the caller's struct.
 func (e *SubprocessExecutor) serializeInput(input *syfthubapi.ExecutorInput) ([]byte, error) {
-	// For policy runner, include policy configs and handler path
+	toMarshal := input
 	if e.usePolicyRunner {
-		input.Policies = e.policyConfigs
-		input.Store = e.storeConfig
-		input.HandlerPath = e.runnerPath
-		input.WorkDir = e.workDir
+		// Copy so we don't mutate the caller's struct
+		copy := *input
+		copy.Policies = e.policyConfigs
+		copy.Store = e.storeConfig
+		copy.HandlerPath = e.runnerPath
+		copy.WorkDir = e.workDir
+		toMarshal = &copy
 	}
 
-	inputJSON, err := json.Marshal(input)
+	inputJSON, err := json.Marshal(toMarshal)
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize input: %w", err)
 	}

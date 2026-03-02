@@ -18,6 +18,7 @@ import { WorkflowOverlay } from '@/components/workflow';
 import { useChatWorkflow } from '@/hooks/use-chat-workflow';
 import { useDataSources } from '@/hooks/use-data-sources';
 import { useModels } from '@/hooks/use-models';
+import { getPublicEndpointByPath } from '@/lib/endpoint-utils';
 import { useContextSelectionStore } from '@/stores/context-selection-store';
 
 // =============================================================================
@@ -26,13 +27,13 @@ import { useContextSelectionStore } from '@/stores/context-selection-store';
 
 const SEARCH_SUGGESTIONS = [
   'Ask WGA about parental leave',
-  'Ask OpenMined about attribution'
+  'Ask OpenMined about attribution-based control'
 ] as const;
 
 /** Maps suggestion text to the data source full_path that should be auto-selected */
 const SUGGESTION_SOURCE_MAP: Record<string, string> = {
   'Ask WGA about parental leave': 'openmined-data/screenwriters-handbook',
-  'Ask OpenMined about attribution': 'openmined-data/abc-openmined'
+  'Ask OpenMined about attribution-based control': 'openmined-data/abc-openmined'
 };
 
 // =============================================================================
@@ -77,7 +78,7 @@ export function Hero({
   } = useModels({
     initialModel
   });
-  const { sources, sourcesById } = useDataSources();
+  const { sources } = useDataSources();
   const contextStore = useContextSelectionStore();
 
   // Source modal state
@@ -121,13 +122,23 @@ export function Hero({
   const handleSuggestionClick = useCallback(
     (suggestion: string) => {
       const sourcePath = SUGGESTION_SOURCE_MAP[suggestion];
-      if (sourcePath) {
-        const source = sources.find((s) => s.full_path === sourcePath);
-        if (source && !contextStore.isSelected(source.id)) {
-          contextStore.addSource(source);
+
+      const resolveAndSubmit = async () => {
+        if (sourcePath) {
+          // Fast path: check already-loaded sources first
+          let source: ChatSource | undefined = sources.find((s) => s.full_path === sourcePath);
+          // Fallback: fetch directly by path when source isn't in the paginated list
+          if (!source) {
+            source = (await getPublicEndpointByPath(sourcePath)) ?? undefined;
+          }
+          if (source && !contextStore.isSelected(source.id)) {
+            contextStore.addSource(source);
+          }
         }
-      }
-      handleSubmit(suggestion);
+        handleSubmit(suggestion);
+      };
+
+      void resolveAndSubmit();
     },
     [handleSubmit, sources, contextStore]
   );
@@ -160,17 +171,14 @@ export function Hero({
 
   // Handle source modal confirm
   const handleSourceModalConfirm = useCallback(
-    (selectedIds: Set<string>) => {
+    (selectedSources: ChatSource[]) => {
       contextStore.clearSources();
-      for (const id of selectedIds) {
-        const source = sourcesById.get(id) ?? sources.find((s) => s.id === id);
-        if (source) {
-          contextStore.addSource(source);
-        }
+      for (const source of selectedSources) {
+        contextStore.addSource(source);
       }
       setIsSourceModalOpen(false);
     },
-    [contextStore, sourcesById, sources]
+    [contextStore]
   );
 
   // Determine if workflow is active (not idle)

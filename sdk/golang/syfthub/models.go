@@ -541,6 +541,21 @@ type RetrievalCompleteEvent struct {
 
 func (e *RetrievalCompleteEvent) EventType() ChatEventType { return ChatEventTypeRetrievalComplete }
 
+// RerankingStartEvent indicates document reranking has begun.
+type RerankingStartEvent struct {
+	Documents int `json:"documents"`
+}
+
+func (e *RerankingStartEvent) EventType() ChatEventType { return ChatEventTypeRerankingStart }
+
+// RerankingCompleteEvent indicates document reranking has completed.
+type RerankingCompleteEvent struct {
+	Documents int `json:"documents"`
+	TimeMs    int `json:"time_ms"`
+}
+
+func (e *RerankingCompleteEvent) EventType() ChatEventType { return ChatEventTypeRerankingComplete }
+
 // GenerationStartEvent indicates model generation has started.
 type GenerationStartEvent struct {
 	Model string `json:"model"`
@@ -548,7 +563,7 @@ type GenerationStartEvent struct {
 
 func (e *GenerationStartEvent) EventType() ChatEventType { return ChatEventTypeGenerationStart }
 
-// GenerationHeartbeatEvent is emitted periodically while waiting for model generation.
+// GenerationHeartbeatEvent is fired periodically during non-streaming generation.
 type GenerationHeartbeatEvent struct {
 	ElapsedMs int `json:"elapsed_ms"`
 }
@@ -556,21 +571,6 @@ type GenerationHeartbeatEvent struct {
 func (e *GenerationHeartbeatEvent) EventType() ChatEventType {
 	return ChatEventTypeGenerationHeartbeat
 }
-
-// RerankingStartEvent indicates document reranking has started.
-type RerankingStartEvent struct {
-	Documents int `json:"documents"`
-}
-
-func (e *RerankingStartEvent) EventType() ChatEventType { return ChatEventTypeRerankingStart }
-
-// RerankingCompleteEvent indicates document reranking is complete.
-type RerankingCompleteEvent struct {
-	Documents int `json:"documents"`
-	TimeMs    int `json:"time_ms"`
-}
-
-func (e *RerankingCompleteEvent) EventType() ChatEventType { return ChatEventTypeRerankingComplete }
 
 // TokenEvent represents a single generated token.
 type TokenEvent struct {

@@ -53,13 +53,12 @@ describe('categorizeResults', () => {
       createMockSearchableChatSource({ relevance_score: 0.3 }),
       createMockSearchableChatSource({ relevance_score: 0.5 })
     ];
-    const { highRelevance } = categorizeResults(results);
+    const highRelevance = categorizeResults(results);
     expect(highRelevance).toHaveLength(2);
   });
 
   it('returns empty for no results', () => {
-    const { highRelevance } = categorizeResults([]);
-    expect(highRelevance).toEqual([]);
+    expect(categorizeResults([])).toEqual([]);
   });
 });
 

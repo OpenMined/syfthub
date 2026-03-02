@@ -130,7 +130,7 @@ class NATSTransport:
 
         url = f"{self._backend_url}/api/v1/nats/encryption-key/{username}"
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=self._default_timeout) as client:
                 resp = await client.get(url)
         except httpx.RequestError as exc:
             raise NATSTransportError(
@@ -283,7 +283,7 @@ class NATSTransport:
 
         # Subscribe to reply channel BEFORE publishing (prevents race condition)
         reply_subject = f"syfthub.peer.{peer_channel}"
-        response_future: asyncio.Future[dict[str, Any]] = asyncio.get_event_loop().create_future()
+        response_future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
 
         async def message_handler(msg: Any) -> None:
             try:
@@ -336,11 +336,12 @@ class NATSTransport:
                 correlation_id=correlation_id,
             )
         except crypto.InvalidTag as exc:
-            # Evict cached key in case it was rotated; caller may retry once
+            # GCM tag failure could indicate key rotation; evict the cached key so the
+            # next request re-fetches it. The failure itself is still propagated to the caller.
             self._evict_key_cache(target_username)
             raise NATSTransportError(
                 f"Response decryption failed for {target_username}/{slug}: "
-                "GCM authentication tag mismatch. Possible key rotation — cached key evicted.",
+                "GCM authentication tag mismatch — cached key invalidated.",
                 code="DECRYPTION_FAILED",
             ) from exc
 

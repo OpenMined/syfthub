@@ -301,19 +301,16 @@ export function ChatView({
 
   // Handle modal confirm
   const handleSourceModalConfirm = useCallback(
-    (selectedIds: Set<string>) => {
+    (selectedSources: ChatSource[]) => {
       // Sync context store with modal selection
       contextStore.clearSources();
-      for (const id of selectedIds) {
-        const source = sourcesById.get(id) ?? sources.find((s) => s.id === id);
-        if (source) {
-          contextStore.addSource(source);
-        }
+      for (const source of selectedSources) {
+        contextStore.addSource(source);
       }
       setIsSourceModalOpen(false);
       showQueryInputStep();
     },
-    [contextStore, sourcesById, sources, showQueryInputStep]
+    [contextStore, showQueryInputStep]
   );
 
   // Handle removing a chip

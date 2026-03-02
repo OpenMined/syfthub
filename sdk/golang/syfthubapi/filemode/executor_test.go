@@ -3,6 +3,7 @@ package filemode
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -565,19 +566,33 @@ func TestSerializeInput(t *testing.T) {
 			t.Fatalf("error: %v", err)
 		}
 
-		// Input should now have policies and store config
-		if input.Policies == nil {
-			t.Error("Policies should be set")
+		// Original input should NOT be mutated
+		if input.Policies != nil {
+			t.Error("serializeInput must not mutate the caller's input struct")
 		}
-		if input.Store == nil {
-			t.Error("Store should be set")
+		if input.Store != nil {
+			t.Error("serializeInput must not mutate the caller's input struct")
 		}
-		if input.HandlerPath != runnerPath {
-			t.Errorf("HandlerPath = %q", input.HandlerPath)
+		if input.HandlerPath != "" {
+			t.Errorf("serializeInput must not mutate the caller's input struct, HandlerPath = %q", input.HandlerPath)
 		}
 
+		// JSON output must contain the policy runner fields
 		if len(data) == 0 {
 			t.Error("serialized data is empty")
+		}
+		var parsed map[string]interface{}
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			t.Fatalf("output is not valid JSON: %v", err)
+		}
+		if parsed["policies"] == nil {
+			t.Error("JSON output must include 'policies'")
+		}
+		if parsed["store"] == nil {
+			t.Error("JSON output must include 'store'")
+		}
+		if parsed["handler_path"] != runnerPath {
+			t.Errorf("JSON output handler_path = %q, want %q", parsed["handler_path"], runnerPath)
 		}
 	})
 }

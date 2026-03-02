@@ -1,5 +1,7 @@
 """Tests for repository classes."""
 
+from unittest.mock import MagicMock
+
 from sqlalchemy.orm import Session
 
 from syfthub.repositories import (
@@ -19,7 +21,7 @@ from syfthub.schemas.organization import (
     OrganizationRole,
     OrganizationUpdate,
 )
-from syfthub.schemas.user import UserUpdate
+from syfthub.schemas.user import UserCreate, UserUpdate
 
 
 class TestUserRepository:
@@ -206,6 +208,354 @@ class TestUserRepository:
 
         assert user_repo.exists_email("test@example.com") is True
         assert user_repo.exists_email("nonexistent@example.com") is False
+
+    def test_get_by_email_not_found(self, test_session: Session):
+        """get_by_email returns None when email does not exist."""
+        user_repo = UserRepository(test_session)
+        result = user_repo.get_by_email("nobody@example.com")
+        assert result is None
+
+    def test_get_by_ids_empty_list(self, test_session: Session):
+        """get_by_ids([]) returns [] immediately without querying."""
+        user_repo = UserRepository(test_session)
+        result = user_repo.get_by_ids([])
+        assert result == []
+
+    def test_get_by_ids_found(self, test_session: Session, sample_user_data: dict):
+        """get_by_ids returns matching users."""
+        user_repo = UserRepository(test_session)
+        user = user_repo.create(sample_user_data)
+        result = user_repo.get_by_ids([user.id])
+        assert len(result) == 1
+        assert result[0].id == user.id
+
+    def test_update_user_not_found_via_update_user(self, test_session: Session):
+        """update_user returns None when the user ID does not exist."""
+        user_repo = UserRepository(test_session)
+        result = user_repo.update_user(999, UserUpdate(full_name="Ghost"))
+        assert result is None
+
+    def test_update_user_accounting_fields(
+        self, test_session: Session, sample_user_data: dict
+    ):
+        """update_user sets is_active, accounting_service_url and accounting_password."""
+        user_repo = UserRepository(test_session)
+        user = user_repo.create(sample_user_data)
+
+        result = user_repo.update_user(
+            user.id,
+            UserUpdate(
+                is_active=False,
+                accounting_service_url="https://accounting.example.com",
+                accounting_password="acc_secret",
+            ),
+        )
+
+        assert result is not None
+        assert result.is_active is False
+        assert result.accounting_service_url == "https://accounting.example.com"
+        assert result.accounting_password == "acc_secret"
+
+    def test_update_password_not_found(self, test_session: Session):
+        """update_password returns False when user ID does not exist."""
+        user_repo = UserRepository(test_session)
+        result = user_repo.update_password(999, "newhash")
+        assert result is False
+
+    def test_update_password_success(
+        self, test_session: Session, sample_user_data: dict
+    ):
+        """update_password updates the hash and returns True."""
+        user_repo = UserRepository(test_session)
+        user = user_repo.create(sample_user_data)
+
+        result = user_repo.update_password(user.id, "new_hash_value")
+
+        assert result is True
+        updated = user_repo.get_by_id(user.id)
+        assert updated is not None
+        assert updated.password_hash == "new_hash_value"
+
+    def test_update_user_role_not_found(self, test_session: Session):
+        """update_user_role returns False when user ID does not exist."""
+        user_repo = UserRepository(test_session)
+        result = user_repo.update_user_role(999, "admin")
+        assert result is False
+
+    def test_update_user_role_success(
+        self, test_session: Session, sample_user_data: dict
+    ):
+        """update_user_role changes role and returns True."""
+        user_repo = UserRepository(test_session)
+        user = user_repo.create(sample_user_data)
+        result = user_repo.update_user_role(user.id, "admin")
+        assert result is True
+
+    def test_deactivate_user_not_found(self, test_session: Session):
+        """deactivate_user returns False when user ID does not exist."""
+        user_repo = UserRepository(test_session)
+        result = user_repo.deactivate_user(999)
+        assert result is False
+
+    def test_deactivate_user_success(
+        self, test_session: Session, sample_user_data: dict
+    ):
+        """deactivate_user sets is_active=False and returns True."""
+        user_repo = UserRepository(test_session)
+        user = user_repo.create(sample_user_data)
+        result = user_repo.deactivate_user(user.id)
+        assert result is True
+        refreshed = user_repo.get_by_id(user.id)
+        assert refreshed is not None
+        assert refreshed.is_active is False
+
+    def test_activate_user_not_found(self, test_session: Session):
+        """activate_user returns False when user ID does not exist."""
+        user_repo = UserRepository(test_session)
+        result = user_repo.activate_user(999)
+        assert result is False
+
+    def test_activate_user_success(self, test_session: Session, sample_user_data: dict):
+        """activate_user sets is_active=True and returns True."""
+        user_repo = UserRepository(test_session)
+        user = user_repo.create(sample_user_data)
+        user_repo.deactivate_user(user.id)
+        result = user_repo.activate_user(user.id)
+        assert result is True
+        refreshed = user_repo.get_by_id(user.id)
+        assert refreshed is not None
+        assert refreshed.is_active is True
+
+    def test_update_heartbeat_not_found(self, test_session: Session):
+        """update_heartbeat returns False when user ID does not exist."""
+        from datetime import datetime, timezone
+
+        user_repo = UserRepository(test_session)
+        now = datetime.now(timezone.utc)
+        result = user_repo.update_heartbeat(
+            user_id=999,
+            domain="https://node.example.com",
+            last_heartbeat_at=now,
+            heartbeat_expires_at=now,
+        )
+        assert result is False
+
+    def test_create_with_data_param(self, test_session: Session):
+        """create(data={...}) merges into kwargs and creates a user."""
+        user_repo = UserRepository(test_session)
+        data = {
+            "username": "datauser",
+            "email": "data@example.com",
+            "full_name": "Data User",
+            "is_active": True,
+            "password_hash": "datahash",
+        }
+        user = user_repo.create(data=data)
+        assert user is not None
+        assert user.username == "datauser"
+
+    def test_update_with_data_param(
+        self, test_session: Session, sample_user_data: dict
+    ):
+        """update(id, data={...}) merges into kwargs and updates the user."""
+        user_repo = UserRepository(test_session)
+        user = user_repo.create(sample_user_data)
+
+        updated = user_repo.update(user.id, data={"full_name": "Updated via Data"})
+
+        assert updated is not None
+        assert updated.full_name == "Updated via Data"
+
+    def test_count_users(self, test_session: Session, sample_user_data: dict):
+        """count() returns the correct number of users."""
+        user_repo = UserRepository(test_session)
+        assert user_repo.count() == 0
+        user_repo.create(sample_user_data)
+        assert user_repo.count() == 1
+
+
+class TestUserRepositoryGoogleAuth:
+    """Tests for Google OAuth-related UserRepository methods."""
+
+    def test_get_by_google_id_found(
+        self, test_session: Session, sample_user_data: dict
+    ):
+        """get_by_google_id returns the user when google_id matches."""
+        user_repo = UserRepository(test_session)
+        data = sample_user_data.copy()
+        data["google_id"] = "gid-xyz"
+        user_repo.create(data=data)
+
+        result = user_repo.get_by_google_id("gid-xyz")
+
+        assert result is not None
+        assert result.username == "testuser"
+
+    def test_get_by_google_id_not_found(self, test_session: Session):
+        """get_by_google_id returns None when no user has that google_id."""
+        user_repo = UserRepository(test_session)
+        result = user_repo.get_by_google_id("nonexistent-gid")
+        assert result is None
+
+    def test_link_google_account_success(
+        self, test_session: Session, sample_user_data: dict
+    ):
+        """link_google_account sets google_id on existing user and returns True."""
+        user_repo = UserRepository(test_session)
+        user = user_repo.create(sample_user_data)
+
+        result = user_repo.link_google_account(user_id=user.id, google_id="new-gid-123")
+
+        assert result is True
+        updated = user_repo.get_by_id(user.id)
+        assert updated is not None
+        assert updated.google_id == "new-gid-123"
+
+    def test_link_google_account_sets_avatar_when_absent(
+        self, test_session: Session, sample_user_data: dict
+    ):
+        """link_google_account sets avatar_url when user has no existing avatar."""
+        user_repo = UserRepository(test_session)
+        data = sample_user_data.copy()
+        data["avatar_url"] = None
+        user = user_repo.create(data=data)
+
+        result = user_repo.link_google_account(
+            user_id=user.id,
+            google_id="gid-abc",
+            avatar_url="https://google.com/pic.jpg",
+        )
+
+        assert result is True
+        updated = user_repo.get_by_id(user.id)
+        assert updated is not None
+        assert updated.avatar_url == "https://google.com/pic.jpg"
+
+    def test_link_google_account_not_found(self, test_session: Session):
+        """link_google_account returns False when user ID does not exist."""
+        user_repo = UserRepository(test_session)
+        result = user_repo.link_google_account(user_id=999, google_id="gid-xxx")
+        assert result is False
+
+
+class TestUserRepositoryExceptions:
+    """Tests for UserRepository exception handling using MagicMock sessions."""
+
+    def _make_repo(self) -> tuple["UserRepository", MagicMock]:
+        session = MagicMock()
+        return UserRepository(session), session
+
+    def test_get_by_username_exception_returns_none(self):
+        repo, session = self._make_repo()
+        session.execute.side_effect = Exception("DB error")
+        assert repo.get_by_username("user") is None
+
+    def test_get_by_email_exception_returns_none(self):
+        repo, session = self._make_repo()
+        session.execute.side_effect = Exception("DB error")
+        assert repo.get_by_email("a@b.com") is None
+
+    def test_get_by_google_id_exception_returns_none(self):
+        repo, session = self._make_repo()
+        session.execute.side_effect = Exception("DB error")
+        assert repo.get_by_google_id("gid") is None
+
+    def test_get_by_ids_exception_returns_empty(self):
+        repo, session = self._make_repo()
+        session.execute.side_effect = Exception("DB error")
+        assert repo.get_by_ids([1, 2]) == []
+
+    def test_create_user_exception_returns_none(self):
+        repo, session = self._make_repo()
+        session.commit.side_effect = Exception("constraint violation")
+        user_data = UserCreate(
+            username="baduser", email="bad@example.com", full_name="Bad"
+        )
+        result = repo.create_user(user_data=user_data, password_hash="hash")
+        assert result is None
+        session.rollback.assert_called()
+
+    def test_update_user_exception_returns_none(self):
+        repo, session = self._make_repo()
+        session.get.return_value = MagicMock()
+        session.commit.side_effect = Exception("lock timeout")
+        result = repo.update_user(1, UserUpdate(full_name="X"))
+        assert result is None
+        session.rollback.assert_called()
+
+    def test_update_password_exception_returns_false(self):
+        repo, session = self._make_repo()
+        session.get.return_value = MagicMock()
+        session.commit.side_effect = Exception("disk full")
+        assert repo.update_password(1, "newhash") is False
+        session.rollback.assert_called()
+
+    def test_update_user_role_exception_returns_false(self):
+        repo, session = self._make_repo()
+        session.get.return_value = MagicMock()
+        session.commit.side_effect = Exception("timeout")
+        assert repo.update_user_role(1, "admin") is False
+        session.rollback.assert_called()
+
+    def test_deactivate_user_exception_returns_false(self):
+        repo, session = self._make_repo()
+        session.get.return_value = MagicMock()
+        session.commit.side_effect = Exception("timeout")
+        assert repo.deactivate_user(1) is False
+        session.rollback.assert_called()
+
+    def test_activate_user_exception_returns_false(self):
+        repo, session = self._make_repo()
+        session.get.return_value = MagicMock()
+        session.commit.side_effect = Exception("timeout")
+        assert repo.activate_user(1) is False
+        session.rollback.assert_called()
+
+    def test_link_google_account_exception_returns_false(self):
+        repo, session = self._make_repo()
+        session.get.return_value = MagicMock()
+        session.commit.side_effect = Exception("timeout")
+        assert repo.link_google_account(1, "gid") is False
+        session.rollback.assert_called()
+
+    def test_update_heartbeat_exception_returns_false(self):
+        from datetime import datetime, timezone
+
+        from sqlalchemy.exc import SQLAlchemyError
+
+        repo, session = self._make_repo()
+        session.get.return_value = MagicMock()
+        session.commit.side_effect = SQLAlchemyError("sqlalchemy error")
+        now = datetime.now(timezone.utc)
+        assert repo.update_heartbeat(1, "https://x.com", now, now) is False
+        session.rollback.assert_called()
+
+    def test_delete_exception_returns_false(self):
+        repo, session = self._make_repo()
+        session.get.return_value = MagicMock()
+        session.commit.side_effect = Exception("integrity error")
+        assert repo.delete(1) is False
+        session.rollback.assert_called()
+
+    def test_create_exception_returns_none(self):
+        repo, session = self._make_repo()
+        session.commit.side_effect = Exception("DB down")
+        result = repo.create(data={"username": "u", "email": "e@e.com"})
+        assert result is None
+        session.rollback.assert_called()
+
+    def test_update_exception_returns_none(self):
+        repo, session = self._make_repo()
+        session.get.return_value = MagicMock()
+        session.commit.side_effect = Exception("DB down")
+        result = repo.update(1, data={"full_name": "X"})
+        assert result is None
+        session.rollback.assert_called()
+
+    def test_get_all_exception_returns_empty(self):
+        repo, session = self._make_repo()
+        session.execute.side_effect = Exception("DB error")
+        assert repo.get_all() == []
 
 
 class TestEndpointRepository:

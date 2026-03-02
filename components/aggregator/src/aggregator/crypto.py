@@ -9,7 +9,7 @@ Protocol:
   Sender (aggregator):
     1. Generate ephemeral X25519 keypair (priv_e, pub_e)
     2. shared_secret = X25519(priv_e, space_long_term_pub)
-    3. aes_key = HKDF-SHA256(shared_secret, salt="", info=HKDF_REQUEST_INFO, len=32)
+    3. aes_key = HKDF-SHA256(shared_secret, salt=None, info=HKDF_REQUEST_INFO, len=32)
     4. nonce = os.urandom(12)
     5. ciphertext = AES-256-GCM(aes_key, nonce, plaintext, aad=correlation_id.encode())
     6. Transmit: (pub_e, nonce, ciphertext) as base64url + correlation_id
@@ -44,7 +44,6 @@ from cryptography.hazmat.primitives.serialization import (
 # even if the same ECDH shared secret were somehow reused.
 HKDF_REQUEST_INFO: bytes = b"syfthub-tunnel-request-v1"
 HKDF_RESPONSE_INFO: bytes = b"syfthub-tunnel-response-v1"
-HKDF_SALT: bytes = b""  # Empty salt — HKDF handles this per RFC 5869
 NONCE_SIZE: int = 12  # 96-bit nonce for AES-256-GCM
 
 ALGORITHM_ID: str = "X25519-ECDH-AES-256-GCM"
@@ -57,8 +56,7 @@ def _b64url_encode(data: bytes) -> str:
 
 def _b64url_decode(s: str) -> bytes:
     """Decode base64url string (with or without padding) to bytes."""
-    padded = s + "=" * (4 - len(s) % 4) if len(s) % 4 else s
-    return base64.urlsafe_b64decode(padded)
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
 
 def generate_keypair() -> tuple[X25519PrivateKey, bytes]:
@@ -95,7 +93,7 @@ def derive_key(
     return HKDF(
         algorithm=SHA256(),
         length=32,
-        salt=HKDF_SALT if HKDF_SALT else None,
+        salt=None,  # RFC 5869 default: equivalent to a salt of HashLen zero bytes
         info=info,
     ).derive(shared_secret)
 
@@ -165,7 +163,7 @@ def encrypt_tunnel_request(
 
     Returns:
         Tuple of:
-          - encryption_info dict: {algorithm, ephemeral_public_key, nonce}
+          - encryption_info dict: {algorithm, ephemeral_public_key, nonce, encrypted_payload}
           - ephemeral_private_key: Retain this to decrypt the response.
     """
     space_pub_bytes = _b64url_decode(space_public_key_b64)
