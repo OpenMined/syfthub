@@ -18,6 +18,7 @@ import { WorkflowOverlay } from '@/components/workflow';
 import { useChatWorkflow } from '@/hooks/use-chat-workflow';
 import { useDataSources } from '@/hooks/use-data-sources';
 import { useModels } from '@/hooks/use-models';
+import { getPublicEndpointByPath } from '@/lib/endpoint-utils';
 import { useContextSelectionStore } from '@/stores/context-selection-store';
 
 // =============================================================================
@@ -121,13 +122,23 @@ export function Hero({
   const handleSuggestionClick = useCallback(
     (suggestion: string) => {
       const sourcePath = SUGGESTION_SOURCE_MAP[suggestion];
-      if (sourcePath) {
-        const source = sources.find((s) => s.full_path === sourcePath);
-        if (source && !contextStore.isSelected(source.id)) {
-          contextStore.addSource(source);
+
+      const resolveAndSubmit = async () => {
+        if (sourcePath) {
+          // Fast path: check already-loaded sources first
+          let source: ChatSource | undefined = sources.find((s) => s.full_path === sourcePath);
+          // Fallback: fetch directly by path when source isn't in the paginated list
+          if (!source) {
+            source = (await getPublicEndpointByPath(sourcePath)) ?? undefined;
+          }
+          if (source && !contextStore.isSelected(source.id)) {
+            contextStore.addSource(source);
+          }
         }
-      }
-      handleSubmit(suggestion);
+        handleSubmit(suggestion);
+      };
+
+      void resolveAndSubmit();
     },
     [handleSubmit, sources, contextStore]
   );
