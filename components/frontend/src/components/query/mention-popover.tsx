@@ -9,6 +9,7 @@ import type { OwnerInfo } from '@/lib/mention-utils';
 import type { ChatSource } from '@/lib/types';
 
 import Database from 'lucide-react/dist/esm/icons/database';
+import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
 import Star from 'lucide-react/dist/esm/icons/star';
 import User from 'lucide-react/dist/esm/icons/user';
 
@@ -26,6 +27,8 @@ interface MentionPopoverBaseProps {
   highlightedIndex: number;
   /** CSS class for positioning */
   className?: string;
+  /** Whether data is being fetched from the API */
+  isLoading?: boolean;
 }
 
 interface OwnerPopoverProps extends MentionPopoverBaseProps {
@@ -47,7 +50,7 @@ interface EndpointPopoverProps extends MentionPopoverBaseProps {
 // =============================================================================
 
 export const OwnerPopover = forwardRef<HTMLDivElement, OwnerPopoverProps>(
-  ({ isOpen, owners, highlightedIndex, onSelect, className }, ref) => {
+  ({ isOpen, owners, highlightedIndex, onSelect, className, isLoading }, ref) => {
     const listReference = useRef<HTMLUListElement>(null);
 
     // Scroll highlighted item into view
@@ -59,7 +62,7 @@ export const OwnerPopover = forwardRef<HTMLDivElement, OwnerPopoverProps>(
       highlightedItem?.scrollIntoView({ block: 'nearest' });
     }, [highlightedIndex]);
 
-    if (!isOpen || owners.length === 0) return null;
+    if (!isOpen || (owners.length === 0 && !isLoading)) return null;
 
     return (
       <div
@@ -73,54 +76,61 @@ export const OwnerPopover = forwardRef<HTMLDivElement, OwnerPopoverProps>(
         aria-label='Select data source owner'
       >
         <div className='text-muted-foreground px-2 py-1.5 text-xs font-medium'>Select owner</div>
-        <ul ref={listReference} className='max-h-48 overflow-y-auto'>
-          {owners.map((owner, index) => (
-            <li
-              key={owner.username}
-              id={`owner-option-${owner.username}`}
-              role='option'
-              aria-selected={index === highlightedIndex}
-              className={cn(
-                'flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
-                index === highlightedIndex
-                  ? 'bg-accent text-accent-foreground'
-                  : 'hover:bg-accent/50'
-              )}
-              onClick={() => {
-                onSelect(owner.username);
-              }}
-              onMouseEnter={() => {
-                // Could update highlighted index on hover if desired
-              }}
-            >
-              <HoverCard openDelay={300} closeDelay={100}>
-                <HoverCardTrigger asChild>
-                  <div className='flex flex-1 items-center gap-2'>
-                    <div className='bg-muted flex h-6 w-6 items-center justify-center rounded-full'>
-                      <User className='h-3.5 w-3.5' />
+        {isLoading && owners.length === 0 ? (
+          <div className='text-muted-foreground flex items-center justify-center gap-2 py-4 text-sm'>
+            <Loader2 className='h-4 w-4 animate-spin' />
+            Loading owners...
+          </div>
+        ) : (
+          <ul ref={listReference} className='max-h-48 overflow-y-auto'>
+            {owners.map((owner, index) => (
+              <li
+                key={owner.username}
+                id={`owner-option-${owner.username}`}
+                role='option'
+                aria-selected={index === highlightedIndex}
+                className={cn(
+                  'flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
+                  index === highlightedIndex
+                    ? 'bg-accent text-accent-foreground'
+                    : 'hover:bg-accent/50'
+                )}
+                onClick={() => {
+                  onSelect(owner.username);
+                }}
+                onMouseEnter={() => {
+                  // Could update highlighted index on hover if desired
+                }}
+              >
+                <HoverCard openDelay={300} closeDelay={100}>
+                  <HoverCardTrigger asChild>
+                    <div className='flex flex-1 items-center gap-2'>
+                      <div className='bg-muted flex h-6 w-6 items-center justify-center rounded-full'>
+                        <User className='h-3.5 w-3.5' />
+                      </div>
+                      <span className='font-medium'>{owner.username}</span>
+                      <span className='text-muted-foreground text-xs'>
+                        {owner.endpointCount} endpoint{owner.endpointCount === 1 ? '' : 's'}
+                      </span>
                     </div>
-                    <span className='font-medium'>{owner.username}</span>
-                    <span className='text-muted-foreground text-xs'>
-                      {owner.endpointCount} endpoint{owner.endpointCount === 1 ? '' : 's'}
-                    </span>
-                  </div>
-                </HoverCardTrigger>
-                <HoverCardContent side='right' align='start' className='w-56'>
-                  <div className='flex flex-col gap-1'>
-                    <div className='flex items-center gap-2'>
-                      <User className='text-muted-foreground h-4 w-4' />
-                      <span className='font-semibold'>{owner.username}</span>
+                  </HoverCardTrigger>
+                  <HoverCardContent side='right' align='start' className='w-56'>
+                    <div className='flex flex-col gap-1'>
+                      <div className='flex items-center gap-2'>
+                        <User className='text-muted-foreground h-4 w-4' />
+                        <span className='font-semibold'>{owner.username}</span>
+                      </div>
+                      <p className='text-muted-foreground text-xs'>
+                        {owner.endpointCount} data source{owner.endpointCount === 1 ? '' : 's'}{' '}
+                        available
+                      </p>
                     </div>
-                    <p className='text-muted-foreground text-xs'>
-                      {owner.endpointCount} data source{owner.endpointCount === 1 ? '' : 's'}{' '}
-                      available
-                    </p>
-                  </div>
-                </HoverCardContent>
-              </HoverCard>
-            </li>
-          ))}
-        </ul>
+                  </HoverCardContent>
+                </HoverCard>
+              </li>
+            ))}
+          </ul>
+        )}
         <div className='text-muted-foreground border-t px-2 py-1.5 text-xs'>
           <kbd className='bg-muted rounded px-1 font-mono text-xs'>Tab</kbd> to select
         </div>
@@ -136,7 +146,7 @@ OwnerPopover.displayName = 'OwnerPopover';
 // =============================================================================
 
 export const EndpointPopover = forwardRef<HTMLDivElement, EndpointPopoverProps>(
-  ({ isOpen, endpoints, highlightedIndex, onSelect, className }, ref) => {
+  ({ isOpen, endpoints, highlightedIndex, onSelect, className, isLoading }, ref) => {
     const listReference = useRef<HTMLUListElement>(null);
 
     // Scroll highlighted item into view
@@ -148,7 +158,7 @@ export const EndpointPopover = forwardRef<HTMLDivElement, EndpointPopoverProps>(
       highlightedItem?.scrollIntoView({ block: 'nearest' });
     }, [highlightedIndex]);
 
-    if (!isOpen || endpoints.length === 0) return null;
+    if (!isOpen || (endpoints.length === 0 && !isLoading)) return null;
 
     return (
       <div
@@ -164,44 +174,51 @@ export const EndpointPopover = forwardRef<HTMLDivElement, EndpointPopoverProps>(
         <div className='text-muted-foreground px-2 py-1.5 text-xs font-medium'>
           Select data source
         </div>
-        <ul ref={listReference} className='max-h-64 overflow-y-auto'>
-          {endpoints.map((endpoint, index) => (
-            <li
-              key={endpoint.id}
-              id={`endpoint-option-${endpoint.id}`}
-              role='option'
-              aria-selected={index === highlightedIndex}
-              className={cn(
-                'flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 transition-colors',
-                index === highlightedIndex
-                  ? 'bg-accent text-accent-foreground'
-                  : 'hover:bg-accent/50'
-              )}
-              onClick={() => {
-                onSelect(endpoint);
-              }}
-            >
-              <HoverCard openDelay={300} closeDelay={100}>
-                <HoverCardTrigger asChild>
-                  <div className='flex flex-1 items-center gap-2'>
-                    <div className='flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-green-100 dark:bg-green-900/30'>
-                      <Database className='h-4 w-4 text-green-700 dark:text-green-300' />
+        {isLoading && endpoints.length === 0 ? (
+          <div className='text-muted-foreground flex items-center justify-center gap-2 py-4 text-sm'>
+            <Loader2 className='h-4 w-4 animate-spin' />
+            Loading endpoints...
+          </div>
+        ) : (
+          <ul ref={listReference} className='max-h-64 overflow-y-auto'>
+            {endpoints.map((endpoint, index) => (
+              <li
+                key={endpoint.id}
+                id={`endpoint-option-${endpoint.id}`}
+                role='option'
+                aria-selected={index === highlightedIndex}
+                className={cn(
+                  'flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 transition-colors',
+                  index === highlightedIndex
+                    ? 'bg-accent text-accent-foreground'
+                    : 'hover:bg-accent/50'
+                )}
+                onClick={() => {
+                  onSelect(endpoint);
+                }}
+              >
+                <HoverCard openDelay={300} closeDelay={100}>
+                  <HoverCardTrigger asChild>
+                    <div className='flex flex-1 items-center gap-2'>
+                      <div className='flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-green-100 dark:bg-green-900/30'>
+                        <Database className='h-4 w-4 text-green-700 dark:text-green-300' />
+                      </div>
+                      <div className='flex min-w-0 flex-col'>
+                        <span className='truncate text-sm font-medium'>{endpoint.slug}</span>
+                        <span className='text-muted-foreground truncate text-xs'>
+                          {endpoint.name}
+                        </span>
+                      </div>
                     </div>
-                    <div className='flex min-w-0 flex-col'>
-                      <span className='truncate text-sm font-medium'>{endpoint.slug}</span>
-                      <span className='text-muted-foreground truncate text-xs'>
-                        {endpoint.name}
-                      </span>
-                    </div>
-                  </div>
-                </HoverCardTrigger>
-                <HoverCardContent side='right' align='start' className='w-72'>
-                  <EndpointHoverContent endpoint={endpoint} />
-                </HoverCardContent>
-              </HoverCard>
-            </li>
-          ))}
-        </ul>
+                  </HoverCardTrigger>
+                  <HoverCardContent side='right' align='start' className='w-72'>
+                    <EndpointHoverContent endpoint={endpoint} />
+                  </HoverCardContent>
+                </HoverCard>
+              </li>
+            ))}
+          </ul>
+        )}
         <div className='text-muted-foreground border-t px-2 py-1.5 text-xs'>
           <kbd className='bg-muted rounded px-1 font-mono text-xs'>Tab</kbd> to select
         </div>

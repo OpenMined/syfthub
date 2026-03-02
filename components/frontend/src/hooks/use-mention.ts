@@ -4,11 +4,12 @@
  * Manages state and logic for @owner/slug mentions in text input.
  * Uses available data sources as the source of truth for owners and endpoints.
  */
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { MentionState, OwnerInfo } from '@/lib/mention-utils';
 import type { ChatSource } from '@/lib/types';
 
+import { getPublicEndpointOwners, getPublicEndpointsByOwner } from '@/lib/endpoint-utils';
 import {
   filterEndpoints,
   filterOwners,
@@ -47,6 +48,12 @@ export interface UseMentionReturn {
   showOwnerPopover: boolean;
   /** Whether to show endpoint selection popover */
   showEndpointPopover: boolean;
+
+  // Loading states for API fetches
+  /** Whether owners are being fetched from the API */
+  isLoadingOwners: boolean;
+  /** Whether endpoints are being fetched from the API for the current owner */
+  isLoadingEndpoints: boolean;
 
   // Actions
   /** Update mention state based on input value and cursor position */
@@ -94,8 +101,77 @@ export function useMention({ sources, maxResults = 8 }: UseMentionOptions): UseM
 
   const [highlightedIndex, setHighlightedIndex] = useState(0);
 
-  // Get unique owners from available sources
-  const allOwners = useMemo(() => getUniqueOwners(sources), [sources]);
+  // API-fetched data to supplement the local 100-item cache
+  const [fetchedOwners, setFetchedOwners] = useState<OwnerInfo[]>([]);
+  const [isLoadingOwners, setIsLoadingOwners] = useState(false);
+  const [fetchedEndpoints, setFetchedEndpoints] = useState<ChatSource[]>([]);
+  const [isLoadingEndpoints, setIsLoadingEndpoints] = useState(false);
+  // Per-owner endpoint cache — useRef so cache updates don't trigger re-renders
+  const endpointCacheReference = useRef<Map<string, ChatSource[]>>(new Map());
+
+  // Fetch all owners from the API on mount so the owner dropdown shows every owner,
+  // not just those present in the 100-item local cache.
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoadingOwners(true);
+
+    void getPublicEndpointOwners().then((result) => {
+      if (!cancelled) {
+        setFetchedOwners(result);
+        setIsLoadingOwners(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Merge local owners with API-fetched owners, deduplicating by username.
+  // API data takes precedence for endpoint counts (accurate totals).
+  const allOwners = useMemo(() => {
+    const merged = new Map<string, OwnerInfo>();
+    for (const owner of getUniqueOwners(sources)) {
+      merged.set(owner.username, owner);
+    }
+    for (const owner of fetchedOwners) {
+      merged.set(owner.username, owner);
+    }
+    return [...merged.values()].toSorted((a, b) => b.endpointCount - a.endpointCount);
+  }, [sources, fetchedOwners]);
+
+  // When entering slug phase for an owner, fetch all that owner's endpoints from
+  // the API so the dropdown is not limited to the 100-item local cache.
+  useEffect(() => {
+    if (mentionState.phase !== 'slug' || !mentionState.ownerText) {
+      setFetchedEndpoints([]);
+      return;
+    }
+
+    const owner = mentionState.ownerText;
+
+    // Cache hit — use stored results immediately, no loading state needed
+    const cached = endpointCacheReference.current.get(owner);
+    if (cached) {
+      setFetchedEndpoints(cached);
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingEndpoints(true);
+
+    void getPublicEndpointsByOwner(owner).then((result) => {
+      if (!cancelled) {
+        endpointCacheReference.current.set(owner, result);
+        setFetchedEndpoints(result);
+        setIsLoadingEndpoints(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mentionState.phase, mentionState.ownerText]);
 
   // Filter owners based on typed text
   const filteredOwners = useMemo(() => {
@@ -103,11 +179,28 @@ export function useMention({ sources, maxResults = 8 }: UseMentionOptions): UseM
     return filterOwners(allOwners, mentionState.ownerText, maxResults);
   }, [allOwners, mentionState.phase, mentionState.ownerText, maxResults]);
 
-  // Get endpoints for selected owner
+  // Merge local and API-fetched endpoints for the selected owner, deduplicating by full_path.
+  // API results come first (complete set); local results fill in any gaps.
   const ownerEndpoints = useMemo(() => {
     if (mentionState.phase !== 'slug' || !mentionState.ownerText) return [];
-    return getEndpointsByOwner(sources, mentionState.ownerText);
-  }, [sources, mentionState.phase, mentionState.ownerText]);
+    const seen = new Set<string>();
+    const merged: ChatSource[] = [];
+    for (const ep of fetchedEndpoints) {
+      const key = ep.full_path ?? (ep.owner_username ?? '') + '/' + ep.slug;
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(ep);
+      }
+    }
+    for (const ep of getEndpointsByOwner(sources, mentionState.ownerText)) {
+      const key = ep.full_path ?? (ep.owner_username ?? '') + '/' + ep.slug;
+      if (!seen.has(key)) {
+        seen.add(key);
+        merged.push(ep);
+      }
+    }
+    return merged;
+  }, [sources, mentionState.phase, mentionState.ownerText, fetchedEndpoints]);
 
   // Filter endpoints based on typed text
   const filteredEndpoints = useMemo(() => {
@@ -115,9 +208,11 @@ export function useMention({ sources, maxResults = 8 }: UseMentionOptions): UseM
     return filterEndpoints(ownerEndpoints, mentionState.slugText, maxResults);
   }, [ownerEndpoints, mentionState.phase, mentionState.slugText, maxResults]);
 
-  // Popover visibility
-  const showOwnerPopover = mentionState.phase === 'owner' && filteredOwners.length > 0;
-  const showEndpointPopover = mentionState.phase === 'slug' && filteredEndpoints.length > 0;
+  // Popover visibility — keep endpoint popover open while loading so the spinner shows
+  const showOwnerPopover =
+    mentionState.phase === 'owner' && (filteredOwners.length > 0 || isLoadingOwners);
+  const showEndpointPopover =
+    mentionState.phase === 'slug' && (filteredEndpoints.length > 0 || isLoadingEndpoints);
 
   // Update mention state from input
   const updateMentionState = useCallback(
@@ -288,6 +383,8 @@ export function useMention({ sources, maxResults = 8 }: UseMentionOptions): UseM
     filteredEndpoints,
     showOwnerPopover,
     showEndpointPopover,
+    isLoadingOwners,
+    isLoadingEndpoints,
     updateMentionState,
     handleKeyDown,
     selectOwner,
