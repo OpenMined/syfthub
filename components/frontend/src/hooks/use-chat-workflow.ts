@@ -356,7 +356,7 @@ export function processStreamEventForStatus(
     }
 
     case 'generation_heartbeat': {
-      if (!status || status.phase !== 'generating') return status;
+      if (status?.phase !== 'generating') return status;
       const elapsedSec = Math.floor(event.elapsedMs / 1000);
       return {
         ...status,
