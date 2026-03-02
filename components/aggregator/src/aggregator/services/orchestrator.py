@@ -546,9 +546,10 @@ class Orchestrator:
                         peer_channel=peer_channel,
                     )
                 )
+                gen_task_set = {gen_task}
                 try:
                     while True:
-                        done, _ = await asyncio.wait({gen_task}, timeout=3.0)
+                        done, _ = await asyncio.wait(gen_task_set, timeout=3.0)
                         if done:
                             gen_result = gen_task.result()
                             break
