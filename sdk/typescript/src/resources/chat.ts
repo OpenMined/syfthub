@@ -268,6 +268,80 @@ export class ChatResource {
   }
 
   /**
+   * Shared request preparation for complete() and stream().
+   * Resolves endpoints, fetches tokens, and builds the aggregator request body.
+   * Returns the request body and the resolved aggregator URL.
+   */
+  private async prepareRequest(
+    options: ChatOptions,
+    stream: boolean
+  ): Promise<{ requestBody: Record<string, unknown>; effectiveAggregatorUrl: string }> {
+    const modelRef = await this.resolveEndpointRef(options.model, 'model');
+
+    const dsRefs: EndpointRef[] = [];
+    for (const ds of options.dataSources ?? []) {
+      dsRefs.push(await this.resolveEndpointRef(ds, 'data_source'));
+    }
+
+    const uniqueOwners = this.collectUniqueOwners(modelRef, dsRefs);
+    const guestMode = options.guestMode ?? false;
+    const endpointTokens = await this.getSatelliteTokensForOwners(uniqueOwners, guestMode);
+    const transactionTokens = guestMode
+      ? {}
+      : await this.getTransactionTokensForOwners(uniqueOwners);
+
+    let peerToken = options.peerToken;
+    let peerChannel = options.peerChannel;
+    if (!peerToken) {
+      const tunnelingUsernames = this.collectTunnelingUsernames(modelRef, dsRefs);
+      if (tunnelingUsernames.length > 0) {
+        const peerResponse = await this.auth.getPeerToken(tunnelingUsernames);
+        peerToken = peerResponse.peerToken;
+        peerChannel = peerResponse.peerChannel;
+      }
+    }
+
+    const requestBody = this.buildRequestBody(
+      options.prompt,
+      modelRef,
+      dsRefs,
+      endpointTokens,
+      transactionTokens,
+      {
+        topK: options.topK,
+        maxTokens: options.maxTokens,
+        temperature: options.temperature,
+        similarityThreshold: options.similarityThreshold,
+        stream,
+        messages: options.messages,
+        peerToken,
+        peerChannel,
+      }
+    );
+
+    const effectiveAggregatorUrl = (options.aggregatorUrl ?? this.aggregatorUrl).replace(
+      /\/+$/,
+      ''
+    );
+
+    return { requestBody, effectiveAggregatorUrl };
+  }
+
+  /**
+   * Parse an error response from the aggregator into an AggregatorError.
+   */
+  private async handleAggregatorErrorResponse(response: Response): Promise<never> {
+    let message = `HTTP ${response.status}`;
+    try {
+      const data = (await response.json()) as Record<string, unknown>;
+      message = String(data['message'] ?? data['error'] ?? message);
+    } catch {
+      // Use default message
+    }
+    throw new AggregatorError(`Aggregator error: ${message}`, response.status);
+  }
+
+  /**
    * Build the request body for the aggregator.
    * Includes endpoint_tokens mapping for satellite token authentication.
    * Includes transaction_tokens mapping for billing authorization.
@@ -417,77 +491,16 @@ export class ChatResource {
    * @throws {AggregatorError} If aggregator service fails
    */
   async complete(options: ChatOptions): Promise<ChatResponse> {
-    const modelRef = await this.resolveEndpointRef(options.model, 'model');
+    const { requestBody, effectiveAggregatorUrl } = await this.prepareRequest(options, false);
 
-    const dsRefs: EndpointRef[] = [];
-    for (const ds of options.dataSources ?? []) {
-      dsRefs.push(await this.resolveEndpointRef(ds, 'data_source'));
-    }
-
-    // Get satellite tokens for all unique endpoint owners
-    const uniqueOwners = this.collectUniqueOwners(modelRef, dsRefs);
-    const guestMode = options.guestMode ?? false;
-    const endpointTokens = await this.getSatelliteTokensForOwners(uniqueOwners, guestMode);
-
-    // Get transaction tokens for billing authorization (skip for guest mode)
-    const transactionTokens = guestMode
-      ? {}
-      : await this.getTransactionTokensForOwners(uniqueOwners);
-
-    // Auto-fetch peer token if tunneling endpoints detected
-    let peerToken = options.peerToken;
-    let peerChannel = options.peerChannel;
-    if (!peerToken) {
-      const tunnelingUsernames = this.collectTunnelingUsernames(modelRef, dsRefs);
-      if (tunnelingUsernames.length > 0) {
-        const peerResponse = await this.auth.getPeerToken(tunnelingUsernames);
-        peerToken = peerResponse.peerToken;
-        peerChannel = peerResponse.peerChannel;
-      }
-    }
-
-    const requestBody = this.buildRequestBody(
-      options.prompt,
-      modelRef,
-      dsRefs,
-      endpointTokens,
-      transactionTokens,
-      {
-        topK: options.topK,
-        maxTokens: options.maxTokens,
-        temperature: options.temperature,
-        similarityThreshold: options.similarityThreshold,
-        stream: false,
-        messages: options.messages,
-        peerToken,
-        peerChannel,
-      }
-    );
-
-    // Use custom aggregator URL if provided, otherwise use default
-    const effectiveAggregatorUrl = (options.aggregatorUrl ?? this.aggregatorUrl).replace(
-      /\/+$/,
-      ''
-    );
-    const url = `${effectiveAggregatorUrl}/chat`;
-
-    const response = await fetch(url, {
+    const response = await fetch(`${effectiveAggregatorUrl}/chat`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
-      let message = `HTTP ${response.status}`;
-      try {
-        const data = (await response.json()) as Record<string, unknown>;
-        message = String(data['message'] ?? data['error'] ?? message);
-      } catch {
-        // Use default message
-      }
-      throw new AggregatorError(`Aggregator error: ${message}`, response.status);
+      return this.handleAggregatorErrorResponse(response);
     }
 
     const data = (await response.json()) as Record<string, unknown>;
@@ -533,61 +546,9 @@ export class ChatResource {
    * @yields ChatStreamEvent objects as they arrive
    */
   async *stream(options: ChatOptions): AsyncGenerator<ChatStreamEvent, void, unknown> {
-    const modelRef = await this.resolveEndpointRef(options.model, 'model');
+    const { requestBody, effectiveAggregatorUrl } = await this.prepareRequest(options, true);
 
-    const dsRefs: EndpointRef[] = [];
-    for (const ds of options.dataSources ?? []) {
-      dsRefs.push(await this.resolveEndpointRef(ds, 'data_source'));
-    }
-
-    // Get satellite tokens for all unique endpoint owners
-    const uniqueOwners = this.collectUniqueOwners(modelRef, dsRefs);
-    const guestMode = options.guestMode ?? false;
-    const endpointTokens = await this.getSatelliteTokensForOwners(uniqueOwners, guestMode);
-
-    // Get transaction tokens for billing authorization (skip for guest mode)
-    const transactionTokens = guestMode
-      ? {}
-      : await this.getTransactionTokensForOwners(uniqueOwners);
-
-    // Auto-fetch peer token if tunneling endpoints detected
-    let peerToken = options.peerToken;
-    let peerChannel = options.peerChannel;
-    if (!peerToken) {
-      const tunnelingUsernames = this.collectTunnelingUsernames(modelRef, dsRefs);
-      if (tunnelingUsernames.length > 0) {
-        const peerResponse = await this.auth.getPeerToken(tunnelingUsernames);
-        peerToken = peerResponse.peerToken;
-        peerChannel = peerResponse.peerChannel;
-      }
-    }
-
-    const requestBody = this.buildRequestBody(
-      options.prompt,
-      modelRef,
-      dsRefs,
-      endpointTokens,
-      transactionTokens,
-      {
-        topK: options.topK,
-        maxTokens: options.maxTokens,
-        temperature: options.temperature,
-        similarityThreshold: options.similarityThreshold,
-        stream: true,
-        messages: options.messages,
-        peerToken,
-        peerChannel,
-      }
-    );
-
-    // Use custom aggregator URL if provided, otherwise use default
-    const effectiveAggregatorUrl = (options.aggregatorUrl ?? this.aggregatorUrl).replace(
-      /\/+$/,
-      ''
-    );
-    const url = `${effectiveAggregatorUrl}/chat/stream`;
-
-    const response = await fetch(url, {
+    const response = await fetch(`${effectiveAggregatorUrl}/chat/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -598,14 +559,7 @@ export class ChatResource {
     });
 
     if (!response.ok) {
-      let message = `HTTP ${response.status}`;
-      try {
-        const data = (await response.json()) as Record<string, unknown>;
-        message = String(data['message'] ?? data['error'] ?? message);
-      } catch {
-        // Use default message
-      }
-      throw new AggregatorError(`Aggregator error: ${message}`, response.status);
+      return this.handleAggregatorErrorResponse(response);
     }
 
     if (!response.body) {
@@ -640,7 +594,7 @@ export class ChatResource {
                   yield event;
                 }
               } catch {
-                // Skip malformed data
+                yield { type: 'error', message: `Failed to parse SSE data: ${currentData}` };
               }
             }
             currentEvent = null;
@@ -746,11 +700,29 @@ export class ChatResource {
         };
 
       default:
+        console.warn(`[SyftHub] Unknown SSE event type received from aggregator: ${eventType}`);
         return {
           type: 'error',
           message: `Unknown event type: ${eventType}`,
         };
     }
+  }
+
+  private async getAvailableEndpoints(
+    endpointType: EndpointType,
+    limit: number
+  ): Promise<EndpointPublic[]> {
+    const results: EndpointPublic[] = [];
+
+    for await (const endpoint of this.hub.browse()) {
+      if (results.length >= limit) break;
+      if (endpoint.type !== endpointType) continue;
+      if (endpoint.connect.some((conn) => conn.enabled && conn.config['url'])) {
+        results.push(endpoint);
+      }
+    }
+
+    return results;
   }
 
   /**
@@ -760,21 +732,7 @@ export class ChatResource {
    * @returns Array of EndpointPublic objects for models with URLs
    */
   async getAvailableModels(limit = 20): Promise<EndpointPublic[]> {
-    const results: EndpointPublic[] = [];
-
-    for await (const endpoint of this.hub.browse()) {
-      if (results.length >= limit) break;
-
-      if (endpoint.type !== EndpointType.MODEL) continue;
-
-      const hasUrl = endpoint.connect.some((conn) => conn.enabled && conn.config['url']);
-
-      if (hasUrl) {
-        results.push(endpoint);
-      }
-    }
-
-    return results;
+    return this.getAvailableEndpoints(EndpointType.MODEL, limit);
   }
 
   /**
@@ -784,20 +742,6 @@ export class ChatResource {
    * @returns Array of EndpointPublic objects for data sources with URLs
    */
   async getAvailableDataSources(limit = 20): Promise<EndpointPublic[]> {
-    const results: EndpointPublic[] = [];
-
-    for await (const endpoint of this.hub.browse()) {
-      if (results.length >= limit) break;
-
-      if (endpoint.type !== EndpointType.DATA_SOURCE) continue;
-
-      const hasUrl = endpoint.connect.some((conn) => conn.enabled && conn.config['url']);
-
-      if (hasUrl) {
-        results.push(endpoint);
-      }
-    }
-
-    return results;
+    return this.getAvailableEndpoints(EndpointType.DATA_SOURCE, limit);
   }
 }
