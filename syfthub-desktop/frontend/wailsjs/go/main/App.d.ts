@@ -48,6 +48,8 @@ export function GetLogStats(arg1:string):Promise<main.LogStats>;
 
 export function GetLogs(arg1:string,arg2:number,arg3:number,arg4:string):Promise<main.LogQueryResult>;
 
+export function GetMarketplacePackages():Promise<Array<main.MarketplacePackage>>;
+
 export function GetPolicies(arg1:string):Promise<Array<main.Policy>>;
 
 export function GetPoliciesYaml(arg1:string):Promise<string>;
@@ -71,6 +73,8 @@ export function GetVersion():Promise<string>;
 export function Greet(arg1:string):Promise<string>;
 
 export function HasSettings():Promise<boolean>;
+
+export function InstallMarketplacePackage(arg1:string,arg2:string,arg3:Array<main.EnvVar>):Promise<void>;
 
 export function ListPolicyFiles(arg1:string):Promise<Array<main.PolicyFileInfo>>;
 

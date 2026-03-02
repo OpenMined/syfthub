@@ -13,10 +13,11 @@ import (
 // Settings holds persistent application settings.
 // These are stored in settings.json in the user config directory.
 type Settings struct {
-	SyftHubURL    string `json:"syfthubUrl"`
-	APIKey        string `json:"apiKey,omitempty"`
-	EndpointsPath string `json:"endpointsPath"`
-	IsConfigured  bool   `json:"isConfigured"`
+	SyftHubURL     string `json:"syfthubUrl"`
+	APIKey         string `json:"apiKey,omitempty"`
+	EndpointsPath  string `json:"endpointsPath"`
+	IsConfigured   bool   `json:"isConfigured"`
+	MarketplaceURL string `json:"marketplaceUrl,omitempty"`
 }
 
 // DefaultSettings returns settings with sensible defaults.

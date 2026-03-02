@@ -25,6 +25,8 @@ import {
   CheckEndpointExists,
   DeleteEndpoint,
   GetUserAggregators,
+  GetMarketplacePackages,
+  InstallMarketplacePackage,
 } from '../../wailsjs/go/main/App';
 
 // Re-export types from models
@@ -38,6 +40,8 @@ export type LogQueryResult = main.LogQueryResult;
 export type LogStats = main.LogStats;
 export type CreateEndpointRequest = main.CreateEndpointRequest;
 export type ChatRequest = main.ChatRequest;
+export type MarketplacePackage = main.MarketplacePackage;
+export type PackageConfigField = main.PackageConfigField;
 
 // Utility to parse YAML frontmatter from markdown content
 function parseFrontmatter(content: string): { frontmatter: string; body: string } {
@@ -87,7 +91,7 @@ interface AppState {
   error: string | null;
   activeTab: 'settings' | 'code' | 'docs' | 'logs';
   settingsSection: 'overview' | 'environment' | 'dependencies' | 'policies';
-  mainView: 'endpoints' | 'chat';
+  mainView: 'endpoints' | 'chat' | 'marketplace';
 
   // Logs state
   logs: RequestLogEntry[];
@@ -111,6 +115,12 @@ interface AppState {
   chatSelectedSources: EndpointInfo[];
   aggregatorURL: string | null;
 
+  // Marketplace state
+  marketplacePackages: MarketplacePackage[];
+  marketplaceLoading: boolean;
+  marketplaceError: string | null;
+  installingPackageSlug: string | null;
+
   // Actions - Core
   initialize: () => Promise<void>; // Initial app load
   fetchStatus: () => Promise<void>;
@@ -124,7 +134,7 @@ interface AppState {
   selectEndpoint: (slug: string | null) => Promise<void>;
   setActiveTab: (tab: 'settings' | 'code' | 'docs' | 'logs') => void;
   setSettingsSection: (section: 'overview' | 'environment' | 'dependencies' | 'policies') => void;
-  setMainView: (view: 'endpoints' | 'chat') => void;
+  setMainView: (view: 'endpoints' | 'chat' | 'marketplace') => void;
 
   // Actions - Logs
   fetchLogs: (status?: string) => Promise<void>;
@@ -174,6 +184,11 @@ interface AppState {
   setChatSelectedSources: (sources: EndpointInfo[]) => void;
   toggleChatSource: (source: EndpointInfo) => void;
   refreshAggregatorURL: () => Promise<void>;
+
+  // Actions - Marketplace
+  fetchMarketplacePackages: () => Promise<void>;
+  installMarketplacePackage: (slug: string, downloadUrl: string, configValues: Array<{key: string, value: string}>) => Promise<void>;
+  uninstallMarketplacePackage: (slug: string) => Promise<void>;
 }
 
 const initialStatus: StatusInfo = {
@@ -225,6 +240,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   chatSelectedModel: null,
   chatSelectedSources: [],
   aggregatorURL: null,
+
+  // Marketplace initial state
+  marketplacePackages: [],
+  marketplaceLoading: false,
+  marketplaceError: null,
+  installingPackageSlug: null,
 
   // Core actions
   initialize: async () => {
@@ -866,6 +887,48 @@ export const useAppStore = create<AppState>((set, get) => ({
       throw err;
     } finally {
       set({ isDeletingEndpoint: false });
+    }
+  },
+
+  // Marketplace actions
+  fetchMarketplacePackages: async () => {
+    try {
+      set({ marketplaceLoading: true, marketplaceError: null });
+      const packages = await GetMarketplacePackages();
+      set({ marketplacePackages: packages || [] });
+    } catch (err) {
+      set({ marketplaceError: `Failed to load packages: ${err}` });
+    } finally {
+      set({ marketplaceLoading: false });
+    }
+  },
+
+  installMarketplacePackage: async (slug: string, downloadUrl: string, configValues: Array<{key: string, value: string}>) => {
+    try {
+      set({ installingPackageSlug: slug });
+      const envVars = configValues.map(cv => main.EnvVar.createFrom({ key: cv.key, value: cv.value }));
+      await InstallMarketplacePackage(slug, downloadUrl, envVars);
+      await get().fetchEndpoints();
+    } catch (err) {
+      throw err;
+    } finally {
+      set({ installingPackageSlug: null });
+    }
+  },
+
+  uninstallMarketplacePackage: async (slug: string) => {
+    try {
+      set({ installingPackageSlug: slug, lastOptimisticAddTime: Date.now() });
+      await DeleteEndpoint(slug);
+      // Optimistic UI: remove from endpoints
+      set((state) => ({
+        endpoints: state.endpoints.filter(ep => ep.slug !== slug),
+      }));
+      await get().fetchEndpoints();
+    } catch (err) {
+      set({ error: `Failed to uninstall package: ${err}` });
+    } finally {
+      set({ installingPackageSlug: null });
     }
   },
 }));

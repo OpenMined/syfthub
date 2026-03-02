@@ -211,3 +211,36 @@ type LogStats struct {
 	AvgDurationMs   float64 `json:"avgDurationMs"`
 	LastRequestTime *string `json:"lastRequestTime,omitempty"`
 }
+
+// ============================================================================
+// Marketplace Types
+// ============================================================================
+
+// PackageConfigField describes a configuration field that the user must provide
+// during marketplace package installation (e.g. an API key or model name).
+type PackageConfigField struct {
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required"`
+	Secret      bool   `json:"secret"`
+	Default     string `json:"default,omitempty"`
+}
+
+// MarketplacePackage represents an installable endpoint package from the marketplace.
+type MarketplacePackage struct {
+	Slug        string               `json:"slug"`
+	Name        string               `json:"name"`
+	Description string               `json:"description"`
+	Type        string               `json:"type"`
+	Author      string               `json:"author,omitempty"`
+	Version     string               `json:"version"`
+	DownloadURL string               `json:"downloadUrl"`
+	Tags        []string             `json:"tags,omitempty"`
+	Config      []PackageConfigField `json:"config,omitempty"`
+}
+
+// MarketplaceManifest is the top-level structure of the static marketplace JSON file.
+type MarketplaceManifest struct {
+	Packages []MarketplacePackage `json:"packages"`
+}

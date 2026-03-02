@@ -1,0 +1,331 @@
+import { useState, useEffect } from 'react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { useAppStore, type MarketplacePackage, type PackageConfigField } from '@/stores/appStore';
+
+function PackageCard({
+  pkg,
+  isInstalled,
+  isInstalling,
+  onInstall,
+  onUninstall,
+}: {
+  pkg: MarketplacePackage;
+  isInstalled: boolean;
+  isInstalling: boolean;
+  onInstall: () => void;
+  onUninstall: () => void;
+}) {
+  return (
+    <div className="flex flex-col rounded-lg border border-border bg-card/50 p-4">
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <h3 className="font-medium text-sm text-foreground leading-tight">{pkg.name}</h3>
+        <Badge variant="secondary" className="text-[10px] shrink-0">
+          {pkg.type === 'data_source' ? 'Data Source' : 'Model'}
+        </Badge>
+      </div>
+
+      <p className="text-xs text-muted-foreground mb-3 line-clamp-2 flex-1">
+        {pkg.description}
+      </p>
+
+      {pkg.tags && pkg.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-3">
+          {pkg.tags.slice(0, 4).map((tag) => (
+            <span
+              key={tag}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-secondary/50 text-muted-foreground"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between mt-auto pt-2 border-t border-border/50">
+        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+          {pkg.author && <span>by {pkg.author}</span>}
+          {pkg.version && <span>v{pkg.version}</span>}
+        </div>
+
+        {isInstalled ? (
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-emerald-500 font-medium">Installed</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[10px] text-destructive hover:text-destructive"
+              onClick={onUninstall}
+              disabled={isInstalling}
+            >
+              {isInstalling ? 'Removing...' : 'Uninstall'}
+            </Button>
+          </div>
+        ) : (
+          <Button
+            size="sm"
+            className="h-6 px-3 text-[10px]"
+            onClick={onInstall}
+            disabled={isInstalling}
+          >
+            Install
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ConfigField({
+  field,
+  value,
+  onChange,
+}: {
+  field: PackageConfigField;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={`config-${field.key}`} className="text-xs">
+        {field.label}
+        {field.required && <span className="text-destructive ml-1">*</span>}
+      </Label>
+      {field.description && (
+        <p className="text-[10px] text-muted-foreground">{field.description}</p>
+      )}
+      <Input
+        id={`config-${field.key}`}
+        type={field.secret ? 'password' : 'text'}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={field.default || `Enter ${field.label.toLowerCase()}`}
+        className="h-8 text-xs"
+      />
+    </div>
+  );
+}
+
+export function MarketplaceView() {
+  const {
+    endpoints,
+    marketplacePackages,
+    marketplaceLoading,
+    marketplaceError,
+    installingPackageSlug,
+    fetchMarketplacePackages,
+    installMarketplacePackage,
+    uninstallMarketplacePackage,
+  } = useAppStore();
+
+  const [selectedPackage, setSelectedPackage] = useState<MarketplacePackage | null>(null);
+  const [configValues, setConfigValues] = useState<Record<string, string>>({});
+  const [installError, setInstallError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    fetchMarketplacePackages();
+  }, [fetchMarketplacePackages]);
+
+  const installedSlugs = new Set(endpoints.map((ep) => ep.slug));
+
+  const filteredPackages = searchQuery
+    ? marketplacePackages.filter(
+        (pkg) =>
+          pkg.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          pkg.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          pkg.tags?.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()))
+      )
+    : marketplacePackages;
+
+  const handleOpenInstall = (pkg: MarketplacePackage) => {
+    setSelectedPackage(pkg);
+    setInstallError(null);
+    // Initialize config values with defaults
+    const defaults: Record<string, string> = {};
+    if (pkg.config) {
+      for (const field of pkg.config) {
+        defaults[field.key] = field.default || '';
+      }
+    }
+    setConfigValues(defaults);
+  };
+
+  const handleInstall = async () => {
+    if (!selectedPackage) return;
+
+    // Validate required fields
+    if (selectedPackage.config) {
+      for (const field of selectedPackage.config) {
+        if (field.required && !configValues[field.key]?.trim()) {
+          setInstallError(`"${field.label}" is required`);
+          return;
+        }
+      }
+    }
+
+    setInstallError(null);
+    try {
+      const cvArray = Object.entries(configValues)
+        .filter(([, value]) => value.trim() !== '')
+        .map(([key, value]) => ({ key, value }));
+      await installMarketplacePackage(selectedPackage.slug, selectedPackage.downloadUrl, cvArray);
+      setSelectedPackage(null);
+    } catch (err) {
+      setInstallError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  return (
+    <div className="h-full flex flex-col p-6">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-lg font-semibold text-foreground">Marketplace</h1>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Browse and install pre-built endpoint packages
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => fetchMarketplacePackages()}
+          disabled={marketplaceLoading}
+        >
+          {marketplaceLoading ? 'Loading...' : 'Refresh'}
+        </Button>
+      </div>
+
+      {/* Search */}
+      <div className="mb-4">
+        <Input
+          placeholder="Search packages..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="h-8 text-xs max-w-sm"
+        />
+      </div>
+
+      {/* Content */}
+      {marketplaceLoading && marketplacePackages.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <svg className="animate-spin h-8 w-8 text-muted-foreground mx-auto mb-3" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+            <p className="text-sm text-muted-foreground">Loading packages...</p>
+          </div>
+        </div>
+      ) : marketplaceError && marketplacePackages.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <p className="text-sm text-destructive mb-3">{marketplaceError}</p>
+            <Button variant="outline" size="sm" onClick={() => fetchMarketplacePackages()}>
+              Retry
+            </Button>
+          </div>
+        </div>
+      ) : filteredPackages.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-sm text-muted-foreground">
+            {searchQuery ? 'No packages match your search' : 'No packages available'}
+          </p>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {filteredPackages.map((pkg) => (
+              <PackageCard
+                key={pkg.slug}
+                pkg={pkg}
+                isInstalled={installedSlugs.has(pkg.slug)}
+                isInstalling={installingPackageSlug === pkg.slug}
+                onInstall={() => handleOpenInstall(pkg)}
+                onUninstall={() => uninstallMarketplacePackage(pkg.slug)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Install Dialog */}
+      <Dialog open={!!selectedPackage} onOpenChange={(open) => !open && setSelectedPackage(null)}>
+        <DialogContent className="sm:max-w-[450px]">
+          {selectedPackage && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-base">Install {selectedPackage.name}</DialogTitle>
+                <DialogDescription className="text-xs">
+                  {selectedPackage.config && selectedPackage.config.length > 0
+                    ? 'Configure the required settings to install this package.'
+                    : 'This package requires no additional configuration.'}
+                </DialogDescription>
+              </DialogHeader>
+
+              {selectedPackage.config && selectedPackage.config.length > 0 && (
+                <div className="space-y-3 py-2">
+                  {selectedPackage.config.map((field) => (
+                    <ConfigField
+                      key={field.key}
+                      field={field}
+                      value={configValues[field.key] || ''}
+                      onChange={(value) =>
+                        setConfigValues((prev) => ({ ...prev, [field.key]: value }))
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+
+              {installError && (
+                <div className="p-2.5 bg-destructive/10 border border-destructive/20 rounded-md text-destructive text-xs">
+                  {installError}
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedPackage(null)}
+                  disabled={installingPackageSlug === selectedPackage.slug}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleInstall}
+                  disabled={installingPackageSlug === selectedPackage.slug}
+                >
+                  {installingPackageSlug === selectedPackage.slug ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-2 h-3 w-3" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Installing...
+                    </>
+                  ) : (
+                    'Install'
+                  )}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

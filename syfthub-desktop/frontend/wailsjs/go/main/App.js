@@ -94,6 +94,10 @@ export function GetLogs(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GetLogs'](arg1, arg2, arg3, arg4);
 }
 
+export function GetMarketplacePackages() {
+  return window['go']['main']['App']['GetMarketplacePackages']();
+}
+
 export function GetPolicies(arg1) {
   return window['go']['main']['App']['GetPolicies'](arg1);
 }
@@ -140,6 +144,10 @@ export function Greet(arg1) {
 
 export function HasSettings() {
   return window['go']['main']['App']['HasSettings']();
+}
+
+export function InstallMarketplacePackage(arg1, arg2, arg3) {
+  return window['go']['main']['App']['InstallMarketplacePackage'](arg1, arg2, arg3);
 }
 
 export function ListPolicyFiles(arg1) {

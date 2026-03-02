@@ -3,6 +3,7 @@ import { useAppStore } from '../stores/appStore';
 import { CreateEndpointDialog } from './CreateEndpointDialog';
 import { DeleteEndpointDialog } from './DeleteEndpointDialog';
 import { ChatView } from './ChatView';
+import { MarketplaceView } from './MarketplaceView';
 import { WindowMinimise, WindowToggleMaximise, Quit } from '../../wailsjs/runtime/runtime';
 
 interface AppShellProps {
@@ -55,6 +56,16 @@ export function AppShell({ sidebar, children }: AppShellProps) {
             >
               Chat
             </button>
+            <button
+              onClick={() => setMainView('marketplace')}
+              className={`h-5 px-3 text-xs rounded transition-colors duration-150 ${
+                mainView === 'marketplace'
+                  ? 'bg-secondary text-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Marketplace
+            </button>
           </div>
         </div>
 
@@ -92,7 +103,7 @@ export function AppShell({ sidebar, children }: AppShellProps) {
       )}
 
       {/* Main content */}
-      {mainView === 'endpoints' ? (
+      {mainView === 'endpoints' && (
         <div className="flex-1 flex overflow-hidden">
           {/* Sidebar */}
           <aside className="w-64 flex-shrink-0 border-r border-sidebar-border bg-sidebar">
@@ -104,9 +115,15 @@ export function AppShell({ sidebar, children }: AppShellProps) {
             {children}
           </main>
         </div>
-      ) : (
+      )}
+      {mainView === 'chat' && (
         <div className="flex-1 overflow-hidden bg-background">
           <ChatView />
+        </div>
+      )}
+      {mainView === 'marketplace' && (
+        <div className="flex-1 overflow-hidden bg-background">
+          <MarketplaceView />
         </div>
       )}
 
