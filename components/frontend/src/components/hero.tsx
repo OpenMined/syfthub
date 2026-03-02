@@ -77,7 +77,7 @@ export function Hero({
   } = useModels({
     initialModel
   });
-  const { sources, sourcesById } = useDataSources();
+  const { sources } = useDataSources();
   const contextStore = useContextSelectionStore();
 
   // Source modal state
@@ -160,17 +160,14 @@ export function Hero({
 
   // Handle source modal confirm
   const handleSourceModalConfirm = useCallback(
-    (selectedIds: Set<string>) => {
+    (selectedSources: ChatSource[]) => {
       contextStore.clearSources();
-      for (const id of selectedIds) {
-        const source = sourcesById.get(id) ?? sources.find((s) => s.id === id);
-        if (source) {
-          contextStore.addSource(source);
-        }
+      for (const source of selectedSources) {
+        contextStore.addSource(source);
       }
       setIsSourceModalOpen(false);
     },
-    [contextStore, sourcesById, sources]
+    [contextStore]
   );
 
   // Determine if workflow is active (not idle)
