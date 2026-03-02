@@ -605,7 +605,6 @@ export function useCreateTransaction(): UseCreateTransactionResult {
   const { isConfigured } = useAccountingContext();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const isMounted = useRef(true);
 
   const create = useCallback(
     async (input: CreateTransactionInput): Promise<AccountingTransaction | null> => {
@@ -627,14 +626,10 @@ export function useCreateTransaction(): UseCreateTransactionResult {
         const response = await client.createTransaction(input);
         return parseTransaction(response);
       } catch (error_) {
-        if (isMounted.current) {
-          setError(error_ instanceof Error ? error_.message : 'Failed to create transaction');
-        }
+        setError(error_ instanceof Error ? error_.message : 'Failed to create transaction');
         return null;
       } finally {
-        if (isMounted.current) {
-          setIsLoading(false);
-        }
+        setIsLoading(false);
       }
     },
     [isConfigured]
@@ -642,13 +637,6 @@ export function useCreateTransaction(): UseCreateTransactionResult {
 
   const clearError = useCallback(() => {
     setError(null);
-  }, []);
-
-  useEffect(() => {
-    isMounted.current = true;
-    return () => {
-      isMounted.current = false;
-    };
   }, []);
 
   return { create, isLoading, error, clearError };
@@ -672,7 +660,6 @@ export function useConfirmTransaction(): UseConfirmTransactionResult {
   const { isConfigured } = useAccountingContext();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const isMounted = useRef(true);
 
   const confirm = useCallback(
     async (transactionId: string): Promise<AccountingTransaction | null> => {
@@ -689,14 +676,10 @@ export function useConfirmTransaction(): UseConfirmTransactionResult {
         const response = await client.confirmTransaction(transactionId);
         return parseTransaction(response);
       } catch (error_) {
-        if (isMounted.current) {
-          setError(error_ instanceof Error ? error_.message : 'Failed to confirm transaction');
-        }
+        setError(error_ instanceof Error ? error_.message : 'Failed to confirm transaction');
         return null;
       } finally {
-        if (isMounted.current) {
-          setIsLoading(false);
-        }
+        setIsLoading(false);
       }
     },
     [isConfigured]
@@ -704,13 +687,6 @@ export function useConfirmTransaction(): UseConfirmTransactionResult {
 
   const clearError = useCallback(() => {
     setError(null);
-  }, []);
-
-  useEffect(() => {
-    isMounted.current = true;
-    return () => {
-      isMounted.current = false;
-    };
   }, []);
 
   return { confirm, isLoading, error, clearError };
@@ -734,7 +710,6 @@ export function useCancelTransaction(): UseCancelTransactionResult {
   const { isConfigured } = useAccountingContext();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const isMounted = useRef(true);
 
   const cancel = useCallback(
     async (transactionId: string): Promise<AccountingTransaction | null> => {
@@ -751,14 +726,10 @@ export function useCancelTransaction(): UseCancelTransactionResult {
         const response = await client.cancelTransaction(transactionId);
         return parseTransaction(response);
       } catch (error_) {
-        if (isMounted.current) {
-          setError(error_ instanceof Error ? error_.message : 'Failed to cancel transaction');
-        }
+        setError(error_ instanceof Error ? error_.message : 'Failed to cancel transaction');
         return null;
       } finally {
-        if (isMounted.current) {
-          setIsLoading(false);
-        }
+        setIsLoading(false);
       }
     },
     [isConfigured]
@@ -766,13 +737,6 @@ export function useCancelTransaction(): UseCancelTransactionResult {
 
   const clearError = useCallback(() => {
     setError(null);
-  }, []);
-
-  useEffect(() => {
-    isMounted.current = true;
-    return () => {
-      isMounted.current = false;
-    };
   }, []);
 
   return { cancel, isLoading, error, clearError };
@@ -790,7 +754,6 @@ export function useTransaction(transactionId: string | null) {
   const [transaction, setTransaction] = useState<AccountingTransaction | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const isMounted = useRef(true);
 
   const refetch = useCallback(async () => {
     if (!isConfigured || !transactionId) {
@@ -811,19 +774,13 @@ export function useTransaction(transactionId: string | null) {
       const client = getProxyClient();
       const response = await client.confirmTransaction(transactionId);
       const updated = parseTransaction(response);
-      if (isMounted.current) {
-        setTransaction(updated);
-      }
+      setTransaction(updated);
       return updated;
     } catch (error_) {
-      if (isMounted.current) {
-        setError(error_ instanceof Error ? error_.message : 'Failed to confirm transaction');
-      }
+      setError(error_ instanceof Error ? error_.message : 'Failed to confirm transaction');
       return null;
     } finally {
-      if (isMounted.current) {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     }
   }, [isConfigured, transactionId]);
 
@@ -837,28 +794,15 @@ export function useTransaction(transactionId: string | null) {
       const client = getProxyClient();
       const response = await client.cancelTransaction(transactionId);
       const updated = parseTransaction(response);
-      if (isMounted.current) {
-        setTransaction(updated);
-      }
+      setTransaction(updated);
       return updated;
     } catch (error_) {
-      if (isMounted.current) {
-        setError(error_ instanceof Error ? error_.message : 'Failed to cancel transaction');
-      }
+      setError(error_ instanceof Error ? error_.message : 'Failed to cancel transaction');
       return null;
     } finally {
-      if (isMounted.current) {
-        setIsLoading(false);
-      }
+      setIsLoading(false);
     }
   }, [isConfigured, transactionId]);
-
-  useEffect(() => {
-    isMounted.current = true;
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
 
   useEffect(() => {
     void refetch();

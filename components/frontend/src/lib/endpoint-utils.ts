@@ -19,6 +19,7 @@ import type {
   PaginationParams
 } from './types';
 
+import { formatRelativeTime } from './date-utils';
 import { syftClient } from './sdk-client';
 
 // ============================================================================
@@ -44,26 +45,6 @@ export function isDataSourceEndpoint(type: EndpointType): boolean {
 // ============================================================================
 // Type Mapping Utilities
 // ============================================================================
-
-/**
- * Format a relative time string from a date.
- */
-function formatRelativeTime(date: Date): string {
-  const now = new Date();
-  const diffInHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60));
-
-  if (diffInHours < 1) return 'just now';
-  if (diffInHours < 24) return `${String(diffInHours)} hour${diffInHours === 1 ? '' : 's'} ago`;
-
-  const diffInDays = Math.floor(diffInHours / 24);
-  if (diffInDays < 7) return `${String(diffInDays)} day${diffInDays === 1 ? '' : 's'} ago`;
-
-  const diffInWeeks = Math.floor(diffInDays / 7);
-  if (diffInDays < 30) return `${String(diffInWeeks)} week${diffInWeeks === 1 ? '' : 's'} ago`;
-
-  const diffInMonths = Math.floor(diffInDays / 30);
-  return `${String(diffInMonths)} month${diffInMonths === 1 ? '' : 's'} ago`;
-}
 
 /**
  * Convert SDK EndpointPublic to frontend ChatSource.
@@ -624,6 +605,36 @@ export async function deleteEndpointByPath(path: string): Promise<void> {
 // ============================================================================
 
 /**
+ * Fetch trending + public endpoints of the given type, deduplicated by full_path.
+ * Trending results take priority; public results fill the remainder.
+ */
+async function fetchAndDeduplicateChatEndpoints(
+  type: EndpointType,
+  limit: number
+): Promise<ChatSource[]> {
+  const trendingLimit = Math.floor(limit / 2);
+  const publicLimit = limit - trendingLimit;
+
+  const [trending, publicEndpoints] = await Promise.all([
+    getTrendingEndpoints({ limit: trendingLimit, endpoint_type: type }),
+    getPublicEndpoints({ limit: publicLimit, endpoint_type: type })
+  ]);
+
+  const results: ChatSource[] = [];
+  const seenPaths = new Set<string>();
+
+  for (const source of [...trending, ...publicEndpoints]) {
+    const path = source.full_path ?? `${source.owner_username ?? 'unknown'}/${source.slug}`;
+    if (!seenPaths.has(path)) {
+      seenPaths.add(path);
+      results.push(source);
+    }
+  }
+
+  return results;
+}
+
+/**
  * Get data sources for chat (combines trending and public data_source endpoints).
  *
  * @param limit - Maximum number of results
@@ -631,38 +642,7 @@ export async function deleteEndpointByPath(path: string): Promise<void> {
  */
 export async function getChatDataSources(limit = 20): Promise<ChatSource[]> {
   try {
-    const trendingLimit = Math.floor(limit / 2);
-    const publicLimit = limit - trendingLimit;
-
-    const [trending, publicEndpoints] = await Promise.all([
-      getTrendingEndpoints({ limit: trendingLimit, endpoint_type: 'data_source' }),
-      getPublicEndpoints({ limit: publicLimit, endpoint_type: 'data_source' })
-    ]);
-
-    // Combine and deduplicate by full_path (owner/slug) to correctly handle
-    // models from different owners with the same slug
-    const combinedSources: ChatSource[] = [];
-    const seenPaths = new Set<string>();
-
-    // Add trending first (higher priority)
-    for (const source of trending) {
-      const path = source.full_path ?? `${source.owner_username ?? 'unknown'}/${source.slug}`;
-      if (!seenPaths.has(path)) {
-        seenPaths.add(path);
-        combinedSources.push(source);
-      }
-    }
-
-    // Add public endpoints that aren't already included
-    for (const source of publicEndpoints) {
-      const path = source.full_path ?? `${source.owner_username ?? 'unknown'}/${source.slug}`;
-      if (!seenPaths.has(path)) {
-        seenPaths.add(path);
-        combinedSources.push(source);
-      }
-    }
-
-    return combinedSources;
+    return await fetchAndDeduplicateChatEndpoints('data_source', limit);
   } catch (error) {
     console.error('Failed to fetch chat data sources:', error);
     return [];
@@ -677,38 +657,7 @@ export async function getChatDataSources(limit = 20): Promise<ChatSource[]> {
  */
 export async function getChatModels(limit = 20): Promise<ChatSource[]> {
   try {
-    const trendingLimit = Math.floor(limit / 2);
-    const publicLimit = limit - trendingLimit;
-
-    const [trending, publicEndpoints] = await Promise.all([
-      getTrendingEndpoints({ limit: trendingLimit, endpoint_type: 'model' }),
-      getPublicEndpoints({ limit: publicLimit, endpoint_type: 'model' })
-    ]);
-
-    // Combine and deduplicate by full_path (owner/slug) to correctly handle
-    // models from different owners with the same slug
-    const combinedModels: ChatSource[] = [];
-    const seenPaths = new Set<string>();
-
-    // Add trending first (higher priority)
-    for (const model of trending) {
-      const path = model.full_path ?? `${model.owner_username ?? 'unknown'}/${model.slug}`;
-      if (!seenPaths.has(path)) {
-        seenPaths.add(path);
-        combinedModels.push(model);
-      }
-    }
-
-    // Add public endpoints that aren't already included
-    for (const model of publicEndpoints) {
-      const path = model.full_path ?? `${model.owner_username ?? 'unknown'}/${model.slug}`;
-      if (!seenPaths.has(path)) {
-        seenPaths.add(path);
-        combinedModels.push(model);
-      }
-    }
-
-    return combinedModels;
+    return await fetchAndDeduplicateChatEndpoints('model', limit);
   } catch (error) {
     console.error('Failed to fetch chat models:', error);
     return [];
@@ -718,6 +667,145 @@ export async function getChatModels(limit = 20): Promise<ChatSource[]> {
 // ============================================================================
 // Query Relevance Utilities
 // ============================================================================
+
+/**
+ * Common English stop words filtered out during keyword extraction.
+ * Defined at module level to avoid re-allocating on every extractKeywords call.
+ */
+const STOP_WORDS = new Set([
+  'a',
+  'an',
+  'the',
+  'is',
+  'are',
+  'was',
+  'were',
+  'be',
+  'been',
+  'being',
+  'have',
+  'has',
+  'had',
+  'do',
+  'does',
+  'did',
+  'will',
+  'would',
+  'could',
+  'should',
+  'may',
+  'might',
+  'must',
+  'shall',
+  'can',
+  'of',
+  'at',
+  'by',
+  'for',
+  'with',
+  'about',
+  'against',
+  'between',
+  'into',
+  'through',
+  'during',
+  'before',
+  'after',
+  'above',
+  'below',
+  'to',
+  'from',
+  'up',
+  'down',
+  'in',
+  'out',
+  'on',
+  'off',
+  'over',
+  'under',
+  'again',
+  'further',
+  'then',
+  'once',
+  'and',
+  'but',
+  'or',
+  'nor',
+  'so',
+  'yet',
+  'both',
+  'each',
+  'few',
+  'more',
+  'most',
+  'other',
+  'some',
+  'such',
+  'no',
+  'not',
+  'only',
+  'own',
+  'same',
+  'than',
+  'too',
+  'very',
+  'just',
+  'also',
+  'now',
+  'here',
+  'there',
+  'when',
+  'where',
+  'why',
+  'how',
+  'all',
+  'any',
+  'what',
+  'which',
+  'who',
+  'whom',
+  'this',
+  'that',
+  'these',
+  'those',
+  'am',
+  'i',
+  'me',
+  'my',
+  'myself',
+  'we',
+  'our',
+  'ours',
+  'you',
+  'your',
+  'yours',
+  'he',
+  'him',
+  'his',
+  'she',
+  'her',
+  'hers',
+  'it',
+  'its',
+  'they',
+  'them',
+  'their',
+  'tell',
+  'show',
+  'give',
+  'get',
+  'find',
+  'use',
+  'using',
+  'want',
+  'need',
+  'like',
+  'know',
+  'think',
+  'make',
+  'help',
+  'please'
+]);
 
 /**
  * Extract endpoint path mentions from a query string.
@@ -814,146 +902,11 @@ function calculateRelevanceScore(source: ChatSource, keywords: string[]): number
  * @returns Array of meaningful keywords
  */
 function extractKeywords(query: string): string[] {
-  const stopWords = new Set([
-    'a',
-    'an',
-    'the',
-    'is',
-    'are',
-    'was',
-    'were',
-    'be',
-    'been',
-    'being',
-    'have',
-    'has',
-    'had',
-    'do',
-    'does',
-    'did',
-    'will',
-    'would',
-    'could',
-    'should',
-    'may',
-    'might',
-    'must',
-    'shall',
-    'can',
-    'of',
-    'at',
-    'by',
-    'for',
-    'with',
-    'about',
-    'against',
-    'between',
-    'into',
-    'through',
-    'during',
-    'before',
-    'after',
-    'above',
-    'below',
-    'to',
-    'from',
-    'up',
-    'down',
-    'in',
-    'out',
-    'on',
-    'off',
-    'over',
-    'under',
-    'again',
-    'further',
-    'then',
-    'once',
-    'and',
-    'but',
-    'or',
-    'nor',
-    'so',
-    'yet',
-    'both',
-    'each',
-    'few',
-    'more',
-    'most',
-    'other',
-    'some',
-    'such',
-    'no',
-    'not',
-    'only',
-    'own',
-    'same',
-    'than',
-    'too',
-    'very',
-    'just',
-    'also',
-    'now',
-    'here',
-    'there',
-    'when',
-    'where',
-    'why',
-    'how',
-    'all',
-    'any',
-    'what',
-    'which',
-    'who',
-    'whom',
-    'this',
-    'that',
-    'these',
-    'those',
-    'am',
-    'i',
-    'me',
-    'my',
-    'myself',
-    'we',
-    'our',
-    'ours',
-    'you',
-    'your',
-    'yours',
-    'he',
-    'him',
-    'his',
-    'she',
-    'her',
-    'hers',
-    'it',
-    'its',
-    'they',
-    'them',
-    'their',
-    'tell',
-    'show',
-    'give',
-    'get',
-    'find',
-    'use',
-    'using',
-    'want',
-    'need',
-    'like',
-    'know',
-    'think',
-    'make',
-    'help',
-    'please'
-  ]);
-
   // Split on whitespace and punctuation, filter meaningful words
   const words = query
     .toLowerCase()
     .split(/[\s,.:;!?()[\]{}'"]+/)
-    .filter((word) => word.length >= 2 && !stopWords.has(word));
+    .filter((word) => word.length >= 2 && !STOP_WORDS.has(word));
 
   return [...new Set(words)]; // Deduplicate
 }

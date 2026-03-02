@@ -7,6 +7,8 @@
 
 import type { ChatSource, EndpointType } from './types';
 
+import { formatRelativeTime } from './date-utils';
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -208,16 +210,10 @@ export function filterByRelevance(
  * message instead.
  *
  * @param results - Search results with relevance scores
- * @returns Object with high relevance result array (only results >= 0.5)
+ * @returns Array of results with relevance_score >= 0.5
  */
-export function categorizeResults(results: SearchableChatSource[]): {
-  highRelevance: SearchableChatSource[];
-} {
-  const highRelevance = results.filter(
-    (result) => result.relevance_score >= HIGH_RELEVANCE_THRESHOLD
-  );
-
-  return { highRelevance };
+export function categorizeResults(results: SearchableChatSource[]): SearchableChatSource[] {
+  return filterByRelevance(results, HIGH_RELEVANCE_THRESHOLD);
 }
 
 /**
@@ -233,26 +229,6 @@ export function hasHighRelevanceResults(results: SearchableChatSource[]): boolea
 // ============================================================================
 // Utility Functions
 // ============================================================================
-
-/**
- * Format a date as a relative time string.
- */
-function formatRelativeTime(date: Date): string {
-  const now = new Date();
-  const diffInHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60));
-
-  if (diffInHours < 1) return 'just now';
-  if (diffInHours < 24) return `${String(diffInHours)} hour${diffInHours === 1 ? '' : 's'} ago`;
-
-  const diffInDays = Math.floor(diffInHours / 24);
-  if (diffInDays < 7) return `${String(diffInDays)} day${diffInDays === 1 ? '' : 's'} ago`;
-
-  const diffInWeeks = Math.floor(diffInDays / 7);
-  if (diffInDays < 30) return `${String(diffInWeeks)} week${diffInWeeks === 1 ? '' : 's'} ago`;
-
-  const diffInMonths = Math.floor(diffInDays / 30);
-  return `${String(diffInMonths)} month${diffInMonths === 1 ? '' : 's'} ago`;
-}
 
 /**
  * Create a debounced version of the search function.

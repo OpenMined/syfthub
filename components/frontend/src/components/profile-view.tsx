@@ -14,21 +14,13 @@ import UserIcon from 'lucide-react/dist/esm/icons/user';
 import X from 'lucide-react/dist/esm/icons/x';
 
 import { useAuth } from '@/context/auth-context';
+import { formatDateLong } from '@/lib/date-utils';
 import { changePasswordAPI, updateUserProfileAPI } from '@/lib/sdk-client';
 
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
-
-// Helper functions moved outside component for consistent-function-scoping
-function formatDate(dateString: string) {
-  return new Date(dateString).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
-}
 
 function getRoleBadgeColor(role: string) {
   switch (role) {
@@ -331,7 +323,7 @@ export function ProfileView() {
                     <Calendar className='text-muted-foreground h-5 w-5' />
                     <div>
                       <p className='text-foreground text-sm font-medium'>
-                        {formatDate(user.created_at)}
+                        {formatDateLong(user.created_at)}
                       </p>
                       <p className='text-muted-foreground text-xs'>Member since</p>
                     </div>
@@ -447,7 +439,7 @@ export function ProfileView() {
                     <div>
                       <p className='text-foreground text-sm font-medium'>Password</p>
                       <p className='text-muted-foreground text-xs'>
-                        Last updated: {formatDate(user.updated_at)}
+                        Last updated: {formatDateLong(user.updated_at)}
                       </p>
                     </div>
                   </div>
