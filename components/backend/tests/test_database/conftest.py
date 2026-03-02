@@ -35,7 +35,10 @@ def test_engine(test_db_url: str):
         cursor.close()
 
     yield engine
-    # Cleanup
+    # Cleanup: dispose the engine first to close all pooled connections,
+    # then remove the temp file.  Without dispose() Python 3.14+ emits
+    # ResourceWarning: unclosed database for every lingering sqlite3.Connection.
+    engine.dispose()
     if os.path.exists(test_db_url.replace("sqlite:///", "")):
         os.unlink(test_db_url.replace("sqlite:///", ""))
 
