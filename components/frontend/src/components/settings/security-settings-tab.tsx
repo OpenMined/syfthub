@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/context/auth-context';
+import { formatDateLong } from '@/lib/date-utils';
 import { changePasswordAPI } from '@/lib/sdk-client';
 import { getPasswordStrength } from '@/lib/validation';
 
@@ -20,14 +21,6 @@ function getPasswordStrengthInfo(password: string) {
   if (score < 2) return { score, label: 'Weak', color: 'bg-red-500' };
   if (score < 4) return { score, label: 'Medium', color: 'bg-yellow-500' };
   return { score, label: 'Strong', color: 'bg-green-500' };
-}
-
-function formatDate(dateString: string) {
-  return new Date(dateString).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  });
 }
 
 interface PasswordFormData {
@@ -146,7 +139,7 @@ export function SecuritySettingsTab() {
             </h4>
             <p className='mt-1 text-xs text-blue-700 dark:text-blue-300'>
               Your account is secured with industry-standard encryption. Last profile update:{' '}
-              {user?.updated_at ? formatDate(user.updated_at) : 'Unknown'}
+              {user?.updated_at ? formatDateLong(user.updated_at) : 'Unknown'}
             </p>
           </div>
         </div>
