@@ -310,6 +310,7 @@ export function SearchInput({
                 owners={mention.filteredOwners}
                 highlightedIndex={mention.highlightedIndex}
                 onSelect={handleOwnerSelect}
+                isLoading={mention.isLoadingOwners}
                 className='bottom-full left-0 mb-2'
               />
               <EndpointPopover
@@ -318,6 +319,7 @@ export function SearchInput({
                 endpoints={mention.filteredEndpoints}
                 highlightedIndex={mention.highlightedIndex}
                 onSelect={handleEndpointSelect}
+                isLoading={mention.isLoadingEndpoints}
                 className='bottom-full left-0 mb-2'
               />
             </>
