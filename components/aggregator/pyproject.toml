@@ -35,6 +35,8 @@ dependencies = [
     "starlette>=0.49.1",  # CVE-2025-62727: O(n^2) DoS via Range header
     "fastembed>=0.3.0",  # fastembed <0.3 pins tokenizers<0.16; 0.15.2 has broken pyproject.toml
     "tokenizers>=0.19",  # tokenizers 0.15.2 has broken pyproject.toml (missing project.version)
+    # NOTE: pillow CVE-2026-25990 (OOB write in PSD) — pinned via [tool.uv] override-dependencies
+    # because fastembed 0.7.4 caps pillow<12 but the fix requires >=12.1.1.
     # NOTE: diskcache 5.6.3 (CVE-2025-69872) is a transitive dep via attribution-lib -> dspy.
     # No upstream fix is available. The cache directory is hardened in Dockerfile (chmod 700, owned by
     # appuser only). Monitor https://github.com/grantjenks/python-diskcache for a patched release.
@@ -116,3 +118,10 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["federated_aggregation.*", "attribution.*"]
 ignore_missing_imports = true
+
+[tool.uv]
+# Override fastembed's pillow<12 cap to pull in the CVE-2026-25990 fix (>=12.1.1).
+# fastembed uses only basic Pillow image I/O; the major-version cap is overly conservative.
+override-dependencies = [
+    "pillow>=12.1.1",
+]
