@@ -6,6 +6,7 @@
  * - Type mappings between SDK types and frontend types
  * - Utility functions for ChatSource transformation
  */
+import type { OwnerInfo } from './mention-utils';
 import type { Endpoint as SdkEndpoint, EndpointPublic as SdkEndpointPublic } from './sdk-client';
 import type {
   ChatSource,
@@ -333,6 +334,75 @@ export async function getPublicEndpointByPath(path: string): Promise<ChatSource 
   } catch (error) {
     console.error('Failed to fetch public endpoint by path:', error);
     return null;
+  }
+}
+
+// ============================================================================
+// Raw API response shapes for owner-based APIs
+// ============================================================================
+
+interface RawOwnerSummary {
+  username: string;
+  endpoint_count: number;
+  model_count: number;
+  data_source_count: number;
+}
+
+interface RawOwnersListResponse {
+  owners: RawOwnerSummary[];
+  total_count: number;
+}
+
+/**
+ * Get all owners that have public endpoints, with endpoint counts.
+ *
+ * Uses GET /api/v1/endpoints/public/owners to retrieve the complete list of
+ * owners, not just those present in the local 100-item cache. Used by the
+ * @mention autocomplete to populate the owner phase dropdown.
+ *
+ * @returns Array of OwnerInfo objects sorted by endpoint count (backend ordering)
+ */
+export async function getPublicEndpointOwners(): Promise<OwnerInfo[]> {
+  try {
+    const response = await fetch('/api/v1/endpoints/public/owners?limit=500');
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const rawData = (await response.json()) as RawOwnersListResponse;
+    return rawData.owners.map((o) => ({ username: o.username, endpointCount: o.endpoint_count }));
+  } catch (error) {
+    console.error('Failed to fetch public endpoint owners:', error);
+    return [];
+  }
+}
+
+/**
+ * Get all public endpoints for a specific owner.
+ *
+ * Uses GET /api/v1/endpoints/public/by-owner/{owner} to retrieve the complete
+ * list of endpoints for an owner, not just those present in the local 100-item
+ * cache. Used by the @mention autocomplete to populate the slug phase dropdown.
+ *
+ * @param owner - The username or organization slug
+ * @returns Array of ChatSource objects for all the owner's public endpoints
+ */
+export async function getPublicEndpointsByOwner(owner: string): Promise<ChatSource[]> {
+  try {
+    const response = await fetch(
+      `/api/v1/endpoints/public/by-owner/${encodeURIComponent(owner)}?limit=500`
+    );
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const rawData = (await response.json()) as RawEndpointPublic[];
+    return rawData.map((ep) => mapEndpointPublicToSource(transformRawEndpoint(ep)));
+  } catch (error) {
+    console.error(`Failed to fetch public endpoints for owner "${owner}":`, error);
+    return [];
   }
 }
 
