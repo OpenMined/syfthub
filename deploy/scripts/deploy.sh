@@ -221,6 +221,23 @@ run_migrations() {
         if echo "$migration_output" | grep -q "No 'script_location' key found\|No such file or directory.*alembic"; then
             log WARN "Alembic not configured - skipping migrations"
             log INFO "Database schema will be created on application startup"
+        elif echo "$migration_output" | grep -q "already exists\|DuplicateTable"; then
+            # Pre-Alembic database: tables were created via SQLAlchemy create_all()
+            # before the migration system was introduced, so alembic_version is empty.
+            # Stamp the last baseline revision (002_api_tokens covers all tables that
+            # existed pre-Alembic), then retry so only genuinely new migrations run.
+            log WARN "Detected pre-Alembic database (tables exist without a version stamp)."
+            log INFO "Stamping baseline revision (002_api_tokens)..."
+            if ! docker compose -f "$COMPOSE_FILE" --profile migrate run --rm migrate \
+                    .venv/bin/alembic stamp 002_api_tokens 2>&1; then
+                echo "$migration_output"
+                die "Failed to stamp baseline migration"
+            fi
+            log INFO "Retrying migrations after baseline stamp..."
+            if ! docker compose -f "$COMPOSE_FILE" --profile migrate run --rm migrate 2>&1; then
+                die "Database migration failed after stamping baseline"
+            fi
+            log INFO "Migrations completed successfully after baseline stamp"
         else
             # Real migration error - fail the deployment
             echo "$migration_output"
