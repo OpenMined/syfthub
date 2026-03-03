@@ -14,6 +14,7 @@
 #
 # Optional environment variables:
 #   - MEILI_MASTER_KEY: Meilisearch master key for search (required in production)
+#   - NGROK_API_KEY: ngrok API key for tunnel credential provisioning
 #
 # RSA Key Generation (required for satellite token signing):
 #   openssl genrsa -out private.pem 2048
@@ -125,6 +126,8 @@ services:
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
       # Google OAuth configuration (optional - Google Sign-In disabled if not set)
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      # ngrok tunnel credentials (optional - tunnel credentials endpoint disabled if not set)
+      - NGROK_API_KEY=${NGROK_API_KEY:-}
     networks:
       - syfthub-network
     depends_on:
