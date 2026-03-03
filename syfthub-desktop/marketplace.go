@@ -18,10 +18,8 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const defaultMarketplaceURL = "https://raw.githubusercontent.com/openmined/syfthub-marketplace/main/manifest.json"
-
-// getMarketplaceURL returns the configured marketplace manifest URL,
-// falling back to the default if not set.
+// getMarketplaceURL returns the marketplace manifest URL derived from the configured
+// SyftHub URL, with an optional explicit override via settings.MarketplaceURL.
 func (a *App) getMarketplaceURL() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -29,12 +27,18 @@ func (a *App) getMarketplaceURL() string {
 	if a.settings != nil && a.settings.MarketplaceURL != "" {
 		return a.settings.MarketplaceURL
 	}
-	return defaultMarketplaceURL
+	if a.settings != nil && a.settings.SyftHubURL != "" {
+		return strings.TrimRight(a.settings.SyftHubURL, "/") + "/marketplace/manifest.json"
+	}
+	return ""
 }
 
 // GetMarketplacePackages fetches and returns available packages from the marketplace manifest.
 func (a *App) GetMarketplacePackages() ([]MarketplacePackage, error) {
 	url := a.getMarketplaceURL()
+	if url == "" {
+		return nil, fmt.Errorf("marketplace unavailable: no SyftHub URL configured")
+	}
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(url)

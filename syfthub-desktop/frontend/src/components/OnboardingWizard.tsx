@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 import { useSettings } from '@/contexts/SettingsContext';
 import { BrowseForFolder } from '../../wailsjs/go/main/App';
+import { WindowMinimise, WindowToggleMaximise, Quit } from '../../wailsjs/runtime/runtime';
 
 type WizardStep = 'welcome' | 'configure' | 'complete';
 
@@ -65,7 +66,34 @@ export function OnboardingWizard() {
   const isUrlValid = validateUrl(syfthubUrl);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-card to-background flex items-center justify-center p-6">
+    <div className="h-screen flex flex-col bg-gradient-to-br from-background via-card to-background text-foreground">
+      {/* Custom title bar */}
+      <div className="wails-drag h-9 flex-shrink-0 border-b border-border/30 bg-card/30 flex items-center px-3">
+        <div className="w-32" />
+        <div className="flex-1 flex items-center justify-center">
+          <span className="text-xs text-muted-foreground">SyftHub Desktop</span>
+        </div>
+        <div className="flex items-center gap-1.5 w-32 justify-end">
+          <button
+            onClick={WindowMinimise}
+            className="w-3 h-3 rounded-full bg-[#f5bf4f] hover:brightness-110 transition-all"
+            title="Minimize"
+          />
+          <button
+            onClick={WindowToggleMaximise}
+            className="w-3 h-3 rounded-full bg-[#5bbf45] hover:brightness-110 transition-all"
+            title="Maximize"
+          />
+          <button
+            onClick={Quit}
+            className="w-3 h-3 rounded-full bg-[#ed6a5e] hover:brightness-110 transition-all"
+            title="Close"
+          />
+        </div>
+      </div>
+
+      {/* Scrollable content area */}
+      <div className="flex-1 overflow-y-auto flex items-center justify-center p-6">
       <div className="w-full max-w-lg">
         {/* Step Indicator */}
         <div className="flex items-center justify-center mb-8">
@@ -77,7 +105,7 @@ export function OnboardingWizard() {
                     step === s
                       ? 'bg-primary text-primary-foreground'
                       : ['welcome'].indexOf(step) < i
-                      ? 'bg-secondary text-muted-foreground'
+                      ? 'bg-secondary/30 text-muted-foreground'
                       : 'bg-chart-2/20 text-chart-2'
                   }`}
                 >
@@ -114,28 +142,28 @@ export function OnboardingWizard() {
                 <OpenMinedIcon className="w-14 h-14" />
               </div>
               <CardTitle className="text-2xl text-foreground">Welcome to SyftHub Desktop</CardTitle>
-              <CardDescription className="text-muted-foreground mt-2">
+              <CardDescription className="text-foreground/60 mt-2">
                 Let's get you set up to run your local endpoints.
                 This will only take a moment.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="space-y-3 text-sm text-secondary-foreground">
+              <div className="space-y-3 text-sm text-foreground/75">
                 <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-primary text-xs">1</span>
+                  <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-primary-foreground text-xs font-medium">1</span>
                   </div>
                   <p>Connect to a SyftHub server to sync your endpoints</p>
                 </div>
                 <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-primary text-xs">2</span>
+                  <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-primary-foreground text-xs font-medium">2</span>
                   </div>
                   <p>Choose where to store your endpoint files</p>
                 </div>
                 <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-primary text-xs">3</span>
+                  <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-primary-foreground text-xs font-medium">3</span>
                   </div>
                   <p>Start managing your endpoints locally</p>
                 </div>
@@ -156,7 +184,7 @@ export function OnboardingWizard() {
           <Card className="bg-card/50 border-border">
             <CardHeader>
               <CardTitle className="text-xl text-foreground">Configuration</CardTitle>
-              <CardDescription className="text-muted-foreground">
+              <CardDescription className="text-foreground/60">
                 Set up your connection and storage settings
               </CardDescription>
             </CardHeader>
@@ -170,7 +198,7 @@ export function OnboardingWizard() {
                   <button
                     type="button"
                     onClick={() => handleUseDefault('url')}
-                    className="text-xs text-primary hover:text-primary/80"
+                    className="text-xs text-primary font-medium hover:text-primary/90"
                   >
                     Use Default
                   </button>
@@ -211,7 +239,7 @@ export function OnboardingWizard() {
                   <button
                     type="button"
                     onClick={() => handleUseDefault('path')}
-                    className="text-xs text-primary hover:text-primary/80"
+                    className="text-xs text-primary font-medium hover:text-primary/90"
                   >
                     Use Default
                   </button>
@@ -269,11 +297,11 @@ export function OnboardingWizard() {
         {step === 'complete' && (
           <Card className="bg-card/50 border-border">
             <CardHeader className="text-center">
-              <div className="mx-auto w-16 h-16 rounded-full bg-chart-2/20 flex items-center justify-center mb-4">
-                <Check className="w-8 h-8 text-chart-2" strokeWidth={2} />
+              <div className="mx-auto w-16 h-16 rounded-full bg-chart-2 flex items-center justify-center mb-4">
+                <Check className="w-8 h-8 text-primary-foreground" strokeWidth={2} />
               </div>
               <CardTitle className="text-2xl text-foreground">You're All Set!</CardTitle>
-              <CardDescription className="text-muted-foreground mt-2">
+              <CardDescription className="text-foreground/60 mt-2">
                 SyftHub Desktop is configured and ready to use.
               </CardDescription>
             </CardHeader>
@@ -311,6 +339,7 @@ export function OnboardingWizard() {
 
           </motion.div>
         </AnimatePresence>
+      </div>
       </div>
     </div>
   );

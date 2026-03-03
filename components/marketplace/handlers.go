@@ -68,24 +68,11 @@ func (s *Server) handleGetPackage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, pkg)
 }
 
-// handleCreatePackage creates a new package from multipart form data.
+// handleCreatePackage creates a new package from a JSON body (metadata only, no zip).
 func (s *Server) handleCreatePackage(w http.ResponseWriter, r *http.Request) {
-	// Parse multipart form (32MB max)
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid multipart form: "+err.Error())
-		return
-	}
-
-	// Parse metadata JSON
-	metadataStr := r.FormValue("metadata")
-	if metadataStr == "" {
-		writeProblem(w, http.StatusBadRequest, "Bad Request", "missing 'metadata' form field")
-		return
-	}
-
 	var req CreatePackageRequest
-	if err := json.Unmarshal([]byte(metadataStr), &req); err != nil {
-		writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid metadata JSON: "+err.Error())
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeProblem(w, http.StatusBadRequest, "Bad Request", "invalid JSON: "+err.Error())
 		return
 	}
 
@@ -93,27 +80,6 @@ func (s *Server) handleCreatePackage(w http.ResponseWriter, r *http.Request) {
 		writeErrorResponse(w, err)
 		return
 	}
-
-	// Read zip file
-	file, _, err := r.FormFile("package")
-	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "Bad Request", "missing 'package' zip file")
-		return
-	}
-	defer file.Close()
-
-	zipData, err := io.ReadAll(io.LimitReader(file, 50<<20)) // 50MB limit
-	if err != nil {
-		writeProblem(w, http.StatusBadRequest, "Bad Request", "failed to read zip file")
-		return
-	}
-
-	if err := validateZipStructure(zipData); err != nil {
-		writeErrorResponse(w, err)
-		return
-	}
-
-	zipHash := sha256Hex(zipData)
 
 	if req.Tags == nil {
 		req.Tags = []string{}
@@ -131,16 +97,9 @@ func (s *Server) handleCreatePackage(w http.ResponseWriter, r *http.Request) {
 		Version:     req.Version,
 		Tags:        req.Tags,
 		Config:      req.Config,
-		ZipSize:     int64(len(zipData)),
-		ZipSHA256:   zipHash,
 	}
 
 	if err := s.store.Create(r.Context(), pkg); err != nil {
-		writeErrorResponse(w, err)
-		return
-	}
-
-	if err := s.store.SetZip(r.Context(), pkg.Slug, zipData, zipHash); err != nil {
 		writeErrorResponse(w, err)
 		return
 	}
@@ -149,6 +108,47 @@ func (s *Server) handleCreatePackage(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Location", fmt.Sprintf("/api/v1/packages/%s", pkg.Slug))
 	writeJSON(w, http.StatusCreated, pkg)
+}
+
+// handleUploadPackageZip uploads or replaces the zip for an existing package.
+func (s *Server) handleUploadPackageZip(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+
+	// Verify package exists
+	if _, err := s.store.Get(r.Context(), slug); err != nil {
+		writeErrorResponse(w, err)
+		return
+	}
+
+	// Read body with 50MB limit
+	r.Body = http.MaxBytesReader(w, r.Body, 50<<20)
+	zipData, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeProblem(w, http.StatusBadRequest, "Bad Request", "failed to read request body: "+err.Error())
+		return
+	}
+
+	if err := validateZipStructure(zipData); err != nil {
+		writeErrorResponse(w, err)
+		return
+	}
+
+	zipHash := sha256Hex(zipData)
+
+	if err := s.store.SetZip(r.Context(), slug, zipData, zipHash); err != nil {
+		writeErrorResponse(w, err)
+		return
+	}
+
+	// Re-fetch to get updated metadata
+	pkg, err := s.store.Get(r.Context(), slug)
+	if err != nil {
+		writeErrorResponse(w, err)
+		return
+	}
+
+	pkg.DownloadURL = fmt.Sprintf("%s/api/v1/packages/%s/download", s.baseURL, pkg.Slug)
+	writeJSON(w, http.StatusOK, pkg)
 }
 
 // handleUpdatePackage applies a JSON merge-patch to an existing package.
@@ -218,9 +218,13 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	manifest := Manifest{Packages: make([]ManifestPackage, len(packages))}
-	for i, p := range packages {
-		manifest.Packages[i] = ManifestPackage{
+	manifest := Manifest{Packages: make([]ManifestPackage, 0, len(packages))}
+	for _, p := range packages {
+		// Only include packages that have a zip uploaded
+		if p.ZipSize == 0 {
+			continue
+		}
+		mp := ManifestPackage{
 			Slug:        p.Slug,
 			Name:        p.Name,
 			Description: p.Description,
@@ -231,12 +235,13 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 			Tags:        p.Tags,
 			Config:      p.Config,
 		}
-		if manifest.Packages[i].Tags == nil {
-			manifest.Packages[i].Tags = []string{}
+		if mp.Tags == nil {
+			mp.Tags = []string{}
 		}
-		if manifest.Packages[i].Config == nil {
-			manifest.Packages[i].Config = []PackageConfigField{}
+		if mp.Config == nil {
+			mp.Config = []PackageConfigField{}
 		}
+		manifest.Packages = append(manifest.Packages, mp)
 	}
 
 	writeJSON(w, http.StatusOK, manifest)

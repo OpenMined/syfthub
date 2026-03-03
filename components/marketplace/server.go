@@ -77,6 +77,7 @@ func (s *Server) NewHTTPServer() *http.Server {
 	mux.HandleFunc("POST /api/v1/packages", s.handleCreatePackage)
 	mux.HandleFunc("PATCH /api/v1/packages/{slug}", s.handleUpdatePackage)
 	mux.HandleFunc("DELETE /api/v1/packages/{slug}", s.handleDeletePackage)
+	mux.HandleFunc("PUT /api/v1/packages/{slug}/upload", s.handleUploadPackageZip)
 	mux.HandleFunc("GET /api/v1/packages/{slug}/download", s.handleDownloadPackage)
 
 	// Legacy routes (desktop app compat)
@@ -96,7 +97,7 @@ func (s *Server) NewHTTPServer() *http.Server {
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
 		if r.Method == http.MethodOptions {
