@@ -377,6 +377,23 @@ class Settings(BaseSettings):
         description="Redis connection URL",
     )
 
+    # ===========================================
+    # NGROK TUNNEL SETTINGS
+    # ===========================================
+
+    # API key for ngrok REST API (enables tunnel credentials endpoint)
+    ngrok_api_key: Optional[str] = Field(
+        default=None,
+        description="API key for ngrok REST API (enables tunnel credentials)",
+    )
+
+    # Base domain for ngrok reserved tunnel domains
+    # User domain = {username}.{ngrok_base_domain}
+    ngrok_base_domain: str = Field(
+        default="syfthub.ngrok.app",
+        description="Base domain for ngrok reserved tunnel domains",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:

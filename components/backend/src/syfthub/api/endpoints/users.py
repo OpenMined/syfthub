@@ -1,24 +1,30 @@
 """User management endpoints."""
 
+import logging
 from typing import Annotated, Union
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from syfthub.auth.db_dependencies import (
     OwnershipChecker,
     get_current_active_user,
 )
+from syfthub.core.config import settings
 from syfthub.database.dependencies import get_user_service
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.user import (
     AccountingCredentialsResponse,
     HeartbeatRequest,
     HeartbeatResponse,
+    TunnelCredentialsResponse,
     User,
     UserResponse,
     UserUpdate,
 )
 from syfthub.services.user_service import UserService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -68,6 +74,63 @@ async def get_my_accounting_credentials(
         email=current_user.email,
         password=current_user.accounting_password,
     )
+
+
+@router.get("/me/tunnel-credentials", response_model=TunnelCredentialsResponse)
+async def get_tunnel_credentials(
+    current_user: Annotated[User, Depends(get_current_active_user)],
+) -> TunnelCredentialsResponse:
+    """Get tunnel credentials for the authenticated user.
+
+    Proxies to the ngrok REST API to create a fresh authtoken scoped
+    to the user's reserved tunnel domain. The token is NOT persisted
+    in SyftHub — each call creates a new credential.
+    """
+    if not settings.ngrok_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Tunnel credentials service is not configured",
+        )
+
+    domain = f"{current_user.username}.{settings.ngrok_base_domain}"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://api.ngrok.com/credentials",
+                headers={
+                    "Authorization": f"Bearer {settings.ngrok_api_key}",
+                    "Content-Type": "application/json",
+                    "ngrok-version": "2",
+                },
+                json={
+                    "description": f"SyftHub tunnel credential for {current_user.username}",
+                    "acl": [f"bind:{domain}"],
+                },
+            )
+    except httpx.RequestError as exc:
+        logger.warning("Failed to connect to ngrok API", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to connect to tunnel credential service",
+        ) from exc
+
+    if response.status_code != 201:
+        logger.warning("ngrok API returned status %d", response.status_code)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Tunnel credential service returned an error",
+        )
+
+    token = response.json().get("token")
+    if not token:
+        logger.warning("ngrok API response missing token field")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Unexpected response from tunnel credential service",
+        )
+
+    return TunnelCredentialsResponse(auth_token=token, domain=domain)
 
 
 @router.post("/me/heartbeat", response_model=HeartbeatResponse)
