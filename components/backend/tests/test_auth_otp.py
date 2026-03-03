@@ -173,12 +173,14 @@ def test_verify_otp_max_attempts(mock_send, client: TestClient, monkeypatch) -> 
 
 
 def test_verify_otp_user_not_found(client: TestClient) -> None:
-    """Verify OTP for non-existent user returns 404."""
+    """Verify OTP for non-existent user returns 400 (no active OTP)."""
     response = client.post(
         "/api/v1/auth/register/verify-otp",
         json={"email": "nobody@example.com", "code": "123456"},
     )
-    assert response.status_code == 404
+    # OTP verification runs before user lookup to avoid leaking user existence
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "INVALID_OTP"
 
 
 def test_verify_otp_already_verified(client: TestClient) -> None:
@@ -186,10 +188,13 @@ def test_verify_otp_already_verified(client: TestClient) -> None:
     # Register without verification (user is auto-verified)
     _register_user(client)
 
-    response = client.post(
-        "/api/v1/auth/register/verify-otp",
-        json={"email": "otp@example.com", "code": "123456"},
-    )
+    # Patch OTP verification to succeed — the test focuses on the endpoint's
+    # handling of already-verified users, not on OTP mechanics.
+    with patch("syfthub.services.otp_service.OTPService.verify_otp", return_value=True):
+        response = client.post(
+            "/api/v1/auth/register/verify-otp",
+            json={"email": "otp@example.com", "code": "123456"},
+        )
     assert response.status_code == 200
     data = response.json()
     assert data["access_token"] is not None
