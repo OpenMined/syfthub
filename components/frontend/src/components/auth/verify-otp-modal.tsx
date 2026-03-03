@@ -29,7 +29,7 @@ export function VerifyOtpModal({
 }: Readonly<VerifyOtpModalProperties>) {
   const { verifyOtp, resendOtp, isLoading, error, clearError } = useAuth();
   const [resendCooldown, setResendCooldown] = useState(0);
-  const timerReference = useRef<ReturnType<typeof setInterval>>(null);
+  const timerReference = useRef<ReturnType<typeof setTimeout>>(null);
 
   const {
     register,
@@ -62,21 +62,14 @@ export function VerifyOtpModal({
     }
   };
 
-  // Cooldown timer
+  // Cooldown timer — uses setTimeout chain to avoid re-running the effect on every tick
   useEffect(() => {
-    if (resendCooldown > 0) {
-      timerReference.current = setInterval(() => {
-        setResendCooldown((previous) => {
-          if (previous <= 1) {
-            if (timerReference.current) clearInterval(timerReference.current);
-            return 0;
-          }
-          return previous - 1;
-        });
-      }, 1000);
-    }
+    if (resendCooldown <= 0) return;
+    timerReference.current = setTimeout(() => {
+      setResendCooldown((previous) => previous - 1);
+    }, 1000);
     return () => {
-      if (timerReference.current) clearInterval(timerReference.current);
+      if (timerReference.current) clearTimeout(timerReference.current);
     };
   }, [resendCooldown]);
 

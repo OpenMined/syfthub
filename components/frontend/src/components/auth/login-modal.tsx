@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/context/auth-context';
 import { loginSchema } from '@/lib/schemas';
-import { APIError, isGoogleOAuthEnabled } from '@/lib/sdk-client';
+import { isGoogleOAuthEnabled } from '@/lib/sdk-client';
 import { useModalStore } from '@/stores/modal-store';
 
 import { AuthErrorAlert, AuthLoadingOverlay } from './auth-utils';
@@ -53,19 +53,9 @@ export function LoginModal({
         password: data.password
       });
       onClose();
-    } catch (loginError) {
-      // If the error is EMAIL_NOT_VERIFIED, offer to verify
-      if (
-        loginError instanceof APIError &&
-        loginError.status === 403 &&
-        typeof loginError.message === 'string' &&
-        loginError.message.includes('email')
-      ) {
-        // The error message is already set by auth context.
-        // User can click "Verify email" link shown in the error area.
-        return;
-      }
-      // Other errors handled by auth context
+    } catch {
+      // Error is set by auth context; the "Verify email" link is shown
+      // in the error area when the error message contains the right text.
     }
   };
 

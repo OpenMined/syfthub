@@ -34,7 +34,7 @@ export function PasswordResetModal({
   const [step, setStep] = useState<ResetStep>('request');
   const [email, setEmail] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
-  const timerReference = useRef<ReturnType<typeof setInterval>>(null);
+  const timerReference = useRef<ReturnType<typeof setTimeout>>(null);
 
   // Request form
   const requestForm = useForm<PasswordResetRequestFormValues>({
@@ -86,21 +86,14 @@ export function PasswordResetModal({
     }
   };
 
-  // Cooldown timer
+  // Cooldown timer — uses setTimeout chain to avoid re-running the effect on every tick
   useEffect(() => {
-    if (resendCooldown > 0) {
-      timerReference.current = setInterval(() => {
-        setResendCooldown((previous) => {
-          if (previous <= 1) {
-            if (timerReference.current) clearInterval(timerReference.current);
-            return 0;
-          }
-          return previous - 1;
-        });
-      }, 1000);
-    }
+    if (resendCooldown <= 0) return;
+    timerReference.current = setTimeout(() => {
+      setResendCooldown((previous) => previous - 1);
+    }, 1000);
     return () => {
-      if (timerReference.current) clearInterval(timerReference.current);
+      if (timerReference.current) clearTimeout(timerReference.current);
     };
   }, [resendCooldown]);
 

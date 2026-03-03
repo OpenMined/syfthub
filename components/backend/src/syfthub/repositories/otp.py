@@ -81,14 +81,18 @@ class OTPRepository(BaseRepository[OTPCodeModel]):
         return result.scalar_one_or_none()
 
     def increment_attempts(self, otp_id: int) -> int:
-        """Increment the attempt count for an OTP and return the new count."""
+        """Atomically increment the attempt count for an OTP and return the new count."""
         try:
-            otp = self.session.get(OTPCodeModel, otp_id)
-            if not otp:
-                return 0
-            otp.attempts += 1
+            stmt = (
+                update(OTPCodeModel)
+                .where(OTPCodeModel.id == otp_id)
+                .values(attempts=OTPCodeModel.attempts + 1)
+                .returning(OTPCodeModel.attempts)
+            )
+            result = self.session.execute(stmt)
             self.session.commit()
-            return otp.attempts
+            new_count = result.scalar()
+            return new_count if new_count is not None else 0
         except Exception:
             self.session.rollback()
             return 0

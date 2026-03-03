@@ -26,6 +26,8 @@ SUBJECTS = {
     "password_reset": "Your SyftHub password reset code",
 }
 
+_otp_template = _jinja_env.get_template("otp_email.html")
+
 
 async def send_otp_email(to_email: str, code: str, purpose: str) -> None:
     """Send an OTP code via email.
@@ -43,8 +45,7 @@ async def send_otp_email(to_email: str, code: str, purpose: str) -> None:
         return
 
     try:
-        template = _jinja_env.get_template("otp_email.html")
-        html_body = template.render(
+        html_body = _otp_template.render(
             code=code,
             purpose=purpose,
             expiry_minutes=settings.otp_expiry_minutes,

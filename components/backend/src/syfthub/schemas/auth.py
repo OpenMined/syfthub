@@ -25,6 +25,22 @@ class AuthProvider(str, Enum):
     GOOGLE = "google"
 
 
+def _validate_password_strength(v: str) -> str:
+    """Validate password meets strength requirements."""
+    if len(v) < settings.password_min_length:
+        msg = (
+            f"Password must be at least {settings.password_min_length} characters long"
+        )
+        raise ValueError(msg)
+    if not any(c.isdigit() for c in v):
+        msg = "Password must contain at least one digit"
+        raise ValueError(msg)
+    if not any(c.isalpha() for c in v):
+        msg = "Password must contain at least one letter"
+        raise ValueError(msg)
+    return v
+
+
 class Token(BaseModel):
     """Token response schema."""
 
@@ -94,20 +110,7 @@ class UserRegister(BaseModel):
     @classmethod
     def validate_password(cls, v: str) -> str:
         """Validate password requirements."""
-        if len(v) < settings.password_min_length:
-            msg = f"Password must be at least {settings.password_min_length} characters long"
-            raise ValueError(msg)
-
-        # Check for at least one number and one letter
-        if not any(c.isdigit() for c in v):
-            msg = "Password must contain at least one digit"
-            raise ValueError(msg)
-
-        if not any(c.isalpha() for c in v):
-            msg = "Password must contain at least one letter"
-            raise ValueError(msg)
-
-        return v
+        return _validate_password_strength(v)
 
     @field_validator("username")
     @classmethod
@@ -135,20 +138,7 @@ class PasswordChange(BaseModel):
     @classmethod
     def validate_new_password(cls, v: str) -> str:
         """Validate new password requirements."""
-        if len(v) < settings.password_min_length:
-            msg = f"Password must be at least {settings.password_min_length} characters long"
-            raise ValueError(msg)
-
-        # Check for at least one number and one letter
-        if not any(c.isdigit() for c in v):
-            msg = "Password must contain at least one digit"
-            raise ValueError(msg)
-
-        if not any(c.isalpha() for c in v):
-            msg = "Password must contain at least one letter"
-            raise ValueError(msg)
-
-        return v
+        return _validate_password_strength(v)
 
 
 class AuthResponse(BaseModel):

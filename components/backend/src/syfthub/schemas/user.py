@@ -53,9 +53,6 @@ class User(UserBase):
     )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    is_email_verified: bool = Field(
-        True, description="Whether user has verified their email"
-    )
     # OAuth fields
     auth_provider: AuthProvider = Field(
         default=AuthProvider.LOCAL, description="Authentication provider"

@@ -67,6 +67,30 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
+def _build_auth_response(user: User) -> AuthResponse:
+    """Build an AuthResponse with freshly minted tokens for a user."""
+    access_token = create_access_token(
+        data={"sub": str(user.id), "username": user.username, "role": user.role}
+    )
+    refresh_token = create_refresh_token(
+        data={"sub": str(user.id), "username": user.username}
+    )
+    return AuthResponse(
+        user={
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "is_active": user.is_active,
+            "created_at": user.created_at.isoformat(),
+        },
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer",
+    )
+
+
 @router.get("/config", response_model=AuthConfigResponse)
 async def get_auth_config() -> AuthConfigResponse:
     """Return public authentication configuration.
@@ -326,42 +350,8 @@ async def verify_registration_otp(
     After a successful registration that requires email verification,
     the client calls this endpoint with the 6-digit code sent to the
     user's email. On success, tokens are returned.
-
-    Idempotent: if the user is already verified, tokens are issued
-    without requiring an OTP.
     """
-    user_repo = UserRepository(otp_service.otp_repo.session)
-    user = user_repo.get_by_email(body.email)
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"code": "USER_NOT_FOUND", "message": "User not found"},
-        )
-
-    # Idempotent: already verified → just issue tokens
-    if user.is_email_verified:
-        access_token = create_access_token(
-            data={"sub": str(user.id), "username": user.username, "role": user.role}
-        )
-        refresh_token = create_refresh_token(
-            data={"sub": str(user.id), "username": user.username}
-        )
-        return AuthResponse(
-            user={
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "full_name": user.full_name,
-                "role": user.role,
-                "is_active": user.is_active,
-                "created_at": user.created_at.isoformat(),
-            },
-            access_token=access_token,
-            refresh_token=refresh_token,
-            token_type="bearer",
-        )
-
+    # Verify OTP first — avoids leaking user existence on invalid codes
     try:
         otp_service.verify_otp(body.email, body.code, "registration")
     except InvalidOTPError as e:
@@ -375,31 +365,23 @@ async def verify_registration_otp(
             detail={"code": e.error_code, "message": e.message},
         ) from e
 
-    # Mark email verified
-    user_repo.set_email_verified(user.id)
+    user_repo = UserRepository(otp_service.otp_repo.session)
+    user = user_repo.get_by_email(body.email)
 
-    # Issue tokens
-    access_token = create_access_token(
-        data={"sub": str(user.id), "username": user.username, "role": user.role}
-    )
-    refresh_token = create_refresh_token(
-        data={"sub": str(user.id), "username": user.username}
-    )
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "INVALID_OTP",
+                "message": "Invalid or expired verification code",
+            },
+        )
 
-    return AuthResponse(
-        user={
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-            "full_name": user.full_name,
-            "role": user.role,
-            "is_active": user.is_active,
-            "created_at": user.created_at.isoformat(),
-        },
-        access_token=access_token,
-        refresh_token=refresh_token,
-        token_type="bearer",
-    )
+    # Mark email verified (idempotent)
+    if not user.is_email_verified:
+        user_repo.set_email_verified(user.id)
+
+    return _build_auth_response(user)
 
 
 @router.post(
@@ -423,11 +405,9 @@ async def resend_registration_otp(
         if user and not user.is_email_verified:
             code = otp_service.generate_otp(body.email, "registration")
             background_tasks.add_task(send_otp_email, body.email, code, "registration")
-    except OTPRateLimitedError as e:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={"code": e.error_code, "message": e.message},
-        ) from e
+    except OTPRateLimitedError:
+        # Swallow to prevent email enumeration via 429 vs 200 distinction
+        logger.warning("OTP rate limit hit in resend-otp for %s", body.email)
     except Exception:
         # Silently succeed to prevent enumeration
         logger.exception("Error in resend-otp for %s", body.email)
@@ -464,11 +444,9 @@ async def request_password_reset(
             background_tasks.add_task(
                 send_otp_email, body.email, code, "password_reset"
             )
-    except OTPRateLimitedError as e:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={"code": e.error_code, "message": e.message},
-        ) from e
+    except OTPRateLimitedError:
+        # Swallow to prevent email enumeration via 429 vs 200 distinction
+        logger.warning("OTP rate limit hit in password-reset for %s", body.email)
     except Exception:
         logger.exception("Error in password-reset request for %s", body.email)
 
