@@ -17,6 +17,7 @@ export const ChainOfThoughtItem = ({ children, className, ...props }: ChainOfTho
 export type ChainOfThoughtTriggerProps = React.ComponentProps<typeof CollapsibleTrigger> & {
   leftIcon?: React.ReactNode;
   swapIconOnHover?: boolean;
+  showChevron?: boolean;
 };
 
 export const ChainOfThoughtTrigger = ({
@@ -24,6 +25,7 @@ export const ChainOfThoughtTrigger = ({
   className,
   leftIcon,
   swapIconOnHover = true,
+  showChevron = false,
   ...props
 }: ChainOfThoughtTriggerProps) => (
   <CollapsibleTrigger
@@ -49,6 +51,9 @@ export const ChainOfThoughtTrigger = ({
         </span>
       )}
       <span>{children}</span>
+      {showChevron && (
+        <ChevronDown className='text-muted-foreground/60 size-3 transition-transform group-data-[state=open]:rotate-180' />
+      )}
     </div>
     {!leftIcon && (
       <ChevronDown className='size-4 transition-transform group-data-[state=open]:rotate-180' />
