@@ -40,11 +40,7 @@ from syfthub.auth.satellite_tokens import (
 )
 from syfthub.core.config import settings
 from syfthub.database.dependencies import get_user_repository
-from syfthub.domain.exceptions import (
-    AudienceInactiveError,
-    AudienceNotFoundError,
-    KeyNotConfiguredError,
-)
+from syfthub.domain.exceptions import KeyNotConfiguredError
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.satellite import (
     SatelliteTokenErrorResponse,
@@ -135,17 +131,14 @@ async def get_satellite_token(
     """
     # Check if Identity Provider is configured
     if not key_manager.is_configured:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Identity Provider not configured. RSA keys are unavailable.",
-        )
+        raise KeyNotConfiguredError()
 
     # Validate audience parameter
     if not aud or not aud.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
-                "error": "missing_audience",
+                "code": "MISSING_AUDIENCE",
                 "message": "The 'aud' query parameter is required.",
             },
         )
@@ -156,49 +149,26 @@ async def get_satellite_token(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
-                "error": validation_result.error_code or "invalid_audience",
+                "code": validation_result.error_code or "INVALID_AUDIENCE",
                 "message": validation_result.error
                 or f"The requested audience '{aud}' is not valid.",
             },
         )
 
-    try:
-        # Create satellite token (validation already done, but pass user_repo for consistency)
-        target_token = create_satellite_token(
-            user=current_user,
-            audience=aud,
-            key_manager=key_manager,
-            user_repo=user_repo,
-        )
+    # Create satellite token — domain exceptions (AudienceNotFoundError,
+    # AudienceInactiveError, KeyNotConfiguredError) bubble up to the
+    # DomainException handler which auto-maps them to the correct status code.
+    target_token = create_satellite_token(
+        user=current_user,
+        audience=aud,
+        key_manager=key_manager,
+        user_repo=user_repo,
+    )
 
-        return SatelliteTokenResponse(
-            target_token=target_token,
-            expires_in=settings.satellite_token_expire_seconds,
-        )
-
-    except AudienceNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "audience_not_found",
-                "message": str(e.message),
-            },
-        ) from e
-
-    except AudienceInactiveError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "audience_inactive",
-                "message": str(e.message),
-            },
-        ) from e
-
-    except KeyNotConfiguredError as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e.message),
-        ) from e
+    return SatelliteTokenResponse(
+        target_token=target_token,
+        expires_in=settings.satellite_token_expire_seconds,
+    )
 
 
 @router.get(
@@ -277,17 +247,14 @@ async def get_guest_satellite_token(
     """
     # Check if Identity Provider is configured
     if not key_manager.is_configured:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Identity Provider not configured. RSA keys are unavailable.",
-        )
+        raise KeyNotConfiguredError()
 
     # Validate audience parameter
     if not aud or not aud.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
-                "error": "missing_audience",
+                "code": "MISSING_AUDIENCE",
                 "message": "The 'aud' query parameter is required.",
             },
         )
@@ -298,48 +265,24 @@ async def get_guest_satellite_token(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
-                "error": validation_result.error_code or "invalid_audience",
+                "code": validation_result.error_code or "INVALID_AUDIENCE",
                 "message": validation_result.error
                 or f"The requested audience '{aud}' is not valid.",
             },
         )
 
-    try:
-        # Create guest satellite token
-        target_token = create_guest_satellite_token(
-            audience=aud,
-            key_manager=key_manager,
-            user_repo=user_repo,
-        )
+    # Create guest satellite token — domain exceptions bubble up to the
+    # DomainException handler which auto-maps them to the correct status code.
+    target_token = create_guest_satellite_token(
+        audience=aud,
+        key_manager=key_manager,
+        user_repo=user_repo,
+    )
 
-        return SatelliteTokenResponse(
-            target_token=target_token,
-            expires_in=settings.satellite_token_expire_seconds,
-        )
-
-    except AudienceNotFoundError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "audience_not_found",
-                "message": str(e.message),
-            },
-        ) from e
-
-    except AudienceInactiveError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "audience_inactive",
-                "message": str(e.message),
-            },
-        ) from e
-
-    except KeyNotConfiguredError as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(e.message),
-        ) from e
+    return SatelliteTokenResponse(
+        target_token=target_token,
+        expires_in=settings.satellite_token_expire_seconds,
+    )
 
 
 @router.get(

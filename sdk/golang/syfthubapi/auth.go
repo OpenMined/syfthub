@@ -204,6 +204,52 @@ func (c *AuthClient) GetNATSCredentials(ctx context.Context, username string) (*
 	}, nil
 }
 
+// RegisterEncryptionPublicKey registers the space's X25519 public key with the hub.
+// Called on startup after generating the keypair, before subscribing to NATS.
+func (c *AuthClient) RegisterEncryptionPublicKey(ctx context.Context, publicKeyB64 string) error {
+	body, err := json.Marshal(map[string]string{
+		"encryption_public_key": publicKeyB64,
+	})
+	if err != nil {
+		return &AuthenticationError{
+			Message: "failed to marshal key registration request",
+			Cause:   err,
+		}
+	}
+
+	req, err := http.NewRequestWithContext(
+		ctx, "PUT",
+		c.baseURL+"/api/v1/nats/encryption-key",
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return &AuthenticationError{
+			Message: "failed to create request",
+			Cause:   err,
+		}
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return &AuthenticationError{
+			Message: "failed to register encryption key",
+			Cause:   err,
+		}
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return &AuthenticationError{
+			Message: fmt.Sprintf("failed to register encryption key: %s", string(respBody)),
+		}
+	}
+
+	return nil
+}
+
 // SyncClient handles endpoint synchronization with SyftHub backend.
 type SyncClient struct {
 	httpClient *http.Client
@@ -388,4 +434,9 @@ func (a *APIAuthenticator) VerifyToken(ctx context.Context, token string) (*User
 func (a *APIAuthenticator) GetNATSCredentials(ctx context.Context) (*NATSCredentials, error) {
 	username := a.config.GetTunnelUsername()
 	return a.authClient.GetNATSCredentials(ctx, username)
+}
+
+// RegisterEncryptionPublicKey registers the space's X25519 public key with the hub.
+func (a *APIAuthenticator) RegisterEncryptionPublicKey(ctx context.Context, publicKeyB64 string) error {
+	return a.authClient.RegisterEncryptionPublicKey(ctx, publicKeyB64)
 }

@@ -106,8 +106,7 @@ export function useSuggestedSources({
       void searchDataSources(querySnapshot, { top_k: maxResults }).then((results) => {
         // Only apply results if this is still the latest request
         if (requestCounterReference.current === currentRequest) {
-          const { highRelevance } = categorizeResults(results);
-          setRawResults(highRelevance);
+          setRawResults(categorizeResults(results));
           setIsSearching(false);
           lastSearchedAtLengthReference.current = query.length;
         }

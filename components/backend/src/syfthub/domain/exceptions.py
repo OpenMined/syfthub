@@ -133,6 +133,53 @@ class UserAlreadyExistsError(DomainException):
 
 
 # ===========================================
+# GENERAL CRUD EXCEPTIONS
+# ===========================================
+
+
+class NotFoundError(DomainException):
+    """Raised when a requested resource does not exist."""
+
+    def __init__(self, resource: str, identifier: str | None = None):
+        """Initialize not found error.
+
+        Args:
+            resource: The type of resource that was not found (e.g., "User", "Endpoint")
+            identifier: Optional identifier value that was looked up
+        """
+        self.resource = resource
+        message = (
+            f"{resource} '{identifier}' not found"
+            if identifier is not None
+            else f"{resource} not found"
+        )
+        super().__init__(message, "NOT_FOUND")
+
+
+class PermissionDeniedError(DomainException):
+    """Raised when the caller lacks permission to perform an operation."""
+
+    def __init__(self, message: str = "Permission denied"):
+        """Initialize permission denied error."""
+        super().__init__(message, "PERMISSION_DENIED")
+
+
+class ConflictError(DomainException):
+    """Raised when a resource already exists and a conflict is detected."""
+
+    def __init__(self, resource: str, field: str):
+        """Initialize conflict error.
+
+        Args:
+            resource: The type of resource with the conflict (e.g., "user")
+            field: The field that already exists (e.g., "username", "email")
+        """
+        self.resource = resource
+        self.field = field
+        super().__init__(f"{field.capitalize()} already exists", "CONFLICT")
+
+
+# ===========================================
 # ACCOUNTING SERVICE EXCEPTIONS
 # ===========================================
 

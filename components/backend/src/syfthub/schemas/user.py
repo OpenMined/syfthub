@@ -79,6 +79,10 @@ class User(UserBase):
     heartbeat_expires_at: Optional[datetime] = Field(
         None, description="Timestamp when heartbeat expires"
     )
+    # X25519 public key for NATS tunnel encryption (base64url-encoded)
+    encryption_public_key: Optional[str] = Field(
+        None, description="X25519 public key for tunnel encryption (base64url)"
+    )
 
     model_config = {"from_attributes": True}
 
@@ -115,6 +119,10 @@ class UserResponse(BaseModel):
     )
     heartbeat_expires_at: Optional[datetime] = Field(
         None, description="Timestamp when heartbeat expires"
+    )
+    # X25519 public key for NATS tunnel encryption (base64url-encoded)
+    encryption_public_key: Optional[str] = Field(
+        None, description="X25519 public key for tunnel encryption (base64url)"
     )
 
     model_config = {"from_attributes": True}

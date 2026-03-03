@@ -62,6 +62,12 @@ class UserModel(BaseModel, TimestampMixin):
         DateTime(timezone=True), nullable=True, default=None
     )
 
+    # X25519 public key for NATS tunnel E2E encryption (base64url-encoded, 44 chars)
+    # Registered by the space on startup via PUT /api/v1/nats/encryption-key
+    encryption_public_key: Mapped[Optional[str]] = mapped_column(
+        String(500), nullable=True, default=None
+    )
+
     # Relationships
     endpoints: Mapped[List["EndpointModel"]] = relationship(
         "EndpointModel", back_populates="user", cascade="all, delete-orphan"

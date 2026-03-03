@@ -46,13 +46,23 @@ class TestConnectArgs:
 class TestTableFunctions:
     """Test table management functions."""
 
+    @patch("syfthub.database.connection._run_alembic_migrations", return_value=False)
     @patch("syfthub.database.connection.Base")
     @patch("syfthub.database.connection.engine")
-    def test_create_tables(self, mock_engine, mock_base):
-        """Test creating all tables."""
+    def test_create_tables(self, mock_engine, mock_base, _mock_migrations):
+        """Test creating tables falls back to create_all when Alembic unavailable."""
         create_tables()
 
         mock_base.metadata.create_all.assert_called_once_with(bind=mock_engine)
+
+    @patch("syfthub.database.connection._run_alembic_migrations", return_value=True)
+    @patch("syfthub.database.connection.Base")
+    @patch("syfthub.database.connection.engine")
+    def test_create_tables_with_alembic(self, mock_engine, mock_base, _mock_migrations):
+        """Test creating tables via Alembic skips create_all."""
+        create_tables()
+
+        mock_base.metadata.create_all.assert_not_called()
 
     @patch("syfthub.database.connection.Base")
     @patch("syfthub.database.connection.engine")

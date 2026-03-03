@@ -76,7 +76,9 @@ class TestGetAccountingClient:
 
         response = client.get("/api/v1/accounting/user")
         assert response.status_code == 400
-        assert "Accounting not configured" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert detail["code"] == "ACCOUNTING_NOT_CONFIGURED"
+        assert "Accounting not configured" in detail["message"]
 
 
 class TestGetAccountingUser:
@@ -115,7 +117,9 @@ class TestGetAccountingUser:
         response = client.get("/api/v1/accounting/user")
 
         assert response.status_code == 401
-        assert "Invalid accounting credentials" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert detail["code"] == "INVALID_ACCOUNTING_CREDENTIALS"
+        assert "Invalid accounting credentials" in detail["message"]
 
     @patch("syfthub.api.endpoints.accounting.AccountingClient")
     def test_get_user_service_error(self, mock_client_class, client, mock_user):
@@ -128,9 +132,9 @@ class TestGetAccountingUser:
         response = client.get("/api/v1/accounting/user")
 
         assert response.status_code == 502
-        assert (
-            "Error communicating with accounting service" in response.json()["detail"]
-        )
+        detail = response.json()["detail"]
+        assert detail["code"] == "ACCOUNTING_PROXY_ERROR"
+        assert "accounting service" in detail["message"].lower()
 
 
 class TestGetTransactions:
@@ -205,8 +209,10 @@ class TestGetTransactions:
         app.dependency_overrides[get_current_active_user] = lambda: mock_user
         response = client.get("/api/v1/accounting/transactions")
 
-        assert response.status_code == 500
-        assert "Failed to fetch transactions" in response.json()["detail"]
+        assert response.status_code == 502
+        detail = response.json()["detail"]
+        assert detail["code"] == "ACCOUNTING_UPSTREAM_ERROR"
+        assert "Failed to fetch transactions" in detail["message"]
 
     @patch("syfthub.api.endpoints.accounting.AccountingClient")
     def test_get_transactions_service_error(self, mock_client_class, client, mock_user):
@@ -219,9 +225,9 @@ class TestGetTransactions:
         response = client.get("/api/v1/accounting/transactions")
 
         assert response.status_code == 502
-        assert (
-            "Error communicating with accounting service" in response.json()["detail"]
-        )
+        detail = response.json()["detail"]
+        assert detail["code"] == "ACCOUNTING_PROXY_ERROR"
+        assert "accounting service" in detail["message"].lower()
 
 
 class TestCreateTransaction:
@@ -317,7 +323,9 @@ class TestCreateTransaction:
         )
 
         assert response.status_code == 400
-        assert "Insufficient balance" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert detail["code"] == "ACCOUNTING_UPSTREAM_ERROR"
+        assert "Insufficient balance" in detail["message"]
 
     @patch("syfthub.api.endpoints.accounting.AccountingClient")
     def test_create_transaction_error_with_message(
@@ -342,7 +350,9 @@ class TestCreateTransaction:
         )
 
         assert response.status_code == 400
-        assert "Invalid recipient" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert detail["code"] == "ACCOUNTING_UPSTREAM_ERROR"
+        assert "Invalid recipient" in detail["message"]
 
     @patch("syfthub.api.endpoints.accounting.AccountingClient")
     def test_create_transaction_error_no_json(
@@ -366,7 +376,8 @@ class TestCreateTransaction:
             },
         )
 
-        assert response.status_code == 500
+        # Upstream 5xx is capped to 502 (bad gateway)
+        assert response.status_code == 502
 
 
 class TestConfirmTransaction:
@@ -433,7 +444,8 @@ class TestConfirmTransaction:
         app.dependency_overrides[get_current_active_user] = lambda: mock_user
         response = client.post("/api/v1/accounting/transactions/tx-123/confirm")
 
-        assert response.status_code == 500
+        # Upstream 5xx is capped to 502 (bad gateway)
+        assert response.status_code == 502
 
     @patch("syfthub.api.endpoints.accounting.AccountingClient")
     def test_confirm_transaction_service_error(
@@ -813,7 +825,9 @@ class TestCreateTransactionTokens:
         )
 
         assert response.status_code == 400
-        assert "Accounting not configured" in response.json()["detail"]
+        detail = response.json()["detail"]
+        assert detail["code"] == "ACCOUNTING_NOT_CONFIGURED"
+        assert "Accounting not configured" in detail["message"]
 
     @patch("syfthub.api.endpoints.accounting.AccountingClient")
     def test_create_tokens_error_with_message(

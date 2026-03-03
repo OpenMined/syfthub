@@ -4,12 +4,15 @@ from syfthub.domain.exceptions import (
     AccountingAccountExistsError,
     AccountingException,
     AccountingServiceUnavailableError,
+    ConflictError,
     DomainException,
     IdPException,
     InvalidAccountingPasswordError,
     InvalidAudienceError,
     KeyLoadError,
     KeyNotConfiguredError,
+    NotFoundError,
+    PermissionDeniedError,
     ValidationError,
 )
 
@@ -240,3 +243,89 @@ class TestAccountingServiceUnavailableError:
         assert isinstance(error, AccountingServiceUnavailableError)
         assert isinstance(error, AccountingException)
         assert isinstance(error, DomainException)
+
+
+class TestNotFoundError:
+    """Test NotFoundError exception."""
+
+    def test_not_found_error_creation(self):
+        """Test creating not found error without identifier."""
+        error = NotFoundError("User")
+
+        assert error.resource == "User"
+        assert error.error_code == "NOT_FOUND"
+        assert error.message == "User not found"
+        assert isinstance(error, DomainException)
+        assert isinstance(error, Exception)
+
+    def test_not_found_error_with_identifier(self):
+        """Test creating not found error with identifier."""
+        error = NotFoundError("Endpoint", "my-endpoint")
+
+        assert error.resource == "Endpoint"
+        assert error.error_code == "NOT_FOUND"
+        assert "Endpoint" in error.message
+        assert "my-endpoint" in error.message
+
+    def test_not_found_error_inheritance(self):
+        """Test NotFoundError inheritance chain."""
+        error = NotFoundError("Resource")
+
+        assert isinstance(error, NotFoundError)
+        assert isinstance(error, DomainException)
+        assert isinstance(error, Exception)
+
+
+class TestPermissionDeniedError:
+    """Test PermissionDeniedError exception."""
+
+    def test_permission_denied_error_creation_default(self):
+        """Test creating permission denied error with default message."""
+        error = PermissionDeniedError()
+
+        assert error.error_code == "PERMISSION_DENIED"
+        assert "Permission denied" in error.message
+
+    def test_permission_denied_error_creation_custom(self):
+        """Test creating permission denied error with custom message."""
+        error = PermissionDeniedError("Admin role required")
+
+        assert error.error_code == "PERMISSION_DENIED"
+        assert error.message == "Admin role required"
+
+    def test_permission_denied_error_inheritance(self):
+        """Test PermissionDeniedError inheritance chain."""
+        error = PermissionDeniedError()
+
+        assert isinstance(error, PermissionDeniedError)
+        assert isinstance(error, DomainException)
+        assert isinstance(error, Exception)
+
+
+class TestConflictError:
+    """Test ConflictError exception."""
+
+    def test_conflict_error_creation(self):
+        """Test creating conflict error."""
+        error = ConflictError("user", "username")
+
+        assert error.resource == "user"
+        assert error.field == "username"
+        assert error.error_code == "CONFLICT"
+        assert "Username" in error.message
+        assert "already exists" in error.message
+
+    def test_conflict_error_email(self):
+        """Test creating conflict error for email."""
+        error = ConflictError("user", "email")
+
+        assert error.field == "email"
+        assert "Email" in error.message
+
+    def test_conflict_error_inheritance(self):
+        """Test ConflictError inheritance chain."""
+        error = ConflictError("resource", "field")
+
+        assert isinstance(error, ConflictError)
+        assert isinstance(error, DomainException)
+        assert isinstance(error, Exception)

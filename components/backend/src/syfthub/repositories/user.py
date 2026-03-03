@@ -59,6 +59,17 @@ class UserRepository(BaseRepository[UserModel]):
         except Exception:
             return None
 
+    def get_by_ids(self, user_ids: list[int]) -> list[User]:
+        """Get multiple users by their IDs in a single query."""
+        if not user_ids:
+            return []
+        try:
+            stmt = select(self.model).where(self.model.id.in_(user_ids))
+            result = self.session.execute(stmt)
+            return [User.model_validate(m) for m in result.scalars().all()]
+        except Exception:
+            return []
+
     def get_by_google_id(self, google_id: str) -> Optional[User]:
         """Get user by Google OAuth ID."""
         try:

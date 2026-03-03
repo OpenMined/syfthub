@@ -197,6 +197,20 @@ type TunnelEndpointInfo struct {
 	Type string `json:"type"`
 }
 
+// EncryptionInfo carries the metadata required to decrypt an encrypted tunnel payload.
+// Both TunnelRequest and TunnelResponse use this struct for their encryption_info field.
+type EncryptionInfo struct {
+	// Algorithm identifies the encryption scheme. Always "X25519-ECDH-AES-256-GCM".
+	Algorithm string `json:"algorithm"`
+
+	// EphemeralPublicKey is the base64url-encoded X25519 ephemeral public key used
+	// for ECDH key agreement on the sender side.
+	EphemeralPublicKey string `json:"ephemeral_public_key"`
+
+	// Nonce is the base64url-encoded 12-byte AES-256-GCM nonce.
+	Nonce string `json:"nonce"`
+}
+
 // TunnelRequest is the request format for tunnel mode communication.
 // Matches Python syfthub-api TunnelRequest schema.
 type TunnelRequest struct {
@@ -223,6 +237,14 @@ type TunnelRequest struct {
 
 	// SatelliteToken is the JWT for user verification.
 	SatelliteToken string `json:"satellite_token,omitempty"`
+
+	// EncryptionInfo contains the key-exchange metadata required to decrypt
+	// the EncryptedPayload. Always present in encrypted tunnel requests.
+	EncryptionInfo *EncryptionInfo `json:"encryption_info"`
+
+	// EncryptedPayload is the base64url-encoded AES-256-GCM ciphertext of the
+	// original Payload JSON. Always present in encrypted tunnel requests.
+	EncryptedPayload string `json:"encrypted_payload"`
 
 	// Timestamp is when the request was created (internal use).
 	Timestamp time.Time `json:"-"`
@@ -269,6 +291,14 @@ type TunnelResponse struct {
 
 	// Timing contains timing information.
 	Timing *TunnelTiming `json:"timing,omitempty"`
+
+	// EncryptionInfo contains the key-exchange metadata required to decrypt
+	// the EncryptedPayload. Always present in encrypted tunnel responses.
+	EncryptionInfo *EncryptionInfo `json:"encryption_info"`
+
+	// EncryptedPayload is the base64url-encoded AES-256-GCM ciphertext of the
+	// original Payload JSON. Always present in encrypted tunnel responses.
+	EncryptedPayload string `json:"encrypted_payload"`
 }
 
 // TunnelError contains error information for tunnel responses.
@@ -308,6 +338,7 @@ const (
 	TunnelErrorCodeInternalError     TunnelErrorCode = "INTERNAL_ERROR"
 	TunnelErrorCodeEndpointDisabled  TunnelErrorCode = "ENDPOINT_DISABLED"
 	TunnelErrorCodeRateLimitExceeded TunnelErrorCode = "RATE_LIMIT_EXCEEDED"
+	TunnelErrorCodeDecryptionFailed  TunnelErrorCode = "DECRYPTION_FAILED"
 )
 
 // EndpointInfo contains metadata about a registered endpoint.
@@ -487,4 +518,8 @@ type NATSCredentials struct {
 
 	// Subject is the subscription subject.
 	Subject string `json:"subject"`
+
+	// EncryptionPublicKey is the space's own X25519 public key (base64url).
+	// Populated after calling RegisterEncryptionPublicKey on startup.
+	EncryptionPublicKey string `json:"encryption_public_key,omitempty"`
 }

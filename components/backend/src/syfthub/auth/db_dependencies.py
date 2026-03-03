@@ -16,10 +16,13 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from syfthub.auth.api_tokens import hash_api_token, is_api_token
 from syfthub.auth.security import verify_token
 from syfthub.database.dependencies import get_api_token_repository, get_user_repository
+from syfthub.observability.logger import get_logger
 from syfthub.repositories.api_token import APITokenRepository
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.user import User
+
+logger = get_logger(__name__)
 
 # OAuth2 bearer token scheme
 security = HTTPBearer(auto_error=False)
@@ -126,7 +129,7 @@ async def _authenticate_with_api_token(
             client_ip = request.client.host
         api_token_repo.update_last_used(api_token.id, client_ip)
     except Exception:
-        # Don't fail authentication if tracking fails
+        logger.debug("auth.api_token.tracking_failed", exc_info=True)
         pass
 
     # Convert to User schema
@@ -215,6 +218,7 @@ async def get_current_user(
     except HTTPException:
         raise
     except Exception:
+        logger.exception("auth.user_lookup.failed", exc_info=True)
         raise credentials_exception from None
 
 
@@ -271,6 +275,7 @@ async def get_optional_current_user(
         # For optional auth, convert auth errors to None
         return None
     except Exception:
+        logger.exception("auth.optional_user_lookup.failed", exc_info=True)
         return None
 
 
@@ -287,7 +292,11 @@ class RoleChecker:
         """Check if user has required role."""
         if current_user.role not in self.allowed_roles:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Operation not permitted"
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "PERMISSION_DENIED",
+                    "message": "Operation not permitted",
+                },
             )
         return True
 
@@ -310,7 +319,10 @@ class OwnershipChecker:
 
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied: insufficient permissions",
+            detail={
+                "code": "PERMISSION_DENIED",
+                "message": "Access denied: insufficient permissions",
+            },
         )
 
 

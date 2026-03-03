@@ -3,14 +3,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChatSource, EndpointType } from '@/lib/types';
 import type { BrowseFilters } from './browse-filters-modal';
 
-import Building from 'lucide-react/dist/esm/icons/building';
 import Calendar from 'lucide-react/dist/esm/icons/calendar';
 import Check from 'lucide-react/dist/esm/icons/check';
 import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right';
 import Database from 'lucide-react/dist/esm/icons/database';
 import Filter from 'lucide-react/dist/esm/icons/filter';
 import Globe from 'lucide-react/dist/esm/icons/globe';
-import Lock from 'lucide-react/dist/esm/icons/lock';
 import Package from 'lucide-react/dist/esm/icons/package';
 import Plus from 'lucide-react/dist/esm/icons/plus';
 import Search from 'lucide-react/dist/esm/icons/search';
@@ -86,16 +84,12 @@ type BrowseTab = 'data_sources' | 'models';
 
 interface BrowseViewProperties {
   initialQuery?: string;
-  onAuthRequired?: () => void;
 }
 
 // Debounce delay for search input (ms)
 const SEARCH_DEBOUNCE_MS = 300;
 
-export function BrowseView({
-  initialQuery = '',
-  onAuthRequired: _onAuthRequired
-}: Readonly<BrowseViewProperties>) {
+export function BrowseView({ initialQuery = '' }: Readonly<BrowseViewProperties>) {
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(initialQuery);
   const [activeTab, setActiveTab] = useState<BrowseTab>('data_sources');
@@ -175,14 +169,8 @@ export function BrowseView({
     return result;
   }, [endpoints, filters]);
 
-  const getVisibilityIcon = (endpoint: ChatSource) => {
-    if (endpoint.name.toLowerCase().includes('private')) {
-      return <Lock className='h-3 w-3' />;
-    } else if (endpoint.name.toLowerCase().includes('internal')) {
-      return <Building className='h-3 w-3' />;
-    }
-    return <Globe className='h-3 w-3' />;
-  };
+  // All endpoints in the browse view are public — always show Globe.
+  const getVisibilityIcon = () => <Globe className='h-3 w-3' />;
 
   // Helper function to generate the "no results" message
   const getNoResultsMessage = () => {
@@ -525,7 +513,7 @@ export function BrowseView({
                       <div className='border-muted flex items-center justify-between border-t pt-3'>
                         <div className='text-muted-foreground flex items-center gap-3 text-xs'>
                           <div className='flex items-center gap-1'>
-                            {getVisibilityIcon(endpoint)}
+                            {getVisibilityIcon()}
                             <span>Public</span>
                           </div>
                           <div className='flex items-center gap-1'>

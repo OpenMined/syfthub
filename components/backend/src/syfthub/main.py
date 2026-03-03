@@ -206,6 +206,15 @@ def get_endpoint_by_owner_and_slug(
     return None
 
 
+def get_owner_username(owner: Union[User, Organization], owner_type: str) -> str:
+    """Return the public username/slug for an owner."""
+    if owner_type == "user" and isinstance(owner, User):
+        return owner.username
+    if owner_type == "organization" and isinstance(owner, Organization):
+        return owner.slug
+    return ""
+
+
 def is_browser_request(request: Request) -> bool:
     """Check if request is from a browser (wants HTML) vs API client (wants JSON)."""
     accept_header = request.headers.get("accept", "")
@@ -494,19 +503,7 @@ async def list_owner_public_endpoints(
         # Calculate contributors_count from contributors array (privacy: don't expose user IDs)
         ds_dict["contributors_count"] = len(ds_dict.pop("contributors", []) or [])
 
-        # Get the appropriate username/slug based on owner type
-        if owner_type == "user":
-            from syfthub.schemas.user import User
-
-            ds_dict["owner_username"] = (
-                owner.username if isinstance(owner, User) else ""
-            )
-        else:
-            from syfthub.schemas.organization import Organization
-
-            ds_dict["owner_username"] = (
-                owner.slug if isinstance(owner, Organization) else ""
-            )
+        ds_dict["owner_username"] = get_owner_username(owner, owner_type)
         response_list.append(EndpointPublicResponse.model_validate(ds_dict))
 
     return response_list
@@ -625,19 +622,7 @@ async def get_owner_endpoint(
                 endpoint_dict.pop("contributors", []) or []
             )
 
-            # Get the appropriate username/slug based on owner type
-            if owner_type == "user":
-                from syfthub.schemas.user import User
-
-                endpoint_dict["owner_username"] = (
-                    owner.username if isinstance(owner, User) else ""
-                )
-            else:
-                from syfthub.schemas.organization import Organization
-
-                endpoint_dict["owner_username"] = (
-                    owner.slug if isinstance(owner, Organization) else ""
-                )
+            endpoint_dict["owner_username"] = get_owner_username(owner, owner_type)
             return EndpointPublicResponse.model_validate(endpoint_dict)
 
 

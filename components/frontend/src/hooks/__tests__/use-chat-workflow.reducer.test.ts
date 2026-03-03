@@ -67,7 +67,8 @@ describe('processStreamEventForStatus', () => {
       phase: 'retrieving',
       message: 'Searching...',
       retrieval: { completed: 0, total: 2, documentsFound: 0 },
-      completedSources: []
+      completedSources: [],
+      steps: [{ id: 'retrieval', label: 'Searching sources', status: 'active' }]
     };
     const event: ChatStreamEvent = {
       type: 'source_complete',
@@ -96,7 +97,8 @@ describe('processStreamEventForStatus', () => {
     const baseStatus: ProcessingStatus = {
       phase: 'retrieving',
       message: '',
-      completedSources: []
+      completedSources: [],
+      steps: []
     };
     const event: ChatStreamEvent = { type: 'retrieval_complete', totalDocuments: 10, timeMs: 500 };
     const result = processStreamEventForStatus(baseStatus, event);
@@ -108,7 +110,8 @@ describe('processStreamEventForStatus', () => {
     const baseStatus: ProcessingStatus = {
       phase: 'retrieving',
       message: '',
-      completedSources: [{ path: 'a/b', displayName: 'B', status: 'success', documents: 3 }]
+      completedSources: [{ path: 'a/b', displayName: 'B', status: 'success', documents: 3 }],
+      steps: [{ id: 'generation', label: 'Generating response', status: 'pending' }]
     };
     const event: ChatStreamEvent = { type: 'generation_start' };
     const result = processStreamEventForStatus(baseStatus, event);
@@ -120,7 +123,8 @@ describe('processStreamEventForStatus', () => {
     const baseStatus: ProcessingStatus = {
       phase: 'generating',
       message: '',
-      completedSources: []
+      completedSources: [],
+      steps: [{ id: 'generation', label: 'Generating response', status: 'active' }]
     };
     const event: ChatStreamEvent = { type: 'token', content: 'Hello' };
     const result = processStreamEventForStatus(baseStatus, event);
@@ -131,7 +135,8 @@ describe('processStreamEventForStatus', () => {
     const baseStatus: ProcessingStatus = {
       phase: 'streaming',
       message: 'Writing...',
-      completedSources: []
+      completedSources: [],
+      steps: [{ id: 'generation', label: 'Generating response', status: 'complete' }]
     };
     const event: ChatStreamEvent = { type: 'token', content: ' world' };
     const result = processStreamEventForStatus(baseStatus, event);
@@ -143,7 +148,8 @@ describe('processStreamEventForStatus', () => {
     const baseStatus: ProcessingStatus = {
       phase: 'streaming',
       message: '',
-      completedSources: []
+      completedSources: [],
+      steps: []
     };
     const event: ChatStreamEvent = {
       type: 'done',
@@ -218,7 +224,8 @@ describe('workflowReducer', () => {
     const status: ProcessingStatus = {
       phase: 'retrieving',
       message: 'Starting...',
-      completedSources: []
+      completedSources: [],
+      steps: []
     };
     const state = workflowReducer(initialState, { type: 'START_STREAMING', status });
     expect(state.phase).toBe('streaming');

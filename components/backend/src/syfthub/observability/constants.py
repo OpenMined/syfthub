@@ -41,6 +41,7 @@ class LogEvents:
     ERROR_NOT_FOUND = "error.not_found"
     ERROR_UNAUTHORIZED = "error.unauthorized"
     ERROR_FORBIDDEN = "error.forbidden"
+    ERROR_DOMAIN = "error.domain"
 
     # Health check events
     HEALTH_CHECK_SUCCESS = "health.check.success"

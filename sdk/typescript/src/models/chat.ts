@@ -221,10 +221,40 @@ export interface RetrievalCompleteEvent {
 }
 
 /**
+ * Fired when document reranking begins (after all sources complete).
+ */
+export interface RerankingStartEvent {
+  type: 'reranking_start';
+  /** Number of documents being reranked */
+  documents: number;
+}
+
+/**
+ * Fired when document reranking completes.
+ */
+export interface RerankingCompleteEvent {
+  type: 'reranking_complete';
+  /** Number of documents after reranking */
+  documents: number;
+  /** Time taken for reranking in milliseconds */
+  timeMs: number;
+}
+
+/**
  * Fired when model generation begins.
  */
 export interface GenerationStartEvent {
   type: 'generation_start';
+}
+
+/**
+ * Fired periodically during non-streaming model generation to indicate progress.
+ * Emitted every ~3 seconds while waiting for the model response.
+ */
+export interface GenerationHeartbeatEvent {
+  type: 'generation_heartbeat';
+  /** Milliseconds elapsed since generation_start */
+  elapsedMs: number;
 }
 
 /**
@@ -289,7 +319,10 @@ export type ChatStreamEvent =
   | RetrievalStartEvent
   | SourceCompleteEvent
   | RetrievalCompleteEvent
+  | RerankingStartEvent
+  | RerankingCompleteEvent
   | GenerationStartEvent
+  | GenerationHeartbeatEvent
   | TokenEvent
   | DoneEvent
   | ErrorEvent;

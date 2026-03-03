@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from sqlalchemy import Text, and_, cast, delete, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -63,6 +63,33 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 OrganizationModel,
                 self.model.organization_id == OrganizationModel.id,
             )
+        )
+
+    @staticmethod
+    def _build_public_response(
+        row: Any, owner_username: str, domain: Optional[str]
+    ) -> EndpointPublicResponse:
+        """Build an EndpointPublicResponse from a query row and owner context.
+
+        Accepts any object with the EndpointModel attribute names (ORM instance
+        or SQLAlchemy Row) so it works for both regular and window-function queries.
+        """
+        transformed_connect = transform_connection_urls(domain, row.connect or [])
+        return EndpointPublicResponse(
+            name=row.name,
+            slug=row.slug,
+            description=row.description,
+            type=row.type,
+            owner_username=owner_username,
+            contributors_count=len(row.contributors or []),
+            version=row.version,
+            readme=row.readme,
+            tags=row.tags or [],
+            stars_count=row.stars_count,
+            policies=row.policies,
+            connect=transformed_connect,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
         )
 
     def get_by_id(self, endpoint_id: int) -> Optional[Endpoint]:
@@ -238,28 +265,9 @@ class EndpointRepository(BaseRepository[EndpointModel]):
 
             endpoints = []
             for endpoint_model, username, domain in rows:
-                # Transform connection URLs using owner's domain
-                transformed_connect = transform_connection_urls(
-                    domain, endpoint_model.connect or []
+                endpoints.append(
+                    self._build_public_response(endpoint_model, username, domain)
                 )
-
-                endpoint_dict = {
-                    "name": endpoint_model.name,
-                    "slug": endpoint_model.slug,
-                    "description": endpoint_model.description,
-                    "type": endpoint_model.type,
-                    "owner_username": username,
-                    "contributors_count": len(endpoint_model.contributors or []),
-                    "version": endpoint_model.version,
-                    "readme": endpoint_model.readme,
-                    "tags": endpoint_model.tags or [],
-                    "stars_count": endpoint_model.stars_count,
-                    "policies": endpoint_model.policies,
-                    "connect": transformed_connect,
-                    "created_at": endpoint_model.created_at,
-                    "updated_at": endpoint_model.updated_at,
-                }
-                endpoints.append(EndpointPublicResponse(**endpoint_dict))
 
             return endpoints
         except SQLAlchemyError as e:
@@ -306,28 +314,9 @@ class EndpointRepository(BaseRepository[EndpointModel]):
 
             endpoints = []
             for endpoint_model, username, domain in rows:
-                # Transform connection URLs using owner's domain
-                transformed_connect = transform_connection_urls(
-                    domain, endpoint_model.connect or []
+                endpoints.append(
+                    self._build_public_response(endpoint_model, username, domain)
                 )
-
-                endpoint_dict = {
-                    "name": endpoint_model.name,
-                    "slug": endpoint_model.slug,
-                    "description": endpoint_model.description,
-                    "type": endpoint_model.type,
-                    "owner_username": username,
-                    "contributors_count": len(endpoint_model.contributors or []),
-                    "version": endpoint_model.version,
-                    "readme": endpoint_model.readme,
-                    "tags": endpoint_model.tags or [],
-                    "stars_count": endpoint_model.stars_count,
-                    "policies": endpoint_model.policies,
-                    "connect": transformed_connect,
-                    "created_at": endpoint_model.created_at,
-                    "updated_at": endpoint_model.updated_at,
-                }
-                endpoints.append(EndpointPublicResponse(**endpoint_dict))
 
             return endpoints
         except SQLAlchemyError as e:
@@ -375,27 +364,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
 
             endpoint_model, _username, domain = row
 
-            transformed_connect = transform_connection_urls(
-                domain, endpoint_model.connect or []
-            )
-
-            endpoint_dict = {
-                "name": endpoint_model.name,
-                "slug": endpoint_model.slug,
-                "description": endpoint_model.description,
-                "type": endpoint_model.type,
-                "owner_username": owner_username,
-                "contributors_count": len(endpoint_model.contributors or []),
-                "version": endpoint_model.version,
-                "readme": endpoint_model.readme,
-                "tags": endpoint_model.tags or [],
-                "stars_count": endpoint_model.stars_count,
-                "policies": endpoint_model.policies,
-                "connect": transformed_connect,
-                "created_at": endpoint_model.created_at,
-                "updated_at": endpoint_model.updated_at,
-            }
-            return EndpointPublicResponse(**endpoint_dict)
+            return self._build_public_response(endpoint_model, owner_username, domain)
         except SQLAlchemyError as e:
             logger.error(
                 "Failed to query public endpoint %s/%s: %s",
@@ -441,29 +410,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             # Build a map of id -> endpoint response
             id_to_endpoint: dict[int, EndpointPublicResponse] = {}
             for endpoint_model, username, domain in rows:
-                # Transform connection URLs using owner's domain
-                transformed_connect = transform_connection_urls(
-                    domain, endpoint_model.connect or []
-                )
-
-                endpoint_dict = {
-                    "name": endpoint_model.name,
-                    "slug": endpoint_model.slug,
-                    "description": endpoint_model.description,
-                    "type": endpoint_model.type,
-                    "owner_username": username,
-                    "contributors_count": len(endpoint_model.contributors or []),
-                    "version": endpoint_model.version,
-                    "readme": endpoint_model.readme,
-                    "tags": endpoint_model.tags or [],
-                    "stars_count": endpoint_model.stars_count,
-                    "policies": endpoint_model.policies,
-                    "connect": transformed_connect,
-                    "created_at": endpoint_model.created_at,
-                    "updated_at": endpoint_model.updated_at,
-                }
-                id_to_endpoint[endpoint_model.id] = EndpointPublicResponse(
-                    **endpoint_dict
+                id_to_endpoint[endpoint_model.id] = self._build_public_response(
+                    endpoint_model, username, domain
                 )
 
             # Return in the original order (preserves RAG ranking)
@@ -520,28 +468,9 @@ class EndpointRepository(BaseRepository[EndpointModel]):
 
             endpoints = []
             for endpoint_model, username, domain in rows:
-                # Transform connection URLs using owner's domain
-                transformed_connect = transform_connection_urls(
-                    domain, endpoint_model.connect or []
+                endpoints.append(
+                    self._build_public_response(endpoint_model, username, domain)
                 )
-
-                endpoint_dict = {
-                    "name": endpoint_model.name,
-                    "slug": endpoint_model.slug,
-                    "description": endpoint_model.description,
-                    "type": endpoint_model.type,
-                    "owner_username": username,
-                    "contributors_count": len(endpoint_model.contributors or []),
-                    "version": endpoint_model.version,
-                    "readme": endpoint_model.readme,
-                    "tags": endpoint_model.tags or [],
-                    "stars_count": endpoint_model.stars_count,
-                    "policies": endpoint_model.policies,
-                    "connect": transformed_connect,
-                    "created_at": endpoint_model.created_at,
-                    "updated_at": endpoint_model.updated_at,
-                }
-                endpoints.append(EndpointPublicResponse(**endpoint_dict))
 
             return endpoints
         except SQLAlchemyError:
@@ -582,28 +511,9 @@ class EndpointRepository(BaseRepository[EndpointModel]):
 
             endpoints = []
             for endpoint_model, username, domain in rows:
-                # Transform connection URLs using owner's domain
-                transformed_connect = transform_connection_urls(
-                    domain, endpoint_model.connect or []
+                endpoints.append(
+                    self._build_public_response(endpoint_model, username, domain)
                 )
-
-                endpoint_dict = {
-                    "name": endpoint_model.name,
-                    "slug": endpoint_model.slug,
-                    "description": endpoint_model.description,
-                    "type": endpoint_model.type,
-                    "owner_username": username,
-                    "contributors_count": len(endpoint_model.contributors or []),
-                    "version": endpoint_model.version,
-                    "readme": endpoint_model.readme,
-                    "tags": endpoint_model.tags or [],
-                    "stars_count": endpoint_model.stars_count,
-                    "policies": endpoint_model.policies,
-                    "connect": transformed_connect,
-                    "created_at": endpoint_model.created_at,
-                    "updated_at": endpoint_model.updated_at,
-                }
-                endpoints.append(EndpointPublicResponse(**endpoint_dict))
 
             return endpoints
         except SQLAlchemyError:
@@ -701,29 +611,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                         "endpoints": [],
                     }
 
-                # Transform connection URLs using owner's domain
-                transformed_connect = transform_connection_urls(
-                    domain, row.connect or []
-                )
-
-                endpoint_dict = {
-                    "name": row.name,
-                    "slug": row.slug,
-                    "description": row.description,
-                    "type": row.type,
-                    "owner_username": username,
-                    "contributors_count": len(row.contributors or []),
-                    "version": row.version,
-                    "readme": row.readme,
-                    "tags": row.tags or [],
-                    "stars_count": row.stars_count,
-                    "policies": row.policies,
-                    "connect": transformed_connect,
-                    "created_at": row.created_at,
-                    "updated_at": row.updated_at,
-                }
                 owner_groups[username]["endpoints"].append(
-                    EndpointPublicResponse(**endpoint_dict)
+                    self._build_public_response(row, username, domain)
                 )
 
             # Build the response groups
@@ -1174,30 +1063,29 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         return self.get_user_endpoints(user_id)
 
     def get_public_endpoints_by_user_id(self, user_id: int) -> list[Endpoint]:
-        """Get public endpoints by user ID (alias for test compatibility).
+        """Get public, active endpoints by user ID.
 
-        Note: This is for PUBLIC browsing, so it filters to only active + public endpoints.
-        For owner management view, use get_user_endpoints() instead.
+        Pushes visibility + is_active filters into SQL to avoid loading all
+        user endpoints and filtering in Python.
         """
-        user_endpoints = self.get_user_endpoints(user_id)
-        return [
-            ds
-            for ds in user_endpoints
-            if ds.visibility == EndpointVisibility.PUBLIC and ds.is_active
-        ]
+        try:
+            stmt = (
+                select(self.model)
+                .where(
+                    self.model.user_id == user_id,
+                    self.model.visibility == EndpointVisibility.PUBLIC.value,
+                    self.model.is_active,
+                )
+                .order_by(self.model.updated_at.desc())
+            )
+            result = self.session.execute(stmt)
+            return [Endpoint.model_validate(m) for m in result.scalars().all()]
+        except SQLAlchemyError:
+            return []
 
     def get_public_by_user_id(self, user_id: int) -> list[Endpoint]:
-        """Get public endpoints by user ID (alias for test compatibility).
-
-        Note: This is for PUBLIC browsing, so it filters to only active + public endpoints.
-        For owner management view, use get_user_endpoints() instead.
-        """
-        user_endpoints = self.get_user_endpoints(user_id)
-        return [
-            ds
-            for ds in user_endpoints
-            if ds.visibility == EndpointVisibility.PUBLIC and ds.is_active
-        ]
+        """Get public endpoints by user ID (alias for test compatibility)."""
+        return self.get_public_endpoints_by_user_id(user_id)
 
     # ===========================================
     # RAG INTEGRATION METHODS

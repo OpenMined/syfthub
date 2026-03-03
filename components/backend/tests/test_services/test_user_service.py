@@ -4,9 +4,14 @@ from datetime import datetime
 from unittest.mock import patch
 
 import pytest
-from fastapi import HTTPException
 
 from syfthub.database.connection import get_db_session
+from syfthub.domain.exceptions import (
+    ConflictError,
+    NotFoundError,
+    PermissionDeniedError,
+    ValidationError,
+)
 from syfthub.schemas.user import User, UserResponse, UserUpdate
 from syfthub.services.user_service import UserService
 
@@ -202,11 +207,10 @@ class TestUserServiceUpdateProfile:
         User(**user_dict)
         update_data = UserUpdate(full_name="Should Fail")
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(PermissionDeniedError) as exc_info:
             user_service.update_user_profile(2, update_data, sample_user)
 
-        assert exc_info.value.status_code == 403
-        assert "Permission denied" in str(exc_info.value.detail)
+        assert exc_info.value.error_code == "PERMISSION_DENIED"
 
     def test_update_user_profile_email_exists(self, user_service, sample_user):
         """Test updating with existing email."""
@@ -223,11 +227,11 @@ class TestUserServiceUpdateProfile:
                 user_service.user_repository, "get_by_email", return_value=existing_user
             ),
         ):
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(ConflictError) as exc_info:
                 user_service.update_user_profile(1, update_data, sample_user)
 
-            assert exc_info.value.status_code == 400
-            assert "Email already exists" in str(exc_info.value.detail)
+            assert exc_info.value.error_code == "CONFLICT"
+            assert exc_info.value.field == "email"
 
     def test_update_user_profile_user_not_found(self, user_service, admin_user):
         """Test updating non-existent user."""
@@ -241,11 +245,10 @@ class TestUserServiceUpdateProfile:
                 user_service.user_repository, "update_user", return_value=None
             ),
         ):
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(NotFoundError) as exc_info:
                 user_service.update_user_profile(999, update_data, admin_user)
 
-            assert exc_info.value.status_code == 404
-            assert "User not found" in str(exc_info.value.detail)
+            assert exc_info.value.error_code == "NOT_FOUND"
 
 
 class TestUserServiceDeactivateUser:
@@ -262,30 +265,28 @@ class TestUserServiceDeactivateUser:
 
     def test_deactivate_user_not_admin(self, user_service, sample_user):
         """Test non-admin trying to deactivate user."""
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(PermissionDeniedError) as exc_info:
             user_service.deactivate_user(2, sample_user)
 
-        assert exc_info.value.status_code == 403
-        assert "admin role required" in str(exc_info.value.detail)
+        assert exc_info.value.error_code == "PERMISSION_DENIED"
 
     def test_deactivate_user_self_deactivation(self, user_service, admin_user):
         """Test admin trying to deactivate their own account."""
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(ValidationError) as exc_info:
             user_service.deactivate_user(2, admin_user)
 
-        assert exc_info.value.status_code == 400
-        assert "Cannot deactivate your own account" in str(exc_info.value.detail)
+        assert exc_info.value.error_code == "VALIDATION_ERROR"
+        assert "Cannot deactivate" in exc_info.value.message
 
     def test_deactivate_user_not_found(self, user_service, admin_user):
         """Test deactivating non-existent user."""
         with patch.object(
             user_service.user_repository, "deactivate_user", return_value=False
         ):
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(NotFoundError) as exc_info:
                 user_service.deactivate_user(999, admin_user)
 
-            assert exc_info.value.status_code == 404
-            assert "User not found" in str(exc_info.value.detail)
+            assert exc_info.value.error_code == "NOT_FOUND"
 
 
 class TestUserServiceSearch:
@@ -348,10 +349,10 @@ class TestUserServiceStats:
     def test_get_user_stats_not_found(self, user_service):
         """Test getting stats for non-existent user."""
         with patch.object(user_service.user_repository, "get_by_id", return_value=None):
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(NotFoundError) as exc_info:
                 user_service.get_user_stats(999)
 
-            assert exc_info.value.status_code == 404
+            assert exc_info.value.error_code == "NOT_FOUND"
 
 
 class TestUserServiceAvailability:

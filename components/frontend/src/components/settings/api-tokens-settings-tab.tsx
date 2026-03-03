@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 import type { APIToken, APITokenCreateResponse, APITokenScope } from '@/lib/sdk-client';
 
-import { AnimatePresence, motion } from 'framer-motion';
 import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
 import Check from 'lucide-react/dist/esm/icons/check';
 import Clock from 'lucide-react/dist/esm/icons/clock';
@@ -13,12 +12,12 @@ import Pencil from 'lucide-react/dist/esm/icons/pencil';
 import Plus from 'lucide-react/dist/esm/icons/plus';
 import Shield from 'lucide-react/dist/esm/icons/shield';
 import Trash2 from 'lucide-react/dist/esm/icons/trash-2';
-import X from 'lucide-react/dist/esm/icons/x';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Modal } from '@/components/ui/modal';
 import {
   Select,
   SelectContent,
@@ -26,6 +25,7 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select';
+import { formatDate, formatRelativeTime } from '@/lib/date-utils';
 import { syftClient } from '@/lib/sdk-client';
 import { cn } from '@/lib/utils';
 
@@ -33,30 +33,6 @@ import { StatusMessage } from './status-message';
 
 // Constants
 const MAX_TOKENS_PER_USER = 50;
-
-// Helper functions
-function formatDate(date: Date | string): string {
-  return new Date(date).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric'
-  });
-}
-
-function formatRelativeTime(date: Date | string): string {
-  const now = new Date();
-  const then = new Date(date);
-  const diffMs = now.getTime() - then.getTime();
-  const diffMins = Math.floor(diffMs / 60_000);
-  const diffHours = Math.floor(diffMs / 3_600_000);
-  const diffDays = Math.floor(diffMs / 86_400_000);
-
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${String(diffMins)} minute${diffMins === 1 ? '' : 's'} ago`;
-  if (diffHours < 24) return `${String(diffHours)} hour${diffHours === 1 ? '' : 's'} ago`;
-  if (diffDays < 30) return `${String(diffDays)} day${diffDays === 1 ? '' : 's'} ago`;
-  return formatDate(date);
-}
 
 function getExpirationDate(expiration: string, customDate: string): Date | null {
   if (expiration === 'none') return null;
@@ -309,152 +285,120 @@ function CreateTokenModal({ isOpen, onClose, onSuccess }: Readonly<CreateTokenMo
     onClose();
   }, [onClose]);
 
-  if (!isOpen) return null;
-
   return (
-    <div className='fixed inset-0 z-[60] flex items-center justify-center p-4'>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className='absolute inset-0 bg-black/50 backdrop-blur-sm'
-        onClick={handleClose}
-      />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        transition={{ type: 'spring', duration: 0.3 }}
-        className='border-border bg-card relative w-full max-w-md rounded-xl border p-6 shadow-xl'
-      >
-        <div className='mb-4 flex items-center justify-between'>
-          <h3 className='text-foreground text-lg font-semibold'>Create New API Token</h3>
-          <Button
-            variant='ghost'
-            size='icon'
-            onClick={handleClose}
-            className='h-8 w-8'
-            aria-label='Close'
-          >
-            <X className='h-4 w-4' aria-hidden='true' />
-          </Button>
+    <Modal isOpen={isOpen} onClose={handleClose} title='Create New API Token' size='md'>
+      <form onSubmit={handleSubmit} className='space-y-4'>
+        {/* Fix #2: Replaced custom inline error div with StatusMessage (adds role/aria-live) */}
+        <StatusMessage type='error' message={error} />
+
+        <div className='space-y-2'>
+          <Label htmlFor='token-name'>Token Name</Label>
+          <Input
+            id='token-name'
+            value={formData.name}
+            onChange={(event) => {
+              handleInputChange('name', event.target.value);
+            }}
+            placeholder='e.g., CI/CD Pipeline'
+            disabled={isLoading}
+            maxLength={100}
+          />
+          <p className='text-muted-foreground text-xs'>A descriptive name to identify this token</p>
         </div>
 
-        <form onSubmit={handleSubmit} className='space-y-4'>
-          {/* Fix #2: Replaced custom inline error div with StatusMessage (adds role/aria-live) */}
-          <StatusMessage type='error' message={error} />
-
+        <div className='space-y-2'>
+          <Label>Scopes</Label>
           <div className='space-y-2'>
-            <Label htmlFor='token-name'>Token Name</Label>
+            {(['full', 'write', 'read'] as const).map((scope) => (
+              <label
+                key={scope}
+                className={cn(
+                  'flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-colors',
+                  // Fix #7: Use design tokens instead of hardcoded blue
+                  formData.scope === scope
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border hover:bg-muted'
+                )}
+              >
+                <input
+                  type='radio'
+                  name='scope'
+                  value={scope}
+                  checked={formData.scope === scope}
+                  onChange={(event) => {
+                    handleInputChange('scope', event.target.value);
+                  }}
+                  className='text-primary h-4 w-4'
+                  disabled={isLoading}
+                />
+                <div>
+                  <span className='text-foreground font-medium capitalize'>{scope}</span>
+                  <p className='text-muted-foreground text-xs'>
+                    {scope === 'full' && 'Complete access (recommended)'}
+                    {scope === 'write' && 'Create and modify resources'}
+                    {scope === 'read' && 'Read-only access'}
+                  </p>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className='space-y-2'>
+          <Label htmlFor='expiration'>Expiration</Label>
+          {/* Fix #6: Replace raw <select> with shared Select UI component */}
+          <Select
+            value={formData.expiration}
+            onValueChange={(value) => {
+              handleInputChange('expiration', value);
+            }}
+            disabled={isLoading}
+          >
+            <SelectTrigger id='expiration'>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value='none'>No expiration</SelectItem>
+              <SelectItem value='30d'>30 days</SelectItem>
+              <SelectItem value='60d'>60 days</SelectItem>
+              <SelectItem value='90d'>90 days</SelectItem>
+              <SelectItem value='1y'>1 year</SelectItem>
+              <SelectItem value='custom'>Custom date</SelectItem>
+            </SelectContent>
+          </Select>
+          {formData.expiration === 'custom' ? (
             <Input
-              id='token-name'
-              value={formData.name}
+              type='date'
+              value={formData.customDate}
               onChange={(event) => {
-                handleInputChange('name', event.target.value);
+                handleInputChange('customDate', event.target.value);
               }}
-              placeholder='e.g., CI/CD Pipeline'
+              min={new Date().toISOString().split('T')[0]}
               disabled={isLoading}
-              maxLength={100}
             />
-            <p className='text-muted-foreground text-xs'>
-              A descriptive name to identify this token
-            </p>
-          </div>
+          ) : null}
+        </div>
 
-          <div className='space-y-2'>
-            <Label>Scopes</Label>
-            <div className='space-y-2'>
-              {(['full', 'write', 'read'] as const).map((scope) => (
-                <label
-                  key={scope}
-                  className={cn(
-                    'flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-colors',
-                    // Fix #7: Use design tokens instead of hardcoded blue
-                    formData.scope === scope
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border hover:bg-muted'
-                  )}
-                >
-                  <input
-                    type='radio'
-                    name='scope'
-                    value={scope}
-                    checked={formData.scope === scope}
-                    onChange={(event) => {
-                      handleInputChange('scope', event.target.value);
-                    }}
-                    className='text-primary h-4 w-4'
-                    disabled={isLoading}
-                  />
-                  <div>
-                    <span className='text-foreground font-medium capitalize'>{scope}</span>
-                    <p className='text-muted-foreground text-xs'>
-                      {scope === 'full' && 'Complete access (recommended)'}
-                      {scope === 'write' && 'Create and modify resources'}
-                      {scope === 'read' && 'Read-only access'}
-                    </p>
-                  </div>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          <div className='space-y-2'>
-            <Label htmlFor='expiration'>Expiration</Label>
-            {/* Fix #6: Replace raw <select> with shared Select UI component */}
-            <Select
-              value={formData.expiration}
-              onValueChange={(value) => {
-                handleInputChange('expiration', value);
-              }}
-              disabled={isLoading}
-            >
-              <SelectTrigger id='expiration'>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value='none'>No expiration</SelectItem>
-                <SelectItem value='30d'>30 days</SelectItem>
-                <SelectItem value='60d'>60 days</SelectItem>
-                <SelectItem value='90d'>90 days</SelectItem>
-                <SelectItem value='1y'>1 year</SelectItem>
-                <SelectItem value='custom'>Custom date</SelectItem>
-              </SelectContent>
-            </Select>
-            {formData.expiration === 'custom' ? (
-              <Input
-                type='date'
-                value={formData.customDate}
-                onChange={(event) => {
-                  handleInputChange('customDate', event.target.value);
-                }}
-                min={new Date().toISOString().split('T')[0]}
-                disabled={isLoading}
-              />
-            ) : null}
-          </div>
-
-          <div className='flex justify-end gap-3 pt-2'>
-            <Button type='button' variant='outline' onClick={handleClose} disabled={isLoading}>
-              Cancel
-            </Button>
-            <Button type='submit' disabled={isLoading || !formData.name.trim()}>
-              {isLoading ? (
-                <>
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' aria-hidden='true' />
-                  Creating...
-                </>
-              ) : (
-                <>
-                  <Plus className='mr-2 h-4 w-4' aria-hidden='true' />
-                  Create Token
-                </>
-              )}
-            </Button>
-          </div>
-        </form>
-      </motion.div>
-    </div>
+        <div className='flex justify-end gap-3 pt-2'>
+          <Button type='button' variant='outline' onClick={handleClose} disabled={isLoading}>
+            Cancel
+          </Button>
+          <Button type='submit' disabled={isLoading || !formData.name.trim()}>
+            {isLoading ? (
+              <>
+                <Loader2 className='mr-2 h-4 w-4 animate-spin' aria-hidden='true' />
+                Creating...
+              </>
+            ) : (
+              <>
+                <Plus className='mr-2 h-4 w-4' aria-hidden='true' />
+                Create Token
+              </>
+            )}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -472,111 +416,81 @@ function TokenCreatedModal({ token, onClose }: Readonly<TokenCreatedModalProps>)
     try {
       await navigator.clipboard.writeText(token.token);
       setCopied(true);
-      // Fix #12: Increased copy feedback duration from 2s to 3s
       setTimeout(() => {
         setCopied(false);
       }, 3000);
     } catch {
-      // Fallback for older browsers that don't support Clipboard API
-      const textArea = document.createElement('textarea');
-      textArea.value = token.token;
-      document.body.append(textArea);
-      textArea.select();
-      // eslint-disable-next-line sonarjs/deprecation, @typescript-eslint/no-deprecated
-      document.execCommand('copy');
-      textArea.remove();
-      setCopied(true);
-      // Fix #12: Increased copy feedback duration from 2s to 3s
-      setTimeout(() => {
-        setCopied(false);
-      }, 3000);
+      // Clipboard API unavailable — copy silently fails
     }
   };
 
   if (!token) return null;
 
   return (
-    <div className='fixed inset-0 z-[60] flex items-center justify-center p-4'>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className='absolute inset-0 bg-black/50 backdrop-blur-sm'
-        // Fix #5: Added backdrop click dismiss
-        onClick={onClose}
-      />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        transition={{ type: 'spring', duration: 0.3 }}
-        className='border-border bg-card relative w-full max-w-lg rounded-xl border p-6 shadow-xl'
-      >
-        <div className='mb-4 flex items-center gap-3'>
-          {/* Fix #1: Added dark: variant to success icon bg */}
-          <div className='flex h-10 w-10 items-center justify-center rounded-full bg-green-100 dark:bg-green-900'>
-            <Check className='h-5 w-5 text-green-600 dark:text-green-400' aria-hidden='true' />
-          </div>
-          <h3 className='text-foreground text-lg font-semibold'>Token Created Successfully</h3>
+    <Modal isOpen onClose={onClose} size='lg' showCloseButton={false}>
+      <div className='mb-4 flex items-center gap-3'>
+        {/* Fix #1: Added dark: variant to success icon bg */}
+        <div className='flex h-10 w-10 items-center justify-center rounded-full bg-green-100 dark:bg-green-900'>
+          <Check className='h-5 w-5 text-green-600 dark:text-green-400' aria-hidden='true' />
         </div>
+        <h3 className='text-foreground text-lg font-semibold'>Token Created Successfully</h3>
+      </div>
 
-        {/* Fix #11: Token display moved above warning for better information priority */}
-        <div className='mb-4'>
-          <Label className='mb-2 block'>Your new API token:</Label>
-          <div className='flex items-center gap-2'>
-            <div className='bg-muted flex-1 overflow-hidden rounded-lg border p-3'>
-              <code className='block truncate font-mono text-sm'>{token.token}</code>
-            </div>
-            <Button
-              variant='outline'
-              size='icon'
-              onClick={handleCopy}
-              className={cn(
-                'h-10 w-10 shrink-0',
-                copied &&
-                  'border-green-500 text-green-600 dark:border-green-600 dark:text-green-400'
-              )}
-              aria-label={copied ? 'Copied!' : 'Copy token'}
-            >
-              {copied ? (
-                <Check className='h-4 w-4' aria-hidden='true' />
-              ) : (
-                <Copy className='h-4 w-4' aria-hidden='true' />
-              )}
-            </Button>
+      {/* Fix #11: Token display moved above warning for better information priority */}
+      <div className='mb-4'>
+        <Label className='mb-2 block'>Your new API token:</Label>
+        <div className='flex items-center gap-2'>
+          <div className='bg-muted flex-1 overflow-hidden rounded-lg border p-3'>
+            <code className='block truncate font-mono text-sm'>{token.token}</code>
           </div>
+          <Button
+            variant='outline'
+            size='icon'
+            onClick={handleCopy}
+            className={cn(
+              'h-10 w-10 shrink-0',
+              copied && 'border-green-500 text-green-600 dark:border-green-600 dark:text-green-400'
+            )}
+            aria-label={copied ? 'Copied!' : 'Copy token'}
+          >
+            {copied ? (
+              <Check className='h-4 w-4' aria-hidden='true' />
+            ) : (
+              <Copy className='h-4 w-4' aria-hidden='true' />
+            )}
+          </Button>
         </div>
+      </div>
 
-        {/* Fix #1 + #11: Warning now below token display; added dark: variants */}
-        <div className='mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950'>
-          <div className='flex items-start gap-2'>
-            <AlertCircle
-              className='mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400'
-              aria-hidden='true'
-            />
-            <p className='text-sm text-amber-800 dark:text-amber-200'>
-              <strong>Make sure to copy your token now!</strong> You won't be able to see it again.
-            </p>
-          </div>
-        </div>
-
-        <div className='text-muted-foreground mb-6 space-y-1 text-sm'>
-          <p>
-            <strong>Token name:</strong> {token.name}
-          </p>
-          <p>
-            <strong>Scopes:</strong> {token.scopes.join(', ')}
-          </p>
-          <p>
-            <strong>Expires:</strong> {token.expiresAt ? formatDate(token.expiresAt) : 'Never'}
+      {/* Fix #1 + #11: Warning now below token display; added dark: variants */}
+      <div className='mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950'>
+        <div className='flex items-start gap-2'>
+          <AlertCircle
+            className='mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400'
+            aria-hidden='true'
+          />
+          <p className='text-sm text-amber-800 dark:text-amber-200'>
+            <strong>Make sure to copy your token now!</strong> You won't be able to see it again.
           </p>
         </div>
+      </div>
 
-        <div className='flex justify-end'>
-          <Button onClick={onClose}>Done</Button>
-        </div>
-      </motion.div>
-    </div>
+      <div className='text-muted-foreground mb-6 space-y-1 text-sm'>
+        <p>
+          <strong>Token name:</strong> {token.name}
+        </p>
+        <p>
+          <strong>Scopes:</strong> {token.scopes.join(', ')}
+        </p>
+        <p>
+          <strong>Expires:</strong> {token.expiresAt ? formatDate(token.expiresAt) : 'Never'}
+        </p>
+      </div>
+
+      <div className='flex justify-end'>
+        <Button onClick={onClose}>Done</Button>
+      </div>
+    </Modal>
   );
 }
 
@@ -630,71 +544,43 @@ function EditTokenModal({ token, onClose, onSuccess }: Readonly<EditTokenModalPr
   if (!token) return null;
 
   return (
-    <div className='fixed inset-0 z-[60] flex items-center justify-center p-4'>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className='absolute inset-0 bg-black/50 backdrop-blur-sm'
-        onClick={onClose}
-      />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        transition={{ type: 'spring', duration: 0.3 }}
-        className='border-border bg-card relative w-full max-w-md rounded-xl border p-6 shadow-xl'
-      >
-        <div className='mb-4 flex items-center justify-between'>
-          <h3 className='text-foreground text-lg font-semibold'>Edit Token</h3>
-          <Button
-            variant='ghost'
-            size='icon'
-            onClick={onClose}
-            className='h-8 w-8'
-            aria-label='Close'
-          >
-            <X className='h-4 w-4' aria-hidden='true' />
-          </Button>
+    <Modal isOpen onClose={onClose} title='Edit Token' size='md'>
+      <form onSubmit={handleSubmit} className='space-y-4'>
+        {/* Fix #2: Replaced custom inline error div with StatusMessage (adds role/aria-live) */}
+        <StatusMessage type='error' message={error} />
+
+        <div className='space-y-2'>
+          <Label htmlFor='edit-token-name'>Token Name</Label>
+          <Input
+            id='edit-token-name'
+            value={name}
+            onChange={(event) => {
+              setName(event.target.value);
+              setError(null);
+            }}
+            placeholder='e.g., CI/CD Pipeline'
+            disabled={isLoading}
+            maxLength={100}
+          />
         </div>
 
-        <form onSubmit={handleSubmit} className='space-y-4'>
-          {/* Fix #2: Replaced custom inline error div with StatusMessage (adds role/aria-live) */}
-          <StatusMessage type='error' message={error} />
-
-          <div className='space-y-2'>
-            <Label htmlFor='edit-token-name'>Token Name</Label>
-            <Input
-              id='edit-token-name'
-              value={name}
-              onChange={(event) => {
-                setName(event.target.value);
-                setError(null);
-              }}
-              placeholder='e.g., CI/CD Pipeline'
-              disabled={isLoading}
-              maxLength={100}
-            />
-          </div>
-
-          <div className='flex justify-end gap-3 pt-2'>
-            <Button type='button' variant='outline' onClick={onClose} disabled={isLoading}>
-              Cancel
-            </Button>
-            <Button type='submit' disabled={isLoading || !name.trim()}>
-              {isLoading ? (
-                <>
-                  <Loader2 className='mr-2 h-4 w-4 animate-spin' aria-hidden='true' />
-                  Saving...
-                </>
-              ) : (
-                'Save Changes'
-              )}
-            </Button>
-          </div>
-        </form>
-      </motion.div>
-    </div>
+        <div className='flex justify-end gap-3 pt-2'>
+          <Button type='button' variant='outline' onClick={onClose} disabled={isLoading}>
+            Cancel
+          </Button>
+          <Button type='submit' disabled={isLoading || !name.trim()}>
+            {isLoading ? (
+              <>
+                <Loader2 className='mr-2 h-4 w-4 animate-spin' aria-hidden='true' />
+                Saving...
+              </>
+            ) : (
+              'Save Changes'
+            )}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -715,63 +601,54 @@ function RevokeTokenModal({
   if (!token) return null;
 
   return (
-    <div className='fixed inset-0 z-[60] flex items-center justify-center p-4'>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className='absolute inset-0 bg-black/50 backdrop-blur-sm'
-        onClick={isLoading ? undefined : onClose}
-      />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 20 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        transition={{ type: 'spring', duration: 0.3 }}
-        className='border-border bg-card relative w-full max-w-md rounded-xl border p-6 shadow-xl'
-      >
-        <div className='mb-4 flex items-center gap-3'>
-          {/* Fix #1: Added dark: variant to destructive icon bg */}
-          <div className='flex h-10 w-10 items-center justify-center rounded-full bg-red-100 dark:bg-red-900'>
-            <Trash2 className='h-5 w-5 text-red-600 dark:text-red-400' aria-hidden='true' />
-          </div>
-          <h3 className='text-foreground text-lg font-semibold'>Revoke Token</h3>
+    <Modal
+      isOpen
+      onClose={onClose}
+      size='md'
+      showCloseButton={false}
+      closeOnOverlayClick={!isLoading}
+    >
+      <div className='mb-4 flex items-center gap-3'>
+        {/* Fix #1: Added dark: variant to destructive icon bg */}
+        <div className='flex h-10 w-10 items-center justify-center rounded-full bg-red-100 dark:bg-red-900'>
+          <Trash2 className='h-5 w-5 text-red-600 dark:text-red-400' aria-hidden='true' />
         </div>
+        <h3 className='text-foreground text-lg font-semibold'>Revoke Token</h3>
+      </div>
 
-        <p className='text-muted-foreground mb-2'>
-          Are you sure you want to revoke <strong className='text-foreground'>{token.name}</strong>?
-        </p>
-        <p className='text-muted-foreground mb-6 text-sm'>
-          This action cannot be undone. Any applications using this token will lose access
-          immediately.
-        </p>
+      <p className='text-muted-foreground mb-2'>
+        Are you sure you want to revoke <strong className='text-foreground'>{token.name}</strong>?
+      </p>
+      <p className='text-muted-foreground mb-6 text-sm'>
+        This action cannot be undone. Any applications using this token will lose access
+        immediately.
+      </p>
 
-        <div className='flex justify-end gap-3'>
-          <Button type='button' variant='outline' onClick={onClose} disabled={isLoading}>
-            Cancel
-          </Button>
-          <Button
-            type='button'
-            variant='destructive'
-            onClick={onConfirm}
-            disabled={isLoading}
-            className='bg-red-600 hover:bg-red-700 dark:bg-red-700 dark:hover:bg-red-600'
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className='mr-2 h-4 w-4 animate-spin' aria-hidden='true' />
-                Revoking...
-              </>
-            ) : (
-              <>
-                <Trash2 className='mr-2 h-4 w-4' aria-hidden='true' />
-                Revoke Token
-              </>
-            )}
-          </Button>
-        </div>
-      </motion.div>
-    </div>
+      <div className='flex justify-end gap-3'>
+        <Button type='button' variant='outline' onClick={onClose} disabled={isLoading}>
+          Cancel
+        </Button>
+        <Button
+          type='button'
+          variant='destructive'
+          onClick={onConfirm}
+          disabled={isLoading}
+          className='bg-red-600 hover:bg-red-700 dark:bg-red-700 dark:hover:bg-red-600'
+        >
+          {isLoading ? (
+            <>
+              <Loader2 className='mr-2 h-4 w-4 animate-spin' aria-hidden='true' />
+              Revoking...
+            </>
+          ) : (
+            <>
+              <Trash2 className='mr-2 h-4 w-4' aria-hidden='true' />
+              Revoke Token
+            </>
+          )}
+        </Button>
+      </div>
+    </Modal>
   );
 }
 
@@ -941,49 +818,30 @@ export function APITokensSettingsTab() {
         </div>
       ) : null}
 
-      {/* Modals */}
-      <AnimatePresence>
-        {showCreateModal ? (
-          <CreateTokenModal
-            isOpen={showCreateModal}
-            onClose={() => {
-              setShowCreateModal(false);
-            }}
-            onSuccess={handleCreateSuccess}
-          />
-        ) : null}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {createdToken ? (
-          <TokenCreatedModal token={createdToken} onClose={handleCloseCreatedModal} />
-        ) : null}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {editingToken ? (
-          <EditTokenModal
-            token={editingToken}
-            onClose={() => {
-              setEditingToken(null);
-            }}
-            onSuccess={handleEditSuccess}
-          />
-        ) : null}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {tokenToRevoke ? (
-          <RevokeTokenModal
-            token={tokenToRevoke}
-            onClose={() => {
-              setTokenToRevoke(null);
-            }}
-            onConfirm={handleRevoke}
-            isLoading={isRevoking}
-          />
-        ) : null}
-      </AnimatePresence>
+      {/* Modals — AnimatePresence is handled internally by Modal */}
+      <CreateTokenModal
+        isOpen={showCreateModal}
+        onClose={() => {
+          setShowCreateModal(false);
+        }}
+        onSuccess={handleCreateSuccess}
+      />
+      <TokenCreatedModal token={createdToken} onClose={handleCloseCreatedModal} />
+      <EditTokenModal
+        token={editingToken}
+        onClose={() => {
+          setEditingToken(null);
+        }}
+        onSuccess={handleEditSuccess}
+      />
+      <RevokeTokenModal
+        token={tokenToRevoke}
+        onClose={() => {
+          setTokenToRevoke(null);
+        }}
+        onConfirm={handleRevoke}
+        isLoading={isRevoking}
+      />
     </div>
   );
 }

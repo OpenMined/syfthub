@@ -27,6 +27,7 @@ dependencies = [
     "sse-starlette>=2.2.0",
     "structlog>=24.0.0",
     "nats-py>=2.7.0",
+    "cryptography>=42.0.0",  # X25519 ECDH + AES-256-GCM for NATS tunnel E2E encryption
     # Federated reranking and LLM citation attribution (GitHub-hosted, not on PyPI)
     "federated-aggregation @ git+https://github.com/siddhant230/Aggregator_package.git",
     "attribution-lib @ git+https://github.com/siddhant230/Attribution_package.git",
