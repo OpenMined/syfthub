@@ -6,8 +6,10 @@ import concurrent.futures
 from typing import TYPE_CHECKING
 
 from syfthub_sdk.models import (
+    AuthConfig,
     AuthTokens,
     PeerTokenResponse,
+    RegisterResult,
     SatelliteTokenResponse,
     User,
 )
@@ -61,7 +63,7 @@ class AuthResource:
         full_name: str,
         accounting_service_url: str | None = None,
         accounting_password: str | None = None,
-    ) -> User:
+    ) -> RegisterResult:
         """Register a new user.
 
         If an accounting service URL is configured (via `accounting_service_url` or
@@ -144,11 +146,11 @@ class AuthResource:
             json=payload,
             include_auth=False,
         )
-        # Response contains user and tokens
+        # Response contains user and tokens (tokens may be null)
         data = response if isinstance(response, dict) else {}
 
-        # Store tokens if present (auto-login after registration)
-        if "access_token" in data and "refresh_token" in data:
+        # Store tokens if present (not withheld for email verification)
+        if data.get("access_token") and data.get("refresh_token"):
             tokens = AuthTokens(
                 access_token=data["access_token"],
                 refresh_token=data["refresh_token"],
@@ -156,7 +158,10 @@ class AuthResource:
             )
             self._http.set_tokens(tokens)
 
-        return User.model_validate(data.get("user", data))
+        return RegisterResult(
+            user=User.model_validate(data.get("user", data)),
+            requires_email_verification=data.get("requires_email_verification", False),
+        )
 
     def login(self, *, username: str, password: str) -> User:
         """Login with username and password.
@@ -269,6 +274,108 @@ class AuthResource:
                 "current_password": current_password,
                 "new_password": new_password,
             },
+        )
+
+    def get_auth_config(self) -> AuthConfig:
+        """Get the platform's authentication configuration.
+
+        No authentication required. Use this to determine whether email
+        verification or password reset is available.
+
+        Returns:
+            AuthConfig with feature flags
+        """
+        response = self._http.get("/api/v1/auth/config", include_auth=False)
+        data = response if isinstance(response, dict) else {}
+        return AuthConfig.model_validate(data)
+
+    def verify_otp(self, *, email: str, code: str) -> User:
+        """Verify a registration OTP and receive auth tokens.
+
+        After registering when email verification is required, call this
+        with the 6-digit code sent to the user's email.
+
+        Idempotent: if the user is already verified, tokens are issued
+        immediately.
+
+        Args:
+            email: The email address that received the code
+            code: 6-digit numeric OTP code
+
+        Returns:
+            The authenticated User
+
+        Raises:
+            APIError: If code is invalid or max attempts exceeded
+        """
+        response = self._http.post(
+            "/api/v1/auth/register/verify-otp",
+            json={"email": email, "code": code},
+            include_auth=False,
+        )
+        data = response if isinstance(response, dict) else {}
+
+        # Store tokens
+        if data.get("access_token") and data.get("refresh_token"):
+            tokens = AuthTokens(
+                access_token=data["access_token"],
+                refresh_token=data["refresh_token"],
+                token_type=data.get("token_type", "bearer"),
+            )
+            self._http.set_tokens(tokens)
+
+        return User.model_validate(data.get("user", data))
+
+    def resend_otp(self, *, email: str) -> None:
+        """Resend the registration OTP code.
+
+        Rate-limited. Always succeeds to prevent email enumeration.
+
+        Args:
+            email: Email address to resend the OTP to
+        """
+        self._http.post(
+            "/api/v1/auth/register/resend-otp",
+            json={"email": email},
+            include_auth=False,
+        )
+
+    def request_password_reset(self, *, email: str) -> None:
+        """Request a password-reset OTP.
+
+        Always succeeds to prevent email enumeration. If SMTP is not
+        configured on the server, this is a no-op.
+
+        Args:
+            email: Email address for password reset
+        """
+        self._http.post(
+            "/api/v1/auth/password-reset/request",
+            json={"email": email},
+            include_auth=False,
+        )
+
+    def confirm_password_reset(
+        self, *, email: str, code: str, new_password: str
+    ) -> None:
+        """Confirm a password reset with OTP and set a new password.
+
+        Args:
+            email: Email address for the reset
+            code: 6-digit numeric OTP code
+            new_password: New password to set
+
+        Raises:
+            APIError: If code is invalid or max attempts exceeded
+        """
+        self._http.post(
+            "/api/v1/auth/password-reset/confirm",
+            json={
+                "email": email,
+                "code": code,
+                "new_password": new_password,
+            },
+            include_auth=False,
         )
 
     def get_satellite_token(self, audience: str) -> SatelliteTokenResponse:

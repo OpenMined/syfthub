@@ -1371,11 +1371,17 @@ async def syfthub_login(request: Request) -> JSONResponse:
         # 5. Generate OAuth authorization code
         auth_code = f"code_{uuid.uuid4().hex}"
 
+        # Retrieve email_verified from the stored session user_info
+        session = syfthub_sessions.get(user_email, {})
+        session_user_info = session.get("user_info", {})
+        is_email_verified = session_user_info.get("is_email_verified", True)
+
         auth_data = {
             "client_id": client_id,
             "redirect_uri": redirect_uri,
             "scope": scope,
             "email": user_email,
+            "is_email_verified": is_email_verified,
             "code_challenge": code_challenge,
             "code_challenge_method": code_challenge_method,
             "expires_at": datetime.utcnow() + timedelta(minutes=10),
@@ -1523,6 +1529,7 @@ async def oauth_token(request: Request) -> JSONResponse:
                 "scope": auth_data["scope"],
                 "client_id": client_id,
                 "user_email": user_email,
+                "is_email_verified": auth_data.get("is_email_verified", True),
                 "created_at": datetime.utcnow()
             }
 
@@ -1588,7 +1595,7 @@ async def oauth_userinfo(request: Request) -> JSONResponse:
             "sub": token_data["user_email"],
             "email": token_data["user_email"],
             "name": token_data["user_email"],
-            "email_verified": True
+            "email_verified": token_data.get("is_email_verified", True)
         })
 
     except Exception as e:

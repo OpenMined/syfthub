@@ -71,3 +71,43 @@ export const profileSchema = z.object({
 });
 
 export type ProfileFormValues = z.infer<typeof profileSchema>;
+
+export const verifyOtpSchema = z.object({
+  code: z
+    .string()
+    .min(1, 'Verification code is required')
+    .length(6, 'Code must be 6 digits')
+    .regex(/^\d{6}$/, 'Code must be 6 digits')
+});
+
+export type VerifyOtpFormValues = z.infer<typeof verifyOtpSchema>;
+
+export const passwordResetRequestSchema = z.object({
+  email: z
+    .string()
+    .min(1, 'Email is required')
+    .max(254, 'Please enter a valid email address')
+    .regex(/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/, 'Please enter a valid email address')
+});
+
+export type PasswordResetRequestFormValues = z.infer<typeof passwordResetRequestSchema>;
+
+export const passwordResetConfirmSchema = z
+  .object({
+    code: z
+      .string()
+      .min(1, 'Verification code is required')
+      .length(6, 'Code must be 6 digits')
+      .regex(/^\d{6}$/, 'Code must be 6 digits'),
+    newPassword: z
+      .string()
+      .min(1, 'Password is required')
+      .min(6, 'Password must be at least 6 characters'),
+    confirmPassword: z.string().min(1, 'Please confirm your password')
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword']
+  });
+
+export type PasswordResetConfirmFormValues = z.infer<typeof passwordResetConfirmSchema>;

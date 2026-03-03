@@ -67,6 +67,53 @@ export interface UserUpdateInput {
 }
 
 /**
+ * Result of user registration.
+ *
+ * When `requiresEmailVerification` is true, tokens are null and the client
+ * must call `auth.verifyOtp()` before the user can log in.
+ */
+export interface RegisterResult {
+  readonly user: User;
+  /** Whether the user must verify their email via OTP before receiving tokens. */
+  readonly requiresEmailVerification: boolean;
+}
+
+/**
+ * Input for verifying a registration OTP.
+ */
+export interface VerifyOTPInput {
+  email: string;
+  /** 6-digit numeric code sent to the user's email */
+  code: string;
+}
+
+/**
+ * Input for requesting a password reset.
+ */
+export interface PasswordResetRequestInput {
+  email: string;
+}
+
+/**
+ * Input for confirming a password reset with OTP.
+ */
+export interface PasswordResetConfirmInput {
+  email: string;
+  /** 6-digit numeric OTP code */
+  code: string;
+  newPassword: string;
+}
+
+/**
+ * Platform authentication configuration (from GET /auth/config).
+ */
+export interface AuthConfig {
+  readonly requireEmailVerification: boolean;
+  readonly smtpConfigured: boolean;
+  readonly passwordResetEnabled: boolean;
+}
+
+/**
  * Input for changing password.
  */
 export interface PasswordChangeInput {
