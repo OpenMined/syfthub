@@ -486,6 +486,10 @@ jobs:
             context: .
             dockerfile: components/mcp/Dockerfile
             target: production
+          - image: marketplace
+            context: ./components/marketplace
+            dockerfile: components/marketplace/Dockerfile
+            target: ""
     outputs:
       image_tag: ${{ steps.vars.outputs.sha_short }}
     steps:
@@ -668,6 +672,10 @@ jobs:
             context: .
             dockerfile: components/mcp/Dockerfile
             target: production
+          - image: marketplace
+            context: ./components/marketplace
+            dockerfile: components/marketplace/Dockerfile
+            target: ""
     outputs:
       image_tag: ${{ steps.vars.outputs.sha_short }}-staging
     steps:
