@@ -17,6 +17,7 @@ services:
       - frontend
       - aggregator
       - mcp
+      - marketplace
       - nats
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
@@ -270,6 +271,31 @@ services:
       retries: 3
       start_period: 20s
 
+  # Marketplace - Package registry for installable endpoints
+  marketplace:
+    build:
+      context: ../components/marketplace
+      dockerfile: Dockerfile
+    container_name: syfthub-marketplace-dev
+    # Internal only - accessed via proxy
+    expose:
+      - "8003"
+    volumes:
+      - marketplace_data:/data
+    environment:
+      - MARKETPLACE_PORT=8003
+      - MARKETPLACE_HOST=0.0.0.0
+      - MARKETPLACE_DB_PATH=/data/marketplace.db
+      - MARKETPLACE_BASE_URL=http://localhost:8080/marketplace
+    networks:
+      - syfthub-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
   # NATS messaging server for P2P communication
   nats:
     image: nats:2.10-alpine
@@ -307,5 +333,7 @@ volumes:
     name: syfthub_nats_data_dev
   meili_data:
     name: syfthub_meili_data_dev
+  marketplace_data:
+    name: syfthub_marketplace_data_dev
   rsa_keys_data:
     name: syfthub_rsa_keys_data_dev
