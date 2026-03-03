@@ -58,7 +58,7 @@ func newAuthResource(http *httpClient) *AuthResource {
 //   - InvalidAccountingPasswordError: If the provided accounting password
 //     doesn't match an existing accounting account
 //   - AccountingServiceUnavailableError: If the accounting service is unreachable
-func (a *AuthResource) Register(ctx context.Context, req *RegisterRequest) (*User, error) {
+func (a *AuthResource) Register(ctx context.Context, req *RegisterRequest) (*RegisterResult, error) {
 	payload := map[string]interface{}{
 		"username":  req.Username,
 		"email":     req.Email,
@@ -70,10 +70,11 @@ func (a *AuthResource) Register(ctx context.Context, req *RegisterRequest) (*Use
 	}
 
 	var response struct {
-		User         User   `json:"user"`
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-		TokenType    string `json:"token_type"`
+		User                      User   `json:"user"`
+		AccessToken               string `json:"access_token"`
+		RefreshToken              string `json:"refresh_token"`
+		TokenType                 string `json:"token_type"`
+		RequiresEmailVerification bool   `json:"requires_email_verification"`
 	}
 
 	err := a.http.Post(ctx, "/api/v1/auth/register", payload, &response, WithoutAuth())
@@ -81,7 +82,7 @@ func (a *AuthResource) Register(ctx context.Context, req *RegisterRequest) (*Use
 		return nil, err
 	}
 
-	// Store tokens if present (auto-login after registration)
+	// Store tokens if present (not withheld for email verification)
 	if response.AccessToken != "" && response.RefreshToken != "" {
 		tokenType := response.TokenType
 		if tokenType == "" {
@@ -94,7 +95,10 @@ func (a *AuthResource) Register(ctx context.Context, req *RegisterRequest) (*Use
 		})
 	}
 
-	return &response.User, nil
+	return &RegisterResult{
+		User:                      response.User,
+		RequiresEmailVerification: response.RequiresEmailVerification,
+	}, nil
 }
 
 // Login logs in with username and password.
@@ -209,6 +213,75 @@ func (a *AuthResource) ChangePassword(ctx context.Context, currentPassword, newP
 		"current_password": currentPassword,
 		"new_password":     newPassword,
 	}, nil)
+}
+
+// GetAuthConfig returns the platform's authentication configuration.
+//
+// No authentication required. Use this to determine whether email
+// verification or password reset is available.
+func (a *AuthResource) GetAuthConfig(ctx context.Context) (*AuthConfig, error) {
+	var config AuthConfig
+	err := a.http.Get(ctx, "/api/v1/auth/config", &config, WithoutAuth())
+	if err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
+// VerifyOTP verifies a registration OTP and returns auth tokens.
+//
+// After registering when email verification is required, call this with
+// the 6-digit code sent to the user's email.
+//
+// Idempotent: if the user is already verified, tokens are issued immediately.
+func (a *AuthResource) VerifyOTP(ctx context.Context, req *VerifyOTPRequest) (*User, error) {
+	var response struct {
+		User         User   `json:"user"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		TokenType    string `json:"token_type"`
+	}
+
+	err := a.http.Post(ctx, "/api/v1/auth/register/verify-otp", req, &response, WithoutAuth())
+	if err != nil {
+		return nil, err
+	}
+
+	if response.AccessToken != "" && response.RefreshToken != "" {
+		tokenType := response.TokenType
+		if tokenType == "" {
+			tokenType = "bearer"
+		}
+		a.http.SetTokens(&AuthTokens{
+			AccessToken:  response.AccessToken,
+			RefreshToken: response.RefreshToken,
+			TokenType:    tokenType,
+		})
+	}
+
+	return &response.User, nil
+}
+
+// ResendOTP resends the registration OTP code.
+//
+// Rate-limited. Always succeeds to prevent email enumeration.
+func (a *AuthResource) ResendOTP(ctx context.Context, email string) error {
+	return a.http.Post(ctx, "/api/v1/auth/register/resend-otp",
+		map[string]string{"email": email}, nil, WithoutAuth())
+}
+
+// RequestPasswordReset requests a password-reset OTP.
+//
+// Always succeeds to prevent email enumeration. If SMTP is not
+// configured on the server, this is a no-op.
+func (a *AuthResource) RequestPasswordReset(ctx context.Context, email string) error {
+	return a.http.Post(ctx, "/api/v1/auth/password-reset/request",
+		map[string]string{"email": email}, nil, WithoutAuth())
+}
+
+// ConfirmPasswordReset verifies the password-reset OTP and sets a new password.
+func (a *AuthResource) ConfirmPasswordReset(ctx context.Context, req *PasswordResetConfirmRequest) error {
+	return a.http.Post(ctx, "/api/v1/auth/password-reset/confirm", req, nil, WithoutAuth())
 }
 
 // GetSatelliteToken gets a satellite token for a specific audience (target service).

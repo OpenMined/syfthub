@@ -45,6 +45,9 @@ func init() {
 
 	// Add all subcommands
 	rootCmd.AddCommand(loginCmd)
+	rootCmd.AddCommand(registerCmd)
+	rootCmd.AddCommand(verifyEmailCmd)
+	rootCmd.AddCommand(resetPasswordCmd)
 	rootCmd.AddCommand(logoutCmd)
 	rootCmd.AddCommand(whoamiCmd)
 	rootCmd.AddCommand(lsCmd)

@@ -19,6 +19,7 @@ import { useAuth } from '@/context/auth-context';
 import { registerSchema } from '@/lib/schemas';
 import { AccountingAccountExistsError, isGoogleOAuthEnabled } from '@/lib/sdk-client';
 import { getPasswordStrength } from '@/lib/validation';
+import { useModalStore } from '@/stores/modal-store';
 
 import { AuthErrorAlert, AuthLoadingOverlay } from './auth-utils';
 
@@ -44,6 +45,7 @@ export function RegisterModal({
   onSwitchToLogin
 }: Readonly<RegisterModalProperties>) {
   const { register: authRegister, loginWithGoogle, isLoading, error, clearError } = useAuth();
+  const { openVerifyOtp } = useModalStore();
   const [requiresAccountingPassword, setRequiresAccountingPassword] = useState(false);
 
   const {
@@ -70,13 +72,19 @@ export function RegisterModal({
 
   const onSubmit = async (data: RegisterFormValues) => {
     try {
-      await authRegister({
+      const result = await authRegister({
         name: data.name.trim(),
         email: data.email.trim(),
         password: data.password,
         accountingPassword: data.accountingPassword || undefined
       });
-      onClose();
+
+      if (result.requiresEmailVerification) {
+        // Switch to OTP verification modal with the user's email
+        openVerifyOtp(data.email.trim());
+      } else {
+        onClose();
+      }
     } catch (error_) {
       if (error_ instanceof AccountingAccountExistsError) {
         setRequiresAccountingPassword(true);

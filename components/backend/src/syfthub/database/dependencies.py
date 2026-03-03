@@ -18,6 +18,7 @@ from syfthub.services.api_token_service import APITokenService
 from syfthub.services.auth_service import AuthService
 from syfthub.services.endpoint_service import EndpointService
 from syfthub.services.organization_service import OrganizationService
+from syfthub.services.otp_service import OTPService
 from syfthub.services.user_service import UserService
 
 __all__ = ["get_db_session"]
@@ -92,6 +93,13 @@ def get_organization_service(
 ) -> OrganizationService:
     """Get OrganizationService dependency."""
     return OrganizationService(session)
+
+
+def get_otp_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> OTPService:
+    """Get OTPService dependency."""
+    return OTPService(session)
 
 
 def get_api_token_service(

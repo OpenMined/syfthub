@@ -301,7 +301,7 @@ func (c *Client) AggregatorURL() string {
 // -------------------------------------------------------------------------
 
 // Register registers a new user. Alias for client.Auth.Register().
-func (c *Client) Register(ctx context.Context, req *RegisterRequest) (*User, error) {
+func (c *Client) Register(ctx context.Context, req *RegisterRequest) (*RegisterResult, error) {
 	return c.Auth.Register(ctx, req)
 }
 
