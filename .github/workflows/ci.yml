@@ -773,6 +773,11 @@ jobs:
             deploy/scripts/deploy.sh \
             "${SSH_USER}@${SSH_HOST}:/opt/syfthub/"
 
+          # Sync staging-specific compose override (lower resource limits)
+          scp -i ~/.ssh/deploy_key -P ${SSH_PORT:-22} \
+            deploy/docker-compose.staging.yml \
+            "${SSH_USER}@${SSH_HOST}:/opt/syfthub/"
+
           echo "Config files synced successfully"
 
       - name: Deploy to staging via SSH
@@ -810,6 +815,7 @@ jobs:
             export IMAGE_TAG
             export GITHUB_REPOSITORY
             export MEILI_MASTER_KEY
+            export COMPOSE_OVERRIDE=docker-compose.staging.yml
 
             # Run deployment script
             ./deploy.sh
