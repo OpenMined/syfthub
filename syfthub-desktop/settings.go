@@ -64,7 +64,7 @@ func getSettingsDir() (string, error) {
 		}
 	}
 
-	return filepath.Join(baseDir, "syfthub-desktop"), nil
+	return filepath.Join(baseDir, "syfthub"), nil
 }
 
 // getSettingsPath returns the full path to the settings file.

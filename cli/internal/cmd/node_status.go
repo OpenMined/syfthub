@@ -58,7 +58,7 @@ func runNodeStatus(cmd *cobra.Command, args []string) error {
 		data := map[string]interface{}{
 			"status":         "success",
 			"running":        running,
-			"configured":     cfg.IsConfigured(),
+			"configured":     cfg.Configured(),
 			"pid":            pid,
 			"syfthub_url":    cfg.SyftHubURL,
 			"endpoints_path": cfg.EndpointsPath,
@@ -76,13 +76,10 @@ func runNodeStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println()
-	if cfg.IsConfigured() {
+	if cfg.Configured() {
 		fmt.Printf("  Hub URL:   %s\n", cfg.SyftHubURL)
 		fmt.Printf("  Endpoints: %d in %s\n", endpointCount, cfg.EndpointsPath)
 		fmt.Printf("  Port:      %d\n", cfg.Port)
-		if cfg.SpaceURL != "" {
-			fmt.Printf("  Space URL: %s\n", cfg.SpaceURL)
-		}
 	} else {
 		fmt.Println("  Not configured. Run 'syft node init' to set up.")
 	}

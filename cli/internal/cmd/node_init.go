@@ -17,7 +17,6 @@ import (
 var (
 	nodeInitHubURL        string
 	nodeInitAPIKey        string
-	nodeInitSpaceURL      string
 	nodeInitEndpointsPath string
 	nodeInitPort          int
 	nodeInitForce         bool
@@ -27,17 +26,20 @@ var (
 var nodeInitCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize node configuration",
-	Long: `Initialize the SyftHub node configuration at ~/.syfthub/node/.
+	Long: `Initialize the SyftHub node configuration.
 
-Creates the configuration directory and config file. If no flags are provided
-and stdin is a terminal, prompts interactively for required values.`,
+Creates the shared configuration at ~/.config/syfthub/settings.json (the same
+config used by syfthub-desktop). If no flags are provided and stdin is a
+terminal, prompts interactively for required values.
+
+The node always uses NATS tunneling mode (like syfthub-desktop). The tunnel
+username is derived automatically from your API key at startup.`,
 	RunE: runNodeInit,
 }
 
 func init() {
 	nodeInitCmd.Flags().StringVar(&nodeInitHubURL, "hub-url", "", "SyftHub URL")
 	nodeInitCmd.Flags().StringVar(&nodeInitAPIKey, "api-key", "", "API key or PAT")
-	nodeInitCmd.Flags().StringVar(&nodeInitSpaceURL, "space-url", "", "Space URL or tunneling:username")
 	nodeInitCmd.Flags().StringVar(&nodeInitEndpointsPath, "endpoints-path", "", "Path to endpoints directory")
 	nodeInitCmd.Flags().IntVar(&nodeInitPort, "port", 0, "HTTP server port")
 	nodeInitCmd.Flags().BoolVar(&nodeInitForce, "force", false, "Overwrite existing configuration")
@@ -47,15 +49,15 @@ func init() {
 func runNodeInit(cmd *cobra.Command, args []string) error {
 	// Check if already initialized
 	existing := nodeconfig.Load()
-	if existing.IsConfigured() && !nodeInitForce {
+	if existing.Configured() && !nodeInitForce {
 		if nodeInitJSON {
 			output.JSON(map[string]interface{}{
 				"status":  "error",
 				"message": "Node is already configured. Use --force to reinitialize.",
-				"path":    nodeconfig.NodeConfigFile,
+				"path":    nodeconfig.ConfigFile,
 			})
 		} else {
-			output.Warning("Node is already configured at %s", nodeconfig.NodeConfigFile)
+			output.Warning("Node is already configured at %s", nodeconfig.ConfigFile)
 			output.Info("Use --force to reinitialize.")
 		}
 		return nil
@@ -79,9 +81,6 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 	if nodeInitAPIKey != "" {
 		cfg.APIKey = nodeInitAPIKey
 	}
-	if nodeInitSpaceURL != "" {
-		cfg.SpaceURL = nodeInitSpaceURL
-	}
 	if nodeInitEndpointsPath != "" {
 		cfg.EndpointsPath = nodeInitEndpointsPath
 	}
@@ -99,20 +98,19 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 		if cfg.APIKey == "" {
 			cfg.APIKey = promptRequired(reader, "API Key (PAT)")
 		}
-		if cfg.SpaceURL == "" {
-			cfg.SpaceURL = promptWithDefault(reader, "Space URL (or tunneling:username)", "")
-		}
 	}
 
-	// Ensure directories exist
-	if err := nodeconfig.EnsureNodeDir(); err != nil {
+	cfg.IsConfigured = true
+
+	// Ensure config directory exists
+	if err := nodeconfig.EnsureConfigDir(); err != nil {
 		if nodeInitJSON {
 			output.JSON(map[string]interface{}{
 				"status":  "error",
 				"message": err.Error(),
 			})
 		} else {
-			output.Error("Failed to create node directory: %v", err)
+			output.Error("Failed to create config directory: %v", err)
 		}
 		return err
 	}
@@ -145,17 +143,19 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 	if nodeInitJSON {
 		output.JSON(map[string]interface{}{
 			"status":         "success",
-			"config_path":    nodeconfig.NodeConfigFile,
+			"config_path":    nodeconfig.ConfigFile,
 			"endpoints_path": cfg.EndpointsPath,
 			"syfthub_url":    cfg.SyftHubURL,
 			"port":           cfg.Port,
 		})
 	} else {
 		output.Success("Node initialized successfully!")
-		fmt.Printf("  Config:    %s\n", nodeconfig.NodeConfigFile)
+		fmt.Printf("  Config:    %s\n", nodeconfig.ConfigFile)
 		fmt.Printf("  Endpoints: %s\n", cfg.EndpointsPath)
 		fmt.Printf("  Hub URL:   %s\n", cfg.SyftHubURL)
 		fmt.Printf("  Port:      %d\n", cfg.Port)
+		fmt.Println()
+		fmt.Println("Tunneling mode will be configured automatically when you run 'syft node start'.")
 	}
 
 	return nil

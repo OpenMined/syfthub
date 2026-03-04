@@ -9,9 +9,11 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/openmined/syfthub/sdk/golang/syfthub"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/filemode"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/heartbeat"
@@ -33,8 +35,9 @@ var nodeStartCmd = &cobra.Command{
 	Short: "Start the node server",
 	Long: `Start the SyftHub node server as a foreground process.
 
-The node loads endpoints from the configured endpoints directory, starts an
-HTTP server, registers with SyftHub, and begins sending heartbeats.
+The node loads endpoints from the configured endpoints directory, connects to
+SyftHub via NATS tunneling (using the username derived from your API key),
+registers endpoints, and begins sending heartbeats.
 
 Press Ctrl+C to stop the node.`,
 	RunE: runNodeStart,
@@ -49,7 +52,7 @@ func init() {
 
 func runNodeStart(cmd *cobra.Command, args []string) error {
 	cfg := nodeconfig.Load()
-	if !cfg.IsConfigured() {
+	if !cfg.Configured() {
 		msg := "Node is not configured. Run 'syft node init' first."
 		if nodeStartJSON {
 			output.JSON(map[string]interface{}{"status": "error", "message": msg})
@@ -81,6 +84,33 @@ func runNodeStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create endpoints directory: %w", err)
 	}
 
+	// Derive tunnel username from API key (like syfthub-desktop does)
+	if !nodeStartJSON {
+		fmt.Println("Authenticating with SyftHub...")
+	}
+
+	hubClient, err := syfthub.NewClient(
+		syfthub.WithBaseURL(cfg.SyftHubURL),
+		syfthub.WithAPIToken(cfg.APIKey),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create hub client: %w", err)
+	}
+
+	fetchCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	user, err := hubClient.Auth.Me(fetchCtx)
+	if err != nil {
+		return fmt.Errorf("failed to authenticate with SyftHub: %w", err)
+	}
+
+	spaceURL := fmt.Sprintf("tunneling:%s", user.Username)
+
+	if !nodeStartJSON {
+		fmt.Printf("Authenticated as %s (tunnel mode)\n", user.Username)
+	}
+
 	// Build SyftAPI options
 	opts := []syfthubapi.Option{
 		syfthubapi.WithSyftHubURL(cfg.SyftHubURL),
@@ -88,9 +118,7 @@ func runNodeStart(cmd *cobra.Command, args []string) error {
 		syfthubapi.WithEndpointsPath(endpointsPath),
 		syfthubapi.WithServerPort(cfg.Port),
 		syfthubapi.WithWatchEnabled(true),
-	}
-	if cfg.SpaceURL != "" {
-		opts = append(opts, syfthubapi.WithSpaceURL(cfg.SpaceURL))
+		syfthubapi.WithSpaceURL(spaceURL),
 	}
 	if cfg.LogLevel != "" {
 		opts = append(opts, syfthubapi.WithLogLevel(cfg.LogLevel))
@@ -130,32 +158,19 @@ func runNodeStart(cmd *cobra.Command, args []string) error {
 		api.Registry().ReplaceFileBased(endpoints)
 	}
 
-	// Setup transport
-	var t syfthubapi.Transport
-	if apiConfig.IsTunnelMode() {
-		authClient := syfthubapi.NewAuthClient(apiConfig.SyftHubURL, apiConfig.APIKey, newSlogAdapter(logger))
-		natsCreds, err := authClient.GetNATSCredentials(context.Background(), apiConfig.GetTunnelUsername())
-		if err != nil {
-			return fmt.Errorf("failed to get NATS credentials: %w", err)
-		}
-		t, err = transport.NewNATSTransport(&transport.Config{
-			SpaceURL:        apiConfig.SpaceURL,
-			NATSCredentials: natsCreds,
-			Logger:          logger,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to create NATS transport: %w", err)
-		}
-	} else {
-		t, err = transport.NewHTTPTransport(&transport.Config{
-			SpaceURL: apiConfig.SpaceURL,
-			Host:     apiConfig.ServerHost,
-			Port:     apiConfig.ServerPort,
-			Logger:   logger,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to create HTTP transport: %w", err)
-		}
+	// Setup NATS transport (always tunnel mode)
+	authClient := syfthubapi.NewAuthClient(apiConfig.SyftHubURL, apiConfig.APIKey, newSlogAdapter(logger))
+	natsCreds, err := authClient.GetNATSCredentials(context.Background(), user.Username)
+	if err != nil {
+		return fmt.Errorf("failed to get NATS credentials: %w", err)
+	}
+	t, err := transport.NewNATSTransport(&transport.Config{
+		SpaceURL:        spaceURL,
+		NATSCredentials: natsCreds,
+		Logger:          logger,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create NATS transport: %w", err)
 	}
 	api.SetTransport(t)
 
@@ -164,7 +179,7 @@ func runNodeStart(cmd *cobra.Command, args []string) error {
 		hbManager := heartbeat.NewManager(&heartbeat.Config{
 			BaseURL:            apiConfig.SyftHubURL,
 			APIKey:             apiConfig.APIKey,
-			SpaceURL:           apiConfig.SpaceURL,
+			SpaceURL:           spaceURL,
 			TTLSeconds:         apiConfig.HeartbeatTTLSeconds,
 			IntervalMultiplier: apiConfig.HeartbeatIntervalMultiplier,
 			Logger:             logger,
@@ -179,16 +194,12 @@ func runNodeStart(cmd *cobra.Command, args []string) error {
 	defer nodeconfig.RemovePID()
 
 	// Print startup banner
-	mode := "HTTP"
-	if apiConfig.IsTunnelMode() {
-		mode = fmt.Sprintf("NATS Tunnel (%s)", apiConfig.GetTunnelUsername())
-	}
 	endpointCount := len(api.Registry().List())
 
 	if nodeStartJSON {
 		output.JSON(map[string]interface{}{
 			"status":    "starting",
-			"mode":      mode,
+			"mode":      fmt.Sprintf("NATS Tunnel (%s)", user.Username),
 			"port":      cfg.Port,
 			"endpoints": endpointCount,
 			"path":      endpointsPath,
@@ -196,7 +207,7 @@ func runNodeStart(cmd *cobra.Command, args []string) error {
 	} else {
 		fmt.Println()
 		output.Success("SyftHub Node starting")
-		fmt.Printf("  Mode:      %s\n", mode)
+		fmt.Printf("  Mode:      NATS Tunnel (%s)\n", user.Username)
 		fmt.Printf("  Port:      %d\n", cfg.Port)
 		fmt.Printf("  Endpoints: %d loaded from %s\n", endpointCount, endpointsPath)
 		fmt.Printf("  Hub:       %s\n", cfg.SyftHubURL)
@@ -206,8 +217,8 @@ func runNodeStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Run (blocks until signal)
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
+	ctx, stopSignal := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stopSignal()
 
 	return api.Run(ctx)
 }
