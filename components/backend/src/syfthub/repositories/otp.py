@@ -150,12 +150,13 @@ class OTPRepository(BaseRepository[OTPCodeModel]):
     def delete_expired_used(self, retention_hours: int) -> int:
         """Delete OTP records that are expired or used and older than the retention period."""
         try:
-            cutoff = datetime.now(timezone.utc) - timedelta(hours=retention_hours)
+            now = datetime.now(timezone.utc)
+            cutoff = now - timedelta(hours=retention_hours)
             stmt = delete(OTPCodeModel).where(
-                OTPCodeModel.created_at < cutoff,
+                (OTPCodeModel.used_at.is_not(None) | (OTPCodeModel.expires_at < now)),
                 (
-                    OTPCodeModel.used_at.is_not(None)
-                    | (OTPCodeModel.expires_at < datetime.now(timezone.utc))
+                    (OTPCodeModel.created_at < cutoff)
+                    | (OTPCodeModel.expires_at < cutoff)
                 ),
             )
             result = self.session.execute(stmt)

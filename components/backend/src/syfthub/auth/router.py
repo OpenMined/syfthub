@@ -242,6 +242,15 @@ async def register_user(
             },
         ) from e
 
+    except OTPRateLimitedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "code": e.error_code,
+                "message": e.message,
+            },
+        ) from e
+
 
 @router.post("/login", response_model=AuthResponse)
 async def login_for_access_token(
@@ -487,6 +496,13 @@ async def confirm_password_reset(
         ) from e
 
     auth_service.reset_password(body.email, body.new_password)
+
+    # Mark email as verified — user proved ownership via OTP
+    user_repo = UserRepository(otp_service.otp_repo.session)
+    user = user_repo.get_by_email(body.email)
+    if user and not user.is_email_verified:
+        user_repo.set_email_verified(user.id)
+
     return {"message": "Password has been reset successfully."}
 
 
