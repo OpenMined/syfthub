@@ -63,6 +63,8 @@ var (
 	PIDFile = filepath.Join(ConfigDir, "node.pid")
 	// LogFile is the path to the node daemon log file.
 	LogFile = filepath.Join(ConfigDir, "node.log")
+	// LogsDir is the directory for per-endpoint request logs (JSONL files).
+	LogsDir = filepath.Join(ConfigDir, "logs")
 )
 
 // NodeConfig holds node/desktop shared settings.

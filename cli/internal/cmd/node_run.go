@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -144,6 +145,15 @@ func runNodeRun(cmd *cobra.Command, args []string) error {
 		api.SetHeartbeatManager(hbManager)
 	}
 
+	// Setup request log hook (writes per-endpoint JSONL files like syfthub-desktop)
+	if err := os.MkdirAll(nodeconfig.LogsDir, 0755); err != nil {
+		logger.Warn("failed to create logs directory", "error", err)
+	} else {
+		api.SetLogHook(func(ctx context.Context, entry *syfthubapi.RequestLog) {
+			writeRequestLog(nodeconfig.LogsDir, entry, logger)
+		})
+	}
+
 	// Write PID file
 	if err := nodeconfig.WritePID(os.Getpid()); err != nil {
 		logger.Warn("failed to write PID file", "error", err)
@@ -163,6 +173,40 @@ func runNodeRun(cmd *cobra.Command, args []string) error {
 	defer stopSignal()
 
 	return api.Run(ctx)
+}
+
+// writeRequestLog writes a request log entry to a per-endpoint JSONL file.
+// File layout: {logsDir}/{endpoint-slug}/{YYYY-MM-DD}.jsonl
+func writeRequestLog(logsDir string, entry *syfthubapi.RequestLog, logger *slog.Logger) {
+	slug := entry.EndpointSlug
+	if slug == "" {
+		return
+	}
+
+	dir := filepath.Join(logsDir, slug)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		logger.Warn("failed to create endpoint log dir", "slug", slug, "error", err)
+		return
+	}
+
+	date := entry.Timestamp.Format("2006-01-02")
+	filename := filepath.Join(dir, date+".jsonl")
+
+	data, err := json.Marshal(entry)
+	if err != nil {
+		logger.Warn("failed to marshal log entry", "error", err)
+		return
+	}
+
+	f, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		logger.Warn("failed to open log file", "path", filename, "error", err)
+		return
+	}
+	defer f.Close()
+
+	f.Write(data)
+	f.Write([]byte("\n"))
 }
 
 // slogAdapter adapts slog.Logger to the syfthubapi Logger interface.

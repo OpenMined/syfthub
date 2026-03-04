@@ -27,6 +27,7 @@ func init() {
 	nodeEndpointCmd.AddCommand(nodeEndpointListCmd)
 	nodeEndpointCmd.AddCommand(nodeEndpointDeleteCmd)
 	nodeEndpointCmd.AddCommand(nodeEndpointEditCmd)
+	nodeEndpointCmd.AddCommand(nodeEndpointLogCmd)
 }
 
 // --- Create ---
