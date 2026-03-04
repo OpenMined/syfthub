@@ -24,7 +24,6 @@ CREATE TABLE IF NOT EXISTS packages (
     zip_data    BLOB,
     zip_sha256  TEXT NOT NULL DEFAULT '',
     zip_size    INTEGER NOT NULL DEFAULT 0,
-    built_in    BOOLEAN NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
@@ -62,7 +61,7 @@ func scanPackage(row interface{ Scan(...any) error }) (*Package, error) {
 	err := row.Scan(
 		&p.ID, &p.Slug, &p.Name, &p.Description, &p.Type,
 		&p.Author, &p.Version, &tagsJSON, &configJSON,
-		&p.ZipSHA256, &p.ZipSize, &p.BuiltIn,
+		&p.ZipSHA256, &p.ZipSize,
 		&createdAt, &updatedAt,
 	)
 	if err != nil {
@@ -89,7 +88,7 @@ func scanPackage(row interface{ Scan(...any) error }) (*Package, error) {
 	return &p, nil
 }
 
-const selectColumns = `id, slug, name, description, type, author, version, tags_json, config_json, zip_sha256, zip_size, built_in, created_at, updated_at`
+const selectColumns = `id, slug, name, description, type, author, version, tags_json, config_json, zip_sha256, zip_size, created_at, updated_at`
 
 // List returns packages matching the given options, plus the total count.
 func (s *Store) List(ctx context.Context, opts ListOptions) ([]Package, int, error) {
@@ -170,11 +169,11 @@ func (s *Store) Create(ctx context.Context, pkg *Package) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	result, err := s.db.ExecContext(ctx,
-		`INSERT INTO packages (slug, name, description, type, author, version, tags_json, config_json, zip_data, zip_sha256, zip_size, built_in, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO packages (slug, name, description, type, author, version, tags_json, config_json, zip_data, zip_sha256, zip_size, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		pkg.Slug, pkg.Name, pkg.Description, pkg.Type, pkg.Author, pkg.Version,
 		string(tagsJSON), string(configJSON), nil, pkg.ZipSHA256, pkg.ZipSize,
-		pkg.BuiltIn, now, now,
+		now, now,
 	)
 	if err != nil {
 		// SQLite UNIQUE constraint violation
