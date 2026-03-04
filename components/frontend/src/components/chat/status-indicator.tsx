@@ -191,6 +191,7 @@ export function StatusIndicator({ status }: Readonly<StatusIndicatorProps>) {
               <ChainOfThoughtTrigger
                 leftIcon={<StepStatusIcon step={step} />}
                 swapIconOnHover={isRetrievalWithSources}
+                showChevron={isRetrievalWithSources}
                 className={stepClassName}
               >
                 <span className='font-inter text-[13px]'>
