@@ -7,7 +7,7 @@ import hmac
 import logging
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from syfthub.core.config import settings
 from syfthub.domain.exceptions import (
@@ -35,13 +35,27 @@ class OTPService:
         """Initialize with a database session."""
         self.otp_repo = OTPRepository(session)
 
-    def generate_otp(self, email: str, purpose: str) -> str:
+    def generate_otp(
+        self, email: str, purpose: str, requester_ip: Optional[str] = None
+    ) -> str:
         """Generate a new 6-digit OTP, store it hashed, and return the plain code.
 
         Raises:
             OTPRateLimitedError: If too many codes were requested recently.
         """
-        # Rate limit check
+        # Per-IP rate limit check (runs first to catch broad abuse)
+        if requester_ip is not None:
+            ip_count = self.otp_repo.count_recent_by_ip(
+                requester_ip,
+                settings.otp_ip_rate_limit_window_minutes,
+            )
+            if ip_count >= settings.otp_ip_rate_limit_max_requests:
+                logger.warning(
+                    "OTP IP rate limit hit for %s (%s)", requester_ip, purpose
+                )
+                raise OTPRateLimitedError()
+
+        # Per-email rate limit check
         recent_count = self.otp_repo.count_recent(
             email,
             purpose,
@@ -66,6 +80,7 @@ class OTPService:
             code_hash=code_hash,
             purpose=purpose,
             expires_at=expires_at,
+            requester_ip=requester_ip,
         )
 
         if not otp:

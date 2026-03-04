@@ -3,7 +3,7 @@
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.security import (
     HTTPAuthorizationCredentials,
     OAuth2PasswordRequestForm,
@@ -99,9 +99,7 @@ async def get_auth_config() -> AuthConfigResponse:
     email-verification or password-reset UI.
     """
     return AuthConfigResponse(
-        require_email_verification=(
-            settings.require_email_verification and settings.smtp_configured
-        ),
+        require_email_verification=settings.smtp_configured,
         smtp_configured=settings.smtp_configured,
         password_reset_enabled=settings.smtp_configured,
     )
@@ -170,6 +168,7 @@ async def get_auth_config() -> AuthConfigResponse:
 )
 async def register_user(
     user_data: UserRegister,
+    request: Request,
     background_tasks: BackgroundTasks,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
     otp_service: Annotated[OTPService, Depends(get_otp_service)],
@@ -195,7 +194,10 @@ async def register_user(
 
         # If email verification is required, generate and send OTP
         if result.requires_email_verification:
-            code = otp_service.generate_otp(user_data.email, "registration")
+            client_ip = request.client.host if request.client else None
+            code = otp_service.generate_otp(
+                user_data.email, "registration", requester_ip=client_ip
+            )
             background_tasks.add_task(
                 send_otp_email, user_data.email, code, "registration"
             )
@@ -234,6 +236,15 @@ async def register_user(
     except AccountingServiceUnavailableError as e:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": e.error_code,
+                "message": e.message,
+            },
+        ) from e
+
+    except OTPRateLimitedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail={
                 "code": e.error_code,
                 "message": e.message,
@@ -390,6 +401,7 @@ async def verify_registration_otp(
 )
 async def resend_registration_otp(
     body: ResendOTPRequest,
+    request: Request,
     background_tasks: BackgroundTasks,
     otp_service: Annotated[OTPService, Depends(get_otp_service)],
 ) -> dict[str, str]:
@@ -403,7 +415,10 @@ async def resend_registration_otp(
         user = user_repo.get_by_email(body.email)
 
         if user and not user.is_email_verified:
-            code = otp_service.generate_otp(body.email, "registration")
+            client_ip = request.client.host if request.client else None
+            code = otp_service.generate_otp(
+                body.email, "registration", requester_ip=client_ip
+            )
             background_tasks.add_task(send_otp_email, body.email, code, "registration")
     except OTPRateLimitedError:
         # Swallow to prevent email enumeration via 429 vs 200 distinction
@@ -423,6 +438,7 @@ async def resend_registration_otp(
 )
 async def request_password_reset(
     body: PasswordResetRequest,
+    request: Request,
     background_tasks: BackgroundTasks,
     otp_service: Annotated[OTPService, Depends(get_otp_service)],
 ) -> dict[str, str]:
@@ -440,7 +456,10 @@ async def request_password_reset(
 
         # Only send if user exists and has a password (not OAuth-only)
         if model and model.password_hash:
-            code = otp_service.generate_otp(body.email, "password_reset")
+            client_ip = request.client.host if request.client else None
+            code = otp_service.generate_otp(
+                body.email, "password_reset", requester_ip=client_ip
+            )
             background_tasks.add_task(
                 send_otp_email, body.email, code, "password_reset"
             )
@@ -477,6 +496,13 @@ async def confirm_password_reset(
         ) from e
 
     auth_service.reset_password(body.email, body.new_password)
+
+    # Mark email as verified — user proved ownership via OTP
+    user_repo = UserRepository(otp_service.otp_repo.session)
+    user = user_repo.get_by_email(body.email)
+    if user and not user.is_email_verified:
+        user_repo.set_email_verified(user.id)
+
     return {"message": "Password has been reset successfully."}
 
 

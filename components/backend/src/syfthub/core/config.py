@@ -214,29 +214,16 @@ class Settings(BaseSettings):
         )
 
     # ===========================================
-    # SMTP / EMAIL SETTINGS
+    # EMAIL SETTINGS
     # ===========================================
 
-    smtp_host: Optional[str] = Field(
+    # Resend API
+    resend_api_key: Optional[str] = Field(
         default=None,
-        description="SMTP server hostname (None = email disabled)",
+        description="Resend API key for email delivery",
     )
-    smtp_port: int = Field(
-        default=587,
-        description="SMTP server port",
-    )
-    smtp_username: Optional[str] = Field(
-        default=None,
-        description="SMTP authentication username",
-    )
-    smtp_password: Optional[str] = Field(
-        default=None,
-        description="SMTP authentication password",
-    )
-    smtp_use_tls: bool = Field(
-        default=True,
-        description="Use STARTTLS for SMTP connection",
-    )
+
+    # Sender identity
     smtp_from_email: str = Field(
         default="noreply@syft.com",
         description="From address for outgoing emails",
@@ -247,18 +234,23 @@ class Settings(BaseSettings):
     )
 
     @property
+    def resend_configured(self) -> bool:
+        """Check if Resend API is configured."""
+        return self.resend_api_key is not None and len(self.resend_api_key.strip()) > 0
+
+    @property
     def smtp_configured(self) -> bool:
-        """Check if SMTP is configured and available for sending emails."""
-        return self.smtp_host is not None and len(self.smtp_host.strip()) > 0
+        """Check if email sending is configured.
+
+        This property is used throughout the codebase to gate email-dependent
+        features (email verification, password reset).
+        """
+        return self.resend_configured
 
     # ===========================================
     # EMAIL VERIFICATION / OTP SETTINGS
     # ===========================================
 
-    require_email_verification: bool = Field(
-        default=False,
-        description="Require email OTP verification for new registrations",
-    )
     otp_expiry_minutes: int = Field(
         default=10,
         description="OTP code expiry in minutes",
@@ -274,6 +266,36 @@ class Settings(BaseSettings):
     otp_rate_limit_window_minutes: int = Field(
         default=10,
         description="OTP rate limit window in minutes",
+    )
+
+    # Per-IP rate limiting
+    otp_ip_rate_limit_max_requests: int = Field(
+        default=10,
+        description="Max OTP requests per IP per rate limit window",
+    )
+    otp_ip_rate_limit_window_minutes: int = Field(
+        default=10,
+        description="Per-IP OTP rate limit window in minutes",
+    )
+
+    # Email delivery retry
+    otp_email_max_retries: int = Field(
+        default=3,
+        description="Max retry attempts for OTP email delivery",
+    )
+    otp_email_retry_delay_seconds: float = Field(
+        default=2.0,
+        description="Base delay between email retry attempts in seconds",
+    )
+
+    # OTP cleanup
+    otp_cleanup_interval_minutes: int = Field(
+        default=60,
+        description="Interval between OTP cleanup cycles in minutes",
+    )
+    otp_cleanup_retention_hours: int = Field(
+        default=24,
+        description="Hours to retain expired/used OTP records before deletion",
     )
 
     # ===========================================
