@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -25,15 +28,17 @@ var (
 
 var nodeInitCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Initialize node configuration",
-	Long: `Initialize the SyftHub node configuration.
+	Short: "Initialize and start the node daemon",
+	Long: `Initialize the SyftHub node configuration and start it as a background daemon.
 
 Creates the shared configuration at ~/.config/syfthub/settings.json (the same
 config used by syfthub-desktop). If no flags are provided and stdin is a
 terminal, prompts interactively for required values.
 
 The node always uses NATS tunneling mode (like syfthub-desktop). The tunnel
-username is derived automatically from your API key at startup.`,
+username is derived automatically from your API key at startup.
+
+If a node is already running, use --force to reinitialize and restart it.`,
 	RunE: runNodeInit,
 }
 
@@ -42,7 +47,7 @@ func init() {
 	nodeInitCmd.Flags().StringVar(&nodeInitAPIKey, "api-key", "", "API key or PAT")
 	nodeInitCmd.Flags().StringVar(&nodeInitEndpointsPath, "endpoints-path", "", "Path to endpoints directory")
 	nodeInitCmd.Flags().IntVar(&nodeInitPort, "port", 0, "HTTP server port")
-	nodeInitCmd.Flags().BoolVar(&nodeInitForce, "force", false, "Overwrite existing configuration")
+	nodeInitCmd.Flags().BoolVar(&nodeInitForce, "force", false, "Overwrite existing configuration and restart")
 	nodeInitCmd.Flags().BoolVar(&nodeInitJSON, "json", false, "Output result as JSON")
 }
 
@@ -61,6 +66,11 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 			output.Info("Use --force to reinitialize.")
 		}
 		return nil
+	}
+
+	// If forcing and a node is running, stop it first
+	if nodeInitForce {
+		stopExistingNode()
 	}
 
 	cfg := nodeconfig.DefaultNodeConfig()
@@ -140,6 +150,22 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Start the daemon
+	daemonPID, err := startNodeDaemon()
+	if err != nil {
+		if nodeInitJSON {
+			output.JSON(map[string]interface{}{
+				"status":  "error",
+				"message": fmt.Sprintf("Config saved but failed to start daemon: %v", err),
+			})
+		} else {
+			output.Error("Config saved but failed to start daemon: %v", err)
+			fmt.Printf("  Config: %s\n", nodeconfig.ConfigFile)
+			fmt.Println("  You can try starting manually with 'syft node run'")
+		}
+		return err
+	}
+
 	if nodeInitJSON {
 		output.JSON(map[string]interface{}{
 			"status":         "success",
@@ -147,18 +173,93 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 			"endpoints_path": cfg.EndpointsPath,
 			"syfthub_url":    cfg.SyftHubURL,
 			"port":           cfg.Port,
+			"pid":            daemonPID,
 		})
 	} else {
-		output.Success("Node initialized successfully!")
+		output.Success("Node initialized and started!")
 		fmt.Printf("  Config:    %s\n", nodeconfig.ConfigFile)
 		fmt.Printf("  Endpoints: %s\n", cfg.EndpointsPath)
 		fmt.Printf("  Hub URL:   %s\n", cfg.SyftHubURL)
 		fmt.Printf("  Port:      %d\n", cfg.Port)
+		fmt.Printf("  PID:       %d\n", daemonPID)
+		fmt.Printf("  Logs:      %s\n", nodeconfig.LogFile)
 		fmt.Println()
-		fmt.Println("Tunneling mode will be configured automatically when you run 'syft node start'.")
+		fmt.Println("Use 'syft node logs -f' to follow daemon output.")
+		fmt.Println("Use 'syft node stop' to stop the daemon.")
 	}
 
 	return nil
+}
+
+// startNodeDaemon spawns "syft node run" as a detached background process
+// with stdout/stderr redirected to the log file.
+func startNodeDaemon() (int, error) {
+	// Find our own executable path
+	exe, err := os.Executable()
+	if err != nil {
+		return 0, fmt.Errorf("failed to find executable path: %w", err)
+	}
+
+	// Open log file for daemon output
+	logFile, err := os.OpenFile(nodeconfig.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open log file: %w", err)
+	}
+
+	cmd := exec.Command(exe, "node", "run")
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setsid: true, // Detach from parent session
+	}
+
+	if err := cmd.Start(); err != nil {
+		logFile.Close()
+		return 0, fmt.Errorf("failed to start daemon: %w", err)
+	}
+
+	pid := cmd.Process.Pid
+	logFile.Close()
+
+	// Release the process so it continues after we exit
+	cmd.Process.Release()
+
+	// Brief wait to check it didn't crash immediately
+	time.Sleep(500 * time.Millisecond)
+	proc, err := os.FindProcess(pid)
+	if err == nil {
+		if err := proc.Signal(syscall.Signal(0)); err != nil {
+			return 0, fmt.Errorf("daemon exited immediately — check logs at %s", nodeconfig.LogFile)
+		}
+	}
+
+	return pid, nil
+}
+
+// stopExistingNode stops any currently running node daemon.
+func stopExistingNode() {
+	pid, err := nodeconfig.ReadPID()
+	if err != nil {
+		return
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		nodeconfig.RemovePID()
+		return
+	}
+	if err := proc.Signal(syscall.Signal(0)); err != nil {
+		nodeconfig.RemovePID()
+		return
+	}
+	_ = proc.Signal(syscall.SIGTERM)
+	// Wait briefly for graceful shutdown
+	for i := 0; i < 10; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if err := proc.Signal(syscall.Signal(0)); err != nil {
+			break
+		}
+	}
+	nodeconfig.RemovePID()
 }
 
 func promptWithDefault(reader *bufio.Reader, label, defaultVal string) string {

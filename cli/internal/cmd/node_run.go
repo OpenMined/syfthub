@@ -20,57 +20,21 @@ import (
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/transport"
 
 	"github.com/OpenMined/syfthub/cli/internal/nodeconfig"
-	"github.com/OpenMined/syfthub/cli/internal/output"
 )
 
-var (
-	nodeStartPort          int
-	nodeStartLogLevel      string
-	nodeStartEndpointsPath string
-	nodeStartJSON          bool
-)
-
-var nodeStartCmd = &cobra.Command{
-	Use:   "start",
-	Short: "Start the node server",
-	Long: `Start the SyftHub node server as a foreground process.
-
-The node loads endpoints from the configured endpoints directory, connects to
-SyftHub via NATS tunneling (using the username derived from your API key),
-registers endpoints, and begins sending heartbeats.
-
-Press Ctrl+C to stop the node.`,
-	RunE: runNodeStart,
+// nodeRunCmd is a hidden command that runs the node in the foreground.
+// It is spawned as a background daemon by "syft node init".
+var nodeRunCmd = &cobra.Command{
+	Use:    "run",
+	Short:  "Run the node server (internal)",
+	Hidden: true,
+	RunE:   runNodeRun,
 }
 
-func init() {
-	nodeStartCmd.Flags().IntVar(&nodeStartPort, "port", 0, "Override HTTP server port")
-	nodeStartCmd.Flags().StringVar(&nodeStartLogLevel, "log-level", "", "Override log level (DEBUG, INFO, WARNING, ERROR)")
-	nodeStartCmd.Flags().StringVar(&nodeStartEndpointsPath, "endpoints-path", "", "Override endpoints directory")
-	nodeStartCmd.Flags().BoolVar(&nodeStartJSON, "json", false, "Output result as JSON")
-}
-
-func runNodeStart(cmd *cobra.Command, args []string) error {
+func runNodeRun(cmd *cobra.Command, args []string) error {
 	cfg := nodeconfig.Load()
 	if !cfg.Configured() {
-		msg := "Node is not configured. Run 'syft node init' first."
-		if nodeStartJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
-		} else {
-			output.Error(msg)
-		}
-		return errors.New(msg)
-	}
-
-	// Apply flag overrides
-	if nodeStartPort > 0 {
-		cfg.Port = nodeStartPort
-	}
-	if nodeStartLogLevel != "" {
-		cfg.LogLevel = nodeStartLogLevel
-	}
-	if nodeStartEndpointsPath != "" {
-		cfg.EndpointsPath = nodeStartEndpointsPath
+		return errors.New("node is not configured — run 'syft node init' first")
 	}
 
 	// Resolve endpoints path
@@ -78,16 +42,12 @@ func runNodeStart(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to resolve endpoints path: %w", err)
 	}
-
-	// Ensure endpoints dir exists
 	if err := os.MkdirAll(endpointsPath, 0755); err != nil {
 		return fmt.Errorf("failed to create endpoints directory: %w", err)
 	}
 
-	// Derive tunnel username from API key (like syfthub-desktop does)
-	if !nodeStartJSON {
-		fmt.Println("Authenticating with SyftHub...")
-	}
+	// Derive tunnel username from API key
+	fmt.Println("Authenticating with SyftHub...")
 
 	hubClient, err := syfthub.NewClient(
 		syfthub.WithBaseURL(cfg.SyftHubURL),
@@ -106,10 +66,7 @@ func runNodeStart(cmd *cobra.Command, args []string) error {
 	}
 
 	spaceURL := fmt.Sprintf("tunneling:%s", user.Username)
-
-	if !nodeStartJSON {
-		fmt.Printf("Authenticated as %s (tunnel mode)\n", user.Username)
-	}
+	fmt.Printf("Authenticated as %s (tunnel mode)\n", user.Username)
 
 	// Build SyftAPI options
 	opts := []syfthubapi.Option{
@@ -193,28 +150,13 @@ func runNodeStart(cmd *cobra.Command, args []string) error {
 	}
 	defer nodeconfig.RemovePID()
 
-	// Print startup banner
 	endpointCount := len(api.Registry().List())
-
-	if nodeStartJSON {
-		output.JSON(map[string]interface{}{
-			"status":    "starting",
-			"mode":      fmt.Sprintf("NATS Tunnel (%s)", user.Username),
-			"port":      cfg.Port,
-			"endpoints": endpointCount,
-			"path":      endpointsPath,
-		})
-	} else {
-		fmt.Println()
-		output.Success("SyftHub Node starting")
-		fmt.Printf("  Mode:      NATS Tunnel (%s)\n", user.Username)
-		fmt.Printf("  Port:      %d\n", cfg.Port)
-		fmt.Printf("  Endpoints: %d loaded from %s\n", endpointCount, endpointsPath)
-		fmt.Printf("  Hub:       %s\n", cfg.SyftHubURL)
-		fmt.Println()
-		fmt.Println("Press Ctrl+C to stop.")
-		fmt.Println()
-	}
+	fmt.Println()
+	fmt.Printf("SyftHub Node running — NATS Tunnel (%s)\n", user.Username)
+	fmt.Printf("  Port:      %d\n", cfg.Port)
+	fmt.Printf("  Endpoints: %d loaded from %s\n", endpointCount, endpointsPath)
+	fmt.Printf("  Hub:       %s\n", cfg.SyftHubURL)
+	fmt.Println()
 
 	// Run (blocks until signal)
 	ctx, stopSignal := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

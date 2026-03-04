@@ -8,13 +8,13 @@ var nodeCmd = &cobra.Command{
 	Long: `Manage a local SyftHub node that hosts endpoints.
 
 A node runs endpoints locally and syncs them with SyftHub. Use 'syft node init'
-to configure your node, then 'syft node start' to bring it online.
+to configure and start your node, then manage it with stop/status/logs.
 
 Subcommands:
-  init          Initialize node configuration
-  start         Start the node server
+  init          Initialize and start the node daemon
   stop          Stop a running node
   status        Show node status
+  logs          View node daemon logs
   endpoint      Manage local endpoints
   policy        Manage endpoint policies
   marketplace   Browse and install marketplace packages`,
@@ -22,9 +22,10 @@ Subcommands:
 
 func init() {
 	nodeCmd.AddCommand(nodeInitCmd)
-	nodeCmd.AddCommand(nodeStartCmd)
+	nodeCmd.AddCommand(nodeRunCmd)
 	nodeCmd.AddCommand(nodeStopCmd)
 	nodeCmd.AddCommand(nodeStatusCmd)
+	nodeCmd.AddCommand(nodeLogsCmd)
 	nodeCmd.AddCommand(nodeEndpointCmd)
 	nodeCmd.AddCommand(nodePolicyCmd)
 	nodeCmd.AddCommand(nodeMarketplaceCmd)

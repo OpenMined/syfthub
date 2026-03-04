@@ -61,6 +61,8 @@ var (
 	ConfigFile = filepath.Join(ConfigDir, "settings.json")
 	// PIDFile is the path to the node PID file.
 	PIDFile = filepath.Join(ConfigDir, "node.pid")
+	// LogFile is the path to the node daemon log file.
+	LogFile = filepath.Join(ConfigDir, "node.log")
 )
 
 // NodeConfig holds node/desktop shared settings.
