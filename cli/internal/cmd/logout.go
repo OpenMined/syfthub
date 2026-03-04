@@ -1,24 +1,21 @@
 package cmd
 
 import (
-	"context"
-	"time"
-
 	"github.com/spf13/cobra"
 
 	"github.com/OpenMined/syfthub/cli/internal/config"
 	"github.com/OpenMined/syfthub/cli/internal/output"
-	"github.com/openmined/syfthub/sdk/golang/syfthub"
 )
 
 var logoutJSONOutput bool
 
 var logoutCmd = &cobra.Command{
 	Use:   "logout",
-	Short: "Clear authentication credentials",
-	Long: `Clear authentication credentials.
+	Short: "Clear stored API token",
+	Long: `Clear the stored API token from the local configuration.
 
-Removes stored tokens from the local configuration and invalidates them on the server.`,
+Note: This does not revoke the token on the server. To revoke it,
+use the SyftHub web interface.`,
 	RunE: runLogout,
 }
 
@@ -29,7 +26,7 @@ func init() {
 func runLogout(cmd *cobra.Command, args []string) error {
 	cfg := config.Load()
 
-	if !cfg.HasTokens() {
+	if !cfg.HasAPIToken() {
 		if logoutJSONOutput {
 			output.JSON(map[string]interface{}{
 				"status":  "success",
@@ -41,43 +38,14 @@ func runLogout(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Try to logout on server if we have tokens
-	if cfg.AccessToken != nil && *cfg.AccessToken != "" {
-		func() {
-			client, err := syfthub.NewClient(
-				syfthub.WithBaseURL(cfg.HubURL),
-				syfthub.WithTimeout(time.Duration(cfg.Timeout)*time.Second),
-			)
-			if err != nil {
-				return
-			}
-			defer client.Close()
-
-			// Set tokens
-			refreshToken := ""
-			if cfg.RefreshToken != nil {
-				refreshToken = *cfg.RefreshToken
-			}
-			client.SetTokens(&syfthub.AuthTokens{
-				AccessToken:  *cfg.AccessToken,
-				RefreshToken: refreshToken,
-			})
-
-			// Try server logout - ignore errors
-			ctx := context.Background()
-			client.Logout(ctx)
-		}()
-	}
-
-	// Clear local tokens
-	if err := config.ClearTokensAndSave(); err != nil {
+	if err := config.ClearAPITokenAndSave(); err != nil {
 		if logoutJSONOutput {
 			output.JSON(map[string]interface{}{
 				"status":  "error",
 				"message": err.Error(),
 			})
 		} else {
-			output.Error("Failed to clear tokens: %v", err)
+			output.Error("Failed to clear token: %v", err)
 		}
 		return err
 	}

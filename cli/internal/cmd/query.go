@@ -72,6 +72,9 @@ func runQuery(cmd *cobra.Command, args []string) error {
 	if aggregatorURL != "" {
 		opts = append(opts, syfthub.WithAggregatorURL(aggregatorURL))
 	}
+	if cfg.HasAPIToken() {
+		opts = append(opts, syfthub.WithAPIToken(*cfg.APIToken))
+	}
 
 	client, err := syfthub.NewClient(opts...)
 	if err != nil {
@@ -86,18 +89,6 @@ func runQuery(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer client.Close()
-
-	// Set tokens if available
-	if cfg.HasTokens() {
-		refreshToken := ""
-		if cfg.RefreshToken != nil {
-			refreshToken = *cfg.RefreshToken
-		}
-		client.SetTokens(&syfthub.AuthTokens{
-			AccessToken:  *cfg.AccessToken,
-			RefreshToken: refreshToken,
-		})
-	}
 
 	ctx := context.Background()
 

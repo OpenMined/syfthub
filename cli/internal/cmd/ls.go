@@ -50,10 +50,14 @@ func runLs(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create client
-	client, err := syfthub.NewClient(
+	clientOpts := []syfthub.Option{
 		syfthub.WithBaseURL(cfg.HubURL),
-		syfthub.WithTimeout(time.Duration(cfg.Timeout)*time.Second),
-	)
+		syfthub.WithTimeout(time.Duration(cfg.Timeout) * time.Second),
+	}
+	if cfg.HasAPIToken() {
+		clientOpts = append(clientOpts, syfthub.WithAPIToken(*cfg.APIToken))
+	}
+	client, err := syfthub.NewClient(clientOpts...)
 	if err != nil {
 		if lsJSONOutput {
 			output.JSON(map[string]interface{}{
@@ -66,18 +70,6 @@ func runLs(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer client.Close()
-
-	// Set tokens if available
-	if cfg.HasTokens() {
-		refreshToken := ""
-		if cfg.RefreshToken != nil {
-			refreshToken = *cfg.RefreshToken
-		}
-		client.SetTokens(&syfthub.AuthTokens{
-			AccessToken:  *cfg.AccessToken,
-			RefreshToken: refreshToken,
-		})
-	}
 
 	ctx := context.Background()
 

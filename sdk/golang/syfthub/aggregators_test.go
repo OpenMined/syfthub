@@ -18,9 +18,12 @@ func TestAggregatorsResourceList(t *testing.T) {
 				t.Errorf("method = %s", r.Method)
 			}
 
-			json.NewEncoder(w).Encode([]map[string]interface{}{
-				{"id": 1, "name": "Aggregator 1", "url": "https://agg1.example.com", "is_default": true},
-				{"id": 2, "name": "Aggregator 2", "url": "https://agg2.example.com", "is_default": false},
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"aggregators": []map[string]interface{}{
+					{"id": 1, "name": "Aggregator 1", "url": "https://agg1.example.com", "is_default": true},
+					{"id": 2, "name": "Aggregator 2", "url": "https://agg2.example.com", "is_default": false},
+				},
+				"default_aggregator_id": 1,
 			})
 		}))
 		defer server.Close()
@@ -46,7 +49,10 @@ func TestAggregatorsResourceList(t *testing.T) {
 
 	t.Run("empty list", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			json.NewEncoder(w).Encode(nil)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"aggregators":           []interface{}{},
+				"default_aggregator_id": nil,
+			})
 		}))
 		defer server.Close()
 

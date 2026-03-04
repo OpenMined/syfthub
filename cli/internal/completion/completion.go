@@ -37,7 +37,7 @@ type CompletionCache struct {
 
 // getCacheFile returns the path to the completion cache file.
 func getCacheFile() string {
-	return filepath.Join(os.Getenv("HOME"), ".syfthub", ".completion_cache.json")
+	return config.CompletionCacheFile
 }
 
 // getCachedEndpoints returns cached endpoints if valid.
@@ -65,25 +65,18 @@ func getCachedEndpoints() []CachedEndpoint {
 func fetchAndCacheEndpoints() []CachedEndpoint {
 	cfg := config.Load()
 
-	client, err := syfthub.NewClient(
+	opts := []syfthub.Option{
 		syfthub.WithBaseURL(cfg.HubURL),
-		syfthub.WithTimeout(10*time.Second),
-	)
+		syfthub.WithTimeout(10 * time.Second),
+	}
+	if cfg.HasAPIToken() {
+		opts = append(opts, syfthub.WithAPIToken(*cfg.APIToken))
+	}
+	client, err := syfthub.NewClient(opts...)
 	if err != nil {
 		return nil
 	}
 	defer client.Close()
-
-	if cfg.HasTokens() {
-		refreshToken := ""
-		if cfg.RefreshToken != nil {
-			refreshToken = *cfg.RefreshToken
-		}
-		client.SetTokens(&syfthub.AuthTokens{
-			AccessToken:  *cfg.AccessToken,
-			RefreshToken: refreshToken,
-		})
-	}
 
 	ctx := context.Background()
 	var endpoints []CachedEndpoint
