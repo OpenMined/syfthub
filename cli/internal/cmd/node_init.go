@@ -70,8 +70,8 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 	if cliCfg.HubURL != "" {
 		cfg.SyftHubURL = cliCfg.HubURL
 	}
-	if cliCfg.HasTokens() {
-		cfg.APIKey = *cliCfg.AccessToken
+	if cliCfg.HasAPIToken() {
+		cfg.APIKey = *cliCfg.APIToken
 	}
 
 	// Apply flag overrides

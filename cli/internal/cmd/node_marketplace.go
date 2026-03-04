@@ -1,10 +1,14 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
+	"os"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 
 	"github.com/OpenMined/syfthub/cli/internal/nodeconfig"
 	"github.com/OpenMined/syfthub/cli/internal/output"
@@ -162,8 +166,8 @@ func runNodeMarketplaceInstall(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Parse config values
-	var configValues []nodeops.EnvVar
+	// Build config values from --config flags
+	flagConfig := make(map[string]string)
 	for _, kv := range nodeMarketplaceInstallConfig {
 		parts := strings.SplitN(kv, "=", 2)
 		if len(parts) != 2 {
@@ -175,7 +179,103 @@ func runNodeMarketplaceInstall(cmd *cobra.Command, args []string) error {
 			}
 			return nil
 		}
-		configValues = append(configValues, nodeops.EnvVar{Key: parts[0], Value: parts[1]})
+		flagConfig[parts[0]] = parts[1]
+	}
+
+	// Prompt for config fields interactively (like the desktop app does)
+	var configValues []nodeops.EnvVar
+	if len(pkg.Config) > 0 {
+		if !nodeMarketplaceInstallJSON {
+			fmt.Printf("\n  '%s' requires configuration:\n\n", pkg.Name)
+		}
+
+		reader := bufio.NewReader(os.Stdin)
+		for _, field := range pkg.Config {
+			// Check if value was provided via --config flag
+			if val, ok := flagConfig[field.Key]; ok {
+				configValues = append(configValues, nodeops.EnvVar{Key: field.Key, Value: val})
+				delete(flagConfig, field.Key)
+				continue
+			}
+
+			// In JSON mode, don't prompt — just use defaults
+			if nodeMarketplaceInstallJSON {
+				if field.Default != "" {
+					configValues = append(configValues, nodeops.EnvVar{Key: field.Key, Value: field.Default})
+				}
+				continue
+			}
+
+			// Build prompt label
+			label := field.Label
+			if label == "" {
+				label = field.Key
+			}
+			if field.Description != "" {
+				output.Dim.Printf("  %s\n", field.Description)
+			}
+
+			reqTag := ""
+			if field.Required {
+				reqTag = " (required)"
+			}
+
+			var value string
+			if field.Secret {
+				// Read secret values without echoing
+				for {
+					if field.Default != "" {
+						fmt.Printf("  %s%s [****]: ", label, reqTag)
+					} else {
+						fmt.Printf("  %s%s: ", label, reqTag)
+					}
+					byteVal, err := term.ReadPassword(int(syscall.Stdin))
+					fmt.Println()
+					if err != nil {
+						return fmt.Errorf("failed to read input: %w", err)
+					}
+					value = strings.TrimSpace(string(byteVal))
+					if value == "" {
+						value = field.Default
+					}
+					if value != "" || !field.Required {
+						break
+					}
+					fmt.Println("    This field is required.")
+				}
+			} else {
+				// Read normal values
+				for {
+					if field.Default != "" {
+						fmt.Printf("  %s%s [%s]: ", label, reqTag, field.Default)
+					} else {
+						fmt.Printf("  %s%s: ", label, reqTag)
+					}
+					line, _ := reader.ReadString('\n')
+					value = strings.TrimSpace(line)
+					if value == "" {
+						value = field.Default
+					}
+					if value != "" || !field.Required {
+						break
+					}
+					fmt.Println("    This field is required.")
+				}
+			}
+
+			if value != "" {
+				configValues = append(configValues, nodeops.EnvVar{Key: field.Key, Value: value})
+			}
+		}
+
+		if !nodeMarketplaceInstallJSON {
+			fmt.Println()
+		}
+	}
+
+	// Append any remaining --config values not matching a config field
+	for k, v := range flagConfig {
+		configValues = append(configValues, nodeops.EnvVar{Key: k, Value: v})
 	}
 
 	if !nodeMarketplaceInstallJSON {

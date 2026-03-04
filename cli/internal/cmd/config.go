@@ -179,8 +179,7 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 		}
 
 		data := map[string]interface{}{
-			"access_token":        cfg.AccessToken,
-			"refresh_token":       cfg.RefreshToken,
+			"api_token":           cfg.APIToken,
 			"aggregators":         aggregators,
 			"accounting_services": accountingServices,
 			"default_aggregator":  cfg.DefaultAggregator,
@@ -196,23 +195,14 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 	} else {
 		var values []output.ConfigValue
 
-		// Access token
-		var accessToken string
-		if cfg.AccessToken != nil {
-			accessToken = output.MaskToken(*cfg.AccessToken)
+		// API token
+		var apiToken string
+		if cfg.APIToken != nil {
+			apiToken = output.MaskToken(*cfg.APIToken)
 		} else {
-			accessToken = output.Dim.Sprint("not set")
+			apiToken = output.Dim.Sprint("not set")
 		}
-		values = append(values, output.ConfigValue{Key: "access_token", Value: accessToken})
-
-		// Refresh token
-		var refreshToken string
-		if cfg.RefreshToken != nil {
-			refreshToken = output.MaskToken(*cfg.RefreshToken)
-		} else {
-			refreshToken = output.Dim.Sprint("not set")
-		}
-		values = append(values, output.ConfigValue{Key: "refresh_token", Value: refreshToken})
+		values = append(values, output.ConfigValue{Key: "api_token", Value: apiToken})
 
 		// Aggregators
 		values = append(values, output.ConfigValue{

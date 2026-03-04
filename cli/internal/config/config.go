@@ -41,11 +41,9 @@ type AccountingConfig struct {
 }
 
 // Config is the main configuration model for SyftHub CLI.
-// This struct mirrors the Python CLI config for cross-compatibility.
 type Config struct {
-	// Authentication tokens
-	AccessToken  *string `json:"access_token"`
-	RefreshToken *string `json:"refresh_token"`
+	// Authentication — API token (PAT) only
+	APIToken *string `json:"api_token"`
 
 	// Infrastructure aliases
 	Aggregators        map[string]AggregatorConfig `json:"aggregators"`
@@ -179,26 +177,24 @@ func (c *Config) GetAccountingURL(alias string) string {
 	return ""
 }
 
-// ClearTokens clears authentication tokens from config.
-func (c *Config) ClearTokens() {
-	c.AccessToken = nil
-	c.RefreshToken = nil
+// ClearAPIToken clears the API token from config.
+func (c *Config) ClearAPIToken() {
+	c.APIToken = nil
 }
 
-// SetTokens sets authentication tokens.
-func (c *Config) SetTokens(accessToken, refreshToken string) {
-	c.AccessToken = &accessToken
-	c.RefreshToken = &refreshToken
+// SetAPIToken sets the API token.
+func (c *Config) SetAPIToken(token string) {
+	c.APIToken = &token
 }
 
-// HasTokens returns true if access token is present.
-func (c *Config) HasTokens() bool {
-	return c.AccessToken != nil && *c.AccessToken != ""
+// HasAPIToken returns true if an API token is present.
+func (c *Config) HasAPIToken() bool {
+	return c.APIToken != nil && *c.APIToken != ""
 }
 
-// ClearTokensAndSave clears tokens and saves config.
-func ClearTokensAndSave() error {
+// ClearAPITokenAndSave clears the API token and saves config.
+func ClearAPITokenAndSave() error {
 	config := Load()
-	config.ClearTokens()
+	config.ClearAPIToken()
 	return config.Save()
 }

@@ -30,7 +30,7 @@ func init() {
 func runWhoami(cmd *cobra.Command, args []string) error {
 	cfg := config.Load()
 
-	if !cfg.HasTokens() {
+	if !cfg.HasAPIToken() {
 		if whoamiJSONOutput {
 			output.JSON(map[string]interface{}{
 				"status":  "error",
@@ -42,9 +42,9 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not logged in")
 	}
 
-	// Create client
 	client, err := syfthub.NewClient(
 		syfthub.WithBaseURL(cfg.HubURL),
+		syfthub.WithAPIToken(*cfg.APIToken),
 		syfthub.WithTimeout(time.Duration(cfg.Timeout)*time.Second),
 	)
 	if err != nil {
@@ -60,17 +60,6 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 	}
 	defer client.Close()
 
-	// Set tokens
-	refreshToken := ""
-	if cfg.RefreshToken != nil {
-		refreshToken = *cfg.RefreshToken
-	}
-	client.SetTokens(&syfthub.AuthTokens{
-		AccessToken:  *cfg.AccessToken,
-		RefreshToken: refreshToken,
-	})
-
-	// Get current user
 	ctx := context.Background()
 	user, err := client.Me(ctx)
 	if err != nil {
