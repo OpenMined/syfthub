@@ -5,7 +5,6 @@ go 1.24.0
 toolchain go1.24.1
 
 require (
-	github.com/OpenMined/syfthub/pkg/nodeops v0.0.0
 	github.com/charmbracelet/glamour v0.10.0
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/fatih/color v1.16.0
@@ -53,7 +52,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace (
-	github.com/OpenMined/syfthub/pkg/nodeops => ../pkg/nodeops
-	github.com/openmined/syfthub/sdk/golang => ../sdk/golang
-)
+replace github.com/openmined/syfthub/sdk/golang => ../sdk/golang

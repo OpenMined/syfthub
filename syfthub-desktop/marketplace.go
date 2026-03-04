@@ -9,7 +9,7 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"github.com/OpenMined/syfthub/pkg/nodeops"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
 // getMarketplaceURL returns the marketplace manifest URL derived from the configured

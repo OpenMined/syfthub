@@ -5,7 +5,6 @@ go 1.24.0
 toolchain go1.24.1
 
 require (
-	github.com/OpenMined/syfthub/pkg/nodeops v0.0.0-00010101000000-000000000000
 	github.com/joho/godotenv v1.5.1
 	github.com/openmined/syfthub/sdk/golang v0.0.0
 	github.com/wailsapp/wails/v2 v2.11.0
@@ -48,7 +47,4 @@ require (
 	golang.org/x/text v0.31.0 // indirect
 )
 
-replace (
-	github.com/OpenMined/syfthub/pkg/nodeops => ../pkg/nodeops
-	github.com/openmined/syfthub/sdk/golang => ../sdk/golang
-)
+replace github.com/openmined/syfthub/sdk/golang => ../sdk/golang

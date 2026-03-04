@@ -10,7 +10,7 @@ import (
 
 	"github.com/OpenMined/syfthub/cli/internal/nodeconfig"
 	"github.com/OpenMined/syfthub/cli/internal/output"
-	"github.com/OpenMined/syfthub/pkg/nodeops"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
 // --- Parent command ---

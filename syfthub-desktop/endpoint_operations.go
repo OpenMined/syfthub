@@ -14,7 +14,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"gopkg.in/yaml.v3"
 
-	"github.com/OpenMined/syfthub/pkg/nodeops"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
 // EndpointDetail provides full endpoint information for the detail view.
