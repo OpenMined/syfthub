@@ -214,9 +214,16 @@ class Settings(BaseSettings):
         )
 
     # ===========================================
-    # SMTP / EMAIL SETTINGS
+    # EMAIL SETTINGS
     # ===========================================
 
+    # Resend API (preferred provider)
+    resend_api_key: Optional[str] = Field(
+        default=None,
+        description="Resend API key for email delivery (preferred over SMTP)",
+    )
+
+    # SMTP (fallback provider)
     smtp_host: Optional[str] = Field(
         default=None,
         description="SMTP server hostname (None = email disabled)",
@@ -237,6 +244,8 @@ class Settings(BaseSettings):
         default=True,
         description="Use STARTTLS for SMTP connection",
     )
+
+    # Sender identity (shared by both providers)
     smtp_from_email: str = Field(
         default="noreply@syft.com",
         description="From address for outgoing emails",
@@ -247,9 +256,21 @@ class Settings(BaseSettings):
     )
 
     @property
+    def resend_configured(self) -> bool:
+        """Check if Resend API is configured."""
+        return self.resend_api_key is not None and len(self.resend_api_key.strip()) > 0
+
+    @property
     def smtp_configured(self) -> bool:
-        """Check if SMTP is configured and available for sending emails."""
-        return self.smtp_host is not None and len(self.smtp_host.strip()) > 0
+        """Check if email sending is configured (Resend or SMTP).
+
+        This property is used throughout the codebase to gate email-dependent
+        features (email verification, password reset). It returns True if
+        either Resend or SMTP is configured.
+        """
+        return self.resend_configured or (
+            self.smtp_host is not None and len(self.smtp_host.strip()) > 0
+        )
 
     # ===========================================
     # EMAIL VERIFICATION / OTP SETTINGS

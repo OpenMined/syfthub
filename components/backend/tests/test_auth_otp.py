@@ -404,9 +404,10 @@ def test_resend_otp_ip_rate_limit_swallowed(
 
 
 @pytest.mark.asyncio
-async def test_send_otp_email_retries_on_failure(monkeypatch) -> None:
+async def test_send_otp_email_retries_on_smtp_failure(monkeypatch) -> None:
     """send_otp_email retries on transient SMTP failure."""
     monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", None)
     monkeypatch.setattr("syfthub.core.config.settings.otp_email_max_retries", 3)
     monkeypatch.setattr(
         "syfthub.core.config.settings.otp_email_retry_delay_seconds", 0.01
@@ -432,6 +433,7 @@ async def test_send_otp_email_retries_on_failure(monkeypatch) -> None:
 async def test_send_otp_email_all_retries_exhausted(monkeypatch) -> None:
     """send_otp_email logs error when all retries are exhausted."""
     monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", None)
     monkeypatch.setattr("syfthub.core.config.settings.otp_email_max_retries", 2)
     monkeypatch.setattr(
         "syfthub.core.config.settings.otp_email_retry_delay_seconds", 0.01
@@ -448,6 +450,57 @@ async def test_send_otp_email_all_retries_exhausted(monkeypatch) -> None:
         await send_otp_email("test@example.com", "123456", "registration")
 
     assert mock.call_count == 2  # Tried max_retries times, no exception raised
+
+
+@pytest.mark.asyncio
+async def test_send_otp_email_uses_resend_when_configured(monkeypatch) -> None:
+    """send_otp_email uses Resend API when resend_api_key is set."""
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
+    monkeypatch.setattr("syfthub.core.config.settings.otp_email_max_retries", 1)
+    monkeypatch.setattr(
+        "syfthub.core.config.settings.otp_email_retry_delay_seconds", 0.01
+    )
+
+    with patch(
+        "syfthub.services.email_service.resend.Emails.send",
+        return_value={"id": "email-123"},
+    ) as mock_resend:
+        from syfthub.services.email_service import send_otp_email
+
+        await send_otp_email("test@example.com", "123456", "registration")
+
+    mock_resend.assert_called_once()
+    call_args = mock_resend.call_args[0][0]
+    assert call_args["to"] == ["test@example.com"]
+    assert "123456" in call_args["html"]
+
+
+@pytest.mark.asyncio
+async def test_send_otp_email_resend_retries_on_failure(monkeypatch) -> None:
+    """send_otp_email retries Resend API calls on transient failure."""
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
+    monkeypatch.setattr("syfthub.core.config.settings.otp_email_max_retries", 3)
+    monkeypatch.setattr(
+        "syfthub.core.config.settings.otp_email_retry_delay_seconds", 0.01
+    )
+
+    call_count = 0
+
+    def mock_send(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            raise ConnectionError("Resend API unreachable")
+        return {"id": "email-123"}
+
+    with patch(
+        "syfthub.services.email_service.resend.Emails.send", side_effect=mock_send
+    ):
+        from syfthub.services.email_service import send_otp_email
+
+        await send_otp_email("test@example.com", "123456", "registration")
+
+    assert call_count == 3
 
 
 # =============================================================================
