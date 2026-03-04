@@ -7,7 +7,7 @@ now declares JSONB (via JSON().with_variant(JSONB(), "postgresql")), so
 this migration brings older databases in line.
 
 Revision ID: 006_json_to_jsonb
-Revises: 005_otp_requester_ip
+Revises: 003_encryption_key
 Create Date: 2026-03-05 00:00:00.000000+00:00
 """
 
@@ -18,7 +18,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "006_json_to_jsonb"
-down_revision: str | None = "005_otp_requester_ip"
+down_revision: str | None = "003_encryption_key"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
