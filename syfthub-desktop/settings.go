@@ -12,28 +12,36 @@ import (
 
 // Settings holds persistent application settings.
 // These are stored in settings.json in the user config directory.
+// Fields and JSON names are shared with the CLI's nodeconfig.NodeConfig.
 type Settings struct {
 	SyftHubURL     string `json:"syfthubUrl"`
 	APIKey         string `json:"apiKey,omitempty"`
 	EndpointsPath  string `json:"endpointsPath"`
 	IsConfigured   bool   `json:"isConfigured"`
 	MarketplaceURL string `json:"marketplaceUrl,omitempty"`
+	LogLevel       string `json:"logLevel,omitempty"`
+	PythonPath     string `json:"pythonPath,omitempty"`
+	Port           int    `json:"port,omitempty"`
 }
 
 // DefaultSettings returns settings with sensible defaults.
 func DefaultSettings() *Settings {
+	endpointsPath := "endpoints"
+	if dir, err := getSettingsDir(); err == nil {
+		endpointsPath = filepath.Join(dir, "endpoints")
+	}
 	return &Settings{
 		SyftHubURL:    "https://syfthub-dev.openmined.org",
-		APIKey:        "",
-		EndpointsPath: ".endpoints",
-		IsConfigured:  false,
+		EndpointsPath: endpointsPath,
+		Port:          8000,
+		LogLevel:      "INFO",
 	}
 }
 
 // getSettingsDir returns the platform-specific settings directory.
-// On Windows: %APPDATA%\syfthub-desktop
-// On macOS: ~/Library/Application Support/syfthub-desktop
-// On Linux: ~/.config/syfthub-desktop
+// On Windows: %APPDATA%\syfthub
+// On macOS: ~/Library/Application Support/syfthub
+// On Linux: ~/.config/syfthub
 func getSettingsDir() (string, error) {
 	var baseDir string
 

@@ -78,7 +78,7 @@ func fromNodeopsMarketplacePackages(nPkgs []nodeops.MarketplacePackage) []Market
 	out := make([]MarketplacePackage, len(nPkgs))
 	for i, p := range nPkgs {
 		var configFields []PackageConfigField
-		for _, f := range p.ConfigFields {
+		for _, f := range p.Config {
 			configFields = append(configFields, PackageConfigField{
 				Key: f.Key, Label: f.Label, Description: f.Description,
 				Required: f.Required, Secret: f.Secret, Default: f.Default,
@@ -87,7 +87,7 @@ func fromNodeopsMarketplacePackages(nPkgs []nodeops.MarketplacePackage) []Market
 		out[i] = MarketplacePackage{
 			Slug: p.Slug, Name: p.Name, Description: p.Description,
 			Type: p.Type, Author: p.Author, Version: p.Version,
-			DownloadURL: p.DownloadURL, Tags: p.Tags, ConfigFields: configFields,
+			DownloadURL: p.DownloadURL, Tags: p.Tags, Config: configFields,
 		}
 	}
 	return out

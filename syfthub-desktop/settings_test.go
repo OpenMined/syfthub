@@ -18,10 +18,13 @@ func TestDefaultSettings(t *testing.T) {
 		t.Errorf("SyftHubURL = %q, want %q", settings.SyftHubURL, "https://syfthub-dev.openmined.org")
 	}
 	if settings.APIKey != "" {
-		t.Errorf("APIKey = %q, want empty string", settings.APIKey)
+		t.Errorf("APIKey should be empty by default, got %q", settings.APIKey)
 	}
-	if settings.EndpointsPath != ".endpoints" {
-		t.Errorf("EndpointsPath = %q, want %q", settings.EndpointsPath, ".endpoints")
+	if settings.Port != 8000 {
+		t.Errorf("Port = %d, want 8000", settings.Port)
+	}
+	if !filepath.IsAbs(settings.EndpointsPath) || filepath.Base(settings.EndpointsPath) != "endpoints" {
+		t.Errorf("EndpointsPath = %q, want absolute path ending in 'endpoints'", settings.EndpointsPath)
 	}
 	if settings.IsConfigured {
 		t.Error("IsConfigured should be false by default")
@@ -38,9 +41,9 @@ func TestGetSettingsDir(t *testing.T) {
 		t.Error("getSettingsDir returned empty string")
 	}
 
-	// Check that it ends with syfthub-desktop
-	if filepath.Base(dir) != "syfthub-desktop" {
-		t.Errorf("dir = %q, should end with 'syfthub-desktop'", dir)
+	// Check that it ends with syfthub
+	if filepath.Base(dir) != "syfthub" {
+		t.Errorf("dir = %q, should end with 'syfthub'", dir)
 	}
 
 	// Platform-specific checks
@@ -185,7 +188,7 @@ func TestLoadSettingsInvalidJSON(t *testing.T) {
 	}
 
 	// Create settings directory and invalid JSON file
-	settingsDir := filepath.Join(tempDir, "syfthub-desktop")
+	settingsDir := filepath.Join(tempDir, "syfthub")
 	os.MkdirAll(settingsDir, 0755)
 	settingsFile := filepath.Join(settingsDir, "settings.json")
 	os.WriteFile(settingsFile, []byte("invalid json {"), 0644)

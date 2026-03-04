@@ -102,7 +102,7 @@ func New(cfg *Config) (*App, error) {
 	logStorePath, err := logs.DefaultLogStorePath()
 	if err != nil {
 		logger.Warn("failed to get default log store path, using temp directory", "error", err)
-		logStorePath = filepath.Join(os.TempDir(), "syfthub-desktop", "logs")
+		logStorePath = filepath.Join(os.TempDir(), "syfthub", "logs")
 	}
 
 	logStore, err := logs.NewFileLogStore(logStorePath)

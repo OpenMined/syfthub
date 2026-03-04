@@ -19,7 +19,7 @@ import (
 // FileLogStore implements LogStore using JSON Lines files.
 // Logs are stored per-endpoint in daily files for easy ETL processing.
 type FileLogStore struct {
-	basePath string         // Base path for all logs (e.g., ~/.config/syfthub-desktop/logs)
+	basePath string         // Base path for all logs (e.g., ~/.config/syfthub/logs)
 	writeCh  chan writeJob  // Channel for async writes
 	done     chan struct{}  // Signal to stop writer goroutine
 	wg       sync.WaitGroup // Wait for writer to finish
@@ -423,5 +423,5 @@ func DefaultLogStorePath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(configDir, "syfthub-desktop", "logs"), nil
+	return filepath.Join(configDir, "syfthub", "logs"), nil
 }
