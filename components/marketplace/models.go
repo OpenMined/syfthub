@@ -39,7 +39,6 @@ type Package struct {
 	Config      []PackageConfigField `json:"config,omitempty"`
 	ZipSize     int64              `json:"zipSize,omitempty"`
 	ZipSHA256   string             `json:"zipSha256,omitempty"`
-	BuiltIn     bool               `json:"builtIn"`
 	CreatedAt   time.Time          `json:"createdAt"`
 	UpdatedAt   time.Time          `json:"updatedAt"`
 }
