@@ -17,6 +17,7 @@ from syfthub.core.config import settings
 from syfthub.domain.exceptions import (
     AccountingAccountExistsError,
     AccountingServiceUnavailableError,
+    EmailNotVerifiedError,
     InvalidAccountingPasswordError,
     UserAlreadyExistsError,
 )
@@ -237,12 +238,18 @@ class AuthService(BaseService):
         # Generate password hash for SyftHub
         password_hash = hash_password(register_data.password)
 
+        # Determine whether email verification is required
+        require_verification = (
+            settings.require_email_verification and settings.smtp_configured
+        )
+
         # Create user data
         user_data = UserCreate(
             username=register_data.username,
             email=register_data.email,
             full_name=register_data.full_name,
             is_active=True,
+            is_email_verified=not require_verification,
         )
 
         # Create user in database with accounting credentials
@@ -259,7 +266,28 @@ class AuthService(BaseService):
                 detail="Failed to create user account",
             )
 
-        # Create tokens
+        if require_verification:
+            # Return response WITHOUT tokens — client must verify OTP first
+            logger.info(
+                f"Registered user {user.username} — email verification required"
+            )
+            return RegistrationResponse(
+                user={
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "full_name": user.full_name,
+                    "role": user.role,
+                    "is_active": user.is_active,
+                    "created_at": user.created_at.isoformat(),
+                },
+                access_token=None,
+                refresh_token=None,
+                token_type="bearer",
+                requires_email_verification=True,
+            )
+
+        # No verification required — issue tokens immediately
         access_token = create_access_token(
             data={"sub": str(user.id), "username": user.username, "role": user.role}
         )
@@ -282,6 +310,7 @@ class AuthService(BaseService):
             access_token=access_token,
             refresh_token=refresh_token,
             token_type="bearer",
+            requires_email_verification=False,
         )
 
     def login_user(self, login_data: UserLogin) -> AuthResponse:
@@ -319,6 +348,14 @@ class AuthService(BaseService):
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Account is deactivated",
             )
+
+        # Check email verification when required
+        if (
+            settings.require_email_verification
+            and settings.smtp_configured
+            and not user.is_email_verified
+        ):
+            raise EmailNotVerifiedError()
 
         # Create tokens
         access_token = create_access_token(
@@ -456,6 +493,23 @@ class AuthService(BaseService):
         # Hash new password and update
         new_password_hash = hash_password(new_password)
         self.user_repository.update_password(current_user.id, new_password_hash)
+
+    def reset_password(self, email: str, new_password: str) -> None:
+        """Reset a user's password (called after OTP verification).
+
+        Silently succeeds if user doesn't exist or is OAuth-only,
+        because the OTP layer already validated the email.
+        """
+        model = self.user_repository.get_model_by_email(email)
+        if not model:
+            return
+        if not model.password_hash:
+            # OAuth-only user — can't reset password
+            return
+
+        new_hash = hash_password(new_password)
+        self.user_repository.update_password(model.id, new_hash)
+        logger.info(f"Password reset for {email}")
 
     def _verify_google_token(self, credential: str) -> dict[str, Any]:
         """Verify Google ID token and extract user info.
@@ -602,6 +656,7 @@ class AuthService(BaseService):
                     email=email,
                     full_name=full_name or email.split("@")[0],
                     is_active=True,
+                    is_email_verified=True,  # Google verifies emails before providing them
                 )
 
                 user = self.user_repository.create_user(

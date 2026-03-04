@@ -69,6 +69,29 @@ class AuthTokens(BaseModel):
     model_config = {"frozen": True}
 
 
+class RegisterResult(BaseModel):
+    """Result of user registration.
+
+    When ``requires_email_verification`` is True, the client must call
+    ``auth.verify_otp()`` before the user can log in.
+    """
+
+    user: User
+    requires_email_verification: bool = False
+
+    model_config = {"frozen": True}
+
+
+class AuthConfig(BaseModel):
+    """Platform authentication configuration (from GET /auth/config)."""
+
+    require_email_verification: bool = False
+    smtp_configured: bool = False
+    password_reset_enabled: bool = False
+
+    model_config = {"frozen": True}
+
+
 class SatelliteTokenResponse(BaseModel):
     """Response from satellite token endpoint.
 

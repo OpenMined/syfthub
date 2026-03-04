@@ -27,6 +27,9 @@ class UserModel(BaseModel, TimestampMixin):
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="user")
     password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_email_verified: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
 
     # OAuth fields
     auth_provider: Mapped[str] = mapped_column(

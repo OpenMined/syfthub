@@ -93,7 +93,13 @@ func runLogin(cmd *cobra.Command, args []string) error {
 				"message": err.Error(),
 			})
 		} else {
-			output.Error("Authentication failed: %v", err)
+			// Check for email-not-verified error
+			if strings.Contains(err.Error(), "EMAIL_NOT_VERIFIED") {
+				output.Error("Your email has not been verified.")
+				output.Info("Run 'syft verify-email' to complete verification.")
+			} else {
+				output.Error("Authentication failed: %v", err)
+			}
 		}
 		return err
 	}

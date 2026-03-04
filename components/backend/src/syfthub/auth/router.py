@@ -1,8 +1,9 @@
 """Authentication endpoints."""
 
+import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from fastapi.security import (
     HTTPAuthorizationCredentials,
     OAuth2PasswordRequestForm,
@@ -12,14 +13,28 @@ from syfthub.auth.db_dependencies import (
     get_current_active_user,
     security,
 )
-from syfthub.auth.security import blacklist_token
-from syfthub.database.dependencies import get_api_token_service, get_auth_service
+from syfthub.auth.security import (
+    blacklist_token,
+    create_access_token,
+    create_refresh_token,
+)
+from syfthub.core.config import settings
+from syfthub.database.dependencies import (
+    get_api_token_service,
+    get_auth_service,
+    get_otp_service,
+)
 from syfthub.domain.exceptions import (
     AccountingAccountExistsError,
     AccountingServiceUnavailableError,
+    EmailNotVerifiedError,
     InvalidAccountingPasswordError,
+    InvalidOTPError,
+    OTPMaxAttemptsError,
+    OTPRateLimitedError,
     UserAlreadyExistsError,
 )
+from syfthub.repositories.user import UserRepository
 from syfthub.schemas.api_token import (
     APIToken,
     APITokenCreate,
@@ -28,19 +43,68 @@ from syfthub.schemas.api_token import (
     APITokenUpdate,
 )
 from syfthub.schemas.auth import (
+    AuthConfigResponse,
     AuthResponse,
     GoogleAuthRequest,
     PasswordChange,
+    PasswordResetConfirm,
+    PasswordResetRequest,
     RefreshTokenRequest,
     RegistrationResponse,
+    ResendOTPRequest,
     Token,
     UserRegister,
+    VerifyOTPRequest,
 )
 from syfthub.schemas.user import User, UserResponse
 from syfthub.services.api_token_service import APITokenService
 from syfthub.services.auth_service import AuthService
+from syfthub.services.email_service import send_otp_email
+from syfthub.services.otp_service import OTPService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
+
+
+def _build_auth_response(user: User) -> AuthResponse:
+    """Build an AuthResponse with freshly minted tokens for a user."""
+    access_token = create_access_token(
+        data={"sub": str(user.id), "username": user.username, "role": user.role}
+    )
+    refresh_token = create_refresh_token(
+        data={"sub": str(user.id), "username": user.username}
+    )
+    return AuthResponse(
+        user={
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "is_active": user.is_active,
+            "created_at": user.created_at.isoformat(),
+        },
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer",
+    )
+
+
+@router.get("/config", response_model=AuthConfigResponse)
+async def get_auth_config() -> AuthConfigResponse:
+    """Return public authentication configuration.
+
+    No authentication required. Frontends use this to decide whether to show
+    email-verification or password-reset UI.
+    """
+    return AuthConfigResponse(
+        require_email_verification=(
+            settings.require_email_verification and settings.smtp_configured
+        ),
+        smtp_configured=settings.smtp_configured,
+        password_reset_enabled=settings.smtp_configured,
+    )
 
 
 @router.post(
@@ -106,11 +170,14 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
 )
 async def register_user(
     user_data: UserRegister,
+    background_tasks: BackgroundTasks,
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
+    otp_service: Annotated[OTPService, Depends(get_otp_service)],
 ) -> RegistrationResponse:
     """Register a new user.
 
-    This endpoint handles user registration with optional accounting service integration.
+    This endpoint handles user registration with optional accounting service integration
+    and optional email OTP verification.
 
     If username or email already exists in SyftHub, a 409 Conflict is returned.
 
@@ -119,18 +186,23 @@ async def register_user(
     exists in the accounting service, a 424 Failed Dependency response is returned and
     the user must provide their existing accounting password to link accounts.
 
-    Flow:
-    1. User submits registration without accounting_password
-    2. If accounting URL is configured, backend tries to create accounting account
-    3. If 424 (email exists in accounting), return error with requires_accounting_password=True
-    4. User re-submits with their existing accounting_password
-    5. Backend validates credentials and completes registration
+    When email verification is enabled (REQUIRE_EMAIL_VERIFICATION=true and SMTP configured),
+    the response will have null tokens and requires_email_verification=True. The client must
+    call /auth/register/verify-otp with the code sent to the user's email.
     """
     try:
-        return auth_service.register(user_data)
+        result = auth_service.register(user_data)
+
+        # If email verification is required, generate and send OTP
+        if result.requires_email_verification:
+            code = otp_service.generate_otp(user_data.email, "registration")
+            background_tasks.add_task(
+                send_otp_email, user_data.email, code, "registration"
+            )
+
+        return result
 
     except UserAlreadyExistsError as e:
-        # Username or email already exists in SyftHub
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -141,8 +213,6 @@ async def register_user(
         ) from e
 
     except AccountingAccountExistsError as e:
-        # Email already exists in accounting service - user needs to provide password
-        # Using 424 Failed Dependency to distinguish from SyftHub user duplication (409)
         raise HTTPException(
             status_code=status.HTTP_424_FAILED_DEPENDENCY,
             detail={
@@ -153,7 +223,6 @@ async def register_user(
         ) from e
 
     except InvalidAccountingPasswordError as e:
-        # User provided wrong accounting password
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
@@ -163,7 +232,6 @@ async def register_user(
         ) from e
 
     except AccountingServiceUnavailableError as e:
-        # Accounting service is down or returned unexpected error
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
@@ -179,7 +247,16 @@ async def login_for_access_token(
     auth_service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> AuthResponse:
     """OAuth2 compatible token login, get an access token for future requests."""
-    return auth_service.login(form_data.username, form_data.password)
+    try:
+        return auth_service.login(form_data.username, form_data.password)
+    except EmailNotVerifiedError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": e.error_code,
+                "message": e.message,
+            },
+        ) from e
 
 
 @router.post(
@@ -256,6 +333,151 @@ async def change_password(
     auth_service.change_password(
         current_user, password_data.current_password, password_data.new_password
     )
+
+
+# =============================================================================
+# Email OTP Endpoints
+# =============================================================================
+
+
+@router.post("/register/verify-otp", response_model=AuthResponse)
+async def verify_registration_otp(
+    body: VerifyOTPRequest,
+    otp_service: Annotated[OTPService, Depends(get_otp_service)],
+) -> AuthResponse:
+    """Verify the registration OTP and return auth tokens.
+
+    After a successful registration that requires email verification,
+    the client calls this endpoint with the 6-digit code sent to the
+    user's email. On success, tokens are returned.
+    """
+    # Verify OTP first — avoids leaking user existence on invalid codes
+    try:
+        otp_service.verify_otp(body.email, body.code, "registration")
+    except InvalidOTPError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": e.error_code, "message": e.message},
+        ) from e
+    except OTPMaxAttemptsError as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"code": e.error_code, "message": e.message},
+        ) from e
+
+    user_repo = UserRepository(otp_service.otp_repo.session)
+    user = user_repo.get_by_email(body.email)
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "INVALID_OTP",
+                "message": "Invalid or expired verification code",
+            },
+        )
+
+    # Mark email verified (idempotent)
+    if not user.is_email_verified:
+        user_repo.set_email_verified(user.id)
+
+    return _build_auth_response(user)
+
+
+@router.post(
+    "/register/resend-otp",
+    status_code=status.HTTP_200_OK,
+)
+async def resend_registration_otp(
+    body: ResendOTPRequest,
+    background_tasks: BackgroundTasks,
+    otp_service: Annotated[OTPService, Depends(get_otp_service)],
+) -> dict[str, str]:
+    """Resend the registration OTP code.
+
+    Rate-limited: max 3 requests per 10-minute window.
+    Always returns 200 to prevent email enumeration.
+    """
+    try:
+        user_repo = UserRepository(otp_service.otp_repo.session)
+        user = user_repo.get_by_email(body.email)
+
+        if user and not user.is_email_verified:
+            code = otp_service.generate_otp(body.email, "registration")
+            background_tasks.add_task(send_otp_email, body.email, code, "registration")
+    except OTPRateLimitedError:
+        # Swallow to prevent email enumeration via 429 vs 200 distinction
+        logger.warning("OTP rate limit hit in resend-otp for %s", body.email)
+    except Exception:
+        # Silently succeed to prevent enumeration
+        logger.exception("Error in resend-otp for %s", body.email)
+
+    return {
+        "message": "If the email is registered and unverified, a new code was sent."
+    }
+
+
+@router.post(
+    "/password-reset/request",
+    status_code=status.HTTP_200_OK,
+)
+async def request_password_reset(
+    body: PasswordResetRequest,
+    background_tasks: BackgroundTasks,
+    otp_service: Annotated[OTPService, Depends(get_otp_service)],
+) -> dict[str, str]:
+    """Request a password-reset OTP.
+
+    Always returns 200 to prevent email enumeration. If SMTP is not
+    configured, silently does nothing.
+    """
+    if not settings.smtp_configured:
+        return {"message": "If the email is registered, a reset code was sent."}
+
+    try:
+        user_repo = UserRepository(otp_service.otp_repo.session)
+        model = user_repo.get_model_by_email(body.email)
+
+        # Only send if user exists and has a password (not OAuth-only)
+        if model and model.password_hash:
+            code = otp_service.generate_otp(body.email, "password_reset")
+            background_tasks.add_task(
+                send_otp_email, body.email, code, "password_reset"
+            )
+    except OTPRateLimitedError:
+        # Swallow to prevent email enumeration via 429 vs 200 distinction
+        logger.warning("OTP rate limit hit in password-reset for %s", body.email)
+    except Exception:
+        logger.exception("Error in password-reset request for %s", body.email)
+
+    return {"message": "If the email is registered, a reset code was sent."}
+
+
+@router.post(
+    "/password-reset/confirm",
+    status_code=status.HTTP_200_OK,
+)
+async def confirm_password_reset(
+    body: PasswordResetConfirm,
+    auth_service: Annotated[AuthService, Depends(get_auth_service)],
+    otp_service: Annotated[OTPService, Depends(get_otp_service)],
+) -> dict[str, str]:
+    """Verify the password-reset OTP and set a new password."""
+    try:
+        otp_service.verify_otp(body.email, body.code, "password_reset")
+    except InvalidOTPError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": e.error_code, "message": e.message},
+        ) from e
+    except OTPMaxAttemptsError as e:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={"code": e.error_code, "message": e.message},
+        ) from e
+
+    auth_service.reset_password(body.email, body.new_password)
+    return {"message": "Password has been reset successfully."}
 
 
 # =============================================================================

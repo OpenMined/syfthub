@@ -195,7 +195,10 @@ export type {
   APITokenCreateResponse,
   CreateAPITokenInput,
   UpdateAPITokenInput,
-  APITokenListResponse
+  APITokenListResponse,
+  // Auth OTP types
+  RegisterResult,
+  AuthConfig
 } from '@syfthub/sdk';
 
 // Re-export chat types for frontend usage

@@ -214,6 +214,69 @@ class Settings(BaseSettings):
         )
 
     # ===========================================
+    # SMTP / EMAIL SETTINGS
+    # ===========================================
+
+    smtp_host: Optional[str] = Field(
+        default=None,
+        description="SMTP server hostname (None = email disabled)",
+    )
+    smtp_port: int = Field(
+        default=587,
+        description="SMTP server port",
+    )
+    smtp_username: Optional[str] = Field(
+        default=None,
+        description="SMTP authentication username",
+    )
+    smtp_password: Optional[str] = Field(
+        default=None,
+        description="SMTP authentication password",
+    )
+    smtp_use_tls: bool = Field(
+        default=True,
+        description="Use STARTTLS for SMTP connection",
+    )
+    smtp_from_email: str = Field(
+        default="noreply@syft.com",
+        description="From address for outgoing emails",
+    )
+    smtp_from_name: str = Field(
+        default="SyftHub",
+        description="From display name for outgoing emails",
+    )
+
+    @property
+    def smtp_configured(self) -> bool:
+        """Check if SMTP is configured and available for sending emails."""
+        return self.smtp_host is not None and len(self.smtp_host.strip()) > 0
+
+    # ===========================================
+    # EMAIL VERIFICATION / OTP SETTINGS
+    # ===========================================
+
+    require_email_verification: bool = Field(
+        default=False,
+        description="Require email OTP verification for new registrations",
+    )
+    otp_expiry_minutes: int = Field(
+        default=10,
+        description="OTP code expiry in minutes",
+    )
+    otp_max_attempts: int = Field(
+        default=5,
+        description="Max OTP verification attempts before code is invalidated",
+    )
+    otp_rate_limit_max_requests: int = Field(
+        default=3,
+        description="Max OTP send requests per rate limit window",
+    )
+    otp_rate_limit_window_minutes: int = Field(
+        default=10,
+        description="OTP rate limit window in minutes",
+    )
+
+    # ===========================================
     # ACCOUNTING SERVICE SETTINGS
     # ===========================================
 
