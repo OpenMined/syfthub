@@ -1,13 +1,11 @@
-"""Async email delivery service supporting Resend API and SMTP fallback."""
+"""Async email delivery service using Resend API."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from email.message import EmailMessage
 from pathlib import Path
 
-import aiosmtplib
 import resend
 from jinja2 import Environment, FileSystemLoader
 
@@ -48,31 +46,9 @@ async def _send_via_resend(
     await asyncio.to_thread(resend.Emails.send, params)
 
 
-async def _send_via_smtp(
-    to_email: str, subject: str, html_body: str, plain_text: str
-) -> None:
-    """Send email via SMTP/STARTTLS."""
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = f"{settings.smtp_from_name} <{settings.smtp_from_email}>"
-    msg["To"] = to_email
-    msg.set_content(plain_text)
-    msg.add_alternative(html_body, subtype="html")
-
-    await aiosmtplib.send(
-        msg,
-        hostname=settings.smtp_host,
-        port=settings.smtp_port,
-        username=settings.smtp_username,
-        password=settings.smtp_password,
-        start_tls=settings.smtp_use_tls,
-    )
-
-
 async def send_otp_email(to_email: str, code: str, purpose: str) -> None:
-    """Send an OTP code via email.
+    """Send an OTP code via Resend API.
 
-    Uses Resend API when configured, falls back to SMTP.
     Designed to be called from FastAPI BackgroundTasks so it
     does not block the API response. Failures are logged but not raised.
 
@@ -96,20 +72,16 @@ async def send_otp_email(to_email: str, code: str, purpose: str) -> None:
         f"This code expires in {settings.otp_expiry_minutes} minutes."
     )
 
-    send_fn = _send_via_resend if settings.resend_configured else _send_via_smtp
-    provider = "resend" if settings.resend_configured else "smtp"
-
     max_retries = settings.otp_email_max_retries
     base_delay = settings.otp_email_retry_delay_seconds
 
     for attempt in range(1, max_retries + 1):
         try:
-            await send_fn(to_email, subject, html_body, plain_text)
+            await _send_via_resend(to_email, subject, html_body, plain_text)
             logger.info(
-                "OTP email sent to %s (purpose=%s, provider=%s)",
+                "OTP email sent to %s (purpose=%s)",
                 to_email,
                 purpose,
-                provider,
             )
             return
         except Exception:
@@ -125,10 +97,8 @@ async def send_otp_email(to_email: str, code: str, purpose: str) -> None:
                 await asyncio.sleep(delay)
             else:
                 logger.error(
-                    "OTP email delivery failed after %d attempts for %s "
-                    "(purpose=%s, provider=%s)",
+                    "OTP email delivery failed after %d attempts for %s (purpose=%s)",
                     max_retries,
                     to_email,
                     purpose,
-                    provider,
                 )

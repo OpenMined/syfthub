@@ -51,7 +51,7 @@ def _register_user(client: TestClient, **overrides) -> dict:
 
 
 def test_auth_config_defaults(client: TestClient) -> None:
-    """Config returns defaults when SMTP is not configured."""
+    """Config returns defaults when email is not configured."""
     response = client.get("/api/v1/auth/config")
     assert response.status_code == 200
     data = response.json()
@@ -60,9 +60,9 @@ def test_auth_config_defaults(client: TestClient) -> None:
     assert data["password_reset_enabled"] is False
 
 
-def test_auth_config_smtp_enabled(client: TestClient, monkeypatch) -> None:
-    """Config reflects SMTP + verification settings."""
-    monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
+def test_auth_config_email_enabled(client: TestClient, monkeypatch) -> None:
+    """Config reflects Resend + verification settings."""
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
     monkeypatch.setattr("syfthub.core.config.settings.require_email_verification", True)
 
     response = client.get("/api/v1/auth/config")
@@ -88,7 +88,7 @@ def test_register_without_verification(client: TestClient) -> None:
 @patch("syfthub.auth.router.send_otp_email", new_callable=AsyncMock)
 def test_register_with_verification(mock_send, client: TestClient, monkeypatch) -> None:
     """Registration withholds tokens when verification is enabled."""
-    monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
     monkeypatch.setattr("syfthub.core.config.settings.require_email_verification", True)
 
     result = _register_user(client)
@@ -106,7 +106,7 @@ def test_register_with_verification(mock_send, client: TestClient, monkeypatch) 
 @patch("syfthub.auth.router.send_otp_email", new_callable=AsyncMock)
 def test_verify_otp_success(mock_send, client: TestClient, monkeypatch) -> None:
     """Verifying valid OTP returns tokens and marks email verified."""
-    monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
     monkeypatch.setattr("syfthub.core.config.settings.require_email_verification", True)
 
     # Register (tokens withheld)
@@ -131,7 +131,7 @@ def test_verify_otp_invalid_code(mock_send, client: TestClient, monkeypatch) -> 
     """Invalid OTP code returns 400."""
     from syfthub.domain.exceptions import InvalidOTPError
 
-    monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
     monkeypatch.setattr("syfthub.core.config.settings.require_email_verification", True)
 
     _register_user(client)
@@ -154,7 +154,7 @@ def test_verify_otp_max_attempts(mock_send, client: TestClient, monkeypatch) -> 
     """Exceeding max attempts returns 429."""
     from syfthub.domain.exceptions import OTPMaxAttemptsError
 
-    monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
     monkeypatch.setattr("syfthub.core.config.settings.require_email_verification", True)
 
     _register_user(client)
@@ -208,7 +208,7 @@ def test_verify_otp_already_verified(client: TestClient) -> None:
 @patch("syfthub.auth.router.send_otp_email", new_callable=AsyncMock)
 def test_resend_otp_success(mock_send, client: TestClient, monkeypatch) -> None:
     """Resend OTP returns 200 for unverified user."""
-    monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
     monkeypatch.setattr("syfthub.core.config.settings.require_email_verification", True)
 
     _register_user(client)
@@ -237,7 +237,7 @@ def test_resend_otp_nonexistent_email(client: TestClient) -> None:
 @patch("syfthub.auth.router.send_otp_email", new_callable=AsyncMock)
 def test_login_blocked_unverified(mock_send, client: TestClient, monkeypatch) -> None:
     """Login with unverified email returns 403."""
-    monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
     monkeypatch.setattr("syfthub.core.config.settings.require_email_verification", True)
 
     _register_user(client)
@@ -255,8 +255,8 @@ def test_login_blocked_unverified(mock_send, client: TestClient, monkeypatch) ->
 # =============================================================================
 
 
-def test_password_reset_request_no_smtp(client: TestClient) -> None:
-    """Password reset request returns 200 even without SMTP."""
+def test_password_reset_request_no_email(client: TestClient) -> None:
+    """Password reset request returns 200 even without email configured."""
     response = client.post(
         "/api/v1/auth/password-reset/request",
         json={"email": "otp@example.com"},
@@ -265,11 +265,11 @@ def test_password_reset_request_no_smtp(client: TestClient) -> None:
 
 
 @patch("syfthub.auth.router.send_otp_email", new_callable=AsyncMock)
-def test_password_reset_request_with_smtp(
+def test_password_reset_request_with_email(
     mock_send, client: TestClient, monkeypatch
 ) -> None:
-    """Password reset request sends OTP when SMTP is configured."""
-    monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
+    """Password reset request sends OTP when email is configured."""
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
 
     _register_user(client)
 
@@ -284,7 +284,7 @@ def test_password_reset_request_nonexistent_email(
     client: TestClient, monkeypatch
 ) -> None:
     """Password reset for unknown email returns 200 (no enumeration)."""
-    monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
 
     response = client.post(
         "/api/v1/auth/password-reset/request",
@@ -298,7 +298,7 @@ def test_password_reset_confirm_success(
     mock_send, client: TestClient, monkeypatch
 ) -> None:
     """Password reset confirm with valid OTP succeeds."""
-    monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
 
     _register_user(client)
 
@@ -353,7 +353,7 @@ def test_password_reset_confirm_invalid_code(client: TestClient) -> None:
 @patch("syfthub.auth.router.send_otp_email", new_callable=AsyncMock)
 def test_register_ip_rate_limit(mock_send, client: TestClient, monkeypatch) -> None:
     """Registration is blocked when per-IP OTP rate limit is exceeded."""
-    monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
     monkeypatch.setattr("syfthub.core.config.settings.require_email_verification", True)
     monkeypatch.setattr(
         "syfthub.core.config.settings.otp_ip_rate_limit_max_requests", 2
@@ -382,7 +382,7 @@ def test_resend_otp_ip_rate_limit_swallowed(
     mock_send, client: TestClient, monkeypatch
 ) -> None:
     """Resend-otp swallows IP rate limit error to prevent enumeration."""
-    monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
+    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
     monkeypatch.setattr("syfthub.core.config.settings.require_email_verification", True)
     monkeypatch.setattr(
         "syfthub.core.config.settings.otp_ip_rate_limit_max_requests", 1
@@ -404,57 +404,8 @@ def test_resend_otp_ip_rate_limit_swallowed(
 
 
 @pytest.mark.asyncio
-async def test_send_otp_email_retries_on_smtp_failure(monkeypatch) -> None:
-    """send_otp_email retries on transient SMTP failure."""
-    monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
-    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", None)
-    monkeypatch.setattr("syfthub.core.config.settings.otp_email_max_retries", 3)
-    monkeypatch.setattr(
-        "syfthub.core.config.settings.otp_email_retry_delay_seconds", 0.01
-    )
-
-    call_count = 0
-
-    async def mock_send(*args, **kwargs):
-        nonlocal call_count
-        call_count += 1
-        if call_count < 3:
-            raise ConnectionError("SMTP unreachable")
-
-    with patch("syfthub.services.email_service.aiosmtplib.send", side_effect=mock_send):
-        from syfthub.services.email_service import send_otp_email
-
-        await send_otp_email("test@example.com", "123456", "registration")
-
-    assert call_count == 3  # Failed twice, succeeded on third
-
-
-@pytest.mark.asyncio
-async def test_send_otp_email_all_retries_exhausted(monkeypatch) -> None:
-    """send_otp_email logs error when all retries are exhausted."""
-    monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
-    monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", None)
-    monkeypatch.setattr("syfthub.core.config.settings.otp_email_max_retries", 2)
-    monkeypatch.setattr(
-        "syfthub.core.config.settings.otp_email_retry_delay_seconds", 0.01
-    )
-
-    async def always_fail(*args, **kwargs):
-        raise ConnectionError("SMTP unreachable")
-
-    with patch(
-        "syfthub.services.email_service.aiosmtplib.send", side_effect=always_fail
-    ) as mock:
-        from syfthub.services.email_service import send_otp_email
-
-        await send_otp_email("test@example.com", "123456", "registration")
-
-    assert mock.call_count == 2  # Tried max_retries times, no exception raised
-
-
-@pytest.mark.asyncio
-async def test_send_otp_email_uses_resend_when_configured(monkeypatch) -> None:
-    """send_otp_email uses Resend API when resend_api_key is set."""
+async def test_send_otp_email_sends_via_resend(monkeypatch) -> None:
+    """send_otp_email sends via Resend API."""
     monkeypatch.setattr("syfthub.core.config.settings.resend_api_key", "re_test_key")
     monkeypatch.setattr("syfthub.core.config.settings.otp_email_max_retries", 1)
     monkeypatch.setattr(
