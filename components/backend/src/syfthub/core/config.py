@@ -251,10 +251,6 @@ class Settings(BaseSettings):
     # EMAIL VERIFICATION / OTP SETTINGS
     # ===========================================
 
-    require_email_verification: bool = Field(
-        default=False,
-        description="Require email OTP verification for new registrations",
-    )
     otp_expiry_minutes: int = Field(
         default=10,
         description="OTP code expiry in minutes",

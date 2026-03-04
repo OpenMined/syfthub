@@ -99,9 +99,7 @@ async def get_auth_config() -> AuthConfigResponse:
     email-verification or password-reset UI.
     """
     return AuthConfigResponse(
-        require_email_verification=(
-            settings.require_email_verification and settings.smtp_configured
-        ),
+        require_email_verification=settings.smtp_configured,
         smtp_configured=settings.smtp_configured,
         password_reset_enabled=settings.smtp_configured,
     )
