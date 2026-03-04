@@ -17,6 +17,9 @@ var Version = "dev"
 //go:embed all:frontend/dist
 var assets embed.FS
 
+//go:embed build/appicon.png
+var icon []byte
+
 func main() {
 	// Create an instance of the app structure
 	app := NewApp()
@@ -69,11 +72,13 @@ func main() {
 			About: &mac.AboutInfo{
 				Title:   "SyftHub Desktop",
 				Message: "Manage your SyftHub endpoints\nVersion: " + Version,
+				Icon:    icon,
 			},
 		},
 		// Linux: Limited title bar customization (controlled by window manager)
 		Linux: &linux.Options{
 			ProgramName: "SyftHub Desktop",
+			Icon:        icon,
 		},
 	})
 
