@@ -36,6 +36,7 @@ from syfthub.database.dependencies import (
     get_user_repository,
 )
 from syfthub.jobs.health_monitor import EndpointHealthMonitor
+from syfthub.jobs.otp_cleanup import OTPCleanupJob
 from syfthub.observability import (
     CorrelationIDMiddleware,
     RequestLoggingMiddleware,
@@ -318,6 +319,10 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         logger.info("Endpoint Health Monitor is disabled")
 
+    # Initialize OTP Cleanup Job
+    otp_cleanup = OTPCleanupJob(settings)
+    otp_cleanup_task = asyncio.create_task(otp_cleanup.start())
+
     yield
 
     # Shutdown
@@ -328,6 +333,13 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         with contextlib.suppress(asyncio.CancelledError):
             await health_monitor_task
         logger.info("Endpoint Health Monitor stopped")
+
+    logger.info("Stopping OTP Cleanup Job...")
+    await otp_cleanup.stop()
+    otp_cleanup_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await otp_cleanup_task
+    logger.info("OTP Cleanup Job stopped")
 
     # Close Redis connection
     logger.info("Closing Redis connection...")

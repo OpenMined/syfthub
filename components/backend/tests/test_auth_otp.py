@@ -343,3 +343,185 @@ def test_password_reset_confirm_invalid_code(client: TestClient) -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "INVALID_OTP"
+
+
+# =============================================================================
+# IP rate limiting
+# =============================================================================
+
+
+@patch("syfthub.auth.router.send_otp_email", new_callable=AsyncMock)
+def test_register_ip_rate_limit(mock_send, client: TestClient, monkeypatch) -> None:
+    """Registration is blocked when per-IP OTP rate limit is exceeded."""
+    monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
+    monkeypatch.setattr("syfthub.core.config.settings.require_email_verification", True)
+    monkeypatch.setattr(
+        "syfthub.core.config.settings.otp_ip_rate_limit_max_requests", 2
+    )
+
+    # First two registrations should succeed
+    _register_user(client, username="user1", email="u1@example.com")
+    _register_user(client, username="user2", email="u2@example.com")
+
+    # Third should hit IP rate limit (TestClient always uses same IP)
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "username": "user3",
+            "email": "u3@example.com",
+            "full_name": "User Three",
+            "password": "testpass123",
+        },
+    )
+    # OTPRateLimitedError propagates from register_user → 429
+    assert response.status_code == 429
+
+
+@patch("syfthub.auth.router.send_otp_email", new_callable=AsyncMock)
+def test_resend_otp_ip_rate_limit_swallowed(
+    mock_send, client: TestClient, monkeypatch
+) -> None:
+    """Resend-otp swallows IP rate limit error to prevent enumeration."""
+    monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
+    monkeypatch.setattr("syfthub.core.config.settings.require_email_verification", True)
+    monkeypatch.setattr(
+        "syfthub.core.config.settings.otp_ip_rate_limit_max_requests", 1
+    )
+
+    _register_user(client)
+
+    # Second resend should hit IP rate limit, but endpoint swallows it
+    response = client.post(
+        "/api/v1/auth/register/resend-otp",
+        json={"email": "otp@example.com"},
+    )
+    assert response.status_code == 200
+
+
+# =============================================================================
+# Email retry
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_send_otp_email_retries_on_failure(monkeypatch) -> None:
+    """send_otp_email retries on transient SMTP failure."""
+    monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
+    monkeypatch.setattr("syfthub.core.config.settings.otp_email_max_retries", 3)
+    monkeypatch.setattr(
+        "syfthub.core.config.settings.otp_email_retry_delay_seconds", 0.01
+    )
+
+    call_count = 0
+
+    async def mock_send(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            raise ConnectionError("SMTP unreachable")
+
+    with patch("syfthub.services.email_service.aiosmtplib.send", side_effect=mock_send):
+        from syfthub.services.email_service import send_otp_email
+
+        await send_otp_email("test@example.com", "123456", "registration")
+
+    assert call_count == 3  # Failed twice, succeeded on third
+
+
+@pytest.mark.asyncio
+async def test_send_otp_email_all_retries_exhausted(monkeypatch) -> None:
+    """send_otp_email logs error when all retries are exhausted."""
+    monkeypatch.setattr("syfthub.core.config.settings.smtp_host", "smtp.test.com")
+    monkeypatch.setattr("syfthub.core.config.settings.otp_email_max_retries", 2)
+    monkeypatch.setattr(
+        "syfthub.core.config.settings.otp_email_retry_delay_seconds", 0.01
+    )
+
+    async def always_fail(*args, **kwargs):
+        raise ConnectionError("SMTP unreachable")
+
+    with patch(
+        "syfthub.services.email_service.aiosmtplib.send", side_effect=always_fail
+    ) as mock:
+        from syfthub.services.email_service import send_otp_email
+
+        await send_otp_email("test@example.com", "123456", "registration")
+
+    assert mock.call_count == 2  # Tried max_retries times, no exception raised
+
+
+# =============================================================================
+# OTP cleanup
+# =============================================================================
+
+
+def test_otp_cleanup_deletes_stale_records(client: TestClient, monkeypatch) -> None:
+    """delete_expired_used removes old expired/used records but keeps active ones."""
+    from datetime import datetime, timedelta, timezone
+
+    from syfthub.database.connection import db_manager
+    from syfthub.repositories.otp import OTPRepository
+
+    session = db_manager.get_session()
+    try:
+        repo = OTPRepository(session)
+        now = datetime.now(timezone.utc)
+
+        # Create an old used record (should be deleted)
+        repo.create_otp(
+            email="old@example.com",
+            code_hash="a" * 64,
+            purpose="registration",
+            expires_at=now - timedelta(hours=48),
+        )
+        repo.invalidate_existing("old@example.com", "registration")
+
+        # Create a recent active record (should be kept)
+        repo.create_otp(
+            email="new@example.com",
+            code_hash="b" * 64,
+            purpose="registration",
+            expires_at=now + timedelta(minutes=10),
+        )
+
+        deleted = repo.delete_expired_used(retention_hours=24)
+        assert deleted >= 1
+
+        # Active record should still exist
+        active = repo.get_active_otp("new@example.com", "registration")
+        assert active is not None
+    finally:
+        session.close()
+
+
+def test_create_otp_stores_requester_ip(client: TestClient) -> None:
+    """create_otp stores the requester_ip when provided."""
+    from datetime import datetime, timedelta, timezone
+
+    from syfthub.database.connection import db_manager
+    from syfthub.repositories.otp import OTPRepository
+
+    session = db_manager.get_session()
+    try:
+        repo = OTPRepository(session)
+        now = datetime.now(timezone.utc)
+
+        otp = repo.create_otp(
+            email="ip@example.com",
+            code_hash="c" * 64,
+            purpose="registration",
+            expires_at=now + timedelta(minutes=10),
+            requester_ip="192.168.1.1",
+        )
+        assert otp is not None
+        assert otp.requester_ip == "192.168.1.1"
+
+        # count_recent_by_ip should find it
+        count = repo.count_recent_by_ip("192.168.1.1", window_minutes=10)
+        assert count == 1
+
+        # Different IP should not find it
+        count = repo.count_recent_by_ip("10.0.0.1", window_minutes=10)
+        assert count == 0
+    finally:
+        session.close()

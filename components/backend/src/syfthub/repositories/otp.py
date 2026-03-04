@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 
 from syfthub.models.otp import OTPCodeModel
 from syfthub.repositories.base import BaseRepository
@@ -27,6 +27,7 @@ class OTPRepository(BaseRepository[OTPCodeModel]):
         code_hash: str,
         purpose: str,
         expires_at: datetime,
+        requester_ip: Optional[str] = None,
     ) -> Optional[OTPCodeModel]:
         """Create a new OTP code record."""
         try:
@@ -36,6 +37,7 @@ class OTPRepository(BaseRepository[OTPCodeModel]):
                 purpose=purpose,
                 expires_at=expires_at,
                 attempts=0,
+                requester_ip=requester_ip,
             )
             self.session.add(otp)
             self.session.commit()
@@ -130,3 +132,35 @@ class OTPRepository(BaseRepository[OTPCodeModel]):
         )
         result = self.session.execute(stmt)
         return result.scalar() or 0
+
+    def count_recent_by_ip(self, requester_ip: str, window_minutes: int) -> int:
+        """Count OTP codes created from a specific IP within the rate limit window."""
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+        stmt = (
+            select(func.count())
+            .select_from(OTPCodeModel)
+            .where(
+                OTPCodeModel.requester_ip == requester_ip,
+                OTPCodeModel.created_at > cutoff,
+            )
+        )
+        result = self.session.execute(stmt)
+        return result.scalar() or 0
+
+    def delete_expired_used(self, retention_hours: int) -> int:
+        """Delete OTP records that are expired or used and older than the retention period."""
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=retention_hours)
+            stmt = delete(OTPCodeModel).where(
+                OTPCodeModel.created_at < cutoff,
+                (
+                    OTPCodeModel.used_at.is_not(None)
+                    | (OTPCodeModel.expires_at < datetime.now(timezone.utc))
+                ),
+            )
+            result = self.session.execute(stmt)
+            self.session.commit()
+            return result.rowcount  # type: ignore[union-attr]
+        except Exception:
+            self.session.rollback()
+            return 0

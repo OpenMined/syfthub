@@ -276,6 +276,36 @@ class Settings(BaseSettings):
         description="OTP rate limit window in minutes",
     )
 
+    # Per-IP rate limiting
+    otp_ip_rate_limit_max_requests: int = Field(
+        default=10,
+        description="Max OTP requests per IP per rate limit window",
+    )
+    otp_ip_rate_limit_window_minutes: int = Field(
+        default=10,
+        description="Per-IP OTP rate limit window in minutes",
+    )
+
+    # Email delivery retry
+    otp_email_max_retries: int = Field(
+        default=3,
+        description="Max retry attempts for OTP email delivery",
+    )
+    otp_email_retry_delay_seconds: float = Field(
+        default=2.0,
+        description="Base delay between email retry attempts in seconds",
+    )
+
+    # OTP cleanup
+    otp_cleanup_interval_minutes: int = Field(
+        default=60,
+        description="Interval between OTP cleanup cycles in minutes",
+    )
+    otp_cleanup_retention_hours: int = Field(
+        default=24,
+        description="Hours to retain expired/used OTP records before deletion",
+    )
+
     # ===========================================
     # ACCOUNTING SERVICE SETTINGS
     # ===========================================
