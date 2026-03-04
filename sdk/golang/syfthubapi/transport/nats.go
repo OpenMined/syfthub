@@ -89,7 +89,11 @@ func (t *NATSTransport) Start(ctx context.Context) error {
 		"subject", creds.Subject,
 	)
 
-	t.logger.Debug("connecting with token", "token_prefix", creds.Token[:20])
+	tokenPreview := creds.Token
+	if len(tokenPreview) > 20 {
+		tokenPreview = tokenPreview[:20]
+	}
+	t.logger.Debug("connecting with token", "token_prefix", tokenPreview)
 
 	// Connect to NATS with token auth (exactly like Python: nats.connect(url, token=token, name=name))
 	// Note: ProxyPath("/nats") is required for nginx-proxied WebSocket connections
