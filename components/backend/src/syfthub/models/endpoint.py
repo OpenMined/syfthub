@@ -14,9 +14,13 @@ from sqlalchemy import (
     String,
     Text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from syfthub.models.base import BaseModel, TimestampMixin
+
+# Use JSONB for PostgreSQL, JSON for other databases (e.g., SQLite in tests)
+JSONType = JSON().with_variant(JSONB(), "postgresql")  # type: ignore[no-untyped-call]
 
 if TYPE_CHECKING:
     from syfthub.models.organization import OrganizationModel
@@ -63,17 +67,19 @@ class EndpointModel(BaseModel, TimestampMixin):
     version: Mapped[str] = mapped_column(String(20), nullable=False, default="0.1.0")
     readme: Mapped[str] = mapped_column(Text, nullable=False, default="")
     stars_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    tags: Mapped[List[str]] = mapped_column(JSON, nullable=False, default=lambda: [])
+    tags: Mapped[List[str]] = mapped_column(
+        JSONType, nullable=False, default=lambda: []
+    )
 
     # JSON fields for complex data
     contributors: Mapped[List[int]] = mapped_column(
-        JSON, nullable=False, default=lambda: []
+        JSONType, nullable=False, default=lambda: []
     )
     policies: Mapped[List[dict]] = mapped_column(
-        JSON, nullable=False, default=lambda: []
+        JSONType, nullable=False, default=lambda: []
     )
     connect: Mapped[List[dict]] = mapped_column(
-        JSON, nullable=False, default=lambda: []
+        JSONType, nullable=False, default=lambda: []
     )
 
     # RAG integration - vector store file ID

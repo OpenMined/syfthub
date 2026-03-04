@@ -451,9 +451,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 and_(
                     self.model.visibility == EndpointVisibility.PUBLIC.value,
                     self.model.is_active,
-                    # Filter for empty policies array (JSON empty array)
-                    # SQLAlchemy handles JSON comparison - empty list [] in JSON
-                    func.json_array_length(self.model.policies) == 0,
+                    # Filter for empty policies array (JSONB empty array)
+                    func.jsonb_array_length(self.model.policies) == 0,
                 )
             )
 
