@@ -3,7 +3,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +13,8 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"gopkg.in/yaml.v3"
+
+	"github.com/OpenMined/syfthub/pkg/nodeops"
 )
 
 // EndpointDetail provides full endpoint information for the detail view.
@@ -66,6 +67,51 @@ type OverviewData struct {
 	Description string `json:"description"`
 	Type        string `json:"type"`
 	Version     string `json:"version"`
+}
+
+// --- nodeops type conversion helpers ---
+
+func fromNodeopsFrontmatter(fm *nodeops.ReadmeFrontmatter) ReadmeFrontmatter {
+	return ReadmeFrontmatter{
+		Slug: fm.Slug, Name: fm.Name, Description: fm.Description,
+		Type: fm.Type, Version: fm.Version, Enabled: fm.Enabled,
+	}
+}
+
+func toNodeopsPolicy(p Policy) nodeops.Policy {
+	return nodeops.Policy{Name: p.Name, Type: p.Type, Config: p.Config}
+}
+
+func fromNodeopsPolicies(ps []nodeops.Policy) []Policy {
+	out := make([]Policy, len(ps))
+	for i, p := range ps {
+		out[i] = Policy{Name: p.Name, Type: p.Type, Config: p.Config}
+	}
+	return out
+}
+
+func fromNodeopsEnvVars(vs []nodeops.EnvVar) []EnvVar {
+	out := make([]EnvVar, len(vs))
+	for i, v := range vs {
+		out[i] = EnvVar{Key: v.Key, Value: v.Value}
+	}
+	return out
+}
+
+func toNodeopsEnvVars(vs []EnvVar) []nodeops.EnvVar {
+	out := make([]nodeops.EnvVar, len(vs))
+	for i, v := range vs {
+		out[i] = nodeops.EnvVar{Key: v.Key, Value: v.Value}
+	}
+	return out
+}
+
+func fromNodeopsDeps(ds []nodeops.Dependency) []Dependency {
+	out := make([]Dependency, len(ds))
+	for i, d := range ds {
+		out[i] = Dependency{Package: d.Package, Version: d.Version}
+	}
+	return out
 }
 
 // GetEndpointDetail returns full details for an endpoint.
@@ -177,139 +223,26 @@ type ReadmeFrontmatter struct {
 // parseReadmeFrontmatter parses YAML frontmatter from README.md into EndpointDetail.
 // Returns (frontmatter, body, error) where body is the markdown content after frontmatter.
 func (a *App) parseReadmeFrontmatter(path string) (*ReadmeFrontmatter, string, error) {
-	file, err := os.Open(path)
+	fm, body, err := nodeops.ParseReadmeFrontmatter(path)
 	if err != nil {
 		return nil, "", err
 	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-
-	// Look for opening ---
-	if !scanner.Scan() {
-		return nil, "", fmt.Errorf("empty file")
-	}
-
-	firstLine := strings.TrimSpace(scanner.Text())
-	if firstLine != "---" {
-		return nil, "", fmt.Errorf("missing YAML frontmatter (expected '---')")
-	}
-
-	// Collect YAML content
-	var yamlLines []string
-	foundClose := false
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.TrimSpace(line) == "---" {
-			foundClose = true
-			break
-		}
-		yamlLines = append(yamlLines, line)
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, "", fmt.Errorf("error reading file: %w", err)
-	}
-
-	if !foundClose {
-		return nil, "", fmt.Errorf("unclosed YAML frontmatter (missing closing '---')")
-	}
-
-	// Collect body content (everything after frontmatter)
-	var bodyLines []string
-	for scanner.Scan() {
-		bodyLines = append(bodyLines, scanner.Text())
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, "", fmt.Errorf("error reading file body: %w", err)
-	}
-
-	// Parse YAML
-	yamlContent := strings.Join(yamlLines, "\n")
-	var frontmatter ReadmeFrontmatter
-	if err := yaml.Unmarshal([]byte(yamlContent), &frontmatter); err != nil {
-		return nil, "", fmt.Errorf("invalid YAML frontmatter: %w", err)
-	}
-
-	body := strings.TrimSpace(strings.Join(bodyLines, "\n"))
-
-	return &frontmatter, body, nil
+	desktopFM := fromNodeopsFrontmatter(fm)
+	return &desktopFM, body, nil
 }
 
 // updateReadmeFrontmatter updates specific fields in the README.md frontmatter while preserving the body.
 func (a *App) updateReadmeFrontmatter(path string, updates map[string]interface{}) error {
-	// Read the entire file
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-
-	lines := strings.Split(string(content), "\n")
-
-	// Find frontmatter boundaries
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
-		return fmt.Errorf("file does not have YAML frontmatter")
-	}
-
-	frontmatterEnd := -1
-	for i := 1; i < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) == "---" {
-			frontmatterEnd = i
-			break
-		}
-	}
-
-	if frontmatterEnd == -1 {
-		return fmt.Errorf("unclosed YAML frontmatter")
-	}
-
-	// Parse existing frontmatter
-	yamlContent := strings.Join(lines[1:frontmatterEnd], "\n")
-	var frontmatter map[string]interface{}
-	if err := yaml.Unmarshal([]byte(yamlContent), &frontmatter); err != nil {
-		return fmt.Errorf("failed to parse frontmatter: %w", err)
-	}
-
-	// Apply updates
-	for key, value := range updates {
-		frontmatter[key] = value
-	}
-
-	// Serialize updated frontmatter
-	newYaml, err := yaml.Marshal(frontmatter)
-	if err != nil {
-		return fmt.Errorf("failed to serialize frontmatter: %w", err)
-	}
-
-	// Reconstruct file
-	var result strings.Builder
-	result.WriteString("---\n")
-	result.Write(newYaml)
-	result.WriteString("---\n")
-
-	// Add body (everything after frontmatter)
-	if frontmatterEnd+1 < len(lines) {
-		result.WriteString(strings.Join(lines[frontmatterEnd+1:], "\n"))
-	}
-
-	return os.WriteFile(path, []byte(result.String()), 0644)
+	return nodeops.UpdateReadmeFrontmatter(path, updates)
 }
 
 // parsePoliciesYaml parses policies.yaml and returns the policies list.
 func (a *App) parsePoliciesYaml(path string) ([]Policy, string, error) {
-	content, err := os.ReadFile(path)
+	nPolicies, version, err := nodeops.ParsePoliciesYaml(path)
 	if err != nil {
 		return nil, "", err
 	}
-
-	var pf PoliciesFile
-	if err := yaml.Unmarshal(content, &pf); err != nil {
-		return nil, "", fmt.Errorf("failed to parse policies.yaml: %w", err)
-	}
-
-	return pf.Policies, pf.Version, nil
+	return fromNodeopsPolicies(nPolicies), version, nil
 }
 
 // GetRunnerCode returns the runner.py content for an endpoint.
@@ -404,35 +337,11 @@ func (a *App) GetEnvironment(slug string) ([]EnvVar, error) {
 
 // readEnvFile reads a .env file and returns key-value pairs.
 func (a *App) readEnvFile(path string) ([]EnvVar, error) {
-	file, err := os.Open(path)
+	nVars, err := nodeops.ReadEnvFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return []EnvVar{}, nil
-		}
 		return nil, err
 	}
-	defer file.Close()
-
-	var vars []EnvVar
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		// Parse KEY=value
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) == 2 {
-			key := strings.TrimSpace(parts[0])
-			value := strings.TrimSpace(parts[1])
-			// Remove quotes if present
-			value = strings.Trim(value, "\"'")
-			vars = append(vars, EnvVar{Key: key, Value: value})
-		}
-	}
-
-	return vars, scanner.Err()
+	return fromNodeopsEnvVars(nVars), nil
 }
 
 // SetEnvironment adds or updates an environment variable.
@@ -502,22 +411,7 @@ func (a *App) DeleteEnvironment(slug, key string) error {
 
 // writeEnvFile writes environment variables to a .env file.
 func (a *App) writeEnvFile(path string, vars []EnvVar) error {
-	var lines []string
-	for _, v := range vars {
-		// Quote values containing spaces or special characters
-		value := v.Value
-		if strings.ContainsAny(value, " \t\n\"'") {
-			value = fmt.Sprintf("\"%s\"", strings.ReplaceAll(value, "\"", "\\\""))
-		}
-		lines = append(lines, fmt.Sprintf("%s=%s", v.Key, value))
-	}
-
-	content := strings.Join(lines, "\n")
-	if len(lines) > 0 {
-		content += "\n"
-	}
-
-	return os.WriteFile(path, []byte(content), 0644)
+	return nodeops.WriteEnvFile(path, toNodeopsEnvVars(vars))
 }
 
 // GetDependencies returns Python dependencies for an endpoint.
@@ -535,54 +429,11 @@ func (a *App) GetDependencies(slug string) ([]Dependency, error) {
 
 // readDependencies reads dependencies from pyproject.toml.
 func (a *App) readDependencies(path string) ([]Dependency, error) {
-	content, err := os.ReadFile(path)
+	nDeps, err := nodeops.ReadDependencies(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return []Dependency{}, nil
-		}
 		return nil, err
 	}
-
-	var deps []Dependency
-	lines := strings.Split(string(content), "\n")
-	inDeps := false
-
-	// Simple regex for dependency format: "package>=version" or "package==version"
-	depRegex := regexp.MustCompile(`^["']?([a-zA-Z0-9_-]+)([><=!~]+)?([0-9.]+)?["']?,?$`)
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-
-		// Check for dependencies section
-		if line == "[project.dependencies]" || strings.HasPrefix(line, "dependencies = [") {
-			inDeps = true
-			continue
-		}
-
-		// End of dependencies section
-		if inDeps && (strings.HasPrefix(line, "[") || line == "]") {
-			if line == "]" {
-				continue
-			}
-			inDeps = false
-			continue
-		}
-
-		if inDeps && line != "" && !strings.HasPrefix(line, "#") {
-			// Parse dependency line
-			match := depRegex.FindStringSubmatch(line)
-			if len(match) >= 2 {
-				pkg := match[1]
-				version := ""
-				if len(match) >= 4 && match[3] != "" {
-					version = match[3]
-				}
-				deps = append(deps, Dependency{Package: pkg, Version: version})
-			}
-		}
-	}
-
-	return deps, nil
+	return fromNodeopsDeps(nDeps), nil
 }
 
 // AddDependency adds a dependency to the endpoint's pyproject.toml.
@@ -911,57 +762,9 @@ func (a *App) SavePolicy(slug string, policy Policy) error {
 		return fmt.Errorf("app not configured")
 	}
 
-	if policy.Name == "" {
-		return fmt.Errorf("policy name is required")
-	}
-
-	if policy.Type == "" {
-		return fmt.Errorf("policy type is required")
-	}
-
 	policiesPath := filepath.Join(config.EndpointsPath, slug, "policies.yaml")
-
-	// Read existing policies file or create new structure
-	var pf PoliciesFile
-	if content, err := os.ReadFile(policiesPath); err == nil {
-		if err := yaml.Unmarshal(content, &pf); err != nil {
-			return fmt.Errorf("failed to parse policies.yaml: %w", err)
-		}
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("failed to read policies.yaml: %w", err)
-	} else {
-		// File doesn't exist, create default structure
-		pf = PoliciesFile{
-			Version: "1.0",
-			Store: map[string]interface{}{
-				"type": "sqlite",
-				"path": ".policy_store.db",
-			},
-			Policies: []Policy{},
-		}
-	}
-
-	// Find and update existing policy, or append new one
-	found := false
-	for i, p := range pf.Policies {
-		if p.Name == policy.Name {
-			pf.Policies[i] = policy
-			found = true
-			break
-		}
-	}
-	if !found {
-		pf.Policies = append(pf.Policies, policy)
-	}
-
-	// Marshal and write back
-	content, err := yaml.Marshal(&pf)
-	if err != nil {
-		return fmt.Errorf("failed to marshal policies: %w", err)
-	}
-
-	if err := os.WriteFile(policiesPath, content, 0644); err != nil {
-		return fmt.Errorf("failed to write policies.yaml: %w", err)
+	if err := nodeops.SavePolicy(policiesPath, toNodeopsPolicy(policy)); err != nil {
+		return err
 	}
 
 	runtime.LogInfo(a.ctx, fmt.Sprintf("Saved policy '%s' for endpoint: %s", policy.Name, slug))
@@ -978,48 +781,9 @@ func (a *App) DeletePolicy(slug, policyName string) error {
 		return fmt.Errorf("app not configured")
 	}
 
-	if policyName == "" {
-		return fmt.Errorf("policy name is required")
-	}
-
 	policiesPath := filepath.Join(config.EndpointsPath, slug, "policies.yaml")
-
-	// Read existing policies file
-	content, err := os.ReadFile(policiesPath)
-	if err != nil {
-		return fmt.Errorf("failed to read policies.yaml: %w", err)
-	}
-
-	var pf PoliciesFile
-	if err := yaml.Unmarshal(content, &pf); err != nil {
-		return fmt.Errorf("failed to parse policies.yaml: %w", err)
-	}
-
-	// Find and remove the policy
-	found := false
-	var newPolicies []Policy
-	for _, p := range pf.Policies {
-		if p.Name == policyName {
-			found = true
-			continue
-		}
-		newPolicies = append(newPolicies, p)
-	}
-
-	if !found {
-		return fmt.Errorf("policy not found: %s", policyName)
-	}
-
-	pf.Policies = newPolicies
-
-	// Marshal and write back
-	newContent, err := yaml.Marshal(&pf)
-	if err != nil {
-		return fmt.Errorf("failed to marshal policies: %w", err)
-	}
-
-	if err := os.WriteFile(policiesPath, newContent, 0644); err != nil {
-		return fmt.Errorf("failed to write policies.yaml: %w", err)
+	if err := nodeops.DeletePolicy(policiesPath, policyName); err != nil {
+		return err
 	}
 
 	runtime.LogInfo(a.ctx, fmt.Sprintf("Deleted policy '%s' from endpoint: %s", policyName, slug))
@@ -1277,30 +1041,7 @@ func (a *App) DeletePolicyFile(slug, filename string) error {
 // slugifyFilename converts a policy name to a valid filename.
 // E.g., "My Rate Limit Policy" -> "my-rate-limit-policy.yaml"
 func slugifyFilename(name string) string {
-	// Convert to lowercase
-	slug := strings.ToLower(name)
-	// Replace spaces and underscores with hyphens
-	slug = strings.ReplaceAll(slug, " ", "-")
-	slug = strings.ReplaceAll(slug, "_", "-")
-	// Remove any characters that aren't alphanumeric or hyphens
-	var result strings.Builder
-	for _, r := range slug {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
-			result.WriteRune(r)
-		}
-	}
-	slug = result.String()
-	// Remove consecutive hyphens
-	for strings.Contains(slug, "--") {
-		slug = strings.ReplaceAll(slug, "--", "-")
-	}
-	// Trim leading/trailing hyphens
-	slug = strings.Trim(slug, "-")
-	// Default if empty
-	if slug == "" {
-		slug = "new-policy"
-	}
-	return slug + ".yaml"
+	return nodeops.SlugifyFilename(name)
 }
 
 // generatePolicyYAML generates YAML content for a policy based on its type.
@@ -1543,26 +1284,7 @@ type CreateEndpointRequest struct {
 // slugify converts a name to a URL-safe slug.
 // E.g., "My Cool Model" -> "my-cool-model"
 func slugify(name string) string {
-	slug := strings.ToLower(name)
-	slug = strings.ReplaceAll(slug, " ", "-")
-	slug = strings.ReplaceAll(slug, "_", "-")
-
-	// Keep only alphanumeric and hyphens
-	var result strings.Builder
-	for _, r := range slug {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
-			result.WriteRune(r)
-		}
-	}
-	slug = result.String()
-
-	// Remove consecutive hyphens
-	for strings.Contains(slug, "--") {
-		slug = strings.ReplaceAll(slug, "--", "-")
-	}
-	slug = strings.Trim(slug, "-")
-
-	return slug
+	return nodeops.Slugify(name)
 }
 
 // CheckEndpointExists checks if an endpoint with the given name already exists.
@@ -1597,32 +1319,13 @@ func (a *App) DeleteEndpoint(slug string) error {
 		return fmt.Errorf("app not configured")
 	}
 
-	if slug == "" {
-		return fmt.Errorf("endpoint slug is required")
-	}
-
-	// Security: Validate slug to prevent path traversal
-	if strings.Contains(slug, "..") || strings.Contains(slug, "/") || strings.Contains(slug, "\\") {
-		return fmt.Errorf("invalid endpoint slug")
-	}
-
-	endpointDir := filepath.Join(a.config.EndpointsPath, slug)
-
-	// Verify endpoint exists
-	if _, err := os.Stat(endpointDir); os.IsNotExist(err) {
-		return fmt.Errorf("endpoint not found: %s", slug)
-	}
-
-	// Delete the entire endpoint directory and all contents
-	if err := os.RemoveAll(endpointDir); err != nil {
-		return fmt.Errorf("failed to delete endpoint: %w", err)
+	mgr := nodeops.NewManager(a.config.EndpointsPath)
+	if err := mgr.DeleteEndpoint(slug); err != nil {
+		return err
 	}
 
 	runtime.LogInfo(a.ctx, fmt.Sprintf("Deleted endpoint: %s", slug))
-
-	// Notify frontend about the change
 	runtime.EventsEmit(a.ctx, "app:endpoints-changed", nil)
-
 	return nil
 }
 
@@ -1743,68 +1446,5 @@ Edit the runner.py file to implement your endpoint logic.
 
 // getRunnerTemplate returns the runner.py template content for the given endpoint type.
 func getRunnerTemplate(endpointType string) string {
-	if endpointType == "model" {
-		return `"""
-Model endpoint handler.
-
-This handler processes incoming requests to your model endpoint.
-"""
-
-
-def handler(messages: list, context: dict = None) -> str:
-    """
-    Echo back the last user message.
-
-    Args:
-        messages: List of message dicts with 'role' and 'content' keys
-        context: Optional context metadata
-
-    Returns:
-        The echoed message
-    """
-    # Find the last user message
-    for msg in reversed(messages):
-        if msg.get("role") == "user":
-            content = msg.get("content", "")
-            return f"Echo: {content}"
-    return "Hello world!"
-`
-	}
-
-	// data_source type
-	return `"""
-Data Source Endpoint Runner
-
-This endpoint provides access to data sources (databases, APIs, files).
-Implement the handler() function to handle data requests.
-"""
-
-
-def handler(query: str, context: dict = None) -> list[dict]:
-    """
-    Query data from your data source.
-
-    Args:
-        query: The search query string
-        context: Optional context metadata
-
-    Returns:
-        List of document dicts, each with keys:
-            - document_id (str): Unique identifier for the document
-            - content (str): The document text content
-            - metadata (dict): Additional metadata (title, source, etc.)
-            - similarity_score (float): Relevance score between 0.0 and 1.0
-    """
-    # TODO: Implement your data source logic here
-    # Example: Execute SQL, call external API, search a vector store, etc.
-
-    return [
-        {
-            "document_id": "doc-001",
-            "content": "Example document content matching the query.",
-            "metadata": {"title": "Example Document", "source": "example"},
-            "similarity_score": 1.0,
-        }
-    ]
-`
+	return nodeops.GetRunnerTemplate(endpointType)
 }
