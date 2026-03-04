@@ -37,7 +37,7 @@ type CompletionCache struct {
 
 // getCacheFile returns the path to the completion cache file.
 func getCacheFile() string {
-	return filepath.Join(os.Getenv("HOME"), ".syfthub", ".completion_cache.json")
+	return config.CompletionCacheFile
 }
 
 // getCachedEndpoints returns cached endpoints if valid.

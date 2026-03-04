@@ -1,5 +1,5 @@
 // Package config provides configuration management for the SyftHub CLI.
-// Config file location: ~/.syfthub/config.json
+// Config file location: ~/.config/syfthub/config.json (platform-aware)
 package config
 
 import (
@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/OpenMined/syfthub/cli/internal/nodeconfig"
 )
 
 // Default configuration values.
@@ -20,9 +22,9 @@ const (
 )
 
 var (
-	// ConfigDir is the directory containing config files.
-	ConfigDir = filepath.Join(os.Getenv("HOME"), ".syfthub")
-	// ConfigFile is the path to the main config file.
+	// ConfigDir is the shared SyftHub config directory (same as nodeconfig).
+	ConfigDir = nodeconfig.ConfigDir
+	// ConfigFile is the path to the main CLI config file.
 	ConfigFile = filepath.Join(ConfigDir, "config.json")
 	// UpdateCheckFile is the path to the update check cache file.
 	UpdateCheckFile = filepath.Join(ConfigDir, ".update_check")
