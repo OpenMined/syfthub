@@ -34,13 +34,7 @@ func main() {
 	}
 	defer store.Close()
 
-	// Seed built-in packages
 	ctx := context.Background()
-	if err := SeedBuiltinPackages(ctx, store, cfg.BaseURL); err != nil {
-		slog.Error("failed to seed packages", "error", err)
-		os.Exit(1)
-	}
-
 	count, _ := store.Count(ctx)
 	slog.Info("store ready", "packages", count)
 
