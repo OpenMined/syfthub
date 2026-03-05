@@ -480,20 +480,20 @@ func PrintEndpointsGrid(endpoints []EndpointInfo, username string) {
 		Cyan.Printf("%s/\n", username)
 	}
 
-	// Sort by name (like ls does alphabetically)
+	// Sort by slug (like ls does alphabetically)
 	sort.Slice(endpoints, func(i, j int) bool {
-		return endpoints[i].Name < endpoints[j].Name
+		return endpoints[i].Slug < endpoints[j].Slug
 	})
 
 	// Build grid items
 	items := make([]gridItem, 0, len(endpoints))
 	for _, ep := range endpoints {
-		// Use type-specific color for the name
+		// Use type-specific color for the slug
 		c := TypeColor(ep.Type)
 		icon := TypeIcon(ep.Type)
 
-		// Format: icon + name (like ls with icons)
-		display := icon + " " + c.Sprint(ep.Name)
+		// Format: icon + slug (the identifier the user must type to navigate)
+		display := icon + " " + c.Sprint(ep.Slug)
 
 		items = append(items, gridItem{
 			display: display,
@@ -521,7 +521,7 @@ func PrintEndpointsTable(endpoints []EndpointInfo, username string) {
 		title = fmt.Sprintf("Endpoints for %s", username)
 	}
 
-	table := TableWithTitle(title, []string{"Name", "Type", "Version", "Stars", "Description"})
+	table := TableWithTitle(title, []string{"Slug", "Name", "Type", "Version", "Stars", "Description"})
 
 	for _, ep := range endpoints {
 		description := ep.Description
@@ -530,6 +530,7 @@ func PrintEndpointsTable(endpoints []EndpointInfo, username string) {
 		}
 
 		table.Append([]string{
+			ep.Slug,
 			ep.Name,
 			ep.Type,
 			ep.Version,
@@ -546,9 +547,12 @@ func PrintEndpointDetail(ep EndpointInfo) {
 	// Build the card content
 	var content strings.Builder
 
-	// Title: owner/name
-	title := titleStyle.Render(fmt.Sprintf("%s/%s", ep.Owner, ep.Name))
+	// Title: friendly name, then owner/slug path below
+	title := titleStyle.Render(ep.Name)
+	path := subtleStyle.Render(fmt.Sprintf("%s/%s", ep.Owner, ep.Slug))
 	content.WriteString(title)
+	content.WriteString("\n")
+	content.WriteString(path)
 	content.WriteString("\n")
 
 	// Type badge and version
