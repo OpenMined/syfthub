@@ -218,7 +218,14 @@ class TunnelCredentialsResponse(BaseModel):
 
 
 class HeartbeatRequest(BaseModel):
-    """Request schema for heartbeat endpoint."""
+    """Request schema for heartbeat endpoint.
+
+    .. deprecated::
+        Used by the deprecated ``POST /users/me/heartbeat`` and
+        ``POST /organizations/{org_id}/heartbeat`` endpoints.
+        Use ``EndpointHealthRequest`` (from ``syfthub.schemas.endpoint``) instead.
+        Remove this schema when the heartbeat API routes are removed.
+    """
 
     url: str = Field(
         ...,
@@ -279,7 +286,13 @@ class HeartbeatRequest(BaseModel):
 
 
 class HeartbeatResponse(BaseModel):
-    """Response schema for heartbeat endpoint."""
+    """Response schema for heartbeat endpoint.
+
+    .. deprecated::
+        Used by the deprecated heartbeat endpoints.
+        Use ``EndpointHealthResponse`` (from ``syfthub.schemas.endpoint``) instead.
+        Remove this schema when the heartbeat API routes are removed.
+    """
 
     status: str = Field(..., description="Status of heartbeat receipt")
     received_at: datetime = Field(

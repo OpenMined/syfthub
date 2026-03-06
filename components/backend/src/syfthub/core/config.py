@@ -272,8 +272,15 @@ class Settings(BaseSettings):
     )
 
     # ===========================================
-    # HEARTBEAT SETTINGS
+    # HEARTBEAT SETTINGS (Deprecated)
     # ===========================================
+    # These settings are used by the deprecated heartbeat endpoints
+    # (POST /users/me/heartbeat, POST /organizations/{org_id}/heartbeat)
+    # and also by POST /endpoints/health for TTL capping.
+    #
+    # When the deprecated heartbeat endpoints are removed, rename these
+    # to generic TTL settings (e.g., health_max_ttl_seconds) or inline
+    # them into the endpoint health configuration above.
 
     # Maximum TTL that clients can request for heartbeats
     # Set to 1800s (30 min) to match SyftAI-Space heartbeat manager's max TTL
@@ -287,13 +294,6 @@ class Settings(BaseSettings):
     heartbeat_default_ttl_seconds: int = Field(
         default=300,
         description="Default heartbeat TTL if not specified (5 min)",
-    )
-
-    # Grace period added when HTTP verification succeeds for stale heartbeat
-    # Set to 300s (5 min) to reduce HTTP polling when heartbeat manager is at slow intervals
-    heartbeat_grace_period_seconds: int = Field(
-        default=300,
-        description="Grace period after successful HTTP verification (5 min)",
     )
 
     # ===========================================
