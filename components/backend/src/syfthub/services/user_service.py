@@ -166,6 +166,12 @@ class UserService(BaseService):
     ) -> HeartbeatResponse:
         """Send heartbeat to indicate user's domain is online.
 
+        .. deprecated::
+            This method backs the deprecated ``POST /users/me/heartbeat`` endpoint.
+            Use ``EndpointService.report_endpoint_health()`` instead, which updates
+            owner heartbeats automatically. Remove this method when the heartbeat
+            API route is removed.
+
         This method:
         - Extracts domain from the provided URL (or uses full tunneling URL as domain)
         - Calculates effective TTL (capped at server max, defaults if not specified)

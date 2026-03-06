@@ -141,6 +141,11 @@ async def send_heartbeat(
 ) -> HeartbeatResponse:
     """Send heartbeat to indicate domain is online.
 
+    .. deprecated::
+        Use ``POST /api/v1/endpoints/health`` instead, which reports per-endpoint
+        health status and also updates the owner heartbeat (subsumes this endpoint).
+        This endpoint will be removed in a future release.
+
     This endpoint is called periodically by domain clients
     to indicate they are online and reachable. The heartbeat updates:
     - User's domain (extracted from URL)

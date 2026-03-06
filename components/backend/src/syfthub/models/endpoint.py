@@ -64,6 +64,19 @@ class EndpointModel(BaseModel, TimestampMixin):
     consecutive_failure_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0
     )
+
+    # Per-endpoint health status reported by client (via POST /endpoints/health)
+    # NULL means no client-reported status; fallback to existing heartbeat-based health
+    health_status: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True, default=None
+    )
+    health_checked_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+    health_ttl_seconds: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, default=None
+    )
+
     version: Mapped[str] = mapped_column(String(20), nullable=False, default="0.1.0")
     readme: Mapped[str] = mapped_column(Text, nullable=False, default="")
     stars_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

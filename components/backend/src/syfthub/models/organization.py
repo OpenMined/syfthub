@@ -39,6 +39,12 @@ class OrganizationModel(BaseModel, TimestampMixin):
     )
 
     # Heartbeat tracking fields for push-based health monitoring
+    # Deprecated: These fields are written by the deprecated POST /organizations/{org_id}/heartbeat
+    # endpoint and by POST /endpoints/health (heartbeat subsumption). The health monitor
+    # reads heartbeat_expires_at as a fallback when per-endpoint health fields are absent.
+    # When the deprecated heartbeat endpoints are removed and all clients use
+    # POST /endpoints/health, these fields can be removed along with the heartbeat
+    # fallback logic in health_monitor._check_endpoint_health().
     last_heartbeat_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )

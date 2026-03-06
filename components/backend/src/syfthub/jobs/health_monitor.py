@@ -1,15 +1,26 @@
 """Endpoint health monitoring background job.
 
 This module provides a background task that periodically checks the health
-of all registered endpoints using a hybrid approach:
+of all registered endpoints using a 2-tier approach:
 
-1. For endpoints with fresh heartbeats (user or org): Skip HTTP check, assume healthy
-2. For endpoints with stale/missing heartbeats: Make HTTP verification call
-3. If HTTP verification succeeds for stale heartbeat: Refresh with grace period
+1. Per-endpoint health (client-reported via POST /endpoints/health):
+   If health_checked_at + health_ttl_seconds > now, trust client-reported status
+2. Domain-level heartbeat (deprecated fallback):
+   If heartbeat_expires_at > now, assume all endpoints for that owner are healthy
 
-If an endpoint becomes unreachable, its is_active status is set to False.
-If a previously inactive endpoint becomes reachable, its is_active status
-is restored to True.
+If neither signal is fresh, the endpoint is considered unhealthy.
+After consecutive failures reach the configured threshold, is_active is set
+to False. If the endpoint becomes healthy again, is_active is restored.
+
+Deprecation path:
+    Tier 2 (heartbeat fallback) exists for backward compatibility with clients
+    that still use the deprecated ``POST /users/me/heartbeat`` and
+    ``POST /organizations/{org_id}/heartbeat`` endpoints. Once all clients
+    migrate to ``POST /endpoints/health``, remove:
+    - ``_check_heartbeat_health()`` method
+    - The tier 2 call in ``_check_endpoint_health()``
+    - ``heartbeat_expires_at`` from ``EndpointHealthInfo`` dataclass
+    - ``heartbeat_expires_at`` from the queries in ``_get_endpoints_for_health_check()``
 
 Multi-worker safety:
     In multi-worker deployments (e.g., uvicorn --workers 4), each worker
@@ -30,12 +41,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
-import httpx
-from sqlalchemy import case, or_, select, text, update
+from sqlalchemy import case, select, text, update
 from sqlalchemy.sql import label
 from sqlalchemy.sql.expression import literal
 
-from syfthub.core.url_builder import build_connection_url
 from syfthub.database.connection import db_manager
 from syfthub.models.endpoint import EndpointModel
 from syfthub.models.organization import OrganizationModel
@@ -66,22 +75,25 @@ class EndpointHealthInfo:
     owner_domain: Optional[str]  # None if owner has no domain configured
     owner_id: int  # ID of the owner (user or organization)
     owner_type: str  # "user" or "organization"
-    heartbeat_expires_at: Optional[datetime]  # When heartbeat expires
+    heartbeat_expires_at: Optional[datetime]  # Deprecated: remove with heartbeat system
+    # Per-endpoint health fields (reported by client via POST /endpoints/health)
+    health_status: Optional[str] = None
+    health_checked_at: Optional[datetime] = None
+    health_ttl_seconds: Optional[int] = None
 
 
 class EndpointHealthMonitor:
     """Background task for monitoring endpoint health.
 
     This class manages a periodic health check cycle that:
-    1. Queries all endpoints with their owner's domain
-    2. Makes HTTP requests to each endpoint's connection URL
-    3. Updates is_active status based on reachability
+    1. Queries all endpoints with their owner's health and heartbeat info
+    2. Evaluates health using per-endpoint status and domain heartbeat
+    3. Updates is_active status based on health signals
 
     Attributes:
         enabled: Whether health monitoring is enabled
         interval: Seconds between health check cycles
-        timeout: Timeout for individual health check requests
-        max_concurrent: Maximum concurrent health check requests
+        failure_threshold: Consecutive failures before marking inactive
     """
 
     def __init__(self, settings: Settings) -> None:
@@ -92,9 +104,6 @@ class EndpointHealthMonitor:
         """
         self.enabled = settings.health_check_enabled
         self.interval = settings.health_check_interval_seconds
-        self.timeout = settings.health_check_timeout_seconds
-        self.max_concurrent = settings.health_check_max_concurrent
-        self.grace_period = settings.heartbeat_grace_period_seconds
         self.failure_threshold = settings.health_check_failure_threshold
         self._running = False
         self._task: Optional[asyncio.Task[None]] = None
@@ -132,75 +141,6 @@ class EndpointHealthMonitor:
             logger.warning(f"Failed to acquire advisory lock: {e}")
             return False
 
-    def _build_health_check_url(
-        self, owner_domain: str, endpoint_type: str, slug: str
-    ) -> Optional[str]:
-        """Build URL for endpoint-specific health check.
-
-        Constructs the health check URL based on the endpoint type:
-        - model → /api/v1/models/{slug}/health
-        - data_source → /api/v1/datasets/{slug}/health
-
-        These endpoints are exposed by SyftAI-Space nodes and verify that
-        the specific endpoint exists and is operational, not just that
-        the server is reachable.
-
-        Args:
-            owner_domain: The domain of the endpoint owner (user or organization)
-            endpoint_type: The type of endpoint ("model" or "data_source")
-            slug: The endpoint slug for the health check URL
-
-        Returns:
-            The health check URL, or None if domain is not provided
-        """
-        if not owner_domain:
-            return None
-
-        # Build endpoint-specific health check path based on type
-        if endpoint_type == "model":
-            health_path = f"/api/v1/models/{slug}/health"
-        elif endpoint_type == "data_source":
-            health_path = f"/api/v1/datasets/{slug}/health"
-        else:
-            # Fallback to general health endpoint for unknown types
-            health_path = "/api/v1/health"
-
-        return build_connection_url(owner_domain, "https", path=health_path)
-
-    @staticmethod
-    def _rows_to_health_infos(
-        rows: list[Any], owner_type: str
-    ) -> list[EndpointHealthInfo]:
-        """Convert query rows to EndpointHealthInfo objects, skipping rows without connect."""
-        infos: list[EndpointHealthInfo] = []
-        for row in rows:
-            (
-                endpoint_id,
-                slug,
-                endpoint_type,
-                is_active,
-                connect,
-                domain,
-                owner_id,
-                heartbeat_expires_at,
-            ) = row
-            # Endpoints without domain will be marked unhealthy in health check
-            if connect:
-                infos.append(
-                    EndpointHealthInfo(
-                        id=endpoint_id,
-                        slug=slug,
-                        endpoint_type=endpoint_type,
-                        is_active=is_active,
-                        connect=connect,
-                        owner_domain=domain,  # May be None
-                        owner_id=owner_id,
-                        owner_type=owner_type,
-                        heartbeat_expires_at=heartbeat_expires_at,
-                    )
-                )
-        return infos
-
     def _get_endpoints_for_health_check(
         self, session: Session
     ) -> list[EndpointHealthInfo]:
@@ -233,6 +173,9 @@ class EndpointHealthMonitor:
             UserModel.domain,
             label("owner_id", UserModel.id),
             UserModel.heartbeat_expires_at,
+            EndpointModel.health_status,
+            EndpointModel.health_checked_at,
+            EndpointModel.health_ttl_seconds,
         ).join(UserModel, EndpointModel.user_id == UserModel.id)
 
         # Query endpoints with organization domain (org-owned endpoints)
@@ -245,146 +188,182 @@ class EndpointHealthMonitor:
             OrganizationModel.domain,
             label("owner_id", OrganizationModel.id),
             OrganizationModel.heartbeat_expires_at,
+            EndpointModel.health_status,
+            EndpointModel.health_checked_at,
+            EndpointModel.health_ttl_seconds,
         ).join(OrganizationModel, EndpointModel.organization_id == OrganizationModel.id)
 
-        return self._rows_to_health_infos(
-            session.execute(user_endpoints_stmt).all(), "user"
-        ) + self._rows_to_health_infos(
-            session.execute(org_endpoints_stmt).all(), "organization"
-        )
+        endpoints: list[EndpointHealthInfo] = []
 
-    async def _check_endpoint_health(
+        # Execute user endpoints query
+        user_results = session.execute(user_endpoints_stmt).all()
+        for row in user_results:
+            (
+                endpoint_id,
+                slug,
+                endpoint_type,
+                is_active,
+                connect,
+                domain,
+                owner_id,
+                heartbeat_expires_at,
+                health_status,
+                health_checked_at,
+                health_ttl_seconds,
+            ) = row
+            # Include endpoints with connections (even if domain is None)
+            # Endpoints without domain will be marked unhealthy in health check
+            if connect:
+                endpoints.append(
+                    EndpointHealthInfo(
+                        id=endpoint_id,
+                        slug=slug,
+                        endpoint_type=endpoint_type,
+                        is_active=is_active,
+                        connect=connect,
+                        owner_domain=domain,  # May be None
+                        owner_id=owner_id,
+                        owner_type="user",
+                        heartbeat_expires_at=heartbeat_expires_at,
+                        health_status=health_status,
+                        health_checked_at=health_checked_at,
+                        health_ttl_seconds=health_ttl_seconds,
+                    )
+                )
+
+        # Execute organization endpoints query
+        org_results = session.execute(org_endpoints_stmt).all()
+        for row in org_results:
+            (
+                endpoint_id,
+                slug,
+                endpoint_type,
+                is_active,
+                connect,
+                domain,
+                owner_id,
+                heartbeat_expires_at,
+                health_status,
+                health_checked_at,
+                health_ttl_seconds,
+            ) = row
+            # Include endpoints with connections (even if domain is None)
+            # Endpoints without domain will be marked unhealthy in health check
+            if connect:
+                endpoints.append(
+                    EndpointHealthInfo(
+                        id=endpoint_id,
+                        slug=slug,
+                        endpoint_type=endpoint_type,
+                        is_active=is_active,
+                        connect=connect,
+                        owner_domain=domain,  # May be None
+                        owner_id=owner_id,
+                        owner_type="organization",
+                        heartbeat_expires_at=heartbeat_expires_at,
+                        health_status=health_status,
+                        health_checked_at=health_checked_at,
+                        health_ttl_seconds=health_ttl_seconds,
+                    )
+                )
+
+        return endpoints
+
+    def _check_per_endpoint_health(
         self,
         endpoint: EndpointHealthInfo,
-        semaphore: asyncio.Semaphore,
-        client: httpx.AsyncClient,
-        session: Session,
-    ) -> tuple[int, bool]:
-        """Check if a single endpoint is healthy using hybrid approach.
+        now: datetime,
+    ) -> bool | None:
+        """Check per-endpoint health reported via POST /endpoints/health.
 
-        For user-owned endpoints with fresh heartbeats, skips HTTP check.
-        For stale/missing heartbeats or org endpoints, makes HTTP verification.
-        If HTTP verification succeeds for stale heartbeat, refreshes with grace period.
+        Returns True/False if a fresh per-endpoint health signal exists,
+        or None if no fresh signal is available (caller should fall through
+        to the next health check tier).
+        """
+        if (
+            endpoint.health_checked_at is not None
+            and endpoint.health_ttl_seconds is not None
+        ):
+            health_expires_at = endpoint.health_checked_at + timedelta(
+                seconds=endpoint.health_ttl_seconds
+            )
+            if health_expires_at > now:
+                is_healthy = endpoint.health_status == "healthy"
+                logger.debug(
+                    f"Endpoint {endpoint.id}: fresh per-endpoint health "
+                    f"(status={endpoint.health_status}, "
+                    f"expires={health_expires_at})"
+                )
+                return is_healthy
+        return None
+
+    def _check_heartbeat_health(
+        self,
+        endpoint: EndpointHealthInfo,
+        now: datetime,
+    ) -> bool | None:
+        """Check domain-level heartbeat for health (fallback tier).
+
+        .. deprecated::
+            This method implements the heartbeat fallback tier in the health monitor.
+            When all clients have migrated to ``POST /endpoints/health`` and the
+            deprecated heartbeat endpoints are removed, delete this method and
+            remove the heartbeat fallback call in ``_check_endpoint_health()``.
+
+        Returns True if heartbeat is fresh, or None if not available.
+        """
+        if endpoint.heartbeat_expires_at and endpoint.heartbeat_expires_at > now:
+            logger.debug(
+                f"Endpoint {endpoint.id}: fresh heartbeat "
+                f"(expires {endpoint.heartbeat_expires_at}), assuming healthy"
+            )
+            return True
+        return None
+
+    def _check_endpoint_health(
+        self,
+        endpoint: EndpointHealthInfo,
+    ) -> tuple[int, bool]:
+        """Determine if an endpoint is healthy using a 2-tier approach.
+
+        Priority:
+        1. Per-endpoint health (client-reported via POST /endpoints/health):
+           If health_checked_at + health_ttl_seconds > now, trust health_status
+        2. Domain-level heartbeat (deprecated fallback):
+           If heartbeat_expires_at > now, assume healthy
+        3. Neither is fresh: Mark unhealthy
+
+        When the deprecated heartbeat system is removed, delete tier 2
+        (the ``_check_heartbeat_health`` call) so this becomes a single-tier check.
 
         Args:
-            endpoint: The endpoint information to check
-            semaphore: Semaphore to limit concurrent requests
-            client: Async HTTP client to use for the request
-            session: Database session for heartbeat refresh
+            endpoint: The endpoint information to evaluate
 
         Returns:
             Tuple of (endpoint_id, is_healthy)
-            - endpoint_id: ID of the endpoint checked
-            - is_healthy: Whether the endpoint is currently healthy
         """
-        async with semaphore:
-            now = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
 
-            # Check if owner has a domain configured
-            if not endpoint.owner_domain:
-                # No domain configured - endpoint cannot be reached
-                logger.debug(
-                    f"Endpoint {endpoint.id} health check: no owner domain configured "
-                    f"(unhealthy)"
-                )
-                return (endpoint.id, False)
-
-            # Check if heartbeat is fresh (applies to both users and organizations)
-            if endpoint.heartbeat_expires_at and endpoint.heartbeat_expires_at > now:
-                # Heartbeat is fresh -> assume healthy, skip HTTP check
-                logger.debug(
-                    f"Endpoint {endpoint.id} has fresh heartbeat "
-                    f"(expires {endpoint.heartbeat_expires_at}), skipping HTTP check"
-                )
-                return (endpoint.id, True)
-
-            # Heartbeat is stale/missing -> need HTTP verification
-            url = self._build_health_check_url(
-                endpoint.owner_domain, endpoint.endpoint_type, endpoint.slug
+        # Check if owner has a domain configured
+        if not endpoint.owner_domain:
+            logger.debug(
+                f"Endpoint {endpoint.id}: no owner domain configured (unhealthy)"
             )
-            if not url:
-                # No valid URL to check, assume current state
-                return (endpoint.id, endpoint.is_active)
+            return (endpoint.id, False)
 
-            try:
-                # Make a simple GET request to check connectivity
-                response = await client.get(url, timeout=self.timeout)
-                # Only 2xx and 3xx responses are considered healthy
-                # 4xx (client errors like 404) and 5xx (server errors) are unhealthy
-                is_healthy = response.status_code < 400
-                logger.debug(
-                    f"Endpoint {endpoint.id} health check: {url} -> {response.status_code} "
-                    f"({'healthy' if is_healthy else 'unhealthy'})"
-                )
+        # Tier 1: Per-endpoint health (client-reported)
+        result = self._check_per_endpoint_health(endpoint, now)
+        if result is not None:
+            return (endpoint.id, result)
 
-                # If healthy, refresh heartbeat with grace period
-                if is_healthy:
-                    self._refresh_heartbeat_expiry(
-                        session, endpoint.owner_id, endpoint.owner_type
-                    )
-                    logger.debug(
-                        f"Endpoint {endpoint.id} HTTP check passed, "
-                        f"refreshed heartbeat with {self.grace_period}s grace period"
-                    )
+        # Tier 2: Domain-level heartbeat (deprecated fallback — remove with heartbeat)
+        result = self._check_heartbeat_health(endpoint, now)
+        if result is not None:
+            return (endpoint.id, result)
 
-                return (endpoint.id, is_healthy)
-
-            except httpx.TimeoutException:
-                logger.debug(f"Endpoint {endpoint.id} health check: {url} -> timeout")
-                return (endpoint.id, False)
-            except httpx.RequestError as e:
-                logger.debug(
-                    f"Endpoint {endpoint.id} health check: {url} -> error: {e}"
-                )
-                return (endpoint.id, False)
-
-    def _refresh_heartbeat_expiry(
-        self, session: Session, owner_id: int, owner_type: str
-    ) -> bool:
-        """Atomically refresh heartbeat expiry, only if it extends the current value.
-
-        This is called when HTTP verification succeeds for a user or organization
-        with a stale or missing heartbeat. Uses a conditional UPDATE to ensure
-        we only extend the expiry, never shorten it (prevents race condition with
-        concurrent heartbeat updates from the client).
-
-        Args:
-            session: Database session to use for the update
-            owner_id: ID of the owner (user or organization) to refresh
-            owner_type: Type of owner ("user" or "organization")
-
-        Returns:
-            True if the heartbeat was updated, False if no update was needed
-            (either owner not found or current expiry is already longer)
-        """
-        try:
-            model = UserModel if owner_type == "user" else OrganizationModel
-            new_expiry = datetime.now(timezone.utc) + timedelta(
-                seconds=self.grace_period
-            )
-
-            # Atomic conditional UPDATE: only set expiry if new value is larger
-            # This prevents overwriting a fresher heartbeat from the client
-            stmt = (
-                update(model)
-                .where(model.id == owner_id)
-                .where(
-                    or_(
-                        model.heartbeat_expires_at.is_(None),  # type: ignore[attr-defined]
-                        model.heartbeat_expires_at < new_expiry,  # type: ignore[operator]
-                    )
-                )
-                .values(heartbeat_expires_at=new_expiry)
-            )
-            result = session.execute(stmt)
-            session.commit()
-            return bool(result.rowcount > 0)  # type: ignore[attr-defined]
-        except Exception as e:
-            logger.error(
-                f"Failed to refresh heartbeat for {owner_type} {owner_id}: {e}"
-            )
-            session.rollback()
-            return False
+        # Neither signal is fresh — mark unhealthy
+        logger.debug(f"Endpoint {endpoint.id}: no fresh health signal (unhealthy)")
+        return (endpoint.id, False)
 
     def _update_endpoint_health_status(
         self, session: Session, endpoint_id: int, is_healthy: bool
@@ -452,12 +431,10 @@ class EndpointHealthMonitor:
     async def run_health_check_cycle(self) -> None:
         """Run one complete health check cycle for all endpoints.
 
-        This method uses a hybrid approach:
-        1. Queries all endpoints with their owner's domain and heartbeat info
-        2. For user endpoints with fresh heartbeats: Skip HTTP, assume healthy
-        3. For stale/missing heartbeats or org endpoints: Make HTTP check
-        4. If HTTP succeeds for stale user: Refresh heartbeat with grace period
-        5. Atomically updates is_active status and failure counts in the database
+        This method:
+        1. Queries all endpoints with their owner's health and heartbeat info
+        2. Evaluates each endpoint using per-endpoint health and domain heartbeat
+        3. Atomically updates is_active status and failure counts in the database
            (multi-worker safe - no in-memory state)
         """
         session = db_manager.get_session()
@@ -482,29 +459,10 @@ class EndpointHealthMonitor:
             # Build a map of endpoint_id -> old_is_active for state change detection
             old_status_map = {ep.id: ep.is_active for ep in endpoints}
 
-            # Create semaphore to limit concurrent requests
-            semaphore = asyncio.Semaphore(self.max_concurrent)
-
-            # Check all endpoints concurrently
-            async with httpx.AsyncClient(
-                follow_redirects=True,
-                timeout=httpx.Timeout(self.timeout),
-            ) as client:
-                tasks = [
-                    self._check_endpoint_health(endpoint, semaphore, client, session)
-                    for endpoint in endpoints
-                ]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            # Process results and update endpoints atomically
+            # Evaluate each endpoint's health (no I/O — purely signal-based)
             state_changes = 0
-            for result in results:
-                if isinstance(result, BaseException):
-                    logger.error(f"Health check task failed: {result}")
-                    continue
-
-                # Result is tuple[int, bool] - simple!
-                endpoint_id, is_healthy = result
+            for endpoint in endpoints:
+                endpoint_id, is_healthy = self._check_endpoint_health(endpoint)
 
                 # Get the old status for comparison
                 old_is_active = old_status_map.get(endpoint_id, True)
@@ -560,8 +518,7 @@ class EndpointHealthMonitor:
         self._running = True
         logger.info(
             f"Starting endpoint health monitor "
-            f"(interval: {self.interval}s, timeout: {self.timeout}s, "
-            f"max_concurrent: {self.max_concurrent}, "
+            f"(interval: {self.interval}s, "
             f"failure_threshold: {self.failure_threshold})"
         )
 

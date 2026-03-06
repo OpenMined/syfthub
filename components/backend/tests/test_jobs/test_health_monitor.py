@@ -1,9 +1,9 @@
 """Tests for endpoint health monitor background job."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
 
-import httpx
 import pytest
 
 from syfthub.jobs.health_monitor import (
@@ -38,6 +38,9 @@ class TestEndpointHealthInfo:
         assert info.owner_id == 10
         assert info.owner_type == "user"
         assert info.heartbeat_expires_at is None
+        assert info.health_status is None
+        assert info.health_checked_at is None
+        assert info.health_ttl_seconds is None
 
     def test_creation_inactive(self):
         """Test EndpointHealthInfo with inactive endpoint."""
@@ -58,6 +61,27 @@ class TestEndpointHealthInfo:
         assert info.is_active is False
         assert info.owner_type == "organization"
 
+    def test_creation_with_health_fields(self):
+        """Test EndpointHealthInfo with per-endpoint health fields."""
+        now = datetime.now(timezone.utc)
+        info = EndpointHealthInfo(
+            id=3,
+            slug="healthy-endpoint",
+            endpoint_type="model",
+            is_active=True,
+            connect=[{"type": "rest_api"}],
+            owner_domain="https://example.com",
+            owner_id=10,
+            owner_type="user",
+            heartbeat_expires_at=None,
+            health_status="healthy",
+            health_checked_at=now,
+            health_ttl_seconds=300,
+        )
+        assert info.health_status == "healthy"
+        assert info.health_checked_at == now
+        assert info.health_ttl_seconds == 300
+
 
 class TestEndpointHealthMonitorInit:
     """Tests for EndpointHealthMonitor initialization."""
@@ -68,9 +92,6 @@ class TestEndpointHealthMonitorInit:
         settings = MagicMock()
         settings.health_check_enabled = True
         settings.health_check_interval_seconds = 30
-        settings.health_check_timeout_seconds = 5.0
-        settings.health_check_max_concurrent = 20
-        settings.heartbeat_grace_period_seconds = 60
         settings.health_check_failure_threshold = 3
         return settings
 
@@ -80,8 +101,7 @@ class TestEndpointHealthMonitorInit:
 
         assert monitor.enabled is True
         assert monitor.interval == 30
-        assert monitor.timeout == 5.0
-        assert monitor.max_concurrent == 20
+        assert monitor.failure_threshold == 3
         assert monitor._running is False
         assert monitor._task is None
 
@@ -95,14 +115,12 @@ class TestEndpointHealthMonitorInit:
     def test_init_with_custom_values(self, mock_settings):
         """Test initialization with custom settings values."""
         mock_settings.health_check_interval_seconds = 60
-        mock_settings.health_check_timeout_seconds = 10.0
-        mock_settings.health_check_max_concurrent = 50
+        mock_settings.health_check_failure_threshold = 5
 
         monitor = EndpointHealthMonitor(mock_settings)
 
         assert monitor.interval == 60
-        assert monitor.timeout == 10.0
-        assert monitor.max_concurrent == 50
+        assert monitor.failure_threshold == 5
 
 
 class TestTryAcquireCycleLock:
@@ -114,9 +132,6 @@ class TestTryAcquireCycleLock:
         settings = MagicMock()
         settings.health_check_enabled = True
         settings.health_check_interval_seconds = 30
-        settings.health_check_timeout_seconds = 5.0
-        settings.health_check_max_concurrent = 20
-        settings.heartbeat_grace_period_seconds = 60
         settings.health_check_failure_threshold = 3
         return EndpointHealthMonitor(settings)
 
@@ -179,86 +194,6 @@ class TestTryAcquireCycleLock:
         assert monitor._try_acquire_cycle_lock(mock_session) is False
 
 
-class TestBuildHealthCheckUrl:
-    """Tests for _build_health_check_url method."""
-
-    @pytest.fixture
-    def monitor(self):
-        """Create EndpointHealthMonitor for testing."""
-        settings = MagicMock()
-        settings.health_check_enabled = True
-        settings.health_check_interval_seconds = 30
-        settings.health_check_timeout_seconds = 5.0
-        settings.health_check_max_concurrent = 20
-        settings.heartbeat_grace_period_seconds = 60
-        settings.health_check_failure_threshold = 3
-        return EndpointHealthMonitor(settings)
-
-    def test_build_url_model_endpoint(self, monitor):
-        """Test URL building for model endpoint uses /api/v1/models/{slug}/health."""
-        with patch(
-            "syfthub.jobs.health_monitor.build_connection_url"
-        ) as mock_build_url:
-            mock_build_url.return_value = (
-                "https://example.com/api/v1/models/my-model/health"
-            )
-
-            url = monitor._build_health_check_url(
-                "https://example.com", "model", "my-model"
-            )
-
-            assert url == "https://example.com/api/v1/models/my-model/health"
-            mock_build_url.assert_called_once_with(
-                "https://example.com", "https", path="/api/v1/models/my-model/health"
-            )
-
-    def test_build_url_data_source_endpoint(self, monitor):
-        """Test URL building for data_source endpoint uses /api/v1/datasets/{slug}/health."""
-        with patch(
-            "syfthub.jobs.health_monitor.build_connection_url"
-        ) as mock_build_url:
-            mock_build_url.return_value = (
-                "https://example.com/api/v1/datasets/my-dataset/health"
-            )
-
-            url = monitor._build_health_check_url(
-                "https://example.com", "data_source", "my-dataset"
-            )
-
-            assert url == "https://example.com/api/v1/datasets/my-dataset/health"
-            mock_build_url.assert_called_once_with(
-                "https://example.com",
-                "https",
-                path="/api/v1/datasets/my-dataset/health",
-            )
-
-    def test_build_url_unknown_type_fallback(self, monitor):
-        """Test URL building for unknown type falls back to /api/v1/health."""
-        with patch(
-            "syfthub.jobs.health_monitor.build_connection_url"
-        ) as mock_build_url:
-            mock_build_url.return_value = "https://example.com/api/v1/health"
-
-            url = monitor._build_health_check_url(
-                "https://example.com", "unknown_type", "some-slug"
-            )
-
-            assert url == "https://example.com/api/v1/health"
-            mock_build_url.assert_called_once_with(
-                "https://example.com", "https", path="/api/v1/health"
-            )
-
-    def test_build_url_no_domain(self, monitor):
-        """Test URL building returns None when no domain provided."""
-        url = monitor._build_health_check_url(None, "model", "my-model")
-        assert url is None
-
-    def test_build_url_empty_domain(self, monitor):
-        """Test URL building returns None when domain is empty."""
-        url = monitor._build_health_check_url("", "model", "my-model")
-        assert url is None
-
-
 class TestGetEndpointsForHealthCheck:
     """Tests for _get_endpoints_for_health_check method."""
 
@@ -268,9 +203,6 @@ class TestGetEndpointsForHealthCheck:
         settings = MagicMock()
         settings.health_check_enabled = True
         settings.health_check_interval_seconds = 30
-        settings.health_check_timeout_seconds = 5.0
-        settings.health_check_max_concurrent = 20
-        settings.heartbeat_grace_period_seconds = 60
         settings.health_check_failure_threshold = 3
         return EndpointHealthMonitor(settings)
 
@@ -288,7 +220,8 @@ class TestGetEndpointsForHealthCheck:
         """Test getting user-owned endpoints."""
         mock_session = MagicMock()
 
-        # User endpoints query result (id, slug, type, is_active, connect, domain, owner_id, heartbeat_expires_at)
+        # 11-column tuple: id, slug, type, is_active, connect, domain, owner_id,
+        # heartbeat_expires_at, health_status, health_checked_at, health_ttl_seconds
         user_results = [
             (
                 1,
@@ -298,6 +231,9 @@ class TestGetEndpointsForHealthCheck:
                 [{"type": "rest_api", "config": {"url": "/test"}}],
                 "https://user.com",
                 10,
+                None,
+                None,
+                None,
                 None,
             ),
             (
@@ -309,9 +245,11 @@ class TestGetEndpointsForHealthCheck:
                 "https://user2.com",
                 20,
                 None,
+                "healthy",
+                datetime.now(timezone.utc),
+                300,
             ),
         ]
-        # Org endpoints query result (empty)
         org_results = []
 
         mock_session.execute.return_value.all.side_effect = [user_results, org_results]
@@ -326,20 +264,16 @@ class TestGetEndpointsForHealthCheck:
         assert endpoints[0].owner_domain == "https://user.com"
         assert endpoints[0].owner_type == "user"
         assert endpoints[0].owner_id == 10
+        assert endpoints[0].health_status is None
         assert endpoints[1].id == 2
-        assert endpoints[1].slug == "endpoint-2"
-        assert endpoints[1].endpoint_type == "data_source"
-        assert endpoints[1].is_active is False
-        assert endpoints[1].owner_domain == "https://user2.com"
-        assert endpoints[1].owner_type == "user"
+        assert endpoints[1].health_status == "healthy"
+        assert endpoints[1].health_ttl_seconds == 300
 
     def test_get_endpoints_org_owned(self, monitor):
         """Test getting organization-owned endpoints."""
         mock_session = MagicMock()
 
-        # User endpoints query result (empty)
         user_results = []
-        # Org endpoints query result (id, slug, type, is_active, connect, domain, owner_id, heartbeat_expires_at)
         org_results = [
             (
                 3,
@@ -349,6 +283,9 @@ class TestGetEndpointsForHealthCheck:
                 [{"type": "rest_api", "config": {"url": "/api"}}],
                 "https://org.com",
                 100,
+                None,
+                None,
+                None,
                 None,
             ),
         ]
@@ -379,6 +316,9 @@ class TestGetEndpointsForHealthCheck:
                 "https://user.com",
                 10,
                 None,
+                None,
+                None,
+                None,
             ),
         ]
         org_results = [
@@ -390,6 +330,9 @@ class TestGetEndpointsForHealthCheck:
                 [{"type": "rest_api", "config": {"url": "/org"}}],
                 "https://org.com",
                 100,
+                None,
+                None,
+                None,
                 None,
             ),
         ]
@@ -410,9 +353,33 @@ class TestGetEndpointsForHealthCheck:
 
         user_results = [
             # No connect config
-            (1, "ep-1", "model", True, None, "https://user.com", 10, None),
+            (
+                1,
+                "ep-1",
+                "model",
+                True,
+                None,
+                "https://user.com",
+                10,
+                None,
+                None,
+                None,
+                None,
+            ),
             # Empty connect config (falsy)
-            (2, "ep-2", "model", True, [], "https://user2.com", 20, None),
+            (
+                2,
+                "ep-2",
+                "model",
+                True,
+                [],
+                "https://user2.com",
+                20,
+                None,
+                None,
+                None,
+                None,
+            ),
             # Has connect config
             (
                 3,
@@ -422,6 +389,9 @@ class TestGetEndpointsForHealthCheck:
                 [{"type": "rest_api"}],
                 "https://user3.com",
                 30,
+                None,
+                None,
+                None,
                 None,
             ),
         ]
@@ -441,9 +411,33 @@ class TestGetEndpointsForHealthCheck:
 
         user_results = [
             # No domain - included
-            (1, "ep-1", "model", True, [{"type": "rest_api"}], None, 10, None),
+            (
+                1,
+                "ep-1",
+                "model",
+                True,
+                [{"type": "rest_api"}],
+                None,
+                10,
+                None,
+                None,
+                None,
+                None,
+            ),
             # Empty domain - included
-            (2, "ep-2", "model", True, [{"type": "rest_api"}], "", 20, None),
+            (
+                2,
+                "ep-2",
+                "model",
+                True,
+                [{"type": "rest_api"}],
+                "",
+                20,
+                None,
+                None,
+                None,
+                None,
+            ),
             # Has domain - included
             (
                 3,
@@ -453,6 +447,9 @@ class TestGetEndpointsForHealthCheck:
                 [{"type": "rest_api"}],
                 "https://valid.com",
                 30,
+                None,
+                None,
+                None,
                 None,
             ),
         ]
@@ -473,7 +470,7 @@ class TestGetEndpointsForHealthCheck:
 
 
 class TestCheckEndpointHealth:
-    """Tests for _check_endpoint_health method."""
+    """Tests for _check_endpoint_health and tier methods."""
 
     @pytest.fixture
     def monitor(self):
@@ -481,15 +478,12 @@ class TestCheckEndpointHealth:
         settings = MagicMock()
         settings.health_check_enabled = True
         settings.health_check_interval_seconds = 30
-        settings.health_check_timeout_seconds = 5.0
-        settings.health_check_max_concurrent = 20
-        settings.heartbeat_grace_period_seconds = 60
         settings.health_check_failure_threshold = 3
         return EndpointHealthMonitor(settings)
 
     @pytest.fixture
     def sample_endpoint(self):
-        """Create sample endpoint for testing (stale heartbeat, needs HTTP check)."""
+        """Create sample endpoint with no health signals (unhealthy)."""
         return EndpointHealthInfo(
             id=1,
             slug="test-model",
@@ -499,285 +493,316 @@ class TestCheckEndpointHealth:
             owner_domain="https://example.com",
             owner_id=10,
             owner_type="user",
-            heartbeat_expires_at=None,  # No heartbeat - will trigger HTTP check
+            heartbeat_expires_at=None,
         )
 
-    @pytest.fixture
-    def mock_session(self):
-        """Create mock database session."""
-        return MagicMock()
-
-    @pytest.mark.asyncio
-    async def test_check_health_success_200(
-        self, monitor, sample_endpoint, mock_session
-    ):
-        """Test health check with successful HTTP 200 response."""
-        semaphore = asyncio.Semaphore(10)
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_client.get.return_value = mock_response
-
-        with patch.object(
-            monitor, "_build_health_check_url", return_value="https://example.com/test"
-        ):
-            result = await monitor._check_endpoint_health(
-                sample_endpoint, semaphore, mock_client, mock_session
-            )
-
-        endpoint_id, is_healthy = result
-        assert endpoint_id == 1
-        assert is_healthy is True
-
-    @pytest.mark.asyncio
-    async def test_check_health_500_is_unhealthy(
-        self, monitor, sample_endpoint, mock_session
-    ):
-        """Test health check with HTTP 500 is considered unhealthy."""
-        semaphore = asyncio.Semaphore(10)
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_response = MagicMock()
-        mock_response.status_code = 500
-        mock_client.get.return_value = mock_response
-
-        with patch.object(
-            monitor, "_build_health_check_url", return_value="https://example.com/test"
-        ):
-            result = await monitor._check_endpoint_health(
-                sample_endpoint, semaphore, mock_client, mock_session
-            )
-
-        _endpoint_id, is_healthy = result
-        assert is_healthy is False  # 5xx errors are unhealthy
-
-    @pytest.mark.asyncio
-    async def test_check_health_404_is_unhealthy(
-        self, monitor, sample_endpoint, mock_session
-    ):
-        """Test health check with HTTP 404 is considered unhealthy."""
-        semaphore = asyncio.Semaphore(10)
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_response = MagicMock()
-        mock_response.status_code = 404
-        mock_client.get.return_value = mock_response
-
-        with patch.object(
-            monitor, "_build_health_check_url", return_value="https://example.com/test"
-        ):
-            result = await monitor._check_endpoint_health(
-                sample_endpoint, semaphore, mock_client, mock_session
-            )
-
-        _endpoint_id, is_healthy = result
-        assert is_healthy is False  # 4xx errors are unhealthy
-
-    @pytest.mark.asyncio
-    async def test_check_health_redirect_is_healthy(
-        self, monitor, sample_endpoint, mock_session
-    ):
-        """Test health check with HTTP 3xx redirect is considered healthy."""
-        semaphore = asyncio.Semaphore(10)
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_response = MagicMock()
-        mock_response.status_code = 302
-        mock_client.get.return_value = mock_response
-
-        with patch.object(
-            monitor, "_build_health_check_url", return_value="https://example.com/test"
-        ):
-            result = await monitor._check_endpoint_health(
-                sample_endpoint, semaphore, mock_client, mock_session
-            )
-
-        _endpoint_id, is_healthy = result
-        assert is_healthy is True  # 3xx redirects are healthy
-
-    @pytest.mark.asyncio
-    async def test_check_health_timeout(self, monitor, sample_endpoint, mock_session):
-        """Test health check with timeout."""
-        semaphore = asyncio.Semaphore(10)
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_client.get.side_effect = httpx.TimeoutException("Connection timed out")
-
-        with patch.object(
-            monitor, "_build_health_check_url", return_value="https://example.com/test"
-        ):
-            result = await monitor._check_endpoint_health(
-                sample_endpoint, semaphore, mock_client, mock_session
-            )
-
-        endpoint_id, is_healthy = result
-        assert endpoint_id == 1
-        assert is_healthy is False
-
-    @pytest.mark.asyncio
-    async def test_check_health_connection_error(
-        self, monitor, sample_endpoint, mock_session
-    ):
-        """Test health check with connection error."""
-        semaphore = asyncio.Semaphore(10)
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_client.get.side_effect = httpx.ConnectError("Connection refused")
-
-        with patch.object(
-            monitor, "_build_health_check_url", return_value="https://example.com/test"
-        ):
-            result = await monitor._check_endpoint_health(
-                sample_endpoint, semaphore, mock_client, mock_session
-            )
-
-        _endpoint_id, is_healthy = result
-        assert is_healthy is False
-
-    @pytest.mark.asyncio
-    async def test_check_health_no_valid_url(
-        self, monitor, sample_endpoint, mock_session
-    ):
-        """Test health check when no valid URL can be built."""
-        semaphore = asyncio.Semaphore(10)
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-
-        with patch.object(monitor, "_build_health_check_url", return_value=None):
-            result = await monitor._check_endpoint_health(
-                sample_endpoint, semaphore, mock_client, mock_session
-            )
-
-        endpoint_id, is_healthy = result
-        assert endpoint_id == 1
-        assert is_healthy is True  # Returns current state (endpoint was active)
-
-    @pytest.mark.asyncio
-    async def test_check_health_inactive_becomes_healthy(self, monitor, mock_session):
-        """Test health check when inactive endpoint becomes reachable."""
-        inactive_endpoint = EndpointHealthInfo(
-            id=2,
-            slug="inactive-model",
-            endpoint_type="model",
-            is_active=False,  # Currently inactive
-            connect=[{"type": "rest_api", "enabled": True, "config": {"url": "/test"}}],
-            owner_domain="https://example.com",
-            owner_id=10,
-            owner_type="user",
-            heartbeat_expires_at=None,  # No heartbeat - will trigger HTTP check
-        )
-        semaphore = asyncio.Semaphore(10)
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_client.get.return_value = mock_response
-
-        with patch.object(
-            monitor, "_build_health_check_url", return_value="https://example.com/test"
-        ):
-            result = await monitor._check_endpoint_health(
-                inactive_endpoint, semaphore, mock_client, mock_session
-            )
-
-        _endpoint_id, is_healthy = result
-        assert is_healthy is True
-
-    @pytest.mark.asyncio
-    async def test_check_health_request_error(
-        self, monitor, sample_endpoint, mock_session
-    ):
-        """Test health check with generic request error."""
-        semaphore = asyncio.Semaphore(10)
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_client.get.side_effect = httpx.RequestError("Network error")
-
-        with patch.object(
-            monitor, "_build_health_check_url", return_value="https://example.com/test"
-        ):
-            result = await monitor._check_endpoint_health(
-                sample_endpoint, semaphore, mock_client, mock_session
-            )
-
-        _endpoint_id, is_healthy = result
-        assert is_healthy is False
-
-    @pytest.mark.asyncio
-    async def test_check_health_no_owner_domain_none(self, monitor, mock_session):
-        """Test health check when endpoint has no owner domain (None)."""
-        endpoint_no_domain = EndpointHealthInfo(
+    def test_no_domain_is_unhealthy(self, monitor):
+        """Test endpoint without owner domain is unhealthy."""
+        endpoint = EndpointHealthInfo(
             id=1,
-            slug="no-domain-model",
+            slug="no-domain",
             endpoint_type="model",
-            is_active=True,  # Currently active
-            connect=[{"type": "rest_api", "enabled": True, "config": {"url": "/test"}}],
-            owner_domain=None,  # No domain configured
-            owner_id=10,
-            owner_type="user",
-            heartbeat_expires_at=None,
-        )
-        semaphore = asyncio.Semaphore(10)
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-
-        result = await monitor._check_endpoint_health(
-            endpoint_no_domain, semaphore, mock_client, mock_session
-        )
-
-        endpoint_id, is_healthy = result
-        assert endpoint_id == 1
-        assert is_healthy is False  # Should be unhealthy (no domain)
-        # Should not have made any HTTP requests
-        mock_client.get.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_check_health_no_owner_domain_empty_string(
-        self, monitor, mock_session
-    ):
-        """Test health check when endpoint has empty owner domain."""
-        endpoint_empty_domain = EndpointHealthInfo(
-            id=2,
-            slug="empty-domain-model",
-            endpoint_type="model",
-            is_active=True,  # Currently active
-            connect=[{"type": "rest_api", "enabled": True, "config": {"url": "/test"}}],
-            owner_domain="",  # Empty domain
-            owner_id=10,
-            owner_type="user",
-            heartbeat_expires_at=None,
-        )
-        semaphore = asyncio.Semaphore(10)
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-
-        result = await monitor._check_endpoint_health(
-            endpoint_empty_domain, semaphore, mock_client, mock_session
-        )
-
-        endpoint_id, is_healthy = result
-        assert endpoint_id == 2
-        assert is_healthy is False  # Should be unhealthy (empty domain)
-        # Should not have made any HTTP requests
-        mock_client.get.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_check_health_no_owner_domain_already_inactive(
-        self, monitor, mock_session
-    ):
-        """Test health check when endpoint without domain is already inactive."""
-        endpoint_no_domain_inactive = EndpointHealthInfo(
-            id=3,
-            slug="inactive-no-domain",
-            endpoint_type="data_source",
-            is_active=False,  # Already inactive
-            connect=[{"type": "rest_api", "enabled": True, "config": {"url": "/test"}}],
+            is_active=True,
+            connect=[{"type": "rest_api"}],
             owner_domain=None,
             owner_id=10,
             owner_type="user",
             heartbeat_expires_at=None,
         )
-        semaphore = asyncio.Semaphore(10)
-        mock_client = AsyncMock(spec=httpx.AsyncClient)
-
-        result = await monitor._check_endpoint_health(
-            endpoint_no_domain_inactive, semaphore, mock_client, mock_session
-        )
-
-        endpoint_id, is_healthy = result
-        assert endpoint_id == 3
+        endpoint_id, is_healthy = monitor._check_endpoint_health(endpoint)
+        assert endpoint_id == 1
         assert is_healthy is False
-        mock_client.get.assert_not_called()
+
+    def test_empty_domain_is_unhealthy(self, monitor):
+        """Test endpoint with empty owner domain is unhealthy."""
+        endpoint = EndpointHealthInfo(
+            id=2,
+            slug="empty-domain",
+            endpoint_type="model",
+            is_active=True,
+            connect=[{"type": "rest_api"}],
+            owner_domain="",
+            owner_id=10,
+            owner_type="user",
+            heartbeat_expires_at=None,
+        )
+        endpoint_id, is_healthy = monitor._check_endpoint_health(endpoint)
+        assert endpoint_id == 2
+        assert is_healthy is False
+
+    def test_fresh_per_endpoint_health_healthy(self, monitor):
+        """Test fresh per-endpoint health status of 'healthy' returns True."""
+        now = datetime.now(timezone.utc)
+        endpoint = EndpointHealthInfo(
+            id=1,
+            slug="test",
+            endpoint_type="model",
+            is_active=True,
+            connect=[{"type": "rest_api"}],
+            owner_domain="https://example.com",
+            owner_id=10,
+            owner_type="user",
+            heartbeat_expires_at=None,
+            health_status="healthy",
+            health_checked_at=now - timedelta(seconds=10),
+            health_ttl_seconds=300,
+        )
+        endpoint_id, is_healthy = monitor._check_endpoint_health(endpoint)
+        assert endpoint_id == 1
+        assert is_healthy is True
+
+    def test_fresh_per_endpoint_health_unhealthy(self, monitor):
+        """Test fresh per-endpoint health status of 'unhealthy' returns False."""
+        now = datetime.now(timezone.utc)
+        endpoint = EndpointHealthInfo(
+            id=1,
+            slug="test",
+            endpoint_type="model",
+            is_active=True,
+            connect=[{"type": "rest_api"}],
+            owner_domain="https://example.com",
+            owner_id=10,
+            owner_type="user",
+            heartbeat_expires_at=None,
+            health_status="unhealthy",
+            health_checked_at=now - timedelta(seconds=10),
+            health_ttl_seconds=300,
+        )
+        endpoint_id, is_healthy = monitor._check_endpoint_health(endpoint)
+        assert endpoint_id == 1
+        assert is_healthy is False
+
+    def test_stale_per_endpoint_health_falls_through_to_heartbeat(self, monitor):
+        """Test expired per-endpoint health falls through to heartbeat tier."""
+        now = datetime.now(timezone.utc)
+        endpoint = EndpointHealthInfo(
+            id=1,
+            slug="test",
+            endpoint_type="model",
+            is_active=True,
+            connect=[{"type": "rest_api"}],
+            owner_domain="https://example.com",
+            owner_id=10,
+            owner_type="user",
+            heartbeat_expires_at=now + timedelta(seconds=60),  # Fresh heartbeat
+            health_status="unhealthy",
+            health_checked_at=now - timedelta(seconds=600),  # Stale (expired)
+            health_ttl_seconds=300,
+        )
+        endpoint_id, is_healthy = monitor._check_endpoint_health(endpoint)
+        assert endpoint_id == 1
+        assert is_healthy is True  # Heartbeat says healthy
+
+    def test_fresh_heartbeat_is_healthy(self, monitor, sample_endpoint):
+        """Test fresh heartbeat makes endpoint healthy."""
+        sample_endpoint.heartbeat_expires_at = datetime.now(timezone.utc) + timedelta(
+            seconds=60
+        )
+        endpoint_id, is_healthy = monitor._check_endpoint_health(sample_endpoint)
+        assert endpoint_id == 1
+        assert is_healthy is True
+
+    def test_stale_heartbeat_no_health_is_unhealthy(self, monitor, sample_endpoint):
+        """Test stale heartbeat with no per-endpoint health is unhealthy."""
+        sample_endpoint.heartbeat_expires_at = datetime.now(timezone.utc) - timedelta(
+            seconds=60
+        )
+        endpoint_id, is_healthy = monitor._check_endpoint_health(sample_endpoint)
+        assert endpoint_id == 1
+        assert is_healthy is False
+
+    def test_no_signals_is_unhealthy(self, monitor, sample_endpoint):
+        """Test no health signals (null heartbeat, null health fields) is unhealthy."""
+        endpoint_id, is_healthy = monitor._check_endpoint_health(sample_endpoint)
+        assert endpoint_id == 1
+        assert is_healthy is False
+
+    def test_per_endpoint_health_takes_priority_over_heartbeat(self, monitor):
+        """Test per-endpoint health overrides heartbeat when both are fresh."""
+        now = datetime.now(timezone.utc)
+        endpoint = EndpointHealthInfo(
+            id=1,
+            slug="test",
+            endpoint_type="model",
+            is_active=True,
+            connect=[{"type": "rest_api"}],
+            owner_domain="https://example.com",
+            owner_id=10,
+            owner_type="user",
+            heartbeat_expires_at=now + timedelta(seconds=60),  # Fresh heartbeat
+            health_status="unhealthy",  # Per-endpoint says unhealthy
+            health_checked_at=now - timedelta(seconds=10),
+            health_ttl_seconds=300,
+        )
+        endpoint_id, is_healthy = monitor._check_endpoint_health(endpoint)
+        assert endpoint_id == 1
+        assert is_healthy is False  # Per-endpoint health wins
+
+    def test_partial_health_fields_skipped(self, monitor):
+        """Test that partial health fields (missing TTL) skip tier 1."""
+        now = datetime.now(timezone.utc)
+        endpoint = EndpointHealthInfo(
+            id=1,
+            slug="test",
+            endpoint_type="model",
+            is_active=True,
+            connect=[{"type": "rest_api"}],
+            owner_domain="https://example.com",
+            owner_id=10,
+            owner_type="user",
+            heartbeat_expires_at=now + timedelta(seconds=60),
+            health_status="unhealthy",
+            health_checked_at=now,
+            health_ttl_seconds=None,  # Missing TTL
+        )
+        endpoint_id, is_healthy = monitor._check_endpoint_health(endpoint)
+        assert endpoint_id == 1
+        assert is_healthy is True  # Falls through to heartbeat
+
+
+class TestCheckPerEndpointHealth:
+    """Tests for _check_per_endpoint_health tier method."""
+
+    @pytest.fixture
+    def monitor(self):
+        settings = MagicMock()
+        settings.health_check_enabled = True
+        settings.health_check_interval_seconds = 30
+        settings.health_check_failure_threshold = 3
+        return EndpointHealthMonitor(settings)
+
+    def test_returns_none_when_no_health_fields(self, monitor):
+        """Test returns None when health fields are absent."""
+        endpoint = EndpointHealthInfo(
+            id=1,
+            slug="test",
+            endpoint_type="model",
+            is_active=True,
+            connect=[],
+            owner_domain="https://example.com",
+            owner_id=10,
+            owner_type="user",
+            heartbeat_expires_at=None,
+        )
+        now = datetime.now(timezone.utc)
+        assert monitor._check_per_endpoint_health(endpoint, now) is None
+
+    def test_returns_none_when_expired(self, monitor):
+        """Test returns None when health status has expired."""
+        now = datetime.now(timezone.utc)
+        endpoint = EndpointHealthInfo(
+            id=1,
+            slug="test",
+            endpoint_type="model",
+            is_active=True,
+            connect=[],
+            owner_domain="https://example.com",
+            owner_id=10,
+            owner_type="user",
+            heartbeat_expires_at=None,
+            health_status="healthy",
+            health_checked_at=now - timedelta(seconds=600),
+            health_ttl_seconds=300,
+        )
+        assert monitor._check_per_endpoint_health(endpoint, now) is None
+
+    def test_returns_true_when_healthy(self, monitor):
+        """Test returns True when fresh and healthy."""
+        now = datetime.now(timezone.utc)
+        endpoint = EndpointHealthInfo(
+            id=1,
+            slug="test",
+            endpoint_type="model",
+            is_active=True,
+            connect=[],
+            owner_domain="https://example.com",
+            owner_id=10,
+            owner_type="user",
+            heartbeat_expires_at=None,
+            health_status="healthy",
+            health_checked_at=now - timedelta(seconds=10),
+            health_ttl_seconds=300,
+        )
+        assert monitor._check_per_endpoint_health(endpoint, now) is True
+
+    def test_returns_false_when_unhealthy(self, monitor):
+        """Test returns False when fresh and unhealthy."""
+        now = datetime.now(timezone.utc)
+        endpoint = EndpointHealthInfo(
+            id=1,
+            slug="test",
+            endpoint_type="model",
+            is_active=True,
+            connect=[],
+            owner_domain="https://example.com",
+            owner_id=10,
+            owner_type="user",
+            heartbeat_expires_at=None,
+            health_status="unhealthy",
+            health_checked_at=now - timedelta(seconds=10),
+            health_ttl_seconds=300,
+        )
+        assert monitor._check_per_endpoint_health(endpoint, now) is False
+
+
+class TestCheckHeartbeatHealth:
+    """Tests for _check_heartbeat_health tier method (deprecated)."""
+
+    @pytest.fixture
+    def monitor(self):
+        settings = MagicMock()
+        settings.health_check_enabled = True
+        settings.health_check_interval_seconds = 30
+        settings.health_check_failure_threshold = 3
+        return EndpointHealthMonitor(settings)
+
+    def test_returns_none_when_no_heartbeat(self, monitor):
+        """Test returns None when heartbeat is absent."""
+        endpoint = EndpointHealthInfo(
+            id=1,
+            slug="test",
+            endpoint_type="model",
+            is_active=True,
+            connect=[],
+            owner_domain="https://example.com",
+            owner_id=10,
+            owner_type="user",
+            heartbeat_expires_at=None,
+        )
+        now = datetime.now(timezone.utc)
+        assert monitor._check_heartbeat_health(endpoint, now) is None
+
+    def test_returns_none_when_expired(self, monitor):
+        """Test returns None when heartbeat has expired."""
+        now = datetime.now(timezone.utc)
+        endpoint = EndpointHealthInfo(
+            id=1,
+            slug="test",
+            endpoint_type="model",
+            is_active=True,
+            connect=[],
+            owner_domain="https://example.com",
+            owner_id=10,
+            owner_type="user",
+            heartbeat_expires_at=now - timedelta(seconds=60),
+        )
+        assert monitor._check_heartbeat_health(endpoint, now) is None
+
+    def test_returns_true_when_fresh(self, monitor):
+        """Test returns True when heartbeat is fresh."""
+        now = datetime.now(timezone.utc)
+        endpoint = EndpointHealthInfo(
+            id=1,
+            slug="test",
+            endpoint_type="model",
+            is_active=True,
+            connect=[],
+            owner_domain="https://example.com",
+            owner_id=10,
+            owner_type="user",
+            heartbeat_expires_at=now + timedelta(seconds=60),
+        )
+        assert monitor._check_heartbeat_health(endpoint, now) is True
 
 
 class TestUpdateEndpointHealthStatus:
@@ -789,9 +814,6 @@ class TestUpdateEndpointHealthStatus:
         settings = MagicMock()
         settings.health_check_enabled = True
         settings.health_check_interval_seconds = 30
-        settings.health_check_timeout_seconds = 5.0
-        settings.health_check_max_concurrent = 20
-        settings.heartbeat_grace_period_seconds = 60
         settings.health_check_failure_threshold = 3
         return EndpointHealthMonitor(settings)
 
@@ -867,9 +889,6 @@ class TestRunHealthCheckCycle:
         settings = MagicMock()
         settings.health_check_enabled = True
         settings.health_check_interval_seconds = 30
-        settings.health_check_timeout_seconds = 5.0
-        settings.health_check_max_concurrent = 20
-        settings.heartbeat_grace_period_seconds = 60
         settings.health_check_failure_threshold = 3
         return EndpointHealthMonitor(settings)
 
@@ -945,22 +964,18 @@ class TestRunHealthCheckCycle:
             )
         ]
 
-        async def mock_check(*args, **kwargs):
-            return (1, True)  # Healthy
-
         with (
             patch("syfthub.jobs.health_monitor.db_manager") as mock_db_manager,
             patch.object(monitor, "_try_acquire_cycle_lock", return_value=True),
             patch.object(
                 monitor, "_get_endpoints_for_health_check", return_value=endpoints
             ),
-            patch.object(monitor, "_check_endpoint_health", side_effect=mock_check),
+            patch.object(monitor, "_check_endpoint_health", return_value=(1, True)),
             patch.object(
                 monitor,
                 "_update_endpoint_health_status",
                 return_value=(True, 0),  # Still active, no failures
             ),
-            patch("syfthub.jobs.health_monitor.httpx.AsyncClient"),
         ):
             mock_db_manager.get_session.return_value = mock_session
 
@@ -986,22 +1001,18 @@ class TestRunHealthCheckCycle:
             )
         ]
 
-        async def mock_check(*args, **kwargs):
-            return (1, False)  # Unhealthy
-
         with (
             patch("syfthub.jobs.health_monitor.db_manager") as mock_db_manager,
             patch.object(monitor, "_try_acquire_cycle_lock", return_value=True),
             patch.object(
                 monitor, "_get_endpoints_for_health_check", return_value=endpoints
             ),
-            patch.object(monitor, "_check_endpoint_health", side_effect=mock_check),
+            patch.object(monitor, "_check_endpoint_health", return_value=(1, False)),
             patch.object(
                 monitor,
                 "_update_endpoint_health_status",
                 return_value=(False, 3),  # Now inactive after 3 failures
             ),
-            patch("syfthub.jobs.health_monitor.httpx.AsyncClient"),
         ):
             mock_db_manager.get_session.return_value = mock_session
 
@@ -1010,44 +1021,6 @@ class TestRunHealthCheckCycle:
             monitor._update_endpoint_health_status.assert_called_once_with(
                 mock_session, 1, False
             )
-
-    @pytest.mark.asyncio
-    async def test_cycle_handles_exceptions(self, monitor):
-        """Test health check cycle handles exceptions from gather results."""
-        mock_session = MagicMock()
-        endpoints = [
-            EndpointHealthInfo(
-                id=1,
-                slug="test-endpoint",
-                endpoint_type="model",
-                is_active=True,
-                connect=[{"type": "rest_api", "config": {"url": "/test"}}],
-                owner_domain="https://example.com",
-                owner_id=10,
-                owner_type="user",
-                heartbeat_expires_at=None,
-            )
-        ]
-
-        # Mock _check_endpoint_health to raise an exception
-        async def failing_check(*args, **kwargs):
-            raise ValueError("Test error")
-
-        with (
-            patch("syfthub.jobs.health_monitor.db_manager") as mock_db_manager,
-            patch.object(monitor, "_try_acquire_cycle_lock", return_value=True),
-            patch.object(
-                monitor, "_get_endpoints_for_health_check", return_value=endpoints
-            ),
-            patch.object(monitor, "_check_endpoint_health", side_effect=failing_check),
-            patch("syfthub.jobs.health_monitor.httpx.AsyncClient"),
-        ):
-            mock_db_manager.get_session.return_value = mock_session
-
-            # Should not raise - exceptions are logged via return_exceptions=True
-            await monitor.run_health_check_cycle()
-
-            mock_session.close.assert_called_once()
 
 
 class TestHealthMonitorLifecycle:
@@ -1059,9 +1032,6 @@ class TestHealthMonitorLifecycle:
         settings = MagicMock()
         settings.health_check_enabled = True
         settings.health_check_interval_seconds = 0.1  # Fast for testing
-        settings.health_check_timeout_seconds = 5.0
-        settings.health_check_max_concurrent = 20
-        settings.heartbeat_grace_period_seconds = 60
         settings.health_check_failure_threshold = 3
         return EndpointHealthMonitor(settings)
 
@@ -1071,9 +1041,6 @@ class TestHealthMonitorLifecycle:
         settings = MagicMock()
         settings.health_check_enabled = False
         settings.health_check_interval_seconds = 30
-        settings.health_check_timeout_seconds = 5.0
-        settings.health_check_max_concurrent = 20
-        settings.heartbeat_grace_period_seconds = 60
         settings.health_check_failure_threshold = 3
         return EndpointHealthMonitor(settings)
 

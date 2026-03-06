@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, List, Optional
+from urllib.parse import urlparse
 
 from fastapi import HTTPException, status
 
+from syfthub.core.config import settings
 from syfthub.core.url_builder import transform_connection_urls
 from syfthub.repositories.endpoint import EndpointRepository, EndpointStarRepository
 from syfthub.repositories.organization import (
@@ -20,6 +22,8 @@ from syfthub.schemas.endpoint import (
     Endpoint,
     EndpointAdminUpdate,
     EndpointCreate,
+    EndpointHealthItem,
+    EndpointHealthResponse,
     EndpointPublicResponse,
     EndpointResponse,
     EndpointType,
@@ -1271,3 +1275,170 @@ class EndpointService(BaseService):
                     "message": "Failed to sync endpoints. Transaction rolled back.",
                 },
             ) from e
+
+    # ===========================================
+    # ENDPOINT HEALTH REPORTING
+    # ===========================================
+
+    def _update_owner_heartbeats(
+        self,
+        user_id: int,
+        domain: str,
+        expires_at: datetime,
+        now: datetime,
+        org_ids_to_update: set[int],
+    ) -> None:
+        """Update heartbeat fields on user and organization owners.
+
+        .. deprecated::
+            This method updates the legacy heartbeat fields (last_heartbeat_at,
+            heartbeat_expires_at) on user and organization records. It exists to
+            maintain backward compatibility while clients migrate from the deprecated
+            heartbeat endpoints to ``POST /endpoints/health``.
+
+            When the deprecated heartbeat endpoints are fully removed and
+            ``_check_heartbeat_health()`` is removed from the health monitor,
+            delete this method and its call in ``report_endpoint_health()``.
+
+        Does NOT commit — caller manages the transaction.
+        """
+        # Update user heartbeat
+        self.user_repository.update_heartbeat(
+            user_id=user_id,
+            domain=domain,
+            last_heartbeat_at=now,
+            heartbeat_expires_at=expires_at,
+        )
+
+        # Update org heartbeats for orgs that had matching endpoints
+        for org_id in org_ids_to_update:
+            self.org_repository.update_heartbeat(
+                org_id=org_id,
+                domain=domain,
+                last_heartbeat_at=now,
+                heartbeat_expires_at=expires_at,
+            )
+
+    def report_endpoint_health(
+        self,
+        endpoints_health: List[EndpointHealthItem],
+        url: str,
+        current_user: User,
+        ttl_seconds: Optional[int] = None,
+    ) -> EndpointHealthResponse:
+        """Report per-endpoint health status from client.
+
+        This method:
+        1. Extracts domain from URL and caps TTL at server max
+        2. Matches slugs against user-owned and org-owned endpoints
+        3. Updates health_status, health_checked_at, health_ttl_seconds per endpoint
+        4. Updates owner heartbeats (deprecated — backward compat with heartbeat fallback)
+
+        Args:
+            endpoints_health: List of EndpointHealthItem with slug, status, checked_at
+            url: Domain URL from the client
+            current_user: The authenticated user
+            ttl_seconds: Requested TTL (optional, capped by server max)
+
+        Returns:
+            EndpointHealthResponse with updated and ignored counts
+        """
+        from syfthub.schemas.user import TUNNELING_PREFIX
+
+        now = datetime.now(timezone.utc)
+
+        # --- TTL calculation ---
+        requested_ttl = ttl_seconds or settings.heartbeat_default_ttl_seconds
+        effective_ttl = min(requested_ttl, settings.heartbeat_max_ttl_seconds)
+
+        # --- Domain extraction ---
+        if url.startswith(TUNNELING_PREFIX):
+            domain = url
+        else:
+            parsed = urlparse(url)
+            if not parsed.netloc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Invalid URL: could not extract domain",
+                )
+            domain = f"{parsed.scheme}://{parsed.netloc}"
+
+        expires_at = now + timedelta(seconds=effective_ttl)
+
+        # --- Get orgs the user belongs to ---
+        user_orgs = self.org_member_repository.get_user_organizations(current_user.id)
+        org_ids = [org.id for org in user_orgs]
+
+        # --- Bulk slug match (single query, no is_active filter) ---
+        slugs = [item.slug for item in endpoints_health]
+        matched_endpoints = self.endpoint_repository.get_endpoints_by_slugs_for_health(
+            user_id=current_user.id,
+            org_ids=org_ids,
+            slugs=slugs,
+        )
+
+        # Build slug -> endpoint model mapping
+        slug_to_endpoint = {ep.slug: ep for ep in matched_endpoints}
+
+        # --- Build health updates and track which orgs need heartbeat update ---
+        health_updates = []
+        orgs_to_update_heartbeat: set[int] = set()
+
+        for item in endpoints_health:
+            slug = item.slug.lower()
+            endpoint = slug_to_endpoint.get(slug)  # type: ignore[call-overload]
+            if endpoint is None:
+                continue
+
+            health_updates.append(
+                {
+                    "endpoint_id": endpoint.id,
+                    "health_status": item.status.value,
+                    "health_checked_at": item.checked_at,
+                    "health_ttl_seconds": effective_ttl,
+                }
+            )
+
+            if endpoint.organization_id:
+                orgs_to_update_heartbeat.add(endpoint.organization_id)
+
+        # --- Bulk update per-endpoint health status ---
+        updated = 0
+        if health_updates:
+            updated = self.endpoint_repository.bulk_update_health_status(health_updates)
+
+        ignored = len(endpoints_health) - updated
+
+        # --- Update owner heartbeats (deprecated — remove with heartbeat system) ---
+        self._update_owner_heartbeats(
+            user_id=current_user.id,
+            domain=domain,
+            expires_at=expires_at,
+            now=now,
+            org_ids_to_update=orgs_to_update_heartbeat,
+        )
+
+        # --- Commit all changes ---
+        try:
+            self.session.commit()
+        except Exception as e:
+            self.session.rollback()
+            logger.error(
+                f"Failed to commit endpoint health update for user "
+                f"{current_user.id}: {e}",
+                exc_info=True,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to update endpoint health",
+            ) from e
+
+        logger.info(
+            f"Endpoint health reported by user {current_user.id}: "
+            f"updated={updated}, ignored={ignored}"
+        )
+
+        return EndpointHealthResponse(
+            updated=updated,
+            ignored=ignored,
+        )

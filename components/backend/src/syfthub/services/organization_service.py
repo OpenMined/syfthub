@@ -212,6 +212,12 @@ class OrganizationService(BaseService):
     ) -> HeartbeatResponse:
         """Send heartbeat to indicate organization's domain is online.
 
+        .. deprecated::
+            This method backs the deprecated ``POST /organizations/{org_id}/heartbeat``
+            endpoint. Use ``EndpointService.report_endpoint_health()`` instead, which
+            updates organization heartbeats automatically for matched endpoints.
+            Remove this method when the heartbeat API route is removed.
+
         This method:
         - Verifies user has permission to send heartbeats for the organization
         - Extracts domain (host + port) from the provided URL
