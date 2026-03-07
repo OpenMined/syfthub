@@ -216,3 +216,73 @@ func TestExtractJSONPath_Missing(t *testing.T) {
 		t.Fatal("expected error for missing key")
 	}
 }
+
+func TestShellQuote(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"hello", "'hello'"},
+		{"", "''"},
+		{"it's fine", "'it'\\''s fine'"}, // internal single quote escaped
+		{"; rm -rf /", "'; rm -rf /'"},   // shell metacharacters neutralized
+		{"$(whoami)", "'$(whoami)'"},     // command substitution neutralized
+		{"`id`", "'`id`'"},               // backtick substitution neutralized
+		{"a'b'c", "'a'\\''b'\\''c'"},     // multiple single quotes
+		{"hello world", "'hello world'"}, // spaces preserved
+		{"foo\nbar", "'foo\nbar'"},       // newlines preserved
+	}
+	for _, tt := range tests {
+		got := shellQuote(tt.input)
+		if got != tt.expected {
+			t.Errorf("shellQuote(%q) = %q, want %q", tt.input, got, tt.expected)
+		}
+	}
+}
+
+func TestResolveTemplateShellSafe(t *testing.T) {
+	ctx := &SetupContext{
+		StepOutputs: map[string]*StepResult{
+			"auth": {Value: "tok; rm -rf /"},
+		},
+	}
+
+	result, err := resolveTemplateShellSafe("curl -H 'Auth: {{steps.auth.value}}'", ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// The injected value should be shell-quoted, neutralizing the semicolon
+	expected := "curl -H 'Auth: 'tok; rm -rf /''"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+func TestResolveTemplateShellSafe_NoTemplates(t *testing.T) {
+	ctx := &SetupContext{StepOutputs: map[string]*StepResult{}}
+	result, err := resolveTemplateShellSafe("echo hello", ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != "echo hello" {
+		t.Errorf("expected 'echo hello', got %q", result)
+	}
+}
+
+func TestResolveTemplateShellSafe_QuotesInValue(t *testing.T) {
+	ctx := &SetupContext{
+		StepOutputs: map[string]*StepResult{
+			"key": {Value: "it's a test"},
+		},
+	}
+	result, err := resolveTemplateShellSafe("echo {{steps.key.value}}", ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Single quote in value should be escaped
+	expected := "echo 'it'\\''s a test'"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}

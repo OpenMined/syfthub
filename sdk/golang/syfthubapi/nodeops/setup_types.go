@@ -1,5 +1,26 @@
 package nodeops
 
+// Step type constants.
+const (
+	StepTypePrompt   = "prompt"
+	StepTypeSelect   = "select"
+	StepTypeOAuth2   = "oauth2"
+	StepTypeHTTP     = "http"
+	StepTypeTemplate = "template"
+	StepTypeExec     = "exec"
+)
+
+// Step status constants.
+const (
+	StepStatusCompleted = "completed"
+	StepStatusFailed    = "failed"
+)
+
+// Lifecycle strategy constants.
+const (
+	StrategyRefreshToken = "refresh_token"
+)
+
 // SetupSpec is the top-level structure of a setup.yaml file.
 type SetupSpec struct {
 	Version   string          `yaml:"version" json:"version"`
@@ -13,7 +34,7 @@ type SetupStep struct {
 	ID          string   `yaml:"id" json:"id"`
 	Name        string   `yaml:"name" json:"name"`
 	Description string   `yaml:"description,omitempty" json:"description,omitempty"`
-	Type        string   `yaml:"type" json:"type"` // prompt, select, oauth2, http, template
+	Type        string   `yaml:"type" json:"type"` // See StepType* constants
 	Required    bool     `yaml:"required" json:"required"`
 	DependsOn   []string `yaml:"depends_on,omitempty" json:"depends_on,omitempty"`
 
@@ -29,6 +50,7 @@ type SetupStep struct {
 	OAuth2   *OAuth2Config   `yaml:"oauth2,omitempty" json:"oauth2,omitempty"`
 	HTTP     *HTTPConfig     `yaml:"http,omitempty" json:"http,omitempty"`
 	Template *TemplateConfig `yaml:"template,omitempty" json:"template,omitempty"`
+	Exec     *ExecConfig     `yaml:"exec,omitempty" json:"exec,omitempty"`
 }
 
 // --- Type-specific configs ---
@@ -98,6 +120,14 @@ type HTTPConfig struct {
 // TemplateConfig configures a derived value step.
 type TemplateConfig struct {
 	Value string `yaml:"value" json:"value"` // template string
+}
+
+// ExecConfig configures a shell command execution step.
+type ExecConfig struct {
+	Command     string            `yaml:"command" json:"command"`                               // shell command to run
+	Env         map[string]string `yaml:"env,omitempty" json:"env,omitempty"`                   // extra env vars (supports {{templates}})
+	TimeoutSecs int               `yaml:"timeout_secs,omitempty" json:"timeout_secs,omitempty"` // default: 120, max: 600
+	Message     string            `yaml:"message,omitempty" json:"message,omitempty"`           // status message shown to user
 }
 
 // --- Lifecycle ---

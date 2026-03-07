@@ -170,36 +170,34 @@ func (l *Loader) LoadEndpoint(dir string) (*LoadedEndpoint, error) {
 		config.Runtime.Workers = 1
 	}
 
-	// Load environment variables
-	envVars, err := l.loadEnvVars(dir, &config.Env)
+	// Check setup status before env var validation.
+	// When setup is incomplete, required env vars may not exist yet,
+	// so we disable the endpoint and skip strict validation.
+	var envVars []string
+	status, err := nodeops.GetSetupStatus(dir)
 	if err != nil {
-		return nil, err
+		l.logger.Warn("failed to check setup status", "dir", dir, "error", err)
 	}
-
-	// Check setup status
-	if nodeops.HasSetup(dir) {
-		status, err := nodeops.GetSetupStatus(dir)
+	if status != nil && status.HasSetup && !status.IsComplete {
+		l.logger.Warn("endpoint setup incomplete, disabling",
+			"slug", config.Slug,
+			"pending", status.PendingSteps,
+			"expired", status.ExpiredSteps,
+		)
+		enabled := false
+		config.Enabled = &enabled
+	} else {
+		// Load environment variables (only when setup is complete or no setup.yaml)
+		envVars, err = l.loadEnvVars(dir, &config.Env)
 		if err != nil {
-			l.logger.Warn("failed to check setup status", "dir", dir, "error", err)
-		} else if !status.IsComplete {
-			l.logger.Warn("endpoint setup incomplete, disabling",
-				"slug", config.Slug,
-				"pending", status.PendingSteps,
-				"expired", status.ExpiredSteps,
-			)
-			enabled := false
-			config.Enabled = &enabled
+			return nil, err
 		}
 	}
 
 	// Load policies
 	policyConfigs, storeConfig, err := l.loadPolicies(dir)
 	if err != nil {
-		l.logger.Warn("failed to load policies",
-			"dir", dir,
-			"error", err,
-		)
-		// Continue without policies
+		l.logger.Warn("failed to load policies", "dir", dir, "error", err)
 	}
 
 	return &LoadedEndpoint{

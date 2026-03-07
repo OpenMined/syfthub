@@ -84,7 +84,7 @@ func (m *LifecycleManager) checkEndpoint(endpointDir, slug string) []RefreshResu
 	refresh := spec.Lifecycle.Refresh
 
 	// Only handle refresh_token strategy
-	if refresh.Strategy != "refresh_token" {
+	if refresh.Strategy != nodeops.StrategyRefreshToken {
 		return results
 	}
 
@@ -103,7 +103,7 @@ func (m *LifecycleManager) checkEndpoint(endpointDir, slug string) []RefreshResu
 	// Check each refresh step for expiry
 	for _, stepID := range refresh.Steps {
 		ss, ok := state.Steps[stepID]
-		if !ok || ss.Status != "completed" {
+		if !ok || ss.Status != nodeops.StepStatusCompleted {
 			continue
 		}
 
@@ -185,7 +185,8 @@ func (m *LifecycleManager) refreshToken(endpointDir, slug, stepID string, step *
 		data.Set("client_secret", clientSecret)
 	}
 
-	resp, err := http.PostForm(step.OAuth2.TokenURL, data)
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.PostForm(step.OAuth2.TokenURL, data)
 	if err != nil {
 		result.Error = fmt.Errorf("token refresh request failed: %w", err)
 		return result
@@ -204,7 +205,7 @@ func (m *LifecycleManager) refreshToken(endpointDir, slug, stepID string, step *
 	}
 
 	// Parse response
-	var tokenResp map[string]interface{}
+	var tokenResp map[string]any
 	if err := json.Unmarshal(body, &tokenResp); err != nil {
 		result.Error = fmt.Errorf("failed to parse refresh response: %w", err)
 		return result
@@ -244,7 +245,7 @@ func (m *LifecycleManager) refreshToken(endpointDir, slug, stepID string, step *
 	}
 
 	state.Steps[stepID] = nodeops.StepState{
-		Status:      "completed",
+		Status:      nodeops.StepStatusCompleted,
 		CompletedAt: time.Now().Format(time.RFC3339),
 		ExpiresAt:   expiresAt,
 	}
@@ -299,7 +300,7 @@ func findRefreshToken(envMap map[string]string, step *nodeops.SetupStep) string 
 
 // resolveRefreshTemplate resolves a simple output template like
 // "{{response.access_token}}" against the token response JSON.
-func resolveRefreshTemplate(tmpl string, data map[string]interface{}) string {
+func resolveRefreshTemplate(tmpl string, data map[string]any) string {
 	// Only handle {{response.X}} patterns
 	if !strings.HasPrefix(tmpl, "{{response.") || !strings.HasSuffix(tmpl, "}}") {
 		return ""
@@ -308,9 +309,9 @@ func resolveRefreshTemplate(tmpl string, data map[string]interface{}) string {
 	path := tmpl[len("{{response.") : len(tmpl)-2]
 	parts := strings.Split(path, ".")
 
-	var current interface{} = data
+	var current any = data
 	for _, part := range parts {
-		m, ok := current.(map[string]interface{})
+		m, ok := current.(map[string]any)
 		if !ok {
 			return ""
 		}

@@ -52,9 +52,9 @@ func runSetupInit(cmd *cobra.Command, args []string) error {
 		templates := registry.List()
 
 		if setupInitJSON {
-			items := make([]map[string]interface{}, len(templates))
+			items := make([]map[string]any, len(templates))
 			for i, m := range templates {
-				items[i] = map[string]interface{}{
+				items[i] = map[string]any{
 					"id":          m.ID,
 					"name":        m.Name,
 					"category":    m.Category,
@@ -62,7 +62,7 @@ func runSetupInit(cmd *cobra.Command, args []string) error {
 					"tags":        m.Tags,
 				}
 			}
-			output.JSON(map[string]interface{}{"status": "success", "connectors": items})
+			output.JSON(map[string]any{"status": "success", "connectors": items})
 			return nil
 		}
 
@@ -87,7 +87,7 @@ func runSetupInit(cmd *cobra.Command, args []string) error {
 	if len(args) == 0 {
 		msg := "Endpoint slug is required. Usage: syft node endpoint setup-init <slug> --connector <id>"
 		if setupInitJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
+			output.JSON(map[string]any{"status": "error", "message": msg})
 		} else {
 			output.Error(msg)
 		}
@@ -97,7 +97,7 @@ func runSetupInit(cmd *cobra.Command, args []string) error {
 	if len(setupInitConnectors) == 0 {
 		msg := "At least one --connector is required. Use --list to see available connectors."
 		if setupInitJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
+			output.JSON(map[string]any{"status": "error", "message": msg})
 		} else {
 			output.Error(msg)
 		}
@@ -112,7 +112,7 @@ func runSetupInit(cmd *cobra.Command, args []string) error {
 	if _, err := os.Stat(endpointDir); os.IsNotExist(err) {
 		msg := fmt.Sprintf("Endpoint '%s' not found at %s.", slug, endpointDir)
 		if setupInitJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
+			output.JSON(map[string]any{"status": "error", "message": msg})
 		} else {
 			output.Error(msg)
 		}
@@ -124,7 +124,7 @@ func runSetupInit(cmd *cobra.Command, args []string) error {
 	if _, err := os.Stat(setupPath); err == nil && !setupInitForce {
 		msg := fmt.Sprintf("setup.yaml already exists for '%s'. Use --force to overwrite.", slug)
 		if setupInitJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
+			output.JSON(map[string]any{"status": "error", "message": msg})
 		} else {
 			output.Error(msg)
 		}
@@ -136,7 +136,7 @@ func runSetupInit(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		msg := fmt.Sprintf("Failed to scaffold setup.yaml: %v", err)
 		if setupInitJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
+			output.JSON(map[string]any{"status": "error", "message": msg})
 		} else {
 			output.Error(msg)
 		}
@@ -146,7 +146,7 @@ func runSetupInit(cmd *cobra.Command, args []string) error {
 	if err := nodeops.WriteSetupYaml(setupPath, spec); err != nil {
 		msg := fmt.Sprintf("Failed to write setup.yaml: %v", err)
 		if setupInitJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
+			output.JSON(map[string]any{"status": "error", "message": msg})
 		} else {
 			output.Error(msg)
 		}
@@ -154,7 +154,7 @@ func runSetupInit(cmd *cobra.Command, args []string) error {
 	}
 
 	if setupInitJSON {
-		output.JSON(map[string]interface{}{
+		output.JSON(map[string]any{
 			"status":     "success",
 			"slug":       slug,
 			"connectors": setupInitConnectors,

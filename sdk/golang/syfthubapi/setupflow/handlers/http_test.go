@@ -39,7 +39,7 @@ func TestHTTP_Execute_GET(t *testing.T) {
 			t.Errorf("expected GET, got %s", r.Method)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		json.NewEncoder(w).Encode(map[string]any{
 			"status": "ok",
 			"data":   "test",
 		})
@@ -65,7 +65,7 @@ func TestHTTP_Execute_GET(t *testing.T) {
 		t.Fatal("expected JSON response")
 	}
 
-	var data map[string]interface{}
+	var data map[string]any
 	json.Unmarshal(result.Response, &data)
 	if data["status"] != "ok" {
 		t.Errorf("expected status=ok, got %v", data["status"])
@@ -81,14 +81,14 @@ func TestHTTP_Execute_POST_JSON(t *testing.T) {
 			t.Errorf("expected Content-Type application/json")
 		}
 
-		var body map[string]interface{}
+		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
 		if body["key"] != "value" {
 			t.Errorf("expected key=value in body")
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"created": true})
+		json.NewEncoder(w).Encode(map[string]any{"created": true})
 	}))
 	defer server.Close()
 
@@ -97,7 +97,7 @@ func TestHTTP_Execute_POST_JSON(t *testing.T) {
 		HTTP: &nodeops.HTTPConfig{
 			Method: "POST",
 			URL:    server.URL,
-			JSON:   map[string]interface{}{"key": "value"},
+			JSON:   map[string]any{"key": "value"},
 		},
 	}
 	ctx := &setupflow.SetupContext{
@@ -109,7 +109,7 @@ func TestHTTP_Execute_POST_JSON(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var data map[string]interface{}
+	var data map[string]any
 	json.Unmarshal(result.Response, &data)
 	if data["created"] != true {
 		t.Error("expected created=true")
@@ -208,7 +208,7 @@ func TestHTTP_Execute_TemplatesInURL(t *testing.T) {
 			t.Errorf("expected token=my-token, got %s", q.Get("token"))
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{"verified": true})
+		json.NewEncoder(w).Encode(map[string]any{"verified": true})
 	}))
 	defer server.Close()
 
@@ -229,7 +229,7 @@ func TestHTTP_Execute_TemplatesInURL(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var data map[string]interface{}
+	var data map[string]any
 	json.Unmarshal(result.Response, &data)
 	if data["verified"] != true {
 		t.Error("expected verified=true")

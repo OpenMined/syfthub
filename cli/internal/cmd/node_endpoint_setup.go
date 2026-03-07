@@ -40,11 +40,12 @@ func init() {
 
 func newSetupEngine() *setupflow.Engine {
 	return setupflow.NewEngine(
-		setupflow.WithHandler("prompt", &handlers.PromptHandler{}),
-		setupflow.WithHandler("select", &handlers.SelectHandler{}),
-		setupflow.WithHandler("oauth2", &handlers.OAuth2Handler{}),
-		setupflow.WithHandler("http", handlers.NewHTTPHandler()),
-		setupflow.WithHandler("template", &handlers.TemplateHandler{}),
+		setupflow.WithHandler(nodeops.StepTypePrompt, &handlers.PromptHandler{}),
+		setupflow.WithHandler(nodeops.StepTypeSelect, &handlers.SelectHandler{}),
+		setupflow.WithHandler(nodeops.StepTypeOAuth2, &handlers.OAuth2Handler{}),
+		setupflow.WithHandler(nodeops.StepTypeHTTP, handlers.NewHTTPHandler()),
+		setupflow.WithHandler(nodeops.StepTypeTemplate, &handlers.TemplateHandler{}),
+		setupflow.WithHandler(nodeops.StepTypeExec, &handlers.ExecHandler{}),
 	)
 }
 
@@ -57,7 +58,7 @@ func runNodeEndpointSetup(cmd *cobra.Command, args []string) error {
 	if _, err := os.Stat(endpointDir); os.IsNotExist(err) {
 		msg := fmt.Sprintf("Endpoint '%s' not found.", slug)
 		if nodeEPSetupJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
+			output.JSON(map[string]any{"status": "error", "message": msg})
 		} else {
 			output.Error(msg)
 		}
@@ -70,7 +71,7 @@ func runNodeEndpointSetup(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		msg := fmt.Sprintf("Failed to parse setup.yaml: %v", err)
 		if nodeEPSetupJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
+			output.JSON(map[string]any{"status": "error", "message": msg})
 		} else {
 			output.Error(msg)
 		}
@@ -79,7 +80,7 @@ func runNodeEndpointSetup(cmd *cobra.Command, args []string) error {
 	if spec == nil {
 		msg := fmt.Sprintf("No setup.yaml found for endpoint '%s'.", slug)
 		if nodeEPSetupJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
+			output.JSON(map[string]any{"status": "error", "message": msg})
 		} else {
 			output.Error(msg)
 		}
@@ -117,7 +118,7 @@ func runNodeEndpointSetup(cmd *cobra.Command, args []string) error {
 	if err := engine.Execute(ctx); err != nil {
 		msg := fmt.Sprintf("Setup failed: %v", err)
 		if nodeEPSetupJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
+			output.JSON(map[string]any{"status": "error", "message": msg})
 		} else {
 			output.Error(msg)
 		}
@@ -127,7 +128,7 @@ func runNodeEndpointSetup(cmd *cobra.Command, args []string) error {
 	// 6. Report result
 	status, _ := nodeops.GetSetupStatus(endpointDir)
 	if nodeEPSetupJSON {
-		output.JSON(map[string]interface{}{"status": "success", "setup_status": status})
+		output.JSON(map[string]any{"status": "success", "setup_status": status})
 	} else {
 		if status != nil {
 			output.Success("Setup complete for '%s' (%d/%d steps)", slug, status.CompletedN, status.TotalSteps)
@@ -161,7 +162,7 @@ func runNodeEndpointSetupStatus(cmd *cobra.Command, args []string) error {
 	if _, err := os.Stat(endpointDir); os.IsNotExist(err) {
 		msg := fmt.Sprintf("Endpoint '%s' not found.", slug)
 		if nodeEPSetupStatusJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
+			output.JSON(map[string]any{"status": "error", "message": msg})
 		} else {
 			output.Error(msg)
 		}
@@ -175,7 +176,7 @@ func runNodeEndpointSetupStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	if nodeEPSetupStatusJSON {
-		output.JSON(map[string]interface{}{"status": "success", "setup_status": status})
+		output.JSON(map[string]any{"status": "success", "setup_status": status})
 		return nil
 	}
 

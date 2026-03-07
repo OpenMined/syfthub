@@ -138,7 +138,7 @@ func (h *OAuth2Handler) Execute(step *nodeops.SetupStep, ctx *setupflow.SetupCon
 	}
 
 	// Extract access_token as primary value
-	var tokenData map[string]interface{}
+	var tokenData map[string]any
 	if err := json.Unmarshal(tokenResp, &tokenData); err == nil {
 		if at, ok := tokenData["access_token"].(string); ok {
 			result.Value = at

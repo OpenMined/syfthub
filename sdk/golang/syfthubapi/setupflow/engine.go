@@ -2,6 +2,10 @@ package setupflow
 
 import (
 	"fmt"
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"time"
 
@@ -71,22 +75,27 @@ func (e *Engine) Execute(ctx *SetupContext) error {
 	}
 
 	// 5. Execute in order
+	var envCache map[string]string // lazily loaded for skipped-step output recovery
+	anyExecuted := false
 	for _, stepID := range order {
 		step := stepMap[stepID]
 
 		// Skip filter
-		if len(ctx.OnlySteps) > 0 && !contains(ctx.OnlySteps, stepID) {
+		if len(ctx.OnlySteps) > 0 && !slices.Contains(ctx.OnlySteps, stepID) {
 			continue
 		}
 
 		// Already completed?
 		if !ctx.Force {
-			if ss, ok := ctx.State.Steps[stepID]; ok && ss.Status == "completed" {
+			if ss, ok := ctx.State.Steps[stepID]; ok && ss.Status == nodeops.StepStatusCompleted {
 				// Check expiry
 				if ss.ExpiresAt == "" || !isExpired(ss.ExpiresAt) {
 					ctx.IO.Status(fmt.Sprintf("Step '%s' already completed, skipping", step.Name))
 					// Populate StepOutputs from .env so downstream templates resolve
-					e.loadStepOutputsFromEnv(stepID, step, ctx)
+					if envCache == nil {
+						envCache = loadEnvCache(ctx.EndpointDir)
+					}
+					e.loadStepOutputsFromEnv(stepID, step, ctx, envCache)
 					continue
 				}
 				ctx.IO.Status(fmt.Sprintf("Step '%s' expired, re-running", step.Name))
@@ -109,12 +118,13 @@ func (e *Engine) Execute(ctx *SetupContext) error {
 			return fmt.Errorf("step '%s': unknown type '%s'", stepID, step.Type)
 		}
 
+		anyExecuted = true
 		ctx.IO.Status(fmt.Sprintf("Running: %s", step.Name))
 		result, err := handler.Execute(resolved, ctx)
 		if err != nil {
 			// Update state as failed
 			ctx.State.Steps[stepID] = nodeops.StepState{
-				Status: "failed",
+				Status: nodeops.StepStatusFailed,
 				Error:  err.Error(),
 			}
 			nodeops.WriteSetupState(ctx.EndpointDir, ctx.State)
@@ -150,9 +160,7 @@ func (e *Engine) Execute(ctx *SetupContext) error {
 		if result.Outputs == nil {
 			result.Outputs = make(map[string]string)
 		}
-		for k, v := range envUpdates {
-			result.Outputs[k] = v
-		}
+		maps.Copy(result.Outputs, envUpdates)
 
 		// Write to .env
 		if len(envUpdates) > 0 {
@@ -163,7 +171,7 @@ func (e *Engine) Execute(ctx *SetupContext) error {
 
 		// Update state
 		stepState := nodeops.StepState{
-			Status:      "completed",
+			Status:      nodeops.StepStatusCompleted,
 			CompletedAt: time.Now().UTC().Format(time.RFC3339),
 		}
 		if expiresIn, ok := result.Metadata["expires_in"]; ok {
@@ -171,6 +179,23 @@ func (e *Engine) Execute(ctx *SetupContext) error {
 		}
 		ctx.State.Steps[stepID] = stepState
 		nodeops.WriteSetupState(ctx.EndpointDir, ctx.State)
+	}
+
+	// Touch .env to ensure the file watcher triggers a reload after setup completes.
+	// This is necessary because .setup-state.json writes don't trigger watcher events
+	// (dotfiles other than .env are ignored to avoid reload cascades during setup).
+	// Skip when no steps actually executed (e.g. all already completed) to avoid
+	// spurious watcher reloads.
+	if anyExecuted {
+		envPath := filepath.Join(ctx.EndpointDir, ".env")
+		now := time.Now()
+		if err := os.Chtimes(envPath, now, now); err != nil {
+			if os.IsNotExist(err) {
+				// .env may not exist for exec-only setups; create an empty one
+				os.WriteFile(envPath, nil, 0600)
+			}
+			// Other errors (permission denied, etc.) are non-fatal for this touch operation
+		}
 	}
 
 	return nil
@@ -190,22 +215,23 @@ func (e *Engine) ValidateSpec(spec *nodeops.SetupSpec) error {
 	return nil
 }
 
-// loadStepOutputsFromEnv populates step outputs from the .env file for skipped steps.
-func (e *Engine) loadStepOutputsFromEnv(stepID string, step *nodeops.SetupStep, ctx *SetupContext) {
+// loadEnvCache reads the .env file once and returns a key→value map.
+func loadEnvCache(endpointDir string) map[string]string {
+	envVars, err := nodeops.ReadEnvFile(endpointDir + "/.env")
+	if err != nil {
+		return nil
+	}
+	m := make(map[string]string, len(envVars))
+	for _, v := range envVars {
+		m[v.Key] = v.Value
+	}
+	return m
+}
+
+// loadStepOutputsFromEnv populates step outputs from a cached env map for skipped steps.
+func (e *Engine) loadStepOutputsFromEnv(stepID string, step *nodeops.SetupStep, ctx *SetupContext, envMap map[string]string) {
 	result := &StepResult{
 		Outputs: make(map[string]string),
-	}
-
-	// Read current .env
-	envPath := ctx.EndpointDir + "/.env"
-	envVars, err := nodeops.ReadEnvFile(envPath)
-	if err != nil {
-		return
-	}
-
-	envMap := make(map[string]string)
-	for _, v := range envVars {
-		envMap[v.Key] = v.Value
 	}
 
 	// Populate from env_key
@@ -224,16 +250,6 @@ func (e *Engine) loadStepOutputsFromEnv(stepID string, step *nodeops.SetupStep, 
 	}
 
 	ctx.StepOutputs[stepID] = result
-}
-
-// contains checks if a string slice contains a value.
-func contains(slice []string, val string) bool {
-	for _, s := range slice {
-		if s == val {
-			return true
-		}
-	}
-	return false
 }
 
 // isExpired checks if an RFC3339 timestamp is in the past.

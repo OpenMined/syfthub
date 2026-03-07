@@ -51,11 +51,12 @@ func ValidateSetupSpec(spec *SetupSpec) error {
 	}
 
 	validTypes := map[string]bool{
-		"prompt":   true,
-		"select":   true,
-		"oauth2":   true,
-		"http":     true,
-		"template": true,
+		StepTypePrompt:   true,
+		StepTypeSelect:   true,
+		StepTypeOAuth2:   true,
+		StepTypeHTTP:     true,
+		StepTypeTemplate: true,
+		StepTypeExec:     true,
 	}
 
 	// 1. Collect all step IDs; check for duplicates
@@ -79,7 +80,7 @@ func ValidateSetupSpec(spec *SetupSpec) error {
 
 		// Verify matching type-specific config is non-nil
 		switch step.Type {
-		case "prompt":
+		case StepTypePrompt:
 			if step.Prompt == nil {
 				return fmt.Errorf("step '%s': type 'prompt' requires prompt config", step.ID)
 			}
@@ -92,14 +93,14 @@ func ValidateSetupSpec(spec *SetupSpec) error {
 					return fmt.Errorf("step '%s': invalid validate.pattern: %w", step.ID, err)
 				}
 			}
-		case "select":
+		case StepTypeSelect:
 			if step.Select == nil {
 				return fmt.Errorf("step '%s': type 'select' requires select config", step.ID)
 			}
 			if len(step.Select.Options) == 0 && step.Select.OptionsFrom == nil {
 				return fmt.Errorf("step '%s': select requires options or options_from", step.ID)
 			}
-		case "oauth2":
+		case StepTypeOAuth2:
 			if step.OAuth2 == nil {
 				return fmt.Errorf("step '%s': type 'oauth2' requires oauth2 config", step.ID)
 			}
@@ -109,7 +110,7 @@ func ValidateSetupSpec(spec *SetupSpec) error {
 			if step.OAuth2.TokenURL == "" {
 				return fmt.Errorf("step '%s': oauth2.token_url is required", step.ID)
 			}
-		case "http":
+		case StepTypeHTTP:
 			if step.HTTP == nil {
 				return fmt.Errorf("step '%s': type 'http' requires http config", step.ID)
 			}
@@ -119,12 +120,19 @@ func ValidateSetupSpec(spec *SetupSpec) error {
 			if step.HTTP.URL == "" {
 				return fmt.Errorf("step '%s': http.url is required", step.ID)
 			}
-		case "template":
+		case StepTypeTemplate:
 			if step.Template == nil {
 				return fmt.Errorf("step '%s': type 'template' requires template config", step.ID)
 			}
 			if step.Template.Value == "" {
 				return fmt.Errorf("step '%s': template.value is required", step.ID)
+			}
+		case StepTypeExec:
+			if step.Exec == nil {
+				return fmt.Errorf("step '%s': type 'exec' requires exec config", step.ID)
+			}
+			if step.Exec.Command == "" {
+				return fmt.Errorf("step '%s': exec.command is required", step.ID)
 			}
 		}
 
@@ -264,7 +272,7 @@ func GetSetupStatus(dir string) (*SetupStatus, error) {
 
 	for _, step := range spec.Steps {
 		ss, exists := state.Steps[step.ID]
-		if exists && ss.Status == "completed" {
+		if exists && ss.Status == StepStatusCompleted {
 			// Check expiry
 			if ss.ExpiresAt != "" {
 				expiresAt, err := time.Parse(time.RFC3339, ss.ExpiresAt)

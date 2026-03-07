@@ -108,7 +108,7 @@ func TestLifecycle_RefreshExpiredToken(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		json.NewEncoder(w).Encode(map[string]any{
 			"access_token":  "new-access-token",
 			"refresh_token": "new-refresh-token",
 			"expires_in":    3600,

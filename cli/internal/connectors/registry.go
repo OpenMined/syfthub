@@ -37,8 +37,8 @@ type ConnectorMeta struct {
 
 // ParamDef defines a parameter that can be overridden when scaffolding.
 type ParamDef struct {
-	Default     interface{} `yaml:"default"`
-	Description string      `yaml:"description"`
+	Default     any    `yaml:"default"`
+	Description string `yaml:"description"`
 }
 
 // NewRegistry loads all embedded connector templates.
@@ -105,7 +105,7 @@ func (r *Registry) Get(id string) (*ConnectorTemplate, error) {
 // Handles:
 //   - Deduplicating step IDs (prefix with connector ID if conflict)
 //   - Merging lifecycle configs
-func (r *Registry) Scaffold(connectorIDs []string, params map[string]map[string]interface{}) (*nodeops.SetupSpec, error) {
+func (r *Registry) Scaffold(connectorIDs []string, params map[string]map[string]any) (*nodeops.SetupSpec, error) {
 	if len(connectorIDs) == 0 {
 		return nil, fmt.Errorf("at least one connector ID is required")
 	}

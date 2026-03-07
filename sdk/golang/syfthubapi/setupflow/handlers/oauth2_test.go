@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -46,7 +45,7 @@ func TestOAuth2_Execute_FullFlow(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		json.NewEncoder(w).Encode(map[string]any{
 			"access_token":  "test_access_token",
 			"refresh_token": "test_refresh_token",
 			"expires_in":    3600,
@@ -92,7 +91,7 @@ func TestOAuth2_Execute_FullFlow(t *testing.T) {
 		t.Fatalf("exchangeToken error: %v", err)
 	}
 
-	var tokenData map[string]interface{}
+	var tokenData map[string]any
 	if err := json.Unmarshal(tokenResp, &tokenData); err != nil {
 		t.Fatalf("failed to parse token response: %v", err)
 	}
@@ -113,7 +112,7 @@ func TestOAuth2_Execute_ClientCredFromEnv(t *testing.T) {
 		{Key: "GOOGLE_CLIENT_SECRET", Value: "env-client-secret"},
 	})
 
-	mockIO := &mockIO{promptResponses: []string{}}
+	mockIO := &testIO{promptResponses: []string{}}
 	ctx := &setupflow.SetupContext{
 		EndpointDir: dir,
 		IO:          mockIO,
@@ -132,7 +131,7 @@ func TestOAuth2_Execute_ClientCredFromEnv(t *testing.T) {
 func TestOAuth2_Execute_ExpiresIn(t *testing.T) {
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		json.NewEncoder(w).Encode(map[string]any{
 			"access_token": "tok",
 			"expires_in":   7200,
 		})
@@ -144,33 +143,9 @@ func TestOAuth2_Execute_ExpiresIn(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var data map[string]interface{}
+	var data map[string]any
 	json.Unmarshal(resp, &data)
 	if data["expires_in"].(float64) != 7200 {
 		t.Errorf("expected expires_in=7200")
 	}
 }
-
-// mockIO for oauth2 tests
-type mockIO struct {
-	promptResponses []string
-	promptIndex     int
-	statusMessages  []string
-}
-
-func (m *mockIO) Prompt(msg string, opts setupflow.PromptOpts) (string, error) {
-	if m.promptIndex >= len(m.promptResponses) {
-		return "", fmt.Errorf("no more prompt responses")
-	}
-	val := m.promptResponses[m.promptIndex]
-	m.promptIndex++
-	return val, nil
-}
-
-func (m *mockIO) Select(msg string, options []setupflow.SelectOption) (string, error) {
-	return "", fmt.Errorf("not implemented")
-}
-func (m *mockIO) Confirm(msg string) (bool, error) { return false, nil }
-func (m *mockIO) OpenBrowser(url string) error     { return nil }
-func (m *mockIO) Status(msg string)                { m.statusMessages = append(m.statusMessages, msg) }
-func (m *mockIO) Error(msg string)                 {}

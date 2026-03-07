@@ -81,7 +81,7 @@ func resolveDynamicOptions(cfg *nodeops.OptionsFromConfig, ctx *setupflow.SetupC
 // resolveDynamicOptionsFromResponse extracts select options from a JSON response.
 func resolveDynamicOptionsFromResponse(response json.RawMessage, cfg *nodeops.OptionsFromConfig) ([]setupflow.SelectOption, error) {
 	// Parse the JSON response
-	var data interface{}
+	var data any
 	if err := json.Unmarshal(response, &data); err != nil {
 		return nil, fmt.Errorf("failed to parse response JSON: %w", err)
 	}
@@ -91,7 +91,7 @@ func resolveDynamicOptionsFromResponse(response json.RawMessage, cfg *nodeops.Op
 	if cfg.Path != "" {
 		parts := strings.Split(cfg.Path, ".")
 		for _, part := range parts {
-			m, ok := current.(map[string]interface{})
+			m, ok := current.(map[string]any)
 			if !ok {
 				return nil, fmt.Errorf("cannot navigate path '%s': not an object", cfg.Path)
 			}
@@ -103,7 +103,7 @@ func resolveDynamicOptionsFromResponse(response json.RawMessage, cfg *nodeops.Op
 	}
 
 	// Expect an array
-	items, ok := current.([]interface{})
+	items, ok := current.([]any)
 	if !ok {
 		return nil, fmt.Errorf("options path does not resolve to an array")
 	}
@@ -111,7 +111,7 @@ func resolveDynamicOptionsFromResponse(response json.RawMessage, cfg *nodeops.Op
 	// Map to SelectOption
 	var options []setupflow.SelectOption
 	for _, item := range items {
-		m, ok := item.(map[string]interface{})
+		m, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}

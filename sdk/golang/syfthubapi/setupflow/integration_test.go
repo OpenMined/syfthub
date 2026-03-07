@@ -27,9 +27,9 @@ func TestIntegration_TelegramBotSetup(t *testing.T) {
 
 		switch {
 		case r.URL.Path == "/bot123456:ABC-DEF/getMe":
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"ok": true,
-				"result": map[string]interface{}{
+				"result": map[string]any{
 					"id":         12345,
 					"is_bot":     true,
 					"first_name": "TestBot",
@@ -37,7 +37,7 @@ func TestIntegration_TelegramBotSetup(t *testing.T) {
 				},
 			})
 		case r.URL.Path == "/bot123456:ABC-DEF/setWebhook":
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"ok":          true,
 				"result":      true,
 				"description": "Webhook was set",
@@ -175,8 +175,8 @@ func TestIntegration_OAuthThenSelect(t *testing.T) {
 		auth := r.Header.Get("Authorization")
 		if auth != "Bearer mock-access-token" {
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"error": map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
+				"error": map[string]any{
 					"message": "invalid token",
 					"code":    401,
 				},
@@ -184,8 +184,8 @@ func TestIntegration_OAuthThenSelect(t *testing.T) {
 			return
 		}
 
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"files": []map[string]interface{}{
+		json.NewEncoder(w).Encode(map[string]any{
+			"files": []map[string]any{
 				{"id": "folder-aaa", "name": "Project Alpha"},
 				{"id": "folder-bbb", "name": "Project Beta"},
 				{"id": "folder-ccc", "name": "Project Gamma"},

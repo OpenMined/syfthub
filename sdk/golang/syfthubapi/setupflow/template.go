@@ -27,57 +27,7 @@ var templatePattern = regexp.MustCompile(`\{\{([^}]+)\}\}`)
 //
 // Returns the resolved string, or error if a required reference cannot be resolved.
 func ResolveTemplate(tmpl string, ctx *SetupContext) (string, error) {
-	if !strings.Contains(tmpl, "{{") {
-		return tmpl, nil
-	}
-
-	var resolveErr error
-	result := templatePattern.ReplaceAllStringFunc(tmpl, func(match string) string {
-		if resolveErr != nil {
-			return match
-		}
-
-		// Extract content between {{ and }}
-		inner := strings.TrimSpace(match[2 : len(match)-2])
-		parts := strings.SplitN(inner, ".", 2)
-		if len(parts) < 2 {
-			resolveErr = fmt.Errorf("invalid template reference: %s", match)
-			return match
-		}
-
-		namespace := parts[0]
-		rest := parts[1]
-
-		switch namespace {
-		case "steps":
-			val, err := resolveStepRef(rest, ctx)
-			if err != nil {
-				resolveErr = err
-				return match
-			}
-			return val
-
-		case "context":
-			val, err := resolveContextRef(rest, ctx)
-			if err != nil {
-				resolveErr = err
-				return match
-			}
-			return val
-
-		case "env":
-			return resolveEnvRef(rest)
-
-		default:
-			resolveErr = fmt.Errorf("unknown template namespace '%s' in %s", namespace, match)
-			return match
-		}
-	})
-
-	if resolveErr != nil {
-		return "", resolveErr
-	}
-	return result, nil
+	return resolveTemplateWith(tmpl, ctx, func(s string) string { return s })
 }
 
 // resolveStepRef resolves a steps.<step_id>.<property> reference.
@@ -100,16 +50,14 @@ func resolveStepRef(rest string, ctx *SetupContext) (string, error) {
 		return result.Value, nil
 	}
 
-	if strings.HasPrefix(property, "outputs.") {
-		envKey := strings.TrimPrefix(property, "outputs.")
+	if envKey, found := strings.CutPrefix(property, "outputs."); found {
 		if val, ok := result.Outputs[envKey]; ok {
 			return val, nil
 		}
 		return "", fmt.Errorf("step '%s' has no output '%s'", stepID, envKey)
 	}
 
-	if strings.HasPrefix(property, "response.") {
-		jsonPath := strings.TrimPrefix(property, "response.")
+	if jsonPath, found := strings.CutPrefix(property, "response."); found {
 		if result.Response == nil {
 			return "", fmt.Errorf("step '%s' has no response", stepID)
 		}
@@ -135,14 +83,80 @@ func resolveContextRef(name string, ctx *SetupContext) (string, error) {
 
 // resolveEnvRef resolves an env.<VAR_NAME> reference from system environment.
 func resolveEnvRef(name string) string {
-	// Use os.Getenv but we import only what we need
-	// Avoid importing os just for this — use a simple lookup
-	// Actually we do need os.Getenv
 	return getEnvVar(name)
 }
 
-// getEnvVar wraps os.Getenv. Separated for testability.
+// getEnvVar wraps os.Getenv for testability.
 var getEnvVar = os.Getenv
+
+// shellQuote wraps a string in POSIX single quotes, escaping any internal single quotes.
+// This prevents shell injection when interpolating values into sh -c commands.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+// resolveTemplateShellSafe resolves {{...}} placeholders like ResolveTemplate,
+// but shell-quotes every interpolated value. Use this for exec command strings
+// to prevent shell injection from user-supplied step outputs.
+func resolveTemplateShellSafe(tmpl string, ctx *SetupContext) (string, error) {
+	return resolveTemplateWith(tmpl, ctx, shellQuote)
+}
+
+// resolveTemplateWith is the shared implementation for ResolveTemplate and
+// resolveTemplateShellSafe. The transform function is applied to each resolved
+// value before substitution (identity for literal, shellQuote for safe shell embedding).
+func resolveTemplateWith(tmpl string, ctx *SetupContext, transform func(string) string) (string, error) {
+	if !strings.Contains(tmpl, "{{") {
+		return tmpl, nil
+	}
+
+	var resolveErr error
+	result := templatePattern.ReplaceAllStringFunc(tmpl, func(match string) string {
+		if resolveErr != nil {
+			return match
+		}
+
+		inner := strings.TrimSpace(match[2 : len(match)-2])
+		parts := strings.SplitN(inner, ".", 2)
+		if len(parts) < 2 {
+			resolveErr = fmt.Errorf("invalid template reference: %s", match)
+			return match
+		}
+
+		namespace := parts[0]
+		rest := parts[1]
+
+		var val string
+		switch namespace {
+		case "steps":
+			v, err := resolveStepRef(rest, ctx)
+			if err != nil {
+				resolveErr = err
+				return match
+			}
+			val = v
+		case "context":
+			v, err := resolveContextRef(rest, ctx)
+			if err != nil {
+				resolveErr = err
+				return match
+			}
+			val = v
+		case "env":
+			val = resolveEnvRef(rest)
+		default:
+			resolveErr = fmt.Errorf("unknown template namespace '%s' in %s", namespace, match)
+			return match
+		}
+
+		return transform(val)
+	})
+
+	if resolveErr != nil {
+		return "", resolveErr
+	}
+	return result, nil
+}
 
 // ResolveStringMap resolves templates in all values of a map.
 func ResolveStringMap(m map[string]string, ctx *SetupContext) (map[string]string, error) {
@@ -167,7 +181,7 @@ func ResolveStep(step *nodeops.SetupStep, ctx *SetupContext) (*nodeops.SetupStep
 
 	// Resolve type-specific configs
 	switch step.Type {
-	case "prompt":
+	case nodeops.StepTypePrompt:
 		if step.Prompt != nil {
 			p := *step.Prompt
 			msg, err := ResolveTemplate(p.Message, ctx)
@@ -184,7 +198,7 @@ func ResolveStep(step *nodeops.SetupStep, ctx *SetupContext) (*nodeops.SetupStep
 			}
 			resolved.Prompt = &p
 		}
-	case "select":
+	case nodeops.StepTypeSelect:
 		if step.Select != nil {
 			s := *step.Select
 			if s.Message != "" {
@@ -196,7 +210,7 @@ func ResolveStep(step *nodeops.SetupStep, ctx *SetupContext) (*nodeops.SetupStep
 			}
 			resolved.Select = &s
 		}
-	case "http":
+	case nodeops.StepTypeHTTP:
 		if step.HTTP != nil {
 			h := *step.HTTP
 			url, err := ResolveTemplate(h.URL, ctx)
@@ -227,7 +241,7 @@ func ResolveStep(step *nodeops.SetupStep, ctx *SetupContext) (*nodeops.SetupStep
 			}
 			resolved.HTTP = &h
 		}
-	case "template":
+	case nodeops.StepTypeTemplate:
 		if step.Template != nil {
 			tmpl := *step.Template
 			val, err := ResolveTemplate(tmpl.Value, ctx)
@@ -237,7 +251,7 @@ func ResolveStep(step *nodeops.SetupStep, ctx *SetupContext) (*nodeops.SetupStep
 			tmpl.Value = val
 			resolved.Template = &tmpl
 		}
-	case "oauth2":
+	case nodeops.StepTypeOAuth2:
 		if step.OAuth2 != nil {
 			o := *step.OAuth2
 			if o.ClientID != "" {
@@ -256,6 +270,32 @@ func ResolveStep(step *nodeops.SetupStep, ctx *SetupContext) (*nodeops.SetupStep
 			}
 			resolved.OAuth2 = &o
 		}
+	case nodeops.StepTypeExec:
+		if step.Exec != nil {
+			e := *step.Exec
+			cmd, err := resolveTemplateShellSafe(e.Command, ctx)
+			if err != nil {
+				return nil, err
+			}
+			e.Command = cmd
+			if e.Env != nil {
+				// Env values use plain ResolveTemplate (not shell-safe) because they are
+				// passed via cmd.Env, not interpolated into the shell command string.
+				env, err := ResolveStringMap(e.Env, ctx)
+				if err != nil {
+					return nil, err
+				}
+				e.Env = env
+			}
+			if e.Message != "" {
+				msg, err := ResolveTemplate(e.Message, ctx)
+				if err != nil {
+					return nil, err
+				}
+				e.Message = msg
+			}
+			resolved.Exec = &e
+		}
 	}
 
 	return &resolved, nil
@@ -264,7 +304,7 @@ func ResolveStep(step *nodeops.SetupStep, ctx *SetupContext) (*nodeops.SetupStep
 // extractJSONPath navigates a JSON value by dot-separated path.
 // Supports dot notation and array indexing: "result.items[0].name"
 func extractJSONPath(data json.RawMessage, path string) (string, error) {
-	var current interface{}
+	var current any
 	if err := json.Unmarshal(data, &current); err != nil {
 		return "", fmt.Errorf("failed to parse JSON: %w", err)
 	}
@@ -273,7 +313,7 @@ func extractJSONPath(data json.RawMessage, path string) (string, error) {
 
 	for _, seg := range segments {
 		switch v := current.(type) {
-		case map[string]interface{}:
+		case map[string]any:
 			// Check for array index: "items[0]"
 			key, idx, hasIdx := parseArrayIndex(seg)
 			if hasIdx {
@@ -281,7 +321,7 @@ func extractJSONPath(data json.RawMessage, path string) (string, error) {
 				if !ok {
 					return "", fmt.Errorf("key '%s' not found in JSON", key)
 				}
-				arr, ok := arrVal.([]interface{})
+				arr, ok := arrVal.([]any)
 				if !ok {
 					return "", fmt.Errorf("'%s' is not an array", key)
 				}
@@ -296,7 +336,7 @@ func extractJSONPath(data json.RawMessage, path string) (string, error) {
 				}
 				current = val
 			}
-		case []interface{}:
+		case []any:
 			// Direct array index: "[0]"
 			_, idx, hasIdx := parseArrayIndex(seg)
 			if !hasIdx {
@@ -378,8 +418,7 @@ func resolveStepLocalTemplate(tmpl string, result *StepResult) (string, error) {
 			return result.Value
 		}
 
-		if strings.HasPrefix(inner, "response.") {
-			path := strings.TrimPrefix(inner, "response.")
+		if path, found := strings.CutPrefix(inner, "response."); found {
 			if result.Response == nil {
 				resolveErr = fmt.Errorf("no response data available")
 				return match
@@ -392,8 +431,7 @@ func resolveStepLocalTemplate(tmpl string, result *StepResult) (string, error) {
 			return val
 		}
 
-		if strings.HasPrefix(inner, "outputs.") {
-			key := strings.TrimPrefix(inner, "outputs.")
+		if key, found := strings.CutPrefix(inner, "outputs."); found {
 			if val, ok := result.Outputs[key]; ok {
 				return val
 			}
