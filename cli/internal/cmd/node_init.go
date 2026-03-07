@@ -55,15 +55,64 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 	// Check if already initialized
 	existing := nodeconfig.Load()
 	if existing.Configured() && !nodeInitForce {
+		// Check whether the daemon is actually running
+		alreadyRunning := false
+		if p, err := nodeconfig.ReadPID(); err == nil {
+			if proc, err := os.FindProcess(p); err == nil {
+				if proc.Signal(syscall.Signal(0)) == nil {
+					alreadyRunning = true
+				}
+			}
+		}
+
+		if alreadyRunning {
+			if nodeInitJSON {
+				output.JSON(map[string]interface{}{
+					"status":  "error",
+					"message": "Node is already configured and running. Use --force to reinitialize.",
+					"path":    nodeconfig.ConfigFile,
+				})
+			} else {
+				output.Warning("Node is already configured and running at %s", nodeconfig.ConfigFile)
+				output.Info("Use --force to reinitialize.")
+			}
+			return nil
+		}
+
+		// Configured but not running — start it with the existing config
+		if !nodeInitJSON {
+			output.Info("Node is configured but not running. Starting daemon...")
+		}
+		daemonPID, err := startNodeDaemon()
+		if err != nil {
+			if nodeInitJSON {
+				output.JSON(map[string]interface{}{
+					"status":  "error",
+					"message": fmt.Sprintf("Failed to start daemon: %v", err),
+				})
+			} else {
+				output.Error("Failed to start daemon: %v", err)
+				fmt.Println("  You can try starting manually with 'syft node run'")
+			}
+			return err
+		}
 		if nodeInitJSON {
 			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": "Node is already configured. Use --force to reinitialize.",
-				"path":    nodeconfig.ConfigFile,
+				"status":         "success",
+				"config_path":    nodeconfig.ConfigFile,
+				"endpoints_path": existing.EndpointsPath,
+				"syfthub_url":    existing.SyftHubURL,
+				"port":           existing.Port,
+				"pid":            daemonPID,
 			})
 		} else {
-			output.Warning("Node is already configured at %s", nodeconfig.ConfigFile)
-			output.Info("Use --force to reinitialize.")
+			output.Success("Node started!")
+			fmt.Printf("  Config:    %s\n", nodeconfig.ConfigFile)
+			fmt.Printf("  Endpoints: %s\n", existing.EndpointsPath)
+			fmt.Printf("  Hub URL:   %s\n", existing.SyftHubURL)
+			fmt.Printf("  Port:      %d\n", existing.Port)
+			fmt.Printf("  PID:       %d\n", daemonPID)
+			fmt.Printf("  Logs:      %s\n", nodeconfig.LogFile)
 		}
 		return nil
 	}

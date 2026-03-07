@@ -214,6 +214,15 @@ class AccountingCredentialsResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TunnelCredentialsResponse(BaseModel):
+    """Response schema for tunnel credentials endpoint."""
+
+    auth_token: str = Field(
+        ..., description="ngrok authtoken for tunnel authentication"
+    )
+    domain: str = Field(..., description="Reserved tunnel domain for the user")
+
+
 class HeartbeatRequest(BaseModel):
     """Request schema for heartbeat endpoint."""
 

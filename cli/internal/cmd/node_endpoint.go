@@ -28,6 +28,9 @@ func init() {
 	nodeEndpointCmd.AddCommand(nodeEndpointDeleteCmd)
 	nodeEndpointCmd.AddCommand(nodeEndpointEditCmd)
 	nodeEndpointCmd.AddCommand(nodeEndpointLogCmd)
+	nodeEndpointCmd.AddCommand(nodeEndpointSetupCmd)
+	nodeEndpointCmd.AddCommand(nodeEndpointSetupStatusCmd)
+	nodeEndpointCmd.AddCommand(nodeEndpointSetupInitCmd)
 }
 
 // --- Create ---
@@ -136,11 +139,14 @@ func runNodeEndpointList(cmd *cobra.Command, args []string) error {
 	}
 
 	if nodeEPListLong {
-		table := output.Table([]string{"SLUG", "NAME", "TYPE", "VERSION", "ENABLED", "POLICIES", "DEPS"})
+		table := output.Table([]string{"SLUG", "NAME", "TYPE", "VERSION", "STATUS", "POLICIES", "DEPS"})
 		for _, ep := range endpoints {
-			enabled := output.Green.Sprint("yes")
+			status := output.Green.Sprint("ready")
 			if !ep.Enabled {
-				enabled = output.Red.Sprint("no")
+				status = output.Red.Sprint("disabled")
+			}
+			if ep.SetupStatus != nil && ep.SetupStatus.HasSetup && !ep.SetupStatus.IsComplete {
+				status = output.Yellow.Sprintf("needs setup (%d/%d)", ep.SetupStatus.CompletedN, ep.SetupStatus.TotalSteps)
 			}
 			policies := "-"
 			if ep.HasPolicies {
@@ -151,7 +157,7 @@ func runNodeEndpointList(cmd *cobra.Command, args []string) error {
 				ep.Name,
 				ep.Type,
 				ep.Version,
-				enabled,
+				status,
 				policies,
 				fmt.Sprintf("%d", ep.DepsCount),
 			})

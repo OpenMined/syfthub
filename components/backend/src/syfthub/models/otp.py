@@ -28,10 +28,14 @@ class OTPCodeModel(BaseModel, TimestampMixin):
     used_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )
+    requester_ip: Mapped[Optional[str]] = mapped_column(
+        String(45), nullable=True, default=None
+    )
 
     __table_args__ = (
         Index("idx_otp_codes_email_purpose", "email", "purpose"),
         Index("idx_otp_codes_email_purpose_active", "email", "purpose", "used_at"),
+        Index("idx_otp_codes_requester_ip", "requester_ip"),
     )
 
     def __repr__(self) -> str:

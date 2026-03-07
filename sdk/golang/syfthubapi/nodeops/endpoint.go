@@ -173,6 +173,13 @@ func (m *Manager) ListEndpoints() ([]EndpointInfo, error) {
 			info.EnvCount = len(envVars)
 		}
 
+		// Check setup status
+		if HasSetup(filepath.Join(m.EndpointsPath, name)) {
+			if status, err := GetSetupStatus(filepath.Join(m.EndpointsPath, name)); err == nil {
+				info.SetupStatus = status
+			}
+		}
+
 		endpoints = append(endpoints, info)
 	}
 
@@ -242,6 +249,15 @@ func (m *Manager) GetEndpointDetail(slug string) (*EndpointDetail, error) {
 	pyprojectPath := filepath.Join(endpointDir, "pyproject.toml")
 	if deps, err := ReadDependencies(pyprojectPath); err == nil {
 		detail.DepsCount = len(deps)
+	}
+
+	// Load setup spec and status
+	setupPath := filepath.Join(endpointDir, "setup.yaml")
+	if spec, err := ParseSetupYaml(setupPath); err == nil && spec != nil {
+		detail.SetupSpec = spec
+		if status, err := GetSetupStatus(endpointDir); err == nil {
+			detail.SetupStatus = status
+		}
 	}
 
 	return detail, nil

@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -45,6 +47,17 @@ func runNodeStatus(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Check if HTTP server is responding
+	serverReachable := false
+	if running {
+		healthURL := fmt.Sprintf("http://localhost:%d/health", cfg.Port)
+		client := &http.Client{Timeout: 2 * time.Second}
+		if resp, err := client.Get(healthURL); err == nil {
+			resp.Body.Close()
+			serverReachable = resp.StatusCode == http.StatusOK
+		}
+	}
+
 	// Count endpoints
 	endpointCount := 0
 	if cfg.EndpointsPath != "" {
@@ -56,14 +69,15 @@ func runNodeStatus(cmd *cobra.Command, args []string) error {
 
 	if nodeStatusJSON {
 		data := map[string]interface{}{
-			"status":         "success",
-			"running":        running,
-			"configured":     cfg.Configured(),
-			"pid":            pid,
-			"syfthub_url":    cfg.SyftHubURL,
-			"endpoints_path": cfg.EndpointsPath,
-			"endpoint_count": endpointCount,
-			"port":           cfg.Port,
+			"status":           "success",
+			"running":          running,
+			"server_reachable": serverReachable,
+			"configured":       cfg.Configured(),
+			"pid":              pid,
+			"syfthub_url":      cfg.SyftHubURL,
+			"endpoints_path":   cfg.EndpointsPath,
+			"endpoint_count":   endpointCount,
+			"port":             cfg.Port,
 		}
 		output.JSON(data)
 		return nil
@@ -71,6 +85,11 @@ func runNodeStatus(cmd *cobra.Command, args []string) error {
 
 	if running {
 		output.Success("Node is running (PID %d)", pid)
+		if serverReachable {
+			fmt.Printf("  Server:    listening on port %d\n", cfg.Port)
+		} else {
+			fmt.Printf("  Server:    not yet reachable on port %d\n", cfg.Port)
+		}
 	} else {
 		fmt.Println("Node is not running.")
 	}

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/OpenMined/syfthub/cli/internal/nodeconfig"
 	"github.com/OpenMined/syfthub/cli/internal/output"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/setupflow"
 )
 
 // --- Parent command ---
@@ -50,7 +52,7 @@ func runNodeMarketplaceList(cmd *cobra.Command, args []string) error {
 	if manifestURL == "" {
 		msg := "Marketplace URL not configured."
 		if nodeMarketplaceListJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
+			output.JSON(map[string]any{"status": "error", "message": msg})
 		} else {
 			output.Error(msg)
 		}
@@ -61,7 +63,7 @@ func runNodeMarketplaceList(cmd *cobra.Command, args []string) error {
 	packages, err := client.FetchPackages()
 	if err != nil {
 		if nodeMarketplaceListJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": err.Error()})
+			output.JSON(map[string]any{"status": "error", "message": err.Error()})
 		} else {
 			output.Error("%v", err)
 		}
@@ -69,7 +71,7 @@ func runNodeMarketplaceList(cmd *cobra.Command, args []string) error {
 	}
 
 	if nodeMarketplaceListJSON {
-		output.JSON(map[string]interface{}{"status": "success", "packages": packages})
+		output.JSON(map[string]any{"status": "success", "packages": packages})
 		return nil
 	}
 
@@ -127,7 +129,7 @@ func runNodeMarketplaceInstall(cmd *cobra.Command, args []string) error {
 	if manifestURL == "" {
 		msg := "Marketplace URL not configured."
 		if nodeMarketplaceInstallJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
+			output.JSON(map[string]any{"status": "error", "message": msg})
 		} else {
 			output.Error(msg)
 		}
@@ -140,7 +142,7 @@ func runNodeMarketplaceInstall(cmd *cobra.Command, args []string) error {
 	packages, err := client.FetchPackages()
 	if err != nil {
 		if nodeMarketplaceInstallJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": err.Error()})
+			output.JSON(map[string]any{"status": "error", "message": err.Error()})
 		} else {
 			output.Error("%v", err)
 		}
@@ -159,7 +161,7 @@ func runNodeMarketplaceInstall(cmd *cobra.Command, args []string) error {
 	if pkg == nil {
 		msg := fmt.Sprintf("Package '%s' not found in marketplace.", slug)
 		if nodeMarketplaceInstallJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
+			output.JSON(map[string]any{"status": "error", "message": msg})
 		} else {
 			output.Error(msg)
 		}
@@ -173,7 +175,7 @@ func runNodeMarketplaceInstall(cmd *cobra.Command, args []string) error {
 		if len(parts) != 2 {
 			msg := fmt.Sprintf("Invalid config format: %q (expected key=value)", kv)
 			if nodeMarketplaceInstallJSON {
-				output.JSON(map[string]interface{}{"status": "error", "message": msg})
+				output.JSON(map[string]any{"status": "error", "message": msg})
 			} else {
 				output.Error(msg)
 			}
@@ -182,19 +184,66 @@ func runNodeMarketplaceInstall(cmd *cobra.Command, args []string) error {
 		flagConfig[parts[0]] = parts[1]
 	}
 
-	// Prompt for config fields interactively (like the desktop app does)
-	var configValues []nodeops.EnvVar
-	if len(pkg.Config) > 0 {
+	if !nodeMarketplaceInstallJSON {
+		fmt.Printf("Installing '%s' (%s)...\n", pkg.Name, pkg.Version)
+	}
+
+	// Install first (extract ZIP), then configure.
+	// Pass only --config flag values so the ZIP is extracted without interactive prompts.
+	var flagValues []nodeops.EnvVar
+	for k, v := range flagConfig {
+		flagValues = append(flagValues, nodeops.EnvVar{Key: k, Value: v})
+	}
+
+	if err := client.InstallPackage(cfg.EndpointsPath, slug, pkg.DownloadURL, flagValues); err != nil {
+		if nodeMarketplaceInstallJSON {
+			output.JSON(map[string]any{"status": "error", "message": err.Error()})
+		} else {
+			output.Error("%v", err)
+		}
+		return nil
+	}
+
+	// If the package has setup.yaml, use the setupflow engine for configuration.
+	// Otherwise, fall back to legacy interactive config prompts from manifest.
+	endpointDir := filepath.Join(cfg.EndpointsPath, slug)
+	spec, _ := nodeops.ParseSetupYaml(filepath.Join(endpointDir, "setup.yaml"))
+	if spec != nil {
+		if !nodeMarketplaceInstallJSON {
+			fmt.Println()
+			output.Info("Running setup...")
+			fmt.Println()
+		}
+
+		state := &nodeops.SetupState{Version: "1", Steps: map[string]nodeops.StepState{}}
+		engine := newSetupEngine()
+		sio := NewCLISetupIO()
+		sctx := &setupflow.SetupContext{
+			EndpointDir: endpointDir,
+			Slug:        slug,
+			HubURL:      cfg.SyftHubURL,
+			APIKey:      cfg.APIKey,
+			IO:          sio,
+			StepOutputs: make(map[string]*setupflow.StepResult),
+			State:       state,
+			Spec:        spec,
+		}
+		if err := engine.Execute(sctx); err != nil {
+			output.Warning("Setup incomplete: %v", err)
+			output.Info("Run 'syft node endpoint setup %s' to complete configuration.", slug)
+		}
+	} else if len(pkg.Config) > 0 {
+		// Legacy config prompts for packages without setup.yaml
 		if !nodeMarketplaceInstallJSON {
 			fmt.Printf("\n  '%s' requires configuration:\n\n", pkg.Name)
 		}
 
+		var configValues []nodeops.EnvVar
 		reader := bufio.NewReader(os.Stdin)
 		for _, field := range pkg.Config {
 			// Check if value was provided via --config flag
 			if val, ok := flagConfig[field.Key]; ok {
 				configValues = append(configValues, nodeops.EnvVar{Key: field.Key, Value: val})
-				delete(flagConfig, field.Key)
 				continue
 			}
 
@@ -206,7 +255,6 @@ func runNodeMarketplaceInstall(cmd *cobra.Command, args []string) error {
 				continue
 			}
 
-			// Build prompt label
 			label := field.Label
 			if label == "" {
 				label = field.Key
@@ -222,7 +270,6 @@ func runNodeMarketplaceInstall(cmd *cobra.Command, args []string) error {
 
 			var value string
 			if field.Secret {
-				// Read secret values without echoing
 				for {
 					if field.Default != "" {
 						fmt.Printf("  %s%s [****]: ", label, reqTag)
@@ -244,7 +291,6 @@ func runNodeMarketplaceInstall(cmd *cobra.Command, args []string) error {
 					fmt.Println("    This field is required.")
 				}
 			} else {
-				// Read normal values
 				for {
 					if field.Default != "" {
 						fmt.Printf("  %s%s [%s]: ", label, reqTag, field.Default)
@@ -271,28 +317,18 @@ func runNodeMarketplaceInstall(cmd *cobra.Command, args []string) error {
 		if !nodeMarketplaceInstallJSON {
 			fmt.Println()
 		}
-	}
 
-	// Append any remaining --config values not matching a config field
-	for k, v := range flagConfig {
-		configValues = append(configValues, nodeops.EnvVar{Key: k, Value: v})
-	}
-
-	if !nodeMarketplaceInstallJSON {
-		fmt.Printf("Installing '%s' (%s)...\n", pkg.Name, pkg.Version)
-	}
-
-	if err := client.InstallPackage(cfg.EndpointsPath, slug, pkg.DownloadURL, configValues); err != nil {
-		if nodeMarketplaceInstallJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": err.Error()})
-		} else {
-			output.Error("%v", err)
+		// Write legacy config values to .env
+		if len(configValues) > 0 {
+			envPath := filepath.Join(endpointDir, ".env")
+			if err := nodeops.WriteEnvFile(envPath, configValues); err != nil {
+				output.Warning("Failed to write config: %v", err)
+			}
 		}
-		return nil
 	}
 
 	if nodeMarketplaceInstallJSON {
-		output.JSON(map[string]interface{}{
+		output.JSON(map[string]any{
 			"status": "success",
 			"slug":   slug,
 			"path":   fmt.Sprintf("%s/%s", cfg.EndpointsPath, slug),

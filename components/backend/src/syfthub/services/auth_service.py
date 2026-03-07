@@ -238,10 +238,8 @@ class AuthService(BaseService):
         # Generate password hash for SyftHub
         password_hash = hash_password(register_data.password)
 
-        # Determine whether email verification is required
-        require_verification = (
-            settings.require_email_verification and settings.smtp_configured
-        )
+        # Email verification is required when Resend is configured
+        require_verification = settings.smtp_configured
 
         # Create user data
         user_data = UserCreate(
@@ -349,12 +347,8 @@ class AuthService(BaseService):
                 detail="Account is deactivated",
             )
 
-        # Check email verification when required
-        if (
-            settings.require_email_verification
-            and settings.smtp_configured
-            and not user.is_email_verified
-        ):
+        # Check email verification when Resend is configured
+        if settings.smtp_configured and not user.is_email_verified:
             raise EmailNotVerifiedError()
 
         # Create tokens

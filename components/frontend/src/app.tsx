@@ -1,5 +1,3 @@
-import { lazy } from 'react';
-
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
@@ -11,6 +9,7 @@ import { ScrollToTop } from './components/scroll-to-top';
 import { AccountingProvider } from './context/accounting-context';
 import { AuthProvider } from './context/auth-context';
 import { MainLayout } from './layouts/main-layout';
+import { lazyWithRetry } from './lib/lazy-with-retry';
 import { queryClient } from './lib/query-client';
 import { getGoogleClientId } from './lib/sdk-client';
 import { ErrorBoundary } from './observability';
@@ -18,16 +17,16 @@ import { ErrorBoundary } from './observability';
 // Get Google OAuth Client ID from environment
 const googleClientId = getGoogleClientId();
 
-// Lazy load all pages for code splitting
-const HomePage = lazy(() => import('./pages/home'));
-const BrowsePage = lazy(() => import('./pages/browse'));
-const ChatPage = lazy(() => import('./pages/chat'));
-const BuildPage = lazy(() => import('./pages/build'));
-const AboutPage = lazy(() => import('./pages/about'));
-const ProfilePage = lazy(() => import('./pages/profile'));
-const EndpointsPage = lazy(() => import('./pages/endpoints'));
-const EndpointDetailPage = lazy(() => import('./pages/endpoint-detail'));
-const NotFoundPage = lazy(() => import('./pages/not-found'));
+// Lazy load all pages for code splitting (with auto-reload on stale chunks)
+const HomePage = lazyWithRetry(() => import('./pages/home'));
+const BrowsePage = lazyWithRetry(() => import('./pages/browse'));
+const ChatPage = lazyWithRetry(() => import('./pages/chat'));
+const BuildPage = lazyWithRetry(() => import('./pages/build'));
+const AboutPage = lazyWithRetry(() => import('./pages/about'));
+const ProfilePage = lazyWithRetry(() => import('./pages/profile'));
+const EndpointsPage = lazyWithRetry(() => import('./pages/endpoints'));
+const EndpointDetailPage = lazyWithRetry(() => import('./pages/endpoint-detail'));
+const NotFoundPage = lazyWithRetry(() => import('./pages/not-found'));
 
 /**
  * App - Root application component with routing configuration.

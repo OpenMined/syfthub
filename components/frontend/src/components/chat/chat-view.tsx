@@ -84,7 +84,7 @@ export function ChatView({
   } = useModels({
     initialModel
   });
-  const { sources, sourcesById } = useDataSources();
+  const { sources, sourcesById, isLoading: isLoadingDataSources } = useDataSources();
   const showSourcesStep = useOnboardingStore((s) => s.showSourcesStep);
   const showQueryInputStep = useOnboardingStore((s) => s.showQueryInputStep);
 
@@ -225,7 +225,7 @@ export function ChatView({
       !initialResult &&
       workflow.phase === 'idle' &&
       selectedModel &&
-      sources.length > 0
+      !isLoadingDataSources
     ) {
       // Set pendingMessageIdReference to the pre-seeded user message ID so that onComplete
       // treats it as an optimistic message and does not add a duplicate.
@@ -233,7 +233,7 @@ export function ChatView({
       void workflow.submitQuery(initialQuery);
     }
     // Only run once when dependencies are ready, not on every change
-  }, [initialQuery, initialResult, selectedModel, sources.length]);
+  }, [initialQuery, initialResult, selectedModel, isLoadingDataSources]);
 
   // Determine if workflow is in a blocking state
   const isWorkflowActive =
