@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/OpenMined/syfthub/cli/internal/nodeconfig"
 	"github.com/OpenMined/syfthub/cli/internal/output"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/setupflow"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/setupflow/handlers"
 )
 
 // --- Parent command ---
@@ -289,6 +292,44 @@ func runNodeMarketplaceInstall(cmd *cobra.Command, args []string) error {
 			output.Error("%v", err)
 		}
 		return nil
+	}
+
+	// After successful install, check for setup.yaml
+	endpointDir := filepath.Join(cfg.EndpointsPath, slug)
+	if nodeops.HasSetup(endpointDir) {
+		if !nodeMarketplaceInstallJSON {
+			fmt.Println()
+			output.Info("This package requires configuration. Running setup...")
+			fmt.Println()
+		}
+
+		// Run setup flow
+		spec, _ := nodeops.ParseSetupYaml(filepath.Join(endpointDir, "setup.yaml"))
+		if spec != nil {
+			state := &nodeops.SetupState{Version: "1", Steps: map[string]nodeops.StepState{}}
+			engine := setupflow.NewEngine(
+				setupflow.WithHandler("prompt", &handlers.PromptHandler{}),
+				setupflow.WithHandler("select", &handlers.SelectHandler{}),
+				setupflow.WithHandler("oauth2", &handlers.OAuth2Handler{}),
+				setupflow.WithHandler("http", handlers.NewHTTPHandler()),
+				setupflow.WithHandler("template", &handlers.TemplateHandler{}),
+			)
+			sio := NewCLISetupIO()
+			sctx := &setupflow.SetupContext{
+				EndpointDir: endpointDir,
+				Slug:        slug,
+				HubURL:      cfg.SyftHubURL,
+				APIKey:      cfg.APIKey,
+				IO:          sio,
+				StepOutputs: make(map[string]*setupflow.StepResult),
+				State:       state,
+				Spec:        spec,
+			}
+			if err := engine.Execute(sctx); err != nil {
+				output.Warning("Setup incomplete: %v", err)
+				output.Info("Run 'syft node endpoint setup %s' to complete configuration.", slug)
+			}
+		}
 	}
 
 	if nodeMarketplaceInstallJSON {

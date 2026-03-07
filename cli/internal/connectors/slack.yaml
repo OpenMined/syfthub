@@ -1,0 +1,52 @@
+meta:
+  id: slack
+  name: "Slack"
+  description: "Connect to Slack workspaces and channels"
+  category: communication
+  tags: [slack, messaging, chat, notifications]
+
+steps:
+  - id: slack_auth
+    type: oauth2
+    name: "Connect to Slack"
+    required: true
+    oauth2:
+      auth_url: "https://slack.com/oauth/v2/authorize"
+      token_url: "https://slack.com/api/oauth.v2.access"
+      scopes: ["channels:read", "chat:write", "users:read"]
+    outputs:
+      SLACK_ACCESS_TOKEN: "{{response.access_token}}"
+      SLACK_TEAM_ID: "{{response.team.id}}"
+
+  - id: list_channels
+    type: http
+    name: "Fetching Slack channels..."
+    depends_on: [slack_auth]
+    http:
+      method: GET
+      url: "https://slack.com/api/conversations.list"
+      headers:
+        Authorization: "Bearer {{steps.slack_auth.outputs.SLACK_ACCESS_TOKEN}}"
+      query:
+        types: "public_channel"
+        limit: "100"
+      expect_status: 200
+
+  - id: pick_channel
+    type: select
+    name: "Select Slack channel"
+    depends_on: [list_channels]
+    required: true
+    env_key: SLACK_CHANNEL_ID
+    select:
+      options_from:
+        step_id: list_channels
+        path: "channels"
+        value_field: "id"
+        label_field: "name"
+
+lifecycle:
+  refresh:
+    trigger: token_expiry
+    steps: [slack_auth]
+    strategy: refresh_token

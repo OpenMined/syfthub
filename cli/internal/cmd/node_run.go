@@ -18,6 +18,7 @@ import (
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/filemode"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/heartbeat"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/setupflow"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/transport"
 
 	"github.com/OpenMined/syfthub/cli/internal/nodeconfig"
@@ -171,6 +172,39 @@ func runNodeRun(cmd *cobra.Command, args []string) error {
 	// Run (blocks until signal)
 	ctx, stopSignal := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stopSignal()
+
+	// Start lifecycle manager for token refresh
+	if endpointsPath != "" {
+		lifecycleEngine := setupflow.NewEngine()
+		lifecycleMgr := setupflow.NewLifecycleManager(lifecycleEngine)
+
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					results := lifecycleMgr.CheckAndRefresh(endpointsPath)
+					for _, r := range results {
+						if r.Success {
+							logger.Info("refreshed token", "slug", r.Slug, "step", r.StepID)
+							// Trigger endpoint reload
+							reloadEndpoints, loadErr := provider.LoadEndpoints()
+							if loadErr != nil {
+								logger.Warn("failed to reload endpoints after token refresh", "error", loadErr)
+							} else {
+								api.Registry().ReplaceFileBased(reloadEndpoints)
+							}
+						} else if r.Error != nil {
+							logger.Warn("token refresh failed", "slug", r.Slug, "step", r.StepID, "error", r.Error)
+						}
+					}
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
 
 	return api.Run(ctx)
 }
