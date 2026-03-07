@@ -49,33 +49,36 @@ type CreateEndpointRequest struct {
 
 // EndpointInfo represents an endpoint for display purposes.
 type EndpointInfo struct {
-	Slug        string `json:"slug"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Type        string `json:"type"`
-	Version     string `json:"version"`
-	Enabled     bool   `json:"enabled"`
-	HasPolicies bool   `json:"hasPolicies"`
-	DepsCount   int    `json:"depsCount"`
-	EnvCount    int    `json:"envCount"`
+	Slug        string       `json:"slug"`
+	Name        string       `json:"name"`
+	Description string       `json:"description"`
+	Type        string       `json:"type"`
+	Version     string       `json:"version"`
+	Enabled     bool         `json:"enabled"`
+	HasPolicies bool         `json:"hasPolicies"`
+	DepsCount   int          `json:"depsCount"`
+	EnvCount    int          `json:"envCount"`
+	SetupStatus *SetupStatus `json:"setupStatus,omitempty"`
 }
 
 // EndpointDetail provides full endpoint information including file contents.
 type EndpointDetail struct {
-	Slug            string   `json:"slug"`
-	Name            string   `json:"name"`
-	Description     string   `json:"description"`
-	Type            string   `json:"type"`
-	Version         string   `json:"version"`
-	Enabled         bool     `json:"enabled"`
-	HasReadme       bool     `json:"hasReadme"`
-	HasPolicies     bool     `json:"hasPolicies"`
-	DepsCount       int      `json:"depsCount"`
-	EnvCount        int      `json:"envCount"`
-	RunnerCode      string   `json:"runnerCode"`
-	ReadmeContent   string   `json:"readmeContent"`
-	Policies        []Policy `json:"policies"`
-	PoliciesVersion string   `json:"policiesVersion"`
+	Slug            string       `json:"slug"`
+	Name            string       `json:"name"`
+	Description     string       `json:"description"`
+	Type            string       `json:"type"`
+	Version         string       `json:"version"`
+	Enabled         bool         `json:"enabled"`
+	HasReadme       bool         `json:"hasReadme"`
+	HasPolicies     bool         `json:"hasPolicies"`
+	DepsCount       int          `json:"depsCount"`
+	EnvCount        int          `json:"envCount"`
+	RunnerCode      string       `json:"runnerCode"`
+	ReadmeContent   string       `json:"readmeContent"`
+	Policies        []Policy     `json:"policies"`
+	PoliciesVersion string       `json:"policiesVersion"`
+	SetupStatus     *SetupStatus `json:"setupStatus,omitempty"`
+	SetupSpec       *SetupSpec   `json:"setupSpec,omitempty"`
 }
 
 // PackageConfigField describes a configuration field for a marketplace package.

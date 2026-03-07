@@ -12,6 +12,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
 // EndpointConfig represents the configuration from README.md frontmatter.
@@ -173,6 +174,22 @@ func (l *Loader) LoadEndpoint(dir string) (*LoadedEndpoint, error) {
 	envVars, err := l.loadEnvVars(dir, &config.Env)
 	if err != nil {
 		return nil, err
+	}
+
+	// Check setup status
+	if nodeops.HasSetup(dir) {
+		status, err := nodeops.GetSetupStatus(dir)
+		if err != nil {
+			l.logger.Warn("failed to check setup status", "dir", dir, "error", err)
+		} else if !status.IsComplete {
+			l.logger.Warn("endpoint setup incomplete, disabling",
+				"slug", config.Slug,
+				"pending", status.PendingSteps,
+				"expired", status.ExpiredSteps,
+			)
+			enabled := false
+			config.Enabled = &enabled
+		}
 	}
 
 	// Load policies

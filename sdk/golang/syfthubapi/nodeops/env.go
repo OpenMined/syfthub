@@ -54,5 +54,5 @@ func WriteEnvFile(path string, vars []EnvVar) error {
 		content += "\n"
 	}
 
-	return os.WriteFile(path, []byte(content), 0644)
+	return os.WriteFile(path, []byte(content), 0600)
 }
