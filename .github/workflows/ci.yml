@@ -532,6 +532,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
           build-args: |
             ${{ matrix.image == 'frontend' && format('VITE_GOOGLE_CLIENT_ID={0}', secrets.VITE_GOOGLE_CLIENT_ID) || '' }}
+            ${{ matrix.image == 'frontend' && format('VITE_DEFAULT_MODEL={0}', secrets.VITE_DEFAULT_MODEL) || '' }}
 
   # ============================================================================
   # DEPLOY TO PRODUCTION VM
