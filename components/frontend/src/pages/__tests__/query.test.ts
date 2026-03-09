@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseQueryParam as parseQueryParameter } from '../query';
+import { parseQueryParameter } from '../query';
 
 describe('parseQueryParam', () => {
   describe('valid inputs', () => {

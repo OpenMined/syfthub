@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import type { DoneEvent } from '@/lib/sdk-client';
+import type { ChatStreamEvent, DoneEvent } from '@/lib/sdk-client';
 
 import { useSearchParams } from 'react-router-dom';
 
@@ -28,7 +28,7 @@ type ParseResult = ParseSuccess | ParseError;
  * @param q - Raw `q` parameter value from URLSearchParams, or null if absent
  * @returns ParseSuccess on valid input, ParseError with description on failure
  */
-export function parseQueryParam(q: string | null): ParseResult {
+export function parseQueryParameter(q: string | null): ParseResult {
   if (!q) {
     return {
       error: "Missing 'q' parameter. Expected format: owner/slug1|owner/slug2!your+query"
@@ -78,6 +78,57 @@ interface QueryResult {
   error: string | null;
 }
 
+// ─── Stream event processing ──────────────────────────────────────────────────
+
+interface StreamState {
+  answer: string;
+  sources: DoneEvent['sources'];
+}
+
+function applyStreamEvent(
+  event: ChatStreamEvent,
+  state: StreamState,
+  setStatus: (message: string) => void
+): void {
+  switch (event.type) {
+    case 'retrieval_start': {
+      setStatus(
+        `Searching ${String(event.sourceCount)} data source${event.sourceCount === 1 ? '' : 's'}...`
+      );
+      break;
+    }
+    case 'source_complete': {
+      setStatus(
+        `Retrieved ${String(event.documentsRetrieved)} document${event.documentsRetrieved === 1 ? '' : 's'} from ${event.path}`
+      );
+      break;
+    }
+    case 'reranking_start': {
+      setStatus('Reranking results...');
+      break;
+    }
+    case 'generation_start': {
+      setStatus('Generating answer...');
+      break;
+    }
+    case 'token': {
+      state.answer += event.content;
+      break;
+    }
+    case 'done': {
+      // Prefer the clean cite-tag-stripped response if attribution ran
+      if (event.response) {
+        state.answer = event.response;
+      }
+      state.sources = event.sources;
+      break;
+    }
+    case 'error': {
+      throw new AggregatorError(event.message);
+    }
+  }
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 /**
@@ -104,7 +155,7 @@ export default function QueryPage() {
   useEffect(() => {
     if (isInitializing) return;
 
-    const parsed = parseQueryParam(q);
+    const parsed = parseQueryParameter(q);
 
     if ('error' in parsed) {
       setResult({
@@ -120,14 +171,10 @@ export default function QueryPage() {
 
     const { dataSources, prompt } = parsed;
     const controller = new AbortController();
-
-    let answer = '';
-    let finalSources: DoneEvent['sources'] = {};
+    const state: StreamState = { answer: '', sources: {} };
 
     async function run() {
       try {
-        setStatusMessage('Preparing request...');
-
         const stream = syftClient.chat.stream({
           model: DEFAULT_MODEL,
           dataSources,
@@ -138,52 +185,15 @@ export default function QueryPage() {
 
         for await (const event of stream) {
           if (controller.signal.aborted) return;
-
-          switch (event.type) {
-            case 'retrieval_start': {
-              setStatusMessage(
-                `Searching ${event.sourceCount} data source${event.sourceCount === 1 ? '' : 's'}...`
-              );
-              break;
-            }
-            case 'source_complete': {
-              setStatusMessage(
-                `Retrieved ${event.documentsRetrieved} document${event.documentsRetrieved === 1 ? '' : 's'} from ${event.path}`
-              );
-              break;
-            }
-            case 'reranking_start': {
-              setStatusMessage('Reranking results...');
-              break;
-            }
-            case 'generation_start': {
-              setStatusMessage('Generating answer...');
-              break;
-            }
-            case 'token': {
-              answer += event.content;
-              break;
-            }
-            case 'done': {
-              // Prefer the clean cite-tag-stripped response if attribution ran
-              if (event.response) {
-                answer = event.response;
-              }
-              finalSources = event.sources ?? {};
-              break;
-            }
-            case 'error': {
-              throw new AggregatorError(event.message);
-            }
-          }
+          applyStreamEvent(event, state, setStatusMessage);
         }
 
         setResult({
           query: prompt,
           model: DEFAULT_MODEL,
           data_sources: dataSources,
-          answer,
-          sources: finalSources,
+          answer: state.answer,
+          sources: state.sources,
           error: null
         });
       } catch (error) {
@@ -209,11 +219,9 @@ export default function QueryPage() {
 
   if (!result) {
     return (
-      <div className='bg-background text-foreground flex min-h-screen items-center justify-center p-8'>
-        <div className='space-y-3 text-center'>
-          <div className='text-muted-foreground font-mono text-sm'>{statusMessage}</div>
-          <div className='bg-primary mx-auto h-2 w-2 animate-pulse rounded-full' />
-        </div>
+      <div className='bg-background text-foreground flex min-h-screen flex-col items-center justify-center gap-3 p-8 text-center'>
+        <div className='text-muted-foreground font-mono text-sm'>{statusMessage}</div>
+        <div className='bg-primary h-2 w-2 animate-pulse rounded-full' />
       </div>
     );
   }
