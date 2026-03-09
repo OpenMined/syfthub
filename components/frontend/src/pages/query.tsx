@@ -7,8 +7,8 @@ import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/context/auth-context';
 import { AggregatorError, EndpointResolutionError, syftClient } from '@/lib/sdk-client';
 
-// Hardcoded default model endpoint (OpenMined's GPT)
-const DEFAULT_MODEL = 'openmined/gpt-4';
+const DEFAULT_MODEL =
+  (import.meta.env.VITE_DEFAULT_MODEL as string | undefined) ?? 'testuser/llm-proxy';
 
 // ─── URL Parsing ─────────────────────────────────────────────────────────────
 
