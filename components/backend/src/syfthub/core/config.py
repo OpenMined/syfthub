@@ -452,6 +452,20 @@ class Settings(BaseSettings):
         description="Peer token lifetime in seconds (short-lived)",
     )
 
+    # Guest peer token settings
+    guest_peer_token_expire_seconds: int = Field(
+        default=90,
+        description="Guest peer token lifetime in seconds (shorter than authenticated)",
+    )
+    guest_peer_token_rate_limit_max: int = Field(
+        default=10,
+        description="Maximum guest peer token requests per IP per window",
+    )
+    guest_peer_token_rate_limit_window_seconds: int = Field(
+        default=60,
+        description="Guest peer token rate limit window in seconds",
+    )
+
     # ===========================================
     # REDIS SETTINGS
     # ===========================================

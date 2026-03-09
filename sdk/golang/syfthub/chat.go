@@ -74,6 +74,7 @@ type ChatCompleteRequest struct {
 	SimilarityThreshold float64
 	Messages            []Message
 	AggregatorURL       string // Optional custom aggregator URL
+	GuestMode           bool   // Use guest (unauthenticated) peer tokens for tunneling
 }
 
 // chatPrepared holds the resolved request body and target URL, shared by Complete and streamInternal.
@@ -123,22 +124,38 @@ func (c *ChatResource) prepareRequest(ctx context.Context, req *ChatCompleteRequ
 
 	// Fetch satellite and transaction tokens for all unique endpoint owners
 	uniqueOwners := c.collectUniqueOwners(modelRef, dsRefs)
-	endpointTokens, err := c.auth.GetSatelliteTokens(ctx, uniqueOwners)
-	if err != nil {
-		slog.WarnContext(ctx, "failed to get satellite tokens, proceeding without them", "error", err)
-		endpointTokens = make(map[string]string)
-	}
-	transactionTokens, err := c.auth.GetTransactionTokens(ctx, uniqueOwners)
-	if err != nil {
-		slog.WarnContext(ctx, "failed to get transaction tokens, proceeding without them", "error", err)
+	var endpointTokens map[string]string
+	var transactionTokens *TransactionTokensResponse
+	if req.GuestMode {
+		endpointTokens, err = c.auth.GetGuestSatelliteTokens(ctx, uniqueOwners)
+		if err != nil {
+			slog.WarnContext(ctx, "failed to get guest satellite tokens, proceeding without them", "error", err)
+			endpointTokens = make(map[string]string)
+		}
 		transactionTokens = &TransactionTokensResponse{Tokens: make(map[string]string)}
+	} else {
+		endpointTokens, err = c.auth.GetSatelliteTokens(ctx, uniqueOwners)
+		if err != nil {
+			slog.WarnContext(ctx, "failed to get satellite tokens, proceeding without them", "error", err)
+			endpointTokens = make(map[string]string)
+		}
+		transactionTokens, err = c.auth.GetTransactionTokens(ctx, uniqueOwners)
+		if err != nil {
+			slog.WarnContext(ctx, "failed to get transaction tokens, proceeding without them", "error", err)
+			transactionTokens = &TransactionTokensResponse{Tokens: make(map[string]string)}
+		}
 	}
 
 	// Auto-fetch peer token if tunneling endpoints detected
 	var peerToken, peerChannel string
 	tunnelingUsernames := c.collectTunnelingUsernames(modelRef, dsRefs)
 	if len(tunnelingUsernames) > 0 {
-		peerResponse, err := c.auth.GetPeerToken(ctx, tunnelingUsernames)
+		var peerResponse *PeerTokenResponse
+		if req.GuestMode {
+			peerResponse, err = c.auth.GetGuestPeerToken(ctx, tunnelingUsernames)
+		} else {
+			peerResponse, err = c.auth.GetPeerToken(ctx, tunnelingUsernames)
+		}
 		if err == nil {
 			peerToken = peerResponse.PeerToken
 			peerChannel = peerResponse.PeerChannel

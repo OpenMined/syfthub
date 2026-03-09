@@ -5,11 +5,13 @@ import json
 import logging
 import re
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
 from federated_aggregation.aggregator import Aggregate
 
+from aggregator.clients.nats_transport import is_tunneling_url
 from aggregator.core.config import get_settings
 from aggregator.schemas import (
     ChatRequest,
@@ -58,6 +60,22 @@ class Orchestrator:
         self.retrieval_service = retrieval_service
         self.generation_service = generation_service
         self.prompt_builder = prompt_builder
+
+    @staticmethod
+    def _resolve_fallback_peer_channel(
+        model_endpoint: ResolvedEndpoint,
+        data_sources: list[ResolvedEndpoint],
+        peer_channel: str | None,
+    ) -> str | None:
+        """Return a new ephemeral peer_channel if tunneling endpoints exist but none was provided."""
+        if peer_channel is None and (
+            is_tunneling_url(model_endpoint.url)
+            or any(is_tunneling_url(ds.url) for ds in data_sources)
+        ):
+            channel = str(uuid.uuid4())
+            logger.info(f"Generated fallback peer_channel for guest tunneling: {channel}")
+            return channel
+        return peer_channel
 
     def _endpoint_ref_to_resolved(self, ref: EndpointRef, endpoint_type: str) -> ResolvedEndpoint:
         """Convert an EndpointRef from request to internal ResolvedEndpoint.
@@ -286,6 +304,11 @@ class Orchestrator:
         if data_sources:
             logger.info(f"Using {len(data_sources)} data sources")
 
+        # Fallback: generate ephemeral peer_channel if tunneling endpoints exist but none provided
+        peer_channel = self._resolve_fallback_peer_channel(
+            model_endpoint, data_sources, peer_channel
+        )
+
         # 3. Retrieve context from SyftAI-Space data sources
         retrieval_start = time.perf_counter()
         context = await self.retrieval_service.retrieve(
@@ -422,6 +445,11 @@ class Orchestrator:
         data_sources: list[ResolvedEndpoint] = [
             self._endpoint_ref_to_resolved(ds, "data_source") for ds in request.data_sources
         ]
+
+        # Fallback: generate ephemeral peer_channel if tunneling endpoints exist but none provided
+        peer_channel = self._resolve_fallback_peer_channel(
+            model_endpoint, data_sources, peer_channel
+        )
 
         # 3. Retrieval phase with progress events
         yield self._sse_event(
