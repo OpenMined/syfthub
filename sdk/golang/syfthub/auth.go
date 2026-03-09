@@ -29,6 +29,11 @@ import (
 //
 //	// Logout
 //	err = client.Auth.Logout(ctx)
+//
+// maxTokenFetchConcurrency limits parallel token-fetch goroutines in
+// GetSatelliteTokens and GetGuestSatelliteTokens.
+const maxTokenFetchConcurrency = 10
+
 type AuthResource struct {
 	http *httpClient
 }
@@ -315,68 +320,7 @@ func (a *AuthResource) GetSatelliteToken(ctx context.Context, audience string) (
 //	tokens, err := client.Auth.GetSatelliteTokens(ctx, []string{"alice", "bob"})
 //	fmt.Printf("Got %d tokens\n", len(tokens))
 func (a *AuthResource) GetSatelliteTokens(ctx context.Context, audiences []string) (map[string]string, error) {
-	// Deduplicate audiences
-	seen := make(map[string]bool)
-	uniqueAudiences := make([]string, 0, len(audiences))
-	for _, aud := range audiences {
-		if !seen[aud] {
-			seen[aud] = true
-			uniqueAudiences = append(uniqueAudiences, aud)
-		}
-	}
-
-	tokenMap := make(map[string]string)
-	if len(uniqueAudiences) == 0 {
-		return tokenMap, nil
-	}
-
-	// Fetch tokens in parallel using goroutines
-	type result struct {
-		audience string
-		token    string
-		err      error
-	}
-
-	results := make(chan result, len(uniqueAudiences))
-	var wg sync.WaitGroup
-
-	// Limit concurrency to 10
-	semaphore := make(chan struct{}, 10)
-
-	for _, aud := range uniqueAudiences {
-		wg.Add(1)
-		go func(audience string) {
-			defer wg.Done()
-			semaphore <- struct{}{}
-			defer func() { <-semaphore }()
-
-			resp, err := a.GetSatelliteToken(ctx, audience)
-			if err != nil {
-				// Failed tokens are silently skipped - the aggregator will handle missing tokens
-				results <- result{audience: audience, err: err}
-				return
-			}
-			results <- result{audience: audience, token: resp.TargetToken}
-		}(aud)
-	}
-
-	// Close results channel when all goroutines complete
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
-
-	// Collect successful results
-	var mu sync.Mutex
-	for r := range results {
-		if r.token != "" {
-			mu.Lock()
-			tokenMap[r.audience] = r.token
-			mu.Unlock()
-		}
-	}
-
-	return tokenMap, nil
+	return a.fetchSatelliteTokens(ctx, audiences, a.GetSatelliteToken)
 }
 
 // GetGuestSatelliteToken gets a satellite token for a specific audience without authentication.
@@ -392,6 +336,18 @@ func (a *AuthResource) GetGuestSatelliteToken(ctx context.Context, audience stri
 // GetGuestSatelliteTokens gets guest satellite tokens for multiple audiences in parallel.
 // No authentication is required.
 func (a *AuthResource) GetGuestSatelliteTokens(ctx context.Context, audiences []string) (map[string]string, error) {
+	return a.fetchSatelliteTokens(ctx, audiences, a.GetGuestSatelliteToken)
+}
+
+// fetchSatelliteTokens deduplicates audiences, then fetches tokens in parallel
+// (up to maxTokenFetchConcurrency at once) using the provided fetch function.
+// Failed tokens are silently skipped — the aggregator will handle missing tokens.
+func (a *AuthResource) fetchSatelliteTokens(
+	ctx context.Context,
+	audiences []string,
+	fetch func(context.Context, string) (*SatelliteTokenResponse, error),
+) (map[string]string, error) {
+	// Deduplicate audiences
 	seen := make(map[string]bool)
 	uniqueAudiences := make([]string, 0, len(audiences))
 	for _, aud := range audiences {
@@ -411,14 +367,19 @@ func (a *AuthResource) GetGuestSatelliteTokens(ctx context.Context, audiences []
 		token    string
 		err      error
 	}
-	results := make(chan result, len(uniqueAudiences))
 
+	results := make(chan result, len(uniqueAudiences))
 	var wg sync.WaitGroup
+	semaphore := make(chan struct{}, maxTokenFetchConcurrency)
+
 	for _, aud := range uniqueAudiences {
 		wg.Add(1)
 		go func(audience string) {
 			defer wg.Done()
-			resp, err := a.GetGuestSatelliteToken(ctx, audience)
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			resp, err := fetch(ctx, audience)
 			if err != nil {
 				results <- result{audience: audience, err: err}
 				return

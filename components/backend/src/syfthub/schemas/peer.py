@@ -57,7 +57,7 @@ class GuestPeerTokenRequest(BaseModel):
     model_config = {
         "json_schema_extra": {
             "example": {
-                "target_usernames": ["alice"],
+                "target_usernames": ["alice", "bob"],
             }
         }
     }

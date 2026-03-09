@@ -12,7 +12,11 @@ from syfthub.auth.db_dependencies import get_current_active_user
 from syfthub.auth.peer_tokens import create_guest_peer_token, create_peer_token
 from syfthub.core.config import get_settings
 from syfthub.core.redis_client import get_redis_client
-from syfthub.schemas.peer import GuestPeerTokenRequest, PeerTokenRequest, PeerTokenResponse
+from syfthub.schemas.peer import (
+    GuestPeerTokenRequest,
+    PeerTokenRequest,
+    PeerTokenResponse,
+)
 from syfthub.schemas.user import User
 
 router = APIRouter()
@@ -106,9 +110,16 @@ async def _check_guest_peer_rate_limit(request: Request) -> None:
     ip = request.client.host if request.client else "unknown"
     key = f"nats:guest-peer:rate:{ip}"
 
-    count = await redis.incr(key)
-    if count == 1:
-        await redis.expire(key, settings.guest_peer_token_rate_limit_window_seconds)
+    # Pipeline SET NX + INCR in one round-trip: SET NX initialises the key with
+    # TTL on the first request; INCR atomically returns the new count.
+    # Using transaction=False (no MULTI/EXEC) is enough — both commands execute
+    # server-side in order, avoiding the INCR/EXPIRE race of the naive approach.
+    async with redis.pipeline(transaction=False) as pipe:
+        pipe.set(
+            key, 0, ex=settings.guest_peer_token_rate_limit_window_seconds, nx=True
+        )
+        pipe.incr(key)
+        _, count = await pipe.execute()
 
     if count > settings.guest_peer_token_rate_limit_max:
         raise HTTPException(
