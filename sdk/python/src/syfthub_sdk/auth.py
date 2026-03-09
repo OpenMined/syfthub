@@ -452,6 +452,58 @@ class AuthResource:
 
         return token_map
 
+    def get_guest_satellite_token(self, audience: str) -> SatelliteTokenResponse:
+        """Get a guest satellite token for a specific audience without authentication.
+
+        Args:
+            audience: Target service identifier (username of the service owner)
+
+        Returns:
+            SatelliteTokenResponse with token and expiry
+        """
+        response = self._http.get(
+            "/api/v1/token/guest",
+            params={"aud": audience},
+            include_auth=False,
+        )
+        data = response if isinstance(response, dict) else {}
+        return SatelliteTokenResponse.model_validate(data)
+
+    def get_guest_satellite_tokens(self, audiences: list[str]) -> dict[str, str]:
+        """Get guest satellite tokens for multiple audiences in parallel.
+
+        No authentication is required to call this method.
+
+        Args:
+            audiences: List of audience identifiers (usernames)
+
+        Returns:
+            Dict mapping audience to satellite token
+        """
+        unique_audiences = list(set(audiences))
+        token_map: dict[str, str] = {}
+
+        if not unique_audiences:
+            return token_map
+
+        def fetch_token(aud: str) -> tuple[str, str | None]:
+            try:
+                response = self.get_guest_satellite_token(aud)
+                return (aud, response.target_token)
+            except Exception:
+                return (aud, None)
+
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(len(unique_audiences), 10)
+        ) as executor:
+            results = list(executor.map(fetch_token, unique_audiences))
+
+        for aud, token in results:
+            if token is not None:
+                token_map[aud] = token
+
+        return token_map
+
     def get_peer_token(self, target_usernames: list[str]) -> PeerTokenResponse:
         """Get a peer token for NATS communication with tunneling spaces.
 
@@ -474,6 +526,30 @@ class AuthResource:
         response = self._http.post(
             "/api/v1/peer-token",
             json={"target_usernames": target_usernames},
+        )
+        data = response if isinstance(response, dict) else {}
+        return PeerTokenResponse.model_validate(data)
+
+    def get_guest_peer_token(self, target_usernames: list[str]) -> PeerTokenResponse:
+        """Get a guest peer token for NATS communication without authentication.
+
+        Guest peer tokens are rate-limited by IP address. They use the same
+        response format as authenticated peer tokens.
+
+        Args:
+            target_usernames: Usernames of the tunneling spaces to communicate with
+
+        Returns:
+            PeerTokenResponse with token, channel, expiry, and NATS URL
+
+        Example:
+            peer = client.auth.get_guest_peer_token(["alice"])
+            print(f"Guest peer channel: {peer.peer_channel}")
+        """
+        response = self._http.post(
+            "/api/v1/nats/guest-peer-token",
+            json={"target_usernames": target_usernames},
+            include_auth=False,
         )
         data = response if isinstance(response, dict) else {}
         return PeerTokenResponse.model_validate(data)

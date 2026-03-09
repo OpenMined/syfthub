@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import time
+import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -22,6 +23,7 @@ from aggregator.schemas import (
 )
 from aggregator.schemas.internal import AggregatedContext, ResolvedEndpoint, RetrievalResult
 from aggregator.schemas.responses import Document
+from aggregator.clients.nats_transport import is_tunneling_url
 from aggregator.services.generation import GenerationError, GenerationService
 from aggregator.services.prompt_builder import PromptBuilder
 from aggregator.services.retrieval import RetrievalService
@@ -286,6 +288,14 @@ class Orchestrator:
         if data_sources:
             logger.info(f"Using {len(data_sources)} data sources")
 
+        # Fallback: generate ephemeral peer_channel if tunneling endpoints exist but no channel provided
+        if peer_channel is None and (
+            is_tunneling_url(model_endpoint.url)
+            or any(is_tunneling_url(ds.url) for ds in data_sources)
+        ):
+            peer_channel = str(uuid.uuid4())
+            logger.info(f"Generated fallback peer_channel for guest tunneling: {peer_channel}")
+
         # 3. Retrieve context from SyftAI-Space data sources
         retrieval_start = time.perf_counter()
         context = await self.retrieval_service.retrieve(
@@ -422,6 +432,14 @@ class Orchestrator:
         data_sources: list[ResolvedEndpoint] = [
             self._endpoint_ref_to_resolved(ds, "data_source") for ds in request.data_sources
         ]
+
+        # Fallback: generate ephemeral peer_channel if tunneling endpoints exist but no channel provided
+        if peer_channel is None and (
+            is_tunneling_url(model_endpoint.url)
+            or any(is_tunneling_url(ds.url) for ds in data_sources)
+        ):
+            peer_channel = str(uuid.uuid4())
+            logger.info(f"Generated fallback peer_channel for guest tunneling: {peer_channel}")
 
         # 3. Retrieval phase with progress events
         yield self._sse_event(

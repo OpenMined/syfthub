@@ -379,6 +379,71 @@ func (a *AuthResource) GetSatelliteTokens(ctx context.Context, audiences []strin
 	return tokenMap, nil
 }
 
+// GetGuestSatelliteToken gets a satellite token for a specific audience without authentication.
+func (a *AuthResource) GetGuestSatelliteToken(ctx context.Context, audience string) (*SatelliteTokenResponse, error) {
+	var response SatelliteTokenResponse
+	err := a.http.Get(ctx, "/api/v1/token/guest", &response, WithoutAuth(), WithQuery(url.Values{"aud": {audience}}))
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+// GetGuestSatelliteTokens gets guest satellite tokens for multiple audiences in parallel.
+// No authentication is required.
+func (a *AuthResource) GetGuestSatelliteTokens(ctx context.Context, audiences []string) (map[string]string, error) {
+	seen := make(map[string]bool)
+	uniqueAudiences := make([]string, 0, len(audiences))
+	for _, aud := range audiences {
+		if !seen[aud] {
+			seen[aud] = true
+			uniqueAudiences = append(uniqueAudiences, aud)
+		}
+	}
+
+	tokenMap := make(map[string]string)
+	if len(uniqueAudiences) == 0 {
+		return tokenMap, nil
+	}
+
+	type result struct {
+		audience string
+		token    string
+		err      error
+	}
+	results := make(chan result, len(uniqueAudiences))
+
+	var wg sync.WaitGroup
+	for _, aud := range uniqueAudiences {
+		wg.Add(1)
+		go func(audience string) {
+			defer wg.Done()
+			resp, err := a.GetGuestSatelliteToken(ctx, audience)
+			if err != nil {
+				results <- result{audience: audience, err: err}
+				return
+			}
+			results <- result{audience: audience, token: resp.TargetToken}
+		}(aud)
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	var mu sync.Mutex
+	for r := range results {
+		if r.token != "" {
+			mu.Lock()
+			tokenMap[r.audience] = r.token
+			mu.Unlock()
+		}
+	}
+
+	return tokenMap, nil
+}
+
 // GetPeerToken gets a peer token for NATS communication with tunneling spaces.
 //
 // Peer tokens are short-lived credentials that allow the aggregator to
@@ -393,6 +458,26 @@ func (a *AuthResource) GetPeerToken(ctx context.Context, targetUsernames []strin
 	err := a.http.Post(ctx, "/api/v1/peer-token", map[string]interface{}{
 		"target_usernames": targetUsernames,
 	}, &response)
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+// GetGuestPeerToken gets a peer token for NATS communication without authentication.
+//
+// Guest peer tokens are rate-limited by IP address. They use the same
+// response format as authenticated peer tokens.
+//
+// Example:
+//
+//	peer, err := client.Auth.GetGuestPeerToken(ctx, []string{"alice"})
+//	fmt.Printf("Guest peer channel: %s\n", peer.PeerChannel)
+func (a *AuthResource) GetGuestPeerToken(ctx context.Context, targetUsernames []string) (*PeerTokenResponse, error) {
+	var response PeerTokenResponse
+	err := a.http.Post(ctx, "/api/v1/nats/guest-peer-token", map[string]interface{}{
+		"target_usernames": targetUsernames,
+	}, &response, WithoutAuth())
 	if err != nil {
 		return nil, err
 	}

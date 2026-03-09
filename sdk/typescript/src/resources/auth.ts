@@ -312,6 +312,27 @@ export class AuthResource {
   }
 
   /**
+   * Get a guest peer token for NATS communication without authentication.
+   *
+   * Guest peer tokens are rate-limited by IP address. They use the same
+   * response format as authenticated peer tokens.
+   *
+   * @param targetUsernames - Usernames of the tunneling spaces to communicate with
+   * @returns PeerTokenResponse with token, channel, expiry, and NATS URL
+   *
+   * @example
+   * const peer = await client.auth.getGuestPeerToken(['alice']);
+   * console.log(`Guest peer channel: ${peer.peerChannel}`);
+   */
+  async getGuestPeerToken(targetUsernames: string[]): Promise<PeerTokenResponse> {
+    return this.http.post<PeerTokenResponse>(
+      '/api/v1/nats/guest-peer-token',
+      { target_usernames: targetUsernames },
+      { includeAuth: false }
+    );
+  }
+
+  /**
    * Get a satellite token for a specific audience (target service).
    *
    * Satellite tokens are short-lived, RS256-signed JWTs that allow satellite

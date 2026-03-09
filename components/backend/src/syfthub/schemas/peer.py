@@ -38,6 +38,31 @@ class PeerTokenRequest(BaseModel):
     }
 
 
+class GuestPeerTokenRequest(BaseModel):
+    """Request to generate a guest peer token for NATS communication.
+
+    Guest users do not require authentication. The target_usernames field
+    is optional and used for auditing/logging only.
+
+    Attributes:
+        target_usernames: Optional list of tunneling space usernames (for auditing)
+    """
+
+    target_usernames: List[str] = Field(
+        default_factory=list,
+        description="Optional usernames of the tunneling spaces (for auditing)",
+        examples=[["alice", "bob"]],
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "target_usernames": ["alice"],
+            }
+        }
+    }
+
+
 class PeerTokenResponse(BaseModel):
     """Response containing a temporary NATS peer token.
 
