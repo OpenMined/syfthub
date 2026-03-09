@@ -129,6 +129,7 @@ export type {
   // Chat types
   EndpointRef,
   Document,
+  DocumentSource,
   SourceStatus,
   SourceInfo,
   ChatMetadata,

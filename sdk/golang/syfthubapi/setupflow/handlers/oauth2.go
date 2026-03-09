@@ -72,7 +72,7 @@ func (h *OAuth2Handler) Execute(step *nodeops.SetupStep, ctx *setupflow.SetupCon
 	}
 
 	// Open browser
-	ctx.IO.Status(fmt.Sprintf("Opening browser for authorization..."))
+	ctx.IO.Status("Opening browser for authorization...")
 	if err := ctx.IO.OpenBrowser(authURL); err != nil {
 		ctx.IO.Status(fmt.Sprintf("Please open this URL in your browser:\n  %s", authURL))
 	}

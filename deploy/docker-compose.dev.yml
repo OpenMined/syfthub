@@ -121,6 +121,7 @@ services:
       - NODE_ENV=development
       # Empty - API calls use relative paths (same origin via proxy)
       - VITE_API_URL=
+      - VITE_DEFAULT_MODEL=${VITE_DEFAULT_MODEL:-}
     networks:
       - syfthub-network
     depends_on:
