@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import type { DoneEvent } from '@/lib/sdk-client';
 
@@ -100,8 +100,6 @@ export default function QueryPage() {
   const [phase, setPhase] = useState<Phase>('loading');
   const [result, setResult] = useState<QueryResult | null>(null);
   const [statusMessage, setStatusMessage] = useState('Initializing...');
-  const abortReference = useRef<AbortController | null>(null);
-
   const q = searchParams.get('q');
 
   useEffect(() => {
@@ -122,7 +120,6 @@ export default function QueryPage() {
 
     const { dataSources, prompt } = parsed;
     const controller = new AbortController();
-    abortReference.current = controller;
 
     let answer = '';
     let finalSources: DoneEvent['sources'] = {};
@@ -140,7 +137,7 @@ export default function QueryPage() {
         });
 
         for await (const event of stream) {
-          if (controller.signal.aborted) break;
+          if (controller.signal.aborted) return;
 
           switch (event.type) {
             case 'retrieval_start': {
@@ -168,12 +165,11 @@ export default function QueryPage() {
               break;
             }
             case 'done': {
-              const doneEvent = event;
               // Prefer the clean cite-tag-stripped response if attribution ran
-              if (doneEvent.response) {
-                answer = doneEvent.response;
+              if (event.response) {
+                answer = event.response;
               }
-              finalSources = doneEvent.sources ?? {};
+              finalSources = event.sources ?? {};
               break;
             }
             case 'error': {
