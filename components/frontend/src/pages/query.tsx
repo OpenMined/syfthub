@@ -5,7 +5,8 @@ import type { DoneEvent } from '@/lib/sdk-client';
 import { useSearchParams } from 'react-router-dom';
 
 import { useAuth } from '@/context/auth-context';
-import { AggregatorError, EndpointResolutionError, syftClient } from '@/lib/sdk-client';
+import { getErrorMessage } from '@/hooks/use-chat-workflow';
+import { AggregatorError, syftClient } from '@/lib/sdk-client';
 
 const DEFAULT_MODEL =
   (import.meta.env.VITE_DEFAULT_MODEL as string | undefined) ?? 'testuser/llm-proxy';
@@ -77,8 +78,6 @@ interface QueryResult {
   error: string | null;
 }
 
-type Phase = 'loading' | 'complete' | 'error';
-
 // ─── Component ────────────────────────────────────────────────────────────────
 
 /**
@@ -96,13 +95,15 @@ type Phase = 'loading' | 'complete' | 'error';
  */
 export default function QueryPage() {
   const [searchParams] = useSearchParams();
-  const { user } = useAuth();
-  const [phase, setPhase] = useState<Phase>('loading');
+  const { user, isInitializing } = useAuth();
+  const isGuest = !user;
   const [result, setResult] = useState<QueryResult | null>(null);
-  const [statusMessage, setStatusMessage] = useState('Initializing...');
+  const [statusMessage, setStatusMessage] = useState('Preparing request...');
   const q = searchParams.get('q');
 
   useEffect(() => {
+    if (isInitializing) return;
+
     const parsed = parseQueryParam(q);
 
     if ('error' in parsed) {
@@ -114,7 +115,6 @@ export default function QueryPage() {
         sources: {},
         error: parsed.error
       });
-      setPhase('error');
       return;
     }
 
@@ -132,7 +132,7 @@ export default function QueryPage() {
           model: DEFAULT_MODEL,
           dataSources,
           prompt,
-          guestMode: !user,
+          guestMode: isGuest,
           signal: controller.signal
         });
 
@@ -186,18 +186,8 @@ export default function QueryPage() {
           sources: finalSources,
           error: null
         });
-        setPhase('complete');
       } catch (error) {
-        if (error instanceof Error && error.name === 'AbortError') return;
-
-        let message = 'Unknown error';
-        if (error instanceof EndpointResolutionError) {
-          message = `Failed to resolve endpoint: ${error.message}`;
-        } else if (error instanceof AggregatorError) {
-          message = `Chat service error: ${error.message}`;
-        } else if (error instanceof Error) {
-          message = error.message;
-        }
+        if (controller.signal.aborted) return;
 
         setResult({
           query: prompt,
@@ -205,9 +195,8 @@ export default function QueryPage() {
           data_sources: dataSources,
           answer: null,
           sources: {},
-          error: message
+          error: getErrorMessage(error)
         });
-        setPhase('error');
       }
     }
 
@@ -216,9 +205,9 @@ export default function QueryPage() {
     return () => {
       controller.abort();
     };
-  }, [q, user]);
+  }, [q, isGuest, isInitializing]);
 
-  if (phase === 'loading') {
+  if (!result) {
     return (
       <div className='bg-background text-foreground flex min-h-screen items-center justify-center p-8'>
         <div className='space-y-3 text-center'>
