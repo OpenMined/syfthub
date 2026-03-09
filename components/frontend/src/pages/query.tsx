@@ -9,7 +9,7 @@ import { getErrorMessage } from '@/hooks/use-chat-workflow';
 import { AggregatorError, syftClient } from '@/lib/sdk-client';
 
 const DEFAULT_MODEL =
-  (import.meta.env.VITE_DEFAULT_MODEL as string | undefined) ?? 'testuser/llm-proxy';
+  (import.meta.env.VITE_DEFAULT_MODEL as string | undefined) || 'testuser/llm-proxy';
 
 // ─── URL Parsing ─────────────────────────────────────────────────────────────
 
