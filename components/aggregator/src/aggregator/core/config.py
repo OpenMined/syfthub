@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     nats_auth_token: str = ""
     nats_tunnel_timeout: float = 30.0
 
+    # Default model for /q endpoint (owner/slug format)
+    default_query_model: str = "testuser/llm-proxy"
+
     # CORS configuration
     cors_origins: list[str] = ["*"]
 
