@@ -111,6 +111,10 @@ class ChatRequest(BaseModel):
         default=None,
         description="Unique reply channel for receiving NATS responses (from peer token endpoint)",
     )
+    retrieval_only: bool = Field(
+        default=False,
+        description="When True, skip reranking and LLM generation; return only raw retrieved documents.",
+    )
 
 
 class Message(BaseModel):

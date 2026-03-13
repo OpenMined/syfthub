@@ -137,6 +137,9 @@ async def query_render(
     q: Annotated[str, Query(description="Query in format: owner/slug1|owner/slug2!your+prompt")],
     orchestrator: Annotated[Orchestrator, Depends(get_orchestrator)],
     user_token: Annotated[str | None, Depends(get_optional_token)],
+    aggregate: Annotated[
+        bool, Query(description="Set to true to enable reranking and LLM generation")
+    ] = False,
 ) -> HTMLResponse:
     """
     Execute a query from a URL and return a static HTML page with the result.
@@ -170,6 +173,16 @@ async def query_render(
         )
 
     data_source_slugs, prompt = parsed
+
+    if not aggregate and not data_source_slugs:
+        return HTMLResponse(
+            content=render_query_result_html(
+                _error_result(
+                    q, default_model, [], "Retrieval-only mode requires at least one data source."
+                )
+            ),
+            status_code=400,
+        )
 
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT) as client:
         # --- Resolve all endpoints in parallel ---
@@ -229,6 +242,7 @@ async def query_render(
         model=model_ref,
         data_sources=ds_refs,
         endpoint_tokens=endpoint_tokens,
+        retrieval_only=not aggregate,
     )
 
     try:

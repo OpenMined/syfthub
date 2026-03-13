@@ -322,6 +322,32 @@ class Orchestrator:
         )
         retrieval_time_ms = int((time.perf_counter() - retrieval_start) * 1000)
 
+        # --- Retrieval-only short-circuit ---
+        if request.retrieval_only:
+            total_time_ms = int((time.perf_counter() - total_start) * 1000)
+            retrieval_info = [
+                SourceInfo(
+                    path=r.endpoint_path,
+                    documents_retrieved=len(r.documents),
+                    status=r.status,
+                    error_message=r.error_message,
+                )
+                for r in context.retrieval_results
+            ]
+            document_sources = self._build_document_sources(context)
+            return ChatResponse(
+                response="",
+                sources=document_sources,
+                retrieval_info=retrieval_info,
+                metadata=ResponseMetadata(
+                    retrieval_time_ms=retrieval_time_ms,
+                    generation_time_ms=0,
+                    total_time_ms=total_time_ms,
+                ),
+                usage=None,
+                profit_share=None,
+            )
+
         # 3b. Rerank documents using federated aggregation (CENTRAL_REEMBEDDING)
         context_dict: dict[int, str] | None = None
         source_index_map: dict[int, str] | None = None
