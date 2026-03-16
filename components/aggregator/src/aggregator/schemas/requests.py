@@ -34,6 +34,10 @@ class EndpointRef(BaseModel):
         default=None,
         description="Owner's username - used to lookup satellite token from endpoint_tokens",
     )
+    query_override: str | None = Field(
+        default=None,
+        description="If set, use this as the retrieval query instead of the request prompt (e.g. a URL for url_fetcher).",
+    )
 
 
 class ChatRequest(BaseModel):

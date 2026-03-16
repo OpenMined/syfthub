@@ -29,8 +29,26 @@ router = APIRouter(prefix="/q", tags=["query"])
 _REQUEST_TIMEOUT = 10.0
 
 
-def _parse_query_param(q: str) -> tuple[list[str], str] | str:
-    """Parse the q parameter. Returns (data_sources, prompt) or error string."""
+def _is_url(entry: str) -> bool:
+    """Check if an entry looks like a URL rather than an owner/slug endpoint reference.
+
+    URLs are identified by scheme prefix or a dot in the domain part
+    (e.g. 'allrecipes.com', 'https://example.org/page').
+    """
+    if entry.startswith(("http://", "https://")):
+        return True
+    # Check the domain-like part (before first '/' if any)
+    domain_part = entry.split("/", 1)[0]
+    return "." in domain_part
+
+
+def _parse_query_param(q: str) -> tuple[list[str], list[str], str] | str:
+    """Parse the q parameter. Returns (endpoint_slugs, urls, prompt) or error string.
+
+    Entries before '!' are classified as either endpoint slugs (owner/slug format)
+    or URLs (contain a dot in the domain part, e.g. allrecipes.com, https://example.org).
+    URLs are transparently routed to the url_fetcher data source.
+    """
     bang_index = q.find("!")
     if bang_index == -1:
         return "Invalid query format: missing '!' separator. Expected: owner/slug1|owner/slug2!your+query"
@@ -40,13 +58,20 @@ def _parse_query_param(q: str) -> tuple[list[str], str] | str:
         return "Empty prompt: add your question after the '!'."
 
     slug_part = q[:bang_index]
-    data_sources = [s.strip() for s in slug_part.split("|") if s.strip()] if slug_part else []
+    entries = [s.strip() for s in slug_part.split("|") if s.strip()] if slug_part else []
 
-    for slug in data_sources:
-        if "/" not in slug:
-            return f"Invalid endpoint format '{slug}'. Expected owner/slug (e.g. openmined/wiki)."
+    endpoint_slugs: list[str] = []
+    urls: list[str] = []
 
-    return (data_sources, prompt)
+    for entry in entries:
+        if _is_url(entry):
+            urls.append(entry)
+        elif "/" not in entry:
+            return f"Invalid endpoint format '{entry}'. Expected owner/slug (e.g. openmined/wiki) or a URL (e.g. example.com)."
+        else:
+            endpoint_slugs.append(entry)
+
+    return (endpoint_slugs, urls, prompt)
 
 
 async def _resolve_endpoint(
@@ -150,15 +175,18 @@ async def query_render(
 
     **Format:** ``/q?q=owner/slug1|owner/slug2!your+prompt``
 
-    - Pipe-delimited data source slugs before ``!``
+    - Pipe-delimited data source slugs (or URLs) before ``!``
     - User prompt after ``!``
     - Empty data source section is valid (model-only query)
+    - URLs (e.g. ``example.com``) are transparently fetched via the url_fetcher endpoint
 
     **Examples:**
 
     - ``/q?q=alice/wiki!what+is+machine+learning``
     - ``/q?q=alice/wiki|bob/docs!compare+approaches``
     - ``/q?q=!hello+world`` (model-only, no data sources)
+    - ``/q?q=example.com!summarize+this+site`` (URL fetching)
+    - ``/q?q=example.com|alice/wiki!compare`` (mixed URL + endpoint)
     """
     settings = get_settings()
     default_model = settings.default_query_model
@@ -172,9 +200,10 @@ async def query_render(
             status_code=400,
         )
 
-    data_source_slugs, prompt = parsed
+    data_source_slugs, urls, prompt = parsed
+    all_source_labels = data_source_slugs + urls
 
-    if not aggregate and not data_source_slugs:
+    if not aggregate and not data_source_slugs and not urls:
         return HTMLResponse(
             content=render_query_result_html(
                 _error_result(
@@ -186,9 +215,13 @@ async def query_render(
 
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT) as client:
         # --- Resolve all endpoints in parallel ---
-        all_slugs = [default_model, *data_source_slugs]
+        # Always resolve the model; resolve url_fetcher once if any URLs are present
+        slugs_to_resolve = [default_model, *data_source_slugs]
+        if urls:
+            slugs_to_resolve.append(settings.url_fetcher_slug)
+
         resolve_results = await asyncio.gather(
-            *[_resolve_endpoint(client, slug, base_url, user_token) for slug in all_slugs],
+            *[_resolve_endpoint(client, slug, base_url, user_token) for slug in slugs_to_resolve],
             return_exceptions=True,
         )
 
@@ -196,7 +229,7 @@ async def query_render(
         resolved: list[EndpointRef] = []
         for i, res in enumerate(resolve_results):
             if isinstance(res, BaseException):
-                slug = all_slugs[i]
+                slug = slugs_to_resolve[i]
                 label = "model" if i == 0 else f"data source '{slug}'"
                 logger.warning("Failed to resolve %s: %s", label, res)
                 return HTMLResponse(
@@ -204,7 +237,7 @@ async def query_render(
                         _error_result(
                             prompt,
                             default_model,
-                            data_source_slugs,
+                            all_source_labels,
                             f"Failed to resolve {label}. Check the slug and ensure the endpoint exists.",
                         )
                     ),
@@ -213,7 +246,22 @@ async def query_render(
             resolved.append(res)
 
         model_ref = resolved[0]
-        ds_refs = resolved[1:]
+        ds_refs = resolved[1 : 1 + len(data_source_slugs)]
+
+        # Build url_fetcher refs — one per URL, each with query_override set to the URL
+        if urls:
+            url_fetcher_ref = resolved[-1]
+            for url in urls:
+                ds_refs.append(
+                    EndpointRef(
+                        url=url_fetcher_ref.url,
+                        slug=url_fetcher_ref.slug,
+                        name=url_fetcher_ref.name,
+                        tenant_name=url_fetcher_ref.tenant_name,
+                        owner_username=url_fetcher_ref.owner_username,
+                        query_override=url,
+                    )
+                )
 
         # --- Acquire satellite tokens in parallel ---
         unique_owners: list[str] = list(
@@ -250,7 +298,7 @@ async def query_render(
         result = {
             "query": prompt,
             "model": model_path,
-            "data_sources": data_source_slugs,
+            "data_sources": all_source_labels,
             "answer": response.response,
             "sources": {
                 title: {"slug": src.slug, "content": src.content}
@@ -260,12 +308,12 @@ async def query_render(
         }
     except OrchestratorError as exc:
         logger.error("Orchestration error in query render: %s", exc)
-        result = _error_result(prompt, model_path, data_source_slugs, str(exc))
+        result = _error_result(prompt, model_path, all_source_labels, str(exc))
         return HTMLResponse(content=render_query_result_html(result), status_code=502)
     except Exception:
         logger.exception("Unexpected error in query render endpoint")
         result = _error_result(
-            prompt, model_path, data_source_slugs, "An unexpected error occurred."
+            prompt, model_path, all_source_labels, "An unexpected error occurred."
         )
         return HTMLResponse(content=render_query_result_html(result), status_code=500)
 

@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     # Default model for /q endpoint (owner/slug format)
     default_query_model: str = "testuser/llm-proxy"
 
+    # URL fetcher data source endpoint (owner/slug format)
+    # Used to transparently fetch website content when a URL is passed instead of an endpoint slug
+    url_fetcher_slug: str = "testuser/url_fetcher"
+
     # CORS configuration
     cors_origins: list[str] = ["*"]
 
