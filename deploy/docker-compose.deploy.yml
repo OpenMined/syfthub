@@ -128,6 +128,9 @@ services:
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       # ngrok tunnel credentials (optional - tunnel credentials endpoint disabled if not set)
       - NGROK_API_KEY=${NGROK_API_KEY:-}
+      # Linear API credentials (optional - feedback endpoint disabled if not set)
+      - LINEAR_API_KEY=${LINEAR_API_KEY:-}
+      - LINEAR_TEAM_ID=${LINEAR_TEAM_ID:-}
     networks:
       - syfthub-network
     depends_on:
