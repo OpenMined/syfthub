@@ -94,6 +94,7 @@ class Orchestrator:
             name=ref.name or ref.slug,
             tenant_name=ref.tenant_name,
             owner_username=ref.owner_username,
+            query_override=ref.query_override,
         )
 
     def _build_document_sources(self, context: AggregatedContext) -> dict[str, DocumentSource]:
