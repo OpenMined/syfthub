@@ -394,6 +394,19 @@ class Settings(BaseSettings):
         description="Base domain for ngrok reserved tunnel domains",
     )
 
+    # ===========================================
+    # LINEAR INTEGRATION (Feedback / Bug Reports)
+    # ===========================================
+
+    linear_api_key: Optional[str] = Field(
+        default=None,
+        description="Linear API key for creating feedback/bug report issues",
+    )
+    linear_team_id: Optional[str] = Field(
+        default=None,
+        description="Linear team ID to assign feedback issues to",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:
