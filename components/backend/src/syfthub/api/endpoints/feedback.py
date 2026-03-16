@@ -33,6 +33,7 @@ async def _upload_to_linear(
 ) -> Optional[str]:
     """Upload a file to Linear and return the asset URL."""
     assert settings.linear_api_key is not None
+    api_key: str = settings.linear_api_key
     query = """
     mutation($contentType: String!, $filename: String!, $size: Int!) {
         fileUpload(contentType: $contentType, filename: $filename, size: $size) {
@@ -57,7 +58,7 @@ async def _upload_to_linear(
                 },
             },
             headers={
-                "Authorization": settings.linear_api_key,
+                "Authorization": api_key,
                 "Content-Type": "application/json",
             },
             timeout=30.0,

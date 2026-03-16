@@ -596,12 +596,14 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MEILI_MASTER_KEY: ${{ secrets.MEILI_MASTER_KEY }}
           NGROK_API_KEY: ${{ secrets.NGROK_API_KEY }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          LINEAR_TEAM_ID: ${{ secrets.LINEAR_TEAM_ID }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          envs: IMAGE_TAG,GITHUB_REPOSITORY,GHCR_TOKEN,MEILI_MASTER_KEY,NGROK_API_KEY
+          envs: IMAGE_TAG,GITHUB_REPOSITORY,GHCR_TOKEN,MEILI_MASTER_KEY,NGROK_API_KEY,LINEAR_API_KEY,LINEAR_TEAM_ID
           script: |
             set -e
             cd /opt/syfthub
@@ -627,6 +629,26 @@ jobs:
               else
                 echo "NGROK_API_KEY=${NGROK_API_KEY}" >> .env
                 echo "Added NGROK_API_KEY to .env"
+              fi
+            fi
+
+            # Ensure LINEAR_API_KEY is persisted in .env for docker-compose
+            if [ -n "$LINEAR_API_KEY" ]; then
+              if grep -q "^LINEAR_API_KEY=" .env 2>/dev/null; then
+                sed -i "s|^LINEAR_API_KEY=.*|LINEAR_API_KEY=${LINEAR_API_KEY}|" .env
+              else
+                echo "LINEAR_API_KEY=${LINEAR_API_KEY}" >> .env
+                echo "Added LINEAR_API_KEY to .env"
+              fi
+            fi
+
+            # Ensure LINEAR_TEAM_ID is persisted in .env for docker-compose
+            if [ -n "$LINEAR_TEAM_ID" ]; then
+              if grep -q "^LINEAR_TEAM_ID=" .env 2>/dev/null; then
+                sed -i "s|^LINEAR_TEAM_ID=.*|LINEAR_TEAM_ID=${LINEAR_TEAM_ID}|" .env
+              else
+                echo "LINEAR_TEAM_ID=${LINEAR_TEAM_ID}" >> .env
+                echo "Added LINEAR_TEAM_ID to .env"
               fi
             fi
 
@@ -786,12 +808,14 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MEILI_MASTER_KEY: ${{ secrets.MEILI_MASTER_KEY }}
           NGROK_API_KEY: ${{ secrets.NGROK_API_KEY }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          LINEAR_TEAM_ID: ${{ secrets.LINEAR_TEAM_ID }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          envs: IMAGE_TAG,GITHUB_REPOSITORY,GHCR_TOKEN,MEILI_MASTER_KEY,NGROK_API_KEY
+          envs: IMAGE_TAG,GITHUB_REPOSITORY,GHCR_TOKEN,MEILI_MASTER_KEY,NGROK_API_KEY,LINEAR_API_KEY,LINEAR_TEAM_ID
           script: |
             set -e
             cd /opt/syfthub
@@ -817,6 +841,26 @@ jobs:
               else
                 echo "NGROK_API_KEY=${NGROK_API_KEY}" >> .env
                 echo "Added NGROK_API_KEY to .env"
+              fi
+            fi
+
+            # Ensure LINEAR_API_KEY is persisted in .env for docker-compose
+            if [ -n "$LINEAR_API_KEY" ]; then
+              if grep -q "^LINEAR_API_KEY=" .env 2>/dev/null; then
+                sed -i "s|^LINEAR_API_KEY=.*|LINEAR_API_KEY=${LINEAR_API_KEY}|" .env
+              else
+                echo "LINEAR_API_KEY=${LINEAR_API_KEY}" >> .env
+                echo "Added LINEAR_API_KEY to .env"
+              fi
+            fi
+
+            # Ensure LINEAR_TEAM_ID is persisted in .env for docker-compose
+            if [ -n "$LINEAR_TEAM_ID" ]; then
+              if grep -q "^LINEAR_TEAM_ID=" .env 2>/dev/null; then
+                sed -i "s|^LINEAR_TEAM_ID=.*|LINEAR_TEAM_ID=${LINEAR_TEAM_ID}|" .env
+              else
+                echo "LINEAR_TEAM_ID=${LINEAR_TEAM_ID}" >> .env
+                echo "Added LINEAR_TEAM_ID to .env"
               fi
             fi
 
