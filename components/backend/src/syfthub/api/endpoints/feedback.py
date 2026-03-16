@@ -32,6 +32,7 @@ async def _upload_to_linear(
     filename: str, content: bytes, content_type: str
 ) -> Optional[str]:
     """Upload a file to Linear and return the asset URL."""
+    assert settings.linear_api_key is not None
     query = """
     mutation($contentType: String!, $filename: String!, $size: Int!) {
         fileUpload(contentType: $contentType, filename: $filename, size: $size) {
@@ -77,9 +78,12 @@ async def _upload_to_linear(
         headers[h["key"]] = h["value"]
 
     async with httpx.AsyncClient() as client:
-        await client.put(upload_file["uploadUrl"], content=content, headers=headers, timeout=30.0)
+        await client.put(
+            upload_file["uploadUrl"], content=content, headers=headers, timeout=30.0
+        )
 
-    return upload_file["assetUrl"]
+    asset_url: str = upload_file["assetUrl"]
+    return asset_url
 
 
 @router.post("/feedback", response_model=FeedbackResponse)
@@ -101,7 +105,11 @@ async def submit_feedback(
         return FeedbackResponse(
             success=False,
             message="Feedback service is not configured.",
+            ticket_id=None,
         )
+
+    linear_api_key: str = settings.linear_api_key
+    linear_team_id: str = settings.linear_team_id
 
     category_labels = {"bug": "Bug", "feedback": "Feedback", "idea": "Feature Request"}
     label = category_labels.get(category, "Feedback")
@@ -127,7 +135,9 @@ async def submit_feedback(
         try:
             content = await screenshot.read()
             screenshot_asset_url = await _upload_to_linear(
-                screenshot.filename or "screenshot.png", content, screenshot.content_type or "image/png"
+                screenshot.filename or "screenshot.png",
+                content,
+                screenshot.content_type or "image/png",
             )
         except Exception as e:
             logger.warning("Failed to upload screenshot to Linear: %s", e)
@@ -143,7 +153,7 @@ async def submit_feedback(
     """
     variables = {
         "input": {
-            "teamId": settings.linear_team_id,
+            "teamId": linear_team_id,
             "title": title,
             "description": body,
         }
@@ -155,7 +165,7 @@ async def submit_feedback(
                 LINEAR_API_URL,
                 json={"query": create_mutation, "variables": variables},
                 headers={
-                    "Authorization": settings.linear_api_key,
+                    "Authorization": linear_api_key,
                     "Content-Type": "application/json",
                 },
                 timeout=30.0,
@@ -165,19 +175,21 @@ async def submit_feedback(
     except httpx.HTTPError as e:
         logger.error("Linear API request failed: %s", e)
         return FeedbackResponse(
-            success=False, message="Failed to submit feedback. Please try again."
+            success=False,
+            message="Failed to submit feedback. Please try again.",
+            ticket_id=None,
         )
 
     if "errors" in data:
         logger.error("Linear API error: %s", data["errors"])
         return FeedbackResponse(
-            success=False, message="Failed to create feedback ticket."
+            success=False, message="Failed to create feedback ticket.", ticket_id=None
         )
 
     issue_data = data.get("data", {}).get("issueCreate", {})
     if not issue_data.get("success"):
         return FeedbackResponse(
-            success=False, message="Failed to create feedback ticket."
+            success=False, message="Failed to create feedback ticket.", ticket_id=None
         )
 
     issue = issue_data["issue"]
@@ -207,7 +219,7 @@ async def submit_feedback(
                         },
                     },
                     headers={
-                        "Authorization": settings.linear_api_key,
+                        "Authorization": linear_api_key,
                         "Content-Type": "application/json",
                     },
                     timeout=30.0,

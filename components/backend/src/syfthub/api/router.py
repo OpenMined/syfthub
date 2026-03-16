@@ -4,9 +4,9 @@ from fastapi import APIRouter
 
 from syfthub.api.endpoints import (
     accounting,
-    feedback,
     endpoints,
     errors,
+    feedback,
     nats,
     organizations,
     peer,
