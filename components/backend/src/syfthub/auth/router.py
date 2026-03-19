@@ -15,8 +15,6 @@ from syfthub.auth.db_dependencies import (
 )
 from syfthub.auth.security import (
     blacklist_token,
-    create_access_token,
-    create_refresh_token,
 )
 from syfthub.core.config import settings
 from syfthub.database.dependencies import (
@@ -65,30 +63,6 @@ from syfthub.services.otp_service import OTPService
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
-
-
-def _build_auth_response(user: User) -> AuthResponse:
-    """Build an AuthResponse with freshly minted tokens for a user."""
-    access_token = create_access_token(
-        data={"sub": str(user.id), "username": user.username, "role": user.role}
-    )
-    refresh_token = create_refresh_token(
-        data={"sub": str(user.id), "username": user.username}
-    )
-    return AuthResponse(
-        user={
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-            "full_name": user.full_name,
-            "role": user.role,
-            "is_active": user.is_active,
-            "created_at": user.created_at.isoformat(),
-        },
-        access_token=access_token,
-        refresh_token=refresh_token,
-        token_type="bearer",
-    )
 
 
 @router.get("/config", response_model=AuthConfigResponse)
@@ -392,7 +366,7 @@ async def verify_registration_otp(
     if not user.is_email_verified:
         user_repo.set_email_verified(user.id)
 
-    return _build_auth_response(user)
+    return AuthService._build_auth_response(user)
 
 
 @router.post(
