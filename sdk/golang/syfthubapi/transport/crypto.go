@@ -6,8 +6,11 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 
 	"golang.org/x/crypto/hkdf"
 
@@ -28,6 +31,57 @@ const nonceSize = 12 // 96-bit nonce for AES-256-GCM
 // Returns the private key and the raw (32-byte) public key bytes.
 func GenerateX25519Keypair() (*ecdh.PrivateKey, error) {
 	return ecdh.X25519().GenerateKey(rand.Reader)
+}
+
+// loadOrGenerateKey loads an X25519 private key from keyPath, or generates a new
+// one and saves it if the file does not exist. The key file stores the raw 32-byte
+// seed with mode 0600. Uses O_CREATE|O_EXCL for atomic creation to avoid TOCTOU races.
+func loadOrGenerateKey(keyPath string) (*ecdh.PrivateKey, error) {
+	data, err := os.ReadFile(keyPath)
+	if err == nil {
+		// File exists — parse the raw seed.
+		key, parseErr := ecdh.X25519().NewPrivateKey(data)
+		if parseErr != nil {
+			return nil, fmt.Errorf("corrupt key file %s: %w", keyPath, parseErr)
+		}
+		return key, nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("failed to read key file %s: %w", keyPath, err)
+	}
+
+	// File doesn't exist — generate and persist atomically.
+	key, err := GenerateX25519Keypair()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(keyPath), 0700); err != nil {
+		return nil, fmt.Errorf("failed to create key directory: %w", err)
+	}
+
+	// O_EXCL ensures atomic create-if-not-exists. If another process raced us,
+	// we read the key it wrote instead of overwriting it.
+	f, err := os.OpenFile(keyPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if errors.Is(err, os.ErrExist) {
+		// Another process created the file between our ReadFile and OpenFile.
+		// Read the key it wrote.
+		data, err := os.ReadFile(keyPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read key file %s after race: %w", keyPath, err)
+		}
+		return ecdh.X25519().NewPrivateKey(data)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to create key file %s: %w", keyPath, err)
+	}
+	_, err = f.Write(key.Bytes())
+	f.Close()
+	if err != nil {
+		os.Remove(keyPath) // clean up partial write
+		return nil, fmt.Errorf("failed to write key file %s: %w", keyPath, err)
+	}
+	return key, nil
 }
 
 // deriveKey performs X25519 ECDH then HKDF-SHA256 to produce a 32-byte AES key.

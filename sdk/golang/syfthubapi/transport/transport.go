@@ -32,6 +32,11 @@ type Config struct {
 
 	// NATSCredentials are the NATS credentials (for tunnel mode).
 	NATSCredentials *syfthubapi.NATSCredentials
+
+	// KeyFilePath is the path to persist the X25519 private key for NATS encryption.
+	// If set, the key is loaded from this file on startup (or generated and saved if missing).
+	// If empty, a new ephemeral key is generated every time.
+	KeyFilePath string
 }
 
 // Logger interface for transport logging.

@@ -31,7 +31,9 @@ type NATSTransport struct {
 }
 
 // NewNATSTransport creates a new NATS transport.
-// A fresh X25519 keypair is generated immediately at construction time.
+// If cfg.KeyFilePath is set, the X25519 keypair is loaded from (or generated and
+// saved to) that file so the key survives restarts. Otherwise a fresh ephemeral
+// keypair is generated.
 // Call PublicKeyB64() to retrieve the public key, then register it with the hub
 // via APIAuthenticator.RegisterEncryptionPublicKey before starting the transport.
 func NewNATSTransport(cfg *Config) (*NATSTransport, error) {
@@ -49,11 +51,17 @@ func NewNATSTransport(cfg *Config) (*NATSTransport, error) {
 		}
 	}
 
-	privateKey, err := GenerateX25519Keypair()
+	var privateKey *ecdh.PrivateKey
+	var err error
+	if cfg.KeyFilePath != "" {
+		privateKey, err = loadOrGenerateKey(cfg.KeyFilePath)
+	} else {
+		privateKey, err = GenerateX25519Keypair()
+	}
 	if err != nil {
 		return nil, &syfthubapi.ConfigurationError{
 			Field:   "encryption_keypair",
-			Message: fmt.Sprintf("failed to generate X25519 keypair: %v", err),
+			Message: fmt.Sprintf("failed to load or generate X25519 keypair: %v", err),
 		}
 	}
 
