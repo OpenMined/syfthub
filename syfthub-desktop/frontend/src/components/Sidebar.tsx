@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
-import { Search, Settings, FolderOpen, Plus, ShieldCheck, Store } from 'lucide-react';
-import { useAppStore, type EndpointInfo } from '../stores/appStore';
+import { Search, Settings, FolderOpen, Plus, ShieldCheck, Store, Loader2, AlertCircle } from 'lucide-react';
+import { useAppStore, RuntimeState, type EndpointInfo } from '../stores/appStore';
 import {
   Tooltip,
   TooltipContent,
@@ -195,6 +195,59 @@ const typeColors: Record<string, { bg: string; text: string }> = {
   data_source: { bg: 'bg-chart-4/20', text: 'text-chart-4' },
 };
 
+// Derive a human-readable status for an endpoint
+type EndpointIndicator = 'ready' | 'installing' | 'setting-up' | 'initializing' | 'setup-incomplete' | 'disabled';
+
+function renderStatusIcon(indicator: EndpointIndicator) {
+  switch (indicator) {
+    case 'ready':
+      return <span className="w-2 h-2 rounded-full bg-chart-2 block" />;
+    case 'installing':
+    case 'setting-up':
+    case 'initializing':
+      return <Loader2 className="w-3.5 h-3.5 text-chart-3 animate-spin" />;
+    case 'setup-incomplete':
+      return <AlertCircle className="w-3.5 h-3.5 text-chart-3" />;
+    case 'disabled':
+      return <span className="w-2 h-2 rounded-full bg-muted-foreground/50 block" />;
+  }
+}
+
+function getEndpointStatus(endpoint: EndpointInfo): {
+  indicator: EndpointIndicator;
+  tooltip: string;
+} {
+  // Runtime state takes priority — these are active operations
+  if (endpoint.runtimeState === RuntimeState.Installing) {
+    return { indicator: 'installing', tooltip: 'Installing from marketplace...' };
+  }
+  if (endpoint.runtimeState === RuntimeState.SettingUp) {
+    return { indicator: 'setting-up', tooltip: 'Running setup...' };
+  }
+  if (endpoint.runtimeState === RuntimeState.Initializing) {
+    return { indicator: 'initializing', tooltip: 'Loading endpoint...' };
+  }
+
+  const setup = endpoint.setupStatus;
+
+  // Has setup.yaml with incomplete steps
+  if (setup != null && !setup.isComplete) {
+    const pending = setup.pendingSteps?.length ?? 0;
+    return {
+      indicator: 'setup-incomplete',
+      tooltip: `Setup incomplete (${setup.completed}/${setup.totalSteps} steps done, ${pending} pending)`,
+    };
+  }
+
+  // Enabled = ready to use
+  if (endpoint.enabled) {
+    return { indicator: 'ready', tooltip: 'Ready' };
+  }
+
+  // Disabled
+  return { indicator: 'disabled', tooltip: 'Disabled' };
+}
+
 // Endpoint list item - Single row layout for better scannability
 function EndpointItem({
   endpoint,
@@ -206,6 +259,7 @@ function EndpointItem({
   onClick: () => void;
 }) {
   const colors = typeColors[endpoint.type] || { bg: 'bg-secondary/20', text: 'text-muted-foreground' };
+  const status = getEndpointStatus(endpoint);
 
   return (
     <button
@@ -225,7 +279,9 @@ function EndpointItem({
         </span>
 
         {/* Name - primary content */}
-        <span className="text-sm font-medium truncate flex-1 text-foreground">
+        <span className={`text-sm font-medium truncate flex-1 ${
+          status.indicator === 'ready' ? 'text-foreground' : 'text-muted-foreground'
+        }`}>
           {endpoint.name || endpoint.slug}
         </span>
 
@@ -243,12 +299,17 @@ function EndpointItem({
           </Tooltip>
         )}
 
-        {/* Enabled status indicator - last, clear semantic */}
-        <span
-          className={`w-2 h-2 rounded-full flex-shrink-0 ${
-            endpoint.enabled ? 'bg-chart-2' : 'bg-muted-foreground/50'
-          }`}
-        />
+        {/* Status indicator */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="flex-shrink-0">
+              {renderStatusIcon(status.indicator)}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <p>{status.tooltip}</p>
+          </TooltipContent>
+        </Tooltip>
       </div>
     </button>
   );

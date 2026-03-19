@@ -239,7 +239,7 @@ export function ChatView() {
       </div>
 
       {/* Input area */}
-      <div className='bg-card shrink-0 p-4'>
+      <div className='shrink-0 p-4'>
         <div className='mx-auto max-w-4xl px-6'>
           <PromptInput
             isLoading={isStreaming}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,34 +16,41 @@ import (
 	"github.com/openmined/syfthub-desktop-gui/internal/app"
 	syfthub "github.com/openmined/syfthub/sdk/golang/syfthub"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App is the main application struct that bridges Go backend with React frontend.
 // All public methods are exposed to JavaScript via Wails bindings.
 type App struct {
-	ctx          context.Context    // Wails runtime context
-	core         *app.App           // Core application logic
-	config       *app.Config        // Current configuration
-	settings     *Settings          // Persistent user settings
-	state        AppState           // Current app state
-	stateErr     string             // Error message if state is StateError
-	startTime    time.Time          // When the app started running
-	mu           sync.RWMutex       // Protects state, stateErr, startTime, settings, syftClient, username
-	cancel       context.CancelFunc // Cancels the background Run() goroutine
-	runDone      chan struct{}      // Signals when Run() goroutine completes
-	chatCancel   context.CancelFunc // Cancels the in-flight StreamChat goroutine
-	chatStreamID uint64             // Monotonically increasing stream counter
-	chatMu       sync.Mutex         // Protects chatCancel and chatStreamID
-	syftClient   *syfthub.Client    // Hub API client; nil if not configured
-	username     string             // Authenticated user's username (set after login)
+	ctx              context.Context             // Wails runtime context
+	core             *app.App                    // Core application logic
+	config           *app.Config                 // Current configuration
+	settings         *Settings                   // Persistent user settings
+	state            AppState                    // Current app state
+	stateErr         string                      // Error message if state is StateError
+	startTime        time.Time                   // When the app started running
+	mu               sync.RWMutex                // Protects state, stateErr, startTime, settings, syftClient, username, setupStatusCache
+	cancel           context.CancelFunc          // Cancels the background Run() goroutine
+	runDone          chan struct{}               // Signals when Run() goroutine completes
+	chatCancel       context.CancelFunc          // Cancels the in-flight StreamChat goroutine
+	chatStreamID     uint64                      // Monotonically increasing stream counter
+	chatMu           sync.Mutex                  // Protects chatCancel and chatStreamID
+	syftClient       *syfthub.Client             // Hub API client; nil if not configured
+	username         string                      // Authenticated user's username (set after login)
+	setup            setupState                  // Tracks the currently running setup flow
+	runtimeStates    map[string]string           // Transient lifecycle states per endpoint slug
+	runtimeMu        sync.RWMutex                // Protects runtimeStates; separate from mu so GetEndpoints() doesn't hold mu during the endpoint loop
+	setupStatusCache map[string]*SetupStatusInfo // Cached per-endpoint setup status; protected by mu
 }
 
 // NewApp creates a new App application struct.
 func NewApp() *App {
 	return &App{
-		state:   StateIdle,
-		runDone: make(chan struct{}),
+		state:            StateIdle,
+		runDone:          make(chan struct{}),
+		runtimeStates:    make(map[string]string),
+		setupStatusCache: make(map[string]*SetupStatusInfo),
 	}
 }
 
@@ -178,24 +186,74 @@ func (a *App) GetStatus() StatusInfo {
 	return info
 }
 
+// setRuntimeState sets a transient lifecycle state for an endpoint.
+func (a *App) setRuntimeState(slug, state string) {
+	a.runtimeMu.Lock()
+	a.runtimeStates[slug] = state
+	a.runtimeMu.Unlock()
+}
+
+// clearRuntimeState removes the transient lifecycle state for an endpoint.
+func (a *App) clearRuntimeState(slug string) {
+	a.runtimeMu.Lock()
+	delete(a.runtimeStates, slug)
+	a.runtimeMu.Unlock()
+}
+
+// refreshSetupStatusCache rebuilds the in-memory setup-status cache from disk.
+// Must be called without holding any locks; acquires mu.Lock() to swap the cache.
+func (a *App) refreshSetupStatusCache() {
+	a.mu.RLock()
+	core := a.core
+	endpointsPath := ""
+	if a.config != nil {
+		endpointsPath = a.config.EndpointsPath
+	}
+	a.mu.RUnlock()
+
+	if core == nil || endpointsPath == "" {
+		return
+	}
+
+	endpoints := core.GetEndpoints()
+	newCache := make(map[string]*SetupStatusInfo, len(endpoints))
+	for _, ep := range endpoints {
+		epDir := filepath.Join(endpointsPath, ep.Slug)
+		if status, err := nodeops.GetSetupStatus(epDir); err == nil && status != nil {
+			newCache[ep.Slug] = toSetupStatusInfo(status)
+		}
+	}
+
+	a.mu.Lock()
+	a.setupStatusCache = newCache
+	a.mu.Unlock()
+}
+
+// notifyEndpointsChanged refreshes the setup-status cache then emits the
+// current endpoint list to the frontend.
+func (a *App) notifyEndpointsChanged() {
+	a.refreshSetupStatusCache()
+	runtime.EventsEmit(a.ctx, "app:endpoints-changed", a.GetEndpoints())
+}
+
 // GetEndpoints returns the list of loaded endpoints.
 func (a *App) GetEndpoints() []EndpointInfo {
+	// Snapshot all shared state under lock (no disk I/O here).
 	a.mu.RLock()
-	defer a.mu.RUnlock()
+	core := a.core
+	setupStatusCache := a.setupStatusCache
+	a.mu.RUnlock()
 
-	runtime.LogInfo(a.ctx, "GetEndpoints called")
-
-	if a.core == nil {
-		runtime.LogWarning(a.ctx, "GetEndpoints: core is nil, returning empty")
+	if core == nil {
 		return []EndpointInfo{}
 	}
 
-	endpoints := a.core.GetEndpoints()
-	runtime.LogInfo(a.ctx, fmt.Sprintf("GetEndpoints: returning %d endpoints", len(endpoints)))
-	result := make([]EndpointInfo, 0, len(endpoints))
+	endpoints := core.GetEndpoints()
 
+	result := make([]EndpointInfo, 0, len(endpoints))
+	a.runtimeMu.RLock()
 	for _, ep := range endpoints {
-		result = append(result, EndpointInfo{
+		info := EndpointInfo{
 			Slug:        ep.Slug,
 			Name:        ep.Name,
 			Description: ep.Description,
@@ -203,8 +261,21 @@ func (a *App) GetEndpoints() []EndpointInfo {
 			Enabled:     ep.Enabled,
 			Version:     ep.Version,
 			HasPolicies: ep.HasPolicies(),
-		})
+		}
+
+		// Overlay transient runtime state.
+		if rs, ok := a.runtimeStates[ep.Slug]; ok {
+			info.RuntimeState = rs
+		}
+
+		// Setup status comes from the cache — no per-call disk I/O.
+		if ss, ok := setupStatusCache[ep.Slug]; ok {
+			info.SetupStatus = ss
+		}
+
+		result = append(result, info)
 	}
+	a.runtimeMu.RUnlock()
 
 	return result
 }
@@ -280,7 +351,7 @@ func (a *App) Start() error {
 	// Wire file watcher events to frontend
 	core.SetOnEndpointsChanged(func() {
 		runtime.LogInfo(a.ctx, "File watcher detected changes, notifying frontend")
-		runtime.EventsEmit(a.ctx, "app:endpoints-changed", a.GetEndpoints())
+		a.notifyEndpointsChanged()
 	})
 
 	// Wire new log events to frontend
@@ -385,7 +456,7 @@ func (a *App) ReloadEndpoints() error {
 	}
 
 	// Emit event with updated endpoints
-	runtime.EventsEmit(a.ctx, "app:endpoints-changed", a.GetEndpoints())
+	a.notifyEndpointsChanged()
 
 	return nil
 }
@@ -418,7 +489,7 @@ func (a *App) setErrorState(errMsg string) {
 // getMode returns the connection mode string.
 func (a *App) getMode() string {
 	spaceURL := os.Getenv("SPACE_URL")
-	if len(spaceURL) > 10 && spaceURL[:10] == "tunneling:" {
+	if strings.HasPrefix(spaceURL, "tunneling:") {
 		return "NATS Tunnel"
 	}
 	return "HTTP"
@@ -824,6 +895,7 @@ func (a *App) runSDKChatStream(ctx context.Context, client *syfthub.Client, user
 
 	eventCh, errCh := client.Chat().Stream(ctx, chatReq)
 
+	sentFinalEvent := false
 	for eventCh != nil {
 		select {
 		case <-ctx.Done():
@@ -836,9 +908,21 @@ func (a *App) runSDKChatStream(ctx context.Context, client *syfthub.Client, user
 			}
 		case event, ok := <-eventCh:
 			if !ok {
-				return nil // stream complete
+				// Stream closed — if no done/error was received and the context is still
+				// live, the frontend would be stuck spinning. Emit a synthetic error.
+				if !sentFinalEvent && ctx.Err() == nil {
+					runtime.EventsEmit(a.ctx, "chat:stream-event", ChatStreamEvent{
+						Type:    "error",
+						Message: "Response stream ended unexpectedly. Please try again.",
+					})
+				}
+				return nil
 			}
 			a.dispatchSDKEvent(event, request)
+			switch event.(type) {
+			case *syfthub.DoneEvent, *syfthub.ErrorEvent:
+				sentFinalEvent = true
+			}
 		}
 	}
 

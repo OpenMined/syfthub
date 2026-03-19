@@ -21,15 +21,50 @@ type StatusInfo struct {
 	Uptime       int64    `json:"uptime,omitempty"` // Seconds since start
 }
 
+// RuntimeState values for transient endpoint lifecycle states.
+const (
+	RuntimeStateInstalling   = "installing"
+	RuntimeStateSettingUp    = "setting_up"
+	RuntimeStateInitializing = "initializing"
+)
+
 // EndpointInfo represents an endpoint for display in the UI.
 type EndpointInfo struct {
-	Slug        string `json:"slug"`
+	Slug         string           `json:"slug"`
+	Name         string           `json:"name"`
+	Description  string           `json:"description"`
+	Type         string           `json:"type"` // "model" or "data_source"
+	Enabled      bool             `json:"enabled"`
+	Version      string           `json:"version,omitempty"`
+	HasPolicies  bool             `json:"hasPolicies"`
+	SetupStatus  *SetupStatusInfo `json:"setupStatus,omitempty"`
+	RuntimeState string           `json:"runtimeState,omitempty"`
+}
+
+// SetupStatusInfo represents the computed setup status for display.
+type SetupStatusInfo struct {
+	IsComplete   bool     `json:"isComplete"`
+	TotalSteps   int      `json:"totalSteps"`
+	CompletedN   int      `json:"completed"`
+	PendingSteps []string `json:"pendingSteps"`
+	ExpiredSteps []string `json:"expiredSteps"`
+}
+
+// SetupStepInfo represents a single setup step for display.
+type SetupStepInfo struct {
+	ID          string `json:"id"`
 	Name        string `json:"name"`
-	Description string `json:"description"`
-	Type        string `json:"type"` // "model" or "data_source"
-	Enabled     bool   `json:"enabled"`
-	Version     string `json:"version,omitempty"`
-	HasPolicies bool   `json:"hasPolicies"`
+	Description string `json:"description,omitempty"`
+	Type        string `json:"type"`
+	Required    bool   `json:"required"`
+	Status      string `json:"status"` // "pending", "completed", "failed", "expired"
+	ExpiresAt   string `json:"expiresAt,omitempty"`
+}
+
+// SetupSpecInfo represents the parsed setup spec for display.
+type SetupSpecInfo struct {
+	Version string          `json:"version"`
+	Steps   []SetupStepInfo `json:"steps"`
 }
 
 // ConfigInfo represents the application configuration.
@@ -216,31 +251,14 @@ type LogStats struct {
 // Marketplace Types
 // ============================================================================
 
-// PackageConfigField describes a configuration field that the user must provide
-// during marketplace package installation (e.g. an API key or model name).
-type PackageConfigField struct {
-	Key         string `json:"key"`
-	Label       string `json:"label"`
-	Description string `json:"description,omitempty"`
-	Required    bool   `json:"required"`
-	Secret      bool   `json:"secret"`
-	Default     string `json:"default,omitempty"`
-}
-
 // MarketplacePackage represents an installable endpoint package from the marketplace.
 type MarketplacePackage struct {
-	Slug        string               `json:"slug"`
-	Name        string               `json:"name"`
-	Description string               `json:"description"`
-	Type        string               `json:"type"`
-	Author      string               `json:"author,omitempty"`
-	Version     string               `json:"version"`
-	DownloadURL string               `json:"downloadUrl"`
-	Tags        []string             `json:"tags,omitempty"`
-	Config      []PackageConfigField `json:"config,omitempty"`
-}
-
-// MarketplaceManifest is the top-level structure of the static marketplace JSON file.
-type MarketplaceManifest struct {
-	Packages []MarketplacePackage `json:"packages"`
+	Slug        string   `json:"slug"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Type        string   `json:"type"`
+	Author      string   `json:"author,omitempty"`
+	Version     string   `json:"version"`
+	DownloadURL string   `json:"downloadUrl"`
+	Tags        []string `json:"tags,omitempty"`
 }

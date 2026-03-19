@@ -12,6 +12,7 @@ import (
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/filemode"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/heartbeat"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/setupflow"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/transport"
 
 	"github.com/openmined/syfthub-desktop-gui/internal/logs"
@@ -279,6 +280,40 @@ func (a *App) Run(ctx context.Context) error {
 		"watch_enabled", a.config.WatchEnabled,
 	)
 
+	// Start lifecycle manager for automatic token refresh
+	if a.config.EndpointsPath != "" {
+		lifecycleEngine := setupflow.NewEngine()
+		lifecycleMgr := setupflow.NewLifecycleManager(lifecycleEngine)
+
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					results := lifecycleMgr.CheckAndRefresh(a.config.EndpointsPath)
+					anySuccess := false
+					for _, r := range results {
+						if r.Success {
+							anySuccess = true
+							a.logger.Info("refreshed token", "slug", r.Slug, "step", r.StepID)
+						} else if r.Error != nil {
+							a.logger.Warn("token refresh failed", "slug", r.Slug, "step", r.StepID, "error", r.Error)
+						}
+					}
+					// Reload endpoints once if any token was refreshed
+					if anySuccess && a.provider != nil {
+						if endpoints, err := a.provider.LoadEndpoints(); err == nil {
+							a.api.Registry().ReplaceFileBased(endpoints)
+						}
+					}
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+
 	return a.api.Run(ctx)
 }
 
@@ -341,10 +376,18 @@ func (a *App) setupNATSTransport(ctx context.Context, cfg *syfthubapi.Config) (s
 		"subject", natsCreds.Subject,
 	)
 
+	keyFilePath := ""
+	if configDir, err := os.UserConfigDir(); err == nil {
+		keyFilePath = filepath.Join(configDir, "syfthub", "tunnel_key")
+	} else {
+		a.logger.Warn("could not determine config dir for tunnel key, using ephemeral key", "error", err)
+	}
+
 	return transport.NewNATSTransport(&transport.Config{
 		SpaceURL:        cfg.SpaceURL,
 		NATSCredentials: natsCreds,
 		Logger:          a.logger,
+		KeyFilePath:     keyFilePath,
 	})
 }
 

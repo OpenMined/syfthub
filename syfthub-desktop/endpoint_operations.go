@@ -19,20 +19,22 @@ import (
 
 // EndpointDetail provides full endpoint information for the detail view.
 type EndpointDetail struct {
-	Slug            string   `json:"slug"`
-	Name            string   `json:"name"`
-	Description     string   `json:"description"`
-	Type            string   `json:"type"`
-	Version         string   `json:"version"`
-	Enabled         bool     `json:"enabled"`
-	HasReadme       bool     `json:"hasReadme"`
-	HasPolicies     bool     `json:"hasPolicies"`
-	DepsCount       int      `json:"depsCount"`
-	EnvCount        int      `json:"envCount"`
-	RunnerCode      string   `json:"runnerCode"`
-	ReadmeContent   string   `json:"readmeContent"`
-	Policies        []Policy `json:"policies"`
-	PoliciesVersion string   `json:"policiesVersion"`
+	Slug            string           `json:"slug"`
+	Name            string           `json:"name"`
+	Description     string           `json:"description"`
+	Type            string           `json:"type"`
+	Version         string           `json:"version"`
+	Enabled         bool             `json:"enabled"`
+	HasReadme       bool             `json:"hasReadme"`
+	HasPolicies     bool             `json:"hasPolicies"`
+	DepsCount       int              `json:"depsCount"`
+	EnvCount        int              `json:"envCount"`
+	RunnerCode      string           `json:"runnerCode"`
+	ReadmeContent   string           `json:"readmeContent"`
+	Policies        []Policy         `json:"policies"`
+	PoliciesVersion string           `json:"policiesVersion"`
+	SetupStatus     *SetupStatusInfo `json:"setupStatus,omitempty"`
+	SetupSpec       *SetupSpecInfo   `json:"setupSpec,omitempty"`
 }
 
 // EnvVar represents an environment variable.
@@ -70,13 +72,6 @@ type OverviewData struct {
 }
 
 // --- nodeops type conversion helpers ---
-
-func fromNodeopsFrontmatter(fm *nodeops.ReadmeFrontmatter) ReadmeFrontmatter {
-	return ReadmeFrontmatter{
-		Slug: fm.Slug, Name: fm.Name, Description: fm.Description,
-		Type: fm.Type, Version: fm.Version, Enabled: fm.Enabled,
-	}
-}
 
 func toNodeopsPolicy(p Policy) nodeops.Policy {
 	return nodeops.Policy{Name: p.Name, Type: p.Type, Config: p.Config}
@@ -147,14 +142,12 @@ func (a *App) GetEndpointDetail(slug string) (*EndpointDetail, error) {
 
 	// Parse README.md frontmatter for metadata (single source of truth)
 	readmePath := filepath.Join(endpointDir, "README.md")
-	if _, err := os.Stat(readmePath); err == nil {
+	if content, err := os.ReadFile(readmePath); err == nil {
 		detail.HasReadme = true
-		if content, err := os.ReadFile(readmePath); err == nil {
-			detail.ReadmeContent = string(content)
-		}
+		detail.ReadmeContent = string(content)
 
-		// Parse frontmatter for metadata
-		if frontmatter, _, err := a.parseReadmeFrontmatter(readmePath); err == nil {
+		// Parse frontmatter from already-loaded content (avoids re-opening the file).
+		if frontmatter, _, err := a.parseReadmeFrontmatterBytes(content); err == nil {
 			if frontmatter.Name != "" {
 				detail.Name = frontmatter.Name
 			}
@@ -204,31 +197,28 @@ func (a *App) GetEndpointDetail(slug string) (*EndpointDetail, error) {
 		detail.DepsCount = len(deps)
 	}
 
+	// Load setup spec and status (read state once, share across both conversions)
+	setupPath := filepath.Join(endpointDir, "setup.yaml")
+	if spec, err := nodeops.ParseSetupYaml(setupPath); err == nil && spec != nil {
+		state, _ := nodeops.ReadSetupState(endpointDir)
+		detail.SetupSpec = toSetupSpecInfoFromState(spec, state)
+		detail.SetupStatus = toSetupStatusInfo(nodeops.ComputeSetupStatus(spec, state))
+	}
+
 	runtime.LogInfo(a.ctx, fmt.Sprintf("GetEndpointDetail: returning detail for %s (name=%s, type=%s, enabled=%v, hasRunner=%v, hasReadme=%v)",
 		slug, detail.Name, detail.Type, detail.Enabled, len(detail.RunnerCode) > 0, detail.HasReadme))
 
 	return detail, nil
 }
 
-// ReadmeFrontmatter represents the YAML frontmatter in README.md
-type ReadmeFrontmatter struct {
-	Slug        string `yaml:"slug"`
-	Name        string `yaml:"name"`
-	Description string `yaml:"description"`
-	Type        string `yaml:"type"`
-	Version     string `yaml:"version"`
-	Enabled     *bool  `yaml:"enabled"`
+// parseReadmeFrontmatter parses YAML frontmatter from README.md.
+// Returns (frontmatter, body, error) where body is the markdown content after frontmatter.
+func (a *App) parseReadmeFrontmatter(path string) (*nodeops.ReadmeFrontmatter, string, error) {
+	return nodeops.ParseReadmeFrontmatter(path)
 }
 
-// parseReadmeFrontmatter parses YAML frontmatter from README.md into EndpointDetail.
-// Returns (frontmatter, body, error) where body is the markdown content after frontmatter.
-func (a *App) parseReadmeFrontmatter(path string) (*ReadmeFrontmatter, string, error) {
-	fm, body, err := nodeops.ParseReadmeFrontmatter(path)
-	if err != nil {
-		return nil, "", err
-	}
-	desktopFM := fromNodeopsFrontmatter(fm)
-	return &desktopFM, body, nil
+func (a *App) parseReadmeFrontmatterBytes(data []byte) (*nodeops.ReadmeFrontmatter, string, error) {
+	return nodeops.ParseReadmeFrontmatterBytes(data)
 }
 
 // updateReadmeFrontmatter updates specific fields in the README.md frontmatter while preserving the body.

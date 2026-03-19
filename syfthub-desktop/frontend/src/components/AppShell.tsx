@@ -2,6 +2,7 @@ import { useEffect, ReactNode } from 'react';
 import { useAppStore } from '../stores/appStore';
 import { CreateEndpointDialog } from './CreateEndpointDialog';
 import { DeleteEndpointDialog } from './DeleteEndpointDialog';
+import { SetupFlowDialog } from './SetupFlowDialog';
 import { ChatView } from './ChatView';
 import { MarketplaceView } from './MarketplaceView';
 import { WindowMinimise, WindowToggleMaximise, Quit } from '../../wailsjs/runtime/runtime';
@@ -115,6 +116,7 @@ export function AppShell({ sidebar, children }: AppShellProps) {
       {/* Dialogs */}
       <CreateEndpointDialog />
       <DeleteEndpointDialog />
+      <SetupFlowDialog />
     </div>
   );
 }

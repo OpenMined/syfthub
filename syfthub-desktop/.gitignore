@@ -30,7 +30,6 @@ coverage.out
 htmlcov/
 *.egg-info/
 dist/
-build/
 
 # Editor and IDE files
 *.swp

@@ -52,7 +52,7 @@ func TestSlugifyFilename(t *testing.T) {
 		{"simple name", "rate limit", "rate-limit.yaml"},
 		{"spaces to hyphens", "My Rate Limit Policy", "my-rate-limit-policy.yaml"},
 		{"special chars removed", "Policy@#$Test", "policytest.yaml"},
-		{"empty becomes default", "", "new-policy.yaml"},
+		{"empty becomes default", "", "policy.yaml"},
 		{"numbers preserved", "policy123", "policy123.yaml"},
 	}
 
@@ -114,7 +114,7 @@ func TestGeneratePolicyYAML(t *testing.T) {
 		{
 			name:         "BundleSubscriptionPolicy",
 			req:          NewPolicyRequest{Name: "pro-plan", Type: "BundleSubscriptionPolicy"},
-			wantContains: []string{"type: BundleSubscriptionPolicy", "name: pro-plan", "plan_name:", "price:", "currency:", "billing_cycle:", "invoice_url:"},
+			wantContains: []string{"type: bundle_subscription", "name: pro-plan", "plan_name:", "price:", "currency:", "billing_cycle:", "invoice_url:"},
 		},
 		{
 			name: "AllOfPolicy with children",
@@ -198,8 +198,8 @@ func TestGetRunnerTemplate(t *testing.T) {
 
 	// Test data_source template
 	dataSourceTemplate := getRunnerTemplate("data_source")
-	if !strings.Contains(dataSourceTemplate, "def query(request") {
-		t.Error("data_source template should contain query function")
+	if !strings.Contains(dataSourceTemplate, "def handler(query") {
+		t.Error("data_source template should contain handler function")
 	}
 	if !strings.Contains(dataSourceTemplate, "Data Source") {
 		t.Error("data_source template should mention Data Source")

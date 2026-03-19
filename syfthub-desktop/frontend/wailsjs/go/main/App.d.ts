@@ -6,6 +6,8 @@ export function AddDependency(arg1:string,arg2:string,arg3:string):Promise<void>
 
 export function BrowseForFolder(arg1:string):Promise<string>;
 
+export function CancelSetup():Promise<void>;
+
 export function CheckEndpointExists(arg1:string):Promise<string|boolean>;
 
 export function CreateEndpoint(arg1:main.CreateEndpointRequest):Promise<string>;
@@ -64,6 +66,10 @@ export function GetSettings():Promise<main.Settings>;
 
 export function GetSettingsDir():Promise<string>;
 
+export function GetSetupSpec(arg1:string):Promise<main.SetupSpecInfo>;
+
+export function GetSetupStatus(arg1:string):Promise<main.SetupStatusInfo>;
+
 export function GetStatus():Promise<main.StatusInfo>;
 
 export function GetUserAggregators():Promise<Array<main.UserAggregator>>;
@@ -74,7 +80,7 @@ export function Greet(arg1:string):Promise<string>;
 
 export function HasSettings():Promise<boolean>;
 
-export function InstallMarketplacePackage(arg1:string,arg2:string,arg3:Array<main.EnvVar>):Promise<void>;
+export function InstallMarketplacePackage(arg1:string,arg2:string):Promise<void>;
 
 export function ListPolicyFiles(arg1:string):Promise<Array<main.PolicyFileInfo>>;
 
@@ -85,6 +91,14 @@ export function OpenEndpointFolder(arg1:string):Promise<void>;
 export function OpenEndpointsFolder():Promise<void>;
 
 export function ReloadEndpoints():Promise<void>;
+
+export function RespondToSetupConfirm(arg1:boolean):Promise<void>;
+
+export function RespondToSetupPrompt(arg1:string):Promise<void>;
+
+export function RespondToSetupSelect(arg1:string):Promise<void>;
+
+export function RunEndpointSetup(arg1:string,arg2:boolean):Promise<void>;
 
 export function SavePoliciesYaml(arg1:string,arg2:string):Promise<void>;
 

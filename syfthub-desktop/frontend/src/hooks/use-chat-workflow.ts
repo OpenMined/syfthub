@@ -314,7 +314,11 @@ export function useChatWorkflow({
           setMessages((prev) =>
             prev.map((msg) =>
               msg.id === id && msg.role === 'assistant'
-                ? { ...msg, isStreaming: false }
+                ? {
+                    ...msg,
+                    isStreaming: false,
+                    content: msg.content || `Something went wrong: ${event.message}`,
+                  }
                 : msg
             )
           );

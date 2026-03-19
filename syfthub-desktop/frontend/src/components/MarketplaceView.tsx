@@ -9,9 +9,8 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { useAppStore, type MarketplacePackage, type PackageConfigField } from '@/stores/appStore';
+import { useAppStore, type MarketplacePackage } from '@/stores/appStore';
 
 function PackageCard({
   pkg,
@@ -86,36 +85,6 @@ function PackageCard({
   );
 }
 
-function ConfigField({
-  field,
-  value,
-  onChange,
-}: {
-  field: PackageConfigField;
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={`config-${field.key}`} className="text-xs">
-        {field.label}
-        {field.required && <span className="text-destructive ml-1">*</span>}
-      </Label>
-      {field.description && (
-        <p className="text-[10px] text-muted-foreground">{field.description}</p>
-      )}
-      <Input
-        id={`config-${field.key}`}
-        type={field.secret ? 'password' : 'text'}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={field.default || `Enter ${field.label.toLowerCase()}`}
-        className="h-8 text-xs"
-      />
-    </div>
-  );
-}
-
 export function MarketplaceView() {
   const {
     endpoints,
@@ -129,7 +98,6 @@ export function MarketplaceView() {
   } = useAppStore();
 
   const [selectedPackage, setSelectedPackage] = useState<MarketplacePackage | null>(null);
-  const [configValues, setConfigValues] = useState<Record<string, string>>({});
   const [installError, setInstallError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -151,35 +119,14 @@ export function MarketplaceView() {
   const handleOpenInstall = (pkg: MarketplacePackage) => {
     setSelectedPackage(pkg);
     setInstallError(null);
-    // Initialize config values with defaults
-    const defaults: Record<string, string> = {};
-    if (pkg.config) {
-      for (const field of pkg.config) {
-        defaults[field.key] = field.default || '';
-      }
-    }
-    setConfigValues(defaults);
   };
 
   const handleInstall = async () => {
     if (!selectedPackage) return;
 
-    // Validate required fields
-    if (selectedPackage.config) {
-      for (const field of selectedPackage.config) {
-        if (field.required && !configValues[field.key]?.trim()) {
-          setInstallError(`"${field.label}" is required`);
-          return;
-        }
-      }
-    }
-
     setInstallError(null);
     try {
-      const cvArray = Object.entries(configValues)
-        .filter(([, value]) => value.trim() !== '')
-        .map(([key, value]) => ({ key, value }));
-      await installMarketplacePackage(selectedPackage.slug, selectedPackage.downloadUrl, cvArray);
+      await installMarketplacePackage(selectedPackage.slug, selectedPackage.downloadUrl);
       setSelectedPackage(null);
     } catch (err) {
       setInstallError(err instanceof Error ? err.message : String(err));
@@ -262,32 +209,15 @@ export function MarketplaceView() {
 
       {/* Install Dialog */}
       <Dialog open={!!selectedPackage} onOpenChange={(open) => !open && setSelectedPackage(null)}>
-        <DialogContent className="sm:max-w-[450px]">
+        <DialogContent className="sm:max-w-[400px]">
           {selectedPackage && (
             <>
               <DialogHeader>
                 <DialogTitle className="text-base">Install {selectedPackage.name}</DialogTitle>
                 <DialogDescription className="text-xs">
-                  {selectedPackage.config && selectedPackage.config.length > 0
-                    ? 'Configure the required settings to install this package.'
-                    : 'This package requires no additional configuration.'}
+                  This will download and install the package. Setup will run automatically after installation.
                 </DialogDescription>
               </DialogHeader>
-
-              {selectedPackage.config && selectedPackage.config.length > 0 && (
-                <div className="space-y-3 py-2">
-                  {selectedPackage.config.map((field) => (
-                    <ConfigField
-                      key={field.key}
-                      field={field}
-                      value={configValues[field.key] || ''}
-                      onChange={(value) =>
-                        setConfigValues((prev) => ({ ...prev, [field.key]: value }))
-                      }
-                    />
-                  ))}
-                </div>
-              )}
 
               {installError && (
                 <div className="p-2.5 bg-destructive/10 border border-destructive/20 rounded-md text-destructive text-xs">

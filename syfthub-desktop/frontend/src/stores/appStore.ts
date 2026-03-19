@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
+import { EventsOff, EventsOn } from '../../wailsjs/runtime/runtime';
+import { parseFrontmatter } from '../lib/markdown';
 import { main } from '../../wailsjs/go/models';
 import {
   GetStatus,
@@ -27,6 +28,11 @@ import {
   GetUserAggregators,
   GetMarketplacePackages,
   InstallMarketplacePackage,
+  RunEndpointSetup,
+  RespondToSetupPrompt,
+  RespondToSetupSelect,
+  RespondToSetupConfirm,
+  CancelSetup,
 } from '../../wailsjs/go/main/App';
 
 // Re-export types from models
@@ -41,30 +47,63 @@ export type LogStats = main.LogStats;
 export type CreateEndpointRequest = main.CreateEndpointRequest;
 export type ChatRequest = main.ChatRequest;
 export type MarketplacePackage = main.MarketplacePackage;
-export type PackageConfigField = main.PackageConfigField;
+export type SetupStatusInfo = main.SetupStatusInfo;
+export type SetupSpecInfo = main.SetupSpecInfo;
+export type SetupStepInfo = main.SetupStepInfo;
 
-// Utility to parse YAML frontmatter from markdown content
-function parseFrontmatter(content: string): { frontmatter: string; body: string } {
-  const trimmed = content.trimStart();
+// TS-only UI label set by the setupflow:complete listener. Not a Go wire value.
+export const SETUP_COMPLETE_STATUS = 'Setup complete' as const;
 
-  // Check if content starts with frontmatter delimiter
-  if (!trimmed.startsWith('---')) {
-    return { frontmatter: '', body: content };
-  }
+// Wire values for transient endpoint lifecycle states (must match Go RuntimeState* constants in types.go).
+export const RuntimeState = {
+  Installing: 'installing',
+  SettingUp: 'setting_up',
+  Initializing: 'initializing',
+} as const;
+export type RuntimeStateValue = typeof RuntimeState[keyof typeof RuntimeState];
 
-  // Find the closing delimiter
-  const endIndex = trimmed.indexOf('---', 3);
-  if (endIndex === -1) {
-    return { frontmatter: '', body: content };
-  }
-
-  // Extract frontmatter (including delimiters) and body
-  const frontmatterEnd = endIndex + 3;
-  const frontmatter = trimmed.slice(0, frontmatterEnd);
-  const body = trimmed.slice(frontmatterEnd).replace(/^\n+/, ''); // Remove leading newlines from body
-
-  return { frontmatter, body };
+export interface SetupFlowState {
+  running: boolean;
+  slug: string | null;
+  status: string | null;
+  error: string | null;
+  prompt: SetupPromptEvent | null;
+  select: SetupSelectEvent | null;
+  confirm: SetupConfirmEvent | null;
 }
+
+const SETUP_FLOW_CLEARED: SetupFlowState = {
+  running: false,
+  slug: null,
+  status: null,
+  error: null,
+  prompt: null,
+  select: null,
+  confirm: null,
+};
+
+// Setup flow event payloads (match Go structs in setup_io.go)
+export interface SetupPromptEvent {
+  message: string;
+  secret: boolean;
+  default?: string;
+  placeholder?: string;
+}
+
+export interface SetupSelectOption {
+  value: string;
+  label: string;
+}
+
+export interface SetupSelectEvent {
+  message: string;
+  options: SetupSelectOption[];
+}
+
+export interface SetupConfirmEvent {
+  message: string;
+}
+
 
 interface AppState {
   // Core data
@@ -121,6 +160,9 @@ interface AppState {
   marketplaceLoading: boolean;
   marketplaceError: string | null;
   installingPackageSlug: string | null;
+
+  // Setup flow state
+  setupFlow: SetupFlowState;
 
   // Actions - Core
   initialize: () => Promise<void>; // Initial app load
@@ -189,8 +231,16 @@ interface AppState {
 
   // Actions - Marketplace
   fetchMarketplacePackages: () => Promise<void>;
-  installMarketplacePackage: (slug: string, downloadUrl: string, configValues: Array<{key: string, value: string}>) => Promise<void>;
+  installMarketplacePackage: (slug: string, downloadUrl: string) => Promise<void>;
   uninstallMarketplacePackage: (slug: string) => Promise<void>;
+
+  // Actions - Setup flow
+  runSetup: (slug: string, force?: boolean) => Promise<void>;
+  respondToSetupPrompt: (value: string) => Promise<void>;
+  respondToSetupSelect: (value: string) => Promise<void>;
+  respondToSetupConfirm: (confirmed: boolean) => Promise<void>;
+  cancelSetup: () => Promise<void>;
+  clearSetupFlow: () => void;
 }
 
 const initialStatus: StatusInfo = {
@@ -199,6 +249,8 @@ const initialStatus: StatusInfo = {
   errorMessage: undefined,
   uptime: undefined,
 };
+
+let logStatsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 export const useAppStore = create<AppState>((set, get) => ({
   // Initial state
@@ -249,6 +301,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   marketplaceLoading: false,
   marketplaceError: null,
   installingPackageSlug: null,
+
+  // Setup flow initial state
+  setupFlow: { ...SETUP_FLOW_CLEARED },
 
   // Core actions
   initialize: async () => {
@@ -305,36 +360,86 @@ export const useAppStore = create<AppState>((set, get) => ({
         get().refreshAggregatorURL(),
       ]);
 
-      // Listen for file watcher events (auto-refresh when files change)
-      EventsOn('app:endpoints-changed', (incomingEndpoints: EndpointInfo[]) => {
-        const { endpoints: currentEndpoints, lastOptimisticAddTime } = get();
-        const gracePeriod = 3000; // 3 seconds
-        const inGracePeriod = lastOptimisticAddTime && (Date.now() - lastOptimisticAddTime) < gracePeriod;
+      // Deregister any previous listeners before re-registering so multiple
+      // initialize() calls (e.g. reconnect, re-login) don't stack handlers.
+      EventsOff(
+        'app:endpoints-changed',
+        'app:new-log',
+        'setupflow:started',
+        'setupflow:prompt',
+        'setupflow:select',
+        'setupflow:confirm',
+        'setupflow:status',
+        'setupflow:error',
+        'setupflow:complete',
+        'setupflow:failed',
+      );
 
-        // During grace period, reject any update that would reduce our endpoint count
-        // This protects against file watcher intermediate states during endpoint creation
-        if (inGracePeriod) {
-          if (!incomingEndpoints || incomingEndpoints.length < currentEndpoints.length) {
-            return; // Reject - would lose endpoints
+      {
+        // Listen for file watcher events (auto-refresh when files change)
+        EventsOn('app:endpoints-changed', (incomingEndpoints: EndpointInfo[]) => {
+          const { endpoints: currentEndpoints, lastOptimisticAddTime } = get();
+          const gracePeriod = 3000; // 3 seconds
+          const inGracePeriod = lastOptimisticAddTime && (Date.now() - lastOptimisticAddTime) < gracePeriod;
+
+          // During grace period, reject any update that would reduce our endpoint count
+          // This protects against file watcher intermediate states during endpoint creation
+          if (inGracePeriod) {
+            if (!incomingEndpoints || incomingEndpoints.length < currentEndpoints.length) {
+              return; // Reject - would lose endpoints
+            }
+            // Accept but keep grace period active (don't clear lastOptimisticAddTime)
+            set({ endpoints: incomingEndpoints });
+            return;
           }
-          // Accept but keep grace period active (don't clear lastOptimisticAddTime)
-          set({ endpoints: incomingEndpoints });
-          return;
-        }
 
-        set({ endpoints: incomingEndpoints || [] });
-      });
+          set({ endpoints: incomingEndpoints || [] });
+        });
 
-      // Listen for new log events (real-time log updates)
-      EventsOn('app:new-log', (entry: RequestLogEntry) => {
-        const { selectedEndpointSlug, logs } = get();
-        // Only add to logs if viewing the same endpoint
-        if (entry.endpointSlug === selectedEndpointSlug) {
-          set({ logs: [entry, ...logs] });
-          // Also refresh stats
-          get().fetchLogStats();
-        }
-      });
+        // Listen for setup flow events
+        // The Go backend emits setupflow:started synchronously before the goroutine,
+        // so it arrives before any step events.
+        EventsOn('setupflow:started', (slug: string) => {
+          set({ setupFlow: { ...SETUP_FLOW_CLEARED, running: true, slug, status: 'Starting setup...' } });
+        });
+        // Each interactive event also ensures running is true,
+        // in case the goroutine fires before the frontend sets state.
+        EventsOn('setupflow:prompt', (event: SetupPromptEvent) => {
+          set(s => ({ setupFlow: { ...s.setupFlow, running: true, prompt: event, select: null, confirm: null } }));
+        });
+        EventsOn('setupflow:select', (event: SetupSelectEvent) => {
+          set(s => ({ setupFlow: { ...s.setupFlow, running: true, select: event, prompt: null, confirm: null } }));
+        });
+        EventsOn('setupflow:confirm', (event: SetupConfirmEvent) => {
+          set(s => ({ setupFlow: { ...s.setupFlow, running: true, confirm: event, prompt: null, select: null } }));
+        });
+        EventsOn('setupflow:status', (message: string) => {
+          set(s => ({ setupFlow: { ...s.setupFlow, running: true, status: message } }));
+        });
+        EventsOn('setupflow:error', (message: string) => {
+          set(s => ({ setupFlow: { ...s.setupFlow, error: message } }));
+        });
+        EventsOn('setupflow:complete', () => {
+          set({ setupFlow: { ...SETUP_FLOW_CLEARED, status: SETUP_COMPLETE_STATUS } });
+          // app:endpoints-changed fires immediately after this event (from the same goroutine),
+          // carrying the already-updated endpoint list — no separate fetchEndpoints() needed.
+        });
+        EventsOn('setupflow:failed', (errorMsg: string) => {
+          set({ setupFlow: { ...SETUP_FLOW_CLEARED, error: errorMsg } });
+        });
+
+        // Listen for new log events (real-time log updates)
+        EventsOn('app:new-log', (entry: RequestLogEntry) => {
+          const { selectedEndpointSlug, logs } = get();
+          // Only add to logs if viewing the same endpoint
+          if (entry.endpointSlug === selectedEndpointSlug) {
+            set({ logs: [entry, ...logs] });
+            // Debounce stats refresh — one IPC call per burst, not per log entry
+            if (logStatsDebounceTimer) clearTimeout(logStatsDebounceTimer);
+            logStatsDebounceTimer = setTimeout(() => { get().fetchLogStats(); }, 2000);
+          }
+        });
+      }
     } catch (err) {
       set({ error: `Failed to initialize: ${err}` });
     } finally {
@@ -373,8 +478,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       set({ isLoading: true, error: null });
       await Start();
-      // Wait a bit for status to update
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Wait for the backend's app:state-changed event instead of a fixed sleep.
+      await new Promise<void>((resolve) => {
+        const cancel = EventsOn('app:state-changed', (s: StatusInfo) => {
+          if (s.state === 'running' || s.state === 'error') { cancel(); resolve(); }
+        });
+        setTimeout(() => { cancel(); resolve(); }, 10000);
+      });
       await get().fetchStatus();
     } catch (err) {
       set({ error: `Failed to start service: ${err}` });
@@ -387,7 +497,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       set({ isLoading: true, error: null });
       await Stop();
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Wait for the backend's app:state-changed event instead of a fixed sleep.
+      await new Promise<void>((resolve) => {
+        const cancel = EventsOn('app:state-changed', (s: StatusInfo) => {
+          if (s.state === 'idle' || s.state === 'error') { cancel(); resolve(); }
+        });
+        setTimeout(() => { cancel(); resolve(); }, 15000);
+      });
       await get().fetchStatus();
     } catch (err) {
       set({ error: `Failed to stop service: ${err}` });
@@ -780,7 +896,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       // Optimistic UI: Add new endpoint to state immediately
       // This prevents the jarring empty state while waiting for file watcher
-      const newEndpoint: EndpointInfo = {
+      const newEndpoint = main.EndpointInfo.createFrom({
         slug,
         name: request.name,
         type: request.type,
@@ -788,7 +904,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         enabled: true,
         version: request.version || '1.0.0',
         hasPolicies: false,
-      };
+      });
       set((state) => ({
         endpoints: [...state.endpoints, newEndpoint],
       }));
@@ -865,8 +981,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const slugToDelete = selectedEndpointSlug;
 
     try {
-      // Start grace period BEFORE backend call - file watcher may fire during DeleteEndpoint
-      set({ isDeletingEndpoint: true, error: null, lastOptimisticAddTime: Date.now() });
+      set({ isDeletingEndpoint: true, error: null });
 
       // Call backend to delete endpoint
       await DeleteEndpoint(slugToDelete);
@@ -882,16 +997,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (remainingEndpoints.length > 0) {
         await get().selectEndpoint(remainingEndpoints[0].slug);
       } else {
-        set({
-          selectedEndpointSlug: null,
-          selectedEndpointDetail: null,
-          runnerCode: '',
-          originalRunnerCode: '',
-          readmeContent: '',
-          originalReadmeContent: '',
-          readmeFrontmatter: '',
-          envVars: [],
-        });
+        await get().selectEndpoint(null);
       }
     } catch (err) {
       set({ error: `Failed to delete endpoint: ${err}` });
@@ -914,14 +1020,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  installMarketplacePackage: async (slug: string, downloadUrl: string, configValues: Array<{key: string, value: string}>) => {
+  installMarketplacePackage: async (slug: string, downloadUrl: string) => {
     try {
       set({ installingPackageSlug: slug });
-      const envVars = configValues.map(cv => main.EnvVar.createFrom({ key: cv.key, value: cv.value }));
-      await InstallMarketplacePackage(slug, downloadUrl, envVars);
+      // The backend auto-triggers RunEndpointSetup if setup.yaml exists.
+      // Setup flow state is managed entirely by event listeners (setupflow:*),
+      // not set here, to avoid a race where this code overwrites prompt data
+      // that the goroutine has already emitted.
+      await InstallMarketplacePackage(slug, downloadUrl);
       await get().fetchEndpoints();
-    } catch (err) {
-      throw err;
     } finally {
       set({ installingPackageSlug: null });
     }
@@ -929,17 +1036,76 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   uninstallMarketplacePackage: async (slug: string) => {
     try {
-      set({ installingPackageSlug: slug, lastOptimisticAddTime: Date.now() });
+      set({ installingPackageSlug: slug });
       await DeleteEndpoint(slug);
-      // Optimistic UI: remove from endpoints
-      set((state) => ({
-        endpoints: state.endpoints.filter(ep => ep.slug !== slug),
-      }));
-      await get().fetchEndpoints();
+
+      // Optimistic UI: remove from endpoints immediately (mirrors deleteEndpoint)
+      const remainingEndpoints = get().endpoints.filter(ep => ep.slug !== slug);
+      set({ endpoints: remainingEndpoints });
+
+      // If the uninstalled endpoint was selected, navigate away
+      if (get().selectedEndpointSlug === slug) {
+        if (remainingEndpoints.length > 0) {
+          await get().selectEndpoint(remainingEndpoints[0].slug);
+        } else {
+          await get().selectEndpoint(null);
+        }
+      }
     } catch (err) {
       set({ error: `Failed to uninstall package: ${err}` });
     } finally {
       set({ installingPackageSlug: null });
     }
+  },
+
+  // Setup flow actions
+  runSetup: async (slug: string, force: boolean = false) => {
+    // Don't set state optimistically here — the Go backend emits 'setupflow:started'
+    // synchronously before launching the goroutine, so that event drives the UI.
+    try {
+      await RunEndpointSetup(slug, force);
+    } catch (err) {
+      set({ setupFlow: { ...SETUP_FLOW_CLEARED, error: `Failed to start setup: ${err}` } });
+    }
+  },
+
+  respondToSetupPrompt: async (value: string) => {
+    try {
+      set(s => ({ setupFlow: { ...s.setupFlow, prompt: null } }));
+      await RespondToSetupPrompt(value);
+    } catch (err) {
+      set(s => ({ setupFlow: { ...s.setupFlow, error: `Failed to respond: ${err}` } }));
+    }
+  },
+
+  respondToSetupSelect: async (value: string) => {
+    try {
+      set(s => ({ setupFlow: { ...s.setupFlow, select: null } }));
+      await RespondToSetupSelect(value);
+    } catch (err) {
+      set(s => ({ setupFlow: { ...s.setupFlow, error: `Failed to respond: ${err}` } }));
+    }
+  },
+
+  respondToSetupConfirm: async (confirmed: boolean) => {
+    try {
+      set(s => ({ setupFlow: { ...s.setupFlow, confirm: null } }));
+      await RespondToSetupConfirm(confirmed);
+    } catch (err) {
+      set(s => ({ setupFlow: { ...s.setupFlow, error: `Failed to respond: ${err}` } }));
+    }
+  },
+
+  cancelSetup: async () => {
+    try {
+      await CancelSetup();
+      set({ setupFlow: { ...SETUP_FLOW_CLEARED } });
+    } catch (err) {
+      set(s => ({ setupFlow: { ...s.setupFlow, error: `Failed to cancel: ${err}` } }));
+    }
+  },
+
+  clearSetupFlow: () => {
+    set({ setupFlow: { ...SETUP_FLOW_CLEARED } });
   },
 }));

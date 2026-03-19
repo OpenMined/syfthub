@@ -10,6 +10,10 @@ export function BrowseForFolder(arg1) {
   return window['go']['main']['App']['BrowseForFolder'](arg1);
 }
 
+export function CancelSetup() {
+  return window['go']['main']['App']['CancelSetup']();
+}
+
 export function CheckEndpointExists(arg1) {
   return window['go']['main']['App']['CheckEndpointExists'](arg1);
 }
@@ -126,6 +130,14 @@ export function GetSettingsDir() {
   return window['go']['main']['App']['GetSettingsDir']();
 }
 
+export function GetSetupSpec(arg1) {
+  return window['go']['main']['App']['GetSetupSpec'](arg1);
+}
+
+export function GetSetupStatus(arg1) {
+  return window['go']['main']['App']['GetSetupStatus'](arg1);
+}
+
 export function GetStatus() {
   return window['go']['main']['App']['GetStatus']();
 }
@@ -146,8 +158,8 @@ export function HasSettings() {
   return window['go']['main']['App']['HasSettings']();
 }
 
-export function InstallMarketplacePackage(arg1, arg2, arg3) {
-  return window['go']['main']['App']['InstallMarketplacePackage'](arg1, arg2, arg3);
+export function InstallMarketplacePackage(arg1, arg2) {
+  return window['go']['main']['App']['InstallMarketplacePackage'](arg1, arg2);
 }
 
 export function ListPolicyFiles(arg1) {
@@ -168,6 +180,22 @@ export function OpenEndpointsFolder() {
 
 export function ReloadEndpoints() {
   return window['go']['main']['App']['ReloadEndpoints']();
+}
+
+export function RespondToSetupConfirm(arg1) {
+  return window['go']['main']['App']['RespondToSetupConfirm'](arg1);
+}
+
+export function RespondToSetupPrompt(arg1) {
+  return window['go']['main']['App']['RespondToSetupPrompt'](arg1);
+}
+
+export function RespondToSetupSelect(arg1) {
+  return window['go']['main']['App']['RespondToSetupSelect'](arg1);
+}
+
+export function RunEndpointSetup(arg1, arg2) {
+  return window['go']['main']['App']['RunEndpointSetup'](arg1, arg2);
 }
 
 export function SavePoliciesYaml(arg1, arg2) {
