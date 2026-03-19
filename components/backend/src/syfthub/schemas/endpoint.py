@@ -129,6 +129,57 @@ RESERVED_SLUGS = {
 }
 
 
+def _validate_and_normalize_tags(tags: List[str]) -> List[str]:
+    """Validate and normalize a list of tags.
+
+    Args:
+        tags: Raw list of tag strings.
+
+    Returns:
+        Normalized, deduplicated list of valid tags.
+
+    Raises:
+        ValueError: If any tag violates the validation rules.
+    """
+    # Max 10 tags
+    if len(tags) > 10:
+        raise ValueError("Maximum 10 tags allowed")
+
+    normalized_tags = []
+    seen: set[str] = set()
+
+    for tag in tags:
+        # Strip whitespace and convert to lowercase
+        tag = tag.strip().lower()
+
+        # Skip empty tags
+        if not tag:
+            continue
+
+        # Validate length
+        if len(tag) < 1 or len(tag) > 30:
+            raise ValueError(f"Tag '{tag}' must be between 1 and 30 characters")
+
+        # Validate format: alphanumeric + hyphens, no leading/trailing hyphens
+        tag_pattern = r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$|^[a-z0-9]$"
+        if not re.match(tag_pattern, tag):
+            raise ValueError(
+                f"Tag '{tag}' must contain only lowercase letters, numbers, and hyphens. "
+                "Cannot start or end with hyphen."
+            )
+
+        # Check for consecutive hyphens
+        if "--" in tag:
+            raise ValueError(f"Tag '{tag}' cannot contain consecutive hyphens")
+
+        # Deduplicate
+        if tag not in seen:
+            seen.add(tag)
+            normalized_tags.append(tag)
+
+    return normalized_tags
+
+
 class EndpointBase(BaseModel):
     """Base endpoint schema."""
 
@@ -170,44 +221,7 @@ class EndpointBase(BaseModel):
         """Validate and normalize tags."""
         if not v:
             return []
-
-        # Max 10 tags
-        if len(v) > 10:
-            raise ValueError("Maximum 10 tags allowed")
-
-        normalized_tags = []
-        seen = set()
-
-        for tag in v:
-            # Strip whitespace and convert to lowercase
-            tag = tag.strip().lower()
-
-            # Skip empty tags
-            if not tag:
-                continue
-
-            # Validate length
-            if len(tag) < 1 or len(tag) > 30:
-                raise ValueError(f"Tag '{tag}' must be between 1 and 30 characters")
-
-            # Validate format: alphanumeric + hyphens, no leading/trailing hyphens
-            tag_pattern = r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$|^[a-z0-9]$"
-            if not re.match(tag_pattern, tag):
-                raise ValueError(
-                    f"Tag '{tag}' must contain only lowercase letters, numbers, and hyphens. "
-                    "Cannot start or end with hyphen."
-                )
-
-            # Check for consecutive hyphens
-            if "--" in tag:
-                raise ValueError(f"Tag '{tag}' cannot contain consecutive hyphens")
-
-            # Deduplicate
-            if tag not in seen:
-                seen.add(tag)
-                normalized_tags.append(tag)
-
-        return normalized_tags
+        return _validate_and_normalize_tags(v)
 
     connect: List[Connection] = Field(
         default_factory=list,
@@ -300,47 +314,9 @@ class EndpointUpdate(BaseModel):
         """Validate and normalize tags."""
         if v is None:
             return None
-
         if not v:
             return []
-
-        # Max 10 tags
-        if len(v) > 10:
-            raise ValueError("Maximum 10 tags allowed")
-
-        normalized_tags = []
-        seen = set()
-
-        for tag in v:
-            # Strip whitespace and convert to lowercase
-            tag = tag.strip().lower()
-
-            # Skip empty tags
-            if not tag:
-                continue
-
-            # Validate length
-            if len(tag) < 1 or len(tag) > 30:
-                raise ValueError(f"Tag '{tag}' must be between 1 and 30 characters")
-
-            # Validate format: alphanumeric + hyphens, no leading/trailing hyphens
-            tag_pattern = r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$|^[a-z0-9]$"
-            if not re.match(tag_pattern, tag):
-                raise ValueError(
-                    f"Tag '{tag}' must contain only lowercase letters, numbers, and hyphens. "
-                    "Cannot start or end with hyphen."
-                )
-
-            # Check for consecutive hyphens
-            if "--" in tag:
-                raise ValueError(f"Tag '{tag}' cannot contain consecutive hyphens")
-
-            # Deduplicate
-            if tag not in seen:
-                seen.add(tag)
-                normalized_tags.append(tag)
-
-        return normalized_tags
+        return _validate_and_normalize_tags(v)
 
     connect: Optional[List[Connection]] = Field(
         None, description="List of connection methods available for this endpoint"
@@ -634,17 +610,6 @@ def generate_slug_from_name(name: str) -> str:
         slug = slug[:63].rstrip("-")
 
     return slug
-
-
-def is_slug_available(
-    slug: str,  # noqa: ARG001
-    user_id: int,  # noqa: ARG001
-    exclude_endpoint_id: Optional[int] = None,  # noqa: ARG001
-) -> bool:
-    """Check if a slug is available for a user."""
-    # This will be implemented in the endpoints module
-    # Placeholder for the actual availability check logic
-    return True
 
 
 # ===========================================

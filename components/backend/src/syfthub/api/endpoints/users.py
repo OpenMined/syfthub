@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from syfthub.auth.db_dependencies import (
     OwnershipChecker,
     get_current_active_user,
+    require_admin,
 )
 from syfthub.core.config import settings
 from syfthub.database.dependencies import get_user_service
@@ -30,17 +31,6 @@ router = APIRouter()
 
 # Ownership checker for user resources
 check_user_ownership = OwnershipChecker()
-
-
-def require_admin(
-    current_user: Annotated[User, Depends(get_current_active_user)],
-) -> bool:
-    """Require admin role."""
-    if current_user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Operation not permitted"
-        )
-    return True
 
 
 @router.get("/", response_model=list[UserResponse])

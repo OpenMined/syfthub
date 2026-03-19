@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Generic, List, Optional, Type, TypeVar
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from syfthub.models.base import BaseModel
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -27,7 +30,8 @@ class BaseRepository(Generic[T]):
         """Get a record by ID."""
         try:
             return self.session.get(self.model, id)
-        except SQLAlchemyError:
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to get {self.model.__name__} by id {id}: {e}")
             return None
 
     def get_all(
@@ -52,7 +56,8 @@ class BaseRepository(Generic[T]):
             query = query.offset(skip).limit(limit)
             result = self.session.execute(query)
             return result.scalars().all()
-        except SQLAlchemyError:
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to get all {self.model.__name__}: {e}")
             return []
 
     def create(self, **kwargs) -> Optional[T]:
@@ -63,7 +68,8 @@ class BaseRepository(Generic[T]):
             self.session.commit()
             self.session.refresh(obj)
             return obj
-        except SQLAlchemyError:
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to create {self.model.__name__}: {e}")
             self.session.rollback()
             return None
 
@@ -81,7 +87,8 @@ class BaseRepository(Generic[T]):
             self.session.commit()
             self.session.refresh(obj)
             return obj
-        except SQLAlchemyError:
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to update {self.model.__name__} with id {id}: {e}")
             self.session.rollback()
             return None
 
@@ -96,9 +103,6 @@ class BaseRepository(Generic[T]):
             self.session.commit()
             return True
         except SQLAlchemyError as e:
-            import logging
-
-            logger = logging.getLogger(__name__)
             logger.error(f"Failed to delete {self.model.__name__} with id {id}: {e}")
             self.session.rollback()
             return False
@@ -117,13 +121,14 @@ class BaseRepository(Generic[T]):
 
             result = self.session.execute(query.limit(1))
             return result.scalar() is not None
-        except SQLAlchemyError:
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to check existence of {self.model.__name__}: {e}")
             return False
 
     def count(self, filters: Optional[dict[str, Any]] = None) -> int:
         """Count records with optional filtering."""
         try:
-            query = select(self.model)
+            subquery = select(self.model)
 
             if filters:
                 conditions = []
@@ -131,9 +136,11 @@ class BaseRepository(Generic[T]):
                     if hasattr(self.model, field):
                         conditions.append(getattr(self.model, field) == value)
                 if conditions:
-                    query = query.where(and_(*conditions))
+                    subquery = subquery.where(and_(*conditions))
 
+            query = select(func.count()).select_from(subquery.subquery())
             result = self.session.execute(query)
-            return len(result.scalars().all())
-        except SQLAlchemyError:
+            return result.scalar_one()
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to count {self.model.__name__}: {e}")
             return 0

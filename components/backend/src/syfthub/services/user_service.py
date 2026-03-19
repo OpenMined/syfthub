@@ -29,6 +29,32 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
 
+def extract_domain_from_url(url: str, allow_tunneling: bool = True) -> str:
+    """Extract the domain (scheme + host + port) from a URL.
+
+    For tunneling URLs (e.g., ``tunneling:username``), the full URL is returned
+    as-is when *allow_tunneling* is ``True``. For regular HTTP(S) URLs, the
+    ``scheme://netloc`` is extracted.
+
+    Args:
+        url: The URL to extract a domain from.
+        allow_tunneling: Whether to accept tunneling-prefix URLs.
+
+    Returns:
+        The extracted domain string.
+
+    Raises:
+        ValueError: If the URL is invalid or the domain cannot be extracted.
+    """
+    if allow_tunneling and url.startswith(TUNNELING_PREFIX):
+        return url
+
+    parsed = urlparse(url)
+    if not parsed.netloc:
+        raise ValueError("Invalid URL: could not extract domain")
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
 class UserService(BaseService):
     """User service for handling user management operations."""
 
@@ -196,20 +222,13 @@ class UserService(BaseService):
         effective_ttl = min(requested_ttl, settings.heartbeat_max_ttl_seconds)
 
         # Extract domain from URL
-        # For tunneling URLs (tunneling:<username>), use the full URL as domain
-        # For HTTP URLs, extract scheme + host + port
-        if url.startswith(TUNNELING_PREFIX):
-            # For tunneling, the domain is the full URL (e.g., "tunneling:username")
-            domain = url
-        else:
-            # Extract domain with protocol (scheme + host + port) from URL
-            parsed = urlparse(url)
-            if not parsed.netloc:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="Invalid URL: could not extract domain",
-                )
-            domain = f"{parsed.scheme}://{parsed.netloc}"
+        try:
+            domain = extract_domain_from_url(url)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(e),
+            ) from e
 
         expires_at = now + timedelta(seconds=effective_ttl)
 

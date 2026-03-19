@@ -50,6 +50,7 @@ from syfthub.repositories.organization import (
     OrganizationRepository,
 )
 from syfthub.repositories.user import UserRepository
+from syfthub.schemas.auth import UserRole
 from syfthub.schemas.endpoint import (
     Endpoint,
     EndpointPublicResponse,
@@ -148,8 +149,12 @@ def can_access_endpoint(endpoint: Endpoint, current_user: Optional[User]) -> boo
     if current_user.id == endpoint.user_id:
         return True
 
+    # Any authenticated user can access INTERNAL user-owned endpoints
+    if endpoint.visibility == EndpointVisibility.INTERNAL:
+        return True
+
     # Admin can access everything
-    return current_user.role == "admin"
+    return current_user.role == UserRole.ADMIN
 
 
 def is_organization_member(
@@ -246,7 +251,7 @@ def can_access_endpoint_with_org(
         return False
 
     # Admin can access everything
-    if current_user.role == "admin":
+    if current_user.role == UserRole.ADMIN:
         return True
 
     # For user-owned endpoints, use existing logic
@@ -259,14 +264,11 @@ def can_access_endpoint_with_org(
         if member_repo is None:
             return False
 
-        # Owner/members can access internal endpoints
-        if endpoint.visibility == EndpointVisibility.INTERNAL:
-            return is_organization_member(
-                endpoint.organization_id, current_user.id, member_repo
-            )
-
-        # Private endpoints only for organization members
-        if endpoint.visibility == EndpointVisibility.PRIVATE:
+        # INTERNAL and PRIVATE org endpoints require membership
+        if endpoint.visibility in (
+            EndpointVisibility.INTERNAL,
+            EndpointVisibility.PRIVATE,
+        ):
             return is_organization_member(
                 endpoint.organization_id, current_user.id, member_repo
             )
@@ -323,7 +325,13 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     otp_cleanup = OTPCleanupJob(settings)
     otp_cleanup_task = asyncio.create_task(otp_cleanup.start())
 
+    # Create a shared httpx client for the proxy endpoint (connection pooling)
+    _app.state.http_client = httpx.AsyncClient()
+
     yield
+
+    # Close shared httpx client
+    await _app.state.http_client.aclose()
 
     # Shutdown
     if health_monitor and health_monitor_task:
@@ -571,7 +579,7 @@ async def get_owner_endpoint(
     # Return full details if user is owner/admin/org member, public details otherwise
     can_see_full_details = False
     if current_user:
-        if current_user.role == "admin" or (
+        if current_user.role == UserRole.ADMIN or (
             owner_type == "user" and current_user.id == endpoint.user_id
         ):
             can_see_full_details = True
@@ -738,12 +746,23 @@ async def invoke_owner_endpoint(
     start_time = time.perf_counter()
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
+        # Use the lifespan-scoped client when available (production), fall back
+        # to a per-request client for tests that don't run the lifespan.
+        shared_client = getattr(request.app.state, "http_client", None)
+        if shared_client is not None:
+            response = await shared_client.post(
                 query_url,
                 json=request_body,
                 headers=headers,
+                timeout=timeout,
             )
+        else:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(
+                    query_url,
+                    json=request_body,
+                    headers=headers,
+                )
 
         latency_ms = int((time.perf_counter() - start_time) * 1000)
 
