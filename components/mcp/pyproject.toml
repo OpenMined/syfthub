@@ -17,12 +17,12 @@ dependencies = [
     # Web framework dependencies with security fixes
     "starlette>=0.49.1",  # CVE-2025-62727: O(n^2) DoS via Range header
     "werkzeug>=3.1.6",  # CVE-2025-66221, CVE-2026-21860, CVE-2026-27199: Windows device names
-    "authlib>=1.6.6",  # CVE-2025-68158: Account takeover vulnerability
+    "authlib>=1.6.9",  # CVE-2025-68158, CVE-2026-28802, CVE-2026-27962, CVE-2026-28490, CVE-2026-28498
     # Pydantic (compatible with fastmcp>=2.14.3)
     "pydantic>=2.11.7",
     # Authentication and crypto
     "cryptography>=41.0.0",
-    "pyjwt>=2.0.0",
+    "pyjwt>=2.12.0",  # CVE-2026-32597: accepts unknown crit header extensions
     # Utilities
     "python-dotenv==1.1.0",
     "python-multipart>=0.0.5",
@@ -48,7 +48,8 @@ override-dependencies = [
     "urllib3>=2.6.3",  # CVE-2025-66471, CVE-2026-21441
     "starlette>=0.49.1",  # CVE-2025-62727
     "werkzeug>=3.1.6",  # CVE-2025-66221, CVE-2026-21860, CVE-2026-27199
-    "authlib>=1.6.6",  # CVE-2025-68158
+    "authlib>=1.6.9",  # CVE-2025-68158, CVE-2026-27962, CVE-2026-28490, CVE-2026-28498, CVE-2026-28802
     "aiohttp>=3.13.3",  # CVE-2025-69223
     "mcp>=1.23.0",  # CVE-2025-66416
+    "pydantic>=2.11.7",  # syft-accounting-sdk pins ==2.11.4; override for fastmcp compat
 ]

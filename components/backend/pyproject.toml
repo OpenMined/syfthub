@@ -221,3 +221,9 @@ dev = [
     "types-passlib>=1.7.7.20250602",
     "types-sqlalchemy>=1.4.0",
 ]
+
+[tool.uv]
+override-dependencies = [
+    # Security overrides - force minimum secure versions even when transitive deps pin older versions
+    "pyasn1>=0.6.3",  # CVE-2026-30922: DoS via unbounded recursion (transitive via google-auth)
+]
