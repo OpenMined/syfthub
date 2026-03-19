@@ -37,6 +37,10 @@ dependencies = [
     "tokenizers>=0.19",  # tokenizers 0.15.2 has broken pyproject.toml (missing project.version)
     # NOTE: pillow CVE-2026-25990 (OOB write in PSD) — pinned via [tool.uv] override-dependencies
     # because fastembed 0.7.4 caps pillow<12 but the fix requires >=12.1.1.
+    # NOTE: nltk 3.9.3 (CVE-2026-33230 XSS, unbounded recursion DoS) is a transitive dep via
+    # attribution-lib. No upstream fix is available. Mitigated by context: aggregator is a backend
+    # service that does not render HTML (XSS N/A) and does not use JSONTaggedDecoder (DoS N/A).
+    # Monitor https://github.com/nltk/nltk for a patched release.
     # NOTE: diskcache 5.6.3 (CVE-2025-69872) is a transitive dep via attribution-lib -> dspy.
     # No upstream fix is available. The cache directory is hardened in Dockerfile (chmod 700, owned by
     # appuser only). Monitor https://github.com/grantjenks/python-diskcache for a patched release.

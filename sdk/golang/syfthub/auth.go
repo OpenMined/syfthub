@@ -29,6 +29,11 @@ import (
 //
 //	// Logout
 //	err = client.Auth.Logout(ctx)
+//
+// maxTokenFetchConcurrency limits parallel token-fetch goroutines in
+// GetSatelliteTokens and GetGuestSatelliteTokens.
+const maxTokenFetchConcurrency = 10
+
 type AuthResource struct {
 	http *httpClient
 }
@@ -315,6 +320,33 @@ func (a *AuthResource) GetSatelliteToken(ctx context.Context, audience string) (
 //	tokens, err := client.Auth.GetSatelliteTokens(ctx, []string{"alice", "bob"})
 //	fmt.Printf("Got %d tokens\n", len(tokens))
 func (a *AuthResource) GetSatelliteTokens(ctx context.Context, audiences []string) (map[string]string, error) {
+	return a.fetchSatelliteTokens(ctx, audiences, a.GetSatelliteToken)
+}
+
+// GetGuestSatelliteToken gets a satellite token for a specific audience without authentication.
+func (a *AuthResource) GetGuestSatelliteToken(ctx context.Context, audience string) (*SatelliteTokenResponse, error) {
+	var response SatelliteTokenResponse
+	err := a.http.Get(ctx, "/api/v1/token/guest", &response, WithoutAuth(), WithQuery(url.Values{"aud": {audience}}))
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+// GetGuestSatelliteTokens gets guest satellite tokens for multiple audiences in parallel.
+// No authentication is required.
+func (a *AuthResource) GetGuestSatelliteTokens(ctx context.Context, audiences []string) (map[string]string, error) {
+	return a.fetchSatelliteTokens(ctx, audiences, a.GetGuestSatelliteToken)
+}
+
+// fetchSatelliteTokens deduplicates audiences, then fetches tokens in parallel
+// (up to maxTokenFetchConcurrency at once) using the provided fetch function.
+// Failed tokens are silently skipped — the aggregator will handle missing tokens.
+func (a *AuthResource) fetchSatelliteTokens(
+	ctx context.Context,
+	audiences []string,
+	fetch func(context.Context, string) (*SatelliteTokenResponse, error),
+) (map[string]string, error) {
 	// Deduplicate audiences
 	seen := make(map[string]bool)
 	uniqueAudiences := make([]string, 0, len(audiences))
@@ -330,7 +362,6 @@ func (a *AuthResource) GetSatelliteTokens(ctx context.Context, audiences []strin
 		return tokenMap, nil
 	}
 
-	// Fetch tokens in parallel using goroutines
 	type result struct {
 		audience string
 		token    string
@@ -339,9 +370,7 @@ func (a *AuthResource) GetSatelliteTokens(ctx context.Context, audiences []strin
 
 	results := make(chan result, len(uniqueAudiences))
 	var wg sync.WaitGroup
-
-	// Limit concurrency to 10
-	semaphore := make(chan struct{}, 10)
+	semaphore := make(chan struct{}, maxTokenFetchConcurrency)
 
 	for _, aud := range uniqueAudiences {
 		wg.Add(1)
@@ -350,9 +379,8 @@ func (a *AuthResource) GetSatelliteTokens(ctx context.Context, audiences []strin
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
-			resp, err := a.GetSatelliteToken(ctx, audience)
+			resp, err := fetch(ctx, audience)
 			if err != nil {
-				// Failed tokens are silently skipped - the aggregator will handle missing tokens
 				results <- result{audience: audience, err: err}
 				return
 			}
@@ -360,13 +388,11 @@ func (a *AuthResource) GetSatelliteTokens(ctx context.Context, audiences []strin
 		}(aud)
 	}
 
-	// Close results channel when all goroutines complete
 	go func() {
 		wg.Wait()
 		close(results)
 	}()
 
-	// Collect successful results
 	var mu sync.Mutex
 	for r := range results {
 		if r.token != "" {
@@ -393,6 +419,26 @@ func (a *AuthResource) GetPeerToken(ctx context.Context, targetUsernames []strin
 	err := a.http.Post(ctx, "/api/v1/peer-token", map[string]interface{}{
 		"target_usernames": targetUsernames,
 	}, &response)
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+// GetGuestPeerToken gets a peer token for NATS communication without authentication.
+//
+// Guest peer tokens are rate-limited by IP address. They use the same
+// response format as authenticated peer tokens.
+//
+// Example:
+//
+//	peer, err := client.Auth.GetGuestPeerToken(ctx, []string{"alice"})
+//	fmt.Printf("Guest peer channel: %s\n", peer.PeerChannel)
+func (a *AuthResource) GetGuestPeerToken(ctx context.Context, targetUsernames []string) (*PeerTokenResponse, error) {
+	var response PeerTokenResponse
+	err := a.http.Post(ctx, "/api/v1/nats/guest-peer-token", map[string]interface{}{
+		"target_usernames": targetUsernames,
+	}, &response, WithoutAuth())
 	if err != nil {
 		return nil, err
 	}

@@ -295,7 +295,9 @@ export class ChatResource {
     if (!peerToken) {
       const tunnelingUsernames = this.collectTunnelingUsernames(modelRef, dsRefs);
       if (tunnelingUsernames.length > 0) {
-        const peerResponse = await this.auth.getPeerToken(tunnelingUsernames);
+        const peerResponse = guestMode
+          ? await this.auth.getGuestPeerToken(tunnelingUsernames)
+          : await this.auth.getPeerToken(tunnelingUsernames);
         peerToken = peerResponse.peerToken;
         peerChannel = peerResponse.peerChannel;
       }

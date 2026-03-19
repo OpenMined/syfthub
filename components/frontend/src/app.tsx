@@ -27,6 +27,7 @@ const ProfilePage = lazyWithRetry(() => import('./pages/profile'));
 const EndpointsPage = lazyWithRetry(() => import('./pages/endpoints'));
 const EndpointDetailPage = lazyWithRetry(() => import('./pages/endpoint-detail'));
 const NotFoundPage = lazyWithRetry(() => import('./pages/not-found'));
+const QueryPage = lazyWithRetry(() => import('./pages/query'));
 
 /**
  * App - Root application component with routing configuration.
@@ -70,6 +71,15 @@ export default function App() {
                 <BrowserRouter>
                   <ScrollToTop />
                   <Routes>
+                    {/* URL query page — no layout chrome, prompt stays client-side */}
+                    <Route
+                      path='q'
+                      element={
+                        <RouteBoundary>
+                          <QueryPage />
+                        </RouteBoundary>
+                      }
+                    />
                     <Route element={<MainLayout />}>
                       {/* Public routes */}
                       <Route

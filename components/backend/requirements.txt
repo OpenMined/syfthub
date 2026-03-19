@@ -74,7 +74,7 @@ pydantic-core==2.41.5
     # via pydantic
 pydantic-settings==2.12.0
     # via syfthub (pyproject.toml)
-pyjwt==2.10.1
+pyjwt==2.12.0
     # via syfthub (pyproject.toml)
 python-dotenv==1.2.1
     # via pydantic-settings

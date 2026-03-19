@@ -14,6 +14,8 @@ from syfthub.database.dependencies import (
 from syfthub.schemas.endpoint import (
     EndpointAdminUpdate,
     EndpointCreate,
+    EndpointHealthRequest,
+    EndpointHealthResponse,
     EndpointPublicResponse,
     EndpointResponse,
     EndpointType,
@@ -419,6 +421,44 @@ async def sync_user_endpoints(
     return endpoint_service.sync_user_endpoints(
         endpoints_data=sync_request.endpoints,
         current_user=current_user,
+    )
+
+
+@router.post(
+    "/health",
+    response_model=EndpointHealthResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Report Endpoint Health Status",
+    description="""
+Report per-endpoint health status from the client.
+
+**Authentication Required** - Bearer token (JWT or API token).
+
+**Behavior:**
+- Matches endpoint slugs against the user's own endpoints and endpoints of
+  organizations the user belongs to
+- Updates per-endpoint health fields (health_status, health_checked_at, health_ttl_seconds)
+- Also updates the owner's heartbeat (subsumes POST /users/me/heartbeat)
+- Slugs that don't match any accessible endpoint are counted as 'ignored'
+- TTL is capped at the server's maximum heartbeat TTL
+
+**Backward Compatibility:**
+- Existing heartbeat APIs continue to work unchanged
+- If this endpoint is not used, per-endpoint health fields remain NULL
+  and the health monitor falls back to existing behavior
+""",
+)
+async def report_endpoint_health(
+    health_data: EndpointHealthRequest,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+) -> EndpointHealthResponse:
+    """Report per-endpoint health status from client."""
+    return endpoint_service.report_endpoint_health(
+        endpoints_health=health_data.endpoints,
+        url=health_data.url,
+        current_user=current_user,
+        ttl_seconds=health_data.ttl_seconds,
     )
 
 

@@ -418,6 +418,11 @@ async def send_organization_heartbeat(
 ) -> HeartbeatResponse:
     """Send heartbeat to indicate organization domain is online.
 
+    .. deprecated::
+        Use ``POST /api/v1/endpoints/health`` instead, which reports per-endpoint
+        health status and also updates organization heartbeats for matched endpoints.
+        This endpoint will be removed in a future release.
+
     This endpoint is called periodically by domain clients to indicate the
     organization's domain is online and reachable. The heartbeat updates:
     - Organization's domain (extracted from URL)
