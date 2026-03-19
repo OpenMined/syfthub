@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Optional
 
 import jwt  # type: ignore[import-not-found]
 from passlib.context import CryptContext  # type: ignore[import-untyped]
@@ -13,8 +14,11 @@ from syfthub.core.config import settings
 # Password hashing context - using Argon2 for better security and no length limitations
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
-# Token blacklist (in-memory for development, use Redis for production)
-token_blacklist: Set[str] = set()
+# Token blacklist mapping token string to Unix expiration timestamp
+token_blacklist: Dict[str, float] = {}
+
+# Counter for periodic cleanup
+_blacklist_insert_count: int = 0
 
 # JWT algorithm
 ALGORITHM = "HS256"
@@ -93,20 +97,56 @@ def verify_token(token: str, token_type: str = "access") -> Optional[Dict[str, A
 
 
 def blacklist_token(token: str) -> None:
-    """Add a token to the blacklist."""
-    token_blacklist.add(token)
+    """Add a token to the blacklist with its expiration time.
+
+    Extracts the ``exp`` claim from the JWT to determine when the token
+    naturally expires. Expired entries are periodically purged to prevent
+    unbounded memory growth.
+    """
+    global _blacklist_insert_count
+
+    try:
+        payload = jwt.decode(
+            token, options={"verify_signature": False, "verify_exp": False}
+        )
+        exp = payload.get("exp")
+    except Exception:
+        exp = None
+
+    if exp is None:
+        # Conservative fallback: assume token lives for the configured access TTL
+        exp = time.time() + settings.access_token_expire_minutes * 60
+
+    token_blacklist[token] = float(exp)
+
+    _blacklist_insert_count += 1
+    if _blacklist_insert_count % 100 == 0:
+        cleanup_expired_tokens()
 
 
 def is_token_blacklisted(token: str) -> bool:
-    """Check if a token is blacklisted."""
-    return token in token_blacklist
+    """Check if a token is blacklisted.
+
+    Performs lazy cleanup: if the entry has expired, removes it and
+    returns ``False`` since the token would fail verification anyway.
+    """
+    if token not in token_blacklist:
+        return False
+
+    exp = token_blacklist[token]
+    if exp < time.time():
+        del token_blacklist[token]
+        return False
+
+    return True
 
 
 def cleanup_expired_tokens() -> None:
-    """Clean up expired tokens from blacklist (for production use with scheduled job)."""
-    # In a real application, you would implement this with Redis or database
-    # For now, this is a placeholder for the cleanup logic
-    pass
+    """Remove all expired entries from the token blacklist."""
+    now = time.time()
+    expired_tokens = [t for t, exp in token_blacklist.items() if exp < now]
+    for t in expired_tokens:
+        del token_blacklist[t]
 
 
 def get_token_from_header(authorization: str) -> Optional[str]:
