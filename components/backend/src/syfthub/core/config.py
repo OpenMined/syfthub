@@ -225,7 +225,7 @@ class Settings(BaseSettings):
 
     # Sender identity
     smtp_from_email: str = Field(
-        default="noreply@syft.com",
+        default="noreply@openmined.org",
         description="From address for outgoing emails",
     )
     smtp_from_name: str = Field(

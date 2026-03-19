@@ -128,6 +128,8 @@ services:
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
       # Email delivery via Resend (required for OTP emails)
       - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - SMTP_FROM_EMAIL=noreply@openmined.org
+      - SMTP_FROM_NAME=SyftHub
       # Google OAuth configuration (optional - Google Sign-In disabled if not set)
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       # ngrok tunnel credentials (optional - tunnel credentials endpoint disabled if not set)
