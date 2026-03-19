@@ -38,17 +38,6 @@ func init() {
 	nodeEndpointSetupCmd.Flags().BoolVar(&nodeEPSetupJSON, "json", false, "Output result as JSON")
 }
 
-func newSetupEngine() *setupflow.Engine {
-	return setupflow.NewEngine(
-		setupflow.WithHandler(nodeops.StepTypePrompt, &handlers.PromptHandler{}),
-		setupflow.WithHandler(nodeops.StepTypeSelect, &handlers.SelectHandler{}),
-		setupflow.WithHandler(nodeops.StepTypeOAuth2, &handlers.OAuth2Handler{}),
-		setupflow.WithHandler(nodeops.StepTypeHTTP, handlers.NewHTTPHandler()),
-		setupflow.WithHandler(nodeops.StepTypeTemplate, &handlers.TemplateHandler{}),
-		setupflow.WithHandler(nodeops.StepTypeExec, &handlers.ExecHandler{}),
-	)
-}
-
 func runNodeEndpointSetup(cmd *cobra.Command, args []string) error {
 	slug := args[0]
 	cfg := nodeconfig.Load()
@@ -94,7 +83,7 @@ func runNodeEndpointSetup(cmd *cobra.Command, args []string) error {
 	}
 
 	// 4. Create engine and context
-	engine := newSetupEngine()
+	engine := handlers.NewDefaultEngine()
 	sio := NewCLISetupIO()
 
 	ctx := &setupflow.SetupContext{
@@ -175,13 +164,18 @@ func runNodeEndpointSetupStatus(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if nodeEPSetupStatusJSON {
-		output.JSON(map[string]any{"status": "success", "setup_status": status})
+	if status == nil {
+		msg := fmt.Sprintf("Endpoint '%s' has no setup.yaml.", slug)
+		if nodeEPSetupStatusJSON {
+			output.JSON(map[string]any{"status": "error", "message": msg})
+		} else {
+			output.Error(msg)
+		}
 		return nil
 	}
 
-	if !status.HasSetup {
-		fmt.Printf("Endpoint '%s' has no setup.yaml.\n", slug)
+	if nodeEPSetupStatusJSON {
+		output.JSON(map[string]any{"status": "success", "setup_status": status})
 		return nil
 	}
 
@@ -191,26 +185,24 @@ func runNodeEndpointSetupStatus(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("\nSetup status for '%s':\n\n", slug)
 
-	if spec != nil {
-		table := output.Table([]string{"STEP", "TYPE", "REQUIRED", "STATUS"})
-		for _, step := range spec.Steps {
-			stepStatus := "pending"
-			if state != nil {
-				if ss, ok := state.Steps[step.ID]; ok {
-					stepStatus = ss.Status
-					if ss.ExpiresAt != "" {
-						stepStatus += " (expires: " + ss.ExpiresAt + ")"
-					}
+	table := output.Table([]string{"STEP", "TYPE", "REQUIRED", "STATUS"})
+	for _, step := range spec.Steps {
+		stepStatus := nodeops.StepStatusPending
+		if state != nil {
+			if ss, ok := state.Steps[step.ID]; ok {
+				stepStatus = ss.Status
+				if ss.ExpiresAt != "" {
+					stepStatus += " (expires: " + ss.ExpiresAt + ")"
 				}
 			}
-			required := "no"
-			if step.Required {
-				required = "yes"
-			}
-			table.Append([]string{step.Name, step.Type, required, stepStatus})
 		}
-		table.Render()
+		required := "no"
+		if step.Required {
+			required = "yes"
+		}
+		table.Append([]string{step.Name, step.Type, required, stepStatus})
 	}
+	table.Render()
 
 	fmt.Println()
 	if status.IsComplete {

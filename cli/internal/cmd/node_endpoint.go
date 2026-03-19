@@ -145,7 +145,7 @@ func runNodeEndpointList(cmd *cobra.Command, args []string) error {
 			if !ep.Enabled {
 				status = output.Red.Sprint("disabled")
 			}
-			if ep.SetupStatus != nil && ep.SetupStatus.HasSetup && !ep.SetupStatus.IsComplete {
+			if ep.SetupStatus != nil && !ep.SetupStatus.IsComplete {
 				status = output.Yellow.Sprintf("needs setup (%d/%d)", ep.SetupStatus.CompletedN, ep.SetupStatus.TotalSteps)
 			}
 			policies := "-"
