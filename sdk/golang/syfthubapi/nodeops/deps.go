@@ -6,6 +6,9 @@ import (
 	"strings"
 )
 
+// depRegex matches Python dependency lines in pyproject.toml.
+var depRegex = regexp.MustCompile(`^["']?([a-zA-Z0-9_-]+)([><=!~]+)?([0-9.]+)?["']?,?$`)
+
 // ReadDependencies reads Python dependencies from a pyproject.toml file.
 // Returns an empty slice (not nil) if the file doesn't exist.
 func ReadDependencies(path string) ([]Dependency, error) {
@@ -20,8 +23,6 @@ func ReadDependencies(path string) ([]Dependency, error) {
 	var deps []Dependency
 	lines := strings.Split(string(content), "\n")
 	inDeps := false
-
-	depRegex := regexp.MustCompile(`^["']?([a-zA-Z0-9_-]+)([><=!~]+)?([0-9.]+)?["']?,?$`)
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)

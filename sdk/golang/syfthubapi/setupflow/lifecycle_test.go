@@ -80,7 +80,7 @@ lifecycle:
 		Version: "1",
 		Steps: map[string]nodeops.StepState{
 			"auth": {
-				Status:      "completed",
+				Status:      nodeops.StepStatusCompleted,
 				CompletedAt: time.Now().Format(time.RFC3339),
 				ExpiresAt:   time.Now().Add(1 * time.Hour).Format(time.RFC3339),
 			},
@@ -153,7 +153,7 @@ lifecycle:
 		Version: "1",
 		Steps: map[string]nodeops.StepState{
 			"auth": {
-				Status:      "completed",
+				Status:      nodeops.StepStatusCompleted,
 				CompletedAt: time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
 				ExpiresAt:   time.Now().Add(-10 * time.Minute).Format(time.RFC3339),
 			},
@@ -191,7 +191,7 @@ lifecycle:
 	// Verify state was updated
 	savedState, _ := nodeops.ReadSetupState(epDir)
 	ss := savedState.Steps["auth"]
-	if ss.Status != "completed" {
+	if ss.Status != nodeops.StepStatusCompleted {
 		t.Errorf("expected status 'completed', got '%s'", ss.Status)
 	}
 	if ss.ExpiresAt == "" {
@@ -230,7 +230,7 @@ lifecycle:
 		Version: "1",
 		Steps: map[string]nodeops.StepState{
 			"auth": {
-				Status:    "completed",
+				Status:    nodeops.StepStatusCompleted,
 				ExpiresAt: time.Now().Add(-10 * time.Minute).Format(time.RFC3339),
 			},
 		},
@@ -279,7 +279,7 @@ lifecycle:
 		Version: "1",
 		Steps: map[string]nodeops.StepState{
 			"auth": {
-				Status:    "completed",
+				Status:    nodeops.StepStatusCompleted,
 				ExpiresAt: time.Now().Add(-10 * time.Minute).Format(time.RFC3339),
 			},
 		},

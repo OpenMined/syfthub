@@ -2,12 +2,21 @@ package nodeops
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"io"
+	"maps"
 	"os"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+// ParseReadmeFrontmatterBytes parses YAML frontmatter from README content already in memory.
+// Returns (frontmatter, body, error) where body is the markdown content after frontmatter.
+func ParseReadmeFrontmatterBytes(data []byte) (*ReadmeFrontmatter, string, error) {
+	return parseFrontmatterFromReader(bytes.NewReader(data))
+}
 
 // ParseReadmeFrontmatter parses YAML frontmatter from a README.md file.
 // Returns (frontmatter, body, error) where body is the markdown content after frontmatter.
@@ -17,8 +26,14 @@ func ParseReadmeFrontmatter(path string) (*ReadmeFrontmatter, string, error) {
 		return nil, "", err
 	}
 	defer file.Close()
+	return parseFrontmatterFromReader(file)
+}
 
-	scanner := bufio.NewScanner(file)
+// SplitFrontmatter reads YAML frontmatter delimited by "---" from r.
+// Returns the raw YAML bytes (between the delimiters) and the remaining body text.
+// This is the single implementation of frontmatter splitting, shared by all parsers.
+func SplitFrontmatter(r io.Reader) (yamlBytes []byte, body string, err error) {
+	scanner := bufio.NewScanner(r)
 
 	if !scanner.Scan() {
 		return nil, "", fmt.Errorf("empty file")
@@ -58,20 +73,26 @@ func ParseReadmeFrontmatter(path string) (*ReadmeFrontmatter, string, error) {
 		return nil, "", fmt.Errorf("error reading file body: %w", err)
 	}
 
-	yamlContent := strings.Join(yamlLines, "\n")
-	var frontmatter ReadmeFrontmatter
-	if err := yaml.Unmarshal([]byte(yamlContent), &frontmatter); err != nil {
-		return nil, "", fmt.Errorf("invalid YAML frontmatter: %w", err)
+	return []byte(strings.Join(yamlLines, "\n")), strings.TrimSpace(strings.Join(bodyLines, "\n")), nil
+}
+
+func parseFrontmatterFromReader(r io.Reader) (*ReadmeFrontmatter, string, error) {
+	yamlBytes, body, err := SplitFrontmatter(r)
+	if err != nil {
+		return nil, "", err
 	}
 
-	body := strings.TrimSpace(strings.Join(bodyLines, "\n"))
+	var frontmatter ReadmeFrontmatter
+	if err := yaml.Unmarshal(yamlBytes, &frontmatter); err != nil {
+		return nil, "", fmt.Errorf("invalid YAML frontmatter: %w", err)
+	}
 
 	return &frontmatter, body, nil
 }
 
 // UpdateReadmeFrontmatter updates specific fields in the README.md frontmatter
 // while preserving the markdown body.
-func UpdateReadmeFrontmatter(path string, updates map[string]interface{}) error {
+func UpdateReadmeFrontmatter(path string, updates map[string]any) error {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -96,14 +117,12 @@ func UpdateReadmeFrontmatter(path string, updates map[string]interface{}) error 
 	}
 
 	yamlContent := strings.Join(lines[1:frontmatterEnd], "\n")
-	var frontmatter map[string]interface{}
+	var frontmatter map[string]any
 	if err := yaml.Unmarshal([]byte(yamlContent), &frontmatter); err != nil {
 		return fmt.Errorf("failed to parse frontmatter: %w", err)
 	}
 
-	for key, value := range updates {
-		frontmatter[key] = value
-	}
+	maps.Copy(frontmatter, updates)
 
 	newYaml, err := yaml.Marshal(frontmatter)
 	if err != nil {

@@ -56,9 +56,8 @@ func (c *MarketplaceClient) FetchPackages() ([]MarketplacePackage, error) {
 	return manifest.Packages, nil
 }
 
-// InstallPackage downloads a package zip, extracts it to endpointsPath/slug,
-// and writes a .env file with the provided configuration values.
-func (c *MarketplaceClient) InstallPackage(endpointsPath, slug, downloadURL string, configValues []EnvVar) error {
+// InstallPackage downloads a package zip and extracts it to endpointsPath/slug.
+func (c *MarketplaceClient) InstallPackage(endpointsPath, slug, downloadURL string) error {
 	if slug == "" {
 		return fmt.Errorf("package slug is required")
 	}
@@ -78,9 +77,13 @@ func (c *MarketplaceClient) InstallPackage(endpointsPath, slug, downloadURL stri
 		return fmt.Errorf("package download returned status %d", resp.StatusCode)
 	}
 
-	zipData, err := io.ReadAll(resp.Body)
+	const maxDownloadSize = 100 << 20 // 100 MB
+	zipData, err := io.ReadAll(io.LimitReader(resp.Body, maxDownloadSize+1))
 	if err != nil {
 		return fmt.Errorf("failed to read package data: %w", err)
+	}
+	if len(zipData) > maxDownloadSize {
+		return fmt.Errorf("package exceeds maximum size of %d MB", maxDownloadSize>>20)
 	}
 
 	targetDir := filepath.Join(endpointsPath, slug)
@@ -105,6 +108,9 @@ func (c *MarketplaceClient) InstallPackage(endpointsPath, slug, downloadURL stri
 		return fmt.Errorf("failed to read zip archive: %w", err)
 	}
 
+	// Pre-compute whether all entries share a common top-level directory
+	topLevelPrefix := commonTopLevelDir(zipReader.File)
+
 	for _, entry := range zipReader.File {
 		if entry.FileInfo().IsDir() {
 			continue
@@ -117,7 +123,7 @@ func (c *MarketplaceClient) InstallPackage(endpointsPath, slug, downloadURL stri
 			continue
 		}
 
-		relPath := stripTopLevelDir(entryName, zipReader.File)
+		relPath := strings.TrimPrefix(entryName, topLevelPrefix)
 		destPath := filepath.Join(targetDir, relPath)
 
 		cleanDest := filepath.Clean(destPath)
@@ -134,21 +140,16 @@ func (c *MarketplaceClient) InstallPackage(endpointsPath, slug, downloadURL stri
 			return fmt.Errorf("failed to open zip entry %s: %w", entry.Name, err)
 		}
 
-		data, err := io.ReadAll(rc)
+		outFile, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			rc.Close()
+			return fmt.Errorf("failed to create %s: %w", relPath, err)
+		}
+		_, err = io.Copy(outFile, rc)
+		outFile.Close()
 		rc.Close()
 		if err != nil {
-			return fmt.Errorf("failed to read zip entry %s: %w", entry.Name, err)
-		}
-
-		if err := os.WriteFile(destPath, data, 0644); err != nil {
 			return fmt.Errorf("failed to write %s: %w", relPath, err)
-		}
-	}
-
-	if len(configValues) > 0 {
-		envPath := filepath.Join(targetDir, ".env")
-		if err := WriteEnvFile(envPath, configValues); err != nil {
-			return fmt.Errorf("failed to write configuration: %w", err)
 		}
 	}
 
@@ -156,25 +157,26 @@ func (c *MarketplaceClient) InstallPackage(endpointsPath, slug, downloadURL stri
 	return nil
 }
 
-// stripTopLevelDir determines if all zip entries share a common top-level directory
-// and returns the entry path with that prefix stripped.
-func stripTopLevelDir(entryName string, files []*zip.File) string {
-	parts := strings.SplitN(entryName, "/", 2)
-	if len(parts) < 2 {
-		return entryName
-	}
-
-	prefix := parts[0] + "/"
-
+// commonTopLevelDir returns the common top-level directory prefix shared by all
+// file entries in the zip (e.g. "pkg-v1/"). Returns "" if entries do not share
+// a common prefix.
+func commonTopLevelDir(files []*zip.File) string {
+	var prefix string
 	for _, f := range files {
 		if f.FileInfo().IsDir() {
 			continue
 		}
 		name := filepath.ToSlash(f.Name)
-		if !strings.HasPrefix(name, prefix) {
-			return entryName
+		parts := strings.SplitN(name, "/", 2)
+		if len(parts) < 2 {
+			return "" // file at root level — no common prefix
+		}
+		candidate := parts[0] + "/"
+		if prefix == "" {
+			prefix = candidate
+		} else if prefix != candidate {
+			return "" // mismatch
 		}
 	}
-
-	return strings.TrimPrefix(entryName, prefix)
+	return prefix
 }

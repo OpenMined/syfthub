@@ -12,8 +12,10 @@ const (
 
 // Step status constants.
 const (
+	StepStatusPending   = "pending"
 	StepStatusCompleted = "completed"
 	StepStatusFailed    = "failed"
+	StepStatusSkipped   = "skipped"
 )
 
 // Lifecycle strategy constants.
@@ -154,7 +156,7 @@ type SetupState struct {
 
 // StepState tracks the completion status of a single step.
 type StepState struct {
-	Status      string `json:"status"`                 // "completed", "failed", "skipped", "expired"
+	Status      string `json:"status"`                 // See StepStatus* constants
 	CompletedAt string `json:"completed_at,omitempty"` // RFC3339
 	ExpiresAt   string `json:"expires_at,omitempty"`   // RFC3339 (for oauth tokens)
 	Error       string `json:"error,omitempty"`        // error message if failed
@@ -162,7 +164,6 @@ type StepState struct {
 
 // SetupStatus is the computed status for display.
 type SetupStatus struct {
-	HasSetup     bool     `json:"has_setup"`   // setup.yaml exists
 	IsComplete   bool     `json:"is_complete"` // all required steps done
 	TotalSteps   int      `json:"total_steps"`
 	CompletedN   int      `json:"completed"`

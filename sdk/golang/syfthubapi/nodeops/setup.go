@@ -248,28 +248,18 @@ func WriteSetupState(dir string, state *SetupState) error {
 	return os.WriteFile(path, data, 0600)
 }
 
-// GetSetupStatus computes the setup status by comparing spec against state.
-// Returns a status indicating has_setup=false if no setup.yaml exists.
-func GetSetupStatus(dir string) (*SetupStatus, error) {
-	setupPath := filepath.Join(dir, "setup.yaml")
-	spec, err := ParseSetupYaml(setupPath)
-	if err != nil {
-		return nil, err
-	}
+// ComputeSetupStatus builds a SetupStatus from already-parsed spec and state,
+// without any file I/O. Useful when both are already loaded.
+func ComputeSetupStatus(spec *SetupSpec, state *SetupState) *SetupStatus {
 	if spec == nil {
-		return &SetupStatus{HasSetup: false, IsComplete: true}, nil
+		return nil
 	}
-
-	state, err := ReadSetupState(dir)
-	if err != nil {
-		return nil, err
+	if state == nil {
+		state = &SetupState{Steps: map[string]StepState{}}
 	}
-
 	status := &SetupStatus{
-		HasSetup:   true,
 		TotalSteps: len(spec.Steps),
 	}
-
 	for _, step := range spec.Steps {
 		ss, exists := state.Steps[step.ID]
 		if exists && ss.Status == StepStatusCompleted {
@@ -277,21 +267,40 @@ func GetSetupStatus(dir string) (*SetupStatus, error) {
 			if ss.ExpiresAt != "" {
 				expiresAt, err := time.Parse(time.RFC3339, ss.ExpiresAt)
 				if err == nil && time.Now().After(expiresAt) {
-					status.ExpiredSteps = append(status.ExpiredSteps, step.ID)
+					// Only required expired steps block IsComplete
+					if step.Required {
+						status.ExpiredSteps = append(status.ExpiredSteps, step.ID)
+					}
 					continue
 				}
 			}
 			status.CompletedN++
 		} else if step.Required {
 			status.PendingSteps = append(status.PendingSteps, step.ID)
-		} else {
-			// Optional step not done — still counts towards total but not pending
 		}
 	}
-
 	status.IsComplete = len(status.PendingSteps) == 0 && len(status.ExpiredSteps) == 0
+	return status
+}
 
-	return status, nil
+// GetSetupStatus computes the setup status by comparing spec against state.
+// Returns nil (not an error) if no setup.yaml exists in the directory.
+func GetSetupStatus(dir string) (*SetupStatus, error) {
+	setupPath := filepath.Join(dir, "setup.yaml")
+	spec, err := ParseSetupYaml(setupPath)
+	if err != nil {
+		return nil, err
+	}
+	if spec == nil {
+		return nil, nil
+	}
+
+	state, err := ReadSetupState(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	return ComputeSetupStatus(spec, state), nil
 }
 
 // HasSetup returns true if setup.yaml exists in the directory.

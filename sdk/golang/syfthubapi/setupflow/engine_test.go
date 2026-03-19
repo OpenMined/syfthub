@@ -213,7 +213,7 @@ func TestEngine_SkipCompleted(t *testing.T) {
 		State: &nodeops.SetupState{
 			Version: "1",
 			Steps: map[string]nodeops.StepState{
-				"key": {Status: "completed", CompletedAt: "2026-01-01T00:00:00Z"},
+				"key": {Status: nodeops.StepStatusCompleted, CompletedAt: "2026-01-01T00:00:00Z"},
 			},
 		},
 		Spec: &nodeops.SetupSpec{
@@ -257,7 +257,7 @@ func TestEngine_ForceRerun(t *testing.T) {
 		State: &nodeops.SetupState{
 			Version: "1",
 			Steps: map[string]nodeops.StepState{
-				"key": {Status: "completed", CompletedAt: "2026-01-01T00:00:00Z"},
+				"key": {Status: nodeops.StepStatusCompleted, CompletedAt: "2026-01-01T00:00:00Z"},
 			},
 		},
 		Spec: &nodeops.SetupSpec{
@@ -575,7 +575,7 @@ func TestEngine_StateUpdated(t *testing.T) {
 	state, _ := nodeops.ReadSetupState(dir)
 	if ss, ok := state.Steps["s1"]; !ok {
 		t.Error("expected step s1 in state")
-	} else if ss.Status != "completed" {
+	} else if ss.Status != nodeops.StepStatusCompleted {
 		t.Errorf("expected completed, got %s", ss.Status)
 	}
 }
@@ -587,8 +587,8 @@ func TestEngine_ResumeAfterFailure(t *testing.T) {
 	nodeops.WriteSetupState(dir, &nodeops.SetupState{
 		Version: "1",
 		Steps: map[string]nodeops.StepState{
-			"s1": {Status: "completed", CompletedAt: "2026-01-01T00:00:00Z"},
-			"s2": {Status: "failed", Error: "previous failure"},
+			"s1": {Status: nodeops.StepStatusCompleted, CompletedAt: "2026-01-01T00:00:00Z"},
+			"s2": {Status: nodeops.StepStatusFailed, Error: "previous failure"},
 		},
 	})
 	nodeops.WriteEnvFile(filepath.Join(dir, ".env"), []nodeops.EnvVar{
@@ -604,8 +604,8 @@ func TestEngine_ResumeAfterFailure(t *testing.T) {
 		State: &nodeops.SetupState{
 			Version: "1",
 			Steps: map[string]nodeops.StepState{
-				"s1": {Status: "completed", CompletedAt: "2026-01-01T00:00:00Z"},
-				"s2": {Status: "failed", Error: "previous failure"},
+				"s1": {Status: nodeops.StepStatusCompleted, CompletedAt: "2026-01-01T00:00:00Z"},
+				"s2": {Status: nodeops.StepStatusFailed, Error: "previous failure"},
 			},
 		},
 		Spec: &nodeops.SetupSpec{

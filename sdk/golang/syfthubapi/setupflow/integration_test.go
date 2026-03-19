@@ -154,7 +154,7 @@ steps:
 			t.Errorf("step '%s' not found in state", stepID)
 			continue
 		}
-		if ss.Status != "completed" {
+		if ss.Status != nodeops.StepStatusCompleted {
 			t.Errorf("step '%s' status = '%s', want 'completed'", stepID, ss.Status)
 		}
 	}
@@ -297,7 +297,7 @@ steps:
 			t.Errorf("step '%s' not found in state", stepID)
 			continue
 		}
-		if ss.Status != "completed" {
+		if ss.Status != nodeops.StepStatusCompleted {
 			t.Errorf("step '%s' status = '%s', want 'completed'", stepID, ss.Status)
 		}
 	}

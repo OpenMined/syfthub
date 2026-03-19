@@ -70,7 +70,7 @@ func TestInstallPackage(t *testing.T) {
 	os.MkdirAll(endpointsDir, 0755)
 
 	client := NewMarketplaceClient("http://unused")
-	err := client.InstallPackage(endpointsDir, "test-pkg", server.URL, nil)
+	err := client.InstallPackage(endpointsDir, "test-pkg", server.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestInstallPackage_AlreadyInstalled(t *testing.T) {
 	os.MkdirAll(filepath.Join(endpointsDir, "existing"), 0755)
 
 	client := NewMarketplaceClient("http://unused")
-	err := client.InstallPackage(endpointsDir, "existing", "http://example.com/test.zip", nil)
+	err := client.InstallPackage(endpointsDir, "existing", "http://example.com/test.zip")
 	if err == nil {
 		t.Error("expected error for already installed package")
 	}

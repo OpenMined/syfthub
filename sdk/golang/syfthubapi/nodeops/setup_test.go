@@ -354,8 +354,8 @@ func TestWriteSetupState_RoundTrip(t *testing.T) {
 	original := &SetupState{
 		Version: "1",
 		Steps: map[string]StepState{
-			"step1": {Status: "completed", CompletedAt: "2026-01-01T00:00:00Z"},
-			"step2": {Status: "failed", Error: "something went wrong"},
+			"step1": {Status: StepStatusCompleted, CompletedAt: "2026-01-01T00:00:00Z"},
+			"step2": {Status: StepStatusFailed, Error: "something went wrong"},
 		},
 	}
 
@@ -374,7 +374,7 @@ func TestWriteSetupState_RoundTrip(t *testing.T) {
 	if len(state.Steps) != 2 {
 		t.Fatalf("expected 2 steps, got %d", len(state.Steps))
 	}
-	if state.Steps["step1"].Status != "completed" {
+	if state.Steps["step1"].Status != StepStatusCompleted {
 		t.Error("step1 status mismatch")
 	}
 	if state.Steps["step2"].Error != "something went wrong" {
@@ -388,11 +388,8 @@ func TestGetSetupStatus_NoSetup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if status.HasSetup {
-		t.Error("expected has_setup=false")
-	}
-	if !status.IsComplete {
-		t.Error("expected is_complete=true when no setup")
+	if status != nil {
+		t.Error("expected nil status when no setup.yaml")
 	}
 }
 
@@ -411,8 +408,8 @@ func TestGetSetupStatus_AllComplete(t *testing.T) {
 	state := &SetupState{
 		Version: "1",
 		Steps: map[string]StepState{
-			"s1": {Status: "completed", CompletedAt: "2026-01-01T00:00:00Z"},
-			"s2": {Status: "completed", CompletedAt: "2026-01-01T00:00:00Z"},
+			"s1": {Status: StepStatusCompleted, CompletedAt: "2026-01-01T00:00:00Z"},
+			"s2": {Status: StepStatusCompleted, CompletedAt: "2026-01-01T00:00:00Z"},
 		},
 	}
 	WriteSetupState(dir, state)
@@ -420,9 +417,6 @@ func TestGetSetupStatus_AllComplete(t *testing.T) {
 	status, err := GetSetupStatus(dir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
-	}
-	if !status.HasSetup {
-		t.Error("expected has_setup=true")
 	}
 	if !status.IsComplete {
 		t.Error("expected is_complete=true")
@@ -447,7 +441,7 @@ func TestGetSetupStatus_Pending(t *testing.T) {
 	state := &SetupState{
 		Version: "1",
 		Steps: map[string]StepState{
-			"s1": {Status: "completed", CompletedAt: "2026-01-01T00:00:00Z"},
+			"s1": {Status: StepStatusCompleted, CompletedAt: "2026-01-01T00:00:00Z"},
 		},
 	}
 	WriteSetupState(dir, state)
@@ -483,7 +477,7 @@ func TestGetSetupStatus_Expired(t *testing.T) {
 	state := &SetupState{
 		Version: "1",
 		Steps: map[string]StepState{
-			"s1": {Status: "completed", CompletedAt: "2026-01-01T00:00:00Z", ExpiresAt: pastTime},
+			"s1": {Status: StepStatusCompleted, CompletedAt: "2026-01-01T00:00:00Z", ExpiresAt: pastTime},
 		},
 	}
 	WriteSetupState(dir, state)
@@ -515,7 +509,7 @@ func TestGetSetupStatus_OptionalSkipped(t *testing.T) {
 	state := &SetupState{
 		Version: "1",
 		Steps: map[string]StepState{
-			"s1": {Status: "completed", CompletedAt: "2026-01-01T00:00:00Z"},
+			"s1": {Status: StepStatusCompleted, CompletedAt: "2026-01-01T00:00:00Z"},
 		},
 	}
 	WriteSetupState(dir, state)

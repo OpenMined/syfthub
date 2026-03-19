@@ -15,6 +15,7 @@ import (
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
+
 // EndpointConfig represents the configuration from README.md frontmatter.
 type EndpointConfig struct {
 	Slug        string        `yaml:"slug"`
@@ -178,7 +179,7 @@ func (l *Loader) LoadEndpoint(dir string) (*LoadedEndpoint, error) {
 	if err != nil {
 		l.logger.Warn("failed to check setup status", "dir", dir, "error", err)
 	}
-	if status != nil && status.HasSetup && !status.IsComplete {
+	if status != nil && !status.IsComplete {
 		l.logger.Warn("endpoint setup incomplete, disabling",
 			"slug", config.Slug,
 			"pending", status.PendingSteps,
@@ -224,70 +225,16 @@ func (l *Loader) parseReadme(path string) (*EndpointConfig, string, error) {
 	}
 	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
-
-	// Look for opening ---
-	if !scanner.Scan() {
+	yamlBytes, body, err := nodeops.SplitFrontmatter(file)
+	if err != nil {
 		return nil, "", &syfthubapi.FileLoadError{
 			Path:    path,
-			Message: "empty file",
+			Message: err.Error(),
 		}
 	}
 
-	firstLine := strings.TrimSpace(scanner.Text())
-	if firstLine != "---" {
-		return nil, "", &syfthubapi.FileLoadError{
-			Path:    path,
-			Message: "missing YAML frontmatter (expected '---')",
-		}
-	}
-
-	// Collect YAML content
-	var yamlLines []string
-	foundClose := false
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.TrimSpace(line) == "---" {
-			foundClose = true
-			break
-		}
-		yamlLines = append(yamlLines, line)
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, "", &syfthubapi.FileLoadError{
-			Path:    path,
-			Message: "error reading file",
-			Cause:   err,
-		}
-	}
-
-	if !foundClose {
-		return nil, "", &syfthubapi.FileLoadError{
-			Path:    path,
-			Message: "unclosed YAML frontmatter (missing closing '---')",
-		}
-	}
-
-	// Collect body content (everything after frontmatter)
-	var bodyLines []string
-	for scanner.Scan() {
-		bodyLines = append(bodyLines, scanner.Text())
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, "", &syfthubapi.FileLoadError{
-			Path:    path,
-			Message: "error reading file body",
-			Cause:   err,
-		}
-	}
-
-	// Parse YAML
-	yamlContent := strings.Join(yamlLines, "\n")
 	var config EndpointConfig
-	if err := yaml.Unmarshal([]byte(yamlContent), &config); err != nil {
+	if err := yaml.Unmarshal(yamlBytes, &config); err != nil {
 		return nil, "", &syfthubapi.FileLoadError{
 			Path:    path,
 			Message: "invalid YAML frontmatter",
@@ -314,9 +261,6 @@ func (l *Loader) parseReadme(path string) (*EndpointConfig, string, error) {
 			Message: fmt.Sprintf("invalid type: %s (must be 'model' or 'data_source')", config.Type),
 		}
 	}
-
-	// Trim leading/trailing whitespace from body
-	body := strings.TrimSpace(strings.Join(bodyLines, "\n"))
 
 	return &config, body, nil
 }
