@@ -26,6 +26,13 @@ class EndpointType(str, Enum):
     MODEL_DATA_SOURCE = "model_data_source"  # Both model and data source
 
 
+class EndpointHealthStatus(str, Enum):
+    """Per-endpoint health status reported by client."""
+
+    HEALTHY = "healthy"
+    UNHEALTHY = "unhealthy"
+
+
 def get_matching_types(endpoint_type: EndpointType) -> list[str]:
     """Get all type values that match a filter, including model_data_source for model/data_source."""
     if endpoint_type == EndpointType.MODEL:
@@ -388,6 +395,17 @@ class Endpoint(BaseModel):
     created_at: datetime = Field(..., description="When the endpoint was created")
     updated_at: datetime = Field(..., description="When the endpoint was last updated")
 
+    # Per-endpoint health status (reported by client via POST /endpoints/health)
+    health_status: Optional[str] = Field(
+        None, description="Client-reported health status ('healthy' or 'unhealthy')"
+    )
+    health_checked_at: Optional[datetime] = Field(
+        None, description="When the client last checked this endpoint's health"
+    )
+    health_ttl_seconds: Optional[int] = Field(
+        None, description="TTL for the health status report in seconds"
+    )
+
     model_config = {"from_attributes": True}
 
 
@@ -427,6 +445,17 @@ class EndpointResponse(BaseModel):
     created_at: datetime = Field(..., description="When the endpoint was created")
     updated_at: datetime = Field(..., description="When the endpoint was last updated")
 
+    # Per-endpoint health status (reported by client via POST /endpoints/health)
+    health_status: Optional[str] = Field(
+        None, description="Client-reported health status ('healthy' or 'unhealthy')"
+    )
+    health_checked_at: Optional[datetime] = Field(
+        None, description="When the client last checked this endpoint's health"
+    )
+    health_ttl_seconds: Optional[int] = Field(
+        None, description="TTL for the health status report in seconds"
+    )
+
     model_config = {"from_attributes": True}
 
 
@@ -459,7 +488,15 @@ class EndpointPublicResponse(BaseModel):
     created_at: datetime = Field(..., description="When the endpoint was created")
     updated_at: datetime = Field(..., description="When the endpoint was last updated")
 
-    # Note: Excludes user_id, id, visibility, is_active, contributors for security/privacy
+    # Per-endpoint health status (reported by client via POST /endpoints/health)
+    health_status: Optional[str] = Field(
+        None, description="Client-reported health status ('healthy' or 'unhealthy')"
+    )
+    health_checked_at: Optional[datetime] = Field(
+        None, description="When the client last checked this endpoint's health"
+    )
+
+    # Note: Excludes user_id, id, visibility, is_active, contributors, health_ttl_seconds for security/privacy
 
     model_config = {"from_attributes": True}
 
@@ -608,3 +645,100 @@ def is_slug_available(
     # This will be implemented in the endpoints module
     # Placeholder for the actual availability check logic
     return True
+
+
+# ===========================================
+# ENDPOINT HEALTH SCHEMAS
+# ===========================================
+
+
+class EndpointHealthItem(BaseModel):
+    """Single endpoint health status report from client."""
+
+    slug: str = Field(
+        ...,
+        min_length=3,
+        max_length=63,
+        description="Endpoint slug to report health for",
+    )
+    status: EndpointHealthStatus = Field(
+        ..., description="Health status: 'healthy' or 'unhealthy'"
+    )
+    checked_at: datetime = Field(
+        ..., description="When the client checked this endpoint's health"
+    )
+
+
+class EndpointHealthRequest(BaseModel):
+    """Request schema for bulk endpoint health reporting.
+
+    Allows clients to report per-endpoint health status. Also updates the
+    owner's domain-level heartbeat (subsumes POST /users/me/heartbeat).
+    """
+
+    endpoints: List[EndpointHealthItem] = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="List of endpoint health status reports",
+    )
+    ttl_seconds: Optional[int] = Field(
+        None,
+        ge=1,
+        le=3600,
+        description="TTL for health status validity (capped by server max)",
+    )
+    url: str = Field(
+        ...,
+        max_length=500,
+        description="Full URL of the domain sending the health report",
+    )
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        """Validate URL format (same rules as HeartbeatRequest)."""
+        from urllib.parse import urlparse
+
+        from syfthub.schemas.user import TUNNELING_PREFIX, TUNNELING_USERNAME_PATTERN
+
+        v = v.strip()
+
+        if v.startswith(TUNNELING_PREFIX):
+            username = v[len(TUNNELING_PREFIX) :]
+            if not username:
+                raise ValueError("Tunneling URL must include a username")
+            if not TUNNELING_USERNAME_PATTERN.match(username):
+                raise ValueError(
+                    "Tunneling username must be 1-50 characters, "
+                    "alphanumeric with underscores and hyphens only"
+                )
+            return v
+
+        if not v.startswith(("http://", "https://")):
+            raise ValueError(
+                f"URL must start with http://, https://, or {TUNNELING_PREFIX}"
+            )
+
+        parsed = urlparse(v)
+        if not parsed.netloc:
+            raise ValueError("URL must contain a valid hostname")
+
+        hostname = parsed.netloc.split(":")[0]
+        if not hostname:
+            raise ValueError("URL must contain a valid hostname, not just a port")
+
+        return v
+
+
+class EndpointHealthResponse(BaseModel):
+    """Response schema for bulk endpoint health reporting."""
+
+    updated: int = Field(
+        ..., ge=0, description="Number of endpoints whose health was updated"
+    )
+    ignored: int = Field(
+        ...,
+        ge=0,
+        description="Number of slugs that were not found or not accessible",
+    )

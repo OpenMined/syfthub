@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, List, Optional
 
-from sqlalchemy import Text, and_, cast, delete, func, or_, select
+from sqlalchemy import Text, and_, cast, delete, func, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from syfthub.core.url_builder import transform_connection_urls
@@ -1163,6 +1163,90 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             return self.session.get(self.model, endpoint_id)
         except SQLAlchemyError:
             return None
+
+    # ===========================================
+    # ENDPOINT HEALTH METHODS
+    # ===========================================
+
+    def get_endpoints_by_slugs_for_health(
+        self,
+        user_id: int,
+        org_ids: list[int],
+        slugs: list[str],
+    ) -> list[EndpointModel]:
+        """Get endpoints matching slugs for health reporting.
+
+        Looks up endpoints by slug, owned by user OR any of the given orgs.
+        Does NOT filter by is_active — health reports should work for all
+        endpoints so the health monitor can re-activate them.
+
+        Args:
+            user_id: The user ID to match user-owned endpoints
+            org_ids: List of organization IDs to match org-owned endpoints
+            slugs: List of endpoint slugs to look up
+
+        Returns:
+            List of matching EndpointModel objects
+        """
+        try:
+            normalized_slugs = [s.lower() for s in slugs]
+
+            ownership_conditions = [self.model.user_id == user_id]
+            if org_ids:
+                ownership_conditions.append(self.model.organization_id.in_(org_ids))
+
+            stmt = select(self.model).where(
+                and_(
+                    self.model.slug.in_(normalized_slugs),
+                    or_(*ownership_conditions),
+                )
+            )
+            result = self.session.execute(stmt)
+            return list(result.scalars().all())
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to look up endpoints by slugs for health: {e}")
+            return []
+
+    def bulk_update_health_status(
+        self,
+        updates: list[dict],
+    ) -> int:
+        """Bulk update endpoint health status.
+
+        Each item in updates should contain:
+            - endpoint_id: int
+            - health_status: str ("healthy" or "unhealthy")
+            - health_checked_at: datetime
+            - health_ttl_seconds: int
+
+        Does NOT commit — caller manages the transaction.
+
+        Args:
+            updates: List of dicts with health update data
+
+        Returns:
+            Number of endpoints successfully updated
+        """
+        updated_count = 0
+        for item in updates:
+            try:
+                stmt = (
+                    update(EndpointModel)
+                    .where(EndpointModel.id == item["endpoint_id"])
+                    .values(
+                        health_status=item["health_status"],
+                        health_checked_at=item["health_checked_at"],
+                        health_ttl_seconds=item["health_ttl_seconds"],
+                    )
+                )
+                result = self.session.execute(stmt)
+                if result.rowcount > 0:
+                    updated_count += 1
+            except SQLAlchemyError as e:
+                logger.error(
+                    f"Failed to update health for endpoint {item['endpoint_id']}: {e}"
+                )
+        return updated_count
 
 
 class EndpointStarRepository(BaseRepository[EndpointStarModel]):

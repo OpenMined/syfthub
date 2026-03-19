@@ -5,11 +5,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from syfthub.database.connection import get_db_session
 from syfthub.schemas.endpoint import (
     Endpoint,
     EndpointCreate,
+    EndpointHealthItem,
+    EndpointHealthRequest,
+    EndpointHealthResponse,
+    EndpointHealthStatus,
     EndpointPublicResponse,
     EndpointResponse,
     EndpointType,
@@ -1244,3 +1249,351 @@ class TestEndpointServiceGuestAccessible:
             endpoint_service.list_guest_accessible_endpoints(skip=10, limit=20)
 
             mock_method.assert_called_once_with(skip=10, limit=20, endpoint_type=None)
+
+
+class TestEndpointHealthSchemas:
+    """Tests for endpoint health request/response schemas."""
+
+    def test_health_item_creation(self):
+        """Test EndpointHealthItem creation."""
+        now = datetime.now(timezone.utc)
+        item = EndpointHealthItem(
+            slug="my-endpoint",
+            status=EndpointHealthStatus.HEALTHY,
+            checked_at=now,
+        )
+        assert item.slug == "my-endpoint"
+        assert item.status == EndpointHealthStatus.HEALTHY
+        assert item.checked_at == now
+
+    def test_health_request_valid_https_url(self):
+        """Test EndpointHealthRequest with valid HTTPS URL."""
+        now = datetime.now(timezone.utc)
+        req = EndpointHealthRequest(
+            endpoints=[
+                EndpointHealthItem(
+                    slug="my-endpoint",
+                    status=EndpointHealthStatus.HEALTHY,
+                    checked_at=now,
+                )
+            ],
+            url="https://example.com:8080",
+            ttl_seconds=300,
+        )
+        assert req.url == "https://example.com:8080"
+        assert req.ttl_seconds == 300
+        assert len(req.endpoints) == 1
+
+    def test_health_request_valid_tunneling_url(self):
+        """Test EndpointHealthRequest with valid tunneling URL."""
+        now = datetime.now(timezone.utc)
+        req = EndpointHealthRequest(
+            endpoints=[
+                EndpointHealthItem(
+                    slug="my-endpoint",
+                    status=EndpointHealthStatus.HEALTHY,
+                    checked_at=now,
+                )
+            ],
+            url="tunneling:myuser",
+        )
+        assert req.url == "tunneling:myuser"
+
+    def test_health_request_invalid_url_scheme(self):
+        """Test EndpointHealthRequest rejects invalid URL scheme."""
+        now = datetime.now(timezone.utc)
+        with pytest.raises(ValidationError):
+            EndpointHealthRequest(
+                endpoints=[
+                    EndpointHealthItem(
+                        slug="ep", status=EndpointHealthStatus.HEALTHY, checked_at=now
+                    )
+                ],
+                url="ftp://example.com",
+            )
+
+    def test_health_request_tunneling_empty_username(self):
+        """Test EndpointHealthRequest rejects tunneling URL without username."""
+        now = datetime.now(timezone.utc)
+        with pytest.raises(ValidationError):
+            EndpointHealthRequest(
+                endpoints=[
+                    EndpointHealthItem(
+                        slug="ep", status=EndpointHealthStatus.HEALTHY, checked_at=now
+                    )
+                ],
+                url="tunneling:",
+            )
+
+    def test_health_request_url_no_hostname(self):
+        """Test EndpointHealthRequest rejects URL without hostname."""
+        now = datetime.now(timezone.utc)
+        with pytest.raises(ValidationError):
+            EndpointHealthRequest(
+                endpoints=[
+                    EndpointHealthItem(
+                        slug="ep", status=EndpointHealthStatus.HEALTHY, checked_at=now
+                    )
+                ],
+                url="https://",
+            )
+
+    def test_health_response_creation(self):
+        """Test EndpointHealthResponse creation."""
+        resp = EndpointHealthResponse(updated=3, ignored=1)
+        assert resp.updated == 3
+        assert resp.ignored == 1
+
+    def test_health_status_enum_values(self):
+        """Test EndpointHealthStatus enum values."""
+        assert EndpointHealthStatus.HEALTHY == "healthy"
+        assert EndpointHealthStatus.UNHEALTHY == "unhealthy"
+
+
+class TestReportEndpointHealth:
+    """Tests for EndpointService.report_endpoint_health method."""
+
+    @pytest.fixture
+    def endpoint_service(self):
+        """Create EndpointService with mocked session."""
+        session = MagicMock()
+        return EndpointService(session)
+
+    @pytest.fixture
+    def sample_user(self):
+        """Sample user for testing."""
+        return User(
+            id=1,
+            username="testuser",
+            email="test@example.com",
+            full_name="Test User",
+            role="user",
+            is_active=True,
+            created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
+            updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
+            key_created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
+            age=25,
+            public_key="public_key",
+            password_hash="hashed_pass",
+        )
+
+    def test_report_health_happy_path(self, endpoint_service, sample_user):
+        """Test reporting health for matching endpoints."""
+        now = datetime.now(timezone.utc)
+        items = [
+            EndpointHealthItem(
+                slug="my-endpoint",
+                status=EndpointHealthStatus.HEALTHY,
+                checked_at=now,
+            )
+        ]
+
+        # Mock org membership (no orgs)
+        mock_org = MagicMock()
+        mock_org.id = 100
+        with (
+            patch.object(
+                endpoint_service.org_member_repository,
+                "get_user_organizations",
+                return_value=[],
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_endpoints_by_slugs_for_health",
+                return_value=[
+                    MagicMock(slug="my-endpoint", id=1, organization_id=None)
+                ],
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "bulk_update_health_status",
+                return_value=1,
+            ),
+            patch.object(
+                endpoint_service.user_repository, "update_heartbeat", return_value=True
+            ),
+        ):
+            result = endpoint_service.report_endpoint_health(
+                endpoints_health=items,
+                url="https://example.com",
+                current_user=sample_user,
+                ttl_seconds=300,
+            )
+
+        assert result.updated == 1
+        assert result.ignored == 0
+
+    def test_report_health_unmatched_slugs(self, endpoint_service, sample_user):
+        """Test reporting health for slugs that don't match any endpoints."""
+        now = datetime.now(timezone.utc)
+        items = [
+            EndpointHealthItem(
+                slug="nonexistent",
+                status=EndpointHealthStatus.HEALTHY,
+                checked_at=now,
+            )
+        ]
+
+        with (
+            patch.object(
+                endpoint_service.org_member_repository,
+                "get_user_organizations",
+                return_value=[],
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_endpoints_by_slugs_for_health",
+                return_value=[],
+            ),
+            patch.object(
+                endpoint_service.user_repository, "update_heartbeat", return_value=True
+            ),
+        ):
+            result = endpoint_service.report_endpoint_health(
+                endpoints_health=items,
+                url="https://example.com",
+                current_user=sample_user,
+            )
+
+        assert result.updated == 0
+        assert result.ignored == 1
+
+    def test_report_health_invalid_url(self, endpoint_service, sample_user):
+        """Test reporting health with invalid URL raises HTTPException."""
+        now = datetime.now(timezone.utc)
+        items = [
+            EndpointHealthItem(
+                slug="my-endpoint",
+                status=EndpointHealthStatus.HEALTHY,
+                checked_at=now,
+            )
+        ]
+
+        with pytest.raises(HTTPException) as exc_info:
+            endpoint_service.report_endpoint_health(
+                endpoints_health=items,
+                url="not-a-url",
+                current_user=sample_user,
+            )
+        assert exc_info.value.status_code == 422
+
+    def test_report_health_tunneling_url(self, endpoint_service, sample_user):
+        """Test reporting health with tunneling URL."""
+        now = datetime.now(timezone.utc)
+        items = [
+            EndpointHealthItem(
+                slug="my-endpoint",
+                status=EndpointHealthStatus.HEALTHY,
+                checked_at=now,
+            )
+        ]
+
+        with (
+            patch.object(
+                endpoint_service.org_member_repository,
+                "get_user_organizations",
+                return_value=[],
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_endpoints_by_slugs_for_health",
+                return_value=[],
+            ),
+            patch.object(
+                endpoint_service.user_repository, "update_heartbeat", return_value=True
+            ),
+        ):
+            result = endpoint_service.report_endpoint_health(
+                endpoints_health=items,
+                url="tunneling:testuser",
+                current_user=sample_user,
+            )
+
+        assert result.updated == 0
+        assert result.ignored == 1
+
+    def test_report_health_updates_org_heartbeat(self, endpoint_service, sample_user):
+        """Test that org heartbeats are updated for matched org-owned endpoints."""
+        now = datetime.now(timezone.utc)
+        items = [
+            EndpointHealthItem(
+                slug="org-endpoint",
+                status=EndpointHealthStatus.HEALTHY,
+                checked_at=now,
+            )
+        ]
+
+        mock_org = MagicMock()
+        mock_org.id = 100
+        mock_endpoint = MagicMock(slug="org-endpoint", id=5, organization_id=100)
+
+        with (
+            patch.object(
+                endpoint_service.org_member_repository,
+                "get_user_organizations",
+                return_value=[mock_org],
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_endpoints_by_slugs_for_health",
+                return_value=[mock_endpoint],
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "bulk_update_health_status",
+                return_value=1,
+            ),
+            patch.object(
+                endpoint_service.user_repository, "update_heartbeat", return_value=True
+            ),
+            patch.object(
+                endpoint_service.org_repository, "update_heartbeat", return_value=True
+            ) as mock_org_heartbeat,
+        ):
+            result = endpoint_service.report_endpoint_health(
+                endpoints_health=items,
+                url="https://example.com",
+                current_user=sample_user,
+                ttl_seconds=300,
+            )
+
+        assert result.updated == 1
+        mock_org_heartbeat.assert_called_once()
+
+    def test_report_health_commit_failure(self, endpoint_service, sample_user):
+        """Test that commit failure raises HTTPException."""
+        now = datetime.now(timezone.utc)
+        items = [
+            EndpointHealthItem(
+                slug="my-endpoint",
+                status=EndpointHealthStatus.HEALTHY,
+                checked_at=now,
+            )
+        ]
+
+        endpoint_service.session.commit.side_effect = Exception("DB error")
+
+        with (
+            patch.object(
+                endpoint_service.org_member_repository,
+                "get_user_organizations",
+                return_value=[],
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_endpoints_by_slugs_for_health",
+                return_value=[],
+            ),
+            patch.object(
+                endpoint_service.user_repository, "update_heartbeat", return_value=True
+            ),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                endpoint_service.report_endpoint_health(
+                    endpoints_health=items,
+                    url="https://example.com",
+                    current_user=sample_user,
+                )
+            assert exc_info.value.status_code == 500
+
+        endpoint_service.session.rollback.assert_called_once()

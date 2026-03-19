@@ -6,6 +6,7 @@ from syfthub.api.endpoints import (
     accounting,
     endpoints,
     errors,
+    feedback,
     nats,
     organizations,
     peer,
@@ -39,6 +40,9 @@ api_router.include_router(peer.router, tags=["nats-peer"])
 
 # NATS credentials endpoint
 api_router.include_router(nats.router, tags=["nats"])
+
+# Feedback / bug report proxy (creates Linear issues)
+api_router.include_router(feedback.router, tags=["feedback"])
 
 # Error reporting endpoint for frontend
 api_router.include_router(errors.router, tags=["observability"])
