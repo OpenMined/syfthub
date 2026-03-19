@@ -166,41 +166,32 @@ def get_allowed_audiences(
     return settings.allowed_audiences
 
 
-def create_guest_satellite_token(
+def _mint_satellite_token(
+    sub: str,
+    role: str,
     audience: str,
     key_manager: RSAKeyManager,
     user_repo: Optional[UserRepository] = None,
 ) -> str:
-    """Create an audience-bound satellite token for a guest (unauthenticated) user.
+    """Shared implementation for minting audience-bound satellite tokens.
 
-    This function creates a short-lived, RS256-signed JWT for guest users who
-    don't have a Hub account. Guest tokens allow unauthenticated access to
-    policy-free endpoints.
-
-    Token Claims:
-    - sub: "guest" (special identifier for guests)
-    - iss: Issuer URL (e.g., 'https://hub.syft.com')
-    - aud: Target service identifier (username of target user/service)
-    - exp: Expiration timestamp (short-lived, e.g., 60s)
-    - iat: Issued at timestamp
-    - role: "guest" (indicates unauthenticated user)
-
-    When verified via /verify, the Hub returns email="guest@syfthub.org"
-    and username="guest" for guest tokens.
+    Validates the audience, checks key configuration, builds the JWT payload,
+    and signs it with RS256.
 
     Args:
-        audience: Target service identifier (username of target user/service)
-        key_manager: RSA key manager for signing
-        user_repo: User repository for audience validation. If provided,
-                   validates that audience is an active user's username.
+        sub: Subject claim (user ID or "guest").
+        role: Role claim (user role or "guest").
+        audience: Target service identifier (username of target user/service).
+        key_manager: RSA key manager for signing.
+        user_repo: User repository for audience validation.
 
     Returns:
-        RS256-signed JWT string
+        RS256-signed JWT string.
 
     Raises:
-        AudienceNotFoundError: If audience is not a registered user
-        AudienceInactiveError: If audience user is inactive
-        KeyNotConfiguredError: If RSA keys are not configured
+        AudienceNotFoundError: If audience is not a registered user.
+        AudienceInactiveError: If audience user is inactive.
+        KeyNotConfiguredError: If RSA keys are not configured.
     """
     # Validate audience against database (dynamic) or config (deprecated)
     validation_result = validate_audience(audience, user_repo)
@@ -214,17 +205,17 @@ def create_guest_satellite_token(
     if not key_manager.is_configured:
         raise KeyNotConfiguredError()
 
-    # Build token payload for guest user
+    # Build token payload
     now = datetime.now(timezone.utc)
     expire = now + timedelta(seconds=settings.satellite_token_expire_seconds)
 
     payload = {
-        "sub": GUEST_SUB,  # Special identifier for guest users
-        "iss": settings.issuer_url,  # Issuer URL
-        "aud": audience.strip().lower(),  # Target service (normalized)
-        "exp": expire,  # Expiration
-        "iat": now,  # Issued at
-        "role": GUEST_ROLE,  # Guest role for unauthenticated users
+        "sub": sub,
+        "iss": settings.issuer_url,
+        "aud": audience.strip().lower(),
+        "exp": expire,
+        "iat": now,
+        "role": role,
     }
 
     # Build JWT headers with key ID
@@ -243,6 +234,39 @@ def create_guest_satellite_token(
     return token
 
 
+def create_guest_satellite_token(
+    audience: str,
+    key_manager: RSAKeyManager,
+    user_repo: Optional[UserRepository] = None,
+) -> str:
+    """Create an audience-bound satellite token for a guest (unauthenticated) user.
+
+    This function creates a short-lived, RS256-signed JWT for guest users who
+    don't have a Hub account. Guest tokens allow unauthenticated access to
+    policy-free endpoints.
+
+    Args:
+        audience: Target service identifier (username of target user/service)
+        key_manager: RSA key manager for signing
+        user_repo: User repository for audience validation.
+
+    Returns:
+        RS256-signed JWT string
+
+    Raises:
+        AudienceNotFoundError: If audience is not a registered user
+        AudienceInactiveError: If audience user is inactive
+        KeyNotConfiguredError: If RSA keys are not configured
+    """
+    return _mint_satellite_token(
+        sub=GUEST_SUB,
+        role=GUEST_ROLE,
+        audience=audience,
+        key_manager=key_manager,
+        user_repo=user_repo,
+    )
+
+
 def create_satellite_token(
     user: User,
     audience: str,
@@ -254,25 +278,11 @@ def create_satellite_token(
     This function creates a short-lived, RS256-signed JWT that satellite
     services can verify locally using the Hub's public keys.
 
-    Token Claims (per FR-07):
-    - sub: User's unique ID
-    - iss: Issuer URL (e.g., 'https://hub.syft.com')
-    - aud: Target service identifier (username of target user/service)
-    - exp: Expiration timestamp (short-lived, e.g., 60s)
-    - iat: Issued at timestamp
-    - role: User's role (e.g., 'admin', 'user')
-
-    Token Header (per FR-08):
-    - alg: RS256
-    - typ: JWT
-    - kid: Key ID matching the signing key
-
     Args:
         user: The authenticated user requesting the token
         audience: Target service identifier (username of target user/service)
         key_manager: RSA key manager for signing
-        user_repo: User repository for audience validation. If provided,
-                   validates that audience is an active user's username.
+        user_repo: User repository for audience validation.
 
     Returns:
         RS256-signed JWT string
@@ -282,45 +292,13 @@ def create_satellite_token(
         AudienceInactiveError: If audience user is inactive
         KeyNotConfiguredError: If RSA keys are not configured
     """
-    # Validate audience against database (dynamic) or config (deprecated)
-    validation_result = validate_audience(audience, user_repo)
-    if not validation_result.valid:
-        if validation_result.error_code == "audience_inactive":
-            raise AudienceInactiveError(audience)
-        else:
-            raise AudienceNotFoundError(audience)
-
-    # Check that key manager is configured
-    if not key_manager.is_configured:
-        raise KeyNotConfiguredError()
-
-    # Build token payload (FR-07)
-    now = datetime.now(timezone.utc)
-    expire = now + timedelta(seconds=settings.satellite_token_expire_seconds)
-
-    payload = {
-        "sub": str(user.id),  # User's unique ID (string per JWT spec)
-        "iss": settings.issuer_url,  # Issuer URL
-        "aud": audience.strip().lower(),  # Target service (normalized)
-        "exp": expire,  # Expiration
-        "iat": now,  # Issued at
-        "role": user.role,  # User's role
-    }
-
-    # Build JWT headers with key ID (FR-08)
-    headers = {
-        "kid": key_manager.current_key_id,
-    }
-
-    # Sign token with RS256 using private key
-    token: str = jwt.encode(
-        payload,
-        key_manager.private_key,
-        algorithm="RS256",
-        headers=headers,
+    return _mint_satellite_token(
+        sub=str(user.id),
+        role=user.role,
+        audience=audience,
+        key_manager=key_manager,
+        user_repo=user_repo,
     )
-
-    return token
 
 
 def decode_satellite_token(
