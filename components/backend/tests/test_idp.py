@@ -138,18 +138,18 @@ class TestTokenEndpoint:
         with (
             patch("syfthub.api.endpoints.token.key_manager", configured_key_manager),
             patch(
-                "syfthub.api.endpoints.token.validate_audience",
+                "syfthub.auth.satellite_tokens.validate_audience",
                 return_value=invalid_result,
-            ),
-            patch(
-                "syfthub.api.endpoints.token.get_allowed_audiences",
-                return_value={"syftai-space"},
             ),
         ):
             response = authenticated_client.get("/api/v1/token?aud=unknown-service")
-            assert response.status_code == 400
+            # AudienceNotFoundError is handled by the domain exception handler
+            # which maps it to 404 (not 400)
+            assert response.status_code == 404
             data = response.json()
-            assert "audience_not_found" in str(data)
+            assert "audience_not_found" in str(
+                data
+            ).lower() or "AUDIENCE_NOT_FOUND" in str(data)
 
     def test_token_endpoint_success(
         self, authenticated_client, configured_key_manager, mock_user
@@ -158,10 +158,6 @@ class TestTokenEndpoint:
         valid_result = AudienceValidationResult(valid=True)
         with (
             patch("syfthub.api.endpoints.token.key_manager", configured_key_manager),
-            patch(
-                "syfthub.api.endpoints.token.validate_audience",
-                return_value=valid_result,
-            ),
             patch(
                 "syfthub.auth.satellite_tokens.validate_audience",
                 return_value=valid_result,
@@ -188,10 +184,6 @@ class TestTokenEndpoint:
         valid_result = AudienceValidationResult(valid=True)
         with (
             patch("syfthub.api.endpoints.token.key_manager", configured_key_manager),
-            patch(
-                "syfthub.api.endpoints.token.validate_audience",
-                return_value=valid_result,
-            ),
             patch(
                 "syfthub.auth.satellite_tokens.validate_audience",
                 return_value=valid_result,
@@ -226,10 +218,6 @@ class TestTokenEndpoint:
         valid_result = AudienceValidationResult(valid=True)
         with (
             patch("syfthub.api.endpoints.token.key_manager", configured_key_manager),
-            patch(
-                "syfthub.api.endpoints.token.validate_audience",
-                return_value=valid_result,
-            ),
             patch(
                 "syfthub.auth.satellite_tokens.validate_audience",
                 return_value=valid_result,
@@ -523,10 +511,6 @@ class TestTokenVerifyEndpoint:
         valid_result = AudienceValidationResult(valid=True)
         with (
             patch("syfthub.api.endpoints.token.key_manager", configured_key_manager),
-            patch(
-                "syfthub.api.endpoints.token.validate_audience",
-                return_value=valid_result,
-            ),
             patch(
                 "syfthub.auth.satellite_tokens.validate_audience",
                 return_value=valid_result,
