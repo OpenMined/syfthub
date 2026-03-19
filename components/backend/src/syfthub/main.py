@@ -746,13 +746,23 @@ async def invoke_owner_endpoint(
     start_time = time.perf_counter()
 
     try:
-        client = request.app.state.http_client
-        response = await client.post(
-            query_url,
-            json=request_body,
-            headers=headers,
-            timeout=timeout,
-        )
+        # Use the lifespan-scoped client when available (production), fall back
+        # to a per-request client for tests that don't run the lifespan.
+        shared_client = getattr(request.app.state, "http_client", None)
+        if shared_client is not None:
+            response = await shared_client.post(
+                query_url,
+                json=request_body,
+                headers=headers,
+                timeout=timeout,
+            )
+        else:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(
+                    query_url,
+                    json=request_body,
+                    headers=headers,
+                )
 
         latency_ms = int((time.perf_counter() - start_time) * 1000)
 

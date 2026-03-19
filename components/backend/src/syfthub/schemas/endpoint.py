@@ -611,6 +611,7 @@ def generate_slug_from_name(name: str) -> str:
 
     return slug
 
+
 # ===========================================
 # ENDPOINT HEALTH SCHEMAS
 # ===========================================
