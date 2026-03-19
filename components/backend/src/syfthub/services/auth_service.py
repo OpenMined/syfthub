@@ -51,6 +51,50 @@ class AuthService(BaseService):
         super().__init__(session)
         self.user_repository = UserRepository(session)
 
+    @staticmethod
+    def _build_user_dict(user: User) -> dict[str, Any]:
+        """Build the standard user dictionary for auth responses.
+
+        Args:
+            user: The user model instance.
+
+        Returns:
+            Dictionary with the 7 standard user fields.
+        """
+        return {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "is_active": user.is_active,
+            "created_at": user.created_at.isoformat(),
+        }
+
+    @staticmethod
+    def _build_auth_response(user: User) -> AuthResponse:
+        """Build an AuthResponse with freshly minted tokens for a user.
+
+        Args:
+            user: The user model instance.
+
+        Returns:
+            AuthResponse with user info, access token, and refresh token.
+        """
+        user_dict = AuthService._build_user_dict(user)
+        access_token = create_access_token(
+            data={"sub": str(user.id), "username": user.username, "role": user.role}
+        )
+        refresh_token = create_refresh_token(
+            data={"sub": str(user.id), "username": user.username}
+        )
+        return AuthResponse(
+            user=user_dict,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_type="bearer",
+        )
+
     def _handle_accounting_registration(
         self,
         email: str,
@@ -270,15 +314,7 @@ class AuthService(BaseService):
                 f"Registered user {user.username} — email verification required"
             )
             return RegistrationResponse(
-                user={
-                    "id": user.id,
-                    "username": user.username,
-                    "email": user.email,
-                    "full_name": user.full_name,
-                    "role": user.role,
-                    "is_active": user.is_active,
-                    "created_at": user.created_at.isoformat(),
-                },
+                user=self._build_user_dict(user),
                 access_token=None,
                 refresh_token=None,
                 token_type="bearer",
@@ -296,15 +332,7 @@ class AuthService(BaseService):
         logger.info(f"Successfully registered user: {user.username} ({user.email})")
 
         return RegistrationResponse(
-            user={
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "full_name": user.full_name,
-                "role": user.role,
-                "is_active": user.is_active,
-                "created_at": user.created_at.isoformat(),
-            },
+            user=self._build_user_dict(user),
             access_token=access_token,
             refresh_token=refresh_token,
             token_type="bearer",
@@ -351,28 +379,7 @@ class AuthService(BaseService):
         if settings.smtp_configured and not user.is_email_verified:
             raise EmailNotVerifiedError()
 
-        # Create tokens
-        access_token = create_access_token(
-            data={"sub": str(user.id), "username": user.username, "role": user.role}
-        )
-        refresh_token = create_refresh_token(
-            data={"sub": str(user.id), "username": user.username}
-        )
-
-        return AuthResponse(
-            user={
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "full_name": user.full_name,
-                "role": user.role,
-                "is_active": user.is_active,
-                "created_at": user.created_at.isoformat(),
-            },
-            access_token=access_token,
-            refresh_token=refresh_token,
-            token_type="bearer",
-        )
+        return self._build_auth_response(user)
 
     def refresh_tokens(self, refresh_data: RefreshTokenRequest) -> AuthResponse:
         """Refresh access token using refresh token."""
@@ -409,28 +416,7 @@ class AuthService(BaseService):
                 detail="User not found or inactive",
             )
 
-        # Create new tokens
-        access_token = create_access_token(
-            data={"sub": str(user.id), "username": user.username, "role": user.role}
-        )
-        new_refresh_token = create_refresh_token(
-            data={"sub": str(user.id), "username": user.username}
-        )
-
-        return AuthResponse(
-            user={
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "full_name": user.full_name,
-                "role": user.role,
-                "is_active": user.is_active,
-                "created_at": user.created_at.isoformat(),
-            },
-            access_token=access_token,
-            refresh_token=new_refresh_token,
-            token_type="bearer",
-        )
+        return self._build_auth_response(user)
 
     def get_user_by_username(self, username: str) -> Optional[User]:
         """Get user by username."""
@@ -682,27 +668,6 @@ class AuthService(BaseService):
                 detail="Account is deactivated",
             )
 
-        # Create tokens
-        access_token = create_access_token(
-            data={"sub": str(user.id), "username": user.username, "role": user.role}
-        )
-        refresh_token = create_refresh_token(
-            data={"sub": str(user.id), "username": user.username}
-        )
-
         logger.info(f"Google OAuth login successful: {user.username} ({user.email})")
 
-        return AuthResponse(
-            user={
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "full_name": user.full_name,
-                "role": user.role,
-                "is_active": user.is_active,
-                "created_at": user.created_at.isoformat(),
-            },
-            access_token=access_token,
-            refresh_token=refresh_token,
-            token_type="bearer",
-        )
+        return self._build_auth_response(user)
