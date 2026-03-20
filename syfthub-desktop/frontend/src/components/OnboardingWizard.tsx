@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 import { useSettings } from '@/contexts/SettingsContext';
 import { BrowseForFolder } from '../../wailsjs/go/main/App';
-import { WindowMinimise, WindowToggleMaximise, Quit } from '../../wailsjs/runtime/runtime';
+import { WindowControls } from '@/components/ui/window-controls';
 
 type WizardStep = 'welcome' | 'configure' | 'complete';
 
@@ -66,30 +66,16 @@ export function OnboardingWizard() {
   const isUrlValid = validateUrl(syfthubUrl);
 
   return (
-    <div className="h-screen flex flex-col bg-gradient-to-br from-background via-card to-background text-foreground">
+    <div className="h-screen flex flex-col bg-gradient-to-br from-background via-card to-background text-foreground rounded-xl overflow-hidden shadow-2xl">
       {/* Custom title bar */}
       <div className="wails-drag h-9 flex-shrink-0 border-b border-border/30 bg-card/30 flex items-center px-3">
-        <div className="w-32" />
+        {/* Left: Window controls (macOS order) */}
+        <WindowControls />
         <div className="flex-1 flex items-center justify-center">
           <span className="text-xs text-muted-foreground">SyftHub Desktop</span>
         </div>
-        <div className="flex items-center gap-1.5 w-32 justify-end">
-          <button
-            onClick={WindowMinimise}
-            className="w-3 h-3 rounded-full bg-[#f5bf4f] hover:brightness-110 transition-all"
-            title="Minimize"
-          />
-          <button
-            onClick={WindowToggleMaximise}
-            className="w-3 h-3 rounded-full bg-[#5bbf45] hover:brightness-110 transition-all"
-            title="Maximize"
-          />
-          <button
-            onClick={Quit}
-            className="w-3 h-3 rounded-full bg-[#ed6a5e] hover:brightness-110 transition-all"
-            title="Close"
-          />
-        </div>
+        {/* Right spacer for centering */}
+        <div className="w-32" />
       </div>
 
       {/* Scrollable content area */}

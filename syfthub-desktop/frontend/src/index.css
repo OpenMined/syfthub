@@ -234,10 +234,14 @@
     @apply border-border outline-ring/50;
   }
 
-  body {
-    @apply bg-background text-foreground;
+  html, body {
+    background: transparent;
     font-family: 'Inter', system-ui, sans-serif;
     letter-spacing: var(--tracking-normal);
+  }
+
+  body {
+    @apply text-foreground;
   }
 
   .font-rubik {

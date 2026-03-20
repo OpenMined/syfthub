@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
-import DOMPurify from 'dompurify';
 import { useAppStore } from '../../stores/appStore';
+import { Markdown } from '@/components/prompt-kit/markdown';
 import { Button } from '@/components/ui/button';
 import {
   Tooltip,
@@ -158,38 +158,7 @@ export function DocsTab() {
   );
 }
 
-// Simple markdown preview with DOMPurify sanitization
 function MarkdownPreview({ content }: { content: string }) {
-  // Basic markdown to HTML conversion - using Tailwind prose classes for styling
-  const rawHtml = content
-    // Headers
-    .replace(/^### (.*$)/gm, '<h3 class="text-lg font-semibold mt-4 mb-2">$1</h3>')
-    .replace(/^## (.*$)/gm, '<h2 class="text-xl font-semibold mt-6 mb-3">$1</h2>')
-    .replace(/^# (.*$)/gm, '<h1 class="text-2xl font-bold mt-6 mb-4">$1</h1>')
-    // Bold
-    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>')
-    // Italic
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    // Code blocks
-    .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="bg-card rounded-lg p-4 my-4 overflow-x-auto"><code class="text-sm">$2</code></pre>')
-    // Inline code
-    .replace(/`([^`]+)`/g, '<code class="bg-card px-1.5 py-0.5 rounded text-sm">$1</code>')
-    // Links
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-primary hover:underline">$1</a>')
-    // Lists
-    .replace(/^\* (.*$)/gm, '<li class="ml-4">$1</li>')
-    .replace(/^- (.*$)/gm, '<li class="ml-4">$1</li>')
-    // Paragraphs
-    .replace(/\n\n/g, '</p><p class="my-3">')
-    // Line breaks
-    .replace(/\n/g, '<br />');
-
-  // Sanitize HTML using DOMPurify
-  const sanitizedHtml = DOMPurify.sanitize(`<p class="my-3">${rawHtml}</p>`, {
-    ADD_ATTR: ['class'],
-    ADD_TAGS: ['pre', 'code'],
-  });
-
   if (!content.trim()) {
     return (
       <div className="h-full flex items-center justify-center text-muted-foreground">
@@ -203,10 +172,9 @@ function MarkdownPreview({ content }: { content: string }) {
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      <div
-        className="prose prose-invert max-w-none"
-        dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
-      />
+      <Markdown className="markdown-message prose prose-invert max-w-none">
+        {content}
+      </Markdown>
     </div>
   );
 }

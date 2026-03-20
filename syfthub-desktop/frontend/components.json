@@ -18,5 +18,7 @@
     "lib": "@/lib",
     "hooks": "@/hooks"
   },
-  "registries": {}
+  "registries": {
+    "@tool-ui": "https://www.tool-ui.com/r/{name}.json"
+  }
 }

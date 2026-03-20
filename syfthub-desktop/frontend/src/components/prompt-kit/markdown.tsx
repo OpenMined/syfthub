@@ -2,7 +2,7 @@ import { memo, useId, useMemo } from 'react';
 
 import type { Components } from 'react-markdown';
 
-import { marked } from 'marked';
+import { marked, type Token, type Tokens } from 'marked';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import remarkBreaks from 'remark-breaks';
@@ -10,7 +10,7 @@ import remarkGfm from 'remark-gfm';
 
 import { cn } from '@/lib/utils';
 
-import { CodeBlock, CodeBlockCode } from './code-block';
+import { CodeBlock } from '@/components/tool-ui/code-block';
 
 export type MarkdownProps = {
   children: string;
@@ -21,45 +21,44 @@ export type MarkdownProps = {
   allowRawHtml?: boolean;
 };
 
-function parseMarkdownIntoBlocks(markdown: string): string[] {
-  const tokens = marked.lexer(markdown);
-  return tokens.map((token) => token.raw);
+type ParsedBlock =
+  | { type: 'markdown'; content: string }
+  | { type: 'code'; code: string; language: string };
+
+function isCodeToken(token: Token): token is Tokens.Code {
+  return token.type === 'code';
 }
 
-function extractLanguage(className?: string): string {
-  if (!className) return 'plaintext';
-  const match = /language-(\w+)/.exec(className);
-  return match?.[1] ?? 'plaintext';
+/**
+ * Split markdown into blocks, extracting fenced code blocks as separate
+ * entries so their code text (with indentation) never passes through
+ * ReactMarkdown / remark-breaks which can collapse whitespace.
+ */
+function parseMarkdownIntoBlocks(markdown: string): ParsedBlock[] {
+  const tokens = marked.lexer(markdown);
+  return tokens.map((token) => {
+    if (isCodeToken(token)) {
+      return {
+        type: 'code' as const,
+        code: token.text,
+        language: token.lang || 'plaintext',
+      };
+    }
+    return { type: 'markdown' as const, content: token.raw };
+  });
 }
 
 const INITIAL_COMPONENTS: Partial<Components> = {
   code: function CodeComponent({ className, children, ...props }) {
-    const isInline =
-      !props.node?.position?.start.line ||
-      props.node?.position?.start.line === props.node?.position?.end.line;
-
-    if (isInline) {
-      return (
-        <span
-          className={cn('bg-primary-foreground rounded-sm px-1 font-mono text-sm', className)}
-          {...props}
-        >
-          {children}
-        </span>
-      );
-    }
-
-    const language = extractLanguage(className);
-
     return (
-      <CodeBlock className={className}>
-        <CodeBlockCode code={children as string} language={language} />
-      </CodeBlock>
+      <span
+        className={cn('bg-primary-foreground rounded-sm px-1 font-mono text-sm', className)}
+        {...props}
+      >
+        {children}
+      </span>
     );
   },
-  pre: function PreComponent({ children }) {
-    return <>{children}</>;
-  }
 };
 
 const MemoizedMarkdownBlock = memo(
@@ -91,6 +90,22 @@ const MemoizedMarkdownBlock = memo(
 
 MemoizedMarkdownBlock.displayName = 'MemoizedMarkdownBlock';
 
+const MemoizedCodeBlock = memo(
+  function MemoCodeBlock({ code, language }: { code: string; language: string }) {
+    if (language === 'plaintext') {
+      return (
+        <pre className='bg-card border-border overflow-x-auto rounded-lg border p-4 text-[13px]'>
+          <code>{code}</code>
+        </pre>
+      );
+    }
+    return <CodeBlock id="" code={code} language={language} lineNumbers="hidden" />;
+  },
+  (prev, next) => prev.code === next.code && prev.language === next.language
+);
+
+MemoizedCodeBlock.displayName = 'MemoizedCodeBlock';
+
 function MarkdownComponent({
   children,
   id,
@@ -104,14 +119,25 @@ function MarkdownComponent({
 
   return (
     <div className={className}>
-      {blocks.map((block, index) => (
-        <MemoizedMarkdownBlock
-          key={`${blockId}-block-${index}`}
-          content={block}
-          components={components}
-          allowRawHtml={allowRawHtml}
-        />
-      ))}
+      {blocks.map((block, index) => {
+        if (block.type === 'code') {
+          return (
+            <MemoizedCodeBlock
+              key={`${blockId}-block-${index}`}
+              code={block.code}
+              language={block.language}
+            />
+          );
+        }
+        return (
+          <MemoizedMarkdownBlock
+            key={`${blockId}-block-${index}`}
+            content={block.content}
+            components={components}
+            allowRawHtml={allowRawHtml}
+          />
+        );
+      })}
     </div>
   );
 }

@@ -32,8 +32,7 @@ const RAW_CITE_PATTERN = /\[cite:([\d,]+)\]/g;
 export function stripCitations(text: string): string {
   return text
     .replaceAll(new RegExp(ANNOTATED_CITE_PATTERN.source, 'g'), '')
-    .replaceAll(new RegExp(RAW_CITE_PATTERN.source, 'g'), '')
-    .replaceAll(/ {2,}/g, ' ');
+    .replaceAll(new RegExp(RAW_CITE_PATTERN.source, 'g'), '');
 }
 
 /**

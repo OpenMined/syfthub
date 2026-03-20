@@ -5,7 +5,7 @@ import { DeleteEndpointDialog } from './DeleteEndpointDialog';
 import { SetupFlowDialog } from './SetupFlowDialog';
 import { ChatView } from './ChatView';
 import { MarketplaceView } from './MarketplaceView';
-import { WindowMinimise, WindowToggleMaximise, Quit } from '../../wailsjs/runtime/runtime';
+import { WindowControls } from './ui/window-controls';
 
 interface AppShellProps {
   sidebar: ReactNode;
@@ -28,11 +28,11 @@ export function AppShell({ sidebar, children }: AppShellProps) {
   }, [refreshAll]);
 
   return (
-    <div className="h-screen flex flex-col bg-background text-foreground">
+    <div className="h-screen flex flex-col bg-background text-foreground rounded-xl overflow-hidden shadow-2xl">
       {/* Custom title bar */}
       <div className="wails-drag h-9 flex-shrink-0 border-b border-border/30 bg-card/30 flex items-center px-3">
-        {/* Left spacer for centering */}
-        <div className="w-32" />
+        {/* Left: Window controls (macOS order) */}
+        <WindowControls />
 
         {/* Center: Navigation tabs */}
         <div className="flex-1 flex items-center justify-center">
@@ -60,24 +60,8 @@ export function AppShell({ sidebar, children }: AppShellProps) {
           </div>
         </div>
 
-        {/* Right: Window controls */}
-        <div className="flex items-center gap-1.5 w-32 justify-end">
-          <button
-            onClick={WindowMinimise}
-            className="w-3 h-3 rounded-full bg-[#f5bf4f] hover:brightness-110 transition-all"
-            title="Minimize"
-          />
-          <button
-            onClick={WindowToggleMaximise}
-            className="w-3 h-3 rounded-full bg-[#5bbf45] hover:brightness-110 transition-all"
-            title="Maximize"
-          />
-          <button
-            onClick={Quit}
-            className="w-3 h-3 rounded-full bg-[#ed6a5e] hover:brightness-110 transition-all"
-            title="Close"
-          />
-        </div>
+        {/* Right spacer for centering */}
+        <div className="w-32" />
       </div>
 
       {/* Error banner */}
