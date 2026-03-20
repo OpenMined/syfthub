@@ -33,7 +33,7 @@ type EndpointInfo struct {
 	Slug         string           `json:"slug"`
 	Name         string           `json:"name"`
 	Description  string           `json:"description"`
-	Type         string           `json:"type"` // "model" or "data_source"
+	Type         string           `json:"type"` // "model", "data_source", or "agent"
 	Enabled      bool             `json:"enabled"`
 	Version      string           `json:"version,omitempty"`
 	HasPolicies  bool             `json:"hasPolicies"`

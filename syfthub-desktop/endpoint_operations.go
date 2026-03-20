@@ -14,6 +14,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"gopkg.in/yaml.v3"
 
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
@@ -1333,8 +1334,8 @@ func (a *App) CreateEndpoint(req CreateEndpointRequest) (string, error) {
 	if req.Name == "" {
 		return "", fmt.Errorf("endpoint name is required")
 	}
-	if req.Type != "model" && req.Type != "data_source" {
-		return "", fmt.Errorf("endpoint type must be 'model' or 'data_source'")
+	if !syfthubapi.IsValidEndpointType(req.Type) {
+		return "", fmt.Errorf("endpoint type must be one of: %v", syfthubapi.ValidEndpointTypes)
 	}
 
 	// Generate slug from name

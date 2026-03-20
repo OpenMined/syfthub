@@ -1,15 +1,16 @@
 import { useState, useMemo } from 'react';
-import { Search, Settings, FolderOpen, Plus, ShieldCheck, Store, Loader2, AlertCircle } from 'lucide-react';
+import { Search, Settings, FolderOpen, Plus, ShieldCheck, Store, Loader2, AlertCircle, SlidersHorizontal, Check } from 'lucide-react';
 import { useAppStore, RuntimeState, type EndpointInfo } from '../stores/appStore';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { OpenMinedIcon } from '@/components/ui/openmined-icon';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { typeLabelsShort } from '@/lib/utils';
 
 // Filter type for endpoints
-type TypeFilter = 'all' | 'model' | 'data_source';
+type TypeFilter = 'all' | 'model' | 'data_source' | 'agent';
 
 // Sidebar props
 interface SidebarProps {
@@ -112,7 +113,7 @@ function SearchInput({
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder="Search endpoints..."
+        placeholder="Search..."
         className="
           w-full h-9 pl-9 pr-3
           bg-card/50
@@ -127,40 +128,72 @@ function SearchInput({
   );
 }
 
-// Filter chips component
-function FilterChips({
+// Filter popover — replaces the chips row with a compact icon button + dropdown
+const filterOptions: { value: TypeFilter; label: string }[] = [
+  { value: 'all', label: 'All endpoints' },
+  { value: 'model', label: 'Models' },
+  { value: 'data_source', label: 'Sources' },
+  { value: 'agent', label: 'Agents' },
+];
+
+function FilterButton({
   selected,
   onChange,
 }: {
   selected: TypeFilter;
   onChange: (filter: TypeFilter) => void;
 }) {
-  const filters: { value: TypeFilter; label: string }[] = [
-    { value: 'all', label: 'All' },
-    { value: 'model', label: 'Models' },
-    { value: 'data_source', label: 'Sources' },
-  ];
+  const isFiltered = selected !== 'all';
 
   return (
-    <div className="flex gap-2">
-      {filters.map((filter) => (
-        <button
-          key={filter.value}
-          onClick={() => onChange(filter.value)}
-          className={`
-            px-3 py-1 text-xs font-medium rounded-full
-            transition-all duration-150
-            ${
-              selected === filter.value
-                ? 'bg-secondary text-foreground'
-                : 'bg-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/50'
-            }
-          `}
-        >
-          {filter.label}
-        </button>
-      ))}
-    </div>
+    <Popover>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <button
+              className={`
+                relative flex-shrink-0 w-9 h-9 flex items-center justify-center
+                rounded-lg border
+                transition-colors duration-150
+                focus:outline-none focus:ring-2 focus:ring-ring/30
+                ${isFiltered
+                  ? 'border-primary/40 bg-primary/10 text-primary'
+                  : 'border-border bg-card/50 hover:bg-secondary/50 text-muted-foreground hover:text-foreground'
+                }
+              `}
+              aria-label="Filter endpoints"
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+              {isFiltered && (
+                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-primary" />
+              )}
+            </button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">
+          <p>{isFiltered ? `Showing: ${filterOptions.find(f => f.value === selected)?.label}` : 'Filter by type'}</p>
+        </TooltipContent>
+      </Tooltip>
+      <PopoverContent align="start" className="w-40 p-1">
+        {filterOptions.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => onChange(opt.value)}
+            className={`
+              w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs font-medium
+              transition-colors duration-100
+              ${selected === opt.value
+                ? 'bg-primary/10 text-primary'
+                : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+              }
+            `}
+          >
+            <Check className={`w-3 h-3 flex-shrink-0 ${selected === opt.value ? 'opacity-100' : 'opacity-0'}`} />
+            {opt.label}
+          </button>
+        ))}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -193,6 +226,8 @@ function SidebarSkeleton() {
 const typeColors: Record<string, { bg: string; text: string }> = {
   model: { bg: 'bg-primary/20', text: 'text-primary' },
   data_source: { bg: 'bg-chart-4/20', text: 'text-chart-4' },
+  model_data_source: { bg: 'bg-blue-500/20', text: 'text-blue-400' },
+  agent: { bg: 'bg-purple-500/20', text: 'text-purple-400' },
 };
 
 // Derive a human-readable status for an endpoint
@@ -273,9 +308,9 @@ function EndpointItem({
       <div className="flex items-center gap-2">
         {/* Type badge - first for immediate categorization */}
         <span
-          className={`text-[11px] font-medium px-1.5 py-0.5 rounded-md flex-shrink-0 ${colors.bg} ${colors.text}`}
+          className={`text-[11px] font-medium py-0.5 rounded-md flex-shrink-0 w-12 text-center ${colors.bg} ${colors.text}`}
         >
-          {endpoint.type === 'data_source' ? 'Source' : 'Model'}
+          {typeLabelsShort[endpoint.type] ?? endpoint.type}
         </span>
 
         {/* Name - primary content */}
@@ -350,18 +385,13 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Brand row */}
-      <div className="px-3 pb-2 flex items-center gap-2 flex-shrink-0">
-        <OpenMinedIcon className="w-5 h-5" />
-        <span className="text-xs font-semibold text-sidebar-foreground tracking-wide">SyftHub</span>
-      </div>
-
-      {/* Header with search, create button, and filters */}
-      <div className="px-3 pb-3 space-y-3 flex-shrink-0">
-        <div className="flex items-center gap-2">
+      {/* Header: search + filter + create */}
+      <div className="px-3 pt-3 pb-3 flex-shrink-0">
+        <div className="flex items-center gap-1.5">
           <div className="flex-1">
             <SearchInput value={searchQuery} onChange={setSearchQuery} />
           </div>
+          <FilterButton selected={typeFilter} onChange={setTypeFilter} />
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -384,7 +414,6 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
             </TooltipContent>
           </Tooltip>
         </div>
-        <FilterChips selected={typeFilter} onChange={setTypeFilter} />
       </div>
 
       {/* Endpoints list - scrollable */}

@@ -42,6 +42,9 @@ type App struct {
 	runtimeStates    map[string]string           // Transient lifecycle states per endpoint slug
 	runtimeMu        sync.RWMutex                // Protects runtimeStates; separate from mu so GetEndpoints() doesn't hold mu during the endpoint loop
 	setupStatusCache map[string]*SetupStatusInfo // Cached per-endpoint setup status; protected by mu
+	agentSession     *syfthubapi.AgentSession    // Active agent session, nil if none
+	agentCancel      context.CancelFunc          // Cancels active agent session
+	agentMu          sync.Mutex                  // Protects agentSession and agentCancel
 }
 
 // NewApp creates a new App application struct.

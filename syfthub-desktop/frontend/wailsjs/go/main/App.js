@@ -222,6 +222,10 @@ export function SaveSettingsData(arg1, arg2, arg3) {
   return window['go']['main']['App']['SaveSettingsData'](arg1, arg2, arg3);
 }
 
+export function SendAgentMessage(arg1) {
+  return window['go']['main']['App']['SendAgentMessage'](arg1);
+}
+
 export function SetDefaultUserAggregator(arg1) {
   return window['go']['main']['App']['SetDefaultUserAggregator'](arg1);
 }
@@ -234,8 +238,16 @@ export function Start() {
   return window['go']['main']['App']['Start']();
 }
 
+export function StartAgentSession(arg1, arg2) {
+  return window['go']['main']['App']['StartAgentSession'](arg1, arg2);
+}
+
 export function Stop() {
   return window['go']['main']['App']['Stop']();
+}
+
+export function StopAgentSession() {
+  return window['go']['main']['App']['StopAgentSession']();
 }
 
 export function StopChat() {

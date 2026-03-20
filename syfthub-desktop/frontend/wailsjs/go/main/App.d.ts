@@ -112,13 +112,19 @@ export function SaveRunnerCode(arg1:string,arg2:string):Promise<void>;
 
 export function SaveSettingsData(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function SendAgentMessage(arg1:string):Promise<void>;
+
 export function SetDefaultUserAggregator(arg1:number):Promise<main.UserAggregator>;
 
 export function SetEnvironment(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function Start():Promise<void>;
 
+export function StartAgentSession(arg1:string,arg2:string):Promise<string>;
+
 export function Stop():Promise<void>;
+
+export function StopAgentSession():Promise<void>;
 
 export function StopChat():Promise<void>;
 

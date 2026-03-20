@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useAppStore, type MarketplacePackage } from '@/stores/appStore';
+import { typeLabels } from '@/lib/utils';
 
 function PackageCard({
   pkg,
@@ -30,7 +31,7 @@ function PackageCard({
       <div className="flex items-start justify-between gap-2 mb-2">
         <h3 className="font-medium text-sm text-foreground leading-tight">{pkg.name}</h3>
         <Badge variant="secondary" className="text-[10px] shrink-0">
-          {pkg.type === 'data_source' ? 'Data Source' : 'Model'}
+          {typeLabels[pkg.type] ?? 'Model'}
         </Badge>
       </div>
 

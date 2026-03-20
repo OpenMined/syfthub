@@ -514,3 +514,8 @@ func (a *App) SyncEndpointsAsync() {
 	}
 	a.api.SyncEndpointsAsync()
 }
+
+// API returns the underlying SyftAPI instance.
+func (a *App) API() *syfthubapi.SyftAPI {
+	return a.api
+}
