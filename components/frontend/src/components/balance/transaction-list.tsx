@@ -7,10 +7,8 @@ export interface TransactionListProps {
   isLoading: boolean;
   /** List of transactions to display */
   transactions: WalletTransaction[];
-  /** The current user's email, used by TransactionItem to determine direction */
-  userEmail?: string;
   /** The current user's wallet address, used by TransactionItem to determine direction */
-  walletAddress?: string;
+  walletAddress: string;
 }
 
 /**
@@ -20,7 +18,6 @@ export interface TransactionListProps {
 export function TransactionList({
   isLoading,
   transactions,
-  userEmail,
   walletAddress
 }: Readonly<TransactionListProps>) {
   if (isLoading) {
@@ -49,7 +46,7 @@ export function TransactionList({
   return (
     <div className='space-y-2'>
       {transactions.map((tx) => (
-        <TransactionItem key={tx.id} transaction={tx} userEmail={userEmail} walletAddress={walletAddress} />
+        <TransactionItem key={tx.id} transaction={tx} walletAddress={walletAddress} />
       ))}
     </div>
   );

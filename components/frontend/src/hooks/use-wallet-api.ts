@@ -230,12 +230,6 @@ export class WalletAPIClient {
       body: { private_key: privateKey }
     });
   }
-
-  async updateWalletAddress(address: string): Promise<WalletInfo> {
-    return this.request<WalletInfo>('PUT', '/', {
-      body: { wallet_address: address }
-    });
-  }
 }
 
 // Singleton client instance

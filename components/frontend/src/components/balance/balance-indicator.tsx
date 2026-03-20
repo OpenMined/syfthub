@@ -242,7 +242,7 @@ export function BalanceIndicator() {
                 <TransactionList
                   isLoading={isLoadingTransactions}
                   transactions={recentTransactions}
-                  walletAddress={wallet?.address ?? undefined}
+                  walletAddress={wallet?.address ?? ''}
                 />
               </div>
 

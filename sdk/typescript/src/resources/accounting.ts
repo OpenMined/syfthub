@@ -188,26 +188,6 @@ export class AccountingResource {
       private_key: privateKey,
     });
   }
-
-  /**
-   * Update the current user's wallet address.
-   *
-   * @param address - The new wallet address to set
-   * @returns Updated WalletInfo
-   * @throws {AuthenticationError} If not authenticated
-   * @throws {ValidationError} If the address is invalid
-   *
-   * @example
-   * ```typescript
-   * const wallet = await client.accounting.updateWalletAddress('0x...');
-   * console.log(`Updated wallet: ${wallet.address}`);
-   * ```
-   */
-  async updateWalletAddress(address: string): Promise<WalletInfo> {
-    return this.http.put<WalletInfo>('/api/v1/wallet/', {
-      wallet_address: address,
-    });
-  }
 }
 
 // =============================================================================

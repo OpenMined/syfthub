@@ -445,20 +445,6 @@ class ImportWalletRequest(BaseModel):
     private_key: str
 
 
-class UpdateWalletAddressRequest(BaseModel):
-    """Request schema for updating wallet address."""
-
-    wallet_address: str
-
-    @field_validator("wallet_address")
-    @classmethod
-    def validate_ethereum_address(cls, v: str) -> str:
-        """Validate Ethereum address format."""
-        if not re.match(r"^0x[0-9a-fA-F]{40}$", v):
-            raise ValueError("Invalid Ethereum address format")
-        return v
-
-
 class PaymentRequest(BaseModel):
     """Request schema for MPP payment."""
 

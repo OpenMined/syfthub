@@ -1,6 +1,6 @@
 """Wallet and MPP payment endpoints.
 
-Provides wallet management (create, import, update) and Tempo blockchain
+Provides wallet management (create, import) and Tempo blockchain
 queries (balance, transactions).  The ``/pay`` endpoint is the Hub-side
 client of the Machine Payments Protocol -- it creates a payment credential
 on behalf of the authenticated user so the Hub can pay an endpoint owner's
@@ -21,7 +21,6 @@ from syfthub.schemas.user import (
     ImportWalletRequest,
     PaymentRequest,
     PaymentResponse,
-    UpdateWalletAddressRequest,
     User,
     WalletBalanceResponse,
     WalletResponse,
@@ -129,39 +128,6 @@ async def import_wallet(
     )
 
     return CreateWalletResponse(address=tempo_acct.address)
-
-
-@router.put("/", response_model=WalletResponse)
-async def update_wallet_address(
-    request: UpdateWalletAddressRequest,
-    current_user: Annotated[User, Depends(get_current_active_user)],
-    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
-) -> WalletResponse:
-    """Update wallet address manually (without private key).
-
-    Validates the address is a well-formed Ethereum address (0x + 40 hex chars).
-    Note: updating only the address means the ``/pay`` endpoint will not work
-    because it requires the private key.
-    """
-    # Clear private key since it belongs to the old address
-    updated = user_repo.update(
-        current_user.id,
-        wallet_address=request.wallet_address,
-        wallet_private_key=None,
-    )
-    if not updated:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to update wallet address",
-        )
-
-    logger.info(
-        "wallet.address_updated",
-        user_id=current_user.id,
-        wallet_address=request.wallet_address,
-    )
-
-    return WalletResponse(address=request.wallet_address, exists=True)
 
 
 # =============================================================================

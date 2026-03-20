@@ -1,7 +1,7 @@
 /**
  * Wallet Settings Tab
  *
- * Allows users to create, import, or update their wallet.
+ * Allows users to create or import their wallet.
  * Wallet data is stored in the SyftHub backend.
  */
 
@@ -29,20 +29,11 @@ function truncateAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
-/** Validate an Ethereum address (basic check) */
-function validateAddress(address: string): string | null {
-  if (!address.trim()) return 'Wallet address is required';
-  if (!/^0x[\dA-Fa-f]{40}$/.test(address.trim())) {
-    return 'Please enter a valid Ethereum address (0x followed by 40 hex characters)';
-  }
-  return null;
-}
-
 // =============================================================================
 // View Modes
 // =============================================================================
 
-type ViewMode = 'view' | 'create' | 'import' | 'update';
+type ViewMode = 'view' | 'create' | 'import';
 
 // =============================================================================
 // Main Component
@@ -60,14 +51,12 @@ export function PaymentSettingsTab() {
 
   const [viewMode, setViewMode] = useState<ViewMode>(isConfigured ? 'view' : 'create');
   const [privateKey, setPrivateKey] = useState('');
-  const [newAddress, setNewAddress] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   const resetForm = useCallback(() => {
     setPrivateKey('');
-    setNewAddress('');
     setLocalError(null);
     setSuccess(null);
     clearError();
@@ -131,38 +120,6 @@ export function PaymentSettingsTab() {
     [privateKey, clearError, fetchWallet]
   );
 
-  // Update wallet address
-  const handleUpdateAddress = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-
-      const addressError = validateAddress(newAddress);
-      if (addressError) {
-        setLocalError(addressError);
-        return;
-      }
-
-      setIsSubmitting(true);
-      setLocalError(null);
-      setSuccess(null);
-      clearError();
-
-      try {
-        const client = new WalletAPIClient();
-        await client.updateWalletAddress(newAddress.trim());
-        setSuccess('Wallet address updated successfully!');
-        setNewAddress('');
-        await fetchWallet();
-        setViewMode('view');
-      } catch (error_) {
-        setLocalError(error_ instanceof Error ? error_.message : 'Failed to update wallet address');
-      } finally {
-        setIsSubmitting(false);
-      }
-    },
-    [newAddress, clearError, fetchWallet]
-  );
-
   const displayError = localError ?? contextError;
   const isLoading = isContextLoading || isSubmitting;
 
@@ -198,17 +155,17 @@ export function PaymentSettingsTab() {
           </div>
         </div>
 
-        <div className='border-border flex justify-end border-t pt-4'>
+        <div className='border-border flex justify-end gap-3 border-t pt-4'>
           <Button
             type='button'
             variant='outline'
             onClick={() => {
               resetForm();
-              setViewMode('update');
+              setViewMode('import');
             }}
             className='flex items-center gap-2'
           >
-            Change Wallet
+            Import Different Wallet
           </Button>
         </div>
       </div>
@@ -274,72 +231,6 @@ export function PaymentSettingsTab() {
                 </>
               ) : (
                 'Import Wallet'
-              )}
-            </Button>
-          </div>
-        </form>
-      </div>
-    );
-  }
-
-  // -------------------------------------------------------------------------
-  // View: Update wallet address
-  // -------------------------------------------------------------------------
-  if (viewMode === 'update') {
-    return (
-      <div className='space-y-6'>
-        <div>
-          <h3 className='text-foreground text-lg font-semibold'>Update Wallet</h3>
-          <p className='text-muted-foreground mt-1 text-sm'>Change your wallet address.</p>
-        </div>
-
-        <StatusMessage type='error' message={displayError} />
-
-        <form onSubmit={handleUpdateAddress} className='space-y-5'>
-          <div className='space-y-2'>
-            <Label htmlFor='wallet-address'>Wallet Address</Label>
-            <Input
-              id='wallet-address'
-              name='wallet_address'
-              type='text'
-              value={newAddress}
-              onChange={(e) => {
-                setNewAddress(e.target.value);
-                setLocalError(null);
-              }}
-              placeholder='0x...'
-              disabled={isLoading}
-              data-testid='wallet-address-input'
-              className='font-mono'
-            />
-            <p className='text-muted-foreground text-xs'>
-              Enter a valid Ethereum address (0x followed by 40 hex characters)
-            </p>
-          </div>
-
-          <div className='border-border flex items-center justify-end gap-3 border-t pt-4'>
-            <Button
-              type='button'
-              variant='outline'
-              onClick={() => {
-                resetForm();
-                setViewMode(isConfigured ? 'view' : 'create');
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              type='submit'
-              disabled={isLoading || !newAddress.trim()}
-              className='flex items-center gap-2'
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className='h-4 w-4 animate-spin' />
-                  Updating...
-                </>
-              ) : (
-                'Update Address'
               )}
             </Button>
           </div>
