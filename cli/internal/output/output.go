@@ -64,6 +64,12 @@ var (
 			Padding(0, 1).
 			MarginRight(1)
 
+	agentBadge = lipgloss.NewStyle().
+			Background(lipgloss.Color("141")).
+			Foreground(lipgloss.Color("230")).
+			Padding(0, 1).
+			MarginRight(1)
+
 	// Star style
 	starStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("220"))
@@ -146,6 +152,8 @@ func TypeIcon(endpointType string) string {
 		return Blue.Sprint("📦")
 	case "model_data_source":
 		return Yellow.Sprint("🔀")
+	case "agent":
+		return Magenta.Sprint("🤖")
 	default:
 		return "📄"
 	}
@@ -160,6 +168,8 @@ func TypeBadge(endpointType string) string {
 		return dataSourceBadge.Render("data")
 	case "model_data_source":
 		return hybridBadge.Render("hybrid")
+	case "agent":
+		return agentBadge.Render("agent")
 	default:
 		return endpointType
 	}
@@ -174,6 +184,8 @@ func TypeColor(endpointType string) *color.Color {
 		return Blue
 	case "model_data_source":
 		return Yellow
+	case "agent":
+		return Magenta
 	default:
 		return color.New(color.FgWhite)
 	}
