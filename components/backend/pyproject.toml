@@ -150,7 +150,7 @@ markers = [
 ]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 packages = ["src/syfthub"]
 strict = true
 warn_return_any = true
@@ -189,6 +189,23 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "meilisearch.*"
 ignore_missing_imports = true
+
+# MPP SDK has no type stubs and uses dynamic exports
+[[tool.mypy.overrides]]
+module = "mpp.*"
+ignore_missing_imports = true
+ignore_errors = true
+
+# Wallet endpoints use untyped MPP SDK imports
+[[tool.mypy.overrides]]
+module = "syfthub.api.endpoints.wallet"
+disallow_untyped_calls = false
+disable_error_code = ["attr-defined", "no-untyped-call"]
+
+# Tempo utils uses untyped web3 SDK with dynamic return types
+[[tool.mypy.overrides]]
+module = "syfthub.services.tempo_utils"
+ignore_errors = true
 
 [tool.coverage.run]
 source = ["src"]

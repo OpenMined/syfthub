@@ -119,8 +119,8 @@ def _sync_get_transactions(wallet_address: str) -> list[dict[str, Any]]:
 
     token_contract = _get_transfer_contract()
 
-    incoming_logs: list = []
-    outgoing_logs: list = []
+    incoming_logs: list[Any] = []
+    outgoing_logs: list[Any] = []
 
     try:
         incoming_logs = token_contract.events.Transfer.get_logs(

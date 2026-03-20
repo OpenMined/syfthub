@@ -381,9 +381,7 @@ class ModelClient:
             # Make a quick non-streaming request to check for 402
             async with httpx.AsyncClient(timeout=self.timeout) as probe_client:
                 probe_data = {**request_data, "stream": False}
-                probe_response = await probe_client.post(
-                    chat_url, json=probe_data, headers=headers
-                )
+                probe_response = await probe_client.post(chat_url, json=probe_data, headers=headers)
                 if probe_response.status_code == 402:
                     try:
                         x_payment = await handle_mpp_payment(
