@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from aggregator.clients.mpp_payment import handle_mpp_payment
 from aggregator.observability import get_correlation_id, get_logger
 from aggregator.observability.constants import CORRELATION_ID_HEADER, LogEvents
 from aggregator.schemas.internal import GenerationResult
@@ -62,6 +63,8 @@ class ModelClient:
         tenant_name: str | None = None,
         authorization_token: str | None = None,
         transaction_token: str | None = None,
+        user_token: str | None = None,
+        syfthub_url: str | None = None,
     ) -> GenerationResult:
         """
         Send messages to a SyftAI-Space model endpoint and get a response.
@@ -76,7 +79,9 @@ class ModelClient:
             temperature: Temperature for generation
             tenant_name: Tenant name for X-Tenant-Name header (optional)
             authorization_token: Satellite token for Authorization header (optional)
-            transaction_token: Transaction token for billing authorization (optional)
+            transaction_token: Transaction token for billing authorization (deprecated, ignored)
+            user_token: User's Hub auth token for MPP 402 payment flow (optional)
+            syfthub_url: SyftHub base URL for MPP wallet pay callback (optional)
 
         Returns:
             GenerationResult with response text and metadata
@@ -102,9 +107,8 @@ class ModelClient:
             "stop_sequences": [],  # Don't stop on newlines - allow complete responses
         }
 
-        # Include transaction token in payload for billing authorization
-        if transaction_token:
-            request_data["transaction_token"] = transaction_token
+        # NOTE: transaction_token is no longer sent in the request body.
+        # Payment is handled via the MPP 402 flow (WWW-Authenticate / X-Payment).
 
         # Build headers with correlation ID for request tracing
         headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -133,6 +137,42 @@ class ModelClient:
                         json=request_data,
                         headers=headers,
                     )
+
+                    # Handle MPP 402 Payment Required
+                    if response.status_code == 402 and user_token and syfthub_url:
+                        try:
+                            x_payment = await handle_mpp_payment(
+                                response=response,
+                                syfthub_url=syfthub_url,
+                                user_token=user_token,
+                                endpoint_slug=slug,
+                                http_client=client,
+                            )
+                            if x_payment:
+                                # Retry with X-Payment header
+                                retry_headers = {**headers, "X-Payment": x_payment}
+                                response = await client.post(
+                                    chat_url,
+                                    json=request_data,
+                                    headers=retry_headers,
+                                )
+                        except Exception as pay_err:
+                            error_detail = str(pay_err).lower()
+                            if "insufficient" in error_detail:
+                                raise ModelClientError(
+                                    "Payment failed: insufficient wallet balance",
+                                    status_code=402,
+                                ) from pay_err
+                            elif "timeout" in error_detail or "timed out" in error_detail:
+                                raise ModelClientError(
+                                    "Payment failed: blockchain timeout",
+                                    status_code=504,
+                                ) from pay_err
+                            else:
+                                raise ModelClientError(
+                                    f"Payment failed: {pay_err}",
+                                    status_code=402,
+                                ) from pay_err
 
                     latency_ms = int((time.perf_counter() - start_time) * 1000)
 
@@ -271,6 +311,8 @@ class ModelClient:
         tenant_name: str | None = None,
         authorization_token: str | None = None,
         transaction_token: str | None = None,
+        user_token: str | None = None,
+        syfthub_url: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """
         Send messages to a SyftAI-Space model endpoint and stream the response.
@@ -288,7 +330,9 @@ class ModelClient:
             temperature: Temperature for generation
             tenant_name: Tenant name for X-Tenant-Name header (optional)
             authorization_token: Satellite token for Authorization header (optional)
-            transaction_token: Transaction token for billing authorization (optional)
+            transaction_token: Transaction token for billing authorization (deprecated, ignored)
+            user_token: User's Hub auth token for MPP 402 payment flow (optional)
+            syfthub_url: SyftHub base URL for MPP wallet pay callback (optional)
 
         Yields:
             Response text chunks as they arrive
@@ -309,9 +353,8 @@ class ModelClient:
             "stop_sequences": [],  # Don't stop on newlines - allow complete responses
         }
 
-        # Include transaction token in payload for billing authorization
-        if transaction_token:
-            request_data["transaction_token"] = transaction_token
+        # NOTE: transaction_token is no longer sent in the request body.
+        # Payment is handled via the MPP 402 flow (WWW-Authenticate / X-Payment).
 
         # Build headers with correlation ID for request tracing
         headers: dict[str, str] = {
@@ -332,13 +375,54 @@ class ModelClient:
             max_tokens=max_tokens,
         )
 
+        # For streaming, we need to handle 402 before opening the stream.
+        # First make a non-streaming probe if MPP is available, then open the real stream.
+        extra_headers: dict[str, str] = {}
+        if user_token and syfthub_url:
+            # Make a quick non-streaming request to check for 402
+            async with httpx.AsyncClient(timeout=self.timeout) as probe_client:
+                probe_data = {**request_data, "stream": False}
+                probe_response = await probe_client.post(
+                    chat_url, json=probe_data, headers=headers
+                )
+                if probe_response.status_code == 402:
+                    try:
+                        x_payment = await handle_mpp_payment(
+                            response=probe_response,
+                            syfthub_url=syfthub_url,
+                            user_token=user_token,
+                            endpoint_slug=slug,
+                            http_client=probe_client,
+                        )
+                        if x_payment:
+                            extra_headers["X-Payment"] = x_payment
+                    except Exception as pay_err:
+                        error_detail = str(pay_err).lower()
+                        if "insufficient" in error_detail:
+                            raise ModelClientError(
+                                "Payment failed: insufficient wallet balance",
+                                status_code=402,
+                            ) from pay_err
+                        elif "timeout" in error_detail or "timed out" in error_detail:
+                            raise ModelClientError(
+                                "Payment failed: blockchain timeout",
+                                status_code=504,
+                            ) from pay_err
+                        else:
+                            raise ModelClientError(
+                                f"Payment failed: {pay_err}",
+                                status_code=402,
+                            ) from pay_err
+
+        stream_headers = {**headers, **extra_headers}
+
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:
                 async with client.stream(
                     "POST",
                     chat_url,
                     json=request_data,
-                    headers=headers,
+                    headers=stream_headers,
                 ) as response:
                     if response.status_code == 403:
                         error_text = await response.aread()

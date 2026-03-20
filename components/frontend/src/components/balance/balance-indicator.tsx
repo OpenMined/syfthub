@@ -10,8 +10,8 @@ import RefreshCw from 'lucide-react/dist/esm/icons/refresh-cw';
 import Settings from 'lucide-react/dist/esm/icons/settings';
 
 import { OnboardingCallout } from '@/components/onboarding';
-import { useAccountingContext } from '@/context/accounting-context';
-import { useAccountingUser, useTransactions } from '@/hooks/use-accounting-api';
+import { useWalletContext } from '@/context/wallet-context';
+import { useWalletBalance, useWalletTransactions } from '@/hooks/use-wallet-api';
 import { cn } from '@/lib/utils';
 import { useSettingsModalStore } from '@/stores/settings-modal-store';
 
@@ -32,20 +32,25 @@ import { TransactionList } from './transaction-list';
  * - Shows balance with status indicator (green/yellow/red)
  * - Click to expand dropdown with details
  * - Shows recent transactions
- * - Links to payment settings
+ * - Links to wallet settings
  */
 export function BalanceIndicator() {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownReference = useRef<HTMLDivElement>(null);
   const buttonReference = useRef<HTMLButtonElement>(null);
 
-  const { isConfigured, isLoading: isLoadingCredentials } = useAccountingContext();
-  const { user, isLoading: isLoadingUser, error, refetch } = useAccountingUser();
+  const { isConfigured, isLoading: isLoadingWallet } = useWalletContext();
+  const {
+    balance: walletBalance,
+    isLoading: isLoadingBalance,
+    error,
+    refetch
+  } = useWalletBalance();
   const {
     transactions,
     isLoading: isLoadingTransactions,
     refetch: refetchTransactions
-  } = useTransactions({ pageSize: 5, autoFetch: isConfigured });
+  } = useWalletTransactions({ autoFetch: isConfigured });
   const { openSettings } = useSettingsModalStore();
 
   // Close dropdown when clicking outside
@@ -98,8 +103,8 @@ export function BalanceIndicator() {
     setIsOpen((previous) => !previous);
   }, []);
 
-  // Don't show if not authenticated or credentials are loading
-  if (isLoadingCredentials) {
+  // Don't show if not authenticated or wallet info is loading
+  if (isLoadingWallet) {
     return null;
   }
 
@@ -115,13 +120,13 @@ export function BalanceIndicator() {
         )}
       >
         <Coins className='h-3.5 w-3.5' aria-hidden='true' />
-        <span>Set up billing</span>
+        <span>Set up wallet</span>
       </button>
     );
   }
 
-  const isLoading = isLoadingUser || isLoadingCredentials;
-  const balance = user?.balance ?? 0;
+  const isLoading = isLoadingBalance || isLoadingWallet;
+  const balance = walletBalance?.balance ?? 0;
   const status = getBalanceStatus(balance);
 
   // Get recent transactions (last 3)
@@ -237,7 +242,6 @@ export function BalanceIndicator() {
                 <TransactionList
                   isLoading={isLoadingTransactions}
                   transactions={recentTransactions}
-                  userEmail={user?.email}
                 />
               </div>
 

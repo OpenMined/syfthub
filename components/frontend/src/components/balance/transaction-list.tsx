@@ -1,4 +1,4 @@
-import type { AccountingTransaction } from '@/lib/types';
+import type { WalletTransaction } from '@/lib/types';
 
 import { TransactionItem } from './transaction-item';
 
@@ -6,9 +6,9 @@ export interface TransactionListProps {
   /** Whether transaction data is still loading */
   isLoading: boolean;
   /** List of transactions to display */
-  transactions: AccountingTransaction[];
+  transactions: WalletTransaction[];
   /** The current user's email, used by TransactionItem to determine direction */
-  userEmail: string | undefined;
+  userEmail?: string;
 }
 
 /**

@@ -3,7 +3,6 @@
 from fastapi import APIRouter
 
 from syfthub.api.endpoints import (
-    accounting,
     endpoints,
     errors,
     feedback,
@@ -13,6 +12,7 @@ from syfthub.api.endpoints import (
     token,
     user_aggregators,
     users,
+    wallet,
 )
 from syfthub.auth import router as auth_router
 
@@ -29,9 +29,6 @@ api_router.include_router(
     organizations.router, prefix="/organizations", tags=["organizations"]
 )
 
-# Accounting proxy endpoints (proxies to external accounting service)
-api_router.include_router(accounting.router, prefix="/accounting", tags=["accounting"])
-
 # Identity Provider (IdP) endpoints
 api_router.include_router(token.router, tags=["identity-provider"])
 
@@ -46,3 +43,6 @@ api_router.include_router(feedback.router, tags=["feedback"])
 
 # Error reporting endpoint for frontend
 api_router.include_router(errors.router, tags=["observability"])
+
+# Wallet / MPP payment endpoints
+api_router.include_router(wallet.router, prefix="/wallet", tags=["wallet"])

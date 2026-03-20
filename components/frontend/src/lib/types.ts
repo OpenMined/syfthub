@@ -356,96 +356,37 @@ export interface OrganizationFilters extends SearchParams {
 }
 
 // =============================================================================
-// Accounting / Payment Types
+// Wallet / Payment Types
 // =============================================================================
 
 /**
- * Credentials for connecting to an external accounting service.
- * These are stored in the SyftHub backend and fetched via API.
- * The email is the same as the user's SyftHub email.
+ * Wallet information from the backend.
  */
-export interface AccountingCredentials {
-  /** URL of the accounting service API (null if not configured) */
-  url: string | null;
-  /** Email for authenticating with the accounting service (same as SyftHub email) */
-  email: string;
-  /** Password for authenticating with the accounting service (null if not configured) */
-  password: string | null;
+export interface WalletInfo {
+  address: string | null;
+  exists: boolean;
 }
 
-// =============================================================================
-// Accounting API Types (for interacting with external accounting service)
-// =============================================================================
-
 /**
- * Transaction status in the accounting service.
+ * Wallet balance and recent transaction data.
  */
-export type TransactionStatus = 'pending' | 'completed' | 'cancelled';
-
-/**
- * Who created or resolved a transaction.
- */
-export type CreatorType = 'system' | 'sender' | 'recipient';
-
-/**
- * User from accounting service with balance.
- * This is separate from the SyftHub User type.
- */
-export interface AccountingUser {
-  id: string;
-  email: string;
+export interface WalletBalance {
   balance: number;
-  organization: string | null;
+  currency: string;
+  recent_transactions: WalletTransaction[];
+  wallet_configured: boolean;
 }
 
 /**
- * Transaction record from accounting service.
+ * A single wallet transaction record.
  */
-export interface AccountingTransaction {
+export interface WalletTransaction {
   id: string;
-  senderEmail: string;
-  recipientEmail: string;
+  sender_email: string;
+  recipient_email: string;
   amount: number;
-  status: TransactionStatus;
-  createdBy: CreatorType;
-  resolvedBy: CreatorType | null;
-  createdAt: Date;
-  resolvedAt: Date | null;
-  appName: string | null;
-  appEpPath: string | null;
-}
-
-/**
- * Input for creating a direct transaction.
- */
-export interface CreateTransactionInput {
-  recipientEmail: string;
-  amount: number;
-  appName?: string;
-  appEpPath?: string;
-}
-
-/**
- * Input for creating a delegated transaction.
- */
-export interface CreateDelegatedTransactionInput {
-  senderEmail: string;
-  amount: number;
-  token: string;
-}
-
-/**
- * State for accounting API operations
- */
-export interface AccountingAPIState {
-  /** Current user from accounting service */
-  user: AccountingUser | null;
-  /** Recent transactions */
-  transactions: AccountingTransaction[];
-  /** Currently active (pending) transaction */
-  pendingTransaction: AccountingTransaction | null;
-  /** Whether API operations are in progress */
-  isLoading: boolean;
-  /** API error (separate from vault errors) */
-  apiError: string | null;
+  status: string;
+  created_at: string;
+  app_name?: string;
+  app_ep_path?: string;
 }
