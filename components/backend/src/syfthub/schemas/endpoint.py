@@ -24,6 +24,7 @@ class EndpointType(str, Enum):
     MODEL = "model"  # Machine learning model endpoint
     DATA_SOURCE = "data_source"  # Data source endpoint
     MODEL_DATA_SOURCE = "model_data_source"  # Both model and data source
+    AGENT = "agent"  # Agent endpoint with session-based interaction
 
 
 class EndpointHealthStatus(str, Enum):

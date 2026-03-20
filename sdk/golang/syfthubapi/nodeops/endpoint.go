@@ -263,6 +263,32 @@ func (m *Manager) GetEndpointDetail(slug string) (*EndpointDetail, error) {
 
 // GetRunnerTemplate returns the Python runner.py template for the given endpoint type.
 func GetRunnerTemplate(endpointType string) string {
+	if endpointType == "agent" {
+		return `"""
+Agent endpoint handler.
+
+This handler processes agent sessions with bidirectional communication.
+The agent can use tools, provide status updates, and request user input.
+"""
+
+
+def handler(session) -> None:
+    """
+    Agent session handler.
+
+    Args:
+        session: AgentSession object with methods:
+            - session.prompt: The user's initial prompt
+            - session.send_message(content): Send a text message
+            - session.send_thinking(content): Show reasoning
+            - session.send_status(status, detail): Send a status update
+            - session.request_input(prompt): Ask for input (blocks)
+            - session.receive(): Wait for user message (blocks)
+    """
+    # TODO: Implement your agent logic here
+    session.send_message(f"Echo: {session.prompt}")
+`
+	}
 	if endpointType == "model" {
 		return `"""
 Model endpoint handler.

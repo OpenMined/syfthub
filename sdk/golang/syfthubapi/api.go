@@ -56,6 +56,9 @@ type SyftAPI struct {
 	// processor handles request execution.
 	processor *RequestProcessor
 
+	// agentSessionManager manages active agent sessions (Space-side).
+	agentSessionManager *AgentSessionManager
+
 	// middleware chain.
 	middleware []Middleware
 
@@ -143,40 +146,39 @@ func New(opts ...Option) *SyftAPI {
 	}
 }
 
-// DataSource starts building a data source endpoint.
-func (api *SyftAPI) DataSource(slug string) *DataSourceBuilder {
-	builder := &DataSourceBuilder{
+// newBaseBuilder creates a baseEndpointBuilder with the given slug and endpoint type.
+func (api *SyftAPI) newBaseBuilder(slug string, endpointType EndpointType) baseEndpointBuilder {
+	b := baseEndpointBuilder{
 		api: api,
 		endpoint: &Endpoint{
 			Slug:    slug,
-			Type:    EndpointTypeDataSource,
+			Type:    endpointType,
 			Enabled: true,
 		},
 	}
+	b.err = validateSlug(slug)
+	return b
+}
 
-	if err := validateSlug(slug); err != nil {
-		builder.err = err
+// DataSource starts building a data source endpoint.
+func (api *SyftAPI) DataSource(slug string) *DataSourceBuilder {
+	return &DataSourceBuilder{
+		baseEndpointBuilder: api.newBaseBuilder(slug, EndpointTypeDataSource),
 	}
-
-	return builder
 }
 
 // Model starts building a model endpoint.
 func (api *SyftAPI) Model(slug string) *ModelBuilder {
-	builder := &ModelBuilder{
-		api: api,
-		endpoint: &Endpoint{
-			Slug:    slug,
-			Type:    EndpointTypeModel,
-			Enabled: true,
-		},
+	return &ModelBuilder{
+		baseEndpointBuilder: api.newBaseBuilder(slug, EndpointTypeModel),
 	}
+}
 
-	if err := validateSlug(slug); err != nil {
-		builder.err = err
+// Agent starts building an agent endpoint.
+func (api *SyftAPI) Agent(slug string) *AgentBuilder {
+	return &AgentBuilder{
+		baseEndpointBuilder: api.newBaseBuilder(slug, EndpointTypeAgent),
 	}
-
-	return builder
 }
 
 // registerEndpoint registers an endpoint with the API.
@@ -288,6 +290,43 @@ func (api *SyftAPI) Run(ctx context.Context) error {
 	}
 	api.transport.SetRequestHandler(api.handleRequest)
 
+	// Initialize agent session manager if any agent endpoints are registered.
+	hasAgentEndpoints := false
+	for _, ep := range api.registry.List() {
+		if ep.Type == EndpointTypeAgent {
+			hasAgentEndpoints = true
+			break
+		}
+	}
+	if hasAgentEndpoints {
+		api.agentSessionManager = NewAgentSessionManager(api.registry, api.logger, 0)
+		api.agentSessionManager.StartReaper(ctx, 60*time.Second)
+		api.logger.Info("agent session manager initialized")
+		// Wire agent session manager to NATS transport for agent message dispatch.
+		// Use anonymous interface to avoid import cycle with transport package.
+		type agentHandlerSetter interface {
+			SetAgentHandler(handler AgentSessionHandler)
+		}
+		if nt, ok := api.transport.(agentHandlerSetter); ok {
+			nt.SetAgentHandler(api.agentSessionManager)
+			api.logger.Info("agent handler wired to transport")
+		} else {
+			api.logger.Warn("transport does not support agent handler — agent sessions will not work")
+		}
+
+		// Wire token verifier so agent sessions authenticate satellite tokens
+		// using the same AuthClient as the standard request pipeline.
+		type tokenVerifierSetter interface {
+			SetTokenVerifier(func(ctx context.Context, token string) (*UserContext, error))
+		}
+		if tv, ok := api.transport.(tokenVerifierSetter); ok {
+			tv.SetTokenVerifier(api.authClient.VerifyToken)
+			api.logger.Info("token verifier wired to agent transport")
+		} else {
+			api.logger.Warn("transport does not support token verifier — agent sessions will lack authentication")
+		}
+	}
+
 	// Register X25519 encryption public key if the transport supports it (NATS tunnel mode).
 	// The aggregator fetches this key to encrypt requests before sending them.
 	if ekp, ok := api.transport.(interface{ PublicKeyB64() string }); ok {
@@ -333,6 +372,12 @@ func (api *SyftAPI) Run(ctx context.Context) error {
 // shutdown performs graceful shutdown.
 func (api *SyftAPI) shutdown(ctx context.Context) {
 	api.logger.Info("shutting down SyftAPI")
+
+	// Cancel all active agent sessions and stop the reaper
+	if api.agentSessionManager != nil {
+		api.agentSessionManager.CancelAllSessions()
+		api.agentSessionManager.StopReaper()
+	}
 
 	// Stop file provider
 	if api.fileProvider != nil {
@@ -503,6 +548,11 @@ func (api *SyftAPI) SyncEndpointsAsync() {
 // Registry returns the endpoint registry.
 func (api *SyftAPI) Registry() *EndpointRegistry {
 	return api.registry
+}
+
+// AgentSessionManager returns the agent session manager, or nil if not initialized.
+func (api *SyftAPI) AgentSessionManager() *AgentSessionManager {
+	return api.agentSessionManager
 }
 
 // unmarshalJSON is a helper to unmarshal JSON.

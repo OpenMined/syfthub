@@ -595,7 +595,7 @@ func TestEndpointRegistryConcurrency(t *testing.T) {
 func TestDataSourceBuilder(t *testing.T) {
 	t.Run("empty name error", func(t *testing.T) {
 		builder := &DataSourceBuilder{
-			endpoint: &Endpoint{Slug: "test", Type: EndpointTypeDataSource},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Type: EndpointTypeDataSource}},
 		}
 
 		builder.Name("")
@@ -606,7 +606,7 @@ func TestDataSourceBuilder(t *testing.T) {
 
 	t.Run("empty description error", func(t *testing.T) {
 		builder := &DataSourceBuilder{
-			endpoint: &Endpoint{Slug: "test", Type: EndpointTypeDataSource},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Type: EndpointTypeDataSource}},
 		}
 
 		builder.Description("")
@@ -617,8 +617,7 @@ func TestDataSourceBuilder(t *testing.T) {
 
 	t.Run("error propagation", func(t *testing.T) {
 		builder := &DataSourceBuilder{
-			endpoint: &Endpoint{Slug: "test"},
-			err:      errors.New("previous error"),
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test"}, err: errors.New("previous error")},
 		}
 
 		// All methods should return early on error
@@ -632,7 +631,7 @@ func TestDataSourceBuilder(t *testing.T) {
 
 	t.Run("Version does not require value", func(t *testing.T) {
 		builder := &DataSourceBuilder{
-			endpoint: &Endpoint{Slug: "test"},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test"}},
 		}
 
 		builder.Version("2.0.0")
@@ -646,7 +645,7 @@ func TestDataSourceBuilder(t *testing.T) {
 
 	t.Run("Enabled sets value", func(t *testing.T) {
 		builder := &DataSourceBuilder{
-			endpoint: &Endpoint{Slug: "test"},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test"}},
 		}
 
 		builder.Enabled(false)
@@ -660,7 +659,7 @@ func TestDataSourceBuilder(t *testing.T) {
 
 	t.Run("Handler requires handler", func(t *testing.T) {
 		builder := &DataSourceBuilder{
-			endpoint: &Endpoint{Slug: "test", Name: "Test", Description: "Test desc"},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Name: "Test", Description: "Test desc"}},
 		}
 
 		err := builder.Handler(nil)
@@ -671,7 +670,7 @@ func TestDataSourceBuilder(t *testing.T) {
 
 	t.Run("Handler requires name", func(t *testing.T) {
 		builder := &DataSourceBuilder{
-			endpoint: &Endpoint{Slug: "test", Description: "Desc"},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Description: "Desc"}},
 		}
 
 		err := builder.Handler(func(ctx context.Context, query string, reqCtx *RequestContext) ([]Document, error) {
@@ -684,7 +683,7 @@ func TestDataSourceBuilder(t *testing.T) {
 
 	t.Run("Handler requires description", func(t *testing.T) {
 		builder := &DataSourceBuilder{
-			endpoint: &Endpoint{Slug: "test", Name: "Test"},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Name: "Test"}},
 		}
 
 		err := builder.Handler(func(ctx context.Context, query string, reqCtx *RequestContext) ([]Document, error) {
@@ -697,8 +696,7 @@ func TestDataSourceBuilder(t *testing.T) {
 
 	t.Run("Handler returns previous error", func(t *testing.T) {
 		builder := &DataSourceBuilder{
-			endpoint: &Endpoint{Slug: "test"},
-			err:      errors.New("builder error"),
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test"}, err: errors.New("builder error")},
 		}
 
 		err := builder.Handler(func(ctx context.Context, query string, reqCtx *RequestContext) ([]Document, error) {
@@ -713,7 +711,7 @@ func TestDataSourceBuilder(t *testing.T) {
 func TestModelBuilder(t *testing.T) {
 	t.Run("empty name error", func(t *testing.T) {
 		builder := &ModelBuilder{
-			endpoint: &Endpoint{Slug: "test", Type: EndpointTypeModel},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Type: EndpointTypeModel}},
 		}
 
 		builder.Name("")
@@ -724,7 +722,7 @@ func TestModelBuilder(t *testing.T) {
 
 	t.Run("empty description error", func(t *testing.T) {
 		builder := &ModelBuilder{
-			endpoint: &Endpoint{Slug: "test", Type: EndpointTypeModel},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Type: EndpointTypeModel}},
 		}
 
 		builder.Description("")
@@ -735,8 +733,7 @@ func TestModelBuilder(t *testing.T) {
 
 	t.Run("error propagation", func(t *testing.T) {
 		builder := &ModelBuilder{
-			endpoint: &Endpoint{Slug: "test"},
-			err:      errors.New("previous error"),
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test"}, err: errors.New("previous error")},
 		}
 
 		builder.Name("Test").Description("Desc").Version("1.0").Enabled(true)
@@ -748,7 +745,7 @@ func TestModelBuilder(t *testing.T) {
 
 	t.Run("Handler requires handler", func(t *testing.T) {
 		builder := &ModelBuilder{
-			endpoint: &Endpoint{Slug: "test", Name: "Test", Description: "Desc"},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Name: "Test", Description: "Desc"}},
 		}
 
 		err := builder.Handler(nil)
@@ -759,7 +756,7 @@ func TestModelBuilder(t *testing.T) {
 
 	t.Run("Handler requires name", func(t *testing.T) {
 		builder := &ModelBuilder{
-			endpoint: &Endpoint{Slug: "test", Description: "Desc"},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Description: "Desc"}},
 		}
 
 		err := builder.Handler(func(ctx context.Context, messages []Message, reqCtx *RequestContext) (string, error) {
@@ -772,7 +769,7 @@ func TestModelBuilder(t *testing.T) {
 
 	t.Run("Handler requires description", func(t *testing.T) {
 		builder := &ModelBuilder{
-			endpoint: &Endpoint{Slug: "test", Name: "Test"},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Name: "Test"}},
 		}
 
 		err := builder.Handler(func(ctx context.Context, messages []Message, reqCtx *RequestContext) (string, error) {

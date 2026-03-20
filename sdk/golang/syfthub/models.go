@@ -24,6 +24,7 @@ const (
 	EndpointTypeModel           EndpointType = "model"
 	EndpointTypeDataSource      EndpointType = "data_source"
 	EndpointTypeModelDataSource EndpointType = "model_data_source"
+	EndpointTypeAgent           EndpointType = "agent"
 )
 
 // UserRole represents user role levels.

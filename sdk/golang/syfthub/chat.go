@@ -460,6 +460,10 @@ func typeMatches(actualType, expectedType string) bool {
 	if actualType == string(EndpointTypeModelDataSource) {
 		return expectedType == string(EndpointTypeModel) || expectedType == string(EndpointTypeDataSource)
 	}
+	// Agent endpoints can be used where model endpoints are expected
+	if actualType == string(EndpointTypeAgent) && expectedType == string(EndpointTypeModel) {
+		return true
+	}
 	return false
 }
 

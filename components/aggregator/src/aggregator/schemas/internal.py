@@ -1,10 +1,16 @@
 """Internal DTOs used within the aggregator service."""
 
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field
 
 from aggregator.schemas.responses import Document
+
+# Single source of truth for valid endpoint types.
+EndpointTypeLiteral = Literal["model", "data_source", "model_data_source", "agent"]
+
+# Canonical set derived from the Literal so they can never drift apart.
+VALID_ENDPOINT_TYPES: set[str] = set(get_args(EndpointTypeLiteral))
 
 
 class ResolvedEndpoint(BaseModel):
@@ -17,7 +23,7 @@ class ResolvedEndpoint(BaseModel):
     path: str = Field(..., description="Display path/name for logging")
     url: str = Field(..., description="Base URL of the SyftAI-Space instance")
     slug: str = Field(..., description="Endpoint slug for the API path")
-    endpoint_type: Literal["model", "data_source"] = Field(..., description="Type of endpoint")
+    endpoint_type: EndpointTypeLiteral = Field(..., description="Type of endpoint")
     name: str = Field(..., description="Display name of the endpoint")
     tenant_name: str | None = Field(
         default=None,

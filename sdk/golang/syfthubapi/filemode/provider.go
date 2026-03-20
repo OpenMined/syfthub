@@ -2,13 +2,22 @@ package filemode
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 )
+
+// noopPolicyHandler is the Python noop handler used by agent endpoints with
+// policies. The policy_manager.runner evaluates policies and then invokes this
+// handler which simply returns an empty string, since the real work is done by
+// the agent's long-lived subprocess — not by the policy executor.
+const noopPolicyHandler = "def handler(messages, context):\n    return \"\"\n"
 
 // Provider manages file-based endpoints with hot-reload support.
 type Provider struct {
@@ -23,9 +32,10 @@ type Provider struct {
 	venvManager    *VenvManager
 	embeddedPython *EmbeddedPythonManager
 
-	endpoints []*syfthubapi.Endpoint
-	executors map[string]syfthubapi.Executor
-	mu        sync.RWMutex
+	endpoints        []*syfthubapi.Endpoint
+	executors        map[string]syfthubapi.Executor
+	noopHandlerPaths map[string]string // slug -> temp file path for noop policy handlers
+	mu               sync.RWMutex
 
 	onReload  func([]*syfthubapi.Endpoint)
 	running   bool
@@ -94,18 +104,19 @@ func NewProvider(cfg *ProviderConfig) (*Provider, error) {
 	}
 
 	p := &Provider{
-		basePath:       cfg.BasePath,
-		pythonPath:     pythonPath,
-		watchEnabled:   cfg.WatchEnabled,
-		debounce:       debounce,
-		logger:         logger,
-		loader:         loader,
-		venvManager:    venvManager,
-		embeddedPython: embeddedPython,
-		executors:      make(map[string]syfthubapi.Executor),
-		onReload:       cfg.OnReload,
-		stopCh:         make(chan struct{}),
-		stoppedCh:      make(chan struct{}),
+		basePath:         cfg.BasePath,
+		pythonPath:       pythonPath,
+		watchEnabled:     cfg.WatchEnabled,
+		debounce:         debounce,
+		logger:           logger,
+		loader:           loader,
+		venvManager:      venvManager,
+		embeddedPython:   embeddedPython,
+		executors:        make(map[string]syfthubapi.Executor),
+		noopHandlerPaths: make(map[string]string),
+		onReload:         cfg.OnReload,
+		stopCh:           make(chan struct{}),
+		stoppedCh:        make(chan struct{}),
 	}
 
 	return p, nil
@@ -183,8 +194,22 @@ func (p *Provider) Stop(ctx context.Context) error {
 		p.watcher.Stop(ctx)
 	}
 
-	// Close all executors
+	// Close all executors and clean up noop handler temp files
 	p.mu.Lock()
+	p.cleanupResources()
+	p.mu.Unlock()
+
+	select {
+	case <-p.stoppedCh:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// cleanupResources closes all executors and removes noop handler temp files.
+// Caller must hold p.mu.
+func (p *Provider) cleanupResources() {
 	for slug, exec := range p.executors {
 		if err := exec.Close(); err != nil {
 			p.logger.Warn("failed to close executor",
@@ -194,14 +219,16 @@ func (p *Provider) Stop(ctx context.Context) error {
 		}
 	}
 	p.executors = make(map[string]syfthubapi.Executor)
-	p.mu.Unlock()
-
-	select {
-	case <-p.stoppedCh:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	for slug, path := range p.noopHandlerPaths {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			p.logger.Warn("failed to remove noop policy handler temp file",
+				"slug", slug,
+				"path", path,
+				"error", err,
+			)
+		}
 	}
+	p.noopHandlerPaths = make(map[string]string)
 }
 
 // LoadEndpoints loads all endpoints from the file system.
@@ -238,16 +265,8 @@ func (p *Provider) LoadEndpoints() ([]*syfthubapi.Endpoint, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Close old executors
-	for slug, exec := range p.executors {
-		if err := exec.Close(); err != nil {
-			p.logger.Warn("failed to close old executor",
-				"slug", slug,
-				"error", err,
-			)
-		}
-	}
-	p.executors = make(map[string]syfthubapi.Executor)
+	// Close old executors and clean up stale noop handler temp files
+	p.cleanupResources()
 
 	for _, loaded := range loadedEndpoints {
 		endpoint, err := p.createEndpoint(loaded)
@@ -332,8 +351,86 @@ func (p *Provider) createEndpoint(loaded *LoadedEndpoint) (*syfthubapi.Endpoint,
 		)
 	}
 
-	// Create executor
-	// Use policy runner when policies are configured
+	enabled := true
+	if loaded.Config.Enabled != nil {
+		enabled = *loaded.Config.Enabled
+	}
+
+	endpoint := &syfthubapi.Endpoint{
+		Slug:        loaded.Config.Slug,
+		Name:        loaded.Config.Name,
+		Description: loaded.Config.Description,
+		Type:        ToEndpointType(loaded.Config.Type),
+		Enabled:     enabled,
+		Version:     loaded.Config.Version,
+		Readme:      loaded.ReadmeBody,
+	}
+
+	// Agent endpoints use a long-lived subprocess bridge (not one-shot executor)
+	if loaded.Config.Type == string(syfthubapi.EndpointTypeAgent) {
+		handler := NewAgentHandler(&AgentHandlerConfig{
+			PythonPath: pythonPath,
+			RunnerPath: loaded.RunnerPath,
+			WorkDir:    loaded.Dir,
+			Env:        loaded.EnvVars,
+			Logger:     p.logger,
+		})
+		endpoint.SetAgentHandler(handler)
+		p.logger.Info("[AGENT-SETUP] Agent handler created",
+			"slug", loaded.Config.Slug,
+		)
+
+		// If policies are configured, create a dedicated policy executor.
+		// Agent handlers run as long-lived subprocesses and cannot use the standard
+		// SubprocessExecutor for invocation, but policies still need to be enforced
+		// before the handler starts. A noop handler is used so the policy_manager.runner
+		// only evaluates policies and returns the result.
+		if len(loaded.PolicyConfigs) > 0 {
+			// Write the noop handler to a temp directory with a stable name
+			// derived from the slug so hot-reloads reuse the same file.
+			slugHash := fmt.Sprintf("%x", sha256.Sum256([]byte(loaded.Config.Slug)))[:12]
+			noopPath := filepath.Join(os.TempDir(), fmt.Sprintf("syfthub_noop_policy_%s.py", slugHash))
+			if err := os.WriteFile(noopPath, []byte(noopPolicyHandler), 0600); err != nil {
+				p.logger.Error("[AGENT-SETUP] Failed to write policy check handler",
+					"slug", loaded.Config.Slug, "path", noopPath, "error", err)
+				return nil, fmt.Errorf("failed to write policy check handler: %w", err)
+			}
+			p.noopHandlerPaths[loaded.Config.Slug] = noopPath
+
+			policyExec, err := NewSubprocessExecutor(&ExecutorConfig{
+				PythonPath:      pythonPath,
+				RunnerPath:      noopPath,
+				WorkDir:         loaded.Dir,
+				Env:             loaded.EnvVars,
+				Timeout:         10 * time.Second,
+				Logger:          p.logger,
+				PolicyConfigs:   loaded.PolicyConfigs,
+				StoreConfig:     loaded.StoreConfig,
+				UsePolicyRunner: true,
+			})
+			if err != nil {
+				p.logger.Error("[AGENT-SETUP] Failed to create policy executor",
+					"slug", loaded.Config.Slug, "error", err)
+				return nil, err
+			}
+
+			endpoint.SetPolicyExecutor(policyExec)
+			p.executors[loaded.Config.Slug+".policy"] = policyExec
+
+			p.logger.Info("[AGENT-SETUP] POLICY ENFORCEMENT ENABLED for agent endpoint",
+				"slug", loaded.Config.Slug,
+				"policy_count", len(loaded.PolicyConfigs),
+			)
+		} else {
+			p.logger.Warn("[AGENT-SETUP] NO POLICY ENFORCEMENT for agent endpoint (no policies configured)",
+				"slug", loaded.Config.Slug,
+			)
+		}
+
+		return endpoint, nil
+	}
+
+	// Model/DataSource endpoints use one-shot subprocess executor
 	usePolicyRunner := len(loaded.PolicyConfigs) > 0
 	p.logger.Info("[POLICY-SETUP] Creating executor",
 		"slug", loaded.Config.Slug,
@@ -375,22 +472,6 @@ func (p *Provider) createEndpoint(loaded *LoadedEndpoint) (*syfthubapi.Endpoint,
 		)
 	}
 
-	enabled := true
-	if loaded.Config.Enabled != nil {
-		enabled = *loaded.Config.Enabled
-	}
-
-	endpoint := &syfthubapi.Endpoint{
-		Slug:        loaded.Config.Slug,
-		Name:        loaded.Config.Name,
-		Description: loaded.Config.Description,
-		Type:        ToEndpointType(loaded.Config.Type),
-		Enabled:     enabled,
-		Version:     loaded.Config.Version,
-		Readme:      loaded.ReadmeBody,
-	}
-
-	// Set the executor for file-based execution
 	endpoint.SetExecutor(executor)
 
 	return endpoint, nil

@@ -75,6 +75,7 @@ type Client struct {
 	syftai     *SyftAIResource
 	accounting *AccountingResource
 	apiTokens  *APITokensResource
+	agent      *AgentResource
 }
 
 // Option is a function that configures the Client.
@@ -183,6 +184,18 @@ func (c *Client) Chat() *ChatResource {
 		c.chat = newChatResource(c.Hub, c.Auth, c.aggregatorURL, c.timeout)
 	}
 	return c.chat
+}
+
+// Agent returns the AgentResource for agent sessions.
+// The resource is lazily initialized on first access.
+func (c *Client) Agent() *AgentResource {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.agent == nil {
+		c.agent = newAgentResource(c.Hub, c.Auth, c.aggregatorURL)
+	}
+	return c.agent
 }
 
 // SyftAI returns the SyftAIResource for direct SyftAI-Space queries.

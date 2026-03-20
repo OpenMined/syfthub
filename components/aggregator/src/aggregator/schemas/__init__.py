@@ -1,6 +1,7 @@
 """Schemas package - request/response models for the aggregator."""
 
 from aggregator.schemas.internal import (
+    VALID_ENDPOINT_TYPES,
     AggregatedContext,
     GenerationResult,
     ResolvedEndpoint,
@@ -43,6 +44,7 @@ __all__ = [
     "ChatCompletionResponse",
     "ErrorResponse",
     # Internal
+    "VALID_ENDPOINT_TYPES",
     "ResolvedEndpoint",
     "RetrievalResult",
     "AggregatedContext",

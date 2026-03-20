@@ -15,11 +15,10 @@ import (
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
-
 // EndpointConfig represents the configuration from README.md frontmatter.
 type EndpointConfig struct {
 	Slug        string        `yaml:"slug"`
-	Type        string        `yaml:"type"` // "model" or "data_source"
+	Type        string        `yaml:"type"` // "model", "data_source", or "agent"
 	Name        string        `yaml:"name"`
 	Description string        `yaml:"description"`
 	Enabled     *bool         `yaml:"enabled"` // Pointer to detect if set
@@ -255,10 +254,10 @@ func (l *Loader) parseReadme(path string) (*EndpointConfig, string, error) {
 			Message: "missing required field: type",
 		}
 	}
-	if config.Type != "model" && config.Type != "data_source" {
+	if !syfthubapi.IsValidEndpointType(config.Type) {
 		return nil, "", &syfthubapi.FileLoadError{
 			Path:    path,
-			Message: fmt.Sprintf("invalid type: %s (must be 'model' or 'data_source')", config.Type),
+			Message: fmt.Sprintf("invalid type: %s (must be one of: %v)", config.Type, syfthubapi.ValidEndpointTypes),
 		}
 	}
 
@@ -570,6 +569,8 @@ func ToEndpointType(t string) syfthubapi.EndpointType {
 		return syfthubapi.EndpointTypeDataSource
 	case "model":
 		return syfthubapi.EndpointTypeModel
+	case "agent":
+		return syfthubapi.EndpointTypeAgent
 	default:
 		return syfthubapi.EndpointTypeModel
 	}
