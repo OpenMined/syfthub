@@ -33,7 +33,6 @@ export function useAgentWorkflow({ endpointSlug }: UseAgentWorkflowProps) {
   const [entries, setEntries] = useState<AgentEntry[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [awaitingInput, setAwaitingInput] = useState(false);
-  const [inputPrompt, setInputPrompt] = useState('');
   const sessionIdRef = useRef<string | null>(null);
   const entryCounterRef = useRef(0);
 
@@ -166,7 +165,6 @@ export function useAgentWorkflow({ endpointSlug }: UseAgentWorkflowProps) {
           streamingContentRef.current = '';
           hasTokenEntryRef.current = false;
           setAwaitingInput(true);
-          setInputPrompt(String(data.prompt ?? 'Enter your response:'));
           setEntries(prev => [...prev, {
             id: makeId(),
             kind: 'request_input',
@@ -310,7 +308,6 @@ export function useAgentWorkflow({ endpointSlug }: UseAgentWorkflowProps) {
     entries,
     isRunning,
     awaitingInput,
-    inputPrompt,
     startSession,
     sendInput,
     stopSession,

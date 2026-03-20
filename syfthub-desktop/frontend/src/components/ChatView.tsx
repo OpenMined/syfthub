@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 import { ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, Copy, Loader2, MessageSquarePlus, Square, WifiOff } from 'lucide-react';
 
@@ -26,6 +26,7 @@ import { SourcesSection } from '@/components/chat/sources-section';
 import { StatusIndicator } from '@/components/chat/status-indicator';
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 
+import { useCopyToClipboard } from '@/components/tool-ui/shared/use-copy-to-clipboard';
 import { useChatWorkflow } from '@/hooks/use-chat-workflow';
 import type { AssistantMessage } from '@/hooks/use-chat-workflow';
 import { useAgentWorkflow } from '@/hooks/use-agent-workflow';
@@ -311,22 +312,19 @@ function ChatInputArea({
 }
 
 // =============================================================================
-// Shared hook for copy-to-clipboard
+// Shared User Message Bubble
 // =============================================================================
 
-function useCopyToClipboard() {
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const copyTimerRef = useRef<ReturnType<typeof setTimeout>>();
-  useEffect(() => () => clearTimeout(copyTimerRef.current), []);
-  const handleCopy = useCallback((content: string, messageId: string) => {
-    void navigator.clipboard.writeText(content);
-    setCopiedId(messageId);
-    clearTimeout(copyTimerRef.current);
-    copyTimerRef.current = setTimeout(() => {
-      setCopiedId((prev) => (prev === messageId ? null : prev));
-    }, 2000);
-  }, []);
-  return { copiedId, handleCopy };
+function UserBubble({ id, content }: { id: string; content: string }) {
+  return (
+    <Message key={id} className='justify-end'>
+      <div className='flex max-w-full flex-col items-end'>
+        <MessageContent className='font-inter bg-primary text-primary-foreground max-w-2xl rounded-2xl rounded-br-none px-5 py-3 text-sm leading-relaxed shadow-sm'>
+          {content}
+        </MessageContent>
+      </div>
+    </Message>
+  );
 }
 
 // =============================================================================
@@ -348,7 +346,7 @@ function AgentChatContent() {
     endpointSlug: chatSelectedModel?.slug ?? null,
   });
 
-  const { copiedId, handleCopy } = useCopyToClipboard();
+  const { copiedId, copy: handleCopy } = useCopyToClipboard();
   const [inputValue, setInputValue] = useState('');
 
   const handleSubmit = useCallback(async () => {
@@ -432,15 +430,7 @@ function AgentChatContent() {
               <EmptyState hasAggregator={false} isAgent />
             ) : entries.map((entry, entryIndex) => {
                 if (entry.kind === 'user') {
-                  return (
-                    <Message key={entry.id} className='justify-end'>
-                      <div className='flex max-w-full flex-col items-end'>
-                        <MessageContent className='font-inter bg-primary text-primary-foreground max-w-2xl rounded-2xl rounded-br-none px-5 py-3 text-sm leading-relaxed shadow-sm'>
-                          {entry.content}
-                        </MessageContent>
-                      </div>
-                    </Message>
-                  );
+                  return <UserBubble key={entry.id} id={entry.id} content={entry.content} />;
                 }
 
                 if (entry.kind === 'thinking') {
@@ -618,7 +608,7 @@ function ChatModeContent() {
     selectedSources: chatSelectedSources,
   });
 
-  const { copiedId, handleCopy } = useCopyToClipboard();
+  const { copiedId, copy: handleCopy } = useCopyToClipboard();
   const [inputValue, setInputValue] = useState('');
 
   const hasAggregator = Boolean(aggregatorURL);
@@ -670,15 +660,7 @@ function ChatModeContent() {
               <>
                 {messages.map((msg) => {
                   if (msg.role === 'user') {
-                    return (
-                      <Message key={msg.id} className='justify-end'>
-                        <div className='flex max-w-full flex-col items-end'>
-                          <MessageContent className='font-inter bg-primary text-primary-foreground max-w-2xl rounded-2xl rounded-br-none px-5 py-3 text-sm leading-relaxed shadow-sm'>
-                            {msg.content}
-                          </MessageContent>
-                        </div>
-                      </Message>
-                    );
+                    return <UserBubble key={msg.id} id={msg.id} content={msg.content} />;
                   }
 
                   const assistant = msg as AssistantMessage;
