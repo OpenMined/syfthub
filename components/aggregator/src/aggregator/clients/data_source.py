@@ -254,13 +254,17 @@ class DataSourceClient:
                     LogEvents.DATA_SOURCE_QUERY_FAILED,
                     endpoint_path=endpoint_path,
                     error=str(e),
+                    query_url=query_url,
                     latency_ms=latency_ms,
                 )
                 return RetrievalResult(
                     endpoint_path=endpoint_path,
                     documents=[],
                     status="error",
-                    error_message=str(e),
+                    error_message=(
+                        f"Cannot reach data source at {query_url}: {e}. "
+                        "Check that the endpoint's public URL is correct in Settings."
+                    ),
                     latency_ms=latency_ms,
                 )
 

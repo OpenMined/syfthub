@@ -296,7 +296,10 @@ class ModelClient:
                     raise ModelClientError("Model request timed out") from e
                 except httpx.RequestError as e:
                     logger.warning(LogEvents.MODEL_QUERY_FAILED, chat_url=chat_url, error=str(e))
-                    raise ModelClientError(f"Network error: {e}") from e
+                    raise ModelClientError(
+                        f"Cannot reach model at {chat_url}: {e}. "
+                        "Check that the endpoint's public URL is correct in Settings."
+                    ) from e
 
         # All retries exhausted
         raise last_error or ModelClientError("Model request failed after retries")
@@ -496,7 +499,10 @@ class ModelClient:
                 raise ModelClientError("Model stream timed out") from e
             except httpx.RequestError as e:
                 logger.warning(LogEvents.SSE_STREAM_FAILED, chat_url=chat_url, error=str(e))
-                raise ModelClientError(f"Network error during stream: {e}") from e
+                raise ModelClientError(
+                    f"Cannot reach model at {chat_url}: {e}. "
+                    "Check that the endpoint's public URL is correct in Settings."
+                ) from e
 
     def _report_upstream_error(
         self,
