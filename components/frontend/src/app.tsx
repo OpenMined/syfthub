@@ -26,6 +26,7 @@ const AboutPage = lazyWithRetry(() => import('./pages/about'));
 const ProfilePage = lazyWithRetry(() => import('./pages/profile'));
 const EndpointsPage = lazyWithRetry(() => import('./pages/endpoints'));
 const EndpointDetailPage = lazyWithRetry(() => import('./pages/endpoint-detail'));
+const AgentPage = lazyWithRetry(() => import('./pages/agent'));
 const NotFoundPage = lazyWithRetry(() => import('./pages/not-found'));
 const QueryPage = lazyWithRetry(() => import('./pages/query'));
 
@@ -142,6 +143,16 @@ export default function App() {
                               <EndpointsPage />
                             </RouteBoundary>
                           </ProtectedRoute>
+                        }
+                      />
+
+                      {/* Agent session: /agent/:owner/:slug */}
+                      <Route
+                        path='agent/:owner/:slug'
+                        element={
+                          <RouteBoundary>
+                            <AgentPage />
+                          </RouteBoundary>
                         }
                       />
 

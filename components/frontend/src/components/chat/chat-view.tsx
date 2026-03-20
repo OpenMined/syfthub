@@ -165,7 +165,7 @@ export function ChatView({
     void navigator.clipboard.writeText(content);
     setCopiedId(messageId);
     setTimeout(() => {
-      setCopiedId((prev) => (prev === messageId ? null : prev));
+      setCopiedId((previous) => (previous === messageId ? null : previous));
     }, 2000);
   }, []);
 

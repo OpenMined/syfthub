@@ -5,7 +5,9 @@
  * - Functions for fetching and managing endpoints
  * - Type mappings between SDK types and frontend types
  * - Utility functions for ChatSource transformation
+ * - Centralized endpoint type visual mappings (icon, label, badge styles)
  */
+import type { LucideIcon } from 'lucide-react';
 import type { OwnerInfo } from './mention-utils';
 import type { Endpoint as SdkEndpoint, EndpointPublic as SdkEndpointPublic } from './sdk-client';
 import type {
@@ -19,6 +21,10 @@ import type {
   GroupedEndpointsResponse,
   PaginationParams
 } from './types';
+
+import Bot from 'lucide-react/dist/esm/icons/bot';
+import Database from 'lucide-react/dist/esm/icons/database';
+import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
 
 import { formatRelativeTime } from './date-utils';
 import { syftClient } from './sdk-client';
@@ -41,6 +47,121 @@ export function isModelEndpoint(type: EndpointType): boolean {
  */
 export function isDataSourceEndpoint(type: EndpointType): boolean {
   return type === 'data_source' || type === 'model_data_source';
+}
+
+// ============================================================================
+// Endpoint Type Visual Mappings
+// ============================================================================
+
+/**
+ * Get the primary Lucide icon component for an endpoint type.
+ *
+ * Centralizes the icon selection so that adding a new endpoint type
+ * only requires updating this single function.
+ *
+ * @param type - The endpoint type
+ * @returns The Lucide icon component (not rendered JSX)
+ */
+export function getEndpointTypeIcon(type: EndpointType): LucideIcon {
+  switch (type) {
+    case 'model': {
+      return Sparkles;
+    }
+    case 'data_source': {
+      return Database;
+    }
+    case 'model_data_source': {
+      return Sparkles;
+    }
+    case 'agent': {
+      return Bot;
+    }
+    default: {
+      return Database;
+    }
+  }
+}
+
+/**
+ * Get the display label for an endpoint type.
+ *
+ * Centralizes the type-to-label mapping so that adding a new endpoint type
+ * only requires updating this single function.
+ *
+ * @param type - The endpoint type
+ * @returns Human-readable label string
+ */
+export function getEndpointTypeLabel(type: EndpointType): string {
+  switch (type) {
+    case 'model': {
+      return 'Model';
+    }
+    case 'data_source': {
+      return 'Data Source';
+    }
+    case 'model_data_source': {
+      return 'Model + Data Source';
+    }
+    case 'agent': {
+      return 'Agent';
+    }
+    default: {
+      return type;
+    }
+  }
+}
+
+/**
+ * Get the Tailwind CSS badge style classes for an endpoint type.
+ *
+ * Centralizes the type-to-badge-color mapping so that adding a new endpoint
+ * type only requires updating this single function.
+ *
+ * @param type - The endpoint type
+ * @returns Tailwind class string for badge background, text, border, and hover
+ */
+export function getEndpointTypeBadgeStyles(type: EndpointType): string {
+  switch (type) {
+    case 'model': {
+      return 'bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-200';
+    }
+    case 'data_source': {
+      return 'bg-emerald-100 text-emerald-800 border-emerald-200 hover:bg-emerald-200';
+    }
+    case 'model_data_source': {
+      return 'bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200';
+    }
+    case 'agent': {
+      return 'bg-sky-100 text-sky-800 border-sky-200 hover:bg-sky-200';
+    }
+    default: {
+      return 'bg-muted text-foreground border-border';
+    }
+  }
+}
+
+/**
+ * Get the icon color class for an endpoint type (used in card/list contexts).
+ *
+ * @param type - The endpoint type
+ * @returns Tailwind text-color class
+ */
+export function getEndpointTypeIconColor(type: EndpointType): string {
+  switch (type) {
+    case 'model':
+    case 'model_data_source': {
+      return 'text-purple-500';
+    }
+    case 'data_source': {
+      return 'text-emerald-500';
+    }
+    case 'agent': {
+      return 'text-blue-500';
+    }
+    default: {
+      return 'text-muted-foreground';
+    }
+  }
 }
 
 // ============================================================================

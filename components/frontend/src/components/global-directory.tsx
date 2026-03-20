@@ -3,12 +3,12 @@ import { useCallback, useState } from 'react';
 import type { ChatSource, EndpointGroup } from '@/lib/types';
 
 import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right';
-import Cpu from 'lucide-react/dist/esm/icons/cpu';
-import Database from 'lucide-react/dist/esm/icons/database';
 import Folder from 'lucide-react/dist/esm/icons/folder';
 import FolderOpen from 'lucide-react/dist/esm/icons/folder-open';
 import MoreHorizontal from 'lucide-react/dist/esm/icons/more-horizontal';
 import { Link } from 'react-router-dom';
+
+import { getEndpointTypeIcon, getEndpointTypeLabel } from '@/lib/endpoint-utils';
 
 // =============================================================================
 // Types
@@ -47,8 +47,10 @@ function DirectoryEntry({
   const color = getNodeColor(colorIndex);
   const href = endpoint.owner_username ? `/${endpoint.owner_username}/${endpoint.slug}` : '/browse';
 
-  const isModel = endpoint.type === 'model' || endpoint.type === 'model_data_source';
-  const Icon = isModel ? Cpu : Database;
+  const Icon = getEndpointTypeIcon(endpoint.type);
+  const typeLabel = (
+    getEndpointTypeLabel(endpoint.type).split(/\s/)[0] ?? endpoint.type
+  ).toLowerCase();
 
   return (
     <Link
@@ -79,7 +81,7 @@ function DirectoryEntry({
         className='rounded-sm px-1.5 py-0.5 font-mono text-[10px] tracking-wider uppercase opacity-50 transition-opacity group-hover:opacity-80'
         style={{ color, backgroundColor: `${color}15` }}
       >
-        {isModel ? 'model' : 'data'}
+        {typeLabel}
       </span>
     </Link>
   );

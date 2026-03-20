@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ChatSource, EndpointType } from '@/lib/types';
+import type { LucideIcon } from 'lucide-react';
 import type { BrowseFilters } from './browse-filters-modal';
 
+import Bot from 'lucide-react/dist/esm/icons/bot';
 import Calendar from 'lucide-react/dist/esm/icons/calendar';
 import Check from 'lucide-react/dist/esm/icons/check';
 import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right';
@@ -18,7 +20,12 @@ import X from 'lucide-react/dist/esm/icons/x';
 import { Link } from 'react-router-dom';
 
 import { usePaginatedPublicEndpoints } from '@/hooks/use-endpoint-queries';
-import { isDataSourceEndpoint } from '@/lib/endpoint-utils';
+import {
+  getEndpointTypeIcon,
+  getEndpointTypeIconColor,
+  getEndpointTypeLabel,
+  isDataSourceEndpoint
+} from '@/lib/endpoint-utils';
 import { useContextSelectionStore } from '@/stores/context-selection-store';
 
 import {
@@ -39,6 +46,7 @@ import {
   PaginationNext,
   PaginationPrevious
 } from './ui/pagination';
+import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
 
 // ============================================================================
 // Constants
@@ -51,32 +59,42 @@ const PAGE_SIZE = 12;
 // ============================================================================
 
 function getTypeIcon(type: EndpointType) {
-  switch (type) {
-    case 'model': {
-      return <Sparkles className='h-4 w-4 shrink-0 text-purple-500' aria-label='Model' />;
-    }
-    case 'data_source': {
-      return <Database className='h-4 w-4 shrink-0 text-emerald-500' aria-label='Data Source' />;
-    }
-    case 'model_data_source': {
-      return (
-        <span className='flex shrink-0 items-center gap-0.5' aria-label='Model and Data Source'>
-          <Sparkles className='h-3.5 w-3.5 text-purple-500' />
-          <Database className='h-3.5 w-3.5 text-emerald-500' />
-        </span>
-      );
-    }
-    default: {
-      return null;
-    }
+  // model_data_source renders a compound icon (two icons side by side)
+  if (type === 'model_data_source') {
+    return (
+      <span className='flex shrink-0 items-center gap-0.5' aria-label='Model and Data Source'>
+        <Sparkles className='h-3.5 w-3.5 text-purple-500' />
+        <Database className='h-3.5 w-3.5 text-emerald-500' />
+      </span>
+    );
   }
+
+  const Icon = getEndpointTypeIcon(type);
+  const colorClass = getEndpointTypeIconColor(type);
+  const label = getEndpointTypeLabel(type);
+
+  return <Icon className={`h-4 w-4 shrink-0 ${colorClass}`} aria-label={label} />;
 }
 
 // ============================================================================
 // Tab types
 // ============================================================================
 
-type BrowseTab = 'data_sources' | 'models';
+type BrowseTab = 'data_sources' | 'models' | 'agents';
+
+const TAB_CONFIG: Record<
+  BrowseTab,
+  { endpointType: EndpointType; entityName: string; icon: LucideIcon; label: string }
+> = {
+  data_sources: {
+    endpointType: 'data_source',
+    entityName: 'data sources',
+    icon: Database,
+    label: 'Data Sources'
+  },
+  models: { endpointType: 'model', entityName: 'models', icon: Sparkles, label: 'Models' },
+  agents: { endpointType: 'agent', entityName: 'agents', icon: Bot, label: 'Agents' }
+};
 
 // ============================================================================
 // Main Component
@@ -123,7 +141,7 @@ export function BrowseView({ initialQuery = '' }: Readonly<BrowseViewProperties>
   const selectedSources = useContextSelectionStore((s) => s.selectedSources);
 
   // Map tab to endpoint type for server-side filtering
-  const endpointType: EndpointType = activeTab === 'data_sources' ? 'data_source' : 'model';
+  const endpointType = TAB_CONFIG[activeTab].endpointType;
 
   // Fetch paginated endpoints using TanStack Query with server-side search
   const { data, isLoading, error, isFetching } = usePaginatedPublicEndpoints(
@@ -174,7 +192,7 @@ export function BrowseView({ initialQuery = '' }: Readonly<BrowseViewProperties>
 
   // Helper function to generate the "no results" message
   const getNoResultsMessage = () => {
-    const entityName = activeTab === 'data_sources' ? 'data sources' : 'models';
+    const entityName = TAB_CONFIG[activeTab].entityName;
     const hasFilters = hasActiveFilters(filters);
     const hasSearch = debouncedSearchQuery.trim().length > 0;
 
@@ -246,36 +264,28 @@ export function BrowseView({ initialQuery = '' }: Readonly<BrowseViewProperties>
               Discover trusted data sources and AI models
             </p>
           </div>
-          <div className='flex items-center gap-1'>
-            <button
-              type='button'
-              onClick={() => {
-                handleTabChange('data_sources');
-              }}
-              className={`font-inter flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-                activeTab === 'data_sources'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-              }`}
-            >
-              <Database className='h-4 w-4' aria-hidden='true' />
-              Data Sources
-            </button>
-            <button
-              type='button'
-              onClick={() => {
-                handleTabChange('models');
-              }}
-              className={`font-inter flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
-                activeTab === 'models'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-              }`}
-            >
-              <Sparkles className='h-4 w-4' aria-hidden='true' />
-              Models
-            </button>
-          </div>
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => {
+              handleTabChange(value as BrowseTab);
+            }}
+          >
+            <TabsList className='gap-1 bg-transparent'>
+              {Object.entries(TAB_CONFIG).map(([key, config]) => {
+                const Icon = config.icon;
+                return (
+                  <TabsTrigger
+                    key={key}
+                    value={key}
+                    className='font-inter data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:bg-muted data-[state=inactive]:hover:text-foreground flex items-center gap-2 rounded-md px-4 py-2 data-[state=active]:shadow-none'
+                  >
+                    <Icon className='h-4 w-4' aria-hidden='true' />
+                    {config.label}
+                  </TabsTrigger>
+                );
+              })}
+            </TabsList>
+          </Tabs>
         </div>
 
         {/* Search and Filter Bar */}
@@ -295,7 +305,7 @@ export function BrowseView({ initialQuery = '' }: Readonly<BrowseViewProperties>
               onChange={(e) => {
                 setSearchQuery(e.target.value);
               }}
-              placeholder={`Search ${activeTab === 'data_sources' ? 'data sources' : 'models'}…`}
+              placeholder={`Search ${TAB_CONFIG[activeTab].entityName}…`}
               className='font-inter border-border focus:border-primary focus:ring-ring/10 w-full rounded-lg border py-3 pr-4 pl-10 transition-colors transition-shadow focus:ring-2 focus:outline-none'
             />
           </div>
