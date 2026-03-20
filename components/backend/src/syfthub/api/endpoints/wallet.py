@@ -143,9 +143,11 @@ async def update_wallet_address(
     Note: updating only the address means the ``/pay`` endpoint will not work
     because it requires the private key.
     """
+    # Clear private key since it belongs to the old address
     updated = user_repo.update(
         current_user.id,
         wallet_address=request.wallet_address,
+        wallet_private_key=None,
     )
     if not updated:
         raise HTTPException(

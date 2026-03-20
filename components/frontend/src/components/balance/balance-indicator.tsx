@@ -39,7 +39,7 @@ export function BalanceIndicator() {
   const dropdownReference = useRef<HTMLDivElement>(null);
   const buttonReference = useRef<HTMLButtonElement>(null);
 
-  const { isConfigured, isLoading: isLoadingWallet } = useWalletContext();
+  const { isConfigured, isLoading: isLoadingWallet, wallet } = useWalletContext();
   const {
     balance: walletBalance,
     isLoading: isLoadingBalance,
@@ -242,6 +242,7 @@ export function BalanceIndicator() {
                 <TransactionList
                   isLoading={isLoadingTransactions}
                   transactions={recentTransactions}
+                  walletAddress={wallet?.address ?? undefined}
                 />
               </div>
 

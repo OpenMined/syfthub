@@ -52,14 +52,18 @@ export interface TransactionItemProps {
   transaction: WalletTransaction;
   /** The current user's email, used to determine direction */
   userEmail?: string;
+  /** The current user's wallet address, used to determine direction */
+  walletAddress?: string;
 }
 
 /**
  * TransactionItem - Renders a single transaction row with
  * direction icon, party info, timestamp, and amount.
  */
-export function TransactionItem({ transaction, userEmail }: Readonly<TransactionItemProps>) {
-  const isIncoming = userEmail ? transaction.recipient_email === userEmail : false;
+export function TransactionItem({ transaction, userEmail, walletAddress }: Readonly<TransactionItemProps>) {
+  const isIncoming =
+    (userEmail ? transaction.recipient_email === userEmail : false) ||
+    (walletAddress ? transaction.recipient_email.toLowerCase() === walletAddress.toLowerCase() : false);
   const otherParty = isIncoming ? transaction.sender_email : transaction.recipient_email;
 
   return (

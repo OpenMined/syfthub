@@ -233,7 +233,7 @@ export class WalletAPIClient {
 
   async updateWalletAddress(address: string): Promise<WalletInfo> {
     return this.request<WalletInfo>('PUT', '/', {
-      body: { address }
+      body: { wallet_address: address }
     });
   }
 }
