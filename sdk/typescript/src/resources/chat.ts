@@ -92,6 +92,10 @@ export class ChatResource {
     if (actualType === EndpointType.MODEL_DATA_SOURCE) {
       return expectedType === EndpointType.MODEL || expectedType === EndpointType.DATA_SOURCE;
     }
+    // Agent endpoints can be used where model endpoints are expected
+    if (actualType === EndpointType.AGENT && expectedType === EndpointType.MODEL) {
+      return true;
+    }
     return false;
   }
 

@@ -247,6 +247,7 @@ class ChatResource:
         """Check if an endpoint type matches the expected type.
 
         A model_data_source endpoint matches both 'model' and 'data_source'.
+        An agent endpoint matches 'model'.
         """
         if actual_type == expected_type:
             return True
@@ -255,7 +256,10 @@ class ChatResource:
                 EndpointType.MODEL.value,
                 EndpointType.DATA_SOURCE.value,
             )
-        return False
+        return (
+            actual_type == EndpointType.AGENT.value
+            and expected_type == EndpointType.MODEL.value
+        )
 
     def _resolve_endpoint_ref(
         self,

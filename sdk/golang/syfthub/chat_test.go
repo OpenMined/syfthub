@@ -580,18 +580,37 @@ func TestChatResourceResolveEndpointRef(t *testing.T) {
 }
 
 func TestTypeMatches(t *testing.T) {
+	// Shared type-match test vectors — keep in sync across Go/Python/TypeScript SDKs.
+	// These vectors ensure all three SDK implementations of typeMatches stay consistent.
+	// Rules:
+	//   1. Exact match always returns true
+	//   2. model_data_source matches both model and data_source
+	//   3. agent matches model (agents can be used where models are expected)
+	//   4. All other cross-type combinations return false
 	tests := []struct {
 		actualType   string
 		expectedType string
 		want         bool
 	}{
+		// Exact matches
 		{"model", "model", true},
 		{"data_source", "data_source", true},
-		{"model", "data_source", false},
-		{"data_source", "model", false},
+		{"model_data_source", "model_data_source", true},
+		{"agent", "agent", true},
+		// model_data_source matches both model and data_source
 		{"model_data_source", "model", true},
 		{"model_data_source", "data_source", true},
-		{"model_data_source", "other", false},
+		// agent matches model
+		{"agent", "model", true},
+		// Cross-type mismatches
+		{"model", "data_source", false},
+		{"data_source", "model", false},
+		{"model", "agent", false},
+		{"data_source", "agent", false},
+		{"model_data_source", "agent", false},
+		{"agent", "data_source", false},
+		{"model", "model_data_source", false},
+		{"data_source", "model_data_source", false},
 	}
 
 	for _, tt := range tests {
