@@ -62,7 +62,6 @@ class ModelClient:
         temperature: float = 0.7,
         tenant_name: str | None = None,
         authorization_token: str | None = None,
-        transaction_token: str | None = None,
         user_token: str | None = None,
         syfthub_url: str | None = None,
     ) -> GenerationResult:
@@ -79,7 +78,6 @@ class ModelClient:
             temperature: Temperature for generation
             tenant_name: Tenant name for X-Tenant-Name header (optional)
             authorization_token: Satellite token for Authorization header (optional)
-            transaction_token: Transaction token for billing authorization (deprecated, ignored)
             user_token: User's Hub auth token for MPP 402 payment flow (optional)
             syfthub_url: SyftHub base URL for MPP wallet pay callback (optional)
 
@@ -313,7 +311,6 @@ class ModelClient:
         temperature: float = 0.7,
         tenant_name: str | None = None,
         authorization_token: str | None = None,
-        transaction_token: str | None = None,
         user_token: str | None = None,
         syfthub_url: str | None = None,
     ) -> AsyncGenerator[str, None]:
@@ -333,7 +330,6 @@ class ModelClient:
             temperature: Temperature for generation
             tenant_name: Tenant name for X-Tenant-Name header (optional)
             authorization_token: Satellite token for Authorization header (optional)
-            transaction_token: Transaction token for billing authorization (deprecated, ignored)
             user_token: User's Hub auth token for MPP 402 payment flow (optional)
             syfthub_url: SyftHub base URL for MPP wallet pay callback (optional)
 

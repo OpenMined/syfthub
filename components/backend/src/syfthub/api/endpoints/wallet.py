@@ -164,9 +164,7 @@ async def get_balance(
     return WalletBalanceResponse(
         balance=balance,
         currency="USD",
-        recent_transactions=[
-            WalletTransaction(**tx) for tx in recent_txs[:10]
-        ],
+        recent_transactions=[WalletTransaction(**tx) for tx in recent_txs[:10]],
         wallet_configured=True,
     )
 

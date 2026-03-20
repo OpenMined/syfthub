@@ -177,5 +177,3 @@ class ConflictError(DomainException):
         self.resource = resource
         self.field = field
         super().__init__(f"{field.capitalize()} already exists", "CONFLICT")
-
-

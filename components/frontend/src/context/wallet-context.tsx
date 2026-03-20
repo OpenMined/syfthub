@@ -140,7 +140,7 @@ export function WalletProvider({ children }: Readonly<WalletProviderProps>) {
     } else {
       setWallet(null);
     }
-  }, [user]);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user]);
 
   // ---------------------------------------------------------------------------
   // Context Value
