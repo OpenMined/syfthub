@@ -80,9 +80,6 @@ export {
   EndpointType,
   UserRole,
   OrganizationRole,
-  // Accounting enums
-  TransactionStatus,
-  CreatorType,
 } from './models/index.js';
 
 // Models - Types
@@ -113,14 +110,11 @@ export type {
   CreateAPITokenInput,
   UpdateAPITokenInput,
   APITokenListResponse,
-  // Accounting types
-  AccountingUser,
-  Transaction,
-  CreateTransactionInput,
-  CreateDelegatedTransactionInput,
-  UpdatePasswordInput,
-  TransactionResponse,
-  TransactionTokenResponse,
+  // Wallet types
+  WalletInfo,
+  WalletBalance,
+  WalletTransaction,
+  TransactionTokensResponse,
   // Chat types
   EndpointRef,
   Document,
@@ -147,14 +141,9 @@ export type {
 export {
   getEndpointOwnerType,
   getEndpointPublicPath,
-  // Accounting helpers
-  parseTransaction,
-  isTransactionPending,
-  isTransactionCompleted,
-  isTransactionCancelled,
 } from './models/index.js';
 
-// Accounting Resource (standalone client for external accounting service)
+// Accounting Resource (MPP wallet operations)
 export { AccountingResource, createAccountingResource } from './resources/accounting.js';
 export type { AccountingResourceOptions, TransactionsOptions } from './resources/accounting.js';
 

@@ -5,9 +5,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-import { AccountingProvider } from '@/context/accounting-context';
 import { AuthProvider } from '@/context/auth-context';
 import { ThemeProvider } from '@/context/theme-context';
+import { WalletProvider } from '@/context/wallet-context';
 
 /**
  * Create a fresh QueryClient for each test to prevent state leaking between tests.
@@ -40,9 +40,9 @@ function AllProviders({ children }: Readonly<{ children: ReactNode }>) {
     <QueryClientProvider client={testQueryClient}>
       <ThemeProvider defaultTheme='light'>
         <AuthProvider>
-          <AccountingProvider>
+          <WalletProvider>
             <MemoryRouter>{children}</MemoryRouter>
-          </AccountingProvider>
+          </WalletProvider>
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>

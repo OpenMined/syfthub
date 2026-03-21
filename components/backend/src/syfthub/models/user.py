@@ -36,12 +36,12 @@ class UserModel(BaseModel, TimestampMixin):
         String(255), unique=True, nullable=True
     )
 
-    # Accounting service credentials (for external billing integration)
-    accounting_service_url: Mapped[Optional[str]] = mapped_column(
-        String(500), nullable=True, default=None
+    # MPP wallet fields (Tempo blockchain)
+    wallet_address: Mapped[Optional[str]] = mapped_column(
+        String(42), nullable=True, default=None
     )
-    accounting_password: Mapped[Optional[str]] = mapped_column(
-        String(255), nullable=True, default=None
+    wallet_private_key: Mapped[Optional[str]] = mapped_column(
+        String(66), nullable=True, default=None
     )
 
     # Domain with protocol for dynamic endpoint URL construction

@@ -57,8 +57,9 @@ services:
       - LOG_LEVEL=debug
       # Single origin since everything goes through proxy
       - CORS_ORIGINS=http://localhost:8080
-      # Disable accounting service for local development
-      - DEFAULT_ACCOUNTING_URL=
+      # MPP / Tempo configuration
+      - TEMPO_TESTNET=true
+      - MPP_SECRET_KEY=${MPP_SECRET_KEY:-}
       # NATS configuration for P2P tunneling
       - NATS_URL=nats://nats:4222
       - NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN:-dev-nats-token}

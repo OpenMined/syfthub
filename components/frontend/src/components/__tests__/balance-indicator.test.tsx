@@ -6,13 +6,13 @@ import { BalanceIndicator } from '@/components/balance/balance-indicator';
 
 vi.mock('framer-motion', () => import('@/test/mocks/framer-motion'));
 
-// Mock accounting context
-const { mockUseAccountingContext } = vi.hoisted(() => ({
-  mockUseAccountingContext: vi.fn()
+// Mock wallet context
+const { mockUseWalletContext } = vi.hoisted(() => ({
+  mockUseWalletContext: vi.fn()
 }));
 
-vi.mock('@/context/accounting-context', () => ({
-  useAccountingContext: (): unknown => mockUseAccountingContext()
+vi.mock('@/context/wallet-context', () => ({
+  useWalletContext: (): unknown => mockUseWalletContext()
 }));
 
 // Mock settings modal store
@@ -24,15 +24,16 @@ vi.mock('@/stores/settings-modal-store', () => ({
   useSettingsModalStore: () => ({ openSettings: mockOpenSettings })
 }));
 
-// Mock accounting API hooks
-const { mockUseAccountingUser, mockUseTransactions } = vi.hoisted(() => ({
-  mockUseAccountingUser: vi.fn(),
-  mockUseTransactions: vi.fn()
+// Mock wallet API hooks
+const { mockUseWalletBalance, mockUseWalletTransactions } = vi.hoisted(() => ({
+  mockUseWalletBalance: vi.fn(),
+  mockUseWalletTransactions: vi.fn()
 }));
 
-vi.mock('@/hooks/use-accounting-api', () => ({
-  useAccountingUser: (): unknown => mockUseAccountingUser(),
-  useTransactions: (...parameters: unknown[]): unknown => mockUseTransactions(...parameters)
+vi.mock('@/hooks/use-wallet-api', () => ({
+  useWalletBalance: (): unknown => mockUseWalletBalance(),
+  useWalletTransactions: (...parameters: unknown[]): unknown =>
+    mockUseWalletTransactions(...parameters)
 }));
 
 describe('BalanceIndicator', () => {
@@ -45,22 +46,27 @@ describe('BalanceIndicator', () => {
     mockRefetchTransactions = vi.fn().mockResolvedValue(null);
 
     // Default: configured, loaded, healthy balance
-    mockUseAccountingContext.mockReturnValue({
+    mockUseWalletContext.mockReturnValue({
       isConfigured: true,
       isLoading: false,
-      credentials: { email: 'test@example.com', password: 'pass' },
-      fetchCredentials: vi.fn(),
-      updateCredentials: vi.fn()
+      wallet: { address: '0x1234567890abcdef1234567890abcdef12345678', exists: true },
+      fetchWallet: vi.fn(),
+      clearError: vi.fn()
     });
 
-    mockUseAccountingUser.mockReturnValue({
-      user: { email: 'test@example.com', balance: 500 },
+    mockUseWalletBalance.mockReturnValue({
+      balance: {
+        balance: 500,
+        currency: 'credits',
+        recent_transactions: [],
+        wallet_configured: true
+      },
       isLoading: false,
       error: null,
       refetch: mockRefetch
     });
 
-    mockUseTransactions.mockReturnValue({
+    mockUseWalletTransactions.mockReturnValue({
       transactions: [],
       isLoading: false,
       error: null,
@@ -68,8 +74,8 @@ describe('BalanceIndicator', () => {
     });
   });
 
-  it('returns null when credentials are loading', () => {
-    mockUseAccountingContext.mockReturnValue({
+  it('returns null when wallet info is loading', () => {
+    mockUseWalletContext.mockReturnValue({
       isConfigured: false,
       isLoading: true
     });
@@ -78,18 +84,18 @@ describe('BalanceIndicator', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('shows "Set up billing" when not configured', () => {
-    mockUseAccountingContext.mockReturnValue({
+  it('shows "Set up wallet" when not configured', () => {
+    mockUseWalletContext.mockReturnValue({
       isConfigured: false,
       isLoading: false
     });
 
     render(<BalanceIndicator />);
-    expect(screen.getByText('Set up billing')).toBeInTheDocument();
+    expect(screen.getByText('Set up wallet')).toBeInTheDocument();
   });
 
-  it('opens payment settings when "Set up billing" is clicked', async () => {
-    mockUseAccountingContext.mockReturnValue({
+  it('opens wallet settings when "Set up wallet" is clicked', async () => {
+    mockUseWalletContext.mockReturnValue({
       isConfigured: false,
       isLoading: false
     });
@@ -97,7 +103,7 @@ describe('BalanceIndicator', () => {
     const user = userEvent.setup();
     render(<BalanceIndicator />);
 
-    await user.click(screen.getByText('Set up billing'));
+    await user.click(screen.getByText('Set up wallet'));
     expect(mockOpenSettings).toHaveBeenCalledWith('payment');
   });
 
@@ -108,8 +114,13 @@ describe('BalanceIndicator', () => {
   });
 
   it('shows balance with K suffix for large numbers', () => {
-    mockUseAccountingUser.mockReturnValue({
-      user: { email: 'test@example.com', balance: 15_000 },
+    mockUseWalletBalance.mockReturnValue({
+      balance: {
+        balance: 15_000,
+        currency: 'credits',
+        recent_transactions: [],
+        wallet_configured: true
+      },
       isLoading: false,
       error: null,
       refetch: mockRefetch
@@ -120,8 +131,8 @@ describe('BalanceIndicator', () => {
   });
 
   it('shows "Error" text when there is an error', () => {
-    mockUseAccountingUser.mockReturnValue({
-      user: null,
+    mockUseWalletBalance.mockReturnValue({
+      balance: null,
       isLoading: false,
       error: 'Network error',
       refetch: mockRefetch
@@ -132,8 +143,8 @@ describe('BalanceIndicator', () => {
   });
 
   it('disables pill button while loading', () => {
-    mockUseAccountingUser.mockReturnValue({
-      user: null,
+    mockUseWalletBalance.mockReturnValue({
+      balance: null,
       isLoading: true,
       error: null,
       refetch: mockRefetch
@@ -177,7 +188,7 @@ describe('BalanceIndicator', () => {
     expect(mockRefetchTransactions).toHaveBeenCalled();
   });
 
-  it('opens payment settings from dropdown', async () => {
+  it('opens wallet settings from dropdown', async () => {
     const user = userEvent.setup();
     render(<BalanceIndicator />);
 
@@ -191,8 +202,13 @@ describe('BalanceIndicator', () => {
   });
 
   it('shows low balance warning when balance is below 100', async () => {
-    mockUseAccountingUser.mockReturnValue({
-      user: { email: 'test@example.com', balance: 50 },
+    mockUseWalletBalance.mockReturnValue({
+      balance: {
+        balance: 50,
+        currency: 'credits',
+        recent_transactions: [],
+        wallet_configured: true
+      },
       isLoading: false,
       error: null,
       refetch: mockRefetch
@@ -209,8 +225,13 @@ describe('BalanceIndicator', () => {
   });
 
   it('shows empty balance warning when balance is zero', async () => {
-    mockUseAccountingUser.mockReturnValue({
-      user: { email: 'test@example.com', balance: 0 },
+    mockUseWalletBalance.mockReturnValue({
+      balance: {
+        balance: 0,
+        currency: 'credits',
+        recent_transactions: [],
+        wallet_configured: true
+      },
       isLoading: false,
       error: null,
       refetch: mockRefetch
@@ -227,8 +248,8 @@ describe('BalanceIndicator', () => {
   });
 
   it('shows error message in dropdown when error exists', async () => {
-    mockUseAccountingUser.mockReturnValue({
-      user: null,
+    mockUseWalletBalance.mockReturnValue({
+      balance: null,
       isLoading: false,
       error: 'Failed to fetch',
       refetch: mockRefetch

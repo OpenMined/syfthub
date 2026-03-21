@@ -87,8 +87,6 @@ class UserRepository(BaseRepository[UserModel]):
         self,
         user_data: UserCreate,
         password_hash: Optional[str] = None,
-        accounting_service_url: Optional[str] = None,
-        accounting_password: Optional[str] = None,
         auth_provider: str = "local",
         google_id: Optional[str] = None,
         avatar_url: Optional[str] = None,
@@ -98,8 +96,6 @@ class UserRepository(BaseRepository[UserModel]):
         Args:
             user_data: User creation data (username, email, full_name)
             password_hash: Hashed password (required for local auth, None for OAuth)
-            accounting_service_url: URL to accounting service
-            accounting_password: Password for accounting service
             auth_provider: Authentication provider ('local' or 'google')
             google_id: Google OAuth user ID (for Google auth)
             avatar_url: URL to user's avatar image
@@ -111,8 +107,6 @@ class UserRepository(BaseRepository[UserModel]):
                 full_name=user_data.full_name,
                 password_hash=password_hash,
                 is_active=True,
-                accounting_service_url=accounting_service_url,
-                accounting_password=accounting_password,
                 auth_provider=auth_provider,
                 google_id=google_id,
                 avatar_url=avatar_url,
@@ -145,11 +139,6 @@ class UserRepository(BaseRepository[UserModel]):
                 user_model.avatar_url = user_data.avatar_url
             if user_data.is_active is not None:
                 user_model.is_active = user_data.is_active
-            # Accounting fields
-            if user_data.accounting_service_url is not None:
-                user_model.accounting_service_url = user_data.accounting_service_url
-            if user_data.accounting_password is not None:
-                user_model.accounting_password = user_data.accounting_password
             if "domain" in user_data.model_fields_set:
                 user_model.domain = user_data.domain
             # Aggregator URL
@@ -280,6 +269,55 @@ class UserRepository(BaseRepository[UserModel]):
         except SQLAlchemyError:
             self.session.rollback()
             return False
+
+    def update_wallet(
+        self,
+        user_id: int,
+        wallet_address: str,
+        wallet_private_key: Optional[str] = None,
+    ) -> bool:
+        """Update user wallet fields atomically.
+
+        Args:
+            user_id: ID of the user to update
+            wallet_address: Ethereum/Tempo wallet address
+            wallet_private_key: Private key for the wallet (optional, None keeps existing)
+
+        Returns:
+            True if update was successful, False otherwise
+        """
+        try:
+            user_model = self.session.get(self.model, user_id)
+            if not user_model:
+                return False
+
+            user_model.wallet_address = wallet_address
+            if wallet_private_key is not None:
+                user_model.wallet_private_key = wallet_private_key
+
+            self.session.commit()
+            return True
+        except SQLAlchemyError:
+            self.session.rollback()
+            return False
+
+    def get_wallet_private_key(self, user_id: int) -> Optional[str]:
+        """Get wallet private key directly from the DB model.
+
+        This bypasses the User response schema (which intentionally excludes
+        the private key) and is meant for server-side operations like the
+        ``/pay`` endpoint.
+
+        Returns:
+            The private key hex string, or None if not set.
+        """
+        try:
+            user_model = self.session.get(self.model, user_id)
+            if not user_model:
+                return None
+            return user_model.wallet_private_key
+        except Exception:
+            return None
 
     def username_exists(self, username: str) -> bool:
         """Check if username already exists."""

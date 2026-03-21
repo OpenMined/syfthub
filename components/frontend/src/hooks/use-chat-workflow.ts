@@ -14,7 +14,7 @@ import type { ChatStreamEvent } from '@/lib/sdk-client';
 import type { ChatSource } from '@/lib/types';
 
 import { useAuth } from '@/context/auth-context';
-import { triggerBalanceRefresh } from '@/hooks/use-accounting-api';
+import { triggerBalanceRefresh } from '@/hooks/use-wallet-api';
 import {
   AggregatorError,
   AuthenticationError,
