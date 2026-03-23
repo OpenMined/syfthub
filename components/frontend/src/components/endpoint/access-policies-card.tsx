@@ -8,11 +8,23 @@ import { PolicyItem } from './policy-item';
 
 export interface AccessPoliciesCardProperties {
   policies?: Policy[];
+  endpointSlug?: string;
+  ownerUsername?: string;
+  spaceBaseUrl?: string;
+  isLoggedIn?: boolean;
+  onPurchaseSuccess?: () => void;
+  archived?: boolean;
 }
 
 // Access Policies Card component - memoized to prevent unnecessary re-renders
 export const AccessPoliciesCard = memo(function AccessPoliciesCard({
-  policies
+  policies,
+  endpointSlug,
+  ownerUsername,
+  spaceBaseUrl,
+  isLoggedIn,
+  onPurchaseSuccess,
+  archived
 }: Readonly<AccessPoliciesCardProperties>) {
   const validPolicies = policies?.filter((p) => p.type) ?? [];
 
@@ -32,7 +44,16 @@ export const AccessPoliciesCard = memo(function AccessPoliciesCard({
       {validPolicies.length > 0 ? (
         <div className='space-y-3'>
           {validPolicies.map((policy, index) => (
-            <PolicyItem key={`${policy.type}-${String(index)}`} policy={policy} />
+            <PolicyItem
+              key={`${policy.type}-${String(index)}`}
+              policy={policy}
+              endpointSlug={endpointSlug}
+              ownerUsername={ownerUsername}
+              spaceBaseUrl={spaceBaseUrl}
+              isLoggedIn={isLoggedIn}
+              onPurchaseSuccess={onPurchaseSuccess}
+              archived={archived}
+            />
           ))}
         </div>
       ) : (

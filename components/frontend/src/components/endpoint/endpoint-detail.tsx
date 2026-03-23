@@ -1,8 +1,9 @@
-import { memo, useMemo } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 
-import type { EndpointType } from '@/lib/types';
+import type { EndpointType, XenditPaymentApi } from '@/lib/types';
 import type { Components } from 'react-markdown';
 
+import Archive from 'lucide-react/dist/esm/icons/archive';
 import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left';
 import Calendar from 'lucide-react/dist/esm/icons/calendar';
 import ExternalLink from 'lucide-react/dist/esm/icons/external-link';
@@ -14,9 +15,11 @@ import { ConnectionCard } from '@/components/connection-card';
 import { Markdown } from '@/components/prompt-kit/markdown';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/context/auth-context';
 import { useEndpointByPath } from '@/hooks/use-endpoint-queries';
 
 import { AccessPoliciesCard } from './access-policies-card';
+import { XenditBalanceCard } from './xendit-balance-card';
 
 type EndpointStatus = 'active' | 'warning' | 'inactive';
 
@@ -162,6 +165,8 @@ export const EndpointDetail = memo(function EndpointDetail({
   owner,
   onBack
 }: Readonly<EndpointDetailProperties>) {
+  const { user } = useAuth();
+  const isLoggedIn = !!user;
   const path = owner ? `${owner}/${slug}` : undefined;
   const { data: fetchedEndpoint, isLoading, error: queryError, refetch } = useEndpointByPath(path);
 
@@ -178,6 +183,33 @@ export const EndpointDetail = memo(function EndpointDetail({
   } else if (!isLoading && !endpoint) {
     error = 'Endpoint not found';
   }
+
+  // Extract Xendit payment policy info for balance card and purchase flow
+  // Prefer explicit 'xendit' type; fall back to 'accounting' only if it has Xendit-shaped payment_api
+  const xenditPolicy = useMemo(() => {
+    if (!endpoint?.policies) return null;
+    const xendit = endpoint.policies.find((p) => p.type === 'xendit');
+    if (xendit) return xendit;
+    const accounting = endpoint.policies.find((p) => p.type === 'accounting');
+    const api = accounting?.config?.payment_api as Record<string, unknown> | null;
+    if (api && ('create_invoice' in api || 'get_balance' in api)) return accounting;
+    return null;
+  }, [endpoint?.policies]);
+  const paymentApi = xenditPolicy?.config?.payment_api as XenditPaymentApi | undefined;
+  const spaceBaseUrl = useMemo(() => {
+    if (!endpoint?.url) return null;
+    try {
+      return new URL(endpoint.url).origin;
+    } catch {
+      return null;
+    }
+  }, [endpoint?.url]);
+
+  // Balance refresh trigger — incremented after a successful purchase
+  const [balanceRefreshTrigger, setBalanceRefreshTrigger] = useState(0);
+  const handlePurchaseSuccess = useCallback(() => {
+    setBalanceRefreshTrigger((prev) => prev + 1);
+  }, []);
 
   // Memoize markdown component renderers to avoid recreation on every render
   const markdownComponents = useMemo(
@@ -308,6 +340,12 @@ export const EndpointDetail = memo(function EndpointDetail({
 
               {/* Badges */}
               <div className='mb-4 flex flex-wrap gap-2'>
+                {endpoint.archived ? (
+                  <Badge className='border border-gray-200 bg-gray-100 text-gray-800 hover:bg-gray-200'>
+                    <Archive className='mr-1 h-3 w-3' />
+                    Archived
+                  </Badge>
+                ) : null}
                 <Badge className={`border ${getTypeStyles(endpoint.type)}`}>
                   {getTypeLabel(endpoint.type)}
                 </Badge>
@@ -410,6 +448,16 @@ export const EndpointDetail = memo(function EndpointDetail({
               </div>
             </div>
 
+            {/* Xendit Balance Card - only show when logged in and endpoint has xendit policy */}
+            {isLoggedIn && paymentApi?.get_balance && spaceBaseUrl && endpoint.owner_username ? (
+              <XenditBalanceCard
+                spaceBaseUrl={spaceBaseUrl}
+                ownerUsername={endpoint.owner_username}
+                balancePath={paymentApi.get_balance}
+                refreshTrigger={balanceRefreshTrigger}
+              />
+            ) : null}
+
             {/* Connections Card */}
             {endpoint.connections && endpoint.connections.length > 0 ? (
               <ConnectionCard
@@ -419,7 +467,15 @@ export const EndpointDetail = memo(function EndpointDetail({
             ) : null}
 
             {/* Access Policies Card */}
-            <AccessPoliciesCard policies={endpoint.policies} />
+            <AccessPoliciesCard
+              policies={endpoint.policies}
+              endpointSlug={endpoint.slug}
+              ownerUsername={endpoint.owner_username}
+              spaceBaseUrl={spaceBaseUrl ?? undefined}
+              isLoggedIn={isLoggedIn}
+              onPurchaseSuccess={handlePurchaseSuccess}
+              archived={endpoint.archived}
+            />
           </aside>
         </div>
       </div>

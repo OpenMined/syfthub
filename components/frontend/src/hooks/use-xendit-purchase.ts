@@ -1,0 +1,141 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+import type { XenditPaymentApi } from '@/lib/types';
+
+import { syftClient } from '@/lib/sdk-client';
+
+interface UseXenditPurchaseReturn {
+  /** Initiate purchase for a tier. Opens checkout in a popup window. */
+  purchase: (tierName: string) => Promise<void>;
+  /** Whether a purchase is in progress */
+  isLoading: boolean;
+  /** Error message from the last purchase attempt */
+  error: string | null;
+  /** Clear the error state */
+  clearError: () => void;
+}
+
+interface CreateInvoiceResponse {
+  id: string;
+  checkout_url: string;
+  status: string;
+}
+
+const POPUP_WIDTH = 500;
+const POPUP_HEIGHT = 700;
+const POPUP_POLL_INTERVAL = 500;
+
+/**
+ * Hook for purchasing Xendit bundle tiers via Syft Space.
+ *
+ * Flow:
+ * 1. Get satellite token for the Syft Space tenant
+ * 2. POST to {spaceBaseUrl}{paymentApi.create_invoice}
+ * 3. Open checkout_url in a centered popup window
+ * 4. Poll for popup close, then call onSuccess to refresh balance
+ */
+export function useXenditPurchase(
+  spaceBaseUrl: string | undefined,
+  ownerUsername: string | undefined,
+  endpointSlug: string | undefined,
+  paymentApi: XenditPaymentApi | undefined,
+  onSuccess?: () => void
+): UseXenditPurchaseReturn {
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pollTimerReference = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Cleanup poll timer on unmount
+  useEffect(() => {
+    return () => {
+      if (pollTimerReference.current) {
+        clearInterval(pollTimerReference.current);
+      }
+    };
+  }, []);
+
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
+  const purchase = useCallback(
+    async (tierName: string) => {
+      if (!spaceBaseUrl || !ownerUsername || !endpointSlug || !paymentApi?.create_invoice) {
+        setError('Purchase is not available for this endpoint.');
+        return;
+      }
+
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        // Get satellite token for the Syft Space tenant
+        const tokenResponse = await syftClient.auth.getSatelliteToken(ownerUsername);
+        const token = tokenResponse.targetToken;
+
+        // Call Syft Space create invoice API
+        const invoiceUrl = `${spaceBaseUrl}${paymentApi.create_invoice}`;
+        const response = await fetch(invoiceUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            endpoint_slug: endpointSlug,
+            tier_name: tierName
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = (await response.json().catch(() => null)) as Record<
+            string,
+            unknown
+          > | null;
+          const detail =
+            typeof errorData?.detail === 'string'
+              ? errorData.detail
+              : `Failed to create invoice (${String(response.status)})`;
+          throw new Error(detail);
+        }
+
+        const data = (await response.json()) as CreateInvoiceResponse;
+
+        if (!data.checkout_url) {
+          throw new Error('No checkout URL returned from payment service.');
+        }
+
+        // Open checkout in a centered popup window
+        const left = Math.round(window.screenX + (window.outerWidth - POPUP_WIDTH) / 2);
+        const top = Math.round(window.screenY + (window.outerHeight - POPUP_HEIGHT) / 2);
+        const popup = window.open(
+          data.checkout_url,
+          'xendit-checkout',
+          `width=${String(POPUP_WIDTH)},height=${String(POPUP_HEIGHT)},left=${String(left)},top=${String(top)},menubar=no,toolbar=no,location=no,status=no`
+        );
+
+        // Poll for popup close to trigger balance refresh
+        if (popup) {
+          pollTimerReference.current = setInterval(() => {
+            if (popup.closed) {
+              if (pollTimerReference.current) {
+                clearInterval(pollTimerReference.current);
+                pollTimerReference.current = null;
+              }
+              onSuccess?.();
+            }
+          }, POPUP_POLL_INTERVAL);
+        }
+      } catch (error_) {
+        const message =
+          error_ instanceof Error ? error_.message : 'Purchase failed. Please try again.';
+        setError(message);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [spaceBaseUrl, ownerUsername, endpointSlug, paymentApi, onSuccess]
+  );
+
+  return { purchase, isLoading, error, clearError };
+}
