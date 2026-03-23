@@ -332,13 +332,15 @@ export class ChatResource {
    */
   private async handleAggregatorErrorResponse(response: Response): Promise<never> {
     let message = `HTTP ${response.status}`;
+    let detail: unknown;
     try {
       const data = (await response.json()) as Record<string, unknown>;
       message = String(data['message'] ?? data['error'] ?? message);
+      detail = data['detail'] ?? data;
     } catch {
       // Use default message
     }
-    throw new AggregatorError(`Aggregator error: ${message}`, response.status);
+    throw new AggregatorError(`Aggregator error: ${message}`, response.status, detail);
   }
 
   /**

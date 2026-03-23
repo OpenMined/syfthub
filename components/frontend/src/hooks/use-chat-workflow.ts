@@ -411,6 +411,20 @@ export function getErrorMessage(error: unknown): string {
     return 'Authentication required. Please log in again.';
   }
   if (error instanceof AggregatorError) {
+    // Detect insufficient credits (403 from Syft Space policy pre-hook)
+    if (error.status === 403) {
+      const detail = (
+        typeof error.detail === 'string' ? error.detail : error.message
+      ).toLowerCase();
+      if (
+        detail.includes('blocked request') ||
+        detail.includes('insufficient') ||
+        detail.includes('bundle') ||
+        detail.includes('credit')
+      ) {
+        return 'Insufficient credits. Purchase more bundles from the endpoint detail page.';
+      }
+    }
     return `Chat service error: ${error.message}`;
   }
   if (error instanceof EndpointResolutionError) {
