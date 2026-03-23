@@ -222,6 +222,7 @@ export interface EndpointPublicResponse {
   stars_count: number;
   policies: Policy[];
   connect: Connection[];
+  archived?: boolean;
   created_at: string;
   updated_at: string;
   owner_username?: string; // Username of the endpoint owner (if exposed by backend)
@@ -276,6 +277,7 @@ export interface ChatSource {
   tenant_name?: string; // Tenant name from connect[0].config.tenant_name (for SyftAI-Space multi-tenancy)
   connections?: Connection[]; // Full connection configurations (for detailed view)
   policies?: Policy[]; // Access policies for the endpoint
+  archived?: boolean; // Whether the endpoint is archived (derived from policy config)
 }
 
 // Organization types
@@ -432,6 +434,30 @@ export interface CreateDelegatedTransactionInput {
   senderEmail: string;
   amount: number;
   token: string;
+}
+
+// =============================================================================
+// Xendit / Payment Bundle Types
+// =============================================================================
+
+/** A single bundle tier in a Xendit payment policy */
+export interface XenditBundleTier {
+  /** Display name of the tier (e.g. "Starter", "Pro") */
+  name: string;
+  /** Number of units in this bundle */
+  units: number;
+  /** Type of unit (e.g. "requests") */
+  unit_type: string;
+  /** Price in the policy-level currency */
+  price: number;
+}
+
+/** Shape of the payment_api object inside a xendit/accounting policy config */
+export interface XenditPaymentApi {
+  /** Relative path to create invoice endpoint on Syft Space */
+  create_invoice: string;
+  /** Relative path to get balance endpoint on Syft Space */
+  get_balance: string;
 }
 
 /**

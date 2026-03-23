@@ -88,6 +88,9 @@ export function mapEndpointPublicToSource(endpoint: SdkEndpointPublic): ChatSour
       ? enabledConnection.config.tenant_name
       : undefined;
 
+  // Get archived status from endpoint field
+  const archived = 'archived' in endpoint && endpoint.archived === true;
+
   // Map SDK connections to frontend Connection type
   const mappedConnections = connections.map((c) => ({
     type: c.type,
@@ -123,7 +126,8 @@ export function mapEndpointPublicToSource(endpoint: SdkEndpointPublic): ChatSour
     url: url,
     tenant_name: tenantName,
     connections: mappedConnections,
-    policies: mappedPolicies
+    policies: mappedPolicies,
+    archived
   };
 }
 
@@ -201,6 +205,7 @@ interface RawEndpointPublic {
     description: string;
     config: Record<string, unknown>;
   }>;
+  archived?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -223,6 +228,7 @@ function transformRawEndpoint(raw: RawEndpointPublic): SdkEndpointPublic {
     starsCount: raw.stars_count,
     policies: raw.policies,
     connect: raw.connect,
+    archived: raw.archived ?? false,
     createdAt: new Date(raw.created_at),
     updatedAt: new Date(raw.updated_at)
   } as unknown as SdkEndpointPublic;

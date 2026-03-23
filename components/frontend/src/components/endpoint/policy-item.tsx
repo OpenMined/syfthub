@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 import { BundleSubscriptionPolicyContent } from './bundle-subscription-policy-content';
 import { GenericPolicyContent } from './generic-policy-content';
 import { formatConfigKey, TransactionPolicyContent } from './transaction-policy-content';
+import { XenditPolicyContent } from './xendit-policy-content';
 
 // Policy type configuration for styling and icons
 const POLICY_TYPE_CONFIG: Record<
@@ -107,6 +108,23 @@ const POLICY_TYPE_CONFIG: Record<
     bgColor: 'bg-rose-50 dark:bg-rose-950/30',
     borderColor: 'border-rose-200 dark:border-rose-800',
     description: 'Access restricted by geographic location'
+  },
+  // Payment policies
+  xendit: {
+    icon: CreditCard,
+    label: 'Xendit Payment',
+    color: 'text-teal-600 dark:text-teal-400',
+    bgColor: 'bg-teal-50 dark:bg-teal-950/30',
+    borderColor: 'border-teal-200 dark:border-teal-800',
+    description: 'Purchase request bundles via Xendit'
+  },
+  accounting: {
+    icon: Coins,
+    label: 'Accounting',
+    color: 'text-emerald-600 dark:text-emerald-400',
+    bgColor: 'bg-emerald-50 dark:bg-emerald-950/30',
+    borderColor: 'border-emerald-200 dark:border-emerald-800',
+    description: 'Pay-per-use via accounting service'
   }
 };
 
@@ -125,12 +143,25 @@ function getPolicyConfig(type: string) {
 
 export interface PolicyItemProperties {
   policy: Policy;
+  endpointSlug?: string;
+  ownerUsername?: string;
+  spaceBaseUrl?: string;
+  isLoggedIn?: boolean;
+  onPurchaseSuccess?: () => void;
+  archived?: boolean;
 }
 
 function renderPolicyContent(
   policy: Policy,
   isTransaction: boolean,
-  isBundleSubscription: boolean
+  isBundleSubscription: boolean,
+  isXendit: boolean,
+  endpointSlug?: string,
+  ownerUsername?: string,
+  spaceBaseUrl?: string,
+  isLoggedIn?: boolean,
+  onPurchaseSuccess?: () => void,
+  archived?: boolean
 ): React.ReactElement {
   if (isTransaction) {
     return <TransactionPolicyContent config={policy.config} />;
@@ -138,16 +169,39 @@ function renderPolicyContent(
   if (isBundleSubscription) {
     return <BundleSubscriptionPolicyContent config={policy.config} enabled={policy.enabled} />;
   }
+  if (isXendit) {
+    return (
+      <XenditPolicyContent
+        config={policy.config}
+        enabled={policy.enabled}
+        endpointSlug={endpointSlug}
+        ownerUsername={ownerUsername}
+        spaceBaseUrl={spaceBaseUrl}
+        isLoggedIn={isLoggedIn}
+        onPurchaseSuccess={onPurchaseSuccess}
+        archived={archived}
+      />
+    );
+  }
   return <GenericPolicyContent config={policy.config} />;
 }
 
 // Single policy item component - memoized to prevent unnecessary re-renders
-export const PolicyItem = memo(function PolicyItem({ policy }: Readonly<PolicyItemProperties>) {
+export const PolicyItem = memo(function PolicyItem({
+  policy,
+  endpointSlug,
+  ownerUsername,
+  spaceBaseUrl,
+  isLoggedIn,
+  onPurchaseSuccess,
+  archived
+}: Readonly<PolicyItemProperties>) {
   const config = getPolicyConfig(policy.type);
   const Icon = config.icon;
   const policyTypeLower = policy.type.toLowerCase();
   const isTransaction = policyTypeLower === 'transaction';
   const isBundleSubscription = policyTypeLower === 'bundle_subscription';
+  const isXendit = policyTypeLower === 'xendit';
 
   // For unknown policy types, use the type as the label
   const displayLabel = POLICY_TYPE_CONFIG[policy.type.toLowerCase()]
@@ -198,7 +252,18 @@ export const PolicyItem = memo(function PolicyItem({ policy }: Readonly<PolicyIt
 
           {/* Policy-specific content */}
           {Object.keys(policy.config).length > 0 &&
-            renderPolicyContent(policy, isTransaction, isBundleSubscription)}
+            renderPolicyContent(
+              policy,
+              isTransaction,
+              isBundleSubscription,
+              isXendit,
+              endpointSlug,
+              ownerUsername,
+              spaceBaseUrl,
+              isLoggedIn,
+              onPurchaseSuccess,
+              archived
+            )}
 
           {policy.version ? (
             <p className='text-muted-foreground mt-2 text-[10px]'>Version {policy.version}</p>
