@@ -59,6 +59,7 @@ class EndpointModel(BaseModel, TimestampMixin):
         String(20), nullable=False, default="public"
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Health check failure tracking - used by health monitor to track consecutive failures
     # before marking endpoint as inactive (multi-worker safe, persisted in DB)
     consecutive_failure_count: Mapped[int] = mapped_column(

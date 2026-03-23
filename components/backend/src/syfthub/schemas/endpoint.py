@@ -163,6 +163,10 @@ class EndpointBase(BaseModel):
     policies: List[Policy] = Field(
         default_factory=list, description="List of policies applied to this endpoint"
     )
+    archived: bool = Field(
+        default=False,
+        description="Whether this endpoint is archived (no new purchases allowed)",
+    )
 
     @field_validator("tags")
     @classmethod
@@ -293,6 +297,9 @@ class EndpointUpdate(BaseModel):
     policies: Optional[List[Policy]] = Field(
         None, description="List of policies applied to this endpoint"
     )
+    archived: Optional[bool] = Field(
+        None, description="Whether this endpoint is archived"
+    )
 
     @field_validator("tags")
     @classmethod
@@ -375,6 +382,9 @@ class Endpoint(BaseModel):
     tags: List[str] = Field(..., description="List of tags for categorization")
     policies: List[Policy] = Field(..., description="List of policies")
     connect: List[Connection] = Field(..., description="List of connection methods")
+    archived: bool = Field(
+        default=False, description="Whether this endpoint is archived"
+    )
 
     # Server-managed fields
     id: int = Field(..., description="Endpoint's unique identifier")
@@ -429,6 +439,9 @@ class EndpointResponse(BaseModel):
         ..., description="Who can access this endpoint"
     )
     is_active: bool = Field(..., description="Whether the endpoint is active")
+    archived: bool = Field(
+        default=False, description="Whether this endpoint is archived"
+    )
     contributors: List[int] = Field(..., description="List of contributor user IDs")
     version: str = Field(..., description="Semantic version of the endpoint")
     readme: str = Field(..., description="Markdown content for the README")
@@ -484,6 +497,9 @@ class EndpointPublicResponse(BaseModel):
     )
     connect: List[Connection] = Field(
         ..., description="List of connection methods available for this endpoint"
+    )
+    archived: bool = Field(
+        default=False, description="Whether this endpoint is archived"
     )
     created_at: datetime = Field(..., description="When the endpoint was created")
     updated_at: datetime = Field(..., description="When the endpoint was last updated")
