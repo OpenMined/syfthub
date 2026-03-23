@@ -613,6 +613,17 @@ def generate_slug_from_name(name: str) -> str:
     return slug
 
 
+def is_slug_available(
+    slug: str,  # noqa: ARG001
+    user_id: int,  # noqa: ARG001
+    exclude_endpoint_id: Optional[int] = None,  # noqa: ARG001
+) -> bool:
+    """Check if a slug is available for a user."""
+    # This will be implemented in the endpoints module
+    # Placeholder for the actual availability check logic
+    return True
+
+
 # ===========================================
 # ENDPOINT HEALTH SCHEMAS
 # ===========================================
