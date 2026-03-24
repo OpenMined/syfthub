@@ -88,7 +88,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             stars_count=row.stars_count,
             policies=row.policies,
             connect=transformed_connect,
-            archived=getattr(row, "archived", False),
+            archived=row.archived,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -106,6 +106,16 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             return None
         except SQLAlchemyError:
             return None
+
+    def is_archived(self, endpoint_id: int) -> bool:
+        """Lightweight check for whether an endpoint is archived (no full model hydration)."""
+        try:
+            stmt = select(self.model.archived).where(self.model.id == endpoint_id)
+            result = self.session.execute(stmt)
+            archived = result.scalar_one_or_none()
+            return archived is True
+        except SQLAlchemyError:
+            return False
 
     def get_by_user_and_slug(self, user_id: int, slug: str) -> Optional[Endpoint]:
         """Get endpoint by user ID and slug."""

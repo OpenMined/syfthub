@@ -660,6 +660,16 @@ async def invoke_owner_endpoint(
             status_code=status.HTTP_404_NOT_FOUND, detail="Owner or endpoint not found"
         )
 
+    # Block invocation of archived endpoints.
+    # Archived endpoints are still visible for browsing but cannot be invoked
+    # because invocation may trigger a purchase/invoice on the Space side.
+    if endpoint.archived:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This endpoint is archived and cannot be invoked. "
+            "No new purchases are allowed on archived endpoints.",
+        )
+
     # Check access permissions
     if not can_access_endpoint_with_org(
         endpoint, current_user, owner_type, member_repo
