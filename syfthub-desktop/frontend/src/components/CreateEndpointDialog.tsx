@@ -11,6 +11,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAppStore } from '@/stores/appStore';
+import { extractErrorMessage } from '@/lib/utils';
+import { Spinner } from '@/components/ui/spinner';
+import { ErrorBanner } from '@/components/ui/error-banner';
 
 // Type options
 type EndpointType = 'model' | 'data_source' | 'agent';
@@ -147,7 +150,7 @@ export function CreateEndpointDialog() {
         version: version.trim() || '1.0.0',
       });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create endpoint');
+      setError(extractErrorMessage(err, 'Failed to create endpoint'));
     }
   };
 
@@ -281,11 +284,7 @@ export function CreateEndpointDialog() {
           )}
 
           {/* Error message */}
-          {error && (
-            <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
-              {error}
-            </div>
-          )}
+          <ErrorBanner message={error} />
         </div>
 
         <DialogFooter>
@@ -302,10 +301,7 @@ export function CreateEndpointDialog() {
           >
             {isCreatingEndpoint ? (
               <>
-                <svg className="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
+                <Spinner className="-ml-1 mr-2 h-4 w-4" />
                 Creating...
               </>
             ) : (

@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Loader2 } from 'lucide-react';
 import { useAppStore, SETUP_COMPLETE_STATUS } from '@/stores/appStore';
+import { ErrorBanner } from '@/components/ui/error-banner';
 
 function PromptForm() {
   const { setupFlow, respondToSetupPrompt } = useAppStore();
@@ -154,11 +155,7 @@ export function SetupFlowDialog() {
         </DialogHeader>
 
         {/* Error display */}
-        {error && (
-          <div className="p-2.5 bg-destructive/10 border border-destructive/20 rounded-md text-destructive text-xs">
-            {error}
-          </div>
-        )}
+        <ErrorBanner message={error} className="p-2.5 rounded-md text-xs" />
 
         {/* Interactive forms */}
         {prompt && <PromptForm />}

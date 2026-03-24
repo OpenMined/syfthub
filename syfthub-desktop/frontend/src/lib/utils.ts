@@ -20,3 +20,18 @@ export const typeLabelsShort: Record<string, string> = {
   model_data_source: 'Hybrid',
   agent: 'Agent',
 };
+
+/** Check whether a string is a valid URL. */
+export function isValidUrl(url: string): boolean {
+  try {
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Extract a human-readable message from an unknown caught error. */
+export function extractErrorMessage(err: unknown, fallback: string): string {
+  return err instanceof Error ? err.message : fallback;
+}

@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { HasSettings, GetSettings, SaveSettingsData, GetDefaultEndpointsPath } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
+import { extractErrorMessage } from '@/lib/utils';
 
 type Settings = main.Settings;
 
@@ -60,7 +61,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
       setSettings(settingsData);
       setIsConfigured(true);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to save settings';
+      const message = extractErrorMessage(err, 'Failed to save settings');
       setError(message);
       throw err;
     }

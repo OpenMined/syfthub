@@ -12,8 +12,10 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { useSettings } from '@/contexts/SettingsContext';
+import { extractErrorMessage, isValidUrl } from '@/lib/utils';
 import { BrowseForFolder } from '../../wailsjs/go/main/App';
 import { AggregatorSection } from './AggregatorSection';
+import { ErrorBanner } from '@/components/ui/error-banner';
 
 interface SettingsModalProps {
   open: boolean;
@@ -45,17 +47,8 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
     }
   };
 
-  const validateUrl = (url: string): boolean => {
-    try {
-      new URL(url);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
   const handleSave = async () => {
-    if (!validateUrl(syfthubUrl)) {
+    if (!isValidUrl(syfthubUrl)) {
       setError('Please enter a valid URL');
       return;
     }
@@ -71,7 +64,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
       await refreshSettings();
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save settings');
+      setError(extractErrorMessage(err, 'Failed to save settings'));
     } finally {
       setIsSaving(false);
     }
@@ -82,7 +75,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
     onOpenChange(false);
   };
 
-  const isUrlValid = !syfthubUrl || validateUrl(syfthubUrl);
+  const isUrlValid = !syfthubUrl || isValidUrl(syfthubUrl);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -157,11 +150,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
             </p>
           </div>
 
-          {error && (
-            <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
-              {error}
-            </div>
-          )}
+          <ErrorBanner message={error} />
 
           {/* Aggregator management — only shown when app is configured */}
           {settings?.isConfigured && (

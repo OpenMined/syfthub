@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useAppStore } from '@/stores/appStore';
+import { isValidUrl } from '@/lib/utils';
 import {
   GetUserAggregators,
   CreateUserAggregator,
@@ -22,15 +23,12 @@ type UserAggregator = main.UserAggregator;
 
 function validateUrl(url: string): string | null {
   if (!url.trim()) return 'URL is required';
-  try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return 'URL must use http:// or https://';
-    }
-    return null;
-  } catch {
-    return 'Please enter a valid URL';
+  if (!isValidUrl(url)) return 'Please enter a valid URL';
+  const parsed = new URL(url);
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return 'URL must use http:// or https://';
   }
+  return null;
 }
 
 function validateName(name: string): string | null {

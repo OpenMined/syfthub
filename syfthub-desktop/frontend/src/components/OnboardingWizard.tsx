@@ -7,8 +7,10 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 import { useSettings } from '@/contexts/SettingsContext';
+import { extractErrorMessage, isValidUrl } from '@/lib/utils';
 import { BrowseForFolder } from '../../wailsjs/go/main/App';
 import { WindowControls } from '@/components/ui/window-controls';
+import { ErrorBanner } from '@/components/ui/error-banner';
 
 type WizardStep = 'welcome' | 'configure' | 'complete';
 
@@ -48,22 +50,13 @@ export function OnboardingWizard() {
       await saveSettings(syfthubUrl, apiKey, effectivePath);
       setStep('complete');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save settings');
+      setError(extractErrorMessage(err, 'Failed to save settings'));
     } finally {
       setIsSaving(false);
     }
   };
 
-  const validateUrl = (url: string): boolean => {
-    try {
-      new URL(url);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  const isUrlValid = validateUrl(syfthubUrl);
+  const isUrlValid = isValidUrl(syfthubUrl);
 
   return (
     <div className="h-screen flex flex-col bg-gradient-to-br from-background via-card to-background text-foreground rounded-xl overflow-hidden shadow-2xl">
@@ -252,11 +245,7 @@ export function OnboardingWizard() {
                 </p>
               </div>
 
-              {error && (
-                <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
-                  {error}
-                </div>
-              )}
+              <ErrorBanner message={error} />
 
               <div className="flex gap-3 pt-2">
                 <Button

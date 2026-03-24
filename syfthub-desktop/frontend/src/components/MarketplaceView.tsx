@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useAppStore, type MarketplacePackage } from '@/stores/appStore';
-import { typeLabels } from '@/lib/utils';
+import { typeLabels, extractErrorMessage } from '@/lib/utils';
+import { Spinner } from '@/components/ui/spinner';
+import { ErrorBanner } from '@/components/ui/error-banner';
 
 function PackageCard({
   pkg,
@@ -106,16 +108,18 @@ export function MarketplaceView() {
     fetchMarketplacePackages();
   }, [fetchMarketplacePackages]);
 
-  const installedSlugs = new Set(endpoints.map((ep) => ep.slug));
+  const installedSlugs = useMemo(() => new Set(endpoints.map((ep) => ep.slug)), [endpoints]);
 
-  const filteredPackages = searchQuery
-    ? marketplacePackages.filter(
-        (pkg) =>
-          pkg.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          pkg.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          pkg.tags?.some((t) => t.toLowerCase().includes(searchQuery.toLowerCase()))
-      )
-    : marketplacePackages;
+  const filteredPackages = useMemo(() => {
+    if (!searchQuery) return marketplacePackages;
+    const query = searchQuery.toLowerCase();
+    return marketplacePackages.filter(
+      (pkg) =>
+        pkg.name.toLowerCase().includes(query) ||
+        pkg.description.toLowerCase().includes(query) ||
+        pkg.tags?.some((t) => t.toLowerCase().includes(query))
+    );
+  }, [marketplacePackages, searchQuery]);
 
   const handleOpenInstall = (pkg: MarketplacePackage) => {
     setSelectedPackage(pkg);
@@ -130,7 +134,7 @@ export function MarketplaceView() {
       await installMarketplacePackage(selectedPackage.slug, selectedPackage.downloadUrl);
       setSelectedPackage(null);
     } catch (err) {
-      setInstallError(err instanceof Error ? err.message : String(err));
+      setInstallError(extractErrorMessage(err, String(err)));
     }
   };
 
@@ -169,10 +173,7 @@ export function MarketplaceView() {
       {marketplaceLoading && marketplacePackages.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
-            <svg className="animate-spin h-8 w-8 text-muted-foreground mx-auto mb-3" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-            </svg>
+            <Spinner className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">Loading packages...</p>
           </div>
         </div>
@@ -220,11 +221,7 @@ export function MarketplaceView() {
                 </DialogDescription>
               </DialogHeader>
 
-              {installError && (
-                <div className="p-2.5 bg-destructive/10 border border-destructive/20 rounded-md text-destructive text-xs">
-                  {installError}
-                </div>
-              )}
+              <ErrorBanner message={installError} className="p-2.5 rounded-md text-xs" />
 
               <DialogFooter>
                 <Button
@@ -242,10 +239,7 @@ export function MarketplaceView() {
                 >
                   {installingPackageSlug === selectedPackage.slug ? (
                     <>
-                      <svg className="animate-spin -ml-1 mr-2 h-3 w-3" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
+                      <Spinner className="-ml-1 mr-2 h-3 w-3" />
                       Installing...
                     </>
                   ) : (
