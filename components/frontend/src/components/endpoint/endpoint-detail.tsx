@@ -211,6 +211,25 @@ export const EndpointDetail = memo(function EndpointDetail({
     setBalanceRefreshTrigger((prev) => prev + 1);
   }, []);
 
+  const xenditContext = useMemo(
+    () => ({
+      endpointSlug: endpoint?.slug,
+      ownerUsername: endpoint?.owner_username,
+      spaceBaseUrl: spaceBaseUrl ?? undefined,
+      isLoggedIn,
+      onPurchaseSuccess: handlePurchaseSuccess,
+      archived: endpoint?.archived
+    }),
+    [
+      endpoint?.slug,
+      endpoint?.owner_username,
+      spaceBaseUrl,
+      isLoggedIn,
+      handlePurchaseSuccess,
+      endpoint?.archived
+    ]
+  );
+
   // Memoize markdown component renderers to avoid recreation on every render
   const markdownComponents = useMemo(
     (): Components => ({
@@ -467,15 +486,7 @@ export const EndpointDetail = memo(function EndpointDetail({
             ) : null}
 
             {/* Access Policies Card */}
-            <AccessPoliciesCard
-              policies={endpoint.policies}
-              endpointSlug={endpoint.slug}
-              ownerUsername={endpoint.owner_username}
-              spaceBaseUrl={spaceBaseUrl ?? undefined}
-              isLoggedIn={isLoggedIn}
-              onPurchaseSuccess={handlePurchaseSuccess}
-              archived={endpoint.archived}
-            />
+            <AccessPoliciesCard policies={endpoint.policies} xenditContext={xenditContext} />
           </aside>
         </div>
       </div>

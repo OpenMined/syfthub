@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 import type { XenditPaymentApi } from '@/lib/types';
+
+import { useMutation } from '@tanstack/react-query';
 
 import { syftClient } from '@/lib/sdk-client';
 
@@ -32,18 +34,18 @@ const POPUP_POLL_INTERVAL = 500;
  * 1. Get satellite token for the Syft Space tenant
  * 2. POST to {spaceBaseUrl}{paymentApi.create_invoice}
  * 3. Open checkout_url in a centered popup window
- * 4. Poll for popup close, then call onSuccess to refresh balance
+ * 4. Poll for popup close, then call onPopupClosed to refresh balance
  */
 export function useXenditPurchase(
   spaceBaseUrl: string | undefined,
   ownerUsername: string | undefined,
   endpointSlug: string | undefined,
   paymentApi: XenditPaymentApi | undefined,
-  onSuccess?: () => void
+  onPopupClosed?: () => void
 ): UseXenditPurchaseReturn {
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const pollTimerReference = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onPopupClosedRef = useRef(onPopupClosed);
+  onPopupClosedRef.current = onPopupClosed;
 
   // Cleanup poll timer on unmount
   useEffect(() => {
@@ -54,19 +56,20 @@ export function useXenditPurchase(
     };
   }, []);
 
-  const clearError = useCallback(() => {
-    setError(null);
-  }, []);
-
-  const purchase = useCallback(
-    async (tierName: string) => {
+  const mutation = useMutation({
+    mutationFn: async (tierName: string) => {
       if (!spaceBaseUrl || !ownerUsername || !endpointSlug || !paymentApi?.create_invoice) {
-        setError('Purchase is not available for this endpoint.');
-        return;
+        throw new Error('Purchase is not available for this endpoint.');
       }
 
-      setIsLoading(true);
-      setError(null);
+      // Pre-open popup synchronously within user gesture context to avoid browser blocking
+      const left = Math.round(window.screenX + (window.outerWidth - POPUP_WIDTH) / 2);
+      const top = Math.round(window.screenY + (window.outerHeight - POPUP_HEIGHT) / 2);
+      const popup = window.open(
+        'about:blank',
+        'xendit-checkout',
+        `width=${String(POPUP_WIDTH)},height=${String(POPUP_HEIGHT)},left=${String(left)},top=${String(top)},menubar=no,toolbar=no,location=no,status=no`
+      );
 
       try {
         // Get satellite token for the Syft Space tenant
@@ -105,14 +108,16 @@ export function useXenditPurchase(
           throw new Error('No checkout URL returned from payment service.');
         }
 
-        // Open checkout in a centered popup window
-        const left = Math.round(window.screenX + (window.outerWidth - POPUP_WIDTH) / 2);
-        const top = Math.round(window.screenY + (window.outerHeight - POPUP_HEIGHT) / 2);
-        const popup = window.open(
-          data.checkout_url,
-          'xendit-checkout',
-          `width=${String(POPUP_WIDTH)},height=${String(POPUP_HEIGHT)},left=${String(left)},top=${String(top)},menubar=no,toolbar=no,location=no,status=no`
-        );
+        // Navigate the pre-opened popup to the checkout URL
+        if (popup) {
+          popup.location.href = data.checkout_url;
+        }
+
+        // Clear any existing poll timer before setting a new one
+        if (pollTimerReference.current) {
+          clearInterval(pollTimerReference.current);
+          pollTimerReference.current = null;
+        }
 
         // Poll for popup close to trigger balance refresh
         if (popup) {
@@ -122,20 +127,37 @@ export function useXenditPurchase(
                 clearInterval(pollTimerReference.current);
                 pollTimerReference.current = null;
               }
-              onSuccess?.();
+              onPopupClosedRef.current?.();
             }
           }, POPUP_POLL_INTERVAL);
         }
       } catch (error_) {
-        const message =
-          error_ instanceof Error ? error_.message : 'Purchase failed. Please try again.';
-        setError(message);
-      } finally {
-        setIsLoading(false);
+        // Close the pre-opened popup on failure
+        if (popup && !popup.closed) {
+          popup.close();
+        }
+        throw error_;
       }
+    }
+  });
+
+  const purchase = useCallback(
+    async (tierName: string): Promise<void> => {
+      await mutation.mutateAsync(tierName);
     },
-    [spaceBaseUrl, ownerUsername, endpointSlug, paymentApi, onSuccess]
+    [mutation.mutateAsync]
   );
 
-  return { purchase, isLoading, error, clearError };
+  const clearError = useCallback(() => {
+    mutation.reset();
+  }, [mutation.reset]);
+
+  const error =
+    mutation.error instanceof Error
+      ? mutation.error.message
+      : mutation.error
+        ? 'Purchase failed. Please try again.'
+        : null;
+
+  return { purchase, isLoading: mutation.isPending, error, clearError };
 }

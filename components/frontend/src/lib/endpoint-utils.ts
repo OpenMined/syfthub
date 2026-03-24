@@ -89,7 +89,9 @@ export function mapEndpointPublicToSource(endpoint: SdkEndpointPublic): ChatSour
       : undefined;
 
   // Get archived status from endpoint field
-  const archived = 'archived' in endpoint && endpoint.archived === true;
+  // The SDK type doesn't declare `archived`, but the API may include it.
+  // Cast through Record<string, unknown> to make the type escape explicit.
+  const archived = (endpoint as unknown as Record<string, unknown>).archived === true;
 
   // Map SDK connections to frontend Connection type
   const mappedConnections = connections.map((c) => ({

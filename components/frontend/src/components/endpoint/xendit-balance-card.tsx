@@ -23,7 +23,7 @@ export const XenditBalanceCard = memo(function XenditBalanceCard({
   balancePath,
   refreshTrigger
 }: Readonly<XenditBalanceCardProperties>) {
-  const { remaining, total, isLoading, error, refetch } = useXenditBalance(
+  const { remaining, total, unitType, isLoading, error, refetch } = useXenditBalance(
     spaceBaseUrl,
     ownerUsername,
     balancePath
@@ -37,7 +37,8 @@ export const XenditBalanceCard = memo(function XenditBalanceCard({
   }, [refreshTrigger, refetch]);
 
   const hasBalance = remaining !== null && total !== null;
-  const percentage = hasBalance && total > 0 ? Math.round((remaining / total) * 100) : 0;
+  const rawPercentage = hasBalance && total > 0 ? Math.round((remaining / total) * 100) : 0;
+  const percentage = Math.max(0, Math.min(rawPercentage, 100));
   const isLow = hasBalance && total > 0 && percentage <= 20;
 
   return (
@@ -76,7 +77,9 @@ export const XenditBalanceCard = memo(function XenditBalanceCard({
           <div className='text-center'>
             <span className='text-foreground text-2xl font-bold'>{remaining.toLocaleString()}</span>
             <span className='text-muted-foreground text-sm'> of {total.toLocaleString()}</span>
-            <p className='text-muted-foreground mt-0.5 text-xs'>requests remaining</p>
+            <p className='text-muted-foreground mt-0.5 text-xs'>
+              {unitType ?? 'requests'} remaining
+            </p>
           </div>
 
           {/* Progress bar */}
@@ -86,7 +89,7 @@ export const XenditBalanceCard = memo(function XenditBalanceCard({
                 'h-full rounded-full transition-all duration-500',
                 isLow ? 'bg-red-500 dark:bg-red-400' : 'bg-teal-500 dark:bg-teal-400'
               )}
-              style={{ width: `${Math.min(percentage, 100)}%` }}
+              style={{ width: `${percentage}%` }}
             />
           </div>
 

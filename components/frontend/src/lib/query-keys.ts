@@ -36,3 +36,9 @@ export const accountingKeys = {
   balance: () => [...accountingKeys.all, 'balance'] as const,
   transactions: (pageSize: number) => [...accountingKeys.all, 'transactions', pageSize] as const
 };
+
+export const xenditKeys = {
+  all: ['xendit'] as const,
+  balance: (spaceBaseUrl: string, ownerUsername: string, balancePath: string) =>
+    [...xenditKeys.all, 'balance', spaceBaseUrl, ownerUsername, balancePath] as const
+};

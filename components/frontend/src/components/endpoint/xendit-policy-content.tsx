@@ -13,15 +13,20 @@ import { useXenditPurchase } from '@/hooks/use-xendit-purchase';
 import { cn } from '@/lib/utils';
 import { useModalStore } from '@/stores/modal-store';
 
-export interface XenditPolicyContentProperties {
-  config: Record<string, unknown>;
-  enabled: boolean;
+/** Context needed by Xendit payment policy rendering. */
+export interface XenditContext {
   endpointSlug?: string;
   ownerUsername?: string;
   spaceBaseUrl?: string;
   isLoggedIn?: boolean;
   onPurchaseSuccess?: () => void;
   archived?: boolean;
+}
+
+export interface XenditPolicyContentProperties {
+  config: Record<string, unknown>;
+  enabled: boolean;
+  xenditContext?: XenditContext;
 }
 
 function formatPrice(price: number, currency: string): string {
@@ -32,20 +37,42 @@ function formatPrice(price: number, currency: string): string {
   }
 }
 
+/** Validates that a value conforms to the XenditBundleTier shape. */
+export function isValidBundleTier(value: unknown): value is XenditBundleTier {
+  if (typeof value !== 'object' || value === null) return false;
+  const tier = value as Record<string, unknown>;
+  return (
+    typeof tier.name === 'string' &&
+    typeof tier.units === 'number' &&
+    typeof tier.unit_type === 'string' &&
+    typeof tier.price === 'number'
+  );
+}
+
+/** Validates that a value conforms to the XenditPaymentApi shape. */
+export function isValidPaymentApi(value: unknown): value is XenditPaymentApi {
+  if (typeof value !== 'object' || value === null) return false;
+  const api = value as Record<string, unknown>;
+  return typeof api.create_invoice === 'string' && typeof api.get_balance === 'string';
+}
+
 export const XenditPolicyContent = memo(function XenditPolicyContent({
   config,
   enabled,
-  endpointSlug,
-  ownerUsername,
-  spaceBaseUrl,
-  isLoggedIn,
-  onPurchaseSuccess,
-  archived = false
+  xenditContext
 }: Readonly<XenditPolicyContentProperties>) {
+  const {
+    endpointSlug,
+    ownerUsername,
+    spaceBaseUrl,
+    isLoggedIn,
+    onPurchaseSuccess,
+    archived = false
+  } = xenditContext ?? {};
   const bundleTiers = Array.isArray(config.bundle_tiers)
-    ? (config.bundle_tiers as XenditBundleTier[])
+    ? config.bundle_tiers.filter((tier) => isValidBundleTier(tier))
     : [];
-  const paymentApi = config.payment_api as XenditPaymentApi | undefined;
+  const paymentApi = isValidPaymentApi(config.payment_api) ? config.payment_api : undefined;
   const defaultCurrency = (config.currency as string | undefined) ?? 'USD';
   const { openLogin } = useModalStore();
 

@@ -1,6 +1,7 @@
 import { memo } from 'react';
 
 import type { Policy } from '@/lib/types';
+import type { XenditContext } from './policy-item';
 
 import Unlock from 'lucide-react/dist/esm/icons/unlock';
 
@@ -8,23 +9,14 @@ import { PolicyItem } from './policy-item';
 
 export interface AccessPoliciesCardProperties {
   policies?: Policy[];
-  endpointSlug?: string;
-  ownerUsername?: string;
-  spaceBaseUrl?: string;
-  isLoggedIn?: boolean;
-  onPurchaseSuccess?: () => void;
-  archived?: boolean;
+  /** Grouped context for Xendit payment policies. Only required when the endpoint has a xendit policy. */
+  xenditContext?: XenditContext;
 }
 
 // Access Policies Card component - memoized to prevent unnecessary re-renders
 export const AccessPoliciesCard = memo(function AccessPoliciesCard({
   policies,
-  endpointSlug,
-  ownerUsername,
-  spaceBaseUrl,
-  isLoggedIn,
-  onPurchaseSuccess,
-  archived
+  xenditContext
 }: Readonly<AccessPoliciesCardProperties>) {
   const validPolicies = policies?.filter((p) => p.type) ?? [];
 
@@ -47,12 +39,7 @@ export const AccessPoliciesCard = memo(function AccessPoliciesCard({
             <PolicyItem
               key={`${policy.type}-${String(index)}`}
               policy={policy}
-              endpointSlug={endpointSlug}
-              ownerUsername={ownerUsername}
-              spaceBaseUrl={spaceBaseUrl}
-              isLoggedIn={isLoggedIn}
-              onPurchaseSuccess={onPurchaseSuccess}
-              archived={archived}
+              xenditContext={xenditContext}
             />
           ))}
         </div>

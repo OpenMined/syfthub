@@ -1,6 +1,7 @@
 import React, { memo } from 'react';
 
 import type { Policy } from '@/lib/types';
+import type { XenditContext } from './xendit-policy-content';
 
 import Coins from 'lucide-react/dist/esm/icons/coins';
 import CreditCard from 'lucide-react/dist/esm/icons/credit-card';
@@ -20,6 +21,8 @@ import { BundleSubscriptionPolicyContent } from './bundle-subscription-policy-co
 import { GenericPolicyContent } from './generic-policy-content';
 import { formatConfigKey, TransactionPolicyContent } from './transaction-policy-content';
 import { XenditPolicyContent } from './xendit-policy-content';
+
+export type { XenditContext } from './xendit-policy-content';
 
 // Policy type configuration for styling and icons
 const POLICY_TYPE_CONFIG: Record<
@@ -143,26 +146,21 @@ function getPolicyConfig(type: string) {
 
 export interface PolicyItemProperties {
   policy: Policy;
-  endpointSlug?: string;
-  ownerUsername?: string;
-  spaceBaseUrl?: string;
-  isLoggedIn?: boolean;
-  onPurchaseSuccess?: () => void;
-  archived?: boolean;
+  /** Grouped context for Xendit payment policies. Only required when the endpoint has a xendit policy. */
+  xenditContext?: XenditContext;
 }
 
-function renderPolicyContent(
-  policy: Policy,
-  isTransaction: boolean,
-  isBundleSubscription: boolean,
-  isXendit: boolean,
-  endpointSlug?: string,
-  ownerUsername?: string,
-  spaceBaseUrl?: string,
-  isLoggedIn?: boolean,
-  onPurchaseSuccess?: () => void,
-  archived?: boolean
-): React.ReactElement {
+interface PolicyContentOptions {
+  policy: Policy;
+  isTransaction: boolean;
+  isBundleSubscription: boolean;
+  isXendit: boolean;
+  xenditContext?: XenditContext;
+}
+
+function renderPolicyContent(options: PolicyContentOptions): React.ReactElement {
+  const { policy, isTransaction, isBundleSubscription, isXendit, xenditContext } = options;
+
   if (isTransaction) {
     return <TransactionPolicyContent config={policy.config} />;
   }
@@ -174,12 +172,7 @@ function renderPolicyContent(
       <XenditPolicyContent
         config={policy.config}
         enabled={policy.enabled}
-        endpointSlug={endpointSlug}
-        ownerUsername={ownerUsername}
-        spaceBaseUrl={spaceBaseUrl}
-        isLoggedIn={isLoggedIn}
-        onPurchaseSuccess={onPurchaseSuccess}
-        archived={archived}
+        xenditContext={xenditContext}
       />
     );
   }
@@ -189,12 +182,7 @@ function renderPolicyContent(
 // Single policy item component - memoized to prevent unnecessary re-renders
 export const PolicyItem = memo(function PolicyItem({
   policy,
-  endpointSlug,
-  ownerUsername,
-  spaceBaseUrl,
-  isLoggedIn,
-  onPurchaseSuccess,
-  archived
+  xenditContext
 }: Readonly<PolicyItemProperties>) {
   const config = getPolicyConfig(policy.type);
   const Icon = config.icon;
@@ -252,18 +240,13 @@ export const PolicyItem = memo(function PolicyItem({
 
           {/* Policy-specific content */}
           {Object.keys(policy.config).length > 0 &&
-            renderPolicyContent(
+            renderPolicyContent({
               policy,
               isTransaction,
               isBundleSubscription,
               isXendit,
-              endpointSlug,
-              ownerUsername,
-              spaceBaseUrl,
-              isLoggedIn,
-              onPurchaseSuccess,
-              archived
-            )}
+              xenditContext
+            })}
 
           {policy.version ? (
             <p className='text-muted-foreground mt-2 text-[10px]'>Version {policy.version}</p>
