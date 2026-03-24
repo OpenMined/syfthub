@@ -406,11 +406,40 @@ export function processStreamEventForStatus(
 /**
  * Convert errors to user-friendly messages.
  */
+const INSUFFICIENT_CREDITS_MESSAGE =
+  'Insufficient credits. Purchase more bundles from the endpoint detail page.';
+
 export function getErrorMessage(error: unknown): string {
   if (error instanceof AuthenticationError) {
     return 'Authentication required. Please log in again.';
   }
   if (error instanceof AggregatorError) {
+    // Detect insufficient credits (403 from Syft Space policy pre-hook)
+    if (error.status === 403) {
+      // Prefer structured error code when the backend provides one
+      if (
+        typeof error.detail === 'object' &&
+        error.detail !== null &&
+        'error_code' in error.detail
+      ) {
+        const code = (error.detail as { error_code: string }).error_code;
+        if (code === 'insufficient_credits' || code === 'policy_blocked') {
+          return INSUFFICIENT_CREDITS_MESSAGE;
+        }
+      }
+
+      // Fallback: string heuristic — require BOTH a blocking keyword AND a
+      // credit-related keyword so unrelated 403s don't false-positive.
+      const detail = (
+        typeof error.detail === 'string' ? error.detail : error.message
+      ).toLowerCase();
+      const hasBlockingKeyword = detail.includes('insufficient') || detail.includes('blocked');
+      const hasCreditKeyword =
+        detail.includes('credit') || detail.includes('bundle') || detail.includes('balance');
+      if (hasBlockingKeyword && hasCreditKeyword) {
+        return INSUFFICIENT_CREDITS_MESSAGE;
+      }
+    }
     return `Chat service error: ${error.message}`;
   }
   if (error instanceof EndpointResolutionError) {

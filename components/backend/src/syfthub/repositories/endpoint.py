@@ -88,6 +88,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             stars_count=row.stars_count,
             policies=row.policies,
             connect=transformed_connect,
+            archived=row.archived,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -105,6 +106,16 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             return None
         except SQLAlchemyError:
             return None
+
+    def is_archived(self, endpoint_id: int) -> bool:
+        """Lightweight check for whether an endpoint is archived (no full model hydration)."""
+        try:
+            stmt = select(self.model.archived).where(self.model.id == endpoint_id)
+            result = self.session.execute(stmt)
+            archived = result.scalar_one_or_none()
+            return archived is True
+        except SQLAlchemyError:
+            return False
 
     def get_by_user_and_slug(self, user_id: int, slug: str) -> Optional[Endpoint]:
         """Get endpoint by user ID and slug."""
@@ -745,6 +756,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 policies=[policy.model_dump() for policy in endpoint_data.policies],
                 connect=[conn.model_dump() for conn in endpoint_data.connect],
                 is_active=True,
+                archived=endpoint_data.archived,
             )
 
             self.session.add(endpoint_model)
@@ -793,6 +805,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 endpoint_model.connect = [
                     conn.model_dump() for conn in endpoint_data.connect
                 ]
+            if endpoint_data.archived is not None:
+                endpoint_model.archived = endpoint_data.archived
             # REMOVED is_active update - this should only be done by admin_update_endpoint
 
             self.session.commit()
@@ -905,6 +919,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                 policies=data.get("policies", []),
                 connect=data.get("connect", []),
                 is_active=True,
+                archived=data.get("archived", False),
             )
             self.session.add(endpoint_model)
             created_endpoints.append(endpoint_model)

@@ -196,6 +196,74 @@ describe('getErrorMessage', () => {
   it('handles non-Error values', () => {
     expect(getErrorMessage('string error')).toBe('An unexpected error occurred');
   });
+
+  // --------------------------------------------------------------------------
+  // 403 insufficient-credits detection
+  // --------------------------------------------------------------------------
+
+  describe('403 insufficient credits detection', () => {
+    const CREDIT_MSG = 'Insufficient credits. Purchase more bundles from the endpoint detail page.';
+
+    it('returns credit message for 403 with error_code insufficient_credits', () => {
+      const error = new AggregatorError('Forbidden', 403, {
+        error_code: 'insufficient_credits'
+      });
+      expect(getErrorMessage(error)).toBe(CREDIT_MSG);
+    });
+
+    it('returns credit message for 403 with error_code policy_blocked', () => {
+      const error = new AggregatorError('Forbidden', 403, {
+        error_code: 'policy_blocked'
+      });
+      expect(getErrorMessage(error)).toBe(CREDIT_MSG);
+    });
+
+    it('returns credit message for 403 with both blocking and credit keywords in detail string', () => {
+      const error = new AggregatorError('blocked: insufficient credit balance', 403, undefined);
+      expect(getErrorMessage(error)).toBe(CREDIT_MSG);
+    });
+
+    it('returns credit message when detail is a string with blocking + bundle keyword', () => {
+      const error = new AggregatorError('generic', 403, 'Request blocked — no bundle remaining');
+      expect(getErrorMessage(error)).toBe(CREDIT_MSG);
+    });
+
+    it('returns credit message when detail is a string with insufficient + balance keyword', () => {
+      const error = new AggregatorError('generic', 403, 'Insufficient balance for this request');
+      expect(getErrorMessage(error)).toBe(CREDIT_MSG);
+    });
+
+    it('falls back to message when detail is not a string (non-object)', () => {
+      // detail is a number, so the heuristic checks the message instead
+      const error = new AggregatorError('blocked credit issue', 403, 42);
+      expect(getErrorMessage(error)).toBe(CREDIT_MSG);
+    });
+
+    it('does NOT return credit message for 403 with only one blocking keyword', () => {
+      const error = new AggregatorError('Request blocked by policy', 403, undefined);
+      expect(getErrorMessage(error)).toBe('Chat service error: Request blocked by policy');
+    });
+
+    it('does NOT return credit message for 403 with only one credit keyword', () => {
+      const error = new AggregatorError('Your credit balance is 0', 403, undefined);
+      expect(getErrorMessage(error)).toBe('Chat service error: Your credit balance is 0');
+    });
+
+    it('does NOT return credit message for non-403 status even with matching keywords', () => {
+      const error = new AggregatorError('insufficient credit balance', 500, undefined);
+      expect(getErrorMessage(error)).toBe('Chat service error: insufficient credit balance');
+    });
+
+    it('does NOT return credit message for 403 without detail and no matching message', () => {
+      const error = new AggregatorError('Access denied', 403, undefined);
+      expect(getErrorMessage(error)).toBe('Chat service error: Access denied');
+    });
+
+    it('returns generic aggregator message for AggregatorError without status', () => {
+      const error = new AggregatorError('Something went wrong');
+      expect(getErrorMessage(error)).toBe('Chat service error: Something went wrong');
+    });
+  });
 });
 
 // ============================================================================

@@ -1,6 +1,7 @@
 import { memo } from 'react';
 
 import type { Policy } from '@/lib/types';
+import type { XenditContext } from './policy-item';
 
 import Unlock from 'lucide-react/dist/esm/icons/unlock';
 
@@ -8,11 +9,14 @@ import { PolicyItem } from './policy-item';
 
 export interface AccessPoliciesCardProperties {
   policies?: Policy[];
+  /** Grouped context for Xendit payment policies. Only required when the endpoint has a xendit policy. */
+  xenditContext?: XenditContext;
 }
 
 // Access Policies Card component - memoized to prevent unnecessary re-renders
 export const AccessPoliciesCard = memo(function AccessPoliciesCard({
-  policies
+  policies,
+  xenditContext
 }: Readonly<AccessPoliciesCardProperties>) {
   const validPolicies = policies?.filter((p) => p.type) ?? [];
 
@@ -32,7 +36,11 @@ export const AccessPoliciesCard = memo(function AccessPoliciesCard({
       {validPolicies.length > 0 ? (
         <div className='space-y-3'>
           {validPolicies.map((policy, index) => (
-            <PolicyItem key={`${policy.type}-${String(index)}`} policy={policy} />
+            <PolicyItem
+              key={`${policy.type}-${String(index)}`}
+              policy={policy}
+              xenditContext={xenditContext}
+            />
           ))}
         </div>
       ) : (

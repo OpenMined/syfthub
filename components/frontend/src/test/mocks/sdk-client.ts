@@ -25,7 +25,11 @@ export class AuthenticationError extends SyftHubError {
 }
 
 export class AggregatorError extends SyftHubError {
-  constructor(message = 'Aggregator error') {
+  constructor(
+    message = 'Aggregator error',
+    public readonly status?: number,
+    public readonly detail?: unknown
+  ) {
     super(message);
     this.name = 'AggregatorError';
   }

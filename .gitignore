@@ -200,3 +200,4 @@ frontend/.nuxt/
 frontend/out/
 frontend/storybook-static/
 frontend/tsconfig.tsbuildinfo
+.gitnexus
