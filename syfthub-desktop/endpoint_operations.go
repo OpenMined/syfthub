@@ -112,20 +112,18 @@ func fromNodeopsDeps(ds []nodeops.Dependency) []Dependency {
 
 // GetEndpointDetail returns full details for an endpoint.
 func (a *App) GetEndpointDetail(slug string) (*EndpointDetail, error) {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
+	runtime.LogDebug(a.ctx, fmt.Sprintf("GetEndpointDetail called for slug: %s", slug))
 
-	runtime.LogInfo(a.ctx, fmt.Sprintf("GetEndpointDetail called for slug: %s", slug))
-
-	if a.config == nil {
+	config, err := a.getConfig()
+	if err != nil {
 		runtime.LogError(a.ctx, "GetEndpointDetail: app not configured")
-		return nil, fmt.Errorf("app not configured")
+		return nil, err
 	}
 
-	runtime.LogInfo(a.ctx, fmt.Sprintf("GetEndpointDetail: endpoints path = %s", a.config.EndpointsPath))
+	runtime.LogDebug(a.ctx, fmt.Sprintf("GetEndpointDetail: endpoints path = %s", config.EndpointsPath))
 
-	endpointDir := filepath.Join(a.config.EndpointsPath, slug)
-	runtime.LogInfo(a.ctx, fmt.Sprintf("GetEndpointDetail: looking for endpoint at %s", endpointDir))
+	endpointDir := filepath.Join(config.EndpointsPath, slug)
+	runtime.LogDebug(a.ctx, fmt.Sprintf("GetEndpointDetail: looking for endpoint at %s", endpointDir))
 
 	if _, err := os.Stat(endpointDir); os.IsNotExist(err) {
 		runtime.LogError(a.ctx, fmt.Sprintf("GetEndpointDetail: endpoint not found at %s", endpointDir))
@@ -148,7 +146,7 @@ func (a *App) GetEndpointDetail(slug string) (*EndpointDetail, error) {
 		detail.ReadmeContent = string(content)
 
 		// Parse frontmatter from already-loaded content (avoids re-opening the file).
-		if frontmatter, _, err := a.parseReadmeFrontmatterBytes(content); err == nil {
+		if frontmatter, _, err := nodeops.ParseReadmeFrontmatterBytes(content); err == nil {
 			if frontmatter.Name != "" {
 				detail.Name = frontmatter.Name
 			}
@@ -206,25 +204,10 @@ func (a *App) GetEndpointDetail(slug string) (*EndpointDetail, error) {
 		detail.SetupStatus = toSetupStatusInfo(nodeops.ComputeSetupStatus(spec, state))
 	}
 
-	runtime.LogInfo(a.ctx, fmt.Sprintf("GetEndpointDetail: returning detail for %s (name=%s, type=%s, enabled=%v, hasRunner=%v, hasReadme=%v)",
+	runtime.LogDebug(a.ctx, fmt.Sprintf("GetEndpointDetail: returning detail for %s (name=%s, type=%s, enabled=%v, hasRunner=%v, hasReadme=%v)",
 		slug, detail.Name, detail.Type, detail.Enabled, len(detail.RunnerCode) > 0, detail.HasReadme))
 
 	return detail, nil
-}
-
-// parseReadmeFrontmatter parses YAML frontmatter from README.md.
-// Returns (frontmatter, body, error) where body is the markdown content after frontmatter.
-func (a *App) parseReadmeFrontmatter(path string) (*nodeops.ReadmeFrontmatter, string, error) {
-	return nodeops.ParseReadmeFrontmatter(path)
-}
-
-func (a *App) parseReadmeFrontmatterBytes(data []byte) (*nodeops.ReadmeFrontmatter, string, error) {
-	return nodeops.ParseReadmeFrontmatterBytes(data)
-}
-
-// updateReadmeFrontmatter updates specific fields in the README.md frontmatter while preserving the body.
-func (a *App) updateReadmeFrontmatter(path string, updates map[string]interface{}) error {
-	return nodeops.UpdateReadmeFrontmatter(path, updates)
 }
 
 // parsePoliciesYaml parses policies.yaml and returns the policies list.
@@ -238,14 +221,12 @@ func (a *App) parsePoliciesYaml(path string) ([]Policy, string, error) {
 
 // GetRunnerCode returns the runner.py content for an endpoint.
 func (a *App) GetRunnerCode(slug string) (string, error) {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.config == nil {
-		return "", fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return "", err
 	}
 
-	runnerPath := filepath.Join(a.config.EndpointsPath, slug, "runner.py")
+	runnerPath := filepath.Join(config.EndpointsPath, slug, "runner.py")
 	content, err := os.ReadFile(runnerPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read runner.py: %w", err)
@@ -256,12 +237,9 @@ func (a *App) GetRunnerCode(slug string) (string, error) {
 
 // SaveRunnerCode saves the runner.py content for an endpoint.
 func (a *App) SaveRunnerCode(slug, code string) error {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return err
 	}
 
 	runnerPath := filepath.Join(config.EndpointsPath, slug, "runner.py")
@@ -275,14 +253,12 @@ func (a *App) SaveRunnerCode(slug, code string) error {
 
 // GetReadme returns the README.md content for an endpoint.
 func (a *App) GetReadme(slug string) (string, error) {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.config == nil {
-		return "", fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return "", err
 	}
 
-	readmePath := filepath.Join(a.config.EndpointsPath, slug, "README.md")
+	readmePath := filepath.Join(config.EndpointsPath, slug, "README.md")
 	content, err := os.ReadFile(readmePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -296,12 +272,9 @@ func (a *App) GetReadme(slug string) (string, error) {
 
 // SaveReadme saves the README.md content for an endpoint.
 func (a *App) SaveReadme(slug, content string) error {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return err
 	}
 
 	readmePath := filepath.Join(config.EndpointsPath, slug, "README.md")
@@ -315,14 +288,12 @@ func (a *App) SaveReadme(slug, content string) error {
 
 // GetEnvironment returns environment variables for an endpoint.
 func (a *App) GetEnvironment(slug string) ([]EnvVar, error) {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.config == nil {
-		return nil, fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return nil, err
 	}
 
-	envPath := filepath.Join(a.config.EndpointsPath, slug, ".env")
+	envPath := filepath.Join(config.EndpointsPath, slug, ".env")
 	return a.readEnvFile(envPath)
 }
 
@@ -337,12 +308,9 @@ func (a *App) readEnvFile(path string) ([]EnvVar, error) {
 
 // SetEnvironment adds or updates an environment variable.
 func (a *App) SetEnvironment(slug, key, value string) error {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return err
 	}
 
 	envPath := filepath.Join(config.EndpointsPath, slug, ".env")
@@ -372,12 +340,9 @@ func (a *App) SetEnvironment(slug, key, value string) error {
 
 // DeleteEnvironment removes an environment variable.
 func (a *App) DeleteEnvironment(slug, key string) error {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return err
 	}
 
 	envPath := filepath.Join(config.EndpointsPath, slug, ".env")
@@ -407,14 +372,12 @@ func (a *App) writeEnvFile(path string, vars []EnvVar) error {
 
 // GetDependencies returns Python dependencies for an endpoint.
 func (a *App) GetDependencies(slug string) ([]Dependency, error) {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-
-	if a.config == nil {
-		return nil, fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return nil, err
 	}
 
-	pyprojectPath := filepath.Join(a.config.EndpointsPath, slug, "pyproject.toml")
+	pyprojectPath := filepath.Join(config.EndpointsPath, slug, "pyproject.toml")
 	return a.readDependencies(pyprojectPath)
 }
 
@@ -429,12 +392,9 @@ func (a *App) readDependencies(path string) ([]Dependency, error) {
 
 // AddDependency adds a dependency to the endpoint's pyproject.toml.
 func (a *App) AddDependency(slug, pkg, version string) error {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return err
 	}
 
 	if pkg == "" {
@@ -542,12 +502,9 @@ func (a *App) AddDependency(slug, pkg, version string) error {
 
 // DeleteDependency removes a dependency from the endpoint's pyproject.toml.
 func (a *App) DeleteDependency(slug, pkg string) error {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return err
 	}
 
 	if pkg == "" {
@@ -605,12 +562,9 @@ func (a *App) DeleteDependency(slug, pkg string) error {
 
 // UpdateEndpointOverview updates the endpoint overview fields in README.md frontmatter.
 func (a *App) UpdateEndpointOverview(slug string, name, description, endpointType, version string) error {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return err
 	}
 
 	readmePath := filepath.Join(config.EndpointsPath, slug, "README.md")
@@ -623,7 +577,7 @@ func (a *App) UpdateEndpointOverview(slug string, name, description, endpointTyp
 		"version":     version,
 	}
 
-	if err := a.updateReadmeFrontmatter(readmePath, updates); err != nil {
+	if err := nodeops.UpdateReadmeFrontmatter(readmePath, updates); err != nil {
 		return fmt.Errorf("failed to update README.md frontmatter: %w", err)
 	}
 
@@ -634,19 +588,19 @@ func (a *App) UpdateEndpointOverview(slug string, name, description, endpointTyp
 // ToggleEndpointEnabled toggles the enabled status of an endpoint.
 // This uses a fast path that updates the registry directly without recreating executors.
 func (a *App) ToggleEndpointEnabled(slug string) (bool, error) {
+	config, err := a.getConfig()
+	if err != nil {
+		return false, err
+	}
+
 	a.mu.RLock()
-	config := a.config
 	core := a.core
 	a.mu.RUnlock()
-
-	if config == nil {
-		return false, fmt.Errorf("app not configured")
-	}
 
 	readmePath := filepath.Join(config.EndpointsPath, slug, "README.md")
 
 	// Read current state from README.md frontmatter
-	frontmatter, _, err := a.parseReadmeFrontmatter(readmePath)
+	frontmatter, _, err := nodeops.ParseReadmeFrontmatter(readmePath)
 	if err != nil {
 		return false, fmt.Errorf("failed to read README.md: %w", err)
 	}
@@ -664,7 +618,7 @@ func (a *App) ToggleEndpointEnabled(slug string) (bool, error) {
 	updates := map[string]interface{}{
 		"enabled": newEnabled,
 	}
-	if err := a.updateReadmeFrontmatter(readmePath, updates); err != nil {
+	if err := nodeops.UpdateReadmeFrontmatter(readmePath, updates); err != nil {
 		return false, fmt.Errorf("failed to update README.md frontmatter: %w", err)
 	}
 
@@ -682,14 +636,25 @@ func (a *App) ToggleEndpointEnabled(slug string) (bool, error) {
 	return newEnabled, nil
 }
 
+// openInExplorer opens the given path in the native file explorer.
+func openInExplorer(path string) error {
+	var cmd *exec.Cmd
+	switch goruntime.GOOS {
+	case "windows":
+		cmd = exec.Command("explorer", path)
+	case "darwin":
+		cmd = exec.Command("open", path)
+	default: // Linux and others
+		cmd = exec.Command("xdg-open", path)
+	}
+	return cmd.Start()
+}
+
 // OpenEndpointsFolder opens the endpoints directory in the system file explorer.
 func (a *App) OpenEndpointsFolder() error {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return err
 	}
 
 	// Check if the directory exists
@@ -697,28 +662,14 @@ func (a *App) OpenEndpointsFolder() error {
 		return fmt.Errorf("endpoints folder does not exist: %s", config.EndpointsPath)
 	}
 
-	// Use platform-specific commands to open the folder
-	var cmd *exec.Cmd
-	switch goruntime.GOOS {
-	case "windows":
-		cmd = exec.Command("explorer", config.EndpointsPath)
-	case "darwin":
-		cmd = exec.Command("open", config.EndpointsPath)
-	default: // Linux and others
-		cmd = exec.Command("xdg-open", config.EndpointsPath)
-	}
-
-	return cmd.Start()
+	return openInExplorer(config.EndpointsPath)
 }
 
 // OpenEndpointFolder opens a specific endpoint directory in the file explorer.
 func (a *App) OpenEndpointFolder(slug string) error {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return err
 	}
 
 	endpointPath := filepath.Join(config.EndpointsPath, slug)
@@ -728,29 +679,15 @@ func (a *App) OpenEndpointFolder(slug string) error {
 		return fmt.Errorf("endpoint folder does not exist: %s", endpointPath)
 	}
 
-	// Use platform-specific commands to open the folder
-	var cmd *exec.Cmd
-	switch goruntime.GOOS {
-	case "windows":
-		cmd = exec.Command("explorer", endpointPath)
-	case "darwin":
-		cmd = exec.Command("open", endpointPath)
-	default: // Linux and others
-		cmd = exec.Command("xdg-open", endpointPath)
-	}
-
-	return cmd.Start()
+	return openInExplorer(endpointPath)
 }
 
 // SavePolicy creates or updates a policy in the endpoint's policies.yaml.
 // If a policy with the same name exists, it will be updated; otherwise, a new one is created.
 func (a *App) SavePolicy(slug string, policy Policy) error {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return err
 	}
 
 	policiesPath := filepath.Join(config.EndpointsPath, slug, "policies.yaml")
@@ -764,12 +701,9 @@ func (a *App) SavePolicy(slug string, policy Policy) error {
 
 // DeletePolicy removes a policy from the endpoint's policies.yaml by name.
 func (a *App) DeletePolicy(slug, policyName string) error {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return err
 	}
 
 	policiesPath := filepath.Join(config.EndpointsPath, slug, "policies.yaml")
@@ -783,12 +717,9 @@ func (a *App) DeletePolicy(slug, policyName string) error {
 
 // GetPolicies returns the policies for an endpoint.
 func (a *App) GetPolicies(slug string) ([]Policy, error) {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return nil, fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return nil, err
 	}
 
 	policiesPath := filepath.Join(config.EndpointsPath, slug, "policies.yaml")
@@ -805,12 +736,9 @@ func (a *App) GetPolicies(slug string) ([]Policy, error) {
 
 // GetPoliciesYaml returns the raw policies.yaml content for an endpoint.
 func (a *App) GetPoliciesYaml(slug string) (string, error) {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return "", fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return "", err
 	}
 
 	policiesPath := filepath.Join(config.EndpointsPath, slug, "policies.yaml")
@@ -836,20 +764,25 @@ policies: []
 	return string(content), nil
 }
 
+// validateYAML checks that a string contains valid YAML syntax.
+func validateYAML(content string) error {
+	var v interface{}
+	if err := yaml.Unmarshal([]byte(content), &v); err != nil {
+		return fmt.Errorf("invalid YAML syntax: %w", err)
+	}
+	return nil
+}
+
 // SavePoliciesYaml saves raw YAML content to the endpoint's policies.yaml file.
 func (a *App) SavePoliciesYaml(slug, content string) error {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return err
 	}
 
 	// Validate YAML syntax before saving
-	var test interface{}
-	if err := yaml.Unmarshal([]byte(content), &test); err != nil {
-		return fmt.Errorf("invalid YAML syntax: %w", err)
+	if err := validateYAML(content); err != nil {
+		return err
 	}
 
 	policiesPath := filepath.Join(config.EndpointsPath, slug, "policies.yaml")
@@ -878,12 +811,9 @@ type NewPolicyRequest struct {
 
 // ListPolicyFiles returns all policy files in the endpoint's policy/ directory.
 func (a *App) ListPolicyFiles(slug string) ([]PolicyFileInfo, error) {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return nil, fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return nil, err
 	}
 
 	policyDir := filepath.Join(config.EndpointsPath, slug, "policy")
@@ -926,23 +856,27 @@ func (a *App) ListPolicyFiles(slug string) ([]PolicyFileInfo, error) {
 	return policies, nil
 }
 
+// validateFilename checks that a filename is non-empty and doesn't contain
+// path-traversal characters that could escape the target directory.
+func validateFilename(filename string) error {
+	if filename == "" {
+		return fmt.Errorf("filename is required")
+	}
+	if strings.Contains(filename, "..") || strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+		return fmt.Errorf("invalid filename")
+	}
+	return nil
+}
+
 // GetPolicyFileYaml returns the raw YAML content of a single policy file.
 func (a *App) GetPolicyFileYaml(slug, filename string) (string, error) {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return "", fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return "", err
 	}
 
-	if filename == "" {
-		return "", fmt.Errorf("filename is required")
-	}
-
-	// Security: ensure filename doesn't escape the policy directory
-	if strings.Contains(filename, "..") || strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
-		return "", fmt.Errorf("invalid filename")
+	if err := validateFilename(filename); err != nil {
+		return "", err
 	}
 
 	policyPath := filepath.Join(config.EndpointsPath, slug, "policy", filename)
@@ -959,27 +893,18 @@ func (a *App) GetPolicyFileYaml(slug, filename string) (string, error) {
 
 // SavePolicyFileYaml saves raw YAML content to a policy file.
 func (a *App) SavePolicyFileYaml(slug, filename, content string) error {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return err
 	}
 
-	if filename == "" {
-		return fmt.Errorf("filename is required")
-	}
-
-	// Security: ensure filename doesn't escape the policy directory
-	if strings.Contains(filename, "..") || strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
-		return fmt.Errorf("invalid filename")
+	if err := validateFilename(filename); err != nil {
+		return err
 	}
 
 	// Validate YAML syntax before saving
-	var test interface{}
-	if err := yaml.Unmarshal([]byte(content), &test); err != nil {
-		return fmt.Errorf("invalid YAML syntax: %w", err)
+	if err := validateYAML(content); err != nil {
+		return err
 	}
 
 	policyDir := filepath.Join(config.EndpointsPath, slug, "policy")
@@ -1000,21 +925,13 @@ func (a *App) SavePolicyFileYaml(slug, filename, content string) error {
 
 // DeletePolicyFile removes a policy file from the endpoint's policy/ directory.
 func (a *App) DeletePolicyFile(slug, filename string) error {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return err
 	}
 
-	if filename == "" {
-		return fmt.Errorf("filename is required")
-	}
-
-	// Security: ensure filename doesn't escape the policy directory
-	if strings.Contains(filename, "..") || strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
-		return fmt.Errorf("invalid filename")
+	if err := validateFilename(filename); err != nil {
+		return err
 	}
 
 	policyPath := filepath.Join(config.EndpointsPath, slug, "policy", filename)
@@ -1029,162 +946,161 @@ func (a *App) DeletePolicyFile(slug, filename string) error {
 	return nil
 }
 
-// slugifyFilename converts a policy name to a valid filename.
-// E.g., "My Rate Limit Policy" -> "my-rate-limit-policy.yaml"
-func slugifyFilename(name string) string {
-	return nodeops.SlugifyFilename(name)
+// policyDef is the top-level structure serialized to YAML for a policy file.
+type policyDef struct {
+	Type   string      `yaml:"type"`
+	Name   string      `yaml:"name"`
+	Config interface{} `yaml:"config,omitempty"`
+}
+
+// marshalPolicyYAML marshals a policyDef to YAML with an optional comment header.
+func marshalPolicyYAML(comment string, def policyDef) string {
+	out, err := yaml.Marshal(&def)
+	if err != nil {
+		// Fallback: should never happen with known struct types.
+		return fmt.Sprintf("type: %s\nname: %s\nconfig: {}\n", def.Type, def.Name)
+	}
+	if comment != "" {
+		return comment + string(out)
+	}
+	return string(out)
 }
 
 // generatePolicyYAML generates YAML content for a policy based on its type.
+// Uses yaml.Marshal to ensure proper escaping of user-supplied values.
 func generatePolicyYAML(req NewPolicyRequest) string {
 	switch req.Type {
 	case "AccessGroupPolicy":
-		return fmt.Sprintf(`# Access Group Policy
-# Controls access based on user group membership
-type: AccessGroupPolicy
-name: %s
-config:
-  # List of user IDs or emails that can access this endpoint
-  users:
-    - user@example.com
-`, req.Name)
+		type accessGroupConfig struct {
+			Users []string `yaml:"users"`
+		}
+		return marshalPolicyYAML(
+			"# Access Group Policy\n# Controls access based on user group membership\n",
+			policyDef{Type: "AccessGroupPolicy", Name: req.Name, Config: accessGroupConfig{
+				Users: []string{"user@example.com"},
+			}},
+		)
 
 	case "RateLimitPolicy":
-		return fmt.Sprintf(`# Rate Limit Policy
-# Limits the number of requests per time window
-type: RateLimitPolicy
-name: %s
-config:
-  # Maximum number of requests allowed in the window
-  max_requests: 100
-  # Time window in seconds
-  window_seconds: 3600
-`, req.Name)
+		type rateLimitConfig struct {
+			MaxRequests   int `yaml:"max_requests"`
+			WindowSeconds int `yaml:"window_seconds"`
+		}
+		return marshalPolicyYAML(
+			"# Rate Limit Policy\n# Limits the number of requests per time window\n",
+			policyDef{Type: "RateLimitPolicy", Name: req.Name, Config: rateLimitConfig{
+				MaxRequests: 100, WindowSeconds: 3600,
+			}},
+		)
 
 	case "TokenLimitPolicy":
-		return fmt.Sprintf(`# Token Limit Policy
-# Limits token usage for LLM endpoints
-type: TokenLimitPolicy
-name: %s
-config:
-  # Maximum tokens per request
-  max_tokens_per_request: 4096
-  # Maximum tokens per time window (optional)
-  max_tokens_per_window: 100000
-  # Time window in seconds for window-based limiting
-  window_seconds: 3600
-`, req.Name)
+		type tokenLimitConfig struct {
+			MaxTokensPerRequest int `yaml:"max_tokens_per_request"`
+			MaxTokensPerWindow  int `yaml:"max_tokens_per_window"`
+			WindowSeconds       int `yaml:"window_seconds"`
+		}
+		return marshalPolicyYAML(
+			"# Token Limit Policy\n# Limits token usage for LLM endpoints\n",
+			policyDef{Type: "TokenLimitPolicy", Name: req.Name, Config: tokenLimitConfig{
+				MaxTokensPerRequest: 4096, MaxTokensPerWindow: 100000, WindowSeconds: 3600,
+			}},
+		)
 
 	case "PromptFilterPolicy":
-		return fmt.Sprintf(`# Prompt Filter Policy
-# Filters requests based on prompt content patterns
-type: PromptFilterPolicy
-name: %s
-config:
-  # List of regex patterns to block
-  patterns:
-    - "(?i)password"
-    - "(?i)secret"
-    - "(?i)api.?key"
-`, req.Name)
+		type promptFilterConfig struct {
+			Patterns []string `yaml:"patterns"`
+		}
+		return marshalPolicyYAML(
+			"# Prompt Filter Policy\n# Filters requests based on prompt content patterns\n",
+			policyDef{Type: "PromptFilterPolicy", Name: req.Name, Config: promptFilterConfig{
+				Patterns: []string{"(?i)password", "(?i)secret", "(?i)api.?key"},
+			}},
+		)
 
 	case "AttributionPolicy":
-		return fmt.Sprintf(`# Attribution Policy
-# Tracks data usage attribution for audit purposes
-type: AttributionPolicy
-name: %s
-config:
-  # Fields to track for attribution
-  track_fields:
-    - user_id
-    - endpoint_slug
-    - timestamp
-  # Attribution log path (optional)
-  log_path: .attribution_log.jsonl
-`, req.Name)
+		type attributionConfig struct {
+			TrackFields []string `yaml:"track_fields"`
+			LogPath     string   `yaml:"log_path"`
+		}
+		return marshalPolicyYAML(
+			"# Attribution Policy\n# Tracks data usage attribution for audit purposes\n",
+			policyDef{Type: "AttributionPolicy", Name: req.Name, Config: attributionConfig{
+				TrackFields: []string{"user_id", "endpoint_slug", "timestamp"},
+				LogPath:     ".attribution_log.jsonl",
+			}},
+		)
 
 	case "ManualReviewPolicy":
-		return fmt.Sprintf(`# Manual Review Policy
-# Requires manual approval for requests
-type: ManualReviewPolicy
-name: %s
-config:
-  # Review timeout in seconds (request denied if not approved in time)
-  timeout_seconds: 3600
-  # Notification webhook URL (optional)
-  webhook_url: ""
-`, req.Name)
+		type manualReviewConfig struct {
+			TimeoutSeconds int    `yaml:"timeout_seconds"`
+			WebhookURL     string `yaml:"webhook_url"`
+		}
+		return marshalPolicyYAML(
+			"# Manual Review Policy\n# Requires manual approval for requests\n",
+			policyDef{Type: "ManualReviewPolicy", Name: req.Name, Config: manualReviewConfig{
+				TimeoutSeconds: 3600, WebhookURL: "",
+			}},
+		)
 
 	case "TransactionPolicy":
-		return fmt.Sprintf(`# Transaction Policy
-# Manages credit/token-based transactions
-type: TransactionPolicy
-name: %s
-config:
-  # Cost per request (in credits/tokens)
-  cost_per_request: 1
-  # Initial balance for new users
-  initial_balance: 100
-`, req.Name)
+		type transactionConfig struct {
+			CostPerRequest int `yaml:"cost_per_request"`
+			InitialBalance int `yaml:"initial_balance"`
+		}
+		return marshalPolicyYAML(
+			"# Transaction Policy\n# Manages credit/token-based transactions\n",
+			policyDef{Type: "TransactionPolicy", Name: req.Name, Config: transactionConfig{
+				CostPerRequest: 1, InitialBalance: 100,
+			}},
+		)
 
 	case "BundleSubscriptionPolicy":
-		return fmt.Sprintf(`# Bundle Subscription Policy
-# Gates access behind an active subscription plan
-type: bundle_subscription
-name: %s
-config:
-  # Display name of the subscription plan
-  plan_name: "Pro"
-  # Price amount
-  price: 29.99
-  # Currency code (e.g. USD, EUR)
-  currency: "USD"
-  # Billing cycle: one_time, monthly, or yearly
-  billing_cycle: "monthly"
-  # External billing/subscription URL (shown to users)
-  invoice_url: ""
-`, req.Name)
+		type bundleConfig struct {
+			PlanName     string  `yaml:"plan_name"`
+			Price        float64 `yaml:"price"`
+			Currency     string  `yaml:"currency"`
+			BillingCycle string  `yaml:"billing_cycle"`
+			InvoiceURL   string  `yaml:"invoice_url"`
+		}
+		return marshalPolicyYAML(
+			"# Bundle Subscription Policy\n# Gates access behind an active subscription plan\n",
+			policyDef{Type: "bundle_subscription", Name: req.Name, Config: bundleConfig{
+				PlanName: "Pro", Price: 29.99, Currency: "USD",
+				BillingCycle: "monthly", InvoiceURL: "",
+			}},
+		)
 
 	case "AllOfPolicy":
-		// Build child policies list
-		childPoliciesYAML := ""
-		if len(req.ChildPolicies) > 0 {
-			for _, child := range req.ChildPolicies {
-				childPoliciesYAML += fmt.Sprintf("    - %s\n", child)
-			}
-		} else {
-			childPoliciesYAML = "    - policy_name_1\n    - policy_name_2\n"
+		type allOfConfig struct {
+			Policies []string `yaml:"policies"`
 		}
-		return fmt.Sprintf(`# All-Of Policy (Composite)
-# ALL child policies must pass for the request to be allowed
-type: AllOfPolicy
-name: %s
-config:
-  # List of policy names that must ALL pass
-  policies:
-%s`, req.Name, childPoliciesYAML)
+		children := req.ChildPolicies
+		if len(children) == 0 {
+			children = []string{"policy_name_1", "policy_name_2"}
+		}
+		return marshalPolicyYAML(
+			"# All-Of Policy (Composite)\n# ALL child policies must pass for the request to be allowed\n",
+			policyDef{Type: "AllOfPolicy", Name: req.Name, Config: allOfConfig{Policies: children}},
+		)
 
 	case "AnyOfPolicy":
-		// Build child policies list
-		childPoliciesYAML := ""
-		if len(req.ChildPolicies) > 0 {
-			for _, child := range req.ChildPolicies {
-				childPoliciesYAML += fmt.Sprintf("    - %s\n", child)
-			}
-		} else {
-			childPoliciesYAML = "    - policy_name_1\n    - policy_name_2\n"
+		type anyOfConfig struct {
+			Policies []string `yaml:"policies"`
 		}
-		return fmt.Sprintf(`# Any-Of Policy (Composite)
-# At least ONE child policy must pass for the request to be allowed
-type: AnyOfPolicy
-name: %s
-config:
-  # List of policy names where at least one must pass
-  policies:
-%s`, req.Name, childPoliciesYAML)
+		children := req.ChildPolicies
+		if len(children) == 0 {
+			children = []string{"policy_name_1", "policy_name_2"}
+		}
+		return marshalPolicyYAML(
+			"# Any-Of Policy (Composite)\n# At least ONE child policy must pass for the request to be allowed\n",
+			policyDef{Type: "AnyOfPolicy", Name: req.Name, Config: anyOfConfig{Policies: children}},
+		)
 
 	case "NotPolicy":
-		// Build child policies list (NotPolicy typically wraps one policy)
+		type notConfig struct {
+			Policy     string `yaml:"policy"`
+			DenyReason string `yaml:"deny_reason"`
+		}
 		childPolicyName := "policy_to_negate"
 		if len(req.ChildPolicies) > 0 {
 			childPolicyName = req.ChildPolicies[0]
@@ -1193,35 +1109,26 @@ config:
 		if denyReason == "" {
 			denyReason = "Access denied by policy negation"
 		}
-		return fmt.Sprintf(`# Not Policy (Composite)
-# Inverts the result of the wrapped policy
-type: NotPolicy
-name: %s
-config:
-  # The policy to negate (deny becomes allow, allow becomes deny)
-  policy: %s
-  # Reason shown when the negated policy blocks access
-  deny_reason: "%s"
-`, req.Name, childPolicyName, denyReason)
+		return marshalPolicyYAML(
+			"# Not Policy (Composite)\n# Inverts the result of the wrapped policy\n",
+			policyDef{Type: "NotPolicy", Name: req.Name, Config: notConfig{
+				Policy: childPolicyName, DenyReason: denyReason,
+			}},
+		)
 
 	default:
-		// Generic template for unknown types
-		return fmt.Sprintf(`# Policy configuration
-type: %s
-name: %s
-config: {}
-`, req.Type, req.Name)
+		return marshalPolicyYAML(
+			"# Policy configuration\n",
+			policyDef{Type: req.Type, Name: req.Name, Config: map[string]any{}},
+		)
 	}
 }
 
 // CreatePolicyFile creates a new policy file with a template based on the request.
 func (a *App) CreatePolicyFile(slug string, req NewPolicyRequest) error {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return err
 	}
 
 	if req.Name == "" {
@@ -1233,7 +1140,7 @@ func (a *App) CreatePolicyFile(slug string, req NewPolicyRequest) error {
 	}
 
 	// Generate filename from policy name
-	filename := slugifyFilename(req.Name)
+	filename := nodeops.SlugifyFilename(req.Name)
 
 	policyDir := filepath.Join(config.EndpointsPath, slug, "policy")
 
@@ -1272,12 +1179,6 @@ type CreateEndpointRequest struct {
 	Version     string `json:"version"`     // Optional, defaults to "1.0.0"
 }
 
-// slugify converts a name to a URL-safe slug.
-// E.g., "My Cool Model" -> "my-cool-model"
-func slugify(name string) string {
-	return nodeops.Slugify(name)
-}
-
 // CheckEndpointExists checks if an endpoint with the given name already exists.
 // Returns the generated slug and whether it exists.
 func (a *App) CheckEndpointExists(name string) (string, bool) {
@@ -1288,7 +1189,7 @@ func (a *App) CheckEndpointExists(name string) (string, bool) {
 		return "", false
 	}
 
-	slug := slugify(name)
+	slug := nodeops.Slugify(name)
 	if slug == "" {
 		return "", false
 	}
@@ -1339,7 +1240,7 @@ func (a *App) CreateEndpoint(req CreateEndpointRequest) (string, error) {
 	}
 
 	// Generate slug from name
-	slug := slugify(req.Name)
+	slug := nodeops.Slugify(req.Name)
 	if slug == "" {
 		return "", fmt.Errorf("could not generate valid slug from name '%s'", req.Name)
 	}
@@ -1367,7 +1268,7 @@ func (a *App) CreateEndpoint(req CreateEndpointRequest) (string, error) {
 	}
 
 	// Create runner.py with appropriate handler function
-	runnerContent := getRunnerTemplate(req.Type)
+	runnerContent := nodeops.GetRunnerTemplate(req.Type)
 	runnerPath := filepath.Join(endpointDir, "runner.py")
 	if err := os.WriteFile(runnerPath, []byte(runnerContent), 0644); err != nil {
 		cleanup()
@@ -1433,9 +1334,4 @@ Edit the runner.py file to implement your endpoint logic.
 	runtime.EventsEmit(a.ctx, "app:endpoints-changed", nil)
 
 	return slug, nil
-}
-
-// getRunnerTemplate returns the runner.py template content for the given endpoint type.
-func getRunnerTemplate(endpointType string) string {
-	return nodeops.GetRunnerTemplate(endpointType)
 }

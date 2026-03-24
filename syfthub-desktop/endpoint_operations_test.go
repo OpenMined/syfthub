@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/openmined/syfthub-desktop-gui/internal/app"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
 // ============================================================================
@@ -35,9 +36,9 @@ func TestSlugify(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := slugify(tt.input)
+			result := nodeops.Slugify(tt.input)
 			if result != tt.expected {
-				t.Errorf("slugify(%q) = %q, want %q", tt.input, result, tt.expected)
+				t.Errorf("nodeops.Slugify(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
 	}
@@ -58,9 +59,9 @@ func TestSlugifyFilename(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := slugifyFilename(tt.input)
+			result := nodeops.SlugifyFilename(tt.input)
 			if result != tt.expected {
-				t.Errorf("slugifyFilename(%q) = %q, want %q", tt.input, result, tt.expected)
+				t.Errorf("nodeops.SlugifyFilename(%q) = %q, want %q", tt.input, result, tt.expected)
 			}
 		})
 	}
@@ -188,7 +189,7 @@ func TestGeneratePolicyYAMLDefaults(t *testing.T) {
 
 func TestGetRunnerTemplate(t *testing.T) {
 	// Test model template
-	modelTemplate := getRunnerTemplate("model")
+	modelTemplate := nodeops.GetRunnerTemplate("model")
 	if !strings.Contains(modelTemplate, "def handler(messages") {
 		t.Error("model template should contain handler function")
 	}
@@ -197,7 +198,7 @@ func TestGetRunnerTemplate(t *testing.T) {
 	}
 
 	// Test data_source template
-	dataSourceTemplate := getRunnerTemplate("data_source")
+	dataSourceTemplate := nodeops.GetRunnerTemplate("data_source")
 	if !strings.Contains(dataSourceTemplate, "def handler(query") {
 		t.Error("data_source template should contain handler function")
 	}
@@ -390,8 +391,7 @@ Use it wisely.
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
-	app := &App{}
-	fm, body, err := app.parseReadmeFrontmatter(readmePath)
+	fm, body, err := nodeops.ParseReadmeFrontmatter(readmePath)
 	if err != nil {
 		t.Fatalf("parseReadmeFrontmatter error: %v", err)
 	}
@@ -435,8 +435,7 @@ No frontmatter here.
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
-	app := &App{}
-	_, _, err := app.parseReadmeFrontmatter(readmePath)
+	_, _, err := nodeops.ParseReadmeFrontmatter(readmePath)
 	if err == nil {
 		t.Error("parseReadmeFrontmatter should error when no frontmatter")
 	}
@@ -457,8 +456,7 @@ Body content here.
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
-	app := &App{}
-	_, _, err := app.parseReadmeFrontmatter(readmePath)
+	_, _, err := nodeops.ParseReadmeFrontmatter(readmePath)
 	if err == nil {
 		t.Error("parseReadmeFrontmatter should error for unclosed frontmatter")
 	}
@@ -482,13 +480,12 @@ Keep this.
 		t.Fatalf("Failed to write test file: %v", err)
 	}
 
-	app := &App{}
 	updates := map[string]interface{}{
 		"name":        "New Name",
 		"description": "Added description",
 	}
 
-	if err := app.updateReadmeFrontmatter(readmePath, updates); err != nil {
+	if err := nodeops.UpdateReadmeFrontmatter(readmePath, updates); err != nil {
 		t.Fatalf("updateReadmeFrontmatter error: %v", err)
 	}
 
