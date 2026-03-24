@@ -275,6 +275,10 @@ export function useChatWorkflow({
   // Track id of the message being streamed into so token updates hit the right msg
   const streamingIdRef = useRef<string | null>(null);
 
+  // Mirror messages state in a ref so sendMessage can read without re-creating
+  const messagesRef = useRef(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+
   // Register Wails event listener once
   useEffect(() => {
     const unsubscribe = EventsOn('chat:stream-event', (event: ChatStreamEvent) => {
@@ -340,8 +344,8 @@ export function useChatWorkflow({
       const userMsgId = `user-${Date.now()}`;
       const assistantMsgId = `asst-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-      // Snapshot history before adding new messages
-      const historySnapshot: { role: string; content: string }[] = messages.map((m) => ({
+      // Snapshot history before adding new messages (read from ref to avoid stale closure)
+      const historySnapshot: { role: string; content: string }[] = messagesRef.current.map((m) => ({
         role: m.role,
         content:
           m.role === 'assistant'
@@ -385,7 +389,7 @@ export function useChatWorkflow({
         streamingIdRef.current = null;
       }
     },
-    [selectedModel, selectedSources, workflowState.phase, messages]
+    [selectedModel, selectedSources, workflowState.phase]
   );
 
   const stopStream = useCallback(async () => {

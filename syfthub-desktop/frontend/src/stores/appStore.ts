@@ -310,22 +310,28 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       set({ isInitializing: true, error: null });
 
-      // Wait for SpaceURL to be set (fetched async during Wails startup)
-      const maxConfigAttempts = 50; // 5 seconds max
-      let configAttempts = 0;
-      let config;
-      while (configAttempts < maxConfigAttempts) {
-        config = await GetConfig();
-        if (config.spaceUrl) {
-          break;
-        }
-        await new Promise(resolve => setTimeout(resolve, 100));
-        configAttempts++;
-      }
+      // Wait for config to be ready (backend emits this after initSyftClient)
+      const config = await new Promise<any>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          cleanup();
+          reject(new Error('Configuration incomplete - SpaceURL not set. Check your API key and connection.'));
+        }, 10000); // 10s timeout as fallback
 
-      if (!config?.spaceUrl) {
-        throw new Error('Configuration incomplete - SpaceURL not set. Check your API key and connection.');
-      }
+        const cleanup = EventsOn('app:config-ready', () => {
+          clearTimeout(timeout);
+          cleanup();
+          resolve(GetConfig());
+        });
+
+        // Also try immediately in case the event already fired
+        GetConfig().then(c => {
+          if (c.spaceUrl) {
+            clearTimeout(timeout);
+            cleanup();
+            resolve(c);
+          }
+        });
+      });
 
       // Start the service (required before reloading endpoints)
       await Start();
@@ -1029,6 +1035,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       // that the goroutine has already emitted.
       await InstallMarketplacePackage(slug, downloadUrl);
       await get().fetchEndpoints();
+    } catch (err) {
+      set({ error: `Failed to install package: ${err}` });
+      throw err;
     } finally {
       set({ installingPackageSlug: null });
     }
