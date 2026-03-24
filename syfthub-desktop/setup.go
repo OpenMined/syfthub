@@ -26,14 +26,14 @@ type setupState struct {
 // Progress and prompts are delivered via Wails events on the "setupflow:*" channels.
 // Emits "setupflow:complete" on success or "setupflow:failed" on error.
 func (a *App) RunEndpointSetup(slug string, force bool) error {
+	config, err := a.getConfig()
+	if err != nil {
+		return err
+	}
+
 	a.mu.RLock()
-	config := a.config
 	settings := a.settings
 	a.mu.RUnlock()
-
-	if config == nil {
-		return fmt.Errorf("app not configured")
-	}
 
 	endpointDir := filepath.Join(config.EndpointsPath, slug)
 
@@ -157,12 +157,9 @@ func (a *App) RunEndpointSetup(slug string, force bool) error {
 
 // GetSetupStatus returns the setup status for an endpoint.
 func (a *App) GetSetupStatus(slug string) (*SetupStatusInfo, error) {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return nil, fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return nil, err
 	}
 
 	endpointDir := filepath.Join(config.EndpointsPath, slug)
@@ -176,12 +173,9 @@ func (a *App) GetSetupStatus(slug string) (*SetupStatusInfo, error) {
 
 // GetSetupSpec returns the parsed setup spec with current step statuses.
 func (a *App) GetSetupSpec(slug string) (*SetupSpecInfo, error) {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return nil, fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return nil, err
 	}
 
 	endpointDir := filepath.Join(config.EndpointsPath, slug)
@@ -209,46 +203,33 @@ func (a *App) getSetupIO() (*WailsSetupIO, error) {
 	return sio, nil
 }
 
-// RespondToSetupPrompt sends a user's prompt response to the running setup flow.
-func (a *App) RespondToSetupPrompt(value string) error {
+// respondToSetup is a generic helper that sends a value to a setup IO channel.
+func respondToSetup[T any](a *App, value T, getCh func(*WailsSetupIO) chan T) error {
 	sio, err := a.getSetupIO()
 	if err != nil {
 		return err
 	}
 	select {
-	case sio.promptCh <- value:
+	case getCh(sio) <- value:
 		return nil
 	case <-sio.cancelCtx.Done():
 		return fmt.Errorf("setup was cancelled")
 	}
+}
+
+// RespondToSetupPrompt sends a user's prompt response to the running setup flow.
+func (a *App) RespondToSetupPrompt(value string) error {
+	return respondToSetup(a, value, func(io *WailsSetupIO) chan string { return io.promptCh })
 }
 
 // RespondToSetupSelect sends a user's select response to the running setup flow.
 func (a *App) RespondToSetupSelect(value string) error {
-	sio, err := a.getSetupIO()
-	if err != nil {
-		return err
-	}
-	select {
-	case sio.selectCh <- value:
-		return nil
-	case <-sio.cancelCtx.Done():
-		return fmt.Errorf("setup was cancelled")
-	}
+	return respondToSetup(a, value, func(io *WailsSetupIO) chan string { return io.selectCh })
 }
 
 // RespondToSetupConfirm sends a user's confirm response to the running setup flow.
 func (a *App) RespondToSetupConfirm(confirmed bool) error {
-	sio, err := a.getSetupIO()
-	if err != nil {
-		return err
-	}
-	select {
-	case sio.confirmCh <- confirmed:
-		return nil
-	case <-sio.cancelCtx.Done():
-		return fmt.Errorf("setup was cancelled")
-	}
+	return respondToSetup(a, confirmed, func(io *WailsSetupIO) chan bool { return io.confirmCh })
 }
 
 // CancelSetup cancels the currently running setup flow.

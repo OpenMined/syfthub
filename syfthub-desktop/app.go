@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,6 +20,19 @@ import (
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// Sentinel errors.
+var (
+	ErrNotConfigured = errors.New("app not configured")
+)
+
+// apiRequestTimeout is the default timeout applied to outbound API calls.
+const apiRequestTimeout = 10 * time.Second
+
+// apiTimeout returns a context with the standard API request timeout.
+func apiTimeout() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), apiRequestTimeout)
+}
 
 // App is the main application struct that bridges Go backend with React frontend.
 // All public methods are exposed to JavaScript via Wails bindings.
@@ -42,9 +56,11 @@ type App struct {
 	runtimeStates    map[string]string           // Transient lifecycle states per endpoint slug
 	runtimeMu        sync.RWMutex                // Protects runtimeStates; separate from mu so GetEndpoints() doesn't hold mu during the endpoint loop
 	setupStatusCache map[string]*SetupStatusInfo // Cached per-endpoint setup status; protected by mu
-	agentSession     *syfthubapi.AgentSession    // Active agent session, nil if none
-	agentCancel      context.CancelFunc          // Cancels active agent session
-	agentMu          sync.Mutex                  // Protects agentSession and agentCancel
+	agentSession       *syfthubapi.AgentSession    // Active agent session, nil if none
+	agentCancel        context.CancelFunc          // Cancels active agent session
+	agentMu            sync.Mutex                  // Protects agentSession and agentCancel
+	marketplaceClient    *nodeops.MarketplaceClient // Cached marketplace client; protected by mu
+	marketplaceClientURL string                     // URL the cached client was created for
 }
 
 // NewApp creates a new App application struct.
@@ -82,6 +98,7 @@ func (a *App) startup(ctx context.Context) {
 
 			// Initialize the SDK client (fetches username, sets SPACE_URL)
 			a.initSyftClient(ctx, settings.SyftHubURL, settings.APIKey)
+			runtime.EventsEmit(ctx, "app:config-ready")
 		}
 
 		// Resolve and set endpoints path
@@ -174,7 +191,7 @@ func (a *App) GetStatus() StatusInfo {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
-	runtime.LogInfo(a.ctx, fmt.Sprintf("GetStatus called, state=%s", a.state))
+	runtime.LogDebug(a.ctx, fmt.Sprintf("GetStatus called, state=%s", a.state))
 
 	info := StatusInfo{
 		State:        a.state,
@@ -219,13 +236,24 @@ func (a *App) refreshSetupStatusCache() {
 	}
 
 	endpoints := core.GetEndpoints()
+	var wg sync.WaitGroup
+	var mu sync.Mutex
 	newCache := make(map[string]*SetupStatusInfo, len(endpoints))
 	for _, ep := range endpoints {
-		epDir := filepath.Join(endpointsPath, ep.Slug)
-		if status, err := nodeops.GetSetupStatus(epDir); err == nil && status != nil {
-			newCache[ep.Slug] = toSetupStatusInfo(status)
-		}
+		wg.Add(1)
+		go func(slug string) {
+			defer wg.Done()
+			epDir := filepath.Join(endpointsPath, slug)
+			status, err := nodeops.GetSetupStatus(epDir)
+			if err == nil && status != nil {
+				info := toSetupStatusInfo(status)
+				mu.Lock()
+				newCache[slug] = info
+				mu.Unlock()
+			}
+		}(ep.Slug)
 	}
+	wg.Wait()
 
 	a.mu.Lock()
 	a.setupStatusCache = newCache
@@ -424,7 +452,7 @@ func (a *App) Stop() error {
 
 	// Gracefully shutdown core app
 	if core != nil {
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		shutdownCtx, shutdownCancel := apiTimeout()
 		defer shutdownCancel()
 		if err := core.Shutdown(shutdownCtx); err != nil {
 			runtime.LogWarning(a.ctx, fmt.Sprintf("Shutdown error: %v", err))
@@ -464,11 +492,6 @@ func (a *App) ReloadEndpoints() error {
 	return nil
 }
 
-// Greet is a simple test method to verify Go-React communication.
-func (a *App) Greet(name string) string {
-	return fmt.Sprintf("Hello %s! SyftHub Desktop is ready.", name)
-}
-
 // GetVersion returns the application version.
 func (a *App) GetVersion() string {
 	return Version
@@ -489,6 +512,38 @@ func (a *App) setErrorState(errMsg string) {
 	runtime.LogError(a.ctx, errMsg)
 }
 
+// getSyftClient returns the SDK client under read lock, or an error if not configured.
+func (a *App) getSyftClient() (*syfthub.Client, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.syftClient == nil {
+		return nil, ErrNotConfigured
+	}
+	return a.syftClient, nil
+}
+
+// getConfig returns the current config under read lock, or an error if not configured.
+func (a *App) getConfig() (*app.Config, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	if a.config == nil {
+		return nil, ErrNotConfigured
+	}
+	return a.config, nil
+}
+
+// getMarketplaceClient returns a cached MarketplaceClient for the current
+// marketplace URL. A new client is created only when the URL changes.
+func (a *App) getMarketplaceClient(url string) *nodeops.MarketplaceClient {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.marketplaceClient == nil || a.marketplaceClientURL != url {
+		a.marketplaceClient = nodeops.NewMarketplaceClient(url)
+		a.marketplaceClientURL = url
+	}
+	return a.marketplaceClient
+}
+
 // getMode returns the connection mode string.
 func (a *App) getMode() string {
 	spaceURL := os.Getenv("SPACE_URL")
@@ -503,7 +558,7 @@ func (a *App) HasSettings() bool {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	result := a.settings != nil && a.settings.IsConfigured
-	runtime.LogInfo(a.ctx, fmt.Sprintf("HasSettings called, returning: %v", result))
+	runtime.LogDebug(a.ctx, fmt.Sprintf("HasSettings called, returning: %v", result))
 	return result
 }
 
@@ -511,7 +566,7 @@ func (a *App) HasSettings() bool {
 func (a *App) GetSettings() *Settings {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	runtime.LogInfo(a.ctx, "GetSettings called")
+	runtime.LogDebug(a.ctx, "GetSettings called")
 	if a.settings == nil {
 		return DefaultSettings()
 	}
@@ -563,6 +618,8 @@ func (a *App) SaveSettingsData(syfthubURL, apiKey, endpointsPath string) error {
 	runtime.LogInfo(a.ctx, "Settings saved successfully")
 	runtime.LogInfo(a.ctx, fmt.Sprintf("SyftHub URL: %s", syfthubURL))
 	runtime.LogInfo(a.ctx, fmt.Sprintf("Endpoints path: %s", a.config.EndpointsPath))
+
+	runtime.EventsEmit(a.ctx, "app:config-ready")
 
 	return nil
 }
@@ -721,9 +778,9 @@ func convertRequestLog(log *syfthubapi.RequestLog) *RequestLogEntry {
 		}
 		// Convert messages if present
 		if len(log.Request.Messages) > 0 {
-			msgs := make([]LogMessage, 0, len(log.Request.Messages))
+			msgs := make([]ChatMessage, 0, len(log.Request.Messages))
 			for _, msg := range log.Request.Messages {
-				msgs = append(msgs, LogMessage{
+				msgs = append(msgs, ChatMessage{
 					Role:    msg.Role,
 					Content: msg.Content,
 				})
@@ -793,11 +850,11 @@ func (a *App) GetAggregatorURL() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	if a.syftClient == nil {
-		runtime.LogInfo(a.ctx, "[aggregator] GetAggregatorURL: syftClient is nil, returning empty")
+		runtime.LogDebug(a.ctx, "[aggregator] GetAggregatorURL: syftClient is nil, returning empty")
 		return ""
 	}
 	url := a.syftClient.AggregatorURL()
-	runtime.LogInfo(a.ctx, fmt.Sprintf("[aggregator] GetAggregatorURL: %q", url))
+	runtime.LogDebug(a.ctx, fmt.Sprintf("[aggregator] GetAggregatorURL: %q", url))
 	return url
 }
 
@@ -1003,16 +1060,13 @@ func toUserAggregator(a syfthub.UserAggregator) UserAggregator {
 
 // GetUserAggregators fetches the list of aggregators for the current user via the SDK.
 func (a *App) GetUserAggregators() ([]UserAggregator, error) {
-	a.mu.RLock()
-	client := a.syftClient
-	a.mu.RUnlock()
-
-	if client == nil {
+	client, err := a.getSyftClient()
+	if err != nil {
 		runtime.LogWarning(a.ctx, "[aggregator] GetUserAggregators: app not configured")
-		return nil, fmt.Errorf("app not configured")
+		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := apiTimeout()
 	defer cancel()
 
 	sdkAggregators, err := client.Users.Aggregators.List(ctx)
@@ -1032,15 +1086,12 @@ func (a *App) GetUserAggregators() ([]UserAggregator, error) {
 
 // CreateUserAggregator creates a new aggregator for the current user via the SDK.
 func (a *App) CreateUserAggregator(name, url string, isDefault bool) (UserAggregator, error) {
-	a.mu.RLock()
-	client := a.syftClient
-	a.mu.RUnlock()
-
-	if client == nil {
-		return UserAggregator{}, fmt.Errorf("app not configured")
+	client, err := a.getSyftClient()
+	if err != nil {
+		return UserAggregator{}, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := apiTimeout()
 	defer cancel()
 
 	created, err := client.Users.Aggregators.Create(ctx, name, url)
@@ -1063,15 +1114,12 @@ func (a *App) CreateUserAggregator(name, url string, isDefault bool) (UserAggreg
 
 // UpdateUserAggregator updates an existing aggregator by ID via the SDK.
 func (a *App) UpdateUserAggregator(id int, name, url string) (UserAggregator, error) {
-	a.mu.RLock()
-	client := a.syftClient
-	a.mu.RUnlock()
-
-	if client == nil {
-		return UserAggregator{}, fmt.Errorf("app not configured")
+	client, err := a.getSyftClient()
+	if err != nil {
+		return UserAggregator{}, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := apiTimeout()
 	defer cancel()
 
 	req := &syfthub.UpdateAggregatorRequest{
@@ -1088,15 +1136,12 @@ func (a *App) UpdateUserAggregator(id int, name, url string) (UserAggregator, er
 
 // DeleteUserAggregator deletes an aggregator by ID via the SDK.
 func (a *App) DeleteUserAggregator(id int) error {
-	a.mu.RLock()
-	client := a.syftClient
-	a.mu.RUnlock()
-
-	if client == nil {
-		return fmt.Errorf("app not configured")
+	client, err := a.getSyftClient()
+	if err != nil {
+		return err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := apiTimeout()
 	defer cancel()
 
 	return client.Users.Aggregators.Delete(ctx, id)
@@ -1104,15 +1149,12 @@ func (a *App) DeleteUserAggregator(id int) error {
 
 // SetDefaultUserAggregator sets the given aggregator as the default via the SDK.
 func (a *App) SetDefaultUserAggregator(id int) (UserAggregator, error) {
-	a.mu.RLock()
-	client := a.syftClient
-	a.mu.RUnlock()
-
-	if client == nil {
-		return UserAggregator{}, fmt.Errorf("app not configured")
+	client, err := a.getSyftClient()
+	if err != nil {
+		return UserAggregator{}, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := apiTimeout()
 	defer cancel()
 
 	updated, err := client.Users.Aggregators.SetDefault(ctx, id)

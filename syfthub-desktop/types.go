@@ -190,16 +190,10 @@ type LogUserInfo struct {
 	Role     string `json:"role,omitempty"`
 }
 
-// LogMessage represents a chat message in a log entry.
-type LogMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
 // LogRequestInfo contains request information for a log entry.
 type LogRequestInfo struct {
-	Type     string       `json:"type"`
-	Messages []LogMessage `json:"messages,omitempty"`
+	Type     string        `json:"type"`
+	Messages []ChatMessage `json:"messages,omitempty"`
 	Query    string       `json:"query,omitempty"`
 	RawSize  int          `json:"rawSize"`
 }

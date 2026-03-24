@@ -72,16 +72,6 @@ func TestAppGetMode(t *testing.T) {
 	}
 }
 
-func TestAppGreet(t *testing.T) {
-	app := &App{}
-	result := app.Greet("World")
-
-	expected := "Hello World! SyftHub Desktop is ready."
-	if result != expected {
-		t.Errorf("Greet = %q, want %q", result, expected)
-	}
-}
-
 // Note: Many App methods (GetStatus, HasSettings, GetSettings, GetEndpoints, etc.)
 // cannot be tested directly because they call Wails runtime functions that require
 // a valid Wails context. These are integration-tested through the Wails framework.

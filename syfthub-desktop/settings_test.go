@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -49,16 +50,16 @@ func TestGetSettingsDir(t *testing.T) {
 	// Platform-specific checks
 	switch runtime.GOOS {
 	case "darwin":
-		if !contains(dir, "Library/Application Support") {
+		if !strings.Contains(dir, "Library/Application Support") {
 			t.Errorf("macOS dir = %q, should contain 'Library/Application Support'", dir)
 		}
 	case "linux":
-		if !contains(dir, ".config") && os.Getenv("XDG_CONFIG_HOME") == "" {
+		if !strings.Contains(dir, ".config") && os.Getenv("XDG_CONFIG_HOME") == "" {
 			t.Errorf("Linux dir = %q, should contain '.config' or use XDG_CONFIG_HOME", dir)
 		}
 	case "windows":
 		// Windows should use APPDATA or fallback
-		if !contains(dir, "AppData") && os.Getenv("APPDATA") == "" {
+		if !strings.Contains(dir, "AppData") && os.Getenv("APPDATA") == "" {
 			t.Errorf("Windows dir = %q, should contain 'AppData'", dir)
 		}
 	}
@@ -272,7 +273,7 @@ func TestResolveEndpointsPath(t *testing.T) {
 				}
 			}
 
-			if tt.wantContain != "" && !contains(result, tt.wantContain) {
+			if tt.wantContain != "" && !strings.Contains(result, tt.wantContain) {
 				t.Errorf("result = %q, should contain %q", result, tt.wantContain)
 			}
 		})
@@ -357,18 +358,4 @@ func TestSettingsJSON(t *testing.T) {
 	if decoded["isConfigured"] != settings.IsConfigured {
 		t.Errorf("JSON isConfigured = %v, want %v", decoded["isConfigured"], settings.IsConfigured)
 	}
-}
-
-// Helper function
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
-}
-
-func containsSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

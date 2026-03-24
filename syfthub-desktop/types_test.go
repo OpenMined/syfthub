@@ -294,11 +294,11 @@ func TestLogUserInfoJSON(t *testing.T) {
 }
 
 // ============================================================================
-// LogMessage Tests
+// ChatMessage-as-LogMessage Tests
 // ============================================================================
 
 func TestLogMessageJSON(t *testing.T) {
-	msg := LogMessage{
+	msg := ChatMessage{
 		Role:    "user",
 		Content: "Hello, how are you?",
 	}
@@ -326,7 +326,7 @@ func TestLogMessageJSON(t *testing.T) {
 func TestLogRequestInfoJSON(t *testing.T) {
 	info := LogRequestInfo{
 		Type: "chat",
-		Messages: []LogMessage{
+		Messages: []ChatMessage{
 			{Role: "user", Content: "Hi"},
 			{Role: "assistant", Content: "Hello!"},
 		},

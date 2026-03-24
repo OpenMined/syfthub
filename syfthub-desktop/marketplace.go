@@ -35,7 +35,7 @@ func (a *App) GetMarketplacePackages() ([]MarketplacePackage, error) {
 		return nil, fmt.Errorf("marketplace unavailable: no SyftHub URL configured")
 	}
 
-	client := nodeops.NewMarketplaceClient(url)
+	client := a.getMarketplaceClient(url)
 	nPkgs, err := client.FetchPackages()
 	if err != nil {
 		runtime.LogError(a.ctx, fmt.Sprintf("Failed to fetch marketplace manifest: %v", err))
@@ -49,12 +49,9 @@ func (a *App) GetMarketplacePackages() ([]MarketplacePackage, error) {
 
 // InstallMarketplacePackage downloads a package zip and extracts it to the endpoints directory.
 func (a *App) InstallMarketplacePackage(slug string, downloadURL string) error {
-	a.mu.RLock()
-	config := a.config
-	a.mu.RUnlock()
-
-	if config == nil {
-		return fmt.Errorf("app not configured")
+	config, err := a.getConfig()
+	if err != nil {
+		return err
 	}
 
 	url := a.getMarketplaceURL()
@@ -65,7 +62,7 @@ func (a *App) InstallMarketplacePackage(slug string, downloadURL string) error {
 	runtime.LogInfo(a.ctx, fmt.Sprintf("Downloading marketplace package: %s", slug))
 	a.setRuntimeState(slug, RuntimeStateInstalling)
 
-	client := nodeops.NewMarketplaceClient(url)
+	client := a.getMarketplaceClient(url)
 	if err := client.InstallPackage(config.EndpointsPath, slug, downloadURL); err != nil {
 		a.clearRuntimeState(slug)
 		return err

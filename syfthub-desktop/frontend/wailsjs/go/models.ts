@@ -346,20 +346,6 @@ export namespace main {
 	        this.value = source["value"];
 	    }
 	}
-	export class LogMessage {
-	    role: string;
-	    content: string;
-
-	    static createFrom(source: any = {}) {
-	        return new LogMessage(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.role = source["role"];
-	        this.content = source["content"];
-	    }
-	}
 	export class LogPolicyInfo {
 	    evaluated: boolean;
 	    allowed: boolean;
@@ -420,7 +406,7 @@ export namespace main {
 	}
 	export class LogRequestInfo {
 	    type: string;
-	    messages?: LogMessage[];
+	    messages?: ChatMessage[];
 	    query?: string;
 	    rawSize: number;
 
@@ -431,7 +417,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.type = source["type"];
-	        this.messages = this.convertValues(source["messages"], LogMessage);
+	        this.messages = this.convertValues(source["messages"], ChatMessage);
 	        this.query = source["query"];
 	        this.rawSize = source["rawSize"];
 	    }
