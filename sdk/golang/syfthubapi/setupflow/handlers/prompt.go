@@ -28,6 +28,13 @@ func (h *PromptHandler) Validate(step *nodeops.SetupStep) error {
 
 func (h *PromptHandler) Execute(step *nodeops.SetupStep, ctx *setupflow.SetupContext) (*setupflow.StepResult, error) {
 	cfg := step.Prompt
+
+	// Compile the validation regex once before the retry loop.
+	var validationRegex *regexp.Regexp
+	if cfg.Validate != nil && cfg.Validate.Pattern != "" {
+		validationRegex = regexp.MustCompile(cfg.Validate.Pattern)
+	}
+
 	for {
 		value, err := ctx.IO.Prompt(cfg.Message, setupflow.PromptOpts{
 			Secret:  cfg.Secret,
@@ -49,9 +56,8 @@ func (h *PromptHandler) Execute(step *nodeops.SetupStep, ctx *setupflow.SetupCon
 		}
 
 		// Validate pattern
-		if cfg.Validate != nil && cfg.Validate.Pattern != "" && value != "" {
-			re := regexp.MustCompile(cfg.Validate.Pattern)
-			if !re.MatchString(value) {
+		if validationRegex != nil && value != "" {
+			if !validationRegex.MatchString(value) {
 				msg := cfg.Validate.Message
 				if msg == "" {
 					msg = fmt.Sprintf("Value must match pattern: %s", cfg.Validate.Pattern)

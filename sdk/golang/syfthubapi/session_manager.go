@@ -11,6 +11,28 @@ import (
 // DefaultMaxSessions is the default maximum number of concurrent agent sessions.
 const DefaultMaxSessions = 100
 
+// SessionStatus represents the state of an agent session in external registries.
+type SessionStatus string
+
+const SessionStatusRunning SessionStatus = "running"
+
+// SessionRegistrar is notified of session lifecycle events so external registries
+// (e.g., JetStream KV) can track active sessions. All methods must be safe for
+// concurrent use. Errors are logged but do not block session operations.
+type SessionRegistrar interface {
+	RegisterSession(meta SessionMeta) error
+	DeregisterSession(sessionID string) error
+}
+
+// SessionMeta contains metadata about an active agent session.
+type SessionMeta struct {
+	SessionID    string        `json:"session_id"`
+	EndpointSlug string        `json:"endpoint_slug"`
+	Username     string        `json:"username"`
+	Status       SessionStatus `json:"status"`
+	StartedAt    time.Time     `json:"started_at"`
+}
+
 // AgentSessionManager tracks active agent sessions on the Space side.
 // It maps session IDs to AgentSession instances, handles session creation,
 // message routing, and cleanup.
@@ -19,6 +41,7 @@ type AgentSessionManager struct {
 	registry    *EndpointRegistry
 	logger      *slog.Logger
 	maxSessions int
+	registrar   SessionRegistrar
 	mu          sync.RWMutex
 
 	// reaperCancel stops the reaper goroutine when called.
@@ -36,6 +59,24 @@ func NewAgentSessionManager(registry *EndpointRegistry, logger *slog.Logger, max
 		registry:    registry,
 		logger:      logger,
 		maxSessions: maxSessions,
+	}
+}
+
+// SetRegistrar sets an optional registrar that is notified of session lifecycle events.
+func (m *AgentSessionManager) SetRegistrar(r SessionRegistrar) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.registrar = r
+}
+
+// deregisterSession notifies the external registrar that a session has ended.
+// Safe to call when registrar is nil or the session was already deregistered.
+func (m *AgentSessionManager) deregisterSession(sessionID string) {
+	if m.registrar != nil {
+		if err := m.registrar.DeregisterSession(sessionID); err != nil {
+			m.logger.Debug("[AGENT] Failed to deregister session from external registry",
+				"session_id", sessionID, "error", err)
+		}
 	}
 }
 
@@ -65,7 +106,6 @@ func (m *AgentSessionManager) StartSession(
 	payload AgentSessionStartPayload,
 	user *UserContext,
 ) (*AgentSession, error) {
-	// Look up the agent endpoint
 	ep, ok := m.registry.Get(payload.EndpointSlug)
 	if !ok {
 		return nil, fmt.Errorf("endpoint not found: %s", payload.EndpointSlug)
@@ -102,15 +142,14 @@ func (m *AgentSessionManager) StartSession(
 
 	// Create session — long-lived WebSocket sessions use Background context
 	// (cancelled explicitly via CancelSession or session.Cancel).
-	session := NewAgentSession(
-		context.Background(),
-		payload.SessionID,
-		payload.Prompt,
-		payload.Messages,
-		payload.Config,
-		user,
-		payload.EndpointSlug,
-	)
+	session := NewAgentSession(context.Background(), AgentSessionParams{
+		ID:           payload.SessionID,
+		Prompt:       payload.Prompt,
+		EndpointSlug: payload.EndpointSlug,
+		Messages:     payload.Messages,
+		Config:       payload.Config,
+		User:         user,
+	})
 
 	// Register session (enforce max sessions limit)
 	m.mu.Lock()
@@ -128,11 +167,33 @@ func (m *AgentSessionManager) StartSession(
 		"user", user.Username,
 	)
 
+	// Notify external registrar (e.g., JetStream KV).
+	if m.registrar != nil {
+		if err := m.registrar.RegisterSession(SessionMeta{
+			SessionID:    session.ID,
+			EndpointSlug: payload.EndpointSlug,
+			Username:     user.Username,
+			Status:       SessionStatusRunning,
+			StartedAt:    time.Now(),
+		}); err != nil {
+			m.logger.Warn("[AGENT] Failed to register session in external registry",
+				"session_id", session.ID, "error", err)
+		}
+	}
+
 	// Set cleanup callback for session map removal and logging.
+	// Only deregister from the external registry if the session was still tracked
+	// in the map — avoids double-deregister when CancelAllSessions or the reaper
+	// has already cleaned it up.
 	session.OnDone = func() {
 		m.mu.Lock()
+		_, stillTracked := m.sessions[session.ID]
 		delete(m.sessions, session.ID)
 		m.mu.Unlock()
+
+		if stillTracked {
+			m.deregisterSession(session.ID)
+		}
 
 		m.logger.Info("[AGENT] Session ended", "session_id", session.ID)
 	}
@@ -233,11 +294,10 @@ func (m *AgentSessionManager) CancelAllSessions() {
 
 	for id, session := range m.sessions {
 		session.Cancel()
+		m.deregisterSession(id)
 		delete(m.sessions, id)
 	}
-	if len(m.sessions) == 0 {
-		m.logger.Info("[AGENT] All sessions cancelled for shutdown")
-	}
+	m.logger.Info("[AGENT] All sessions cancelled for shutdown")
 }
 
 // reapStaleSessions scans all sessions and removes those whose Done channel is
@@ -252,6 +312,7 @@ func (m *AgentSessionManager) reapStaleSessions() {
 		// Check if done channel is closed (handler already returned).
 		select {
 		case <-session.Done():
+			m.deregisterSession(id)
 			delete(m.sessions, id)
 			reaped++
 			continue
@@ -261,6 +322,7 @@ func (m *AgentSessionManager) reapStaleSessions() {
 		// Check if context is cancelled (session should be winding down).
 		if session.Context().Err() != nil {
 			session.Cancel()
+			m.deregisterSession(id)
 			delete(m.sessions, id)
 			reaped++
 		}

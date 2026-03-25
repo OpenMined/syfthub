@@ -2,7 +2,6 @@
 package filemode
 
 import (
-	"bufio"
 	"fmt"
 	"log/slog"
 	"os"
@@ -126,25 +125,26 @@ func (l *Loader) LoadAll() ([]*LoadedEndpoint, error) {
 
 // LoadEndpoint loads a single endpoint from a directory.
 func (l *Loader) LoadEndpoint(dir string) (*LoadedEndpoint, error) {
-	// Check for README.md
 	readmePath := filepath.Join(dir, "README.md")
-	if _, err := os.Stat(readmePath); os.IsNotExist(err) {
-		return nil, &syfthubapi.FileLoadError{
-			Path:    dir,
-			Message: "README.md not found",
-		}
-	}
-
-	// Check for runner.py
 	runnerPath := filepath.Join(dir, "runner.py")
-	if _, err := os.Stat(runnerPath); os.IsNotExist(err) {
+
+	// Verify runner.py exists (read it to avoid TOCTOU; the file is small).
+	if _, err := os.ReadFile(runnerPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil, &syfthubapi.FileLoadError{
+				Path:    dir,
+				Message: "runner.py not found",
+			}
+		}
 		return nil, &syfthubapi.FileLoadError{
 			Path:    dir,
-			Message: "runner.py not found",
+			Message: "failed to read runner.py",
+			Cause:   err,
 		}
 	}
 
-	// Parse README.md frontmatter and body
+	// Parse README.md frontmatter and body (parseReadme opens the file directly,
+	// so there is no separate stat-then-read gap).
 	config, readmeBody, err := l.parseReadme(readmePath)
 	if err != nil {
 		return nil, err
@@ -505,49 +505,18 @@ func (l *Loader) validatePolicies(policies []syfthubapi.PolicyConfig) error {
 }
 
 // loadDotEnv loads environment variables from a .env file.
+// Delegates to nodeops.ReadEnvFile for canonical parsing of blank lines,
+// comments, quote stripping, and KEY=value format.
 func loadDotEnv(path string) ([]string, error) {
-	file, err := os.Open(path)
+	envVars, err := nodeops.ReadEnvFile(path)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
-
-	var vars []string
-	scanner := bufio.NewScanner(file)
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		// Parse KEY=value format
-		idx := strings.Index(line, "=")
-		if idx == -1 {
-			continue
-		}
-
-		key := strings.TrimSpace(line[:idx])
-		value := strings.TrimSpace(line[idx+1:])
-
-		// Remove surrounding quotes
-		if len(value) >= 2 {
-			if (value[0] == '"' && value[len(value)-1] == '"') ||
-				(value[0] == '\'' && value[len(value)-1] == '\'') {
-				value = value[1 : len(value)-1]
-			}
-		}
-
-		vars = append(vars, fmt.Sprintf("%s=%s", key, value))
+	result := make([]string, len(envVars))
+	for i, ev := range envVars {
+		result[i] = ev.Key + "=" + ev.Value
 	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-
-	return vars, nil
+	return result, nil
 }
 
 // envVarsToMap converts a slice of KEY=value strings to a map.

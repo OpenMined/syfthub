@@ -2,8 +2,6 @@
 package transport
 
 import (
-	"strings"
-
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 )
 
@@ -39,31 +37,10 @@ type Config struct {
 	KeyFilePath string
 }
 
-// Logger interface for transport logging.
-type Logger interface {
-	Debug(msg string, args ...any)
-	Info(msg string, args ...any)
-	Warn(msg string, args ...any)
-	Error(msg string, args ...any)
-}
-
 // New creates a new transport based on the configuration.
 func New(cfg *Config) (Transport, error) {
-	if strings.HasPrefix(cfg.SpaceURL, "tunneling:") {
+	if syfthubapi.IsTunnelMode(cfg.SpaceURL) {
 		return NewNATSTransport(cfg)
 	}
 	return NewHTTPTransport(cfg)
-}
-
-// IsTunnelMode returns true if the URL indicates tunnel mode.
-func IsTunnelMode(spaceURL string) bool {
-	return strings.HasPrefix(spaceURL, "tunneling:")
-}
-
-// GetTunnelUsername extracts the username from a tunneling URL.
-func GetTunnelUsername(spaceURL string) string {
-	if !IsTunnelMode(spaceURL) {
-		return ""
-	}
-	return strings.TrimPrefix(spaceURL, "tunneling:")
 }

@@ -1,10 +1,20 @@
 package nodeops
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sync/errgroup"
+)
+
+// Endpoint type constants used for validation.
+// Defined here (not imported from syfthubapi) to avoid a circular dependency.
+const (
+	endpointTypeModel      = "model"
+	endpointTypeDataSource = "data_source"
 )
 
 // Manager provides endpoint file operations scoped to an endpoints directory.
@@ -23,7 +33,7 @@ func (m *Manager) CreateEndpoint(req CreateEndpointRequest) (string, error) {
 	if req.Name == "" {
 		return "", fmt.Errorf("endpoint name is required")
 	}
-	if req.Type != "model" && req.Type != "data_source" {
+	if req.Type != endpointTypeModel && req.Type != endpointTypeDataSource {
 		return "", fmt.Errorf("endpoint type must be 'model' or 'data_source'")
 	}
 
@@ -111,6 +121,8 @@ func (m *Manager) DeleteEndpoint(slug string) error {
 }
 
 // ListEndpoints lists all endpoints in the endpoints directory with basic info.
+// Endpoint directories are read concurrently using an errgroup for better
+// performance when many endpoints exist (each requires ~5 file reads).
 func (m *Manager) ListEndpoints() ([]EndpointInfo, error) {
 	entries, err := os.ReadDir(m.EndpointsPath)
 	if err != nil {
@@ -120,68 +132,93 @@ func (m *Manager) ListEndpoints() ([]EndpointInfo, error) {
 		return nil, fmt.Errorf("failed to read endpoints directory: %w", err)
 	}
 
-	endpoints := make([]EndpointInfo, 0, len(entries))
+	// Filter to valid endpoint directories first.
+	var dirs []os.DirEntry
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 		name := entry.Name()
-		// Skip hidden and special directories
 		if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "__") {
 			continue
 		}
-
-		info := EndpointInfo{
-			Slug:    name,
-			Name:    name,
-			Type:    "model",
-			Version: "1.0.0",
-			Enabled: true,
-		}
-
-		readmePath := filepath.Join(m.EndpointsPath, name, "README.md")
-		if fm, _, err := ParseReadmeFrontmatter(readmePath); err == nil {
-			if fm.Name != "" {
-				info.Name = fm.Name
-			}
-			if fm.Description != "" {
-				info.Description = fm.Description
-			}
-			if fm.Type != "" {
-				info.Type = fm.Type
-			}
-			if fm.Version != "" {
-				info.Version = fm.Version
-			}
-			if fm.Enabled != nil {
-				info.Enabled = *fm.Enabled
-			}
-		}
-
-		policiesPath := filepath.Join(m.EndpointsPath, name, "policies.yaml")
-		if _, err := os.Stat(policiesPath); err == nil {
-			info.HasPolicies = true
-		}
-
-		pyprojectPath := filepath.Join(m.EndpointsPath, name, "pyproject.toml")
-		if deps, err := ReadDependencies(pyprojectPath); err == nil {
-			info.DepsCount = len(deps)
-		}
-
-		envPath := filepath.Join(m.EndpointsPath, name, ".env")
-		if envVars, err := ReadEnvFile(envPath); err == nil {
-			info.EnvCount = len(envVars)
-		}
-
-		// Check setup status
-		if status, err := GetSetupStatus(filepath.Join(m.EndpointsPath, name)); err == nil {
-			info.SetupStatus = status
-		}
-
-		endpoints = append(endpoints, info)
+		dirs = append(dirs, entry)
 	}
 
-	return endpoints, nil
+	if len(dirs) == 0 {
+		return []EndpointInfo{}, nil
+	}
+
+	results := make([]EndpointInfo, len(dirs))
+	g, _ := errgroup.WithContext(context.Background())
+	for i, dir := range dirs {
+		i, dir := i, dir
+		g.Go(func() error {
+			info, err := getEndpointInfo(dir.Name(), m.EndpointsPath)
+			if err != nil {
+				return err
+			}
+			results[i] = *info
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	return results, nil
+}
+
+// getEndpointInfo gathers info for a single endpoint directory.
+// Safe to call concurrently — all operations are read-only file I/O.
+func getEndpointInfo(name, endpointsDir string) (*EndpointInfo, error) {
+	info := &EndpointInfo{
+		Slug:    name,
+		Name:    name,
+		Type:    "model",
+		Version: "1.0.0",
+		Enabled: true,
+	}
+
+	readmePath := filepath.Join(endpointsDir, name, "README.md")
+	if fm, _, err := ParseReadmeFrontmatter(readmePath); err == nil {
+		if fm.Name != "" {
+			info.Name = fm.Name
+		}
+		if fm.Description != "" {
+			info.Description = fm.Description
+		}
+		if fm.Type != "" {
+			info.Type = fm.Type
+		}
+		if fm.Version != "" {
+			info.Version = fm.Version
+		}
+		if fm.Enabled != nil {
+			info.Enabled = *fm.Enabled
+		}
+	}
+
+	policiesPath := filepath.Join(endpointsDir, name, "policies.yaml")
+	if _, err := os.Stat(policiesPath); err == nil {
+		info.HasPolicies = true
+	}
+
+	pyprojectPath := filepath.Join(endpointsDir, name, "pyproject.toml")
+	if deps, err := ReadDependencies(pyprojectPath); err == nil {
+		info.DepsCount = len(deps)
+	}
+
+	envPath := filepath.Join(endpointsDir, name, ".env")
+	if envVars, err := ReadEnvFile(envPath); err == nil {
+		info.EnvCount = len(envVars)
+	}
+
+	if status, err := GetSetupStatus(filepath.Join(endpointsDir, name)); err == nil {
+		info.SetupStatus = status
+	}
+
+	return info, nil
 }
 
 // GetEndpointDetail returns full details for an endpoint.
@@ -200,12 +237,11 @@ func (m *Manager) GetEndpointDetail(slug string) (*EndpointDetail, error) {
 	}
 
 	readmePath := filepath.Join(endpointDir, "README.md")
-	if _, err := os.Stat(readmePath); err == nil {
+	if content, err := os.ReadFile(readmePath); err == nil {
 		detail.HasReadme = true
-		if content, err := os.ReadFile(readmePath); err == nil {
-			detail.ReadmeContent = string(content)
-		}
-		if fm, _, err := ParseReadmeFrontmatter(readmePath); err == nil {
+		detail.ReadmeContent = string(content)
+		// Parse frontmatter from already-read content to avoid a second file read.
+		if fm, _, err := ParseReadmeFrontmatterBytes(content); err == nil {
 			if fm.Name != "" {
 				detail.Name = fm.Name
 			}

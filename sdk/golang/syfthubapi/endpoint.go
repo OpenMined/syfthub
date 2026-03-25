@@ -2,6 +2,7 @@ package syfthubapi
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"sync"
@@ -99,17 +100,10 @@ func (e *Endpoint) SetPolicyExecutor(exec Executor) {
 	e.policyExecutor = exec
 }
 
-// CheckPolicies runs policy evaluation without executing the endpoint handler.
-// Returns nil PolicyResultOutput if no policy executor is configured (no policies).
-func (e *Endpoint) CheckPolicies(ctx context.Context, reqCtx *RequestContext) (*PolicyResultOutput, error) {
-	if e.policyExecutor == nil {
-		return nil, nil
-	}
-
-	input := &ExecutorInput{
-		Type:     string(e.Type),
-		Messages: []Message{{Role: "user", Content: "policy_check"}},
-	}
+// buildExecutorInput creates an ExecutorInput with the given type and populates
+// context and transaction token from the RequestContext.
+func (e *Endpoint) buildExecutorInput(inputType string, reqCtx *RequestContext) *ExecutorInput {
+	input := &ExecutorInput{Type: inputType}
 	if reqCtx != nil {
 		userID := ""
 		if reqCtx.User != nil {
@@ -123,6 +117,47 @@ func (e *Endpoint) CheckPolicies(ctx context.Context, reqCtx *RequestContext) (*
 		}
 		input.TransactionToken = reqCtx.TransactionToken
 	}
+	return input
+}
+
+// executeViaSubprocess runs the executor, captures policy results, checks for
+// errors, and returns the raw result bytes. Callers unmarshal into the
+// appropriate type.
+func (e *Endpoint) executeViaSubprocess(ctx context.Context, input *ExecutorInput, reqCtx *RequestContext) (json.RawMessage, error) {
+	output, err := e.executor.Execute(ctx, input)
+	if err != nil {
+		return nil, &ExecutionError{
+			Endpoint: e.Slug,
+			Message:  "subprocess execution failed",
+			Cause:    err,
+		}
+	}
+
+	// Capture policy result in request context for logging
+	if reqCtx != nil && output.PolicyResult != nil {
+		reqCtx.PolicyResult = output.PolicyResult
+	}
+
+	if !output.Success {
+		return nil, &ExecutionError{
+			Endpoint:  e.Slug,
+			Message:   output.Error,
+			ErrorType: output.ErrorType,
+		}
+	}
+
+	return output.Result, nil
+}
+
+// CheckPolicies runs policy evaluation without executing the endpoint handler.
+// Returns nil PolicyResultOutput if no policy executor is configured (no policies).
+func (e *Endpoint) CheckPolicies(ctx context.Context, reqCtx *RequestContext) (*PolicyResultOutput, error) {
+	if e.policyExecutor == nil {
+		return nil, nil
+	}
+
+	input := e.buildExecutorInput(string(e.Type), reqCtx)
+	input.Messages = []Message{{Role: "user", Content: "policy_check"}}
 
 	output, err := e.policyExecutor.Execute(ctx, input)
 	if err != nil {
@@ -203,50 +238,16 @@ func (e *Endpoint) GetAgentHandler() (AgentHandler, error) {
 
 // executeDataSourceViaSubprocess executes via subprocess.
 func (e *Endpoint) executeDataSourceViaSubprocess(ctx context.Context, query string, reqCtx *RequestContext) ([]Document, error) {
-	input := &ExecutorInput{
-		Type:  "data_source",
-		Query: query,
-	}
-	if reqCtx != nil {
-		userID := ""
-		if reqCtx.User != nil {
-			userID = reqCtx.User.Username
-		}
-		input.Context = &ExecutionContext{
-			UserID:       userID,
-			EndpointSlug: e.Slug,
-			EndpointType: string(e.Type),
-			Metadata:     reqCtx.Metadata,
-		}
-		// Pass transaction token for billing policies
-		input.TransactionToken = reqCtx.TransactionToken
-	}
+	input := e.buildExecutorInput("data_source", reqCtx)
+	input.Query = query
 
-	output, err := e.executor.Execute(ctx, input)
+	raw, err := e.executeViaSubprocess(ctx, input, reqCtx)
 	if err != nil {
-		return nil, &ExecutionError{
-			Endpoint: e.Slug,
-			Message:  "subprocess execution failed",
-			Cause:    err,
-		}
+		return nil, err
 	}
 
-	// Capture policy result in request context for logging
-	if reqCtx != nil && output.PolicyResult != nil {
-		reqCtx.PolicyResult = output.PolicyResult
-	}
-
-	if !output.Success {
-		return nil, &ExecutionError{
-			Endpoint:  e.Slug,
-			Message:   output.Error,
-			ErrorType: output.ErrorType,
-		}
-	}
-
-	// Parse result as []Document
 	var docs []Document
-	if err := unmarshalJSON(output.Result, &docs); err != nil {
+	if err := json.Unmarshal(raw, &docs); err != nil {
 		return nil, &ExecutionError{
 			Endpoint: e.Slug,
 			Message:  "failed to parse handler result",
@@ -259,50 +260,16 @@ func (e *Endpoint) executeDataSourceViaSubprocess(ctx context.Context, query str
 
 // executeModelViaSubprocess executes via subprocess.
 func (e *Endpoint) executeModelViaSubprocess(ctx context.Context, messages []Message, reqCtx *RequestContext) (string, error) {
-	input := &ExecutorInput{
-		Type:     "model",
-		Messages: messages,
-	}
-	if reqCtx != nil {
-		userID := ""
-		if reqCtx.User != nil {
-			userID = reqCtx.User.Username
-		}
-		input.Context = &ExecutionContext{
-			UserID:       userID,
-			EndpointSlug: e.Slug,
-			EndpointType: string(e.Type),
-			Metadata:     reqCtx.Metadata,
-		}
-		// Pass transaction token for billing policies
-		input.TransactionToken = reqCtx.TransactionToken
-	}
+	input := e.buildExecutorInput("model", reqCtx)
+	input.Messages = messages
 
-	output, err := e.executor.Execute(ctx, input)
+	raw, err := e.executeViaSubprocess(ctx, input, reqCtx)
 	if err != nil {
-		return "", &ExecutionError{
-			Endpoint: e.Slug,
-			Message:  "subprocess execution failed",
-			Cause:    err,
-		}
+		return "", err
 	}
 
-	// Capture policy result in request context for logging
-	if reqCtx != nil && output.PolicyResult != nil {
-		reqCtx.PolicyResult = output.PolicyResult
-	}
-
-	if !output.Success {
-		return "", &ExecutionError{
-			Endpoint:  e.Slug,
-			Message:   output.Error,
-			ErrorType: output.ErrorType,
-		}
-	}
-
-	// Parse result as string
 	var result string
-	if err := unmarshalJSON(output.Result, &result); err != nil {
+	if err := json.Unmarshal(raw, &result); err != nil {
 		return "", &ExecutionError{
 			Endpoint: e.Slug,
 			Message:  "failed to parse handler result",
@@ -385,18 +352,36 @@ func (r *EndpointRegistry) Clear() {
 }
 
 // ReplaceFileBased replaces all file-based endpoints atomically.
+// Stale executors (those not reused by the incoming list) are closed.
 func (r *EndpointRegistry) ReplaceFileBased(endpoints []*Endpoint) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Remove existing file-based endpoints, closing their executors and handlers
+	// Collect executor instances from the incoming list so we skip closing
+	// executors that are being reused (e.g. during selective reload where
+	// only some endpoints are recreated and the rest keep their executors).
+	reused := make(map[Executor]struct{})
+	for _, ep := range endpoints {
+		if ep.executor != nil {
+			reused[ep.executor] = struct{}{}
+		}
+		if ep.policyExecutor != nil {
+			reused[ep.policyExecutor] = struct{}{}
+		}
+	}
+
+	// Remove existing file-based endpoints, closing only stale executors.
 	for slug, ep := range r.endpoints {
 		if ep.isFileBased {
 			if ep.executor != nil {
-				ep.executor.Close()
+				if _, ok := reused[ep.executor]; !ok {
+					ep.executor.Close()
+				}
 			}
 			if ep.policyExecutor != nil {
-				ep.policyExecutor.Close()
+				if _, ok := reused[ep.policyExecutor]; !ok {
+					ep.policyExecutor.Close()
+				}
 			}
 			delete(r.endpoints, slug)
 		}

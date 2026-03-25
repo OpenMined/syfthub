@@ -383,20 +383,6 @@ func TestCorrelationIDMiddleware(t *testing.T) {
 	})
 }
 
-func TestRequestIDMiddleware(t *testing.T) {
-	// RequestIDMiddleware is an alias for CorrelationIDMiddleware
-	mw := RequestIDMiddleware()
-	handler := mw(func(ctx context.Context, req *TunnelRequest) (*TunnelResponse, error) {
-		if req.CorrelationID == "" {
-			t.Error("CorrelationID should be set")
-		}
-		return &TunnelResponse{Status: "success"}, nil
-	})
-
-	req := &TunnelRequest{Endpoint: TunnelEndpointInfo{Slug: "test"}}
-	handler(context.Background(), req)
-}
-
 func TestGenerateRequestID(t *testing.T) {
 	id1 := generateRequestID()
 	time.Sleep(1 * time.Millisecond)

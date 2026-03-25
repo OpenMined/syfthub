@@ -391,14 +391,14 @@ func TestTunnelRequest(t *testing.T) {
 			},
 		}
 
-		if req.RequestID() != "corr-456" {
-			t.Errorf("RequestID() = %q", req.RequestID())
+		if req.CorrelationID != "corr-456" {
+			t.Errorf("CorrelationID = %q", req.CorrelationID)
 		}
-		if req.EndpointSlug() != "test-ep" {
-			t.Errorf("EndpointSlug() = %q", req.EndpointSlug())
+		if req.Endpoint.Slug != "test-ep" {
+			t.Errorf("Endpoint.Slug = %q", req.Endpoint.Slug)
 		}
-		if req.EndpointType() != EndpointTypeDataSource {
-			t.Errorf("EndpointType() = %q", req.EndpointType())
+		if EndpointType(req.Endpoint.Type) != EndpointTypeDataSource {
+			t.Errorf("Endpoint.Type = %q", req.Endpoint.Type)
 		}
 	})
 }
@@ -641,46 +641,6 @@ func TestVerifyTokenResponse(t *testing.T) {
 			t.Error("ToUserContext should return nil when Sub is empty")
 		}
 	})
-}
-
-func TestHeartbeatRequest(t *testing.T) {
-	req := HeartbeatRequest{TTLSeconds: 300}
-
-	data, err := json.Marshal(req)
-	if err != nil {
-		t.Fatalf("Marshal error: %v", err)
-	}
-
-	var decoded HeartbeatRequest
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("Unmarshal error: %v", err)
-	}
-
-	if decoded.TTLSeconds != 300 {
-		t.Errorf("TTLSeconds = %d", decoded.TTLSeconds)
-	}
-}
-
-func TestHeartbeatResponse(t *testing.T) {
-	now := time.Now().UTC().Truncate(time.Second)
-	resp := HeartbeatResponse{
-		EffectiveTTLSeconds: 300,
-		ExpiresAt:           now,
-	}
-
-	data, err := json.Marshal(resp)
-	if err != nil {
-		t.Fatalf("Marshal error: %v", err)
-	}
-
-	var decoded HeartbeatResponse
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("Unmarshal error: %v", err)
-	}
-
-	if decoded.EffectiveTTLSeconds != 300 {
-		t.Errorf("EffectiveTTLSeconds = %d", decoded.EffectiveTTLSeconds)
-	}
 }
 
 func TestExecutorInput(t *testing.T) {

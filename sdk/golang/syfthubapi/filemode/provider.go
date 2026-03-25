@@ -265,8 +265,11 @@ func (p *Provider) LoadEndpoints() ([]*syfthubapi.Endpoint, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Close old executors and clean up stale noop handler temp files
-	p.cleanupResources()
+	// Reset executor map without closing — the registry still references
+	// the old executors and will close stale ones in ReplaceFileBased.
+	p.executors = make(map[string]syfthubapi.Executor)
+	// Keep p.noopHandlerPaths intact: createEndpoint overwrites entries for
+	// recreated slugs, and cleanupResources (from Stop) deletes all files.
 
 	for _, loaded := range loadedEndpoints {
 		endpoint, err := p.createEndpoint(loaded)
@@ -478,19 +481,99 @@ func (p *Provider) createEndpoint(loaded *LoadedEndpoint) (*syfthubapi.Endpoint,
 }
 
 // handleReload handles file change notifications.
+// When affectedDirs is non-empty, only those specific endpoint directories are
+// reloaded instead of re-scanning everything. This avoids tearing down and
+// recreating executors (venvs, subprocesses) for endpoints that didn't change.
 func (p *Provider) handleReload(affectedDirs []string) {
 	p.logger.Info("reloading endpoints",
 		"affected", len(affectedDirs),
 	)
 
-	endpoints, err := p.LoadEndpoints()
-	if err != nil {
-		p.logger.Error("failed to reload endpoints", "error", err)
+	// Fall back to full reload when we don't know which dirs changed.
+	if len(affectedDirs) == 0 {
+		endpoints, err := p.LoadEndpoints()
+		if err != nil {
+			p.logger.Error("failed to reload endpoints", "error", err)
+			return
+		}
+		if p.onReload != nil {
+			p.onReload(endpoints)
+		}
 		return
 	}
 
+	// Selective reload: only recreate the affected endpoints.
+	for _, dir := range affectedDirs {
+		slug := filepath.Base(dir)
+		p.logger.Info("selectively reloading endpoint",
+			"slug", slug,
+			"dir", dir,
+		)
+
+		loaded, err := p.loader.LoadEndpoint(dir)
+		if err != nil {
+			p.logger.Warn("failed to reload endpoint, removing it",
+				"slug", slug,
+				"dir", dir,
+				"error", err,
+			)
+			p.mu.Lock()
+			p.removeEndpointLocked(slug)
+			p.mu.Unlock()
+			continue
+		}
+
+		p.mu.Lock()
+		// Close the old executor and noop handler for this slug.
+		p.removeEndpointLocked(slug)
+
+		endpoint, err := p.createEndpoint(loaded)
+		if err != nil {
+			p.mu.Unlock()
+			p.logger.Warn("failed to recreate endpoint",
+				"slug", slug,
+				"error", err,
+			)
+			continue
+		}
+
+		// Insert the new endpoint, replacing any existing one with the same slug.
+		replaced := false
+		for i, ep := range p.endpoints {
+			if ep.Slug == slug {
+				p.endpoints[i] = endpoint
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			p.endpoints = append(p.endpoints, endpoint)
+		}
+		p.mu.Unlock()
+	}
+
+	p.mu.RLock()
+	endpoints := make([]*syfthubapi.Endpoint, len(p.endpoints))
+	copy(endpoints, p.endpoints)
+	p.mu.RUnlock()
+
 	if p.onReload != nil {
 		p.onReload(endpoints)
+	}
+}
+
+// removeEndpointLocked removes the executor references for the given slug
+// from the provider's internal maps. It does NOT close executors — the
+// registry owns executor lifecycle and closes stale ones in ReplaceFileBased.
+// Caller must hold p.mu.
+func (p *Provider) removeEndpointLocked(slug string) {
+	delete(p.executors, slug)
+	delete(p.executors, slug+".policy")
+	if path, ok := p.noopHandlerPaths[slug]; ok {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			p.logger.Warn("failed to remove noop handler", "slug", slug, "error", err)
+		}
+		delete(p.noopHandlerPaths, slug)
 	}
 }
 

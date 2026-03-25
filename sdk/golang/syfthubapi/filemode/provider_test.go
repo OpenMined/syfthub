@@ -203,7 +203,7 @@ func TestProviderLoadEndpointsMultiple(t *testing.T) {
 		t.Errorf("len(endpoints) = %d", len(endpoints))
 	}
 
-	// Reload should close old executors
+	// Reload should create new executors (old ones stay open until ReplaceFileBased)
 	endpoints2, err := provider.LoadEndpoints()
 	if err != nil {
 		t.Fatalf("reload error: %v", err)

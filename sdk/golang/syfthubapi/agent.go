@@ -73,27 +73,29 @@ type AgentSession struct {
 	sequence atomic.Int64
 }
 
+// AgentSessionParams holds the parameters for creating a new AgentSession.
+type AgentSessionParams struct {
+	ID           string
+	Prompt       string
+	EndpointSlug string
+	Messages     []Message
+	Config       AgentConfig
+	User         *UserContext
+}
+
 // NewAgentSession creates a new AgentSession with the given parameters.
 // parentCtx controls the session's lifetime — when it is cancelled, the
 // session's context is also cancelled, causing the handler to unblock.
 // Pass context.Background() for sessions with no external deadline.
-func NewAgentSession(
-	parentCtx context.Context,
-	id string,
-	prompt string,
-	messages []Message,
-	config AgentConfig,
-	user *UserContext,
-	endpointSlug string,
-) *AgentSession {
+func NewAgentSession(parentCtx context.Context, params AgentSessionParams) *AgentSession {
 	ctx, cancel := context.WithCancel(parentCtx)
 	return &AgentSession{
-		ID:            id,
-		InitialPrompt: prompt,
-		Messages:      messages,
-		Config:        config,
-		User:          user,
-		EndpointSlug:  endpointSlug,
+		ID:            params.ID,
+		InitialPrompt: params.Prompt,
+		Messages:      params.Messages,
+		Config:        params.Config,
+		User:          params.User,
+		EndpointSlug:  params.EndpointSlug,
 		ctx:           ctx,
 		cancel:        cancel,
 		sendCh:        make(chan AgentEventPayload, 100),
@@ -147,10 +149,13 @@ func (s *AgentSession) Send(event AgentEventPayload) error {
 
 // SendThinking sends a thinking/reasoning event.
 func (s *AgentSession) SendThinking(content string) error {
-	data, _ := json.Marshal(map[string]any{
+	data, err := json.Marshal(map[string]any{
 		"content":      content,
 		"is_streaming": false,
 	})
+	if err != nil {
+		return fmt.Errorf("marshal thinking event: %w", err)
+	}
 	return s.Send(AgentEventPayload{
 		EventType: "agent.thinking",
 		Data:      data,
@@ -159,7 +164,10 @@ func (s *AgentSession) SendThinking(content string) error {
 
 // SendToolCall sends a tool call event.
 func (s *AgentSession) SendToolCall(tc ToolCall) error {
-	data, _ := json.Marshal(tc)
+	data, err := json.Marshal(tc)
+	if err != nil {
+		return fmt.Errorf("marshal tool call event: %w", err)
+	}
 	return s.Send(AgentEventPayload{
 		EventType: "agent.tool_call",
 		Data:      data,
@@ -168,7 +176,10 @@ func (s *AgentSession) SendToolCall(tc ToolCall) error {
 
 // SendToolResult sends a tool result event.
 func (s *AgentSession) SendToolResult(tr ToolResult) error {
-	data, _ := json.Marshal(tr)
+	data, err := json.Marshal(tr)
+	if err != nil {
+		return fmt.Errorf("marshal tool result event: %w", err)
+	}
 	return s.Send(AgentEventPayload{
 		EventType: "agent.tool_result",
 		Data:      data,
@@ -177,10 +188,13 @@ func (s *AgentSession) SendToolResult(tr ToolResult) error {
 
 // SendMessage sends a message event to the user.
 func (s *AgentSession) SendMessage(content string) error {
-	data, _ := json.Marshal(map[string]any{
+	data, err := json.Marshal(map[string]any{
 		"content":     content,
 		"is_complete": true,
 	})
+	if err != nil {
+		return fmt.Errorf("marshal message event: %w", err)
+	}
 	return s.Send(AgentEventPayload{
 		EventType: "agent.message",
 		Data:      data,
@@ -189,9 +203,12 @@ func (s *AgentSession) SendMessage(content string) error {
 
 // SendToken sends a streaming token event.
 func (s *AgentSession) SendToken(token string) error {
-	data, _ := json.Marshal(map[string]any{
+	data, err := json.Marshal(map[string]any{
 		"token": token,
 	})
+	if err != nil {
+		return fmt.Errorf("marshal token event: %w", err)
+	}
 	return s.Send(AgentEventPayload{
 		EventType: "agent.token",
 		Data:      data,
@@ -200,10 +217,13 @@ func (s *AgentSession) SendToken(token string) error {
 
 // SendStatus sends a status update event.
 func (s *AgentSession) SendStatus(status, detail string) error {
-	data, _ := json.Marshal(map[string]any{
+	data, err := json.Marshal(map[string]any{
 		"status": status,
 		"detail": detail,
 	})
+	if err != nil {
+		return fmt.Errorf("marshal status event: %w", err)
+	}
 	return s.Send(AgentEventPayload{
 		EventType: "agent.status",
 		Data:      data,
@@ -222,9 +242,12 @@ func (s *AgentSession) Receive() (UserMessage, error) {
 
 // RequestInput sends an agent.request_input event, then blocks for user response.
 func (s *AgentSession) RequestInput(prompt string) (UserMessage, error) {
-	data, _ := json.Marshal(map[string]any{
+	data, err := json.Marshal(map[string]any{
 		"prompt": prompt,
 	})
+	if err != nil {
+		return UserMessage{}, fmt.Errorf("marshal request_input event: %w", err)
+	}
 	if err := s.Send(AgentEventPayload{
 		EventType: "agent.request_input",
 		Data:      data,

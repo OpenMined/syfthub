@@ -164,10 +164,10 @@ func (p *RequestProcessor) Process(ctx context.Context, req *TunnelRequest) (*Tu
 
 	processedAt := time.Now()
 	resp := &TunnelResponse{
-		Protocol:      "syfthub-tunnel/v1",
-		Type:          "endpoint_response",
+		Protocol:      TunnelProtocolV1,
+		Type:          TunnelTypeResponse,
 		CorrelationID: req.CorrelationID,
-		Status:        "success",
+		Status:        TunnelStatusSuccess,
 		EndpointSlug:  req.Endpoint.Slug,
 		Payload:       payload,
 		Timing: &TunnelTiming{
@@ -351,15 +351,14 @@ func (p *RequestProcessor) invokeEndpoint(ctx context.Context, req *TunnelReques
 
 		// Create a temporary session for one-shot invocation.
 		// Use the request context so the session inherits the NATS timeout.
-		session := NewAgentSession(
-			ctx,
-			fmt.Sprintf("oneshot-%s", req.CorrelationID),
-			prompt,
-			modelReq.Messages,
-			AgentConfig{},
-			reqCtx.User,
-			endpoint.Slug,
-		)
+		session := NewAgentSession(ctx, AgentSessionParams{
+			ID:           fmt.Sprintf("oneshot-%s", req.CorrelationID),
+			Prompt:       prompt,
+			EndpointSlug: endpoint.Slug,
+			Messages:     modelReq.Messages,
+			Config:       AgentConfig{},
+			User:         reqCtx.User,
+		})
 
 		// Run handler via the canonical lifecycle method (spawns goroutine,
 		// sends terminal events, closes sendCh/done on completion).
@@ -433,10 +432,10 @@ func (p *RequestProcessor) errorResponse(req *TunnelRequest, code TunnelErrorCod
 		"message", message,
 	)
 	return &TunnelResponse{
-		Protocol:      "syfthub-tunnel/v1",
-		Type:          "endpoint_response",
+		Protocol:      TunnelProtocolV1,
+		Type:          TunnelTypeResponse,
 		CorrelationID: req.CorrelationID,
-		Status:        "error",
+		Status:        TunnelStatusError,
 		EndpointSlug:  req.Endpoint.Slug,
 		Error: &TunnelError{
 			Code:    code,

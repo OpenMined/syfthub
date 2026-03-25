@@ -29,6 +29,15 @@ const (
 	MsgTypeAgentEvent         = "agent_event"
 )
 
+// Tunnel protocol constants.
+const (
+	TunnelProtocolV1    = "syfthub-tunnel/v1"
+	TunnelTypeRequest   = "endpoint_request"
+	TunnelTypeResponse  = "endpoint_response"
+	TunnelStatusSuccess = "success"
+	TunnelStatusError   = "error"
+)
+
 // ValidEndpointTypes lists all recognized endpoint types.
 var ValidEndpointTypes = []EndpointType{
 	EndpointTypeModel,
@@ -275,21 +284,6 @@ type TunnelRequest struct {
 	Timestamp time.Time `json:"-"`
 }
 
-// RequestID returns the correlation ID (for backward compatibility).
-func (r *TunnelRequest) RequestID() string {
-	return r.CorrelationID
-}
-
-// EndpointSlug returns the endpoint slug from the nested endpoint info.
-func (r *TunnelRequest) EndpointSlug() string {
-	return r.Endpoint.Slug
-}
-
-// EndpointType returns the endpoint type from the nested endpoint info.
-func (r *TunnelRequest) EndpointType() EndpointType {
-	return EndpointType(r.Endpoint.Type)
-}
-
 // TunnelResponse is the response format for tunnel mode communication.
 // Matches Python syfthub-api TunnelResponse schema.
 type TunnelResponse struct {
@@ -495,21 +489,6 @@ func (r *VerifyTokenResponse) ToUserContext() *UserContext {
 	}
 }
 
-// HeartbeatRequest is the request to send a heartbeat.
-type HeartbeatRequest struct {
-	// TTLSeconds is the requested TTL.
-	TTLSeconds int `json:"ttl_seconds"`
-}
-
-// HeartbeatResponse is the response from a heartbeat request.
-type HeartbeatResponse struct {
-	// EffectiveTTLSeconds is the actual TTL applied.
-	EffectiveTTLSeconds int `json:"effective_ttl_seconds"`
-
-	// ExpiresAt is when the heartbeat expires.
-	ExpiresAt time.Time `json:"expires_at"`
-}
-
 // ExecutorInput is the input format for subprocess execution.
 // This matches the Python policy_manager.runner.schema.RunnerInput.
 type ExecutorInput struct {
@@ -540,12 +519,6 @@ type ExecutorInput struct {
 	// TransactionToken is the pre-authorized billing token for this request.
 	// Used by TransactionPolicy to verify billing authorization before execution.
 	TransactionToken string `json:"transaction_token,omitempty"`
-
-	// MaxTokens is the max tokens for model responses (legacy, not used by runner).
-	MaxTokens int `json:"max_tokens,omitempty"`
-
-	// Temperature is the sampling temperature (legacy, not used by runner).
-	Temperature float64 `json:"temperature,omitempty"`
 }
 
 // ExecutorOutput is the output format from subprocess execution.

@@ -354,51 +354,6 @@ func TestTransportInterface(t *testing.T) {
 	var _ Transport = (*HTTPTransport)(nil)
 }
 
-// Transport package functions
-
-func TestIsTunnelMode(t *testing.T) {
-	tests := []struct {
-		url      string
-		expected bool
-	}{
-		{"tunneling:user", true},
-		{"tunneling:", true},
-		{"https://space.example.com", false},
-		{"http://localhost", false},
-		{"", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.url, func(t *testing.T) {
-			got := IsTunnelMode(tt.url)
-			if got != tt.expected {
-				t.Errorf("IsTunnelMode(%q) = %v, want %v", tt.url, got, tt.expected)
-			}
-		})
-	}
-}
-
-func TestGetTunnelUsername(t *testing.T) {
-	tests := []struct {
-		url      string
-		expected string
-	}{
-		{"tunneling:testuser", "testuser"},
-		{"tunneling:", ""},
-		{"https://space.example.com", ""},
-		{"", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.url, func(t *testing.T) {
-			got := GetTunnelUsername(tt.url)
-			if got != tt.expected {
-				t.Errorf("GetTunnelUsername(%q) = %q, want %q", tt.url, got, tt.expected)
-			}
-		})
-	}
-}
-
 func TestNew(t *testing.T) {
 	t.Run("creates HTTP transport for non-tunnel", func(t *testing.T) {
 		cfg := &Config{

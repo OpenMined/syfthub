@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,11 +23,11 @@ type HTTPHandler struct {
 }
 
 // NewHTTPHandler creates an HTTPHandler with a shared HTTP client.
+// Per-request timeouts are enforced via context deadlines in Execute,
+// so the shared client has no global timeout set.
 func NewHTTPHandler() *HTTPHandler {
 	return &HTTPHandler{
-		client: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		client: &http.Client{},
 	}
 }
 
@@ -56,7 +57,7 @@ func (h *HTTPHandler) Validate(step *nodeops.SetupStep) error {
 func (h *HTTPHandler) Execute(step *nodeops.SetupStep, ctx *setupflow.SetupContext) (*setupflow.StepResult, error) {
 	cfg := step.HTTP
 
-	// Determine timeout
+	// Determine per-request timeout (capped at 120s).
 	timeout := 30 * time.Second
 	if cfg.TimeoutSecs > 0 {
 		if cfg.TimeoutSecs > 120 {
@@ -64,6 +65,10 @@ func (h *HTTPHandler) Execute(step *nodeops.SetupStep, ctx *setupflow.SetupConte
 		}
 		timeout = time.Duration(cfg.TimeoutSecs) * time.Second
 	}
+
+	// Use a context deadline instead of creating a new http.Client per request.
+	reqCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 
 	// Build request URL with query params
 	reqURL := cfg.URL
@@ -92,8 +97,8 @@ func (h *HTTPHandler) Execute(step *nodeops.SetupStep, ctx *setupflow.SetupConte
 		bodyReader = strings.NewReader(cfg.Body)
 	}
 
-	// Create request
-	req, err := http.NewRequest(strings.ToUpper(cfg.Method), reqURL, bodyReader)
+	// Create request with context for per-request timeout
+	req, err := http.NewRequestWithContext(reqCtx, strings.ToUpper(cfg.Method), reqURL, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -106,9 +111,8 @@ func (h *HTTPHandler) Execute(step *nodeops.SetupStep, ctx *setupflow.SetupConte
 		req.Header.Set(k, v)
 	}
 
-	// Execute with timeout
-	client := &http.Client{Timeout: timeout}
-	resp, err := client.Do(req)
+	// Execute using the shared client (timeout is on the request context)
+	resp, err := h.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request failed: %w", err)
 	}

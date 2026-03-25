@@ -194,17 +194,27 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// IsTunnelMode returns true if spaceURL indicates NATS tunnel mode.
+func IsTunnelMode(spaceURL string) bool {
+	return strings.HasPrefix(spaceURL, "tunneling:")
+}
+
+// GetTunnelUsername extracts the username from a "tunneling:username" URL.
+func GetTunnelUsername(spaceURL string) string {
+	if !IsTunnelMode(spaceURL) {
+		return ""
+	}
+	return strings.TrimPrefix(spaceURL, "tunneling:")
+}
+
 // IsTunnelMode returns true if the space is configured for NATS tunneling.
 func (c *Config) IsTunnelMode() bool {
-	return strings.HasPrefix(c.SpaceURL, "tunneling:")
+	return IsTunnelMode(c.SpaceURL)
 }
 
 // GetTunnelUsername extracts the username from a tunneling:username SpaceURL.
 func (c *Config) GetTunnelUsername() string {
-	if !c.IsTunnelMode() {
-		return ""
-	}
-	return strings.TrimPrefix(c.SpaceURL, "tunneling:")
+	return GetTunnelUsername(c.SpaceURL)
 }
 
 // HeartbeatInterval returns the calculated heartbeat interval.

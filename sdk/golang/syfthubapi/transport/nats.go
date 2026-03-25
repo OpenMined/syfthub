@@ -176,6 +176,12 @@ func (b *agentNATSBridge) relayEvents(session *syfthubapi.AgentSession, replyTo 
 	// Reusable buffer for building event JSON without per-event allocation.
 	var buf bytes.Buffer
 
+	// Pre-allocate the NATS message and header map once for the entire session.
+	// Per-event we only reassign Data and header values, avoiding repeated
+	// map + slice allocations on the hot token-streaming path.
+	msg := nats.NewMsg(subject)
+	msg.Header.Set("Syft-Session-Id", session.ID)
+
 	for event := range session.SendCh() {
 		// Build AgentEventPayload JSON manually. The struct has a fixed 4-field
 		// schema and Data is already json.RawMessage, so we splice it verbatim
@@ -195,12 +201,12 @@ func (b *agentNATSBridge) relayEvents(session *syfthubapi.AgentSession, replyTo 
 		}
 
 		response := syfthubapi.TunnelResponse{
-			Protocol:         "syfthub-tunnel/v1",
+			Protocol:         syfthubapi.TunnelProtocolV1,
 			Type:             syfthubapi.MsgTypeAgentEvent,
 			CorrelationID:    correlationID,
 			SessionID:        session.ID,
 			EndpointSlug:     session.EndpointSlug,
-			Status:           "success",
+			Status:           syfthubapi.TunnelStatusSuccess,
 			EncryptionInfo:   encInfo,
 			EncryptedPayload: encPayload,
 		}
@@ -211,7 +217,11 @@ func (b *agentNATSBridge) relayEvents(session *syfthubapi.AgentSession, replyTo 
 			continue
 		}
 
-		if err := b.transport.PublishToSubject(subject, respJSON); err != nil {
+		// Reuse the pre-allocated msg — only update per-event fields.
+		msg.Header.Set("Syft-Msg-Type", event.EventType)
+		msg.Header.Set("Syft-Sequence", strconv.Itoa(event.Sequence))
+		msg.Data = respJSON
+		if err := b.transport.PublishMsg(msg); err != nil {
 			b.logger.Error("[AGENT] failed to publish event", "session_id", session.ID, "error", err)
 		}
 	}
@@ -341,7 +351,7 @@ func (t *NATSTransport) Start(ctx context.Context) error {
 	conn, err := nats.Connect(
 		creds.URL,
 		nats.Token(creds.Token),
-		nats.Name(fmt.Sprintf("syfthub-space-%s", GetTunnelUsername(t.config.SpaceURL))),
+		nats.Name(fmt.Sprintf("syfthub-space-%s", syfthubapi.GetTunnelUsername(t.config.SpaceURL))),
 		nats.ProxyPath("/nats"),
 		nats.Timeout(30*time.Second),
 		nats.ReconnectWait(2*time.Second),
@@ -386,6 +396,24 @@ func (t *NATSTransport) Start(ctx context.Context) error {
 	t.sub = sub
 
 	t.logger.Info("subscribed to NATS subject", "subject", creds.Subject)
+
+	// Attempt to initialize JetStream KV session registry for agent sessions.
+	// Gracefully degrades if JetStream is not available on the server.
+	if t.agentBridge != nil {
+		registry, err := NewNATSSessionRegistry(conn, t.logger)
+		if err != nil {
+			t.logger.Warn("JetStream KV session registry not available — continuing without it", "error", err)
+		} else {
+			// Wire registry to the session manager via the SessionRegistrar interface.
+			type registrarSetter interface {
+				SetRegistrar(r syfthubapi.SessionRegistrar)
+			}
+			if rs, ok := t.agentBridge.handler.(registrarSetter); ok {
+				rs.SetRegistrar(registry)
+				t.logger.Info("JetStream KV session registry wired to agent session manager")
+			}
+		}
+	}
 
 	// Wait for context cancellation or stop signal
 	select {
@@ -453,16 +481,14 @@ func (t *NATSTransport) SetTokenVerifier(verifier TokenVerifier) {
 	}
 }
 
-// PublishToSubject publishes data to an arbitrary NATS subject.
-// Used by the session manager's relay goroutine to publish encrypted
-// agent_event messages to syfthub.peer.{channel}.
-// Note: relies on the NATS client's built-in auto-flushing rather than
-// flushing per-publish, which would add ~1 RTT of latency per event.
-func (t *NATSTransport) PublishToSubject(subject string, data []byte) error {
+// PublishMsg publishes a NATS message with headers to a subject.
+// Used by the agent event relay to attach session metadata headers
+// (Syft-Session-Id, Syft-Msg-Type, Syft-Sequence) for transport-level filtering.
+func (t *NATSTransport) PublishMsg(msg *nats.Msg) error {
 	if t.conn == nil {
 		return fmt.Errorf("NATS connection not established")
 	}
-	return t.conn.Publish(subject, data)
+	return t.conn.PublishMsg(msg)
 }
 
 // PrivateKey returns the transport's X25519 private key for agent message decryption.
@@ -622,7 +648,8 @@ func (t *NATSTransport) sendResponse(msg *nats.Msg, req *syfthubapi.TunnelReques
 		"json", string(data),
 	)
 
-	// Publish response
+	// Publish response — relies on NATS auto-flushing (consistent with the
+	// agent event relay path which intentionally skips per-publish flushing).
 	if err := t.conn.Publish(replySubject, data); err != nil {
 		t.logger.Error("failed to publish response",
 			"correlation_id", resp.CorrelationID,
@@ -630,14 +657,6 @@ func (t *NATSTransport) sendResponse(msg *nats.Msg, req *syfthubapi.TunnelReques
 			"error", err,
 		)
 		return
-	}
-
-	// Flush to ensure message is sent
-	if err := t.conn.Flush(); err != nil {
-		t.logger.Warn("flush after publish failed",
-			"correlation_id", resp.CorrelationID,
-			"error", err,
-		)
 	}
 
 	t.logger.Debug("sent response",
@@ -657,10 +676,10 @@ func (t *NATSTransport) sendErrorResponse(msg *nats.Msg, req *syfthubapi.TunnelR
 	}
 
 	resp := &syfthubapi.TunnelResponse{
-		Protocol:      "syfthub-tunnel/v1",
-		Type:          "endpoint_response",
+		Protocol:      syfthubapi.TunnelProtocolV1,
+		Type:          syfthubapi.TunnelTypeResponse,
 		CorrelationID: correlationID,
-		Status:        "error",
+		Status:        syfthubapi.TunnelStatusError,
 		EndpointSlug:  endpointSlug,
 		Error: &syfthubapi.TunnelError{
 			Code:    syfthubapi.TunnelErrorCode(code),

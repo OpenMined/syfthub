@@ -157,10 +157,14 @@ func NewAgentHandler(cfg *AgentHandlerConfig) syfthubapi.AgentHandler {
 		logger = slog.Default()
 	}
 
+	// Cache the base environment once at construction time so we don't call
+	// os.Environ() on every session invocation.
+	baseEnv := os.Environ()
+
 	return func(ctx context.Context, session *syfthubapi.AgentSession) error {
 		cmd := exec.CommandContext(ctx, cfg.PythonPath, "-c", agentWrapperScript)
 		cmd.Dir = cfg.WorkDir
-		cmd.Env = append(os.Environ(), cfg.Env...)
+		cmd.Env = append(baseEnv, cfg.Env...)
 
 		// Hide console window on Windows
 		hideWindow(cmd)

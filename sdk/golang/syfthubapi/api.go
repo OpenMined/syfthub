@@ -2,7 +2,6 @@ package syfthubapi
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -118,8 +117,7 @@ func New(opts ...Option) *SyftAPI {
 	}))
 
 	// Create auth client for token verification
-	slogLogger := NewSlogLogger(logger)
-	authClient := NewAuthClient(config.SyftHubURL, config.APIKey, slogLogger)
+	authClient := NewAuthClient(config.SyftHubURL, config.APIKey, logger)
 
 	// Create sync client for endpoint synchronization
 	syncClient := NewSyncClient(config.SyftHubURL, config.APIKey, logger)
@@ -290,41 +288,31 @@ func (api *SyftAPI) Run(ctx context.Context) error {
 	}
 	api.transport.SetRequestHandler(api.handleRequest)
 
-	// Initialize agent session manager if any agent endpoints are registered.
-	hasAgentEndpoints := false
-	for _, ep := range api.registry.List() {
-		if ep.Type == EndpointTypeAgent {
-			hasAgentEndpoints = true
-			break
-		}
-	}
-	if hasAgentEndpoints {
-		api.agentSessionManager = NewAgentSessionManager(api.registry, api.logger, 0)
-		api.agentSessionManager.StartReaper(ctx, 60*time.Second)
-		api.logger.Info("agent session manager initialized")
-		// Wire agent session manager to NATS transport for agent message dispatch.
-		// Use anonymous interface to avoid import cycle with transport package.
-		type agentHandlerSetter interface {
-			SetAgentHandler(handler AgentSessionHandler)
-		}
-		if nt, ok := api.transport.(agentHandlerSetter); ok {
-			nt.SetAgentHandler(api.agentSessionManager)
-			api.logger.Info("agent handler wired to transport")
-		} else {
-			api.logger.Warn("transport does not support agent handler — agent sessions will not work")
-		}
+	// Initialize agent session manager unconditionally. Agent endpoints may be
+	// registered dynamically after startup (e.g., via the desktop app's CreateEndpoint),
+	// so the manager must be ready before any endpoints exist.
+	api.agentSessionManager = NewAgentSessionManager(api.registry, api.logger, 0)
+	api.agentSessionManager.StartReaper(ctx, 60*time.Second)
+	api.logger.Info("agent session manager initialized")
 
-		// Wire token verifier so agent sessions authenticate satellite tokens
-		// using the same AuthClient as the standard request pipeline.
-		type tokenVerifierSetter interface {
-			SetTokenVerifier(func(ctx context.Context, token string) (*UserContext, error))
-		}
-		if tv, ok := api.transport.(tokenVerifierSetter); ok {
-			tv.SetTokenVerifier(api.authClient.VerifyToken)
-			api.logger.Info("token verifier wired to agent transport")
-		} else {
-			api.logger.Warn("transport does not support token verifier — agent sessions will lack authentication")
-		}
+	// Wire agent session manager to NATS transport for agent message dispatch.
+	// Use anonymous interface to avoid import cycle with transport package.
+	type agentHandlerSetter interface {
+		SetAgentHandler(handler AgentSessionHandler)
+	}
+	if nt, ok := api.transport.(agentHandlerSetter); ok {
+		nt.SetAgentHandler(api.agentSessionManager)
+		api.logger.Info("agent handler wired to transport")
+	}
+
+	// Wire token verifier so agent sessions authenticate satellite tokens
+	// using the same AuthClient as the standard request pipeline.
+	type tokenVerifierSetter interface {
+		SetTokenVerifier(func(ctx context.Context, token string) (*UserContext, error))
+	}
+	if tv, ok := api.transport.(tokenVerifierSetter); ok {
+		tv.SetTokenVerifier(api.authClient.VerifyToken)
+		api.logger.Info("token verifier wired to agent transport")
 	}
 
 	// Register X25519 encryption public key if the transport supports it (NATS tunnel mode).
@@ -553,9 +541,4 @@ func (api *SyftAPI) Registry() *EndpointRegistry {
 // AgentSessionManager returns the agent session manager, or nil if not initialized.
 func (api *SyftAPI) AgentSessionManager() *AgentSessionManager {
 	return api.agentSessionManager
-}
-
-// unmarshalJSON is a helper to unmarshal JSON.
-func unmarshalJSON(data json.RawMessage, v any) error {
-	return json.Unmarshal(data, v)
 }

@@ -546,20 +546,6 @@ func (m *mockFileProvider) LoadEndpoints() ([]*Endpoint, error) {
 	return nil, nil
 }
 
-func TestUnmarshalJSON(t *testing.T) {
-	data := json.RawMessage(`{"key": "value"}`)
-
-	var result map[string]string
-	err := unmarshalJSON(data, &result)
-	if err != nil {
-		t.Fatalf("unmarshalJSON error: %v", err)
-	}
-
-	if result["key"] != "value" {
-		t.Errorf("result[key] = %q", result["key"])
-	}
-}
-
 func TestInterfaceImplementations(t *testing.T) {
 	// Verify interfaces
 	var _ Transport = (*mockTransport)(nil)

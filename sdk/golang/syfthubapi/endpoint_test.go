@@ -516,6 +516,72 @@ func TestEndpointRegistry(t *testing.T) {
 		}
 	})
 
+	t.Run("ReplaceFileBased preserves reused executors", func(t *testing.T) {
+		reg := NewEndpointRegistry()
+
+		// Simulate selective reload: two endpoints where only one is recreated.
+		sharedExec := &mockExecutor{} // executor reused by unchanged endpoint
+		staleExec := &mockExecutor{}  // executor replaced during reload
+
+		reg.Register(&Endpoint{Slug: "unchanged-ep", isFileBased: true, executor: sharedExec})
+		reg.Register(&Endpoint{Slug: "changed-ep", isFileBased: true, executor: staleExec})
+
+		newExec := &mockExecutor{} // fresh executor for the changed endpoint
+		reg.ReplaceFileBased([]*Endpoint{
+			{Slug: "unchanged-ep", executor: sharedExec}, // same instance reused
+			{Slug: "changed-ep", executor: newExec},      // new instance
+		})
+
+		// Reused executor must NOT be closed
+		if sharedExec.closed {
+			t.Error("reused executor should not be closed")
+		}
+
+		// Stale executor must be closed
+		if !staleExec.closed {
+			t.Error("stale executor should be closed")
+		}
+
+		// New executor must not be closed
+		if newExec.closed {
+			t.Error("new executor should not be closed")
+		}
+
+		// Both endpoints should be in registry
+		if _, ok := reg.Get("unchanged-ep"); !ok {
+			t.Error("unchanged endpoint should be in registry")
+		}
+		if _, ok := reg.Get("changed-ep"); !ok {
+			t.Error("changed endpoint should be in registry")
+		}
+	})
+
+	t.Run("ReplaceFileBased preserves reused policy executors", func(t *testing.T) {
+		reg := NewEndpointRegistry()
+
+		sharedPolicyExec := &mockExecutor{}
+		stalePolicyExec := &mockExecutor{}
+
+		reg.Register(&Endpoint{Slug: "agent1", isFileBased: true, policyExecutor: sharedPolicyExec})
+		reg.Register(&Endpoint{Slug: "agent2", isFileBased: true, policyExecutor: stalePolicyExec})
+
+		newPolicyExec := &mockExecutor{}
+		reg.ReplaceFileBased([]*Endpoint{
+			{Slug: "agent1", policyExecutor: sharedPolicyExec},
+			{Slug: "agent2", policyExecutor: newPolicyExec},
+		})
+
+		if sharedPolicyExec.closed {
+			t.Error("reused policy executor should not be closed")
+		}
+		if !stalePolicyExec.closed {
+			t.Error("stale policy executor should be closed")
+		}
+		if newPolicyExec.closed {
+			t.Error("new policy executor should not be closed")
+		}
+	})
+
 	t.Run("SetEnabled", func(t *testing.T) {
 		reg := NewEndpointRegistry()
 		reg.Register(&Endpoint{Slug: "test-ep", Enabled: true})
