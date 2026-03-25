@@ -57,21 +57,6 @@ type Policy struct {
 	Config map[string]interface{} `json:"config" yaml:"config"`
 }
 
-// PoliciesFile represents the full policies.yaml structure.
-type PoliciesFile struct {
-	Version  string                 `yaml:"version"`
-	Store    map[string]interface{} `yaml:"store"`
-	Policies []Policy               `yaml:"policies"`
-}
-
-// OverviewData contains endpoint overview fields for update.
-type OverviewData struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Type        string `json:"type"`
-	Version     string `json:"version"`
-}
-
 // --- nodeops type conversion helpers ---
 
 func toNodeopsPolicy(p Policy) nodeops.Policy {
@@ -403,6 +388,14 @@ func (a *App) AddDependency(slug, pkg, version string) error {
 
 	pyprojectPath := filepath.Join(config.EndpointsPath, slug, "pyproject.toml")
 
+	// Check for duplicate before modifying the file
+	existing, _ := a.readDependencies(pyprojectPath)
+	for _, dep := range existing {
+		if strings.EqualFold(dep.Package, pkg) {
+			return fmt.Errorf("dependency already exists: %s", pkg)
+		}
+	}
+
 	// Read existing content or create new
 	content, err := os.ReadFile(pyprojectPath)
 	if err != nil && !os.IsNotExist(err) {
@@ -420,53 +413,59 @@ func (a *App) AddDependency(slug, pkg, version string) error {
 		depStr = fmt.Sprintf("%s>=%s", pkg, version)
 	}
 
-	for i, line := range lines {
+	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 
 		// Found dependencies array start
 		if strings.HasPrefix(trimmed, "dependencies = [") {
 			foundDeps = true
-			newLines = append(newLines, line)
 
-			// Check if it's a single-line empty array
-			if trimmed == "dependencies = []" {
-				newLines[len(newLines)-1] = "dependencies = ["
+			// Check if the array is closed on the same line (inline format)
+			if entries, ok := nodeops.ParseInlineDeps(trimmed); ok {
+				// Expand inline array to multi-line and append the new dep
+				newLines = append(newLines, "dependencies = [")
+				for _, entry := range entries {
+					newLines = append(newLines, fmt.Sprintf("    %s,", entry))
+				}
 				newLines = append(newLines, fmt.Sprintf("    \"%s\",", depStr))
 				newLines = append(newLines, "]")
 				addedDep = true
 				continue
 			}
+
+			newLines = append(newLines, line)
 			continue
 		}
 
-		// Inside dependencies array, looking for closing bracket
+		// Inside multi-line array, looking for closing bracket
 		if foundDeps && !addedDep {
 			if trimmed == "]" {
-				// Add new dependency before closing bracket
 				newLines = append(newLines, fmt.Sprintf("    \"%s\",", depStr))
 				addedDep = true
 			}
 		}
 
+		// [project.dependencies] section: add before next section header
+		if foundDeps && !addedDep && strings.HasPrefix(trimmed, "[") {
+			newLines = append(newLines, fmt.Sprintf("\"%s\"", depStr))
+			addedDep = true
+		}
+
 		newLines = append(newLines, line)
 
-		// Handle [project.dependencies] section format
 		if trimmed == "[project.dependencies]" {
 			foundDeps = true
-			// Find end of section or file and add dependency
-			for j := i + 1; j < len(lines); j++ {
-				nextTrimmed := strings.TrimSpace(lines[j])
-				if strings.HasPrefix(nextTrimmed, "[") || j == len(lines)-1 {
-					// Insert before next section
-					break
-				}
-			}
 		}
+	}
+
+	// If in section format and reached end of file without another section
+	if foundDeps && !addedDep {
+		newLines = append(newLines, fmt.Sprintf("\"%s\"", depStr))
+		addedDep = true
 	}
 
 	// If no dependencies section found, create one
 	if !foundDeps {
-		// Check if [project] section exists
 		hasProject := false
 		for _, line := range newLines {
 			if strings.TrimSpace(line) == "[project]" {
@@ -478,7 +477,6 @@ func (a *App) AddDependency(slug, pkg, version string) error {
 		if !hasProject {
 			newLines = append([]string{"[project]", fmt.Sprintf("dependencies = [\"%s\"]", depStr), ""}, newLines...)
 		} else {
-			// Add after [project] section
 			var insertLines []string
 			inserted := false
 			for _, line := range newLines {
@@ -530,7 +528,30 @@ func (a *App) DeleteDependency(slug, pkg string) error {
 		trimmed := strings.TrimSpace(line)
 
 		// Track if we're in dependencies section
-		if strings.HasPrefix(trimmed, "dependencies = [") || trimmed == "[project.dependencies]" {
+		if strings.HasPrefix(trimmed, "dependencies = [") {
+			// Handle inline format: dependencies = ["numpy", "pandas"]
+			if entries, ok := nodeops.ParseInlineDeps(trimmed); ok {
+				var kept []string
+				for _, entry := range entries {
+					if nodeops.MatchesDep(entry, pkg) {
+						deleted = true
+						continue
+					}
+					kept = append(kept, entry)
+				}
+				if len(kept) == 0 {
+					newLines = append(newLines, "dependencies = []")
+				} else {
+					newLines = append(newLines, fmt.Sprintf("dependencies = [%s]", strings.Join(kept, ", ")))
+				}
+				continue
+			}
+			inDeps = true
+			newLines = append(newLines, line)
+			continue
+		}
+
+		if trimmed == "[project.dependencies]" {
 			inDeps = true
 			newLines = append(newLines, line)
 			continue

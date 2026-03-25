@@ -16,80 +16,73 @@ type AgentStreamEvent struct {
 	Data      map[string]any `json:"data,omitempty"`
 }
 
-// StartAgentSession starts a local interactive agent session.
-// Events are streamed to the frontend via "agent:event" Wails events.
-// Returns the session ID.
-func (a *App) StartAgentSession(slug string, prompt string) (string, error) {
+// requireAgentSessionManager returns the AgentSessionManager, or an error if
+// the app or API is not ready. Extracts the repeated core→API→SM nil-check chain.
+func (a *App) requireAgentSessionManager() (*syfthubapi.AgentSessionManager, error) {
 	a.mu.RLock()
 	core := a.core
 	a.mu.RUnlock()
 
 	if core == nil {
-		return "", fmt.Errorf("app not running")
+		return nil, fmt.Errorf("app not running")
 	}
-
 	api := core.API()
 	if api == nil {
-		return "", fmt.Errorf("API not initialized")
+		return nil, fmt.Errorf("API not initialized")
 	}
-
-	// Look up the endpoint
-	endpoint, ok := api.Registry().Get(slug)
-	if !ok {
-		return "", fmt.Errorf("endpoint not found: %s", slug)
+	sm := api.AgentSessionManager()
+	if sm == nil {
+		return nil, fmt.Errorf("agent session manager not initialized")
 	}
+	return sm, nil
+}
 
-	handler, err := endpoint.GetAgentHandler()
+// StartAgentSession starts an interactive agent session through the shared
+// AgentSessionManager. All session logic (endpoint lookup, policy enforcement,
+// handler invocation) is handled by the manager — the same code path used by
+// remote NATS sessions. This method only adds the Wails event transport adapter.
+func (a *App) StartAgentSession(slug string, prompt string) (string, error) {
+	sm, err := a.requireAgentSessionManager()
 	if err != nil {
-		return "", fmt.Errorf("endpoint %s is not an agent: %w", slug, err)
+		return "", err
 	}
 
-	// Enforce policies before starting the handler.
-	userCtx := &syfthubapi.UserContext{Username: "local"}
-	reqCtx := &syfthubapi.RequestContext{User: userCtx}
-	policyResult, err := endpoint.CheckPolicies(a.ctx, reqCtx)
-	if err != nil {
-		return "", fmt.Errorf("policy check failed for %s: %w", slug, err)
-	}
-	if policyResult != nil && !policyResult.Allowed {
-		return "", fmt.Errorf("access denied by policy %q: %s", policyResult.PolicyName, policyResult.Reason)
-	}
-
-	// Cancel any existing session
+	// Cancel any existing session before starting a new one.
 	a.agentMu.Lock()
-	if a.agentCancel != nil {
-		a.agentCancel()
+	if a.agentSessionID != "" {
+		_ = sm.CancelSession(a.agentSessionID)
+		a.agentSessionID = ""
 	}
-
-	sessionID := uuid.New().String()
-
-	session := syfthubapi.NewAgentSession(
-		a.ctx,
-		sessionID,
-		prompt,
-		nil, // messages
-		syfthubapi.AgentConfig{},
-		userCtx,
-		slug,
-	)
-	a.agentSession = session
-	a.agentCancel = session.Cancel
 	a.agentMu.Unlock()
 
-	// Start handler (spawns goroutine, closes sendCh/done on completion)
-	session.RunHandler(handler)
+	sessionID := uuid.New().String()
+	userCtx := &syfthubapi.UserContext{Username: "local"}
 
-	// Emit session started
+	session, err := sm.StartSession(syfthubapi.AgentSessionStartPayload{
+		SessionID:    sessionID,
+		Prompt:       prompt,
+		EndpointSlug: slug,
+	}, userCtx)
+	if err != nil {
+		return "", fmt.Errorf("failed to start agent session: %w", err)
+	}
+
+	a.agentMu.Lock()
+	a.agentSessionID = session.ID
+	a.agentMu.Unlock()
+
+	// Emit session started event to frontend.
 	runtime.EventsEmit(a.ctx, "agent:event", AgentStreamEvent{
 		Type:      "session.started",
-		SessionID: sessionID,
+		SessionID: session.ID,
 	})
 
-	// Drain events from the session and relay to frontend
+	// Drain events from the session and relay to frontend via Wails events.
+	// This is the transport adapter — the only part that differs from the NATS
+	// relay in agentNATSBridge.relayEvents().
 	go func() {
 		sawTerminal := false
 		for event := range session.SendCh() {
-			// Parse raw JSON data into map for frontend
 			var data map[string]any
 			if event.Data != nil {
 				if err := json.Unmarshal(event.Data, &data); err != nil {
@@ -103,60 +96,70 @@ func (a *App) StartAgentSession(slug string, prompt string) (string, error) {
 
 			runtime.EventsEmit(a.ctx, "agent:event", AgentStreamEvent{
 				Type:      event.EventType,
-				SessionID: sessionID,
+				SessionID: session.ID,
 				Data:      data,
 			})
 		}
 
-		// Ensure the frontend always receives a terminal event to exit "Running" state
+		// Ensure the frontend always receives a terminal event to exit "Running" state.
 		if !sawTerminal {
 			runtime.EventsEmit(a.ctx, "agent:event", AgentStreamEvent{
 				Type:      "session.completed",
-				SessionID: sessionID,
+				SessionID: session.ID,
 			})
 		}
 
-		// Clean up
 		a.agentMu.Lock()
-		if a.agentSession != nil && a.agentSession.ID == sessionID {
-			a.agentSession = nil
-			a.agentCancel = nil
+		if a.agentSessionID == session.ID {
+			a.agentSessionID = ""
 		}
 		a.agentMu.Unlock()
 	}()
 
-	return sessionID, nil
+	return session.ID, nil
 }
 
-// SendAgentMessage sends a user message to the active agent session.
+// SendAgentMessage sends a user message to the active agent session via the
+// shared AgentSessionManager.
 func (a *App) SendAgentMessage(content string) error {
+	sm, err := a.requireAgentSessionManager()
+	if err != nil {
+		return err
+	}
+
 	a.agentMu.Lock()
-	session := a.agentSession
+	sessionID := a.agentSessionID
 	a.agentMu.Unlock()
 
-	if session == nil {
+	if sessionID == "" {
 		return fmt.Errorf("no active agent session")
 	}
 
-	ok := session.DeliverMessage(syfthubapi.UserMessage{
-		Type:    "user_message",
-		Content: content,
+	return sm.RouteMessage(syfthubapi.AgentUserMessagePayload{
+		SessionID: sessionID,
+		Message: syfthubapi.UserMessage{
+			Type:    "user_message",
+			Content: content,
+		},
 	})
-	if !ok {
-		return fmt.Errorf("session message buffer full")
-	}
-	return nil
 }
 
-// StopAgentSession cancels the active agent session.
+// StopAgentSession cancels the active agent session via the shared
+// AgentSessionManager.
 func (a *App) StopAgentSession() error {
-	a.agentMu.Lock()
-	defer a.agentMu.Unlock()
-
-	if a.agentCancel != nil {
-		a.agentCancel()
-		a.agentCancel = nil
+	sm, err := a.requireAgentSessionManager()
+	if err != nil {
+		return nil // Idempotent: if app/API not ready, nothing to stop.
 	}
-	a.agentSession = nil
-	return nil
+
+	a.agentMu.Lock()
+	sessionID := a.agentSessionID
+	a.agentSessionID = ""
+	a.agentMu.Unlock()
+
+	if sessionID == "" {
+		return nil
+	}
+
+	return sm.CancelSession(sessionID)
 }

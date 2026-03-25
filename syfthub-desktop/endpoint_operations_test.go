@@ -350,6 +350,90 @@ testpaths = ["tests"]
 	}
 }
 
+func TestReadDependenciesInline(t *testing.T) {
+	tempDir := t.TempDir()
+	pyprojectPath := filepath.Join(tempDir, "pyproject.toml")
+
+	// Inline single-line format (as created by the desktop app UI)
+	content := `[project]
+dependencies = ["numpy"]
+`
+	if err := os.WriteFile(pyprojectPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	app := &App{}
+	deps, err := app.readDependencies(pyprojectPath)
+	if err != nil {
+		t.Fatalf("readDependencies error: %v", err)
+	}
+
+	if len(deps) != 1 {
+		t.Fatalf("Expected 1 dependency, got %d", len(deps))
+	}
+	if deps[0].Package != "numpy" {
+		t.Errorf("Package = %q, want %q", deps[0].Package, "numpy")
+	}
+}
+
+func TestReadDependenciesInlineMultiple(t *testing.T) {
+	tempDir := t.TempDir()
+	pyprojectPath := filepath.Join(tempDir, "pyproject.toml")
+
+	content := `[project]
+dependencies = ["requests>=2.28.0", "numpy==1.24.0", "pandas"]
+`
+	if err := os.WriteFile(pyprojectPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	app := &App{}
+	deps, err := app.readDependencies(pyprojectPath)
+	if err != nil {
+		t.Fatalf("readDependencies error: %v", err)
+	}
+
+	if len(deps) != 3 {
+		t.Fatalf("Expected 3 dependencies, got %d", len(deps))
+	}
+
+	found := make(map[string]string)
+	for _, dep := range deps {
+		found[dep.Package] = dep.Version
+	}
+	if found["requests"] != "2.28.0" {
+		t.Errorf("requests version = %q, want %q", found["requests"], "2.28.0")
+	}
+	if found["numpy"] != "1.24.0" {
+		t.Errorf("numpy version = %q, want %q", found["numpy"], "1.24.0")
+	}
+	if _, ok := found["pandas"]; !ok {
+		t.Error("pandas not found")
+	}
+}
+
+func TestReadDependenciesInlineEmpty(t *testing.T) {
+	tempDir := t.TempDir()
+	pyprojectPath := filepath.Join(tempDir, "pyproject.toml")
+
+	content := `[project]
+dependencies = []
+`
+	if err := os.WriteFile(pyprojectPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write test file: %v", err)
+	}
+
+	app := &App{}
+	deps, err := app.readDependencies(pyprojectPath)
+	if err != nil {
+		t.Fatalf("readDependencies error: %v", err)
+	}
+
+	if len(deps) != 0 {
+		t.Errorf("Expected 0 dependencies, got %d", len(deps))
+	}
+}
+
 func TestReadDependenciesNotExist(t *testing.T) {
 	app := &App{}
 	deps, err := app.readDependencies("/nonexistent/pyproject.toml")
@@ -358,6 +442,196 @@ func TestReadDependenciesNotExist(t *testing.T) {
 	}
 	if len(deps) != 0 {
 		t.Errorf("deps should be empty for nonexistent file, got %d items", len(deps))
+	}
+}
+
+func TestAddDependencyInline(t *testing.T) {
+	tempDir := t.TempDir()
+	slug := "test-ep"
+	epDir := filepath.Join(tempDir, slug)
+	os.MkdirAll(epDir, 0755)
+
+	pyprojectPath := filepath.Join(epDir, "pyproject.toml")
+	os.WriteFile(pyprojectPath, []byte("[project]\ndependencies = [\"numpy\"]\n"), 0644)
+
+	a := &App{config: &app.Config{EndpointsPath: tempDir}}
+
+	if err := a.AddDependency(slug, "pandas", ""); err != nil {
+		t.Fatalf("AddDependency error: %v", err)
+	}
+
+	// Verify both deps are present
+	deps, err := a.readDependencies(pyprojectPath)
+	if err != nil {
+		t.Fatalf("readDependencies error: %v", err)
+	}
+	if len(deps) != 2 {
+		t.Fatalf("Expected 2 dependencies, got %d", len(deps))
+	}
+	found := map[string]bool{}
+	for _, d := range deps {
+		found[d.Package] = true
+	}
+	if !found["numpy"] || !found["pandas"] {
+		t.Errorf("expected numpy and pandas, got %v", found)
+	}
+}
+
+func TestAddDependencyInlineEmpty(t *testing.T) {
+	tempDir := t.TempDir()
+	slug := "test-ep"
+	epDir := filepath.Join(tempDir, slug)
+	os.MkdirAll(epDir, 0755)
+
+	pyprojectPath := filepath.Join(epDir, "pyproject.toml")
+	os.WriteFile(pyprojectPath, []byte("[project]\ndependencies = []\n"), 0644)
+
+	a := &App{config: &app.Config{EndpointsPath: tempDir}}
+
+	if err := a.AddDependency(slug, "numpy", "1.24.0"); err != nil {
+		t.Fatalf("AddDependency error: %v", err)
+	}
+
+	deps, err := a.readDependencies(pyprojectPath)
+	if err != nil {
+		t.Fatalf("readDependencies error: %v", err)
+	}
+	if len(deps) != 1 {
+		t.Fatalf("Expected 1 dependency, got %d", len(deps))
+	}
+	if deps[0].Package != "numpy" {
+		t.Errorf("Package = %q, want numpy", deps[0].Package)
+	}
+}
+
+func TestAddDependencyDuplicateRejected(t *testing.T) {
+	tempDir := t.TempDir()
+	slug := "test-ep"
+	epDir := filepath.Join(tempDir, slug)
+	os.MkdirAll(epDir, 0755)
+
+	pyprojectPath := filepath.Join(epDir, "pyproject.toml")
+	os.WriteFile(pyprojectPath, []byte("[project]\ndependencies = [\"numpy\"]\n"), 0644)
+
+	a := &App{config: &app.Config{EndpointsPath: tempDir}}
+
+	err := a.AddDependency(slug, "numpy", "")
+	if err == nil {
+		t.Fatal("expected error for duplicate dependency")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestAddDependencySectionFormat(t *testing.T) {
+	tempDir := t.TempDir()
+	slug := "test-ep"
+	epDir := filepath.Join(tempDir, slug)
+	os.MkdirAll(epDir, 0755)
+
+	pyprojectPath := filepath.Join(epDir, "pyproject.toml")
+	content := "[project.dependencies]\n\"numpy\"\n\n[tool.pytest]\ntestpaths = [\"tests\"]\n"
+	os.WriteFile(pyprojectPath, []byte(content), 0644)
+
+	a := &App{config: &app.Config{EndpointsPath: tempDir}}
+
+	if err := a.AddDependency(slug, "pandas", ""); err != nil {
+		t.Fatalf("AddDependency error: %v", err)
+	}
+
+	deps, err := a.readDependencies(pyprojectPath)
+	if err != nil {
+		t.Fatalf("readDependencies error: %v", err)
+	}
+	if len(deps) != 2 {
+		t.Fatalf("Expected 2 dependencies, got %d", len(deps))
+	}
+	found := map[string]bool{}
+	for _, d := range deps {
+		found[d.Package] = true
+	}
+	if !found["numpy"] || !found["pandas"] {
+		t.Errorf("expected numpy and pandas, got %v", found)
+	}
+}
+
+func TestReadDependenciesExtras(t *testing.T) {
+	tempDir := t.TempDir()
+	pyprojectPath := filepath.Join(tempDir, "pyproject.toml")
+
+	content := `[project]
+dependencies = ["numpy[cuda]>=1.0", "zope.interface==5.0"]
+`
+	os.WriteFile(pyprojectPath, []byte(content), 0644)
+
+	a := &App{}
+	deps, err := a.readDependencies(pyprojectPath)
+	if err != nil {
+		t.Fatalf("readDependencies error: %v", err)
+	}
+	if len(deps) != 2 {
+		t.Fatalf("Expected 2 dependencies, got %d", len(deps))
+	}
+	if deps[0].Package != "numpy" {
+		t.Errorf("Package[0] = %q, want numpy", deps[0].Package)
+	}
+	if deps[0].Version != "1.0" {
+		t.Errorf("Version[0] = %q, want 1.0", deps[0].Version)
+	}
+	if deps[1].Package != "zope.interface" {
+		t.Errorf("Package[1] = %q, want zope.interface", deps[1].Package)
+	}
+}
+
+func TestDeleteDependencyInline(t *testing.T) {
+	tempDir := t.TempDir()
+	slug := "test-ep"
+	epDir := filepath.Join(tempDir, slug)
+	os.MkdirAll(epDir, 0755)
+
+	pyprojectPath := filepath.Join(epDir, "pyproject.toml")
+	os.WriteFile(pyprojectPath, []byte("[project]\ndependencies = [\"numpy\", \"pandas\"]\n"), 0644)
+
+	a := &App{config: &app.Config{EndpointsPath: tempDir}}
+
+	if err := a.DeleteDependency(slug, "numpy"); err != nil {
+		t.Fatalf("DeleteDependency error: %v", err)
+	}
+
+	deps, err := a.readDependencies(pyprojectPath)
+	if err != nil {
+		t.Fatalf("readDependencies error: %v", err)
+	}
+	if len(deps) != 1 {
+		t.Fatalf("Expected 1 dependency, got %d", len(deps))
+	}
+	if deps[0].Package != "pandas" {
+		t.Errorf("Package = %q, want pandas", deps[0].Package)
+	}
+}
+
+func TestDeleteDependencyInlineLast(t *testing.T) {
+	tempDir := t.TempDir()
+	slug := "test-ep"
+	epDir := filepath.Join(tempDir, slug)
+	os.MkdirAll(epDir, 0755)
+
+	pyprojectPath := filepath.Join(epDir, "pyproject.toml")
+	os.WriteFile(pyprojectPath, []byte("[project]\ndependencies = [\"numpy\"]\n"), 0644)
+
+	a := &App{config: &app.Config{EndpointsPath: tempDir}}
+
+	if err := a.DeleteDependency(slug, "numpy"); err != nil {
+		t.Fatalf("DeleteDependency error: %v", err)
+	}
+
+	deps, err := a.readDependencies(pyprojectPath)
+	if err != nil {
+		t.Fatalf("readDependencies error: %v", err)
+	}
+	if len(deps) != 0 {
+		t.Errorf("Expected 0 dependencies, got %d", len(deps))
 	}
 }
 
@@ -619,34 +893,6 @@ func TestPolicyStruct(t *testing.T) {
 	}
 	if policy.Type != "RateLimitPolicy" {
 		t.Errorf("Type = %q, want %q", policy.Type, "RateLimitPolicy")
-	}
-}
-
-func TestPoliciesFileStruct(t *testing.T) {
-	pf := PoliciesFile{
-		Version: "1.0",
-		Store:   map[string]interface{}{"type": "sqlite"},
-		Policies: []Policy{
-			{Name: "test", Type: "TestPolicy"},
-		},
-	}
-	if pf.Version != "1.0" {
-		t.Errorf("Version = %q, want %q", pf.Version, "1.0")
-	}
-	if len(pf.Policies) != 1 {
-		t.Errorf("len(Policies) = %d, want 1", len(pf.Policies))
-	}
-}
-
-func TestOverviewDataStruct(t *testing.T) {
-	overview := OverviewData{
-		Name:        "My Endpoint",
-		Description: "Description here",
-		Type:        "model",
-		Version:     "2.0.0",
-	}
-	if overview.Name != "My Endpoint" {
-		t.Errorf("Name = %q, want %q", overview.Name, "My Endpoint")
 	}
 }
 

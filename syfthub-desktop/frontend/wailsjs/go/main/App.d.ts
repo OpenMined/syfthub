@@ -76,8 +76,6 @@ export function GetUserAggregators():Promise<Array<main.UserAggregator>>;
 
 export function GetVersion():Promise<string>;
 
-export function Greet(arg1:string):Promise<string>;
-
 export function HasSettings():Promise<boolean>;
 
 export function InstallMarketplacePackage(arg1:string,arg2:string):Promise<void>;
