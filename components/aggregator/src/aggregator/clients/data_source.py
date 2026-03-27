@@ -32,9 +32,11 @@ class DataSourceClient:
         self,
         timeout: float = 30.0,
         error_reporter: ErrorReporter | None = None,
+        http_client: httpx.AsyncClient | None = None,
     ):
         self.timeout = httpx.Timeout(timeout)
         self.error_reporter = error_reporter
+        self.http_client = http_client
 
     async def query(
         self,
@@ -103,136 +105,141 @@ class DataSourceClient:
             top_k=top_k,
         )
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                response = await client.post(
-                    query_url,
-                    json=request_data,
-                    headers=headers,
-                )
+        client = self.http_client or httpx.AsyncClient(timeout=self.timeout)
+        try:
+            response = await client.post(
+                query_url,
+                json=request_data,
+                headers=headers,
+                timeout=self.timeout,
+            )
 
-                latency_ms = int((time.perf_counter() - start_time) * 1000)
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
 
-                if response.status_code == 403:
-                    error_detail = self._extract_error_detail(response)
-                    logger.warning(
-                        LogEvents.DATA_SOURCE_QUERY_FAILED,
-                        endpoint_path=endpoint_path,
-                        status_code=403,
-                        error=error_detail,
-                        latency_ms=latency_ms,
-                    )
-                    self._report_upstream_error(
-                        event=LogEvents.DATA_SOURCE_QUERY_FAILED,
-                        message=f"Data source access denied: {error_detail}",
-                        endpoint=query_url,
-                        status_code=403,
-                        error_detail=error_detail,
-                        latency_ms=latency_ms,
-                        request_data=request_data,
-                    )
-                    return RetrievalResult(
-                        endpoint_path=endpoint_path,
-                        documents=[],
-                        status="error",
-                        error_message=f"Access denied: {error_detail}",
-                        latency_ms=latency_ms,
-                    )
-
-                if response.status_code != 200:
-                    error_detail = self._extract_error_detail(response)
-                    logger.warning(
-                        LogEvents.DATA_SOURCE_QUERY_FAILED,
-                        endpoint_path=endpoint_path,
-                        status_code=response.status_code,
-                        error=error_detail,
-                        latency_ms=latency_ms,
-                    )
-                    self._report_upstream_error(
-                        event=LogEvents.DATA_SOURCE_QUERY_FAILED,
-                        message=f"Data source query failed: HTTP {response.status_code} - {error_detail}",
-                        endpoint=query_url,
-                        status_code=response.status_code,
-                        error_detail=error_detail,
-                        latency_ms=latency_ms,
-                        request_data=request_data,
-                    )
-                    user_message = (
-                        self._build_unreachable_message(endpoint_path)
-                        if self._is_html_error_page(error_detail)
-                        else f"HTTP {response.status_code}: {error_detail}"
-                    )
-                    return RetrievalResult(
-                        endpoint_path=endpoint_path,
-                        documents=[],
-                        status="error",
-                        error_message=user_message,
-                        latency_ms=latency_ms,
-                    )
-
-                data = response.json()
-                documents = self._parse_syftai_response(data)
-
-                logger.info(
-                    LogEvents.DATA_SOURCE_QUERY_COMPLETED,
-                    endpoint_path=endpoint_path,
-                    documents_count=len(documents),
-                    latency_ms=latency_ms,
-                )
-
-                return RetrievalResult(
-                    endpoint_path=endpoint_path,
-                    documents=documents,
-                    status="success",
-                    latency_ms=latency_ms,
-                )
-
-            except httpx.TimeoutException:
-                latency_ms = int((time.perf_counter() - start_time) * 1000)
-                logger.warning(
-                    LogEvents.CHAT_RETRIEVAL_TIMEOUT,
-                    endpoint_path=endpoint_path,
-                    latency_ms=latency_ms,
-                )
-                return RetrievalResult(
-                    endpoint_path=endpoint_path,
-                    documents=[],
-                    status="timeout",
-                    error_message="Request timed out",
-                    latency_ms=latency_ms,
-                )
-
-            except httpx.RequestError as e:
-                latency_ms = int((time.perf_counter() - start_time) * 1000)
+            if response.status_code == 403:
+                error_detail = self._extract_error_detail(response)
                 logger.warning(
                     LogEvents.DATA_SOURCE_QUERY_FAILED,
                     endpoint_path=endpoint_path,
-                    error=str(e),
+                    status_code=403,
+                    error=error_detail,
                     latency_ms=latency_ms,
+                )
+                self._report_upstream_error(
+                    event=LogEvents.DATA_SOURCE_QUERY_FAILED,
+                    message=f"Data source access denied: {error_detail}",
+                    endpoint=query_url,
+                    status_code=403,
+                    error_detail=error_detail,
+                    latency_ms=latency_ms,
+                    request_data=request_data,
                 )
                 return RetrievalResult(
                     endpoint_path=endpoint_path,
                     documents=[],
                     status="error",
-                    error_message=str(e),
+                    error_message=f"Access denied: {error_detail}",
                     latency_ms=latency_ms,
                 )
 
-            except Exception as e:
-                latency_ms = int((time.perf_counter() - start_time) * 1000)
-                logger.exception(
+            if response.status_code != 200:
+                error_detail = self._extract_error_detail(response)
+                logger.warning(
                     LogEvents.DATA_SOURCE_QUERY_FAILED,
                     endpoint_path=endpoint_path,
-                    error=str(e),
+                    status_code=response.status_code,
+                    error=error_detail,
                     latency_ms=latency_ms,
+                )
+                self._report_upstream_error(
+                    event=LogEvents.DATA_SOURCE_QUERY_FAILED,
+                    message=f"Data source query failed: HTTP {response.status_code} - {error_detail}",
+                    endpoint=query_url,
+                    status_code=response.status_code,
+                    error_detail=error_detail,
+                    latency_ms=latency_ms,
+                    request_data=request_data,
+                )
+                user_message = (
+                    self._build_unreachable_message(endpoint_path)
+                    if self._is_html_error_page(error_detail)
+                    else f"HTTP {response.status_code}: {error_detail}"
                 )
                 return RetrievalResult(
                     endpoint_path=endpoint_path,
                     documents=[],
                     status="error",
-                    error_message=f"Unexpected error: {e}",
+                    error_message=user_message,
                     latency_ms=latency_ms,
                 )
+
+            data = response.json()
+            documents = self._parse_syftai_response(data)
+
+            logger.info(
+                LogEvents.DATA_SOURCE_QUERY_COMPLETED,
+                endpoint_path=endpoint_path,
+                documents_count=len(documents),
+                latency_ms=latency_ms,
+            )
+
+            return RetrievalResult(
+                endpoint_path=endpoint_path,
+                documents=documents,
+                status="success",
+                latency_ms=latency_ms,
+            )
+
+        except httpx.TimeoutException:
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
+            logger.warning(
+                LogEvents.CHAT_RETRIEVAL_TIMEOUT,
+                endpoint_path=endpoint_path,
+                latency_ms=latency_ms,
+            )
+            return RetrievalResult(
+                endpoint_path=endpoint_path,
+                documents=[],
+                status="timeout",
+                error_message="Request timed out",
+                latency_ms=latency_ms,
+            )
+
+        except httpx.RequestError as e:
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
+            logger.warning(
+                LogEvents.DATA_SOURCE_QUERY_FAILED,
+                endpoint_path=endpoint_path,
+                error=str(e),
+                latency_ms=latency_ms,
+            )
+            return RetrievalResult(
+                endpoint_path=endpoint_path,
+                documents=[],
+                status="error",
+                error_message=str(e),
+                latency_ms=latency_ms,
+            )
+
+        except Exception as e:
+            latency_ms = int((time.perf_counter() - start_time) * 1000)
+            logger.exception(
+                LogEvents.DATA_SOURCE_QUERY_FAILED,
+                endpoint_path=endpoint_path,
+                error=str(e),
+                latency_ms=latency_ms,
+            )
+            return RetrievalResult(
+                endpoint_path=endpoint_path,
+                documents=[],
+                status="error",
+                error_message=f"Unexpected error: {e}",
+                latency_ms=latency_ms,
+            )
+        finally:
+            # Close the client only if we created it (not the shared one)
+            if not self.http_client:
+                await client.aclose()
 
     def _report_upstream_error(
         self,

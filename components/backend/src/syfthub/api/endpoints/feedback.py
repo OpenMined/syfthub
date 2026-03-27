@@ -4,7 +4,7 @@ import logging
 from typing import Annotated, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from syfthub.auth.db_dependencies import get_current_active_user
@@ -29,7 +29,7 @@ class FeedbackResponse(BaseModel):
 
 
 async def _upload_to_linear(
-    filename: str, content: bytes, content_type: str
+    client: httpx.AsyncClient, filename: str, content: bytes, content_type: str
 ) -> Optional[str]:
     """Upload a file to Linear and return the asset URL."""
     assert settings.linear_api_key is not None
@@ -46,24 +46,23 @@ async def _upload_to_linear(
         }
     }
     """
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            LINEAR_API_URL,
-            json={
-                "query": query,
-                "variables": {
-                    "contentType": content_type,
-                    "filename": filename,
-                    "size": len(content),
-                },
+    resp = await client.post(
+        LINEAR_API_URL,
+        json={
+            "query": query,
+            "variables": {
+                "contentType": content_type,
+                "filename": filename,
+                "size": len(content),
             },
-            headers={
-                "Authorization": api_key,
-                "Content-Type": "application/json",
-            },
-            timeout=30.0,
-        )
-        data = resp.json()
+        },
+        headers={
+            "Authorization": api_key,
+            "Content-Type": "application/json",
+        },
+        timeout=30.0,
+    )
+    data = resp.json()
 
     upload_data = data.get("data", {}).get("fileUpload", {})
     if not upload_data.get("success"):
@@ -78,10 +77,9 @@ async def _upload_to_linear(
     for h in upload_file.get("headers", []):
         headers[h["key"]] = h["value"]
 
-    async with httpx.AsyncClient() as client:
-        await client.put(
-            upload_file["uploadUrl"], content=content, headers=headers, timeout=30.0
-        )
+    await client.put(
+        upload_file["uploadUrl"], content=content, headers=headers, timeout=30.0
+    )
 
     asset_url: str = upload_file["assetUrl"]
     return asset_url
@@ -89,6 +87,7 @@ async def _upload_to_linear(
 
 @router.post("/feedback", response_model=FeedbackResponse)
 async def submit_feedback(
+    request: Request,
     current_user: Annotated[User, Depends(get_current_active_user)],
     category: str = Form(default="feedback"),
     description: str = Form(...),
@@ -136,6 +135,7 @@ async def submit_feedback(
         try:
             content = await screenshot.read()
             screenshot_asset_url = await _upload_to_linear(
+                request.app.state.http_client,
                 screenshot.filename or "screenshot.png",
                 content,
                 screenshot.content_type or "image/png",
@@ -161,18 +161,18 @@ async def submit_feedback(
     }
 
     try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                LINEAR_API_URL,
-                json={"query": create_mutation, "variables": variables},
-                headers={
-                    "Authorization": linear_api_key,
-                    "Content-Type": "application/json",
-                },
-                timeout=30.0,
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        client = request.app.state.http_client
+        resp = await client.post(
+            LINEAR_API_URL,
+            json={"query": create_mutation, "variables": variables},
+            headers={
+                "Authorization": linear_api_key,
+                "Content-Type": "application/json",
+            },
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
     except httpx.HTTPError as e:
         logger.error("Linear API request failed: %s", e)
         return FeedbackResponse(
@@ -205,26 +205,25 @@ async def submit_feedback(
         }
         """
         try:
-            async with httpx.AsyncClient() as client:
-                await client.post(
-                    LINEAR_API_URL,
-                    json={
-                        "query": attach_mutation,
-                        "variables": {
-                            "input": {
-                                "issueId": issue_id,
-                                "url": screenshot_asset_url,
-                                "title": "Screenshot",
-                                "subtitle": "Auto-captured screenshot",
-                            }
-                        },
+            await client.post(
+                LINEAR_API_URL,
+                json={
+                    "query": attach_mutation,
+                    "variables": {
+                        "input": {
+                            "issueId": issue_id,
+                            "url": screenshot_asset_url,
+                            "title": "Screenshot",
+                            "subtitle": "Auto-captured screenshot",
+                        }
                     },
-                    headers={
-                        "Authorization": linear_api_key,
-                        "Content-Type": "application/json",
-                    },
-                    timeout=30.0,
-                )
+                },
+                headers={
+                    "Authorization": linear_api_key,
+                    "Content-Type": "application/json",
+                },
+                timeout=30.0,
+            )
         except Exception as e:
             logger.warning("Failed to attach screenshot: %s", e)
 

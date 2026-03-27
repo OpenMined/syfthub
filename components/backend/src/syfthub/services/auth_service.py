@@ -548,7 +548,7 @@ class AuthService(BaseService):
         This method handles both login and registration for Google OAuth:
         1. Verify the Google ID token
         2. Check if user exists by google_id
-        3. If not, check if user exists by email (account linking)
+        3. If not, check if email belongs to an existing account (reject with 409)
         4. If no user found, create a new account
         5. Return authentication tokens
 
@@ -579,19 +579,21 @@ class AuthService(BaseService):
         user = self.user_repository.get_by_google_id(google_id)
 
         if not user:
-            # Try to find by email (for account linking)
-            user = self.user_repository.get_by_email(email)
+            # Check if email is already associated with an existing account
+            existing_user = self.user_repository.get_by_email(email)
 
-            if user:
-                # Link Google account to existing user
-                logger.info(f"Linking Google account to existing user: {email}")
-                self.user_repository.link_google_account(
-                    user_id=user.id,
-                    google_id=google_id,
-                    avatar_url=avatar_url,
+            if existing_user:
+                # Do NOT auto-link — this would allow account takeover
+                # if an attacker controls the email address
+                logger.warning(
+                    "Blocked implicit Google account linking for email: %s. "
+                    "User must log in with original method and link Google from account settings.",
+                    email,
                 )
-                # Refresh user data
-                user = self.user_repository.get_by_id(user.id)
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="An account with this email already exists. Please log in with your original method and link Google from account settings.",
+                )
             else:
                 # Create new user
                 logger.info(f"Creating new user via Google OAuth: {email}")
@@ -619,7 +621,7 @@ class AuthService(BaseService):
                     )
 
         # At this point, user should never be None
-        # (either found by google_id, linked by email, or created new)
+        # (either found by google_id or created new)
         if user is None:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

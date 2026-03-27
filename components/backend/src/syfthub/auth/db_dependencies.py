@@ -178,6 +178,10 @@ async def _authenticate_with_jwt(
     if user is None:
         raise credentials_exception
 
+    # Defense-in-depth: reject inactive users at the base authentication level
+    if not getattr(user, "is_active", True):
+        raise credentials_exception
+
     return user
 
 
@@ -269,7 +273,13 @@ async def get_optional_current_user(
             return None
 
         # Get user from database
-        return user_repo.get_by_id(user_id)
+        user = user_repo.get_by_id(user_id)
+
+        # Defense-in-depth: reject inactive users
+        if user is not None and not getattr(user, "is_active", True):
+            return None
+
+        return user
 
     except HTTPException:
         # For optional auth, convert auth errors to None

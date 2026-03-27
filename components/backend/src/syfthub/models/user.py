@@ -40,8 +40,9 @@ class UserModel(BaseModel, TimestampMixin):
     accounting_service_url: Mapped[Optional[str]] = mapped_column(
         String(500), nullable=True, default=None
     )
-    accounting_password: Mapped[Optional[str]] = mapped_column(
-        String(255), nullable=True, default=None
+    # Fernet-encrypted accounting password (was plaintext `accounting_password` pre-migration)
+    accounting_password_encrypted: Mapped[Optional[str]] = mapped_column(
+        "accounting_password_encrypted", String(500), nullable=True, default=None
     )
 
     # Domain with protocol for dynamic endpoint URL construction
