@@ -15,7 +15,7 @@ class EndpointVisibility(str, Enum):
 
     PUBLIC = "public"  # Anyone can view
     PRIVATE = "private"  # Only owner (and future collaborators) can view
-    INTERNAL = "internal"  # Only authenticated users can view
+    INTERNAL = "internal"  # Only organization members can view (or owner for user-owned endpoints)
 
 
 class EndpointType(str, Enum):

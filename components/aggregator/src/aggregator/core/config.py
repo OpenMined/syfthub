@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     nats_tunnel_timeout: float = 30.0
 
     # CORS configuration
-    cors_origins: list[str] = ["*"]
+    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:8080"]
 
     model_config = SettingsConfigDict(
         env_prefix="AGGREGATOR_",

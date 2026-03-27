@@ -24,9 +24,12 @@ class ErrorReporter:
     silently swallowed.
     """
 
-    def __init__(self, backend_url: str, timeout: float = 5.0):
+    def __init__(
+        self, backend_url: str, timeout: float = 5.0, http_client: httpx.AsyncClient | None = None
+    ):
         self.report_url = f"{backend_url.rstrip('/')}/api/v1/errors/service-report"
         self.timeout = httpx.Timeout(timeout)
+        self.http_client = http_client
 
     def report(
         self,
@@ -84,13 +87,17 @@ class ErrorReporter:
     async def _send(self, payload: dict[str, Any]) -> None:
         """Send the error report to the backend. Swallows all exceptions."""
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                response = await client.post(self.report_url, json=payload)
+            client = self.http_client or httpx.AsyncClient(timeout=self.timeout)
+            try:
+                response = await client.post(self.report_url, json=payload, timeout=self.timeout)
                 if response.status_code != 202:
                     logger.debug(
                         "error_reporter.unexpected_status",
                         status_code=response.status_code,
                     )
+            finally:
+                if not self.http_client:
+                    await client.aclose()
         except Exception as exc:
             # Never let error reporting break the application
             logger.debug("error_reporter.send_failed", error=str(exc))
