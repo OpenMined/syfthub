@@ -46,9 +46,18 @@ def reset_overrides():
 class TestGetTunnelCredentials:
     """Tests for GET /users/me/tunnel-credentials endpoint."""
 
-    @patch("syfthub.api.endpoints.users.httpx.AsyncClient")
+    @pytest.fixture(autouse=True)
+    def setup_http_client(self):
+        """Set up mock http_client on app state."""
+        mock_client = AsyncMock()
+        app.state.http_client = mock_client
+        self._mock_http_client = mock_client
+        yield
+        if hasattr(app.state, "http_client"):
+            del app.state.http_client
+
     @patch("syfthub.api.endpoints.users.settings")
-    def test_success(self, mock_settings, mock_client_class, client, mock_user):
+    def test_success(self, mock_settings, client, mock_user):
         """Test successful tunnel credential creation."""
         mock_settings.ngrok_api_key = "test-ngrok-key"
         mock_settings.ngrok_base_domain = "syfthub.ngrok.app"
@@ -60,12 +69,7 @@ class TestGetTunnelCredentials:
             "token": "ngrok-token-abc123",
             "uri": "https://api.ngrok.com/credentials/cr_test123",
         }
-
-        mock_client_instance = AsyncMock()
-        mock_client_instance.post.return_value = mock_response
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock(return_value=False)
-        mock_client_class.return_value = mock_client_instance
+        self._mock_http_client.post.return_value = mock_response
 
         app.dependency_overrides[get_current_active_user] = lambda: mock_user
         response = client.get("/api/v1/users/me/tunnel-credentials")
@@ -86,9 +90,8 @@ class TestGetTunnelCredentials:
         assert response.status_code == 503
         assert "not configured" in response.json()["detail"]
 
-    @patch("syfthub.api.endpoints.users.httpx.AsyncClient")
     @patch("syfthub.api.endpoints.users.settings")
-    def test_ngrok_api_error(self, mock_settings, mock_client_class, client, mock_user):
+    def test_ngrok_api_error(self, mock_settings, client, mock_user):
         """Test 502 when ngrok API returns non-201 status."""
         mock_settings.ngrok_api_key = "test-ngrok-key"
         mock_settings.ngrok_base_domain = "syfthub.ngrok.app"
@@ -96,12 +99,7 @@ class TestGetTunnelCredentials:
         mock_response = MagicMock()
         mock_response.status_code = 401
         mock_response.json.return_value = {"error_code": "ERR_NGROK_218"}
-
-        mock_client_instance = AsyncMock()
-        mock_client_instance.post.return_value = mock_response
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock(return_value=False)
-        mock_client_class.return_value = mock_client_instance
+        self._mock_http_client.post.return_value = mock_response
 
         app.dependency_overrides[get_current_active_user] = lambda: mock_user
         response = client.get("/api/v1/users/me/tunnel-credentials")
@@ -109,20 +107,15 @@ class TestGetTunnelCredentials:
         assert response.status_code == 502
         assert "returned an error" in response.json()["detail"]
 
-    @patch("syfthub.api.endpoints.users.httpx.AsyncClient")
     @patch("syfthub.api.endpoints.users.settings")
-    def test_ngrok_network_error(
-        self, mock_settings, mock_client_class, client, mock_user
-    ):
+    def test_ngrok_network_error(self, mock_settings, client, mock_user):
         """Test 502 when ngrok API is unreachable."""
         mock_settings.ngrok_api_key = "test-ngrok-key"
         mock_settings.ngrok_base_domain = "syfthub.ngrok.app"
 
-        mock_client_instance = AsyncMock()
-        mock_client_instance.post.side_effect = httpx.ConnectError("Connection refused")
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock(return_value=False)
-        mock_client_class.return_value = mock_client_instance
+        self._mock_http_client.post.side_effect = httpx.ConnectError(
+            "Connection refused"
+        )
 
         app.dependency_overrides[get_current_active_user] = lambda: mock_user
         response = client.get("/api/v1/users/me/tunnel-credentials")
@@ -130,11 +123,8 @@ class TestGetTunnelCredentials:
         assert response.status_code == 502
         assert "Failed to connect" in response.json()["detail"]
 
-    @patch("syfthub.api.endpoints.users.httpx.AsyncClient")
     @patch("syfthub.api.endpoints.users.settings")
-    def test_ngrok_missing_token_in_response(
-        self, mock_settings, mock_client_class, client, mock_user
-    ):
+    def test_ngrok_missing_token_in_response(self, mock_settings, client, mock_user):
         """Test 502 when ngrok API returns 201 but no token field."""
         mock_settings.ngrok_api_key = "test-ngrok-key"
         mock_settings.ngrok_base_domain = "syfthub.ngrok.app"
@@ -142,12 +132,7 @@ class TestGetTunnelCredentials:
         mock_response = MagicMock()
         mock_response.status_code = 201
         mock_response.json.return_value = {"id": "cr_test123"}  # No token field
-
-        mock_client_instance = AsyncMock()
-        mock_client_instance.post.return_value = mock_response
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock(return_value=False)
-        mock_client_class.return_value = mock_client_instance
+        self._mock_http_client.post.return_value = mock_response
 
         app.dependency_overrides[get_current_active_user] = lambda: mock_user
         response = client.get("/api/v1/users/me/tunnel-credentials")
@@ -160,11 +145,8 @@ class TestGetTunnelCredentials:
         response = client.get("/api/v1/users/me/tunnel-credentials")
         assert response.status_code in (401, 403)
 
-    @patch("syfthub.api.endpoints.users.httpx.AsyncClient")
     @patch("syfthub.api.endpoints.users.settings")
-    def test_acl_contains_user_domain(
-        self, mock_settings, mock_client_class, client, mock_user
-    ):
+    def test_acl_contains_user_domain(self, mock_settings, client, mock_user):
         """Test that the ngrok credential ACL is scoped to the user's domain."""
         mock_settings.ngrok_api_key = "test-ngrok-key"
         mock_settings.ngrok_base_domain = "syfthub.ngrok.app"
@@ -172,26 +154,18 @@ class TestGetTunnelCredentials:
         mock_response = MagicMock()
         mock_response.status_code = 201
         mock_response.json.return_value = {"token": "ngrok-token-xyz"}
-
-        mock_client_instance = AsyncMock()
-        mock_client_instance.post.return_value = mock_response
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock(return_value=False)
-        mock_client_class.return_value = mock_client_instance
+        self._mock_http_client.post.return_value = mock_response
 
         app.dependency_overrides[get_current_active_user] = lambda: mock_user
         client.get("/api/v1/users/me/tunnel-credentials")
 
         # Verify the POST call to ngrok includes the correct ACL
-        call_kwargs = mock_client_instance.post.call_args
+        call_kwargs = self._mock_http_client.post.call_args
         body = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json")
         assert body["acl"] == ["bind:testuser.syfthub.ngrok.app"]
 
-    @patch("syfthub.api.endpoints.users.httpx.AsyncClient")
     @patch("syfthub.api.endpoints.users.settings")
-    def test_custom_base_domain(
-        self, mock_settings, mock_client_class, client, mock_user
-    ):
+    def test_custom_base_domain(self, mock_settings, client, mock_user):
         """Test that a custom ngrok_base_domain is used correctly."""
         mock_settings.ngrok_api_key = "test-ngrok-key"
         mock_settings.ngrok_base_domain = "custom.ngrok.io"
@@ -199,12 +173,7 @@ class TestGetTunnelCredentials:
         mock_response = MagicMock()
         mock_response.status_code = 201
         mock_response.json.return_value = {"token": "ngrok-token-custom"}
-
-        mock_client_instance = AsyncMock()
-        mock_client_instance.post.return_value = mock_response
-        mock_client_instance.__aenter__ = AsyncMock(return_value=mock_client_instance)
-        mock_client_instance.__aexit__ = AsyncMock(return_value=False)
-        mock_client_class.return_value = mock_client_instance
+        self._mock_http_client.post.return_value = mock_response
 
         app.dependency_overrides[get_current_active_user] = lambda: mock_user
         response = client.get("/api/v1/users/me/tunnel-credentials")
