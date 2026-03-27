@@ -1,320 +1,307 @@
 /**
- * Payment Settings Tab
+ * Wallet Settings Tab
  *
- * Allows users to configure their accounting service credentials.
- * Credentials are stored securely in the SyftHub backend.
+ * Allows users to create or import their wallet.
+ * Wallet data is stored in the SyftHub backend.
  */
 
 import React, { useCallback, useState } from 'react';
 
-import CreditCard from 'lucide-react/dist/esm/icons/credit-card';
-import Eye from 'lucide-react/dist/esm/icons/eye';
-import EyeOff from 'lucide-react/dist/esm/icons/eye-off';
 import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
-import Save from 'lucide-react/dist/esm/icons/save';
+import Plus from 'lucide-react/dist/esm/icons/plus';
+import Wallet from 'lucide-react/dist/esm/icons/wallet';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useAccounting } from '@/hooks/use-accounting';
+import { useWallet } from '@/hooks/use-wallet';
+import { WalletAPIClient } from '@/hooks/use-wallet-api';
 
 import { StatusMessage } from './status-message';
 
 // =============================================================================
-// Types
+// Helpers
 // =============================================================================
 
-interface FormData {
-  url: string;
-  password: string;
+/** Truncate an Ethereum address for display */
+function truncateAddress(address: string): string {
+  if (address.length <= 12) return address;
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
 // =============================================================================
-// Validation
+// View Modes
 // =============================================================================
 
-function validateUrl(url: string): string | null {
-  if (!url.trim()) return 'URL is required';
-  try {
-    new URL(url);
-    return null;
-  } catch {
-    return 'Please enter a valid URL (e.g., https://accounting.example.com)';
-  }
-}
+type ViewMode = 'view' | 'create' | 'import';
 
 // =============================================================================
 // Main Component
 // =============================================================================
 
 export function PaymentSettingsTab() {
-  const { credentials, isConfigured, isLoading, error, clearError, updateCredentials } =
-    useAccounting();
+  const {
+    wallet,
+    isConfigured,
+    isLoading: isContextLoading,
+    error: contextError,
+    clearError,
+    fetchWallet
+  } = useWallet();
 
-  const [formData, setFormData] = useState<FormData>({
-    url: '',
-    password: ''
-  });
-  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>(isConfigured ? 'view' : 'create');
+  const [privateKey, setPrivateKey] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
 
-  const handleInputChange = useCallback(
-    (field: keyof FormData) => (e: React.ChangeEvent<HTMLInputElement>) => {
-      setFormData((previous) => ({ ...previous, [field]: e.target.value }));
+  const resetForm = useCallback(() => {
+    setPrivateKey('');
+    setLocalError(null);
+    setSuccess(null);
+    clearError();
+  }, [clearError]);
+
+  // Create a new wallet
+  const handleCreateWallet = useCallback(async () => {
+    setIsSubmitting(true);
+    setLocalError(null);
+    setSuccess(null);
+    clearError();
+
+    try {
+      const client = new WalletAPIClient();
+      const result = await client.createWallet();
+      setSuccess(`Wallet created successfully! Address: ${result.address}`);
+      await fetchWallet();
+      setViewMode('view');
+    } catch (error_) {
+      setLocalError(error_ instanceof Error ? error_.message : 'Failed to create wallet');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [clearError, fetchWallet]);
+
+  // Import wallet via private key
+  const handleImportWallet = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!privateKey.trim()) {
+        setLocalError('Private key is required');
+        return;
+      }
+
+      const trimmedKey = privateKey.trim();
+      // Strip optional 0x prefix for validation
+      const hexKey = trimmedKey.startsWith('0x') ? trimmedKey.slice(2) : trimmedKey;
+      if (!/^[0-9a-fA-F]{64}$/.test(hexKey)) {
+        setLocalError('Private key must be 64 hex characters (with optional 0x prefix)');
+        return;
+      }
+
+      setIsSubmitting(true);
       setLocalError(null);
-      setSuccess(false);
+      setSuccess(null);
       clearError();
+
+      try {
+        const client = new WalletAPIClient();
+        const result = await client.importWallet(privateKey.trim());
+        setSuccess(`Wallet imported successfully! Address: ${result.address}`);
+        setPrivateKey('');
+        await fetchWallet();
+        setViewMode('view');
+      } catch (error_) {
+        setLocalError(error_ instanceof Error ? error_.message : 'Failed to import wallet');
+      } finally {
+        setIsSubmitting(false);
+      }
     },
-    [clearError]
+    [privateKey, clearError, fetchWallet]
   );
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLocalError(null);
-    setSuccess(false);
-    clearError();
+  const displayError = localError ?? contextError;
+  const isLoading = isContextLoading || isSubmitting;
 
-    // Validate URL
-    const urlError = validateUrl(formData.url);
-    if (urlError) {
-      setLocalError(urlError);
-      return;
-    }
-
-    if (!formData.password.trim()) {
-      setLocalError('Password is required');
-      return;
-    }
-
-    const result = await updateCredentials(formData.url.trim(), formData.password);
-    if (result) {
-      setSuccess(true);
-      setIsEditing(false);
-      // Clear form
-      setFormData({ url: '', password: '' });
-    }
-  };
-
-  const handleStartEditing = () => {
-    setIsEditing(true);
-    setFormData({
-      url: credentials?.url ?? '',
-      password: ''
-    });
-    setSuccess(false);
-  };
-
-  const handleCancelEditing = () => {
-    setIsEditing(false);
-    setFormData({ url: '', password: '' });
-    setLocalError(null);
-    clearError();
-  };
-
-  const displayError = localError ?? error;
-
-  // If credentials are configured and not editing, show view mode
-  if (isConfigured && !isEditing) {
+  // -------------------------------------------------------------------------
+  // View: Configured wallet
+  // -------------------------------------------------------------------------
+  if (isConfigured && viewMode === 'view') {
     return (
       <div className='space-y-6'>
-        {/* Header */}
         <div>
-          <h3 className='text-foreground text-lg font-semibold'>Payment Settings</h3>
-          <p className='text-muted-foreground mt-1 text-sm'>
-            Your accounting service is configured.
-          </p>
+          <h3 className='text-foreground text-lg font-semibold'>Wallet Settings</h3>
+          <p className='text-muted-foreground mt-1 text-sm'>Your wallet is configured.</p>
         </div>
 
-        {/* Success Message */}
-        <StatusMessage
-          type='success'
-          message={success ? 'Credentials updated successfully!' : null}
-        />
+        <StatusMessage type='success' message={success} />
 
-        {/* Credentials Display */}
-        <div className='space-y-4' data-testid='credentials-view'>
+        <div className='space-y-4' data-testid='wallet-view'>
           <div className='border-border flex items-center gap-2 border-t pt-4'>
-            <CreditCard className='text-muted-foreground h-4 w-4' />
-            <h4 className='text-foreground font-medium'>Accounting Service Credentials</h4>
+            <Wallet className='text-muted-foreground h-4 w-4' />
+            <h4 className='text-foreground font-medium'>Wallet Address</h4>
           </div>
 
-          {/* URL */}
           <div className='space-y-1'>
-            <Label className='text-muted-foreground text-xs'>URL</Label>
+            <Label className='text-muted-foreground text-xs'>Address</Label>
             <div className='bg-muted rounded-md px-3 py-2'>
-              <span className='text-foreground text-sm'>{credentials?.url}</span>
-            </div>
-          </div>
-
-          {/* Email */}
-          <div className='space-y-1'>
-            <Label className='text-muted-foreground text-xs'>Email</Label>
-            <div className='bg-muted rounded-md px-3 py-2'>
-              <span className='text-foreground text-sm'>{credentials?.email}</span>
-            </div>
-            <p className='text-muted-foreground text-xs'>Same as your SyftHub account email</p>
-          </div>
-
-          {/* Password */}
-          <div className='space-y-1'>
-            <Label className='text-muted-foreground text-xs'>Password</Label>
-            <div className='bg-muted flex items-center gap-2 rounded-md px-3 py-2'>
-              <span className='text-foreground flex-1 text-sm'>
-                {showCurrentPassword
-                  ? credentials?.password
-                  : '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022'}
+              <span className='text-foreground font-mono text-sm'>
+                {wallet?.address ? truncateAddress(wallet.address) : 'N/A'}
               </span>
-              <button
-                type='button'
-                onClick={() => {
-                  setShowCurrentPassword(!showCurrentPassword);
-                }}
-                className='text-muted-foreground hover:text-foreground'
-                aria-label={showCurrentPassword ? 'Hide password' : 'Show password'}
-              >
-                {showCurrentPassword ? (
-                  <EyeOff className='h-4 w-4' aria-hidden='true' />
-                ) : (
-                  <Eye className='h-4 w-4' aria-hidden='true' />
-                )}
-              </button>
             </div>
+            {wallet?.address ? (
+              <p className='text-muted-foreground text-xs'>Full: {wallet.address}</p>
+            ) : null}
           </div>
         </div>
 
-        {/* Edit Button */}
-        <div className='border-border flex justify-end border-t pt-4'>
+        <div className='border-border flex justify-end gap-3 border-t pt-4'>
           <Button
             type='button'
             variant='outline'
-            onClick={handleStartEditing}
+            onClick={() => {
+              resetForm();
+              setViewMode('import');
+            }}
             className='flex items-center gap-2'
           >
-            Update Credentials
+            Import Different Wallet
           </Button>
         </div>
       </div>
     );
   }
 
-  // Setup or Edit form
+  // -------------------------------------------------------------------------
+  // View: Import wallet via private key
+  // -------------------------------------------------------------------------
+  if (viewMode === 'import') {
+    return (
+      <div className='space-y-6'>
+        <div>
+          <h3 className='text-foreground text-lg font-semibold'>Import Wallet</h3>
+          <p className='text-muted-foreground mt-1 text-sm'>
+            Import an existing wallet by entering your private key.
+          </p>
+        </div>
+
+        <StatusMessage type='error' message={displayError} />
+
+        <form onSubmit={handleImportWallet} className='space-y-5'>
+          <div className='space-y-2'>
+            <Label htmlFor='private-key'>Private Key</Label>
+            <Input
+              id='private-key'
+              name='private_key'
+              type='password'
+              value={privateKey}
+              onChange={(e) => {
+                setPrivateKey(e.target.value);
+                setLocalError(null);
+              }}
+              placeholder='Enter your private key...'
+              disabled={isLoading}
+              data-testid='wallet-private-key'
+            />
+            <p className='text-muted-foreground text-xs'>
+              Your private key will be transmitted securely to the server.
+            </p>
+          </div>
+
+          <div className='border-border flex items-center justify-end gap-3 border-t pt-4'>
+            <Button
+              type='button'
+              variant='outline'
+              onClick={() => {
+                resetForm();
+                setViewMode(isConfigured ? 'view' : 'create');
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type='submit'
+              disabled={isLoading || !privateKey.trim()}
+              className='flex items-center gap-2'
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className='h-4 w-4 animate-spin' />
+                  Importing...
+                </>
+              ) : (
+                'Import Wallet'
+              )}
+            </Button>
+          </div>
+        </form>
+      </div>
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // View: No wallet — setup prompt
+  // -------------------------------------------------------------------------
   return (
     <div className='space-y-6'>
-      {/* Header */}
       <div>
-        <h3 className='text-foreground text-lg font-semibold'>Payment Settings</h3>
+        <h3 className='text-foreground text-lg font-semibold'>Wallet Settings</h3>
         <p className='text-muted-foreground mt-1 text-sm'>
-          {isEditing
-            ? 'Update your accounting service credentials.'
-            : 'Configure your accounting service for payment processing.'}
+          Set up your wallet for payment processing.
         </p>
       </div>
 
       {/* Info Banner */}
-      {isEditing ? null : (
-        <div className='rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950'>
-          <div className='flex items-start gap-3'>
-            <CreditCard className='mt-0.5 h-5 w-5 flex-shrink-0 text-blue-600 dark:text-blue-400' />
-            <div>
-              <h4 className='text-sm font-medium text-blue-900 dark:text-blue-100'>
-                Secure Storage
-              </h4>
-              <p className='mt-1 text-xs text-blue-700 dark:text-blue-300'>
-                Your accounting credentials are stored securely on our servers. Your email from
-                SyftHub will be used to authenticate with the accounting service.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Status Messages */}
-      <StatusMessage type='error' message={displayError} />
-
-      {/* Setup/Edit Form */}
-      <form onSubmit={handleSubmit} className='space-y-5'>
-        <div className='border-border flex items-center gap-2 border-t pt-4'>
-          <CreditCard className='text-muted-foreground h-4 w-4' />
-          <h4 className='text-foreground font-medium'>Accounting Service</h4>
-        </div>
-
-        {/* URL */}
-        <div className='space-y-2'>
-          <Label htmlFor='accounting-url'>Accounting URL</Label>
-          <Input
-            id='accounting-url'
-            name='accounting_url'
-            type='url'
-            value={formData.url}
-            onChange={handleInputChange('url')}
-            placeholder='https://accounting.example.com…'
-            autoComplete='url'
-            disabled={isLoading}
-            data-testid='accounting-url'
-          />
-          <p className='text-muted-foreground text-xs'>
-            The base URL of your accounting service API
-          </p>
-        </div>
-
-        {/* Email (read-only info) */}
-        {credentials?.email ? (
-          <div className='space-y-2'>
-            <Label>Email</Label>
-            <div className='bg-muted rounded-md px-3 py-2'>
-              <span className='text-muted-foreground text-sm'>{credentials.email}</span>
-            </div>
-            <p className='text-muted-foreground text-xs'>
-              Your SyftHub email will be used for accounting service authentication
+      <div className='rounded-lg border border-blue-200 bg-blue-50 p-4 dark:border-blue-800 dark:bg-blue-950'>
+        <div className='flex items-start gap-3'>
+          <Wallet className='mt-0.5 h-5 w-5 flex-shrink-0 text-blue-600 dark:text-blue-400' />
+          <div>
+            <h4 className='text-sm font-medium text-blue-900 dark:text-blue-100'>Tempo Wallet</h4>
+            <p className='mt-1 text-xs text-blue-700 dark:text-blue-300'>
+              Create a new wallet or import an existing one to enable payments for API usage across
+              the network.
             </p>
           </div>
-        ) : null}
+        </div>
+      </div>
 
-        {/* Password - uses Input's built-in password toggle */}
-        <div className='space-y-2'>
-          <Label htmlFor='accounting-password'>{isEditing ? 'New Password' : 'Password'}</Label>
-          <Input
-            id='accounting-password'
-            name='accounting_password'
-            type='password'
-            value={formData.password}
-            onChange={handleInputChange('password')}
-            placeholder='Your accounting service password…'
-            autoComplete='current-password'
+      <StatusMessage type='error' message={displayError} />
+      <StatusMessage type='success' message={success} />
+
+      <div className='space-y-4'>
+        <Button
+          onClick={() => void handleCreateWallet()}
+          disabled={isLoading}
+          className='flex w-full items-center justify-center gap-2'
+          data-testid='create-wallet-btn'
+        >
+          {isSubmitting ? (
+            <>
+              <Loader2 className='h-4 w-4 animate-spin' />
+              Creating Wallet...
+            </>
+          ) : (
+            <>
+              <Plus className='h-4 w-4' aria-hidden='true' />
+              Create Wallet
+            </>
+          )}
+        </Button>
+
+        <div className='text-center'>
+          <button
+            type='button'
+            onClick={() => {
+              resetForm();
+              setViewMode('import');
+            }}
+            className='text-muted-foreground hover:text-foreground text-sm underline'
             disabled={isLoading}
-            data-testid='accounting-password'
-          />
-        </div>
-
-        {/* Submit Buttons */}
-        <div className='border-border flex items-center justify-end gap-3 border-t pt-4'>
-          {isEditing ? (
-            <Button type='button' variant='outline' onClick={handleCancelEditing}>
-              Cancel
-            </Button>
-          ) : null}
-          <Button
-            type='submit'
-            disabled={isLoading || !formData.url || !formData.password}
-            className='flex items-center gap-2'
-            data-testid='save-credentials'
           >
-            {isLoading ? (
-              <>
-                <Loader2 className='h-4 w-4 animate-spin' />
-                Saving…
-              </>
-            ) : (
-              <>
-                <Save className='h-4 w-4' aria-hidden='true' />
-                {isEditing ? 'Update Credentials' : 'Save Credentials'}
-              </>
-            )}
-          </Button>
+            I already have a wallet
+          </button>
         </div>
-      </form>
+      </div>
     </div>
   );
 }

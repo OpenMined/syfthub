@@ -11,14 +11,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from syfthub.database.connection import SessionLocal
 from syfthub.domain.exceptions import (
-    AccountingAccountExistsError,
-    AccountingServiceUnavailableError,
     AudienceInactiveError,
     AudienceNotFoundError,
     ConflictError,
     DomainException,
     IdPException,
-    InvalidAccountingPasswordError,
     KeyLoadError,
     KeyNotConfiguredError,
     NotFoundError,
@@ -44,7 +41,7 @@ class ErrorResponse(BaseModel):
 
     All error responses use ``{"detail": <ErrorResponse>}`` as the envelope,
     matching Starlette's existing convention. Extra exception-specific fields
-    (e.g. ``field``, ``audience``, ``requires_accounting_password``) are
+    (e.g. ``field``, ``audience``) are
     transparently passed through via the ``extra="allow"`` config.
     """
 
@@ -72,10 +69,6 @@ DOMAIN_EXCEPTION_STATUS_MAP: dict[type[DomainException], int] = {
     KeyNotConfiguredError: status.HTTP_503_SERVICE_UNAVAILABLE,
     KeyLoadError: status.HTTP_503_SERVICE_UNAVAILABLE,
     IdPException: status.HTTP_400_BAD_REQUEST,
-    # Accounting — specific before base
-    AccountingAccountExistsError: status.HTTP_424_FAILED_DEPENDENCY,
-    InvalidAccountingPasswordError: status.HTTP_401_UNAUTHORIZED,
-    AccountingServiceUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
     # Base fallback — must be last
     DomainException: status.HTTP_500_INTERNAL_SERVER_ERROR,
 }

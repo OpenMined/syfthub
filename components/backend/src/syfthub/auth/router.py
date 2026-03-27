@@ -15,9 +15,6 @@ from syfthub.auth.db_dependencies import (
 from syfthub.auth.security import blacklist_token
 from syfthub.database.dependencies import get_api_token_service, get_auth_service
 from syfthub.domain.exceptions import (
-    AccountingAccountExistsError,
-    AccountingServiceUnavailableError,
-    InvalidAccountingPasswordError,
     UserAlreadyExistsError,
 )
 from syfthub.schemas.api_token import (
@@ -62,46 +59,6 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
                 }
             },
         },
-        424: {
-            "description": "Email already exists in accounting service (requires password)",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detail": {
-                            "code": "ACCOUNTING_ACCOUNT_EXISTS",
-                            "message": "This email already has an account...",
-                            "requires_accounting_password": True,
-                        }
-                    }
-                }
-            },
-        },
-        401: {
-            "description": "Invalid accounting password",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detail": {
-                            "code": "INVALID_ACCOUNTING_PASSWORD",
-                            "message": "The provided accounting password is invalid.",
-                        }
-                    }
-                }
-            },
-        },
-        503: {
-            "description": "Accounting service unavailable",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detail": {
-                            "code": "ACCOUNTING_SERVICE_UNAVAILABLE",
-                            "message": "Accounting service error: ...",
-                        }
-                    }
-                }
-            },
-        },
     },
 )
 async def register_user(
@@ -110,21 +67,7 @@ async def register_user(
 ) -> RegistrationResponse:
     """Register a new user.
 
-    This endpoint handles user registration with optional accounting service integration.
-
     If username or email already exists in SyftHub, a 409 Conflict is returned.
-
-    If an accounting service URL is configured (via request or default config), the backend
-    will automatically create an accounting account for the user. If the email already
-    exists in the accounting service, a 424 Failed Dependency response is returned and
-    the user must provide their existing accounting password to link accounts.
-
-    Flow:
-    1. User submits registration without accounting_password
-    2. If accounting URL is configured, backend tries to create accounting account
-    3. If 424 (email exists in accounting), return error with requires_accounting_password=True
-    4. User re-submits with their existing accounting_password
-    5. Backend validates credentials and completes registration
     """
     try:
         return auth_service.register(user_data)
@@ -137,38 +80,6 @@ async def register_user(
                 "code": e.error_code,
                 "message": e.message,
                 "field": e.field,
-            },
-        ) from e
-
-    except AccountingAccountExistsError as e:
-        # Email already exists in accounting service - user needs to provide password
-        # Using 424 Failed Dependency to distinguish from SyftHub user duplication (409)
-        raise HTTPException(
-            status_code=status.HTTP_424_FAILED_DEPENDENCY,
-            detail={
-                "code": e.error_code,
-                "message": e.message,
-                "requires_accounting_password": e.requires_accounting_password,
-            },
-        ) from e
-
-    except InvalidAccountingPasswordError as e:
-        # User provided wrong accounting password
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={
-                "code": e.error_code,
-                "message": e.message,
-            },
-        ) from e
-
-    except AccountingServiceUnavailableError as e:
-        # Accounting service is down or returned unexpected error
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "code": e.error_code,
-                "message": e.message,
             },
         ) from e
 

@@ -1,5 +1,6 @@
 import type { HTTPClient } from '../http.js';
 import type { User, UserRegisterInput } from '../models/index.js';
+import type { TransactionTokensResponse } from '../models/accounting.js';
 import { AuthenticationError } from '../errors.js';
 
 /**
@@ -332,42 +333,30 @@ export class AuthResource {
   /**
    * Get transaction tokens for multiple endpoint owners.
    *
-   * Transaction tokens are short-lived JWTs that pre-authorize the endpoint owner
-   * (recipient) to charge the current user (sender) for usage. These tokens are
-   * created via the accounting service and passed to the aggregator.
+   * @deprecated Transaction tokens are no longer needed. Payments are handled
+   * via the MPP 402 flow. This method is kept for backward compatibility and
+   * always returns empty tokens/errors.
    *
-   * This is used by the chat flow to enable billing for endpoint usage.
-   *
-   * @param ownerUsernames - Array of endpoint owner usernames
-   * @returns TransactionTokensResponse with tokens map and any errors
-   * @throws {AuthenticationError} If not authenticated
-   *
-   * @example
-   * // Get transaction tokens for endpoint owners
-   * const response = await client.auth.getTransactionTokens(['alice', 'bob']);
-   * console.log(`Got ${Object.keys(response.tokens).length} tokens`);
-   * if (Object.keys(response.errors).length > 0) {
-   *   console.log('Some tokens failed:', response.errors);
-   * }
+   * @param ownerUsernames - Array of endpoint owner usernames (ignored)
+   * @returns TransactionTokensResponse with empty tokens and errors
    */
   async getTransactionTokens(ownerUsernames: string[]): Promise<TransactionTokensResponse> {
-    const uniqueOwners = [...new Set(ownerUsernames)];
+    // Transaction tokens are no longer needed - payments are handled via MPP 402 flow
+    void ownerUsernames;
+    return { tokens: {}, errors: {} };
+  }
 
-    if (uniqueOwners.length === 0) {
-      return { tokens: {}, errors: {} };
-    }
-
-    try {
-      return await this.http.post<TransactionTokensResponse>(
-        '/api/v1/accounting/transaction-tokens',
-        { owner_usernames: uniqueOwners }
-      );
-    } catch (error) {
-      // If accounting is not configured or fails, return empty tokens
-      // The chat can proceed without transaction tokens (billing will fail later)
-      console.warn('Failed to get transaction tokens:', error);
-      return { tokens: {}, errors: {} };
-    }
+  /**
+   * Get the current access token (JWT or API token).
+   *
+   * This is used by the chat flow to pass the user's Hub token to the
+   * aggregator for the MPP payment callback.
+   *
+   * @returns The current access token, or null if not authenticated
+   */
+  getAccessToken(): string | null {
+    const tokens = this.http.getTokens();
+    return tokens?.accessToken ?? null;
   }
 }
 
@@ -395,12 +384,5 @@ export interface SatelliteTokenResponse {
   expiresIn: number;
 }
 
-/**
- * Response from transaction tokens endpoint.
- */
-export interface TransactionTokensResponse {
-  /** Mapping of owner_username to transaction token */
-  tokens: Record<string, string>;
-  /** Mapping of owner_username to error message (for failed tokens) */
-  errors: Record<string, string>;
-}
+// TransactionTokensResponse is imported from models/accounting.ts
+export type { TransactionTokensResponse } from '../models/accounting.js';

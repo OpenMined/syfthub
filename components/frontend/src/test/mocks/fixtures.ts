@@ -4,7 +4,7 @@
  */
 
 import type { SearchableChatSource } from '@/lib/search-service';
-import type { AccountingTransaction, AccountingUser, ChatSource, User } from '@/lib/types';
+import type { ChatSource, User, WalletInfo, WalletTransaction } from '@/lib/types';
 
 // ============================================================================
 // User Fixtures
@@ -78,34 +78,29 @@ export function createMockSearchableChatSource(
 }
 
 // ============================================================================
-// Accounting Fixtures
+// Wallet Fixtures
 // ============================================================================
 
-export function createMockAccountingUser(overrides: Partial<AccountingUser> = {}): AccountingUser {
+export function createMockWalletInfo(overrides: Partial<WalletInfo> = {}): WalletInfo {
   return {
-    id: 'acc-1',
-    email: 'test@example.com',
-    balance: 500,
-    organization: null,
+    address: '0x1234567890abcdef1234567890abcdef12345678',
+    exists: true,
     ...overrides
   };
 }
 
-export function createMockAccountingTransaction(
-  overrides: Partial<AccountingTransaction> = {}
-): AccountingTransaction {
+export function createMockWalletTransaction(
+  overrides: Partial<WalletTransaction> = {}
+): WalletTransaction {
   return {
     id: 'tx-1',
-    senderEmail: 'sender@example.com',
-    recipientEmail: 'recipient@example.com',
+    sender_email: 'sender@example.com',
+    recipient_email: 'recipient@example.com',
     amount: 100,
     status: 'completed',
-    createdBy: 'sender',
-    resolvedBy: 'recipient',
-    createdAt: new Date('2024-01-15T10:00:00.000Z'),
-    resolvedAt: new Date('2024-01-15T10:05:00.000Z'),
-    appName: null,
-    appEpPath: null,
+    created_at: '2024-01-15T10:00:00.000Z',
+    app_name: undefined,
+    app_ep_path: undefined,
     ...overrides
   };
 }

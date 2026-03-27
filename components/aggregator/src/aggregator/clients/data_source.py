@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from aggregator.clients.mpp_payment import handle_mpp_payment
 from aggregator.observability import get_correlation_id, get_logger
 from aggregator.observability.constants import CORRELATION_ID_HEADER, LogEvents
 from aggregator.schemas.internal import RetrievalResult
@@ -46,7 +47,8 @@ class DataSourceClient:
         similarity_threshold: float = 0.5,
         tenant_name: str | None = None,
         authorization_token: str | None = None,
-        transaction_token: str | None = None,
+        user_token: str | None = None,
+        syfthub_url: str | None = None,
     ) -> RetrievalResult:
         """
         Query a SyftAI-Space endpoint for relevant documents.
@@ -62,7 +64,8 @@ class DataSourceClient:
             similarity_threshold: Minimum similarity score for documents
             tenant_name: Tenant name for X-Tenant-Name header (optional)
             authorization_token: Satellite token for Authorization header (optional)
-            transaction_token: Transaction token for billing authorization (optional)
+            user_token: User's Hub auth token for MPP 402 payment flow (optional)
+            syfthub_url: SyftHub base URL for MPP wallet pay callback (optional)
 
         Returns:
             RetrievalResult with documents and status
@@ -82,9 +85,8 @@ class DataSourceClient:
             "include_metadata": True,
         }
 
-        # Include transaction token in payload for billing authorization
-        if transaction_token:
-            request_data["transaction_token"] = transaction_token
+        # NOTE: transaction_token is no longer sent in the request body.
+        # Payment is handled via the MPP 402 flow (WWW-Authenticate / X-Payment).
 
         # Build headers with correlation ID for request tracing
         headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -110,6 +112,48 @@ class DataSourceClient:
                     json=request_data,
                     headers=headers,
                 )
+
+                # Handle MPP 402 Payment Required
+                if response.status_code == 402 and user_token and syfthub_url:
+                    try:
+                        x_payment = await handle_mpp_payment(
+                            response=response,
+                            syfthub_url=syfthub_url,
+                            user_token=user_token,
+                            endpoint_slug=slug,
+                            http_client=client,
+                        )
+                        if x_payment:
+                            # Retry with X-Payment header
+                            retry_headers = {**headers, "X-Payment": x_payment}
+                            response = await client.post(
+                                query_url,
+                                json=request_data,
+                                headers=retry_headers,
+                            )
+                    except Exception as pay_err:
+                        latency_ms = int((time.perf_counter() - start_time) * 1000)
+                        error_detail = str(pay_err).lower()
+                        if "insufficient" in error_detail:
+                            error_msg = "Payment failed: insufficient wallet balance"
+                        elif "timeout" in error_detail or "timed out" in error_detail:
+                            error_msg = "Payment failed: blockchain timeout"
+                        else:
+                            error_msg = f"Payment failed: {pay_err}"
+                        logger.warning(
+                            LogEvents.DATA_SOURCE_QUERY_FAILED,
+                            endpoint_path=endpoint_path,
+                            status_code=402,
+                            error=error_msg,
+                            latency_ms=latency_ms,
+                        )
+                        return RetrievalResult(
+                            endpoint_path=endpoint_path,
+                            documents=[],
+                            status="payment_failed",
+                            error_message=error_msg,
+                            latency_ms=latency_ms,
+                        )
 
                 latency_ms = int((time.perf_counter() - start_time) * 1000)
 
@@ -208,13 +252,17 @@ class DataSourceClient:
                     LogEvents.DATA_SOURCE_QUERY_FAILED,
                     endpoint_path=endpoint_path,
                     error=str(e),
+                    query_url=query_url,
                     latency_ms=latency_ms,
                 )
                 return RetrievalResult(
                     endpoint_path=endpoint_path,
                     documents=[],
                     status="error",
-                    error_message=str(e),
+                    error_message=(
+                        f"Cannot reach data source at {query_url}: {e}. "
+                        "Check that the endpoint's public URL is correct in Settings."
+                    ),
                     latency_ms=latency_ms,
                 )
 

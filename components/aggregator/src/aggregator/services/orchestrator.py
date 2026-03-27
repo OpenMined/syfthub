@@ -251,7 +251,7 @@ class Orchestrator:
 
         The request contains all required information for SyftAI-Space:
         - endpoint_tokens: Mapping of owner username to satellite token for auth
-        - transaction_tokens: Mapping of owner username to transaction token for billing
+        - user_token: User's Hub JWT for MPP 402 payment flow
         - model.slug, model.tenant_name, model.owner_username: For model endpoint
         - data_sources[]: For data source endpoints
 
@@ -260,18 +260,22 @@ class Orchestrator:
 
         Args:
             request: The chat request with all SyftAI-Space connection details
-            user_token: Optional user token (deprecated - use endpoint_tokens instead)
+            user_token: Optional user token (deprecated - prefer request.user_token)
 
         Returns:
             ChatResponse with generated answer and metadata
         """
-        _ = user_token  # Deprecated - endpoint_tokens in request is used instead
         total_start = time.perf_counter()
 
         # Extract token mappings
         endpoint_tokens = request.endpoint_tokens
         transaction_tokens = request.transaction_tokens
         peer_channel = request.peer_channel
+
+        # Resolve user_token: prefer request-level field, fall back to parameter
+        effective_user_token = request.user_token or user_token
+        settings = get_settings()
+        syfthub_url = settings.syfthub_url
 
         # 1. Convert model EndpointRef to ResolvedEndpoint
         model_endpoint = self._endpoint_ref_to_resolved(request.model, "model")
@@ -296,6 +300,8 @@ class Orchestrator:
             endpoint_tokens=endpoint_tokens,
             transaction_tokens=transaction_tokens,
             peer_channel=peer_channel,
+            user_token=effective_user_token,
+            syfthub_url=syfthub_url,
         )
         retrieval_time_ms = int((time.perf_counter() - retrieval_start) * 1000)
 
@@ -333,6 +339,8 @@ class Orchestrator:
                 endpoint_tokens=endpoint_tokens,
                 transaction_tokens=transaction_tokens,
                 peer_channel=peer_channel,
+                user_token=effective_user_token,
+                syfthub_url=syfthub_url,
             )
         except GenerationError as e:
             raise OrchestratorError(f"Generation failed: {e}") from e
@@ -399,18 +407,22 @@ class Orchestrator:
 
         Args:
             request: The chat request with all SyftAI-Space connection details
-            user_token: Optional user token (deprecated - use endpoint_tokens instead)
+            user_token: Optional user token (deprecated - prefer request.user_token)
 
         Yields:
             SSE-formatted event strings
         """
-        _ = user_token  # Deprecated - endpoint_tokens in request is used instead
         total_start = time.perf_counter()
 
         # Extract token mappings
         endpoint_tokens = request.endpoint_tokens
         transaction_tokens = request.transaction_tokens
         peer_channel = request.peer_channel
+
+        # Resolve user_token: prefer request-level field, fall back to parameter
+        effective_user_token = request.user_token or user_token
+        settings = get_settings()
+        syfthub_url = settings.syfthub_url
 
         # 1. Convert model EndpointRef to ResolvedEndpoint
         model_endpoint = self._endpoint_ref_to_resolved(request.model, "model")
@@ -441,6 +453,8 @@ class Orchestrator:
                 endpoint_tokens=endpoint_tokens,
                 transaction_tokens=transaction_tokens,
                 peer_channel=peer_channel,
+                user_token=effective_user_token,
+                syfthub_url=syfthub_url,
             ):
                 retrieval_results.append(result)
                 yield self._sse_event(
@@ -510,7 +524,6 @@ class Orchestrator:
         generation_start = time.perf_counter()
         full_response = []
         usage_data: dict[str, Any] | None = None
-        settings = get_settings()
 
         try:
             # TODO: When SyftAI-Space implements model streaming, set
@@ -528,6 +541,8 @@ class Orchestrator:
                     temperature=request.temperature,
                     endpoint_tokens=endpoint_tokens,
                     transaction_tokens=transaction_tokens,
+                    user_token=effective_user_token,
+                    syfthub_url=syfthub_url,
                 ):
                     full_response.append(chunk)
                     yield self._sse_event("token", {"content": chunk})
@@ -544,6 +559,8 @@ class Orchestrator:
                         endpoint_tokens=endpoint_tokens,
                         transaction_tokens=transaction_tokens,
                         peer_channel=peer_channel,
+                        user_token=effective_user_token,
+                        syfthub_url=syfthub_url,
                     )
                 )
                 gen_task_set = {gen_task}

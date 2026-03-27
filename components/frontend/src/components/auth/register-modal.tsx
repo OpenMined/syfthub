@@ -1,12 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 
 import type { RegisterFormValues } from '@/lib/schemas';
 import type { CredentialResponse } from '@react-oauth/google';
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { GoogleLogin } from '@react-oauth/google';
-import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
-import Lock from 'lucide-react/dist/esm/icons/lock';
 import Mail from 'lucide-react/dist/esm/icons/mail';
 import User from 'lucide-react/dist/esm/icons/user';
 import { Controller, useForm } from 'react-hook-form';
@@ -17,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/context/auth-context';
 import { registerSchema } from '@/lib/schemas';
-import { AccountingAccountExistsError, isGoogleOAuthEnabled } from '@/lib/sdk-client';
+import { isGoogleOAuthEnabled } from '@/lib/sdk-client';
 import { getPasswordStrength } from '@/lib/validation';
 
 import { AuthErrorAlert, AuthLoadingOverlay } from './auth-utils';
@@ -44,7 +42,6 @@ export function RegisterModal({
   onSwitchToLogin
 }: Readonly<RegisterModalProperties>) {
   const { register: authRegister, loginWithGoogle, isLoading, error, clearError } = useAuth();
-  const [requiresAccountingPassword, setRequiresAccountingPassword] = useState(false);
 
   const {
     register,
@@ -60,7 +57,6 @@ export function RegisterModal({
       email: '',
       password: '',
       confirmPassword: '',
-      accountingPassword: '',
       termsAccepted: false
     }
   });
@@ -73,14 +69,11 @@ export function RegisterModal({
       await authRegister({
         name: data.name.trim(),
         email: data.email.trim(),
-        password: data.password,
-        accountingPassword: data.accountingPassword || undefined
+        password: data.password
       });
       onClose();
-    } catch (error_) {
-      if (error_ instanceof AccountingAccountExistsError) {
-        setRequiresAccountingPassword(true);
-      }
+    } catch {
+      // Error is handled by auth context
     }
   };
 
@@ -89,7 +82,6 @@ export function RegisterModal({
     if (!isOpen) {
       reset();
       clearError();
-      setRequiresAccountingPassword(false);
     }
   }, [isOpen, reset, clearError]);
 
@@ -103,7 +95,6 @@ export function RegisterModal({
   // Determine submit button text based on state
   const getSubmitButtonText = () => {
     if (isLoading) return 'Creating Account…';
-    if (requiresAccountingPassword) return 'Link & Create Account';
     return 'Create Account';
   };
 
@@ -140,12 +131,7 @@ export function RegisterModal({
             label='Email'
             placeholder='name@company.com…'
             {...register('email', {
-              onChange: () => {
-                handleInputChange();
-                if (requiresAccountingPassword) {
-                  setRequiresAccountingPassword(false);
-                }
-              }
+              onChange: handleInputChange
             })}
             error={errors.email?.message}
             leftIcon={<Mail className='h-4 w-4' />}
@@ -195,30 +181,6 @@ export function RegisterModal({
             disabled={isLoading}
             autoComplete='new-password'
           />
-
-          {/* Accounting Password Section - Only shown when email exists in accounting service */}
-          {requiresAccountingPassword ? (
-            <div className='space-y-3 rounded-lg border border-amber-400 bg-amber-50 p-4'>
-              <div className='flex items-start gap-2'>
-                <AlertCircle className='mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600' />
-                <p className='font-inter text-xs text-amber-800'>
-                  An accounting account with this email already exists. Please enter your existing
-                  accounting password to link your accounts.
-                </p>
-              </div>
-
-              <Input
-                type='password'
-                label='Accounting Password'
-                placeholder='Enter your existing accounting password…'
-                {...register('accountingPassword', { onChange: handleInputChange })}
-                error={errors.accountingPassword?.message}
-                leftIcon={<Lock className='h-4 w-4' />}
-                disabled={isLoading}
-                isRequired
-              />
-            </div>
-          ) : null}
 
           <div className='space-y-2 text-sm'>
             <label htmlFor='terms-agreement' className='flex cursor-pointer items-start space-x-2'>

@@ -201,19 +201,11 @@ export class ChatResource {
   }
 
   /**
-   * Get transaction tokens for all unique endpoint owners.
-   * Returns a map of owner username to transaction token.
-   *
-   * Transaction tokens are used for billing - they authorize the endpoint
-   * owner to charge the current user for usage.
+   * Get the user's Hub access token for MPP payment flow.
+   * Returns null if in guest mode or not authenticated.
    */
-  private async getTransactionTokensForOwners(owners: string[]): Promise<Record<string, string>> {
-    if (owners.length === 0) {
-      return {};
-    }
-
-    const response = await this.auth.getTransactionTokens(owners);
-    return response.tokens;
+  private getUserToken(): string | null {
+    return this.auth.getAccessToken();
   }
 
   /**
@@ -286,9 +278,7 @@ export class ChatResource {
     const uniqueOwners = this.collectUniqueOwners(modelRef, dsRefs);
     const guestMode = options.guestMode ?? false;
     const endpointTokens = await this.getSatelliteTokensForOwners(uniqueOwners, guestMode);
-    const transactionTokens = guestMode
-      ? {}
-      : await this.getTransactionTokensForOwners(uniqueOwners);
+    const userToken = guestMode ? null : this.getUserToken();
 
     let peerToken = options.peerToken;
     let peerChannel = options.peerChannel;
@@ -306,7 +296,7 @@ export class ChatResource {
       modelRef,
       dsRefs,
       endpointTokens,
-      transactionTokens,
+      userToken,
       {
         topK: options.topK,
         maxTokens: options.maxTokens,
@@ -344,7 +334,7 @@ export class ChatResource {
   /**
    * Build the request body for the aggregator.
    * Includes endpoint_tokens mapping for satellite token authentication.
-   * Includes transaction_tokens mapping for billing authorization.
+   * Includes user_token for MPP payment callback authorization.
    * User identity is derived from satellite tokens, not passed in request body.
    */
   private buildRequestBody(
@@ -352,7 +342,7 @@ export class ChatResource {
     modelRef: EndpointRef,
     dataSourceRefs: EndpointRef[],
     endpointTokens: Record<string, string>,
-    transactionTokens: Record<string, string>,
+    userToken: string | null,
     options: {
       topK?: number;
       maxTokens?: number;
@@ -381,13 +371,18 @@ export class ChatResource {
         owner_username: ds.ownerUsername ?? null,
       })),
       endpoint_tokens: endpointTokens,
-      transaction_tokens: transactionTokens,
       top_k: options.topK ?? 5,
       max_tokens: options.maxTokens ?? 1024,
       temperature: options.temperature ?? 0.7,
       similarity_threshold: options.similarityThreshold ?? 0.5,
       stream: options.stream ?? false,
     };
+
+    // Include user token for MPP payment flow
+    if (userToken) {
+      body['user_token'] = userToken;
+    }
+
     if (options.messages && options.messages.length > 0) {
       body.messages = options.messages.map((m) => ({ role: m.role, content: m.content }));
     }
@@ -482,7 +477,7 @@ export class ChatResource {
    * This method automatically:
    * 1. Resolves endpoints and extracts owner information
    * 2. Exchanges Hub tokens for satellite tokens (one per unique owner)
-   * 3. Fetches transaction tokens for billing authorization
+   * 3. Passes the user's Hub access token for MPP payment authorization
    * 4. Sends tokens to the aggregator for forwarding to SyftAI-Space
    *
    * @param options - Chat completion options
@@ -539,7 +534,7 @@ export class ChatResource {
    * This method automatically:
    * 1. Resolves endpoints and extracts owner information
    * 2. Exchanges Hub tokens for satellite tokens (one per unique owner)
-   * 3. Fetches transaction tokens for billing authorization
+   * 3. Passes the user's Hub access token for MPP payment authorization
    * 4. Sends tokens to the aggregator for forwarding to SyftAI-Space
    *
    * @param options - Chat completion options
