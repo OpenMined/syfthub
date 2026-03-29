@@ -68,8 +68,10 @@ class NATSSessionTransport:
         self._subscription: Any = None
         self._message_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._closed = False
-        # Retained ephemeral private key for the session start message
-        self._ephemeral_priv: X25519PrivateKey | None = None
+        # Retained ephemeral private key from the session start message.
+        # Used to decrypt ALL events for the session lifetime.
+        # Must NOT be overwritten by subsequent send_to_space calls.
+        self._session_ephemeral_priv: X25519PrivateKey | None = None
 
     async def start_session(self, payload: dict[str, Any]) -> None:
         """Send agent_session_start to the space and subscribe for responses.
@@ -96,12 +98,39 @@ class NATSSessionTransport:
             payload=payload,
         )
 
+    # Map WebSocket message types to NATS tunnel message types.
+    _WS_TO_NATS_TYPE: dict[str, str] = {
+        "user.message": "agent_user_message",
+        "user.confirm": "agent_user_message",
+        "user.deny": "agent_user_message",
+        "user.cancel": "agent_session_cancel",
+    }
+
     async def send_to_space(self, message: dict[str, Any]) -> None:
         """Send a message to the space (user_message, session_cancel, etc.)."""
-        msg_type = message.get("type", "agent_user_message")
+        ws_type = message.get("type", "")
+        msg_type = self._WS_TO_NATS_TYPE.get(ws_type, "agent_user_message")
+
+        # Transform WebSocket envelope into the NATS payload format the node expects.
+        ws_payload = message.get("payload", {})
+        if msg_type == "agent_user_message":
+            nats_payload: dict[str, Any] = {
+                "session_id": self._session_id,
+                "message": {
+                    "type": ws_type.replace(".", "_"),  # "user.message" → "user_message"
+                    "content": ws_payload.get("content", ""),
+                    "tool_call_id": ws_payload.get("tool_call_id", ""),
+                    "reason": ws_payload.get("reason", ""),
+                },
+            }
+        elif msg_type == "agent_session_cancel":
+            nats_payload = {"session_id": self._session_id}
+        else:
+            nats_payload = message
+
         await self._publish_to_space(
             msg_type=msg_type,
-            payload=message,
+            payload=nats_payload,
         )
 
     async def receive_from_space(self) -> AsyncGenerator[dict[str, Any], None]:
@@ -153,8 +182,16 @@ class NATSSessionTransport:
             correlation_id=correlation_id,
         )
 
-        # Retain ephemeral private key for decrypting responses
-        self._ephemeral_priv = ephemeral_priv
+        # Retain the ephemeral private key from the FIRST message (session_start)
+        # for decrypting all response events. The space's SessionEncryptor is
+        # created once using this key's public counterpart, so subsequent
+        # send_to_space calls must NOT overwrite it.
+        if self._session_ephemeral_priv is None:
+            self._session_ephemeral_priv = ephemeral_priv
+
+        # Extract satellite_token from payload so the node can verify
+        # identity from the NATS wrapper before decrypting (matches model query pattern).
+        satellite_token = payload.get("satellite_token", "")
 
         message: dict[str, Any] = {
             "protocol": TUNNEL_PROTOCOL_VERSION,
@@ -174,6 +211,8 @@ class NATSSessionTransport:
             },
             "encrypted_payload": encryption_info["encrypted_payload"],
         }
+        if satellite_token:
+            message["satellite_token"] = satellite_token
 
         subject = f"syfthub.spaces.{self._target_username}"
         await nc.publish(subject, json.dumps(message).encode())
@@ -204,19 +243,24 @@ class NATSSessionTransport:
             encryption_info = data.get("encryption_info")
             correlation_id = data.get("correlation_id", "")
 
-            if encrypted_payload and encryption_info and self._ephemeral_priv:
+            if encrypted_payload and encryption_info and self._session_ephemeral_priv:
                 try:
                     plaintext = crypto.decrypt_tunnel_response(
                         encrypted_payload_b64=encrypted_payload,
                         encryption_info=encryption_info,
-                        ephemeral_private_key=self._ephemeral_priv,
+                        ephemeral_private_key=self._session_ephemeral_priv,
                         correlation_id=correlation_id,
                     )
                     event = json.loads(plaintext)
-                except Exception:
+                except Exception as exc:
                     logger.warning(
-                        "Failed to decrypt agent event, trying raw payload",
-                        exc_info=True,
+                        "Failed to decrypt agent event (correlation=%s, has_eph=%s, resp_eph=%s): %s",
+                        correlation_id,
+                        self._session_ephemeral_priv is not None,
+                        encryption_info.get("ephemeral_public_key", "")[:20]
+                        if encryption_info
+                        else None,
+                        exc,
                     )
                     event = data.get("payload", data)
             else:
