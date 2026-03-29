@@ -19,7 +19,7 @@ import (
 // the authenticated user context. It mirrors the signature of
 // RequestProcessor.verifyToken / AuthClient.VerifyToken so the transport
 // layer can verify tokens without importing the processor directly.
-type TokenVerifier func(ctx context.Context, token string) (*syfthubapi.UserContext, error)
+type TokenVerifier = func(ctx context.Context, token string) (*syfthubapi.UserContext, error)
 
 // agentNATSBridge adapts the parent-package AgentSessionHandler interface
 // to handle NATS-level concerns (decryption, token verification, event relay).

@@ -3,9 +3,11 @@ package syfthubapi
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -46,6 +48,18 @@ type SyftAPI struct {
 	// fileProvider manages file-based endpoints.
 	fileProvider FileProvider
 
+	// containerRuntime manages container lifecycle (nil when disabled).
+	containerRuntime ContainerRuntime
+
+	// containerInstanceID uniquely identifies this SyftAPI instance for container labeling.
+	containerInstanceID string
+
+	// containerRuntimeFactory creates a ContainerRuntime (set via option).
+	containerRuntimeFactory ContainerRuntimeFactory
+
+	// containerCleanup cleans up orphaned containers (set via option).
+	containerCleanup ContainerCleanupFunc
+
 	// authClient handles token verification with SyftHub backend.
 	authClient *AuthClient
 
@@ -84,6 +98,47 @@ type FileProvider interface {
 	Stop(ctx context.Context) error
 	LoadEndpoints() ([]*Endpoint, error)
 }
+
+// ContainerRuntime is the interface for container lifecycle management.
+// Implementations live in the containermode package; the interface is defined here
+// to avoid an import cycle between syfthubapi and containermode.
+type ContainerRuntime interface {
+	// Create creates and starts a new container from the given spec, returning its ID.
+	Create(ctx context.Context, spec any) (string, error)
+	// Start starts a stopped container.
+	Start(ctx context.Context, containerID string) error
+	// Stop stops a running container.
+	Stop(ctx context.Context, containerID string) error
+	// Remove removes a container.
+	Remove(ctx context.Context, containerID string) error
+	// List lists container IDs matching the given labels.
+	List(ctx context.Context, labels map[string]string) ([]string, error)
+	// GetHostPort returns the host port mapped to the given container port.
+	GetHostPort(ctx context.Context, containerID string, containerPort string) (string, error)
+	// Inspect returns information about a container.
+	Inspect(ctx context.Context, containerID string) (*ContainerInfo, error)
+	// Logs returns the last N lines of container logs.
+	Logs(ctx context.Context, containerID string, tail int) (string, error)
+}
+
+// ContainerInfo holds information about a container.
+type ContainerInfo struct {
+	ID      string
+	Name    string
+	Status  string
+	Running bool
+}
+
+// ContainerRuntimeSetter is implemented by file providers that support container mode.
+type ContainerRuntimeSetter interface {
+	SetContainerRuntime(rt ContainerRuntime, cfg *ContainerConfig, instanceID string)
+}
+
+// ContainerRuntimeFactory creates a ContainerRuntime from the given binary path and logger.
+type ContainerRuntimeFactory func(binary string, logger *slog.Logger) (ContainerRuntime, error)
+
+// ContainerCleanupFunc cleans up orphaned containers from previous runs.
+type ContainerCleanupFunc func(ctx context.Context, rt ContainerRuntime, instanceID string, logger *slog.Logger) error
 
 // New creates a new SyftAPI instance with the given options.
 func New(opts ...Option) *SyftAPI {
@@ -251,6 +306,39 @@ func (api *SyftAPI) Run(ctx context.Context) error {
 	for _, hook := range api.startupHooks {
 		if err := hook(ctx); err != nil {
 			return fmt.Errorf("startup hook failed: %w", err)
+		}
+	}
+
+	// Initialize container runtime if enabled (must happen before LoadEndpoints)
+	if api.config.Container.Enabled {
+		if api.containerRuntimeFactory == nil {
+			return fmt.Errorf("container mode enabled but no runtime factory configured: call SetContainerRuntimeFactory before Run()")
+		}
+
+		rt, err := api.containerRuntimeFactory(api.config.Container.Runtime, api.logger)
+		if err != nil {
+			return fmt.Errorf("failed to create container runtime: %w", err)
+		}
+		api.containerRuntime = rt
+		api.containerInstanceID = generateInstanceID()
+
+		api.logger.Info("container runtime initialized",
+			"runtime", api.config.Container.Runtime,
+			"image", api.config.Container.Image,
+			"instance_id", api.containerInstanceID,
+		)
+
+		// Clean up orphaned containers from previous runs
+		if api.containerCleanup != nil {
+			if err := api.containerCleanup(ctx, rt, api.containerInstanceID, api.logger); err != nil {
+				api.logger.Warn("failed to clean up orphaned containers", "error", err)
+			}
+		}
+
+		// Inject runtime into file provider if it supports container mode
+		if setter, ok := api.fileProvider.(ContainerRuntimeSetter); ok {
+			setter.SetContainerRuntime(rt, &api.config.Container, api.containerInstanceID)
+			api.logger.Info("container runtime injected into file provider")
 		}
 	}
 
@@ -541,4 +629,22 @@ func (api *SyftAPI) Registry() *EndpointRegistry {
 // AgentSessionManager returns the agent session manager, or nil if not initialized.
 func (api *SyftAPI) AgentSessionManager() *AgentSessionManager {
 	return api.agentSessionManager
+}
+
+// SetContainerRuntimeFactory sets the factory for creating container runtimes.
+func (api *SyftAPI) SetContainerRuntimeFactory(factory ContainerRuntimeFactory) {
+	api.containerRuntimeFactory = factory
+}
+
+// SetContainerCleanupFunc sets the function for cleaning up orphaned containers.
+func (api *SyftAPI) SetContainerCleanupFunc(cleanup ContainerCleanupFunc) {
+	api.containerCleanup = cleanup
+}
+
+// generateInstanceID creates a short unique identifier for container labeling.
+func generateInstanceID() string {
+	hostname, _ := os.Hostname()
+	h := fnv.New32a()
+	fmt.Fprintf(h, "%s-%d-%d", hostname, os.Getpid(), time.Now().UnixNano())
+	return strconv.FormatUint(uint64(h.Sum32()), 16)
 }

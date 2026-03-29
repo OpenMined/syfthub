@@ -11,7 +11,14 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/containermode"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
+)
+
+// Execution mode constants for RuntimeConfig.Mode.
+const (
+	ExecutionModeSubprocess = "subprocess"
+	ExecutionModeContainer  = "container"
 )
 
 // EndpointConfig represents the configuration from README.md frontmatter.
@@ -35,10 +42,11 @@ type EnvConfig struct {
 
 // RuntimeConfig specifies runtime settings.
 type RuntimeConfig struct {
-	Mode    string   `yaml:"mode"`    // "subprocess" (default)
-	Workers int      `yaml:"workers"` // Number of worker processes
-	Timeout int      `yaml:"timeout"` // Execution timeout in seconds
-	Extras  []string `yaml:"extras"`  // pip extras groups
+	Mode      string                            `yaml:"mode"`                // "subprocess" (default) or "container"
+	Workers   int                               `yaml:"workers"`             // Number of worker processes
+	Timeout   int                               `yaml:"timeout"`             // Execution timeout in seconds
+	Extras    []string                          `yaml:"extras"`              // pip extras groups
+	Container *containermode.ContainerOverrides `yaml:"container,omitempty"` // Per-endpoint container overrides
 }
 
 // LoadedEndpoint represents a fully loaded endpoint from the file system.
@@ -161,7 +169,7 @@ func (l *Loader) LoadEndpoint(dir string) (*LoadedEndpoint, error) {
 		config.Enabled = &enabled
 	}
 	if config.Runtime.Mode == "" {
-		config.Runtime.Mode = "subprocess"
+		config.Runtime.Mode = ExecutionModeSubprocess
 	}
 	if config.Runtime.Timeout == 0 {
 		config.Runtime.Timeout = 30

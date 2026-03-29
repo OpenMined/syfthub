@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/containermode"
 )
 
 // noopPolicyHandler is the Python noop handler used by agent endpoints with
@@ -31,6 +32,10 @@ type Provider struct {
 	watcher        *Watcher
 	venvManager    *VenvManager
 	embeddedPython *EmbeddedPythonManager
+
+	containerRuntime syfthubapi.ContainerRuntime
+	containerConfig  *syfthubapi.ContainerConfig
+	instanceID       string
 
 	endpoints        []*syfthubapi.Endpoint
 	executors        map[string]syfthubapi.Executor
@@ -265,8 +270,24 @@ func (p *Provider) LoadEndpoints() ([]*syfthubapi.Endpoint, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Reset executor map without closing — the registry still references
-	// the old executors and will close stale ones in ReplaceFileBased.
+	// Close container executors before resetting — they own named Docker
+	// containers that must be stopped before a new container with the same
+	// name can be created. Subprocess executors are left open; the registry
+	// handles their lifecycle via ReplaceFileBased. Close in parallel to
+	// avoid sequential 15s-per-container stop timeouts.
+	var wg sync.WaitGroup
+	for slug, exec := range p.executors {
+		if _, isContainer := exec.(*containermode.ContainerExecutor); isContainer {
+			wg.Add(1)
+			go func(s string, e syfthubapi.Executor) {
+				defer wg.Done()
+				if err := e.Close(); err != nil {
+					p.logger.Warn("failed to close container executor during reload", "slug", s, "error", err)
+				}
+			}(slug, exec)
+		}
+	}
+	wg.Wait()
 	p.executors = make(map[string]syfthubapi.Executor)
 	// Keep p.noopHandlerPaths intact: createEndpoint overwrites entries for
 	// recreated slugs, and cleanupResources (from Stop) deletes all files.
@@ -289,6 +310,17 @@ func (p *Provider) LoadEndpoints() ([]*syfthubapi.Endpoint, error) {
 
 // createEndpoint creates an Endpoint from a LoadedEndpoint.
 func (p *Provider) createEndpoint(loaded *LoadedEndpoint) (*syfthubapi.Endpoint, error) {
+	// Check if this endpoint should use container mode
+	mode, err := p.resolveExecutionMode(loaded)
+	if err != nil {
+		return nil, err
+	}
+	if mode == ExecutionModeContainer {
+		ctx, cancel := context.WithTimeout(context.Background(), p.containerConfig.StartTimeout)
+		defer cancel()
+		return p.createContainerEndpoint(ctx, loaded)
+	}
+
 	p.logger.Info("[POLICY-SETUP] Creating endpoint",
 		"slug", loaded.Config.Slug,
 		"name", loaded.Config.Name,
@@ -563,10 +595,22 @@ func (p *Provider) handleReload(affectedDirs []string) {
 }
 
 // removeEndpointLocked removes the executor references for the given slug
-// from the provider's internal maps. It does NOT close executors — the
-// registry owns executor lifecycle and closes stale ones in ReplaceFileBased.
-// Caller must hold p.mu.
+// from the provider's internal maps. For container executors, the executor is
+// closed (stopping the container) so that the name can be reused on recreate.
+// Subprocess executors are left open — the registry closes stale ones in
+// ReplaceFileBased. Caller must hold p.mu.
 func (p *Provider) removeEndpointLocked(slug string) {
+	// Close container executors explicitly so the container name is freed for reuse.
+	// Subprocess executors are left open — the registry handles their lifecycle.
+	for _, key := range []string{slug, slug + ".policy"} {
+		if exec, ok := p.executors[key]; ok {
+			if _, isContainer := exec.(*containermode.ContainerExecutor); isContainer {
+				if err := exec.Close(); err != nil {
+					p.logger.Warn("failed to close container executor on reload", "slug", key, "error", err)
+				}
+			}
+		}
+	}
 	delete(p.executors, slug)
 	delete(p.executors, slug+".policy")
 	if path, ok := p.noopHandlerPaths[slug]; ok {
@@ -590,4 +634,101 @@ func (p *Provider) GetExecutor(slug string) (syfthubapi.Executor, bool) {
 	defer p.mu.RUnlock()
 	exec, ok := p.executors[slug]
 	return exec, ok
+}
+
+// SetContainerRuntime injects the container runtime into the provider.
+// Implements syfthubapi.ContainerRuntimeSetter.
+func (p *Provider) SetContainerRuntime(rt syfthubapi.ContainerRuntime, cfg *syfthubapi.ContainerConfig, instanceID string) {
+	p.containerRuntime = rt
+	p.containerConfig = cfg
+	p.instanceID = instanceID
+}
+
+// resolveExecutionMode determines whether an endpoint should use subprocess or container mode.
+// Returns the mode string or an error if the endpoint requires container mode but no runtime is available.
+func (p *Provider) resolveExecutionMode(loaded *LoadedEndpoint) (string, error) {
+	// Per-endpoint explicit mode takes priority
+	if loaded.Config.Runtime.Mode == ExecutionModeContainer {
+		if p.containerRuntime == nil {
+			return "", fmt.Errorf(
+				"endpoint %q requires container mode (runtime.mode: container) "+
+					"but no container runtime is available — "+
+					"restart the node with --container flag: syft node init --container --force",
+				loaded.Config.Slug,
+			)
+		}
+		return ExecutionModeContainer, nil
+	}
+	if loaded.Config.Runtime.Mode == ExecutionModeSubprocess {
+		return ExecutionModeSubprocess, nil
+	}
+	// No explicit mode — use global default
+	if p.containerRuntime != nil && p.containerConfig != nil && p.containerConfig.Enabled {
+		return ExecutionModeContainer, nil
+	}
+	return ExecutionModeSubprocess, nil
+}
+
+// createContainerEndpoint creates an endpoint backed by a container executor.
+func (p *Provider) createContainerEndpoint(ctx context.Context, loaded *LoadedEndpoint) (*syfthubapi.Endpoint, error) {
+	p.logger.Info("[CONTAINER-SETUP] Creating container endpoint",
+		"slug", loaded.Config.Slug,
+		"type", loaded.Config.Type,
+		"dir", loaded.Dir,
+	)
+
+	spec := containermode.BuildEndpointSpec(
+		loaded.Config.Slug,
+		loaded.Dir,
+		*p.containerConfig,
+		loaded.Config.Runtime.Container,
+		loaded.EnvVars,
+		p.instanceID,
+	)
+
+	executor, err := containermode.NewContainerExecutor(
+		ctx,
+		p.containerRuntime,
+		spec,
+		p.containerConfig.StartTimeout,
+		p.logger,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create container executor for %s: %w", loaded.Config.Slug, err)
+	}
+
+	p.executors[loaded.Config.Slug] = executor
+
+	enabled := true
+	if loaded.Config.Enabled != nil {
+		enabled = *loaded.Config.Enabled
+	}
+
+	endpoint := &syfthubapi.Endpoint{
+		Slug:        loaded.Config.Slug,
+		Name:        loaded.Config.Name,
+		Description: loaded.Config.Description,
+		Type:        ToEndpointType(loaded.Config.Type),
+		Enabled:     enabled,
+		Version:     loaded.Config.Version,
+		Readme:      loaded.ReadmeBody,
+	}
+
+	// Agent endpoints use the container agent handler
+	if loaded.Config.Type == string(syfthubapi.EndpointTypeAgent) {
+		handler := containermode.NewContainerAgentHandler(executor, p.logger)
+		endpoint.SetAgentHandler(handler)
+		p.logger.Info("[CONTAINER-SETUP] Agent handler created via container",
+			"slug", loaded.Config.Slug,
+		)
+	} else {
+		endpoint.SetExecutor(executor)
+	}
+
+	p.logger.Info("[CONTAINER-SETUP] Container endpoint ready",
+		"slug", loaded.Config.Slug,
+		"type", loaded.Config.Type,
+	)
+
+	return endpoint, nil
 }

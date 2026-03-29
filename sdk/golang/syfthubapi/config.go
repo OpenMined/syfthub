@@ -50,6 +50,36 @@ type Config struct {
 
 	// PythonPath is the path to the Python interpreter (default: "python3").
 	PythonPath string
+
+	// Container holds container runtime configuration.
+	Container ContainerConfig
+}
+
+// ContainerConfig holds configuration for container-based endpoint execution.
+type ContainerConfig struct {
+	// Enabled enables container-based execution (default: false).
+	Enabled bool
+
+	// Runtime is the container runtime to use: "docker", "podman", or "auto" (default: "auto").
+	Runtime string
+
+	// Image is the default container image (default: "syfthub/endpoint-runner:latest").
+	Image string
+
+	// CPUs is the CPU limit for containers (default: 1.0).
+	CPUs float64
+
+	// MemoryMB is the memory limit in megabytes (default: 512).
+	MemoryMB int
+
+	// Network is the container network mode: "bridge", "none", or "host" (default: "bridge").
+	Network string
+
+	// GPU is the GPU device specification: "", "all", or "device=0" (default: "").
+	GPU string
+
+	// StartTimeout is the maximum time to wait for a container to start (default: 60s).
+	StartTimeout time.Duration
 }
 
 // DefaultConfig returns a Config with default values.
@@ -64,6 +94,16 @@ func DefaultConfig() *Config {
 		WatchEnabled:                true,
 		WatchDebounceSeconds:        1.0,
 		PythonPath:                  "python3",
+		Container: ContainerConfig{
+			Enabled:      false,
+			Runtime:      "auto",
+			Image:        "syfthub/endpoint-runner:latest",
+			CPUs:         1.0,
+			MemoryMB:     512,
+			Network:      "bridge",
+			GPU:          "",
+			StartTimeout: 60 * time.Second,
+		},
 	}
 }
 
@@ -137,6 +177,51 @@ func (c *Config) LoadFromEnv() error {
 		c.PythonPath = python
 	}
 
+	// Container configuration
+	if enabled := os.Getenv("CONTAINER_ENABLED"); enabled != "" {
+		c.Container.Enabled = strings.ToLower(enabled) == "true"
+	}
+
+	if runtime := os.Getenv("CONTAINER_RUNTIME"); runtime != "" {
+		c.Container.Runtime = runtime
+	}
+
+	if image := os.Getenv("CONTAINER_IMAGE"); image != "" {
+		c.Container.Image = image
+	}
+
+	if cpus := os.Getenv("CONTAINER_CPUS"); cpus != "" {
+		f, err := strconv.ParseFloat(cpus, 64)
+		if err != nil {
+			return fmt.Errorf("invalid CONTAINER_CPUS: %w", err)
+		}
+		c.Container.CPUs = f
+	}
+
+	if mem := os.Getenv("CONTAINER_MEMORY_MB"); mem != "" {
+		m, err := strconv.Atoi(mem)
+		if err != nil {
+			return fmt.Errorf("invalid CONTAINER_MEMORY_MB: %w", err)
+		}
+		c.Container.MemoryMB = m
+	}
+
+	if network := os.Getenv("CONTAINER_NETWORK"); network != "" {
+		c.Container.Network = network
+	}
+
+	if gpu := os.Getenv("CONTAINER_GPU"); gpu != "" {
+		c.Container.GPU = gpu
+	}
+
+	if timeout := os.Getenv("CONTAINER_START_TIMEOUT"); timeout != "" {
+		d, err := time.ParseDuration(timeout)
+		if err != nil {
+			return fmt.Errorf("invalid CONTAINER_START_TIMEOUT: %w", err)
+		}
+		c.Container.StartTimeout = d
+	}
+
 	return nil
 }
 
@@ -188,6 +273,50 @@ func (c *Config) Validate() error {
 		return &ConfigurationError{
 			Field:   "HeartbeatIntervalMultiplier",
 			Message: "must be between 0 and 1 (exclusive)",
+		}
+	}
+
+	// Validate container config only when enabled
+	if c.Container.Enabled {
+		switch c.Container.Runtime {
+		case "docker", "podman", "auto":
+		default:
+			return &ConfigurationError{
+				Field:   "Container.Runtime",
+				Message: "must be one of: docker, podman, auto",
+			}
+		}
+		if c.Container.Image == "" {
+			return &ConfigurationError{
+				Field:   "Container.Image",
+				Message: "required when container mode is enabled",
+			}
+		}
+		if c.Container.CPUs <= 0 {
+			return &ConfigurationError{
+				Field:   "Container.CPUs",
+				Message: "must be greater than 0",
+			}
+		}
+		if c.Container.MemoryMB < 64 {
+			return &ConfigurationError{
+				Field:   "Container.MemoryMB",
+				Message: "must be at least 64",
+			}
+		}
+		switch c.Container.Network {
+		case "bridge", "none", "host":
+		default:
+			return &ConfigurationError{
+				Field:   "Container.Network",
+				Message: "must be one of: bridge, none, host",
+			}
+		}
+		if c.Container.StartTimeout <= 0 {
+			return &ConfigurationError{
+				Field:   "Container.StartTimeout",
+				Message: "must be greater than 0",
+			}
 		}
 	}
 
@@ -345,5 +474,61 @@ func WithWatchDebounce(seconds float64) Option {
 func WithPythonPath(path string) Option {
 	return func(c *Config) {
 		c.PythonPath = path
+	}
+}
+
+// WithContainerEnabled enables or disables container-based execution.
+func WithContainerEnabled(enabled bool) Option {
+	return func(c *Config) {
+		c.Container.Enabled = enabled
+	}
+}
+
+// WithContainerRuntime sets the container runtime (docker, podman, or auto).
+func WithContainerRuntime(runtime string) Option {
+	return func(c *Config) {
+		c.Container.Runtime = runtime
+	}
+}
+
+// WithContainerImage sets the default container image.
+func WithContainerImage(image string) Option {
+	return func(c *Config) {
+		c.Container.Image = image
+	}
+}
+
+// WithContainerCPUs sets the CPU limit for containers.
+func WithContainerCPUs(cpus float64) Option {
+	return func(c *Config) {
+		c.Container.CPUs = cpus
+	}
+}
+
+// WithContainerMemoryMB sets the memory limit in megabytes.
+func WithContainerMemoryMB(mb int) Option {
+	return func(c *Config) {
+		c.Container.MemoryMB = mb
+	}
+}
+
+// WithContainerNetwork sets the container network mode.
+func WithContainerNetwork(network string) Option {
+	return func(c *Config) {
+		c.Container.Network = network
+	}
+}
+
+// WithContainerGPU sets the GPU device specification.
+func WithContainerGPU(gpu string) Option {
+	return func(c *Config) {
+		c.Container.GPU = gpu
+	}
+}
+
+// WithContainerStartTimeout sets the container startup timeout.
+func WithContainerStartTimeout(timeout time.Duration) Option {
+	return func(c *Config) {
+		c.Container.StartTimeout = timeout
 	}
 }
