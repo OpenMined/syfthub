@@ -49,6 +49,7 @@ func init() {
 	rootCmd.AddCommand(whoamiCmd)
 	rootCmd.AddCommand(lsCmd)
 	rootCmd.AddCommand(queryCmd)
+	rootCmd.AddCommand(agentCmd)
 	rootCmd.AddCommand(upgradeCmd)
 
 	// Add command groups
