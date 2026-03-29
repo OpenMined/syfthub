@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Globe, KeyRound, FolderOpen } from 'lucide-react';
+import { Globe, KeyRound, FolderOpen, Container } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -11,9 +11,10 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
+import { Switch } from '@/components/ui/switch';
 import { useSettings } from '@/contexts/SettingsContext';
 import { extractErrorMessage, isValidUrl } from '@/lib/utils';
-import { BrowseForFolder } from '../../wailsjs/go/main/App';
+import { BrowseForFolder, SetContainerEnabled } from '../../wailsjs/go/main/App';
 import { AggregatorSection } from './AggregatorSection';
 import { ErrorBanner } from '@/components/ui/error-banner';
 
@@ -148,6 +149,30 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
             <p className="text-xs text-muted-foreground">
               Changing this will require reloading endpoints
             </p>
+          </div>
+
+          {/* Container Mode */}
+          <div className="flex items-center justify-between py-1">
+            <div className="space-y-0.5">
+              <Label className="flex items-center gap-1.5 text-foreground">
+                <Container className="w-4 h-4 text-muted-foreground" />
+                Container Mode
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Run endpoints in Docker/Podman containers. Requires restart.
+              </p>
+            </div>
+            <Switch
+              checked={settings?.containerEnabled ?? false}
+              onCheckedChange={async (checked) => {
+                try {
+                  await SetContainerEnabled(checked);
+                  await refreshSettings();
+                } catch (err) {
+                  setError(extractErrorMessage(err, 'Failed to toggle container mode'));
+                }
+              }}
+            />
           </div>
 
           <ErrorBanner message={error} />

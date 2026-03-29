@@ -77,6 +77,7 @@ type ConfigInfo struct {
 	UseEmbeddedPython bool   `json:"useEmbeddedPython"`
 	PythonPath        string `json:"pythonPath,omitempty"`
 	AggregatorURL     string `json:"aggregatorUrl,omitempty"`
+	ContainerEnabled  bool   `json:"containerEnabled"`
 }
 
 // ============================================================================

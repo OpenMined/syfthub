@@ -112,6 +112,8 @@ export function SaveSettingsData(arg1:string,arg2:string,arg3:string):Promise<vo
 
 export function SendAgentMessage(arg1:string):Promise<void>;
 
+export function SetContainerEnabled(arg1:boolean):Promise<void>;
+
 export function SetDefaultUserAggregator(arg1:number):Promise<main.UserAggregator>;
 
 export function SetEnvironment(arg1:string,arg2:string,arg3:string):Promise<void>;

@@ -85,6 +85,7 @@ export namespace main {
 	    useEmbeddedPython: boolean;
 	    pythonPath?: string;
 	    aggregatorUrl?: string;
+	    containerEnabled: boolean;
 
 	    static createFrom(source: any = {}) {
 	        return new ConfigInfo(source);
@@ -100,6 +101,7 @@ export namespace main {
 	        this.useEmbeddedPython = source["useEmbeddedPython"];
 	        this.pythonPath = source["pythonPath"];
 	        this.aggregatorUrl = source["aggregatorUrl"];
+	        this.containerEnabled = source["containerEnabled"];
 	    }
 	}
 	export class CreateEndpointRequest {
@@ -637,6 +639,7 @@ export namespace main {
 	    logLevel?: string;
 	    pythonPath?: string;
 	    port?: number;
+	    containerEnabled?: boolean;
 
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -652,6 +655,7 @@ export namespace main {
 	        this.logLevel = source["logLevel"];
 	        this.pythonPath = source["pythonPath"];
 	        this.port = source["port"];
+	        this.containerEnabled = source["containerEnabled"];
 	    }
 	}
 

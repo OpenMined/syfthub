@@ -222,6 +222,10 @@ export function SendAgentMessage(arg1) {
   return window['go']['main']['App']['SendAgentMessage'](arg1);
 }
 
+export function SetContainerEnabled(arg1) {
+  return window['go']['main']['App']['SetContainerEnabled'](arg1);
+}
+
 export function SetDefaultUserAggregator(arg1) {
   return window['go']['main']['App']['SetDefaultUserAggregator'](arg1);
 }

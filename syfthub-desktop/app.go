@@ -105,6 +105,10 @@ func (a *App) startup(ctx context.Context) {
 		if err == nil {
 			os.Setenv("ENDPOINTS_PATH", endpointsPath)
 		}
+
+		// Container mode is passed via app.Config.ContainerEnabled → WithContainerEnabled,
+		// not via env var, to avoid syfthubapi.New() picking it up via LoadFromEnv()
+		// independently of whether the factory is set.
 	} else {
 		// Not configured - try loading from .env as fallback
 		exePath, err := os.Executable()
@@ -124,6 +128,12 @@ func (a *App) startup(ctx context.Context) {
 
 	// Load configuration from environment
 	a.config = app.ConfigFromEnv()
+
+	// Apply container mode from settings (not via env var, to keep it
+	// synchronized with the factory lifecycle in api.Run())
+	if a.settings != nil && a.settings.ContainerEnabled {
+		a.config.ContainerEnabled = true
+	}
 
 	// Log startup
 	runtime.LogInfo(ctx, "SyftHub Desktop GUI starting up")
@@ -333,6 +343,7 @@ func (a *App) GetConfig() ConfigInfo {
 		UseEmbeddedPython: a.config.UseEmbeddedPython,
 		PythonPath:        a.config.PythonPath,
 		AggregatorURL:     aggURL,
+		ContainerEnabled:  a.config.ContainerEnabled,
 	}
 }
 
@@ -620,6 +631,30 @@ func (a *App) SaveSettingsData(syfthubURL, apiKey, endpointsPath string) error {
 
 	runtime.EventsEmit(a.ctx, "app:config-ready")
 
+	return nil
+}
+
+// SetContainerEnabled toggles container mode on or off.
+// The change is persisted immediately but only takes effect on next Start().
+func (a *App) SetContainerEnabled(enabled bool) error {
+	a.mu.Lock()
+	if a.settings == nil {
+		a.settings = DefaultSettings()
+	}
+	a.settings.ContainerEnabled = enabled
+	settings := *a.settings
+	a.mu.Unlock()
+
+	if err := SaveSettings(&settings); err != nil {
+		return fmt.Errorf("failed to save container setting: %w", err)
+	}
+
+	status := "disabled"
+	if enabled {
+		status = "enabled"
+	}
+	runtime.LogInfo(a.ctx, fmt.Sprintf("Container mode %s (takes effect on restart)", status))
+	runtime.EventsEmit(a.ctx, "app:config-ready")
 	return nil
 }
 

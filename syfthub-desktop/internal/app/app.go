@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/containermode"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/filemode"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/heartbeat"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/setupflow"
@@ -17,6 +18,10 @@ import (
 
 	"github.com/openmined/syfthub-desktop-gui/internal/logs"
 )
+
+// desktopInstanceID is the fixed container instance ID used by the desktop app
+// to label and clean up containers across sessions.
+const desktopInstanceID = "desktop"
 
 // App represents the syfthub-desktop application.
 type App struct {
@@ -37,6 +42,7 @@ type Config struct {
 	WatchEnabled      bool
 	WatchDebounce     time.Duration
 	LogLevel          string
+	ContainerEnabled  bool
 }
 
 // DefaultConfig returns configuration with sensible defaults.
@@ -72,6 +78,9 @@ func ConfigFromEnv() *Config {
 	if v := os.Getenv("WATCH_ENABLED"); v == "false" {
 		cfg.WatchEnabled = false
 	}
+	if v := os.Getenv("CONTAINER_ENABLED"); v == "true" {
+		cfg.ContainerEnabled = true
+	}
 
 	return cfg
 }
@@ -89,13 +98,19 @@ func New(cfg *Config) (*App, error) {
 	}
 	cfg.EndpointsPath = endpointsPath
 
-	// Create the SyftAPI instance
-	api := syfthubapi.New(
+	// Create the SyftAPI instance.
+	// Note: Container mode is NOT passed via WithContainerEnabled. The desktop
+	// app injects the container runtime directly into the provider in Setup()
+	// because the Wails frontend can call ReloadEndpoints() at any time (even
+	// before api.Run() finishes its container init). By injecting in Setup(),
+	// the runtime is available before any code path can load endpoints.
+	opts := []syfthubapi.Option{
 		syfthubapi.WithLogLevel(cfg.LogLevel),
 		syfthubapi.WithEndpointsPath(cfg.EndpointsPath),
 		syfthubapi.WithWatchEnabled(cfg.WatchEnabled),
 		syfthubapi.WithWatchDebounce(cfg.WatchDebounce.Seconds()),
-	)
+	}
+	api := syfthubapi.New(opts...)
 
 	logger := api.Logger()
 
@@ -220,7 +235,26 @@ func (a *App) Setup(ctx context.Context) error {
 	a.provider = provider
 	a.api.SetFileProvider(provider)
 
-	// Load initial endpoints
+	// Inject container runtime directly into the provider when enabled.
+	// This MUST happen before LoadEndpoints() AND before api.Run(), because
+	// the Wails frontend can call ReloadEndpoints() via a binding at any time
+	// (even while api.Run() is still initializing). Direct injection ensures
+	// the runtime is available for every code path that creates endpoints.
+	if a.config.ContainerEnabled {
+		rt, err := containermode.NewCLIRuntime("auto", a.logger)
+		if err != nil {
+			a.logger.Warn("container mode enabled but runtime not available", "error", err)
+		} else {
+			if cleanupErr := containermode.CleanupOrphans(ctx, rt, desktopInstanceID, a.logger); cleanupErr != nil {
+				a.logger.Warn("failed to clean up orphaned containers", "error", cleanupErr)
+			}
+			provider.SetContainerRuntime(rt, &apiConfig.Container, desktopInstanceID)
+			a.logger.Info("container runtime injected into file provider")
+		}
+	}
+
+	// Load initial endpoints — runtime is already injected so container
+	// endpoints will be created correctly.
 	endpoints, err := provider.LoadEndpoints()
 	if err != nil {
 		a.logger.Warn("failed to load endpoints", "error", err)
