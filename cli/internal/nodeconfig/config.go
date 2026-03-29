@@ -78,6 +78,11 @@ type NodeConfig struct {
 	LogLevel       string `json:"logLevel,omitempty"`
 	PythonPath     string `json:"pythonPath,omitempty"`
 	Port           int    `json:"port,omitempty"`
+
+	// Container mode settings
+	ContainerEnabled bool   `json:"containerEnabled,omitempty"`
+	ContainerRuntime string `json:"containerRuntime,omitempty"` // "docker", "podman", or "auto"
+	ContainerImage   string `json:"containerImage,omitempty"`   // default: "syfthub/endpoint-runner:latest"
 }
 
 // DefaultNodeConfig returns a NodeConfig with sensible defaults matching the desktop app.

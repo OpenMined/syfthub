@@ -16,6 +16,7 @@ import (
 
 	"github.com/openmined/syfthub/sdk/golang/syfthub"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/containermode"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/filemode"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/heartbeat"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/setupflow"
@@ -85,6 +86,15 @@ func runNodeRun(cmd *cobra.Command, args []string) error {
 	if cfg.PythonPath != "" {
 		opts = append(opts, syfthubapi.WithPythonPath(cfg.PythonPath))
 	}
+	if cfg.ContainerEnabled {
+		opts = append(opts, syfthubapi.WithContainerEnabled(true))
+		if cfg.ContainerRuntime != "" {
+			opts = append(opts, syfthubapi.WithContainerRuntime(cfg.ContainerRuntime))
+		}
+		if cfg.ContainerImage != "" {
+			opts = append(opts, syfthubapi.WithContainerImage(cfg.ContainerImage))
+		}
+	}
 
 	api := syfthubapi.New(opts...)
 	apiConfig := api.Config()
@@ -109,12 +119,24 @@ func runNodeRun(cmd *cobra.Command, args []string) error {
 	}
 	api.SetFileProvider(provider)
 
-	// Load initial endpoints
-	endpoints, err := provider.LoadEndpoints()
-	if err != nil {
-		logger.Warn("failed to load endpoints", "error", err)
-	} else {
-		api.Registry().ReplaceFileBased(endpoints)
+	// Wire container runtime factory when container mode is enabled.
+	// The factory and cleanup func are called inside api.Run() after config validation.
+	if cfg.ContainerEnabled {
+		api.SetContainerRuntimeFactory(containermode.NewCLIRuntime)
+		api.SetContainerCleanupFunc(containermode.CleanupOrphans)
+	}
+
+	// Load initial endpoints.
+	// When container mode is enabled, skip pre-loading: api.Run() will load
+	// endpoints AFTER injecting the container runtime into the file provider,
+	// so that resolveExecutionMode sees the runtime and creates container executors.
+	if !cfg.ContainerEnabled {
+		endpoints, err := provider.LoadEndpoints()
+		if err != nil {
+			logger.Warn("failed to load endpoints", "error", err)
+		} else {
+			api.Registry().ReplaceFileBased(endpoints)
+		}
 	}
 
 	// Setup NATS transport (always tunnel mode)
@@ -167,6 +189,9 @@ func runNodeRun(cmd *cobra.Command, args []string) error {
 	fmt.Printf("  Port:      %d\n", cfg.Port)
 	fmt.Printf("  Endpoints: %d loaded from %s\n", endpointCount, endpointsPath)
 	fmt.Printf("  Hub:       %s\n", cfg.SyftHubURL)
+	if cfg.ContainerEnabled {
+		fmt.Printf("  Container: enabled (runtime=%s, image=%s)\n", apiConfig.Container.Runtime, apiConfig.Container.Image)
+	}
 	fmt.Println()
 
 	// Run (blocks until signal)

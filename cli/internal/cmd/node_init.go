@@ -24,6 +24,7 @@ var (
 	nodeInitPort          int
 	nodeInitForce         bool
 	nodeInitJSON          bool
+	nodeInitContainer     bool
 )
 
 var nodeInitCmd = &cobra.Command{
@@ -49,6 +50,7 @@ func init() {
 	nodeInitCmd.Flags().IntVar(&nodeInitPort, "port", 0, "HTTP server port")
 	nodeInitCmd.Flags().BoolVar(&nodeInitForce, "force", false, "Overwrite existing configuration and restart")
 	nodeInitCmd.Flags().BoolVar(&nodeInitJSON, "json", false, "Output result as JSON")
+	nodeInitCmd.Flags().BoolVar(&nodeInitContainer, "container", false, "Enable container mode (run endpoints in Docker/Podman containers)")
 }
 
 func runNodeInit(cmd *cobra.Command, args []string) error {
@@ -145,6 +147,9 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 	}
 	if nodeInitPort > 0 {
 		cfg.Port = nodeInitPort
+	}
+	if nodeInitContainer {
+		cfg.ContainerEnabled = true
 	}
 
 	// Interactive prompting if TTY and missing required fields
