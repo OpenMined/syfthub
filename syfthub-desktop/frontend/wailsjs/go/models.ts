@@ -631,15 +631,17 @@ export namespace main {
 	}
 
 	export class Settings {
-	    syfthubUrl: string;
-	    apiKey?: string;
-	    endpointsPath: string;
-	    isConfigured: boolean;
-	    marketplaceUrl?: string;
-	    logLevel?: string;
-	    pythonPath?: string;
+	    hub_url: string;
+	    api_token?: string;
+	    endpoints_path: string;
+	    is_configured: boolean;
+	    marketplace_url?: string;
+	    log_level?: string;
+	    python_path?: string;
 	    port?: number;
-	    containerEnabled?: boolean;
+	    container_enabled?: boolean;
+	    container_runtime?: string;
+	    container_image?: string;
 
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -647,15 +649,17 @@ export namespace main {
 
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.syfthubUrl = source["syfthubUrl"];
-	        this.apiKey = source["apiKey"];
-	        this.endpointsPath = source["endpointsPath"];
-	        this.isConfigured = source["isConfigured"];
-	        this.marketplaceUrl = source["marketplaceUrl"];
-	        this.logLevel = source["logLevel"];
-	        this.pythonPath = source["pythonPath"];
+	        this.hub_url = source["hub_url"];
+	        this.api_token = source["api_token"];
+	        this.endpoints_path = source["endpoints_path"];
+	        this.is_configured = source["is_configured"];
+	        this.marketplace_url = source["marketplace_url"];
+	        this.log_level = source["log_level"];
+	        this.python_path = source["python_path"];
 	        this.port = source["port"];
-	        this.containerEnabled = source["containerEnabled"];
+	        this.container_enabled = source["container_enabled"];
+	        this.container_runtime = source["container_runtime"];
+	        this.container_image = source["container_image"];
 	    }
 	}
 

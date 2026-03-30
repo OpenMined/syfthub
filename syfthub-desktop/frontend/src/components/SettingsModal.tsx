@@ -35,9 +35,9 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
   // Initialize form with current settings when modal opens
   useEffect(() => {
     if (open && settings) {
-      setSyfthubUrl(settings.syfthubUrl || '');
-      setApiKey(settings.apiKey || '');
-      setEndpointsPath(settings.endpointsPath || defaultEndpointsPath || '');
+      setSyfthubUrl(settings.hub_url || '');
+      setApiKey(settings.api_token || '');
+      setEndpointsPath(settings.endpoints_path || defaultEndpointsPath || '');
     }
   }, [open, settings, defaultEndpointsPath]);
 
@@ -163,7 +163,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
               </p>
             </div>
             <Switch
-              checked={settings?.containerEnabled ?? false}
+              checked={settings?.container_enabled ?? false}
               onCheckedChange={async (checked) => {
                 try {
                   await SetContainerEnabled(checked);
@@ -178,10 +178,10 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
           <ErrorBanner message={error} />
 
           {/* Aggregator management — only shown when app is configured */}
-          {settings?.isConfigured && (
+          {settings?.is_configured && (
             <>
               <div className="border-t border-border" />
-              <AggregatorSection isConfigured={settings.isConfigured} />
+              <AggregatorSection isConfigured={settings.is_configured} />
             </>
           )}
         </div>
