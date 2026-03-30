@@ -15,11 +15,11 @@ func TestDefaultSettings(t *testing.T) {
 	if settings == nil {
 		t.Fatal("DefaultSettings returned nil")
 	}
-	if settings.SyftHubURL != "https://syfthub-dev.openmined.org" {
-		t.Errorf("SyftHubURL = %q, want %q", settings.SyftHubURL, "https://syfthub-dev.openmined.org")
+	if settings.HubURL != "https://syfthub-dev.openmined.org" {
+		t.Errorf("SyftHubURL = %q, want %q", settings.HubURL, "https://syfthub-dev.openmined.org")
 	}
-	if settings.APIKey != "" {
-		t.Errorf("APIKey should be empty by default, got %q", settings.APIKey)
+	if settings.APIToken != "" {
+		t.Errorf("APIKey should be empty by default, got %q", settings.APIToken)
 	}
 	if settings.Port != 8000 {
 		t.Errorf("Port = %d, want 8000", settings.Port)
@@ -113,8 +113,8 @@ func TestSaveAndLoadSettings(t *testing.T) {
 
 	// Create test settings
 	settings := &Settings{
-		SyftHubURL:    "https://test.example.com",
-		APIKey:        "test-api-key",
+		HubURL: "https://test.example.com",
+		APIToken: "test-api-key",
 		EndpointsPath: "/custom/endpoints",
 		IsConfigured:  true,
 	}
@@ -131,11 +131,11 @@ func TestSaveAndLoadSettings(t *testing.T) {
 		t.Fatalf("LoadSettings error: %v", err)
 	}
 
-	if loaded.SyftHubURL != settings.SyftHubURL {
-		t.Errorf("SyftHubURL = %q, want %q", loaded.SyftHubURL, settings.SyftHubURL)
+	if loaded.HubURL != settings.HubURL {
+		t.Errorf("SyftHubURL = %q, want %q", loaded.HubURL, settings.HubURL)
 	}
-	if loaded.APIKey != settings.APIKey {
-		t.Errorf("APIKey = %q, want %q", loaded.APIKey, settings.APIKey)
+	if loaded.APIToken != settings.APIToken {
+		t.Errorf("APIKey = %q, want %q", loaded.APIToken, settings.APIToken)
 	}
 	if loaded.EndpointsPath != settings.EndpointsPath {
 		t.Errorf("EndpointsPath = %q, want %q", loaded.EndpointsPath, settings.EndpointsPath)
@@ -168,8 +168,8 @@ func TestLoadSettingsNoFile(t *testing.T) {
 
 	// Should return default settings
 	defaults := DefaultSettings()
-	if loaded.SyftHubURL != defaults.SyftHubURL {
-		t.Errorf("SyftHubURL = %q, want default %q", loaded.SyftHubURL, defaults.SyftHubURL)
+	if loaded.HubURL != defaults.HubURL {
+		t.Errorf("SyftHubURL = %q, want default %q", loaded.HubURL, defaults.HubURL)
 	}
 }
 
@@ -328,8 +328,8 @@ func TestEnsureEndpointsDir(t *testing.T) {
 
 func TestSettingsJSON(t *testing.T) {
 	settings := &Settings{
-		SyftHubURL:    "https://test.example.com",
-		APIKey:        "my-api-key",
+		HubURL: "https://test.example.com",
+		APIToken: "my-api-key",
 		EndpointsPath: "/path/to/endpoints",
 		IsConfigured:  true,
 	}
@@ -346,16 +346,16 @@ func TestSettingsJSON(t *testing.T) {
 		t.Fatalf("json.Unmarshal error: %v", err)
 	}
 
-	if decoded["syfthubUrl"] != settings.SyftHubURL {
-		t.Errorf("JSON syfthubUrl = %v, want %v", decoded["syfthubUrl"], settings.SyftHubURL)
+	if decoded["hub_url"] != settings.HubURL {
+		t.Errorf("JSON syfthubUrl = %v, want %v", decoded["hub_url"], settings.HubURL)
 	}
-	if decoded["apiKey"] != settings.APIKey {
-		t.Errorf("JSON apiKey = %v, want %v", decoded["apiKey"], settings.APIKey)
+	if decoded["api_token"] != settings.APIToken {
+		t.Errorf("JSON apiKey = %v, want %v", decoded["api_token"], settings.APIToken)
 	}
-	if decoded["endpointsPath"] != settings.EndpointsPath {
-		t.Errorf("JSON endpointsPath = %v, want %v", decoded["endpointsPath"], settings.EndpointsPath)
+	if decoded["endpoints_path"] != settings.EndpointsPath {
+		t.Errorf("JSON endpointsPath = %v, want %v", decoded["endpoints_path"], settings.EndpointsPath)
 	}
-	if decoded["isConfigured"] != settings.IsConfigured {
-		t.Errorf("JSON isConfigured = %v, want %v", decoded["isConfigured"], settings.IsConfigured)
+	if decoded["is_configured"] != settings.IsConfigured {
+		t.Errorf("JSON isConfigured = %v, want %v", decoded["is_configured"], settings.IsConfigured)
 	}
 }

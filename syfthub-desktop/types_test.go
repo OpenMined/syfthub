@@ -124,7 +124,7 @@ func TestEndpointInfoJSON(t *testing.T) {
 
 func TestConfigInfoJSON(t *testing.T) {
 	info := ConfigInfo{
-		SyftHubURL:        "https://syfthub.example.com",
+		HubURL:            "https://syfthub.example.com",
 		SpaceURL:          "tunneling:user",
 		EndpointsPath:     "/path/to/endpoints",
 		LogLevel:          "DEBUG",
@@ -156,8 +156,8 @@ func TestConfigInfoJSON(t *testing.T) {
 func TestConfigRequestJSON(t *testing.T) {
 	watchEnabled := true
 	req := ConfigRequest{
-		SyftHubURL:   "https://new.syfthub.com",
-		APIKey:       "secret-key",
+		HubURL:   "https://new.syfthub.com",
+		APIToken: "secret-key",
 		WatchEnabled: &watchEnabled,
 	}
 

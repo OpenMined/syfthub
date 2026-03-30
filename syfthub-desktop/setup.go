@@ -74,8 +74,8 @@ func (a *App) RunEndpointSetup(slug string, force bool) error {
 	hubURL := ""
 	username := ""
 	if settings != nil {
-		apiKey = settings.APIKey
-		hubURL = settings.SyftHubURL
+		apiKey = settings.APIToken
+		hubURL = settings.HubURL
 	}
 	a.mu.RLock()
 	username = a.username

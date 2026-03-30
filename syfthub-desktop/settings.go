@@ -1,5 +1,6 @@
 // Package main provides settings persistence for the SyftHub Desktop GUI.
-// Settings are stored in a JSON file in the user's config directory.
+// Settings are stored in settings.json in the user's config directory.
+// Field names and JSON tags match the CLI's nodeconfig.NodeConfig for file compatibility.
 package main
 
 import (
@@ -10,19 +11,45 @@ import (
 	"runtime"
 )
 
+// AggregatorConfig represents configuration for an aggregator endpoint.
+// Mirrored from nodeconfig for JSON round-trip compatibility.
+type AggregatorConfig struct {
+	URL string `json:"url"`
+}
+
+// AccountingConfig represents configuration for an accounting service.
+type AccountingConfig struct {
+	URL string `json:"url"`
+}
+
 // Settings holds persistent application settings.
-// These are stored in settings.json in the user config directory.
-// Fields and JSON names are shared with the CLI's nodeconfig.NodeConfig.
+// JSON field names use snake_case to match the CLI's unified settings format.
+// Fields the desktop does not actively use are preserved here so that
+// saving settings never silently drops CLI-managed values (aggregators, timeout, etc.).
 type Settings struct {
-	SyftHubURL       string `json:"syfthubUrl"`
-	APIKey           string `json:"apiKey,omitempty"`
-	EndpointsPath    string `json:"endpointsPath"`
-	IsConfigured     bool   `json:"isConfigured"`
-	MarketplaceURL   string `json:"marketplaceUrl,omitempty"`
-	LogLevel         string `json:"logLevel,omitempty"`
-	PythonPath       string `json:"pythonPath,omitempty"`
-	Port             int    `json:"port,omitempty"`
-	ContainerEnabled bool   `json:"containerEnabled,omitempty"`
+	// Identity — shared across CLI and desktop
+	HubURL   string `json:"hub_url"`
+	APIToken string `json:"api_token,omitempty"`
+
+	// CLI infrastructure aliases (preserved on save, not exposed in desktop UI)
+	Aggregators        map[string]AggregatorConfig `json:"aggregators,omitempty"`
+	AccountingServices map[string]AccountingConfig `json:"accounting_services,omitempty"`
+	DefaultAggregator  string                      `json:"default_aggregator,omitempty"`
+	DefaultAccounting  string                      `json:"default_accounting,omitempty"`
+	Timeout            float64                     `json:"timeout,omitempty"`
+
+	// Node / desktop daemon settings
+	EndpointsPath  string `json:"endpoints_path,omitempty"`
+	IsConfigured   bool   `json:"is_configured,omitempty"`
+	MarketplaceURL string `json:"marketplace_url,omitempty"`
+	LogLevel       string `json:"log_level,omitempty"`
+	PythonPath     string `json:"python_path,omitempty"`
+	Port           int    `json:"port,omitempty"`
+
+	// Container mode
+	ContainerEnabled bool   `json:"container_enabled,omitempty"`
+	ContainerRuntime string `json:"container_runtime,omitempty"`
+	ContainerImage   string `json:"container_image,omitempty"`
 }
 
 // DefaultSettings returns settings with sensible defaults.
@@ -32,10 +59,11 @@ func DefaultSettings() *Settings {
 		endpointsPath = filepath.Join(dir, "endpoints")
 	}
 	return &Settings{
-		SyftHubURL:    "https://syfthub-dev.openmined.org",
+		HubURL:        "https://syfthub.openmined.org",
 		EndpointsPath: endpointsPath,
 		Port:          8000,
 		LogLevel:      "INFO",
+		Timeout:       30.0,
 	}
 }
 
@@ -110,22 +138,23 @@ func LoadSettings() (*Settings, error) {
 		return DefaultSettings(), fmt.Errorf("failed to read settings: %w", err)
 	}
 
-	var settings Settings
-	if err := json.Unmarshal(data, &settings); err != nil {
+	settings := DefaultSettings()
+	if err := json.Unmarshal(data, settings); err != nil {
 		return DefaultSettings(), fmt.Errorf("failed to parse settings: %w", err)
 	}
 
-	return &settings, nil
+	return settings, nil
 }
 
 // SaveSettings writes settings to the settings file.
+// Existing fields not present in s are not preserved — callers should
+// load first (LoadSettings) then mutate before saving.
 func SaveSettings(settings *Settings) error {
 	dir, err := getSettingsDir()
 	if err != nil {
 		return err
 	}
 
-	// Create directory if it doesn't exist
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create settings directory: %w", err)
 	}
@@ -136,7 +165,7 @@ func SaveSettings(settings *Settings) error {
 		return fmt.Errorf("failed to marshal settings: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("failed to write settings: %w", err)
 	}
 
@@ -154,14 +183,12 @@ func SettingsExist() bool {
 }
 
 // resolveEndpointsPath resolves the endpoints path to an absolute path.
-// If the path is relative and starts with ".", it's relative to the settings dir.
-// Otherwise, it's treated as an absolute path.
+// Relative paths are resolved relative to the settings directory.
 func resolveEndpointsPath(path string) (string, error) {
 	if filepath.IsAbs(path) {
 		return path, nil
 	}
 
-	// Relative path - resolve relative to settings dir
 	dir, err := getSettingsDir()
 	if err != nil {
 		return "", err

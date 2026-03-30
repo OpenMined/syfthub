@@ -69,7 +69,7 @@ type SetupSpecInfo struct {
 
 // ConfigInfo represents the application configuration.
 type ConfigInfo struct {
-	SyftHubURL        string `json:"syfthubUrl"`
+	HubURL            string `json:"syfthubUrl"`
 	SpaceURL          string `json:"spaceUrl"`
 	EndpointsPath     string `json:"endpointsPath"`
 	LogLevel          string `json:"logLevel"`
@@ -148,8 +148,8 @@ type UserAggregator struct {
 
 // ConfigRequest represents a configuration update from the frontend.
 type ConfigRequest struct {
-	SyftHubURL        string `json:"syfthubUrl,omitempty"`
-	APIKey            string `json:"apiKey,omitempty"`
+	HubURL            string `json:"syfthubUrl,omitempty"`
+	APIToken          string `json:"apiKey,omitempty"`
 	SpaceURL          string `json:"spaceUrl,omitempty"`
 	EndpointsPath     string `json:"endpointsPath,omitempty"`
 	LogLevel          string `json:"logLevel,omitempty"`

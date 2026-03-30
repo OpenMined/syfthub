@@ -22,8 +22,8 @@ func (a *App) getMarketplaceURL() string {
 	if a.settings != nil && a.settings.MarketplaceURL != "" {
 		return a.settings.MarketplaceURL
 	}
-	if a.settings != nil && a.settings.SyftHubURL != "" {
-		return strings.TrimRight(a.settings.SyftHubURL, "/") + "/marketplace/manifest.json"
+	if a.settings != nil && a.settings.HubURL != "" {
+		return strings.TrimRight(a.settings.HubURL, "/") + "/marketplace/manifest.json"
 	}
 	return ""
 }

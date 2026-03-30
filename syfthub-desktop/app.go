@@ -89,14 +89,14 @@ func (a *App) startup(ctx context.Context) {
 		runtime.LogInfo(ctx, "Loaded settings from config file")
 
 		// Set environment variables from settings
-		if settings.SyftHubURL != "" {
-			os.Setenv("SYFTHUB_URL", settings.SyftHubURL)
+		if settings.HubURL != "" {
+			os.Setenv("SYFTHUB_URL", settings.HubURL)
 		}
-		if settings.APIKey != "" {
-			os.Setenv("SYFTHUB_API_KEY", settings.APIKey)
+		if settings.APIToken != "" {
+			os.Setenv("SYFTHUB_API_KEY", settings.APIToken)
 
 			// Initialize the SDK client (fetches username, sets SPACE_URL)
-			a.initSyftClient(ctx, settings.SyftHubURL, settings.APIKey)
+			a.initSyftClient(ctx, settings.HubURL, settings.APIToken)
 			runtime.EventsEmit(ctx, "app:config-ready")
 		}
 
@@ -335,7 +335,7 @@ func (a *App) GetConfig() ConfigInfo {
 	}
 
 	return ConfigInfo{
-		SyftHubURL:        os.Getenv("SYFTHUB_URL"),
+		HubURL:            os.Getenv("SYFTHUB_URL"),
 		SpaceURL:          os.Getenv("SPACE_URL"),
 		EndpointsPath:     a.config.EndpointsPath,
 		LogLevel:          a.config.LogLevel,
@@ -585,14 +585,17 @@ func (a *App) GetSettings() *Settings {
 
 // SaveSettingsData saves the provided settings and applies them.
 // This is the method exposed to the frontend.
-func (a *App) SaveSettingsData(syfthubURL, apiKey, endpointsPath string) error {
-	// Create settings
-	settings := &Settings{
-		SyftHubURL:    syfthubURL,
-		APIKey:        apiKey,
-		EndpointsPath: endpointsPath,
-		IsConfigured:  true,
+func (a *App) SaveSettingsData(syfthubURL, apiToken, endpointsPath string) error {
+	// Load existing settings first so CLI-managed fields (aggregators, timeout, etc.)
+	// are preserved when the desktop writes back.
+	settings, err := LoadSettings()
+	if err != nil {
+		runtime.LogWarning(a.ctx, fmt.Sprintf("Could not load settings before save: %v", err))
 	}
+	settings.HubURL = syfthubURL
+	settings.APIToken = apiToken
+	settings.EndpointsPath = endpointsPath
+	settings.IsConfigured = true
 
 	// Save to file
 	if err := SaveSettings(settings); err != nil {
@@ -606,11 +609,11 @@ func (a *App) SaveSettingsData(syfthubURL, apiKey, endpointsPath string) error {
 
 	// Apply settings to environment
 	os.Setenv("SYFTHUB_URL", syfthubURL)
-	if apiKey != "" {
-		os.Setenv("SYFTHUB_API_KEY", apiKey)
+	if apiToken != "" {
+		os.Setenv("SYFTHUB_API_KEY", apiToken)
 
 		// Initialize the SDK client (network call — acquires a.mu internally)
-		a.initSyftClient(a.ctx, syfthubURL, apiKey)
+		a.initSyftClient(a.ctx, syfthubURL, apiToken)
 	}
 
 	// Resolve and set endpoints path
