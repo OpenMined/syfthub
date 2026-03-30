@@ -117,6 +117,29 @@ check_path() {
     esac
 }
 
+# Build binary from local source tree
+# All status output goes to stderr so the return value (path) can be captured cleanly
+build_local() {
+    # Locate cli/ directory — works from repo root or from within cli/
+    if [ -f "go.mod" ] && grep -q "module github.com/OpenMined/syfthub/cli" go.mod 2>/dev/null; then
+        CLI_DIR="."
+    elif [ -f "cli/go.mod" ] && grep -q "module github.com/OpenMined/syfthub/cli" cli/go.mod 2>/dev/null; then
+        CLI_DIR="cli"
+    else
+        error "Cannot find CLI source. Run from the repo root or the cli/ directory."
+    fi
+
+    if ! command -v go >/dev/null 2>&1; then
+        error "Go is required to build from source. Install from https://golang.org/dl/"
+    fi
+
+    info "Building from source in ${CLI_DIR}/ ($(go version))..." >&2
+    mkdir -p "${CLI_DIR}/build"
+    ( cd "$CLI_DIR" && go build -o "build/${BINARY_NAME}" ./cmd/syft/ ) || error "Build failed"
+
+    echo "${CLI_DIR}/build/${BINARY_NAME}"
+}
+
 main() {
     info "Syft CLI Installer"
 
@@ -125,42 +148,51 @@ main() {
     ARCH=$(detect_arch)
     info "Detected platform: ${OS}-${ARCH}"
 
-    # Get version
-    if [ -n "$SYFT_VERSION" ]; then
-        VERSION="$SYFT_VERSION"
-    else
-        info "Fetching latest version..."
-        VERSION=$(get_latest_version)
-        if [ -z "$VERSION" ]; then
-            error "Could not determine latest version. Set SYFT_VERSION manually or check https://github.com/${REPO}/releases"
-        fi
-    fi
-    info "Installing version: ${VERSION}"
-
-    # Construct download URL
-    if [ "$OS" = "windows" ]; then
-        FILENAME="${BINARY_NAME}-${OS}-${ARCH}.exe"
-    else
-        FILENAME="${BINARY_NAME}-${OS}-${ARCH}"
-    fi
-
-    DOWNLOAD_URL="https://github.com/${REPO}/releases/download/cli/v${VERSION}/${FILENAME}"
-
     # Create temp directory
     TMP_DIR=$(mktemp -d)
     trap 'rm -rf "$TMP_DIR"' EXIT
-
-    # Download binary
     TMP_FILE="${TMP_DIR}/${BINARY_NAME}"
-    download "$DOWNLOAD_URL" "$TMP_FILE"
 
-    # Make executable
-    chmod +x "$TMP_FILE"
+    if [ "${1}" = "local" ]; then
+        # Build from local source instead of downloading a release
+        info "Mode: local build"
+        LOCAL_BINARY=$(build_local)
+        cp "$LOCAL_BINARY" "$TMP_FILE"
+        chmod +x "$TMP_FILE"
+        VERSION=$("$TMP_FILE" --version 2>/dev/null | sed 's/^[^0-9]*//' | head -1)
+        [ -z "$VERSION" ] && VERSION="local"
+        info "Built version: ${VERSION}"
+    else
+        # Get version
+        if [ -n "$SYFT_VERSION" ]; then
+            VERSION="$SYFT_VERSION"
+        else
+            info "Fetching latest version..."
+            VERSION=$(get_latest_version)
+            if [ -z "$VERSION" ]; then
+                error "Could not determine latest version. Set SYFT_VERSION manually or check https://github.com/${REPO}/releases"
+            fi
+        fi
+        info "Installing version: ${VERSION}"
+
+        # Construct download URL
+        if [ "$OS" = "windows" ]; then
+            FILENAME="${BINARY_NAME}-${OS}-${ARCH}.exe"
+        else
+            FILENAME="${BINARY_NAME}-${OS}-${ARCH}"
+        fi
+
+        DOWNLOAD_URL="https://github.com/${REPO}/releases/download/cli/v${VERSION}/${FILENAME}"
+
+        # Download binary
+        download "$DOWNLOAD_URL" "$TMP_FILE"
+        chmod +x "$TMP_FILE"
+    fi
 
     # Verify binary works
     info "Verifying binary..."
     if ! "$TMP_FILE" --version >/dev/null 2>&1; then
-        error "Downloaded binary verification failed"
+        error "Binary verification failed"
     fi
 
     # Get install directory
