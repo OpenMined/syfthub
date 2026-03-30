@@ -187,8 +187,8 @@ func runNodeMarketplaceInstall(cmd *cobra.Command, args []string) error {
 		sctx := &setupflow.SetupContext{
 			EndpointDir: endpointDir,
 			Slug:        slug,
-			HubURL:      cfg.SyftHubURL,
-			APIKey:      cfg.APIKey,
+			HubURL:      cfg.HubURL,
+			APIKey:      cfg.APIToken,
 			IO:          sio,
 			StepOutputs: make(map[string]*setupflow.StepResult),
 			State:       state,

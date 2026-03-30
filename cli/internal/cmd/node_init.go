@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/OpenMined/syfthub/cli/internal/config"
 	"github.com/OpenMined/syfthub/cli/internal/nodeconfig"
 	"github.com/OpenMined/syfthub/cli/internal/output"
 )
@@ -103,7 +102,7 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 				"status":         "success",
 				"config_path":    nodeconfig.ConfigFile,
 				"endpoints_path": existing.EndpointsPath,
-				"syfthub_url":    existing.SyftHubURL,
+				"syfthub_url":    existing.HubURL,
 				"port":           existing.Port,
 				"pid":            daemonPID,
 			})
@@ -111,7 +110,7 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 			output.Success("Node started!")
 			fmt.Printf("  Config:    %s\n", nodeconfig.ConfigFile)
 			fmt.Printf("  Endpoints: %s\n", existing.EndpointsPath)
-			fmt.Printf("  Hub URL:   %s\n", existing.SyftHubURL)
+			fmt.Printf("  Hub URL:   %s\n", existing.HubURL)
 			fmt.Printf("  Port:      %d\n", existing.Port)
 			fmt.Printf("  PID:       %d\n", daemonPID)
 			fmt.Printf("  Logs:      %s\n", nodeconfig.LogFile)
@@ -124,23 +123,15 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 		stopExistingNode()
 	}
 
-	cfg := nodeconfig.DefaultNodeConfig()
-
-	// Try to inherit hub URL and API key from main CLI config
-	cliCfg := config.Load()
-	if cliCfg.HubURL != "" {
-		cfg.SyftHubURL = cliCfg.HubURL
-	}
-	if cliCfg.HasAPIToken() {
-		cfg.APIKey = *cliCfg.APIToken
-	}
+	cfg := nodeconfig.Load()
+	cfg.IsConfigured = false
 
 	// Apply flag overrides
 	if nodeInitHubURL != "" {
-		cfg.SyftHubURL = nodeInitHubURL
+		cfg.HubURL = nodeInitHubURL
 	}
 	if nodeInitAPIKey != "" {
-		cfg.APIKey = nodeInitAPIKey
+		cfg.APIToken = nodeInitAPIKey
 	}
 	if nodeInitEndpointsPath != "" {
 		cfg.EndpointsPath = nodeInitEndpointsPath
@@ -156,11 +147,11 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 	if term.IsTerminal(int(os.Stdin.Fd())) {
 		reader := bufio.NewReader(os.Stdin)
 
-		if cfg.SyftHubURL == "" || cmd.Flags().NFlag() == 0 {
-			cfg.SyftHubURL = promptWithDefault(reader, "SyftHub URL", cfg.SyftHubURL)
+		if cfg.HubURL == "" || cmd.Flags().NFlag() == 0 {
+			cfg.HubURL = promptWithDefault(reader, "SyftHub URL", cfg.HubURL)
 		}
-		if cfg.APIKey == "" {
-			cfg.APIKey = promptRequired(reader, "API Key (PAT)")
+		if cfg.APIToken == "" {
+			cfg.APIToken = promptRequired(reader, "API Key (PAT)")
 		}
 	}
 
@@ -225,7 +216,7 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 			"status":         "success",
 			"config_path":    nodeconfig.ConfigFile,
 			"endpoints_path": cfg.EndpointsPath,
-			"syfthub_url":    cfg.SyftHubURL,
+			"syfthub_url":    cfg.HubURL,
 			"port":           cfg.Port,
 			"pid":            daemonPID,
 		})
@@ -233,7 +224,7 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 		output.Success("Node initialized and started!")
 		fmt.Printf("  Config:    %s\n", nodeconfig.ConfigFile)
 		fmt.Printf("  Endpoints: %s\n", cfg.EndpointsPath)
-		fmt.Printf("  Hub URL:   %s\n", cfg.SyftHubURL)
+		fmt.Printf("  Hub URL:   %s\n", cfg.HubURL)
 		fmt.Printf("  Port:      %d\n", cfg.Port)
 		fmt.Printf("  PID:       %d\n", daemonPID)
 		fmt.Printf("  Logs:      %s\n", nodeconfig.LogFile)

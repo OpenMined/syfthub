@@ -125,7 +125,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 		opts = append(opts, syfthub.WithAggregatorURL(aggregatorURL))
 	}
 	if cfg.HasAPIToken() {
-		opts = append(opts, syfthub.WithAPIToken(*cfg.APIToken))
+		opts = append(opts, syfthub.WithAPIToken(cfg.APIToken))
 	}
 
 	client, err := syfthub.NewClient(opts...)

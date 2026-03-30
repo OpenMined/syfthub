@@ -53,8 +53,8 @@ func runNodeRun(cmd *cobra.Command, args []string) error {
 	fmt.Println("Authenticating with SyftHub...")
 
 	hubClient, err := syfthub.NewClient(
-		syfthub.WithBaseURL(cfg.SyftHubURL),
-		syfthub.WithAPIToken(cfg.APIKey),
+		syfthub.WithBaseURL(cfg.HubURL),
+		syfthub.WithAPIToken(cfg.APIToken),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create hub client: %w", err)
@@ -73,8 +73,8 @@ func runNodeRun(cmd *cobra.Command, args []string) error {
 
 	// Build SyftAPI options
 	opts := []syfthubapi.Option{
-		syfthubapi.WithSyftHubURL(cfg.SyftHubURL),
-		syfthubapi.WithAPIKey(cfg.APIKey),
+		syfthubapi.WithSyftHubURL(cfg.HubURL),
+		syfthubapi.WithAPIKey(cfg.APIToken),
 		syfthubapi.WithEndpointsPath(endpointsPath),
 		syfthubapi.WithServerPort(cfg.Port),
 		syfthubapi.WithWatchEnabled(true),
@@ -188,7 +188,7 @@ func runNodeRun(cmd *cobra.Command, args []string) error {
 	fmt.Printf("SyftHub Node running — NATS Tunnel (%s)\n", user.Username)
 	fmt.Printf("  Port:      %d\n", cfg.Port)
 	fmt.Printf("  Endpoints: %d loaded from %s\n", endpointCount, endpointsPath)
-	fmt.Printf("  Hub:       %s\n", cfg.SyftHubURL)
+	fmt.Printf("  Hub:       %s\n", cfg.HubURL)
 	if cfg.ContainerEnabled {
 		fmt.Printf("  Container: enabled (runtime=%s, image=%s)\n", apiConfig.Container.Runtime, apiConfig.Container.Image)
 	}

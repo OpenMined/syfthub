@@ -1,6 +1,6 @@
-// Package nodeconfig provides configuration management for the SyftHub node subsystem.
-// Config file location: ~/.config/syfthub/settings.json (shared with syfthub-desktop)
-// PID file location: ~/.config/syfthub/node.pid
+// Package nodeconfig provides unified configuration management for SyftHub.
+// This is the single source of truth for all CLI and desktop settings.
+// Config file: ~/.config/syfthub/settings.json (platform-aware, shared with syfthub-desktop)
 package nodeconfig
 
 import (
@@ -57,8 +57,12 @@ func getConfigDir() string {
 var (
 	// ConfigDir is the directory containing shared SyftHub config.
 	ConfigDir = getConfigDir()
-	// ConfigFile is the path to the shared settings file.
+	// ConfigFile is the path to the unified settings file (shared with syfthub-desktop).
 	ConfigFile = filepath.Join(ConfigDir, "settings.json")
+	// UpdateCheckFile is the path to the update check cache file.
+	UpdateCheckFile = filepath.Join(ConfigDir, ".update_check")
+	// CompletionCacheFile is the path to the shell completion cache file.
+	CompletionCacheFile = filepath.Join(ConfigDir, ".completion_cache.json")
 	// PIDFile is the path to the node PID file.
 	PIDFile = filepath.Join(ConfigDir, "node.pid")
 	// LogFile is the path to the node daemon log file.
@@ -67,31 +71,69 @@ var (
 	LogsDir = filepath.Join(ConfigDir, "logs")
 )
 
-// NodeConfig holds node/desktop shared settings.
-// JSON field names match the desktop app's settings.json format (camelCase).
-type NodeConfig struct {
-	SyftHubURL     string `json:"syfthubUrl"`
-	APIKey         string `json:"apiKey,omitempty"`
-	EndpointsPath  string `json:"endpointsPath"`
-	IsConfigured   bool   `json:"isConfigured"`
-	MarketplaceURL string `json:"marketplaceUrl,omitempty"`
-	LogLevel       string `json:"logLevel,omitempty"`
-	PythonPath     string `json:"pythonPath,omitempty"`
-	Port           int    `json:"port,omitempty"`
-
-	// Container mode settings
-	ContainerEnabled bool   `json:"containerEnabled,omitempty"`
-	ContainerRuntime string `json:"containerRuntime,omitempty"` // "docker", "podman", or "auto"
-	ContainerImage   string `json:"containerImage,omitempty"`   // default: "syfthub/endpoint-runner:latest"
+// AggregatorConfig represents configuration for an aggregator endpoint.
+type AggregatorConfig struct {
+	URL string `json:"url"`
 }
 
-// DefaultNodeConfig returns a NodeConfig with sensible defaults matching the desktop app.
+// AccountingConfig represents configuration for an accounting service.
+type AccountingConfig struct {
+	URL string `json:"url"`
+}
+
+// NodeConfig holds the unified SyftHub configuration shared between the CLI and desktop app.
+// All JSON field names use snake_case and are written to ~/.config/syfthub/settings.json.
+type NodeConfig struct {
+	// Identity — used by all tools
+	HubURL   string `json:"hub_url"`
+	APIToken string `json:"api_token,omitempty"`
+
+	// CLI infrastructure aliases
+	Aggregators        map[string]AggregatorConfig `json:"aggregators,omitempty"`
+	AccountingServices map[string]AccountingConfig `json:"accounting_services,omitempty"`
+	DefaultAggregator  string                      `json:"default_aggregator,omitempty"`
+	DefaultAccounting  string                      `json:"default_accounting,omitempty"`
+	Timeout            float64                     `json:"timeout,omitempty"`
+
+	// Node / desktop daemon settings
+	EndpointsPath  string `json:"endpoints_path,omitempty"`
+	IsConfigured   bool   `json:"is_configured,omitempty"`
+	MarketplaceURL string `json:"marketplace_url,omitempty"`
+	LogLevel       string `json:"log_level,omitempty"`
+	PythonPath     string `json:"python_path,omitempty"`
+	Port           int    `json:"port,omitempty"`
+
+	// Container mode
+	ContainerEnabled bool   `json:"container_enabled,omitempty"`
+	ContainerRuntime string `json:"container_runtime,omitempty"` // "docker", "podman", or "auto"
+	ContainerImage   string `json:"container_image,omitempty"`   // default: "syfthub/endpoint-runner:latest"
+}
+
+const (
+	defaultHubURL          = "https://syfthub.openmined.org"
+	defaultAggregatorURL   = "https://syfthub.openmined.org/aggregator"
+	defaultAccountingURL   = "https://syftaccounting.centralus.cloudapp.azure.com"
+	defaultTimeout         = 30.0
+	defaultAggregatorAlias = "default"
+	defaultAccountingAlias = "default"
+)
+
+// DefaultNodeConfig returns a NodeConfig with sensible defaults.
 func DefaultNodeConfig() *NodeConfig {
 	return &NodeConfig{
-		SyftHubURL:    "https://syfthub-dev.openmined.org",
+		HubURL:        defaultHubURL,
 		EndpointsPath: filepath.Join(ConfigDir, "endpoints"),
 		Port:          8000,
 		LogLevel:      "INFO",
+		Timeout:       defaultTimeout,
+		Aggregators: map[string]AggregatorConfig{
+			defaultAggregatorAlias: {URL: defaultAggregatorURL},
+		},
+		AccountingServices: map[string]AccountingConfig{
+			defaultAccountingAlias: {URL: defaultAccountingURL},
+		},
+		DefaultAggregator: defaultAggregatorAlias,
+		DefaultAccounting: defaultAccountingAlias,
 	}
 }
 
@@ -103,13 +145,13 @@ func EnsureConfigDir() error {
 	return nil
 }
 
-// Load loads node configuration from the shared settings file.
+// Load loads configuration from the shared settings file.
 // Returns default config if the file doesn't exist.
 func Load() *NodeConfig {
 	return LoadFrom(ConfigFile)
 }
 
-// LoadFrom loads node configuration from a specific path.
+// LoadFrom loads configuration from a specific path.
 func LoadFrom(path string) *NodeConfig {
 	configMutex.Lock()
 	defer configMutex.Unlock()
@@ -125,15 +167,23 @@ func LoadFrom(path string) *NodeConfig {
 		return DefaultNodeConfig()
 	}
 
+	// Ensure maps are initialized after unmarshal.
+	if config.Aggregators == nil {
+		config.Aggregators = make(map[string]AggregatorConfig)
+	}
+	if config.AccountingServices == nil {
+		config.AccountingServices = make(map[string]AccountingConfig)
+	}
+
 	return config
 }
 
-// Save saves node configuration to the shared settings file.
+// Save saves configuration to the shared settings file.
 func (c *NodeConfig) Save() error {
 	return c.SaveTo(ConfigFile)
 }
 
-// SaveTo saves node configuration to a specific path.
+// SaveTo saves configuration to a specific path.
 func (c *NodeConfig) SaveTo(path string) error {
 	configMutex.Lock()
 	defer configMutex.Unlock()
@@ -150,9 +200,62 @@ func (c *NodeConfig) SaveTo(path string) error {
 	return os.WriteFile(path, data, 0600)
 }
 
-// Configured returns true if the node has been initialized.
+// Configured returns true if the node has been initialized with required fields.
 func (c *NodeConfig) Configured() bool {
-	return c.IsConfigured && c.SyftHubURL != "" && c.APIKey != ""
+	return c.IsConfigured && c.HubURL != "" && c.APIToken != ""
+}
+
+func (c *NodeConfig) HasAPIToken() bool {
+	return c.APIToken != ""
+}
+
+func (c *NodeConfig) SetAPIToken(token string) {
+	c.APIToken = token
+}
+
+func (c *NodeConfig) ClearAPIToken() {
+	c.APIToken = ""
+}
+
+// ClearAPITokenAndSave clears the API token and saves the config.
+func ClearAPITokenAndSave() error {
+	config := Load()
+	config.ClearAPIToken()
+	return config.Save()
+}
+
+// GetAggregatorURL returns the URL for an aggregator alias or a direct URL.
+// Falls back to the default aggregator if no alias is given.
+func (c *NodeConfig) GetAggregatorURL(alias string) string {
+	if alias != "" {
+		if agg, ok := c.Aggregators[alias]; ok {
+			return agg.URL
+		}
+		// Treat as direct URL if it doesn't match any alias.
+		return alias
+	}
+	if c.DefaultAggregator != "" {
+		if agg, ok := c.Aggregators[c.DefaultAggregator]; ok {
+			return agg.URL
+		}
+	}
+	return ""
+}
+
+// GetAccountingURL returns the URL for an accounting service alias or a direct URL.
+func (c *NodeConfig) GetAccountingURL(alias string) string {
+	if alias != "" {
+		if acc, ok := c.AccountingServices[alias]; ok {
+			return acc.URL
+		}
+		return alias
+	}
+	if c.DefaultAccounting != "" {
+		if acc, ok := c.AccountingServices[c.DefaultAccounting]; ok {
+			return acc.URL
+		}
+	}
+	return ""
 }
 
 // GetMarketplaceURL returns the marketplace manifest URL.
@@ -160,8 +263,8 @@ func (c *NodeConfig) GetMarketplaceURL() string {
 	if c.MarketplaceURL != "" {
 		return c.MarketplaceURL
 	}
-	if c.SyftHubURL != "" {
-		return strings.TrimRight(c.SyftHubURL, "/") + "/marketplace/manifest.json"
+	if c.HubURL != "" {
+		return strings.TrimRight(c.HubURL, "/") + "/marketplace/manifest.json"
 	}
 	return ""
 }

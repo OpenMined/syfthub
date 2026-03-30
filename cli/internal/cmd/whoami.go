@@ -44,7 +44,7 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 
 	client, err := syfthub.NewClient(
 		syfthub.WithBaseURL(cfg.HubURL),
-		syfthub.WithAPIToken(*cfg.APIToken),
+		syfthub.WithAPIToken(cfg.APIToken),
 		syfthub.WithTimeout(time.Duration(cfg.Timeout)*time.Second),
 	)
 	if err != nil {

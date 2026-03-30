@@ -55,7 +55,7 @@ func runLs(cmd *cobra.Command, args []string) error {
 		syfthub.WithTimeout(time.Duration(cfg.Timeout) * time.Second),
 	}
 	if cfg.HasAPIToken() {
-		clientOpts = append(clientOpts, syfthub.WithAPIToken(*cfg.APIToken))
+		clientOpts = append(clientOpts, syfthub.WithAPIToken(cfg.APIToken))
 	}
 	client, err := syfthub.NewClient(clientOpts...)
 	if err != nil {

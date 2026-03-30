@@ -70,7 +70,7 @@ func fetchAndCacheEndpoints() []CachedEndpoint {
 		syfthub.WithTimeout(10 * time.Second),
 	}
 	if cfg.HasAPIToken() {
-		opts = append(opts, syfthub.WithAPIToken(*cfg.APIToken))
+		opts = append(opts, syfthub.WithAPIToken(cfg.APIToken))
 	}
 	client, err := syfthub.NewClient(opts...)
 	if err != nil {

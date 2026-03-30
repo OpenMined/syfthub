@@ -47,7 +47,7 @@ func runListAggregator(cmd *cobra.Command, args []string) error {
 	if listAggregatorJSONOutput {
 		result := make(map[string]interface{})
 		for alias, agg := range cfg.Aggregators {
-			isDefault := cfg.DefaultAggregator != nil && *cfg.DefaultAggregator == alias
+			isDefault := cfg.DefaultAggregator == alias
 			result[alias] = map[string]interface{}{
 				"url":        agg.URL,
 				"is_default": isDefault,
@@ -60,7 +60,7 @@ func runListAggregator(cmd *cobra.Command, args []string) error {
 	} else {
 		aliases := make([]output.AliasInfo, 0, len(cfg.Aggregators))
 		for alias, agg := range cfg.Aggregators {
-			isDefault := cfg.DefaultAggregator != nil && *cfg.DefaultAggregator == alias
+			isDefault := cfg.DefaultAggregator == alias
 			aliases = append(aliases, output.AliasInfo{
 				Name:      alias,
 				URL:       agg.URL,
@@ -82,7 +82,7 @@ func runListAccounting(cmd *cobra.Command, args []string) error {
 	if listAccountingJSONOutput {
 		result := make(map[string]interface{})
 		for alias, acc := range cfg.AccountingServices {
-			isDefault := cfg.DefaultAccounting != nil && *cfg.DefaultAccounting == alias
+			isDefault := cfg.DefaultAccounting == alias
 			result[alias] = map[string]interface{}{
 				"url":        acc.URL,
 				"is_default": isDefault,
@@ -95,7 +95,7 @@ func runListAccounting(cmd *cobra.Command, args []string) error {
 	} else {
 		aliases := make([]output.AliasInfo, 0, len(cfg.AccountingServices))
 		for alias, acc := range cfg.AccountingServices {
-			isDefault := cfg.DefaultAccounting != nil && *cfg.DefaultAccounting == alias
+			isDefault := cfg.DefaultAccounting == alias
 			aliases = append(aliases, output.AliasInfo{
 				Name:      alias,
 				URL:       acc.URL,

@@ -74,7 +74,7 @@ func runNodeStatus(cmd *cobra.Command, args []string) error {
 			"server_reachable": serverReachable,
 			"configured":       cfg.Configured(),
 			"pid":              pid,
-			"syfthub_url":      cfg.SyftHubURL,
+			"syfthub_url":      cfg.HubURL,
 			"endpoints_path":   cfg.EndpointsPath,
 			"endpoint_count":   endpointCount,
 			"port":             cfg.Port,
@@ -96,7 +96,7 @@ func runNodeStatus(cmd *cobra.Command, args []string) error {
 
 	fmt.Println()
 	if cfg.Configured() {
-		fmt.Printf("  Hub URL:   %s\n", cfg.SyftHubURL)
+		fmt.Printf("  Hub URL:   %s\n", cfg.HubURL)
 		fmt.Printf("  Endpoints: %d in %s\n", endpointCount, cfg.EndpointsPath)
 		fmt.Printf("  Port:      %d\n", cfg.Port)
 	} else {
