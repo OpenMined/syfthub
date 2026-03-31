@@ -17,10 +17,11 @@ import (
 var nodeStatusJSON bool
 
 var nodeStatusCmd = &cobra.Command{
-	Use:   "status",
-	Short: "Show node status",
-	Long:  `Show whether the SyftHub node is running and display configuration summary.`,
-	RunE:  runNodeStatus,
+	Use:         "status",
+	Annotations: map[string]string{authExemptKey: "true"},
+	Short:       "Show node status",
+	Long:        `Show whether the SyftHub node is running and display configuration summary.`,
+	RunE:        runNodeStatus,
 }
 
 func init() {

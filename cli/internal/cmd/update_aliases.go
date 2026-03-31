@@ -8,9 +8,10 @@ import (
 )
 
 var updateCmd = &cobra.Command{
-	Use:   "update",
-	Short: "Update infrastructure aliases",
-	Long:  `Update infrastructure aliases for aggregators and accounting services.`,
+	Use:         "update",
+	Annotations: map[string]string{authExemptKey: "true"},
+	Short:       "Update infrastructure aliases",
+	Long:        `Update infrastructure aliases for aggregators and accounting services.`,
 }
 
 // Update aggregator subcommand

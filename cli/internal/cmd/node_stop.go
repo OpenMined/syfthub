@@ -15,10 +15,11 @@ import (
 var nodeStopJSON bool
 
 var nodeStopCmd = &cobra.Command{
-	Use:   "stop",
-	Short: "Stop a running node",
-	Long:  `Stop a running SyftHub node by sending SIGTERM to its process.`,
-	RunE:  runNodeStop,
+	Use:         "stop",
+	Annotations: map[string]string{authExemptKey: "true"},
+	Short:       "Stop a running node",
+	Long:        `Stop a running SyftHub node by sending SIGTERM to its process.`,
+	RunE:        runNodeStop,
 }
 
 func init() {

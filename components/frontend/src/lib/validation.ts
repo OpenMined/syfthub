@@ -33,6 +33,21 @@ export const getPasswordStrength = (password: string): number => {
   return strength;
 };
 
+export function getPasswordStrengthLabel(score: number): { label: string; color: string } {
+  if (score < 2) return { label: 'Weak', color: 'bg-red-500' };
+  if (score < 4) return { label: 'Fair', color: 'bg-yellow-500' };
+  return { label: 'Strong', color: 'bg-green-500' };
+}
+
+export function getPasswordStrengthInfo(password: string): {
+  score: number;
+  label: string;
+  color: string;
+} {
+  const score = getPasswordStrength(password);
+  return { score, ...getPasswordStrengthLabel(score) };
+}
+
 // Name validation
 export const validateName = (name: string): string | null => {
   if (!name) return 'Name is required';

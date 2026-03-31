@@ -11,17 +11,9 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/context/auth-context';
 import { formatDateLong } from '@/lib/date-utils';
 import { changePasswordAPI } from '@/lib/sdk-client';
-import { getPasswordStrength } from '@/lib/validation';
+import { getPasswordStrengthInfo } from '@/lib/validation';
 
 import { StatusMessage } from './status-message';
-
-// Helper functions moved outside component for consistent-function-scoping
-function getPasswordStrengthInfo(password: string) {
-  const score = getPasswordStrength(password);
-  if (score < 2) return { score, label: 'Weak', color: 'bg-red-500' };
-  if (score < 4) return { score, label: 'Medium', color: 'bg-yellow-500' };
-  return { score, label: 'Strong', color: 'bg-green-500' };
-}
 
 interface PasswordFormData {
   current_password: string;
@@ -41,7 +33,6 @@ export function SecuritySettingsTab() {
     confirm_password: ''
   });
 
-  // Memoized input handler factory for stable references
   const handleInputChange = useCallback((field: keyof PasswordFormData) => {
     return (e: React.ChangeEvent<HTMLInputElement>) => {
       setFormData((previous) => ({ ...previous, [field]: e.target.value }));

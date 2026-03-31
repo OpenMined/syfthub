@@ -28,10 +28,11 @@ import (
 // nodeRunCmd is a hidden command that runs the node in the foreground.
 // It is spawned as a background daemon by "syft node init".
 var nodeRunCmd = &cobra.Command{
-	Use:    "run",
-	Short:  "Run the node server (internal)",
-	Hidden: true,
-	RunE:   runNodeRun,
+	Use:         "run",
+	Annotations: map[string]string{authExemptKey: "true"},
+	Short:       "Run the node server (internal)",
+	Hidden:      true,
+	RunE:        runNodeRun,
 }
 
 func runNodeRun(cmd *cobra.Command, args []string) error {
@@ -148,6 +149,7 @@ func runNodeRun(cmd *cobra.Command, args []string) error {
 	t, err := transport.NewNATSTransport(&transport.Config{
 		SpaceURL:        spaceURL,
 		NATSCredentials: natsCreds,
+		KeyFilePath:     nodeconfig.NodeKeyFile,
 		Logger:          logger,
 	})
 	if err != nil {

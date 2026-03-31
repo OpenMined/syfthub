@@ -10,8 +10,9 @@ import (
 var logoutJSONOutput bool
 
 var logoutCmd = &cobra.Command{
-	Use:   "logout",
-	Short: "Clear stored API token",
+	Use:         "logout",
+	Annotations: map[string]string{authExemptKey: "true"},
+	Short:       "Clear stored API token",
 	Long: `Clear the stored API token from the local configuration.
 
 Note: This does not revoke the token on the server. To revoke it,

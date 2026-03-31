@@ -22,9 +22,10 @@ var allowedKeys = map[string]string{
 }
 
 var configCmd = &cobra.Command{
-	Use:   "config",
-	Short: "Manage CLI configuration",
-	Long:  `Manage CLI configuration settings.`,
+	Use:         "config",
+	Annotations: map[string]string{authExemptKey: "true"},
+	Short:       "Manage CLI configuration",
+	Long:        `Manage CLI configuration settings.`,
 }
 
 // Config set subcommand

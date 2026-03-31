@@ -8,9 +8,10 @@ import (
 )
 
 var addCmd = &cobra.Command{
-	Use:   "add",
-	Short: "Add infrastructure aliases",
-	Long:  `Add infrastructure aliases for aggregators and accounting services.`,
+	Use:         "add",
+	Annotations: map[string]string{authExemptKey: "true"},
+	Short:       "Add infrastructure aliases",
+	Long:        `Add infrastructure aliases for aggregators and accounting services.`,
 }
 
 // Add aggregator subcommand

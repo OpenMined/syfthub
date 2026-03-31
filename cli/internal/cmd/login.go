@@ -22,8 +22,9 @@ var (
 )
 
 var loginCmd = &cobra.Command{
-	Use:   "login",
-	Short: "Authenticate with SyftHub using an API token",
+	Use:         "login",
+	Annotations: map[string]string{authExemptKey: "true"},
+	Short:       "Authenticate with SyftHub using an API token",
 	Long: `Authenticate with SyftHub using a Personal Access Token (PAT).
 
 Provide your API token via --token flag or enter it interactively.

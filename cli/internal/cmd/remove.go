@@ -8,9 +8,10 @@ import (
 )
 
 var removeCmd = &cobra.Command{
-	Use:   "remove",
-	Short: "Remove infrastructure aliases",
-	Long:  `Remove infrastructure aliases for aggregators and accounting services.`,
+	Use:         "remove",
+	Annotations: map[string]string{authExemptKey: "true"},
+	Short:       "Remove infrastructure aliases",
+	Long:        `Remove infrastructure aliases for aggregators and accounting services.`,
 }
 
 // Remove aggregator subcommand

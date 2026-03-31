@@ -10,9 +10,10 @@ import (
 )
 
 var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List infrastructure aliases",
-	Long:  `List infrastructure aliases for aggregators and accounting services.`,
+	Use:         "list",
+	Annotations: map[string]string{authExemptKey: "true"},
+	Short:       "List infrastructure aliases",
+	Long:        `List infrastructure aliases for aggregators and accounting services.`,
 }
 
 // List aggregator subcommand

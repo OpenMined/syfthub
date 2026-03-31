@@ -69,6 +69,11 @@ var (
 	LogFile = filepath.Join(ConfigDir, "node.log")
 	// LogsDir is the directory for per-endpoint request logs (JSONL files).
 	LogsDir = filepath.Join(ConfigDir, "logs")
+	// NodeKeyFile is the path to the persisted X25519 private key used for
+	// NATS tunnel encryption. Persisting it means the registered public key
+	// stays valid across node restarts, avoiding decryption failures caused
+	// by a stale key in the aggregator's 5-minute cache.
+	NodeKeyFile = filepath.Join(ConfigDir, "node.key")
 )
 
 // AggregatorConfig represents configuration for an aggregator endpoint.
@@ -111,7 +116,7 @@ type NodeConfig struct {
 
 const (
 	defaultHubURL          = "https://syfthub.openmined.org"
-	defaultAggregatorURL   = "https://syfthub.openmined.org/aggregator"
+	defaultAggregatorURL   = "https://syfthub.openmined.org/aggregator/api/v1"
 	defaultAccountingURL   = "https://syftaccounting.centralus.cloudapp.azure.com"
 	defaultTimeout         = 30.0
 	defaultAggregatorAlias = "default"

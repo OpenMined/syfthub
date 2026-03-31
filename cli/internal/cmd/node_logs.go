@@ -15,10 +15,11 @@ import (
 var nodeLogsFollow bool
 
 var nodeLogsCmd = &cobra.Command{
-	Use:   "logs",
-	Short: "View node daemon logs",
-	Long:  `Display the SyftHub node daemon log output. Use -f to follow (tail) in real time.`,
-	RunE:  runNodeLogs,
+	Use:         "logs",
+	Annotations: map[string]string{authExemptKey: "true"},
+	Short:       "View node daemon logs",
+	Long:        `Display the SyftHub node daemon log output. Use -f to follow (tail) in real time.`,
+	RunE:        runNodeLogs,
 }
 
 func init() {
