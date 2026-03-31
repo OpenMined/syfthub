@@ -360,7 +360,7 @@ def test_get_endpoint_visibility_controls(
 def test_get_endpoint_internal_visibility(
     client: TestClient, user1_token: str, user2_token: str
 ) -> None:
-    """Test internal endpoint visibility."""
+    """Test internal endpoint visibility — user-owned internal endpoints are only accessible by the owner."""
     headers1 = {"Authorization": f"Bearer {user1_token}"}
     headers2 = {"Authorization": f"Bearer {user2_token}"}
 
@@ -377,9 +377,9 @@ def test_get_endpoint_internal_visibility(
     response = client.get(f"/api/v1/endpoints/{endpoint_id}", headers=headers1)
     assert response.status_code == 200
 
-    # Other authenticated user can access
+    # Other authenticated user CANNOT access user-owned internal endpoint
     response = client.get(f"/api/v1/endpoints/{endpoint_id}", headers=headers2)
-    assert response.status_code == 200
+    assert response.status_code == 404
 
     # Unauthenticated user cannot access
     response = client.get(f"/api/v1/endpoints/{endpoint_id}")

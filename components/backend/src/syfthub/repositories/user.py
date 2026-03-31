@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Optional
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
+from syfthub.auth.security import encrypt_field
 from syfthub.models.user import UserModel
 from syfthub.repositories.base import BaseRepository
 from syfthub.schemas.user import User, UserCreate, UserUpdate
@@ -99,12 +100,15 @@ class UserRepository(BaseRepository[UserModel]):
             user_data: User creation data (username, email, full_name)
             password_hash: Hashed password (required for local auth, None for OAuth)
             accounting_service_url: URL to accounting service
-            accounting_password: Password for accounting service
+            accounting_password: Plaintext password for accounting service (encrypted at rest)
             auth_provider: Authentication provider ('local' or 'google')
             google_id: Google OAuth user ID (for Google auth)
             avatar_url: URL to user's avatar image
         """
         try:
+            encrypted_password = (
+                encrypt_field(accounting_password) if accounting_password else None
+            )
             user_model = UserModel(
                 username=user_data.username.lower(),
                 email=user_data.email.lower(),
@@ -113,7 +117,7 @@ class UserRepository(BaseRepository[UserModel]):
                 is_active=True,
                 is_email_verified=user_data.is_email_verified,
                 accounting_service_url=accounting_service_url,
-                accounting_password=accounting_password,
+                accounting_password_encrypted=encrypted_password,
                 auth_provider=auth_provider,
                 google_id=google_id,
                 avatar_url=avatar_url,
@@ -150,7 +154,9 @@ class UserRepository(BaseRepository[UserModel]):
             if user_data.accounting_service_url is not None:
                 user_model.accounting_service_url = user_data.accounting_service_url
             if user_data.accounting_password is not None:
-                user_model.accounting_password = user_data.accounting_password
+                user_model.accounting_password_encrypted = encrypt_field(
+                    user_data.accounting_password
+                )
             if "domain" in user_data.model_fields_set:
                 user_model.domain = user_data.domain
             # Aggregator URL

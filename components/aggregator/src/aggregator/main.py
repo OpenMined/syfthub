@@ -3,6 +3,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -35,8 +36,31 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     logger.info(f"SyftHub URL: {settings.syfthub_url}")
     logger.info(f"Debug mode: {settings.debug}")
 
+    # Create a shared httpx client for all outbound HTTP requests
+    _app.state.http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(30.0),
+        limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+    )
+
+    # Wire shared client into cached singletons
+    from aggregator.api.dependencies import (
+        get_data_source_client,
+        get_error_reporter,
+        get_model_client,
+        get_nats_transport,
+    )
+
+    shared = _app.state.http_client
+    get_error_reporter().http_client = shared
+    get_data_source_client().http_client = shared
+    get_model_client().http_client = shared
+    nats = get_nats_transport()
+    if nats is not None:
+        nats._http_client = shared
+
     yield
 
+    await _app.state.http_client.aclose()
     logger.info(f"Shutting down {settings.service_name}")
 
 
@@ -75,6 +99,11 @@ responses using model endpoints registered in SyftHub.
     )
 
     # Configure CORS
+    if "*" in settings.cors_origins:
+        logger.warning(
+            "CORS configured with wildcard origin and credentials enabled. "
+            "This is insecure for production. Set AGGREGATOR_CORS_ORIGINS to specific origins."
+        )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,

@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import logging
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 import jwt  # type: ignore[import-not-found]
+from cryptography.fernet import Fernet
 from passlib.context import CryptContext  # type: ignore[import-untyped]
 
 from syfthub.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 # Password hashing context - using Argon2 for better security and no length limitations
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
@@ -154,3 +160,57 @@ def get_token_from_header(authorization: str) -> Optional[str]:
     if not authorization or not authorization.startswith("Bearer "):
         return None
     return authorization.replace("Bearer ", "")
+
+
+# =============================================================================
+# Fernet Encryption for Sensitive Fields (e.g. accounting_password)
+# =============================================================================
+
+_fernet_instance: Optional[Fernet] = None
+
+
+def _get_fernet() -> Fernet:
+    """Return a cached Fernet instance, creating it on first call.
+
+    Uses ``settings.accounting_encryption_key`` if set, otherwise derives a
+    Fernet-compatible key from ``settings.secret_key`` via SHA-256.  The
+    derived-key path is a convenience for development; production deployments
+    should always set an explicit encryption key.
+    """
+    global _fernet_instance
+    if _fernet_instance is not None:
+        return _fernet_instance
+
+    key = settings.accounting_encryption_key
+    if key:
+        _fernet_instance = Fernet(key.encode() if isinstance(key, str) else key)
+    else:
+        # Derive a Fernet key from secret_key (development fallback)
+        logger.warning(
+            "ACCOUNTING_ENCRYPTION_KEY not set — deriving encryption key from "
+            "SECRET_KEY. Set an explicit key for production."
+        )
+        digest = hashlib.sha256(settings.secret_key.encode()).digest()
+        fernet_key = base64.urlsafe_b64encode(digest)
+        _fernet_instance = Fernet(fernet_key)
+
+    return _fernet_instance
+
+
+def encrypt_field(plaintext: str) -> str:
+    """Encrypt a plaintext string and return the Fernet token as a string.
+
+    The returned value is safe to store in a VARCHAR/Text column.
+    """
+    f = _get_fernet()
+    return f.encrypt(plaintext.encode()).decode()
+
+
+def decrypt_field(ciphertext: str) -> str:
+    """Decrypt a Fernet-encrypted string and return the original plaintext.
+
+    Raises ``cryptography.fernet.InvalidToken`` if the ciphertext is
+    corrupted or was encrypted with a different key.
+    """
+    f = _get_fernet()
+    return f.decrypt(ciphertext.encode()).decode()

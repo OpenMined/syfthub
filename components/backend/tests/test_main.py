@@ -884,6 +884,15 @@ class TestTimeoutConstants:
 class TestInvokeOwnerEndpoint:
     """Tests for the POST /{owner_slug}/{endpoint_slug} proxy endpoint."""
 
+    @pytest.fixture(autouse=True)
+    def setup_http_client(self):
+        """Set up mock http_client on app state."""
+        mock_client = AsyncMock()
+        app.state.http_client = mock_client
+        self._mock_http_client = mock_client
+        yield
+        del app.state.http_client
+
     @pytest.fixture
     def mock_endpoint_with_connection(self):
         """Create a test endpoint with connection configured."""
@@ -961,7 +970,6 @@ class TestInvokeOwnerEndpoint:
         )
 
     @patch("syfthub.main.validate_domain_for_ssrf")
-    @patch("syfthub.main.httpx.AsyncClient")
     @patch("syfthub.main.get_endpoint_by_owner_and_slug")
     @patch("syfthub.main.resolve_owner")
     @patch("syfthub.main.get_optional_current_user")
@@ -970,7 +978,6 @@ class TestInvokeOwnerEndpoint:
         mock_get_user,
         mock_resolve,
         mock_get_endpoint,
-        mock_async_client,
         mock_ssrf_check,
         client,
         mock_endpoint_with_connection,
@@ -982,17 +989,13 @@ class TestInvokeOwnerEndpoint:
         mock_resolve.return_value = (mock_user, "user")
         mock_get_endpoint.return_value = mock_endpoint_with_connection
 
-        # Setup httpx mock response
+        # Setup httpx mock response on shared http_client
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "summary": {"message": {"content": "Hello from endpoint"}}
         }
-
-        # Use AsyncMock for async context manager
-        mock_client_instance = AsyncMock()
-        mock_client_instance.post.return_value = mock_response
-        mock_async_client.return_value.__aenter__.return_value = mock_client_instance
+        self._mock_http_client.post.return_value = mock_response
 
         # Make request
         response = client.post(
@@ -1118,7 +1121,6 @@ class TestInvokeOwnerEndpoint:
         assert "no domain configured" in response.json()["detail"]
 
     @patch("syfthub.main.validate_domain_for_ssrf")
-    @patch("syfthub.main.httpx.AsyncClient")
     @patch("syfthub.main.get_endpoint_by_owner_and_slug")
     @patch("syfthub.main.resolve_owner")
     @patch("syfthub.main.get_optional_current_user")
@@ -1127,7 +1129,6 @@ class TestInvokeOwnerEndpoint:
         mock_get_user,
         mock_resolve,
         mock_get_endpoint,
-        mock_async_client,
         mock_ssrf_check,
         client,
         mock_endpoint_with_connection,
@@ -1138,10 +1139,8 @@ class TestInvokeOwnerEndpoint:
         mock_resolve.return_value = (mock_user, "user")
         mock_get_endpoint.return_value = mock_endpoint_with_connection
 
-        # Simulate timeout with AsyncMock
-        mock_client_instance = AsyncMock()
-        mock_client_instance.post.side_effect = httpx.TimeoutException("Timeout")
-        mock_async_client.return_value.__aenter__.return_value = mock_client_instance
+        # Simulate timeout on shared http_client
+        self._mock_http_client.post.side_effect = httpx.TimeoutException("Timeout")
 
         response = client.post(
             "/testuser/test-model",
@@ -1152,7 +1151,6 @@ class TestInvokeOwnerEndpoint:
         assert "timed out" in response.json()["detail"]
 
     @patch("syfthub.main.validate_domain_for_ssrf")
-    @patch("syfthub.main.httpx.AsyncClient")
     @patch("syfthub.main.get_endpoint_by_owner_and_slug")
     @patch("syfthub.main.resolve_owner")
     @patch("syfthub.main.get_optional_current_user")
@@ -1161,7 +1159,6 @@ class TestInvokeOwnerEndpoint:
         mock_get_user,
         mock_resolve,
         mock_get_endpoint,
-        mock_async_client,
         mock_ssrf_check,
         client,
         mock_endpoint_with_connection,
@@ -1172,10 +1169,10 @@ class TestInvokeOwnerEndpoint:
         mock_resolve.return_value = (mock_user, "user")
         mock_get_endpoint.return_value = mock_endpoint_with_connection
 
-        # Simulate connection error with AsyncMock
-        mock_client_instance = AsyncMock()
-        mock_client_instance.post.side_effect = httpx.RequestError("Connection refused")
-        mock_async_client.return_value.__aenter__.return_value = mock_client_instance
+        # Simulate connection error on shared http_client
+        self._mock_http_client.post.side_effect = httpx.RequestError(
+            "Connection refused"
+        )
 
         response = client.post(
             "/testuser/test-model",
@@ -1186,7 +1183,6 @@ class TestInvokeOwnerEndpoint:
         assert "Failed to connect" in response.json()["detail"]
 
     @patch("syfthub.main.validate_domain_for_ssrf")
-    @patch("syfthub.main.httpx.AsyncClient")
     @patch("syfthub.main.get_endpoint_by_owner_and_slug")
     @patch("syfthub.main.resolve_owner")
     @patch("syfthub.main.get_optional_current_user")
@@ -1195,7 +1191,6 @@ class TestInvokeOwnerEndpoint:
         mock_get_user,
         mock_resolve,
         mock_get_endpoint,
-        mock_async_client,
         mock_ssrf_check,
         client,
         mock_endpoint_with_connection,
@@ -1206,14 +1201,11 @@ class TestInvokeOwnerEndpoint:
         mock_resolve.return_value = (mock_user, "user")
         mock_get_endpoint.return_value = mock_endpoint_with_connection
 
-        # Simulate 403 response
+        # Simulate 403 response on shared http_client
         mock_response = Mock()
         mock_response.status_code = 403
         mock_response.json.return_value = {"detail": "User not in visibility list"}
-
-        mock_client_instance = AsyncMock()
-        mock_client_instance.post.return_value = mock_response
-        mock_async_client.return_value.__aenter__.return_value = mock_client_instance
+        self._mock_http_client.post.return_value = mock_response
 
         response = client.post(
             "/testuser/test-model",
@@ -1224,7 +1216,6 @@ class TestInvokeOwnerEndpoint:
         assert "denied access" in response.json()["detail"]
 
     @patch("syfthub.main.validate_domain_for_ssrf")
-    @patch("syfthub.main.httpx.AsyncClient")
     @patch("syfthub.main.get_endpoint_by_owner_and_slug")
     @patch("syfthub.main.resolve_owner")
     @patch("syfthub.main.get_optional_current_user")
@@ -1233,7 +1224,6 @@ class TestInvokeOwnerEndpoint:
         mock_get_user,
         mock_resolve,
         mock_get_endpoint,
-        mock_async_client,
         mock_ssrf_check,
         client,
         mock_endpoint_with_connection,
@@ -1244,15 +1234,12 @@ class TestInvokeOwnerEndpoint:
         mock_resolve.return_value = (mock_user, "user")
         mock_get_endpoint.return_value = mock_endpoint_with_connection
 
-        # Simulate 500 response
+        # Simulate 500 response on shared http_client
         mock_response = Mock()
         mock_response.status_code = 500
         mock_response.json.return_value = {"detail": "Internal server error"}
         mock_response.text = "Internal server error"
-
-        mock_client_instance = AsyncMock()
-        mock_client_instance.post.return_value = mock_response
-        mock_async_client.return_value.__aenter__.return_value = mock_client_instance
+        self._mock_http_client.post.return_value = mock_response
 
         response = client.post(
             "/testuser/test-model",
@@ -1260,7 +1247,7 @@ class TestInvokeOwnerEndpoint:
         )
 
         assert response.status_code == 500
-        assert "Target endpoint error" in response.json()["detail"]
+        assert "Target endpoint returned an error" in response.json()["detail"]
 
     @patch("syfthub.main.validate_domain_for_ssrf")
     @patch("syfthub.main.get_endpoint_by_owner_and_slug")

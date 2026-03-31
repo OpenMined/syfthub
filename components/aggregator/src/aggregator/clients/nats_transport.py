@@ -71,12 +71,14 @@ class NATSTransport:
         nats_auth_token: str | None = None,
         backend_url: str | None = None,
         default_timeout: float = 30.0,
+        http_client: httpx.AsyncClient | None = None,
     ):
         settings = get_settings()
         self._nats_url = nats_url or settings.nats_url
         self._nats_auth_token = nats_auth_token or settings.nats_auth_token
         self._backend_url = (backend_url or settings.syfthub_url).rstrip("/")
         self._default_timeout = default_timeout
+        self._http_client = http_client
         self._nc: NATSClient | None = None
         self._lock = asyncio.Lock()
         # Key cache: username -> (public_key_b64, fetched_at_timestamp)
@@ -129,39 +131,43 @@ class NATSTransport:
                 return key_b64
 
         url = f"{self._backend_url}/api/v1/nats/encryption-key/{username}"
+        client = self._http_client or httpx.AsyncClient(timeout=self._default_timeout)
         try:
-            async with httpx.AsyncClient(timeout=self._default_timeout) as client:
-                resp = await client.get(url)
-        except httpx.RequestError as exc:
-            raise NATSTransportError(
-                f"Failed to fetch encryption key for {username}: {exc}",
-                code="ENCRYPTION_KEY_FETCH_FAILED",
-            ) from exc
+            try:
+                resp = await client.get(url, timeout=self._default_timeout)
+            except httpx.RequestError as exc:
+                raise NATSTransportError(
+                    f"Failed to fetch encryption key for {username}: {exc}",
+                    code="ENCRYPTION_KEY_FETCH_FAILED",
+                ) from exc
 
-        if resp.status_code == 404:
-            raise NATSTransportError(
-                f"Space '{username}' not found or has not registered an encryption key",
-                code="ENCRYPTION_KEY_MISSING",
-            )
-        if resp.status_code != 200:
-            raise NATSTransportError(
-                f"Unexpected response fetching encryption key for {username}: HTTP {resp.status_code}",
-                code="ENCRYPTION_KEY_FETCH_FAILED",
-            )
+            if resp.status_code == 404:
+                raise NATSTransportError(
+                    f"Space '{username}' not found or has not registered an encryption key",
+                    code="ENCRYPTION_KEY_MISSING",
+                )
+            if resp.status_code != 200:
+                raise NATSTransportError(
+                    f"Unexpected response fetching encryption key for {username}: HTTP {resp.status_code}",
+                    code="ENCRYPTION_KEY_FETCH_FAILED",
+                )
 
-        data = resp.json()
-        raw_key = data.get("encryption_public_key")
-        if not raw_key:
-            raise NATSTransportError(
-                f"Space '{username}' has not registered an encryption key. "
-                "The space must call PUT /api/v1/nats/encryption-key on startup.",
-                code="ENCRYPTION_KEY_MISSING",
-            )
+            data = resp.json()
+            raw_key = data.get("encryption_public_key")
+            if not raw_key:
+                raise NATSTransportError(
+                    f"Space '{username}' has not registered an encryption key. "
+                    "The space must call PUT /api/v1/nats/encryption-key on startup.",
+                    code="ENCRYPTION_KEY_MISSING",
+                )
 
-        key_b64 = str(raw_key)
-        # Cache the key
-        self._key_cache[username] = (key_b64, now)
-        return key_b64
+            key_b64 = str(raw_key)
+            # Cache the key
+            self._key_cache[username] = (key_b64, now)
+            return key_b64
+        finally:
+            if not self._http_client:
+                await client.aclose()
 
     def _evict_key_cache(self, username: str) -> None:
         """Evict a cached key (called after decryption failure to force re-fetch)."""

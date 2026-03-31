@@ -34,9 +34,10 @@ class EndpointAccessDeniedError(SyftHubClientError):
 class SyftHubClient:
     """Client for interacting with SyftHub to resolve endpoint details."""
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, http_client: httpx.AsyncClient | None = None):
         self.base_url = settings.syfthub_url.rstrip("/")
         self.timeout = httpx.Timeout(10.0)
+        self.http_client = http_client
 
     async def resolve_endpoint(
         self,
@@ -68,36 +69,39 @@ class SyftHubClient:
 
         url = f"{self.base_url}/{path}"
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                response = await client.get(url, headers=headers)
+        client = self.http_client or httpx.AsyncClient(timeout=self.timeout)
+        try:
+            response = await client.get(url, headers=headers, timeout=self.timeout)
 
-                if response.status_code == 404:
-                    raise EndpointNotFoundError(
-                        f"Endpoint not found: {path}",
-                        status_code=404,
-                    )
+            if response.status_code == 404:
+                raise EndpointNotFoundError(
+                    f"Endpoint not found: {path}",
+                    status_code=404,
+                )
 
-                if response.status_code in (401, 403):
-                    raise EndpointAccessDeniedError(
-                        f"Access denied to endpoint: {path}",
-                        status_code=response.status_code,
-                    )
+            if response.status_code in (401, 403):
+                raise EndpointAccessDeniedError(
+                    f"Access denied to endpoint: {path}",
+                    status_code=response.status_code,
+                )
 
-                response.raise_for_status()
-                data = response.json()
+            response.raise_for_status()
+            data = response.json()
 
-                return self._parse_endpoint_response(path, data)
+            return self._parse_endpoint_response(path, data)
 
-            except httpx.TimeoutException as e:
-                raise SyftHubClientError(f"Timeout resolving endpoint: {path}") from e
-            except httpx.HTTPStatusError as e:
-                raise SyftHubClientError(
-                    f"HTTP error resolving endpoint: {e.response.status_code}",
-                    status_code=e.response.status_code,
-                ) from e
-            except httpx.RequestError as e:
-                raise SyftHubClientError(f"Network error resolving endpoint: {path}") from e
+        except httpx.TimeoutException as e:
+            raise SyftHubClientError(f"Timeout resolving endpoint: {path}") from e
+        except httpx.HTTPStatusError as e:
+            raise SyftHubClientError(
+                f"HTTP error resolving endpoint: {e.response.status_code}",
+                status_code=e.response.status_code,
+            ) from e
+        except httpx.RequestError as e:
+            raise SyftHubClientError(f"Network error resolving endpoint: {path}") from e
+        finally:
+            if not self.http_client:
+                await client.aclose()
 
     def _parse_endpoint_response(self, path: str, data: dict[str, Any]) -> ResolvedEndpoint:
         """Parse SyftHub endpoint response to extract connection URL."""
@@ -153,9 +157,12 @@ class SyftHubClient:
 
     async def health_check(self) -> bool:
         """Check if SyftHub is reachable."""
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            try:
-                response = await client.get(f"{self.base_url}/health")
-                return response.status_code == 200
-            except httpx.RequestError:
-                return False
+        client = self.http_client or httpx.AsyncClient(timeout=self.timeout)
+        try:
+            response = await client.get(f"{self.base_url}/health", timeout=self.timeout)
+            return response.status_code == 200
+        except httpx.RequestError:
+            return False
+        finally:
+            if not self.http_client:
+                await client.aclose()
