@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 
 from sqlalchemy.orm import Session
 
+from syfthub.auth.security import decrypt_field
 from syfthub.repositories import (
     EndpointRepository,
     UserRepository,
@@ -238,7 +239,7 @@ class TestUserRepository:
     def test_update_user_accounting_fields(
         self, test_session: Session, sample_user_data: dict
     ):
-        """update_user sets is_active, accounting_service_url and accounting_password."""
+        """update_user sets is_active, accounting_service_url and accounting_password_encrypted."""
         user_repo = UserRepository(test_session)
         user = user_repo.create(sample_user_data)
 
@@ -254,7 +255,8 @@ class TestUserRepository:
         assert result is not None
         assert result.is_active is False
         assert result.accounting_service_url == "https://accounting.example.com"
-        assert result.accounting_password == "acc_secret"
+        assert result.accounting_password_encrypted is not None
+        assert decrypt_field(result.accounting_password_encrypted) == "acc_secret"
 
     def test_update_password_not_found(self, test_session: Session):
         """update_password returns False when user ID does not exist."""

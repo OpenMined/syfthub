@@ -62,8 +62,8 @@ class User(UserBase):
     accounting_service_url: Optional[str] = Field(
         None, description="URL to external accounting service"
     )
-    accounting_password: Optional[str] = Field(
-        None, description="Password for external accounting service"
+    accounting_password_encrypted: Optional[str] = Field(
+        None, description="Fernet-encrypted password for external accounting service"
     )
     # Domain with protocol for dynamic endpoint URL construction
     domain: Optional[str] = Field(
@@ -153,7 +153,9 @@ class UserUpdate(BaseModel):
         None, max_length=500, description="URL to external accounting service"
     )
     accounting_password: Optional[str] = Field(
-        None, max_length=255, description="Password for external accounting service"
+        None,
+        max_length=255,
+        description="Password for external accounting service (will be encrypted at rest)",
     )
     # Domain with protocol for dynamic endpoint URL construction
     domain: Optional[str] = Field(

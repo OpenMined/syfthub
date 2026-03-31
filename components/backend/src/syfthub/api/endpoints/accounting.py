@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from syfthub.auth.db_dependencies import get_current_active_user
+from syfthub.auth.security import decrypt_field
 from syfthub.database.dependencies import get_user_repository
 from syfthub.observability.logger import get_logger
 from syfthub.repositories.user import UserRepository
@@ -160,16 +161,19 @@ def _handle_upstream_error(response: Any, default_msg: str) -> None:
 def get_accounting_client(user: User) -> tuple[AccountingClient, str]:
     """Get an accounting client configured with user's credentials.
 
+    Decrypts the stored accounting password so it can be used for
+    HTTP Basic Auth against the external accounting service.
+
     Args:
         user: The current user with accounting credentials
 
     Returns:
-        Tuple of (AccountingClient, validated_password)
+        Tuple of (AccountingClient, decrypted_password)
 
     Raises:
         HTTPException: If accounting is not configured for the user
     """
-    if not user.accounting_service_url or not user.accounting_password:
+    if not user.accounting_service_url or not user.accounting_password_encrypted:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
@@ -177,7 +181,22 @@ def get_accounting_client(user: User) -> tuple[AccountingClient, str]:
                 "message": "Accounting not configured. Please set up billing in settings.",
             },
         )
-    return AccountingClient(user.accounting_service_url), user.accounting_password
+    try:
+        plaintext_password = decrypt_field(user.accounting_password_encrypted)
+    except Exception:
+        logger.error(
+            "accounting.decrypt_failed",
+            user_id=user.id,
+            msg="Failed to decrypt accounting password — key may have rotated",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "code": "ACCOUNTING_DECRYPT_ERROR",
+                "message": "Failed to decrypt accounting credentials. Contact support.",
+            },
+        ) from None
+    return AccountingClient(user.accounting_service_url), plaintext_password
 
 
 # =============================================================================
@@ -467,7 +486,10 @@ async def create_transaction_tokens(
         TransactionTokensResponse with tokens and any errors
     """
     # Check if current user has accounting configured
-    if not current_user.accounting_service_url or not current_user.accounting_password:
+    if (
+        not current_user.accounting_service_url
+        or not current_user.accounting_password_encrypted
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
@@ -476,8 +498,23 @@ async def create_transaction_tokens(
             },
         )
 
+    try:
+        password = decrypt_field(current_user.accounting_password_encrypted)
+    except Exception:
+        logger.error(
+            "accounting.decrypt_failed",
+            user_id=current_user.id,
+            msg="Failed to decrypt accounting password",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "code": "ACCOUNTING_DECRYPT_ERROR",
+                "message": "Failed to decrypt accounting credentials. Contact support.",
+            },
+        ) from None
+
     client = AccountingClient(current_user.accounting_service_url)
-    password = current_user.accounting_password
 
     tokens: dict[str, str] = {}
     errors: dict[str, str] = {}

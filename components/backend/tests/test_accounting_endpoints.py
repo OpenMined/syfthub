@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from syfthub.auth.db_dependencies import get_current_active_user
+from syfthub.auth.security import encrypt_field
 from syfthub.database.dependencies import get_user_repository
 from syfthub.main import app
 from syfthub.schemas.auth import UserRole
@@ -33,7 +34,7 @@ def mock_user() -> User:
         password_hash="hash",
         is_active=True,
         accounting_service_url="https://accounting.example.com",
-        accounting_password="test-password",
+        accounting_password_encrypted=encrypt_field("test-password"),
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -52,7 +53,7 @@ def mock_user_no_accounting() -> User:
         password_hash="hash",
         is_active=True,
         accounting_service_url=None,
-        accounting_password=None,
+        accounting_password_encrypted=None,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )

@@ -30,21 +30,23 @@ class Settings(BaseSettings):
     workers: int = 1
 
     # CORS settings - using string to avoid JSON parsing issues
-    cors_origins_str: str = Field(default="*", alias="cors_origins")
+    cors_origins_str: str = Field(
+        default="http://localhost:3000,http://localhost:8080", alias="cors_origins"
+    )
 
     @field_validator("cors_origins_str", mode="before")
     @classmethod
     def validate_cors_origins(cls, v: Any) -> str:
         """Validate CORS origins environment variable."""
         if v is None or v == "":
-            return "*"
+            return "http://localhost:3000,http://localhost:8080"
         return str(v)
 
     @property
     def cors_origins(self) -> list[str]:
         """Get parsed CORS origins as list."""
         if not self.cors_origins_str or self.cors_origins_str.strip() == "":
-            return ["*"]
+            return ["http://localhost:3000", "http://localhost:8080"]
 
         # Handle comma-separated string
         if "," in self.cors_origins_str:
@@ -56,13 +58,23 @@ class Settings(BaseSettings):
 
         # Single origin
         return (
-            [self.cors_origins_str.strip()] if self.cors_origins_str.strip() else ["*"]
+            [self.cors_origins_str.strip()]
+            if self.cors_origins_str.strip()
+            else ["http://localhost:3000", "http://localhost:8080"]
         )
 
     # Security settings
     secret_key: str = "your-secret-key-here-change-in-production"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 7
+
+    # Encryption key for sensitive fields (Fernet key, base64-encoded 32 bytes).
+    # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # If unset, a deterministic key is derived from secret_key (NOT recommended for production).
+    accounting_encryption_key: Optional[str] = Field(
+        default=None,
+        description="Fernet encryption key for accounting passwords. Generate with Fernet.generate_key().",
+    )
 
     # Password settings
     password_min_length: int = 8

@@ -48,9 +48,11 @@ class ModelClient:
         self,
         timeout: float = 120.0,
         error_reporter: ErrorReporter | None = None,
+        http_client: httpx.AsyncClient | None = None,
     ):
         self.timeout = httpx.Timeout(timeout)
         self.error_reporter = error_reporter
+        self.http_client = http_client
 
     async def chat(
         self,
@@ -125,13 +127,15 @@ class ModelClient:
 
         last_error: ModelClientError | None = None
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        client = self.http_client or httpx.AsyncClient(timeout=self.timeout)
+        try:
             for attempt in range(1 + MAX_RETRIES):
                 try:
                     response = await client.post(
                         chat_url,
                         json=request_data,
                         headers=headers,
+                        timeout=self.timeout,
                     )
 
                     latency_ms = int((time.perf_counter() - start_time) * 1000)
@@ -258,8 +262,12 @@ class ModelClient:
                     logger.warning(LogEvents.MODEL_QUERY_FAILED, chat_url=chat_url, error=str(e))
                     raise ModelClientError(f"Network error: {e}") from e
 
-        # All retries exhausted
-        raise last_error or ModelClientError("Model request failed after retries")
+            # All retries exhausted
+            raise last_error or ModelClientError("Model request failed after retries")
+        finally:
+            # Close the client only if we created it (not the shared one)
+            if not self.http_client:
+                await client.aclose()
 
     async def chat_stream(
         self,
@@ -332,13 +340,15 @@ class ModelClient:
             max_tokens=max_tokens,
         )
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        client = self.http_client or httpx.AsyncClient(timeout=self.timeout)
+        try:
             try:
                 async with client.stream(
                     "POST",
                     chat_url,
                     json=request_data,
                     headers=headers,
+                    timeout=self.timeout,
                 ) as response:
                     if response.status_code == 403:
                         error_text = await response.aread()
@@ -413,6 +423,10 @@ class ModelClient:
             except httpx.RequestError as e:
                 logger.warning(LogEvents.SSE_STREAM_FAILED, chat_url=chat_url, error=str(e))
                 raise ModelClientError(f"Network error during stream: {e}") from e
+        finally:
+            # Close the client only if we created it (not the shared one)
+            if not self.http_client:
+                await client.aclose()
 
     def _report_upstream_error(
         self,

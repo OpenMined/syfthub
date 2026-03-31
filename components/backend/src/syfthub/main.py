@@ -325,8 +325,12 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     otp_cleanup = OTPCleanupJob(settings)
     otp_cleanup_task = asyncio.create_task(otp_cleanup.start())
 
-    # Create a shared httpx client for the proxy endpoint (connection pooling)
-    _app.state.http_client = httpx.AsyncClient()
+    # Create shared httpx client for outbound requests
+    _app.state.http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(30.0),
+        limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+    )
+    logger.info("Shared HTTP client initialized")
 
     yield
 
@@ -334,6 +338,10 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     await _app.state.http_client.aclose()
 
     # Shutdown
+    # Close shared httpx client
+    await _app.state.http_client.aclose()
+    logger.info("Shared HTTP client closed")
+
     if health_monitor and health_monitor_task:
         logger.info("Stopping Endpoint Health Monitor...")
         await health_monitor.stop()
@@ -370,6 +378,11 @@ app = FastAPI(
 )
 
 # Configure CORS
+if "*" in settings.cors_origins:
+    logger.warning(
+        "CORS configured with wildcard origin and credentials enabled. "
+        "This is insecure for production. Set CORS_ORIGINS to specific origins."
+    )
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -804,9 +817,14 @@ async def invoke_owner_endpoint(
             except Exception:
                 error_detail = response.text[:200] or f"HTTP {response.status_code}"
 
+            logger.warning(
+                "Target endpoint error (status=%s): %s",
+                response.status_code,
+                error_detail,
+            )
             raise HTTPException(
                 status_code=response.status_code,
-                detail=f"Target endpoint error: {error_detail}",
+                detail="Target endpoint returned an error",
             )
 
     except httpx.TimeoutException:
@@ -818,9 +836,10 @@ async def invoke_owner_endpoint(
 
     except httpx.RequestError as e:
         latency_ms = int((time.perf_counter() - start_time) * 1000)
+        logger.warning("Failed to connect to target endpoint: %s", e)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to connect to target endpoint: {e}",
+            detail="Failed to connect to target endpoint",
         ) from None
 
     except HTTPException:
