@@ -45,7 +45,7 @@ func (s *Server) handleListPackages(w http.ResponseWriter, r *http.Request) {
 
 	// Compute download URLs
 	for i := range packages {
-		packages[i].DownloadURL = fmt.Sprintf("%s/api/v1/packages/%s/download", s.baseURL, packages[i].Slug)
+		packages[i].DownloadURL = fmt.Sprintf("%s/api/v1/packages/%s/download", s.config.BaseURL, packages[i].Slug)
 	}
 
 	writeJSON(w, http.StatusOK, PackageListResponse{
@@ -64,7 +64,7 @@ func (s *Server) handleGetPackage(w http.ResponseWriter, r *http.Request) {
 		writeErrorResponse(w, err)
 		return
 	}
-	pkg.DownloadURL = fmt.Sprintf("%s/api/v1/packages/%s/download", s.baseURL, pkg.Slug)
+	pkg.DownloadURL = fmt.Sprintf("%s/api/v1/packages/%s/download", s.config.BaseURL, pkg.Slug)
 	writeJSON(w, http.StatusOK, pkg)
 }
 
@@ -104,7 +104,7 @@ func (s *Server) handleCreatePackage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pkg.DownloadURL = fmt.Sprintf("%s/api/v1/packages/%s/download", s.baseURL, pkg.Slug)
+	pkg.DownloadURL = fmt.Sprintf("%s/api/v1/packages/%s/download", s.config.BaseURL, pkg.Slug)
 
 	w.Header().Set("Location", fmt.Sprintf("/api/v1/packages/%s", pkg.Slug))
 	writeJSON(w, http.StatusCreated, pkg)
@@ -147,7 +147,7 @@ func (s *Server) handleUploadPackageZip(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	pkg.DownloadURL = fmt.Sprintf("%s/api/v1/packages/%s/download", s.baseURL, pkg.Slug)
+	pkg.DownloadURL = fmt.Sprintf("%s/api/v1/packages/%s/download", s.config.BaseURL, pkg.Slug)
 	writeJSON(w, http.StatusOK, pkg)
 }
 
@@ -172,7 +172,7 @@ func (s *Server) handleUpdatePackage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pkg.DownloadURL = fmt.Sprintf("%s/api/v1/packages/%s/download", s.baseURL, pkg.Slug)
+	pkg.DownloadURL = fmt.Sprintf("%s/api/v1/packages/%s/download", s.config.BaseURL, pkg.Slug)
 	writeJSON(w, http.StatusOK, pkg)
 }
 
@@ -231,7 +231,7 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 			Type:        p.Type,
 			Author:      p.Author,
 			Version:     p.Version,
-			DownloadURL: fmt.Sprintf("%s/packages/%s.zip", s.baseURL, p.Slug),
+			DownloadURL: fmt.Sprintf("%s/packages/%s.zip", s.config.BaseURL, p.Slug),
 			Tags:        p.Tags,
 			Config:      p.Config,
 		}

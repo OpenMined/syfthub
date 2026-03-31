@@ -1,26 +1,31 @@
 package main
 
 import (
+	"crypto/subtle"
 	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 )
 
 // Config holds the server configuration.
 type Config struct {
-	Port    string
-	Host    string
-	DBPath  string
-	BaseURL string
+	Port       string
+	Host       string
+	DBPath     string
+	BaseURL    string
+	AdminToken string
 }
 
 // Option is a functional option for Config.
 type Option func(*Config)
 
-func WithPort(port string) Option    { return func(c *Config) { c.Port = port } }
-func WithHost(host string) Option    { return func(c *Config) { c.Host = host } }
-func WithDBPath(path string) Option  { return func(c *Config) { c.DBPath = path } }
-func WithBaseURL(url string) Option  { return func(c *Config) { c.BaseURL = url } }
+func WithPort(port string) Option       { return func(c *Config) { c.Port = port } }
+func WithHost(host string) Option       { return func(c *Config) { c.Host = host } }
+func WithDBPath(path string) Option     { return func(c *Config) { c.DBPath = path } }
+func WithBaseURL(url string) Option     { return func(c *Config) { c.BaseURL = url } }
+func WithAdminToken(token string) Option { return func(c *Config) { c.AdminToken = token } }
 
 // DefaultConfig returns sensible defaults.
 func DefaultConfig() Config {
@@ -34,35 +39,50 @@ func DefaultConfig() Config {
 
 // LoadConfigFromEnv overrides config fields from environment variables.
 func LoadConfigFromEnv(cfg *Config) {
-	if v := getenv("MARKETPLACE_PORT"); v != "" {
+	if v := os.Getenv("MARKETPLACE_PORT"); v != "" {
 		cfg.Port = v
 	}
-	if v := getenv("MARKETPLACE_HOST"); v != "" {
+	if v := os.Getenv("MARKETPLACE_HOST"); v != "" {
 		cfg.Host = v
 	}
-	if v := getenv("MARKETPLACE_DB_PATH"); v != "" {
+	if v := os.Getenv("MARKETPLACE_DB_PATH"); v != "" {
 		cfg.DBPath = v
 	}
-	if v := getenv("MARKETPLACE_BASE_URL"); v != "" {
+	if v := os.Getenv("MARKETPLACE_BASE_URL"); v != "" {
 		cfg.BaseURL = v
+	}
+	if v := os.Getenv("MARKETPLACE_ADMIN_TOKEN"); v != "" {
+		cfg.AdminToken = v
 	}
 }
 
 // Server is the marketplace HTTP server.
 type Server struct {
-	store   *Store
-	logger  *slog.Logger
-	baseURL string
-	config  Config
+	store  *Store
+	logger *slog.Logger
+	config Config
 }
 
 // NewServer creates a new Server.
 func NewServer(store *Store, logger *slog.Logger, cfg Config) *Server {
 	return &Server{
-		store:   store,
-		logger:  logger,
-		baseURL: cfg.BaseURL,
-		config:  cfg,
+		store:  store,
+		logger: logger,
+		config: cfg,
+	}
+}
+
+// requireAuth wraps a handler and enforces Bearer token authentication.
+// Requests must include "Authorization: Bearer <MARKETPLACE_ADMIN_TOKEN>".
+func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") ||
+			subtle.ConstantTimeCompare([]byte(strings.TrimPrefix(auth, "Bearer ")), []byte(s.config.AdminToken)) != 1 {
+			writeProblem(w, http.StatusUnauthorized, "Unauthorized", "valid Bearer token required")
+			return
+		}
+		next(w, r)
 	}
 }
 
@@ -74,10 +94,10 @@ func (s *Server) NewHTTPServer() *http.Server {
 	mux.HandleFunc("GET /health", s.handleHealth)
 	mux.HandleFunc("GET /api/v1/packages", s.handleListPackages)
 	mux.HandleFunc("GET /api/v1/packages/{slug}", s.handleGetPackage)
-	mux.HandleFunc("POST /api/v1/packages", s.handleCreatePackage)
-	mux.HandleFunc("PATCH /api/v1/packages/{slug}", s.handleUpdatePackage)
-	mux.HandleFunc("DELETE /api/v1/packages/{slug}", s.handleDeletePackage)
-	mux.HandleFunc("PUT /api/v1/packages/{slug}/upload", s.handleUploadPackageZip)
+	mux.HandleFunc("POST /api/v1/packages", s.requireAuth(s.handleCreatePackage))
+	mux.HandleFunc("PATCH /api/v1/packages/{slug}", s.requireAuth(s.handleUpdatePackage))
+	mux.HandleFunc("DELETE /api/v1/packages/{slug}", s.requireAuth(s.handleDeletePackage))
+	mux.HandleFunc("PUT /api/v1/packages/{slug}/upload", s.requireAuth(s.handleUploadPackageZip))
 	mux.HandleFunc("GET /api/v1/packages/{slug}/download", s.handleDownloadPackage)
 
 	// Legacy routes (desktop app compat)

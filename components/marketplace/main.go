@@ -19,6 +19,11 @@ func main() {
 	cfg := DefaultConfig()
 	LoadConfigFromEnv(&cfg)
 
+	if cfg.AdminToken == "" {
+		slog.Error("MARKETPLACE_ADMIN_TOKEN must be set")
+		os.Exit(1)
+	}
+
 	slog.Info("starting marketplace server",
 		"host", cfg.Host,
 		"port", cfg.Port,
@@ -71,9 +76,4 @@ func main() {
 	}
 
 	slog.Info("server stopped")
-}
-
-// getenv is a helper for reading environment variables (used by server.go).
-func getenv(key string) string {
-	return os.Getenv(key)
 }
