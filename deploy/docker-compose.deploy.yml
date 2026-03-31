@@ -14,6 +14,7 @@
 #
 # Optional environment variables:
 #   - MEILI_MASTER_KEY: Meilisearch master key for search (required in production)
+#   - MARKETPLACE_ADMIN_TOKEN: Static Bearer token for marketplace write operations (upload, create, update, delete)
 #   - NGROK_API_KEY: ngrok API key for tunnel credential provisioning
 #
 # RSA Key Generation (required for satellite token signing):
@@ -315,6 +316,7 @@ services:
       - MARKETPLACE_HOST=0.0.0.0
       - MARKETPLACE_DB_PATH=/data/marketplace.db
       - MARKETPLACE_BASE_URL=https://${DOMAIN:-localhost}/marketplace
+      - MARKETPLACE_ADMIN_TOKEN=${MARKETPLACE_ADMIN_TOKEN}
     networks:
       - syfthub-network
     healthcheck:

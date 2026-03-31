@@ -292,6 +292,7 @@ services:
       - MARKETPLACE_HOST=0.0.0.0
       - MARKETPLACE_DB_PATH=/data/marketplace.db
       - MARKETPLACE_BASE_URL=http://localhost:8080/marketplace
+      - MARKETPLACE_ADMIN_TOKEN=${MARKETPLACE_ADMIN_TOKEN:-dev-marketplace-token}
     networks:
       - syfthub-network
     healthcheck:
