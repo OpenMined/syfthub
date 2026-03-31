@@ -196,6 +196,11 @@ module = "mpp.*"
 ignore_missing_imports = true
 ignore_errors = true
 
+# eth_account has no type stubs
+[[tool.mypy.overrides]]
+module = "eth_account.*"
+ignore_missing_imports = true
+
 # Wallet endpoints use untyped MPP SDK imports
 [[tool.mypy.overrides]]
 module = "syfthub.api.endpoints.wallet"

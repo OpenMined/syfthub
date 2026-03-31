@@ -640,14 +640,13 @@ class TestGoogleLogin:
         assert result.user["username"] == "guser"
 
     def test_login_links_existing_email_account(self, auth_service):
-        """User found by email (but not google_id) gets google account linked."""
+        """User found by email (but not google_id) gets 409 — must link manually."""
         mock_idinfo = {
             "sub": "gid-new",
             "email": "existing@example.com",
             "name": "Existing User",
         }
         existing_by_email = self._make_user(email="existing@example.com")
-        refreshed_user = self._make_user(email="existing@example.com")
 
         with (
             patch.object(
@@ -661,28 +660,11 @@ class TestGoogleLogin:
                 "get_by_email",
                 return_value=existing_by_email,
             ),
-            patch.object(
-                auth_service.user_repository,
-                "link_google_account",
-                return_value=True,
-            ),
-            patch.object(
-                auth_service.user_repository,
-                "get_by_id",
-                return_value=refreshed_user,
-            ),
-            patch(
-                "syfthub.services.auth_service.create_access_token",
-                return_value="access",
-            ),
-            patch(
-                "syfthub.services.auth_service.create_refresh_token",
-                return_value="refresh",
-            ),
+            pytest.raises(HTTPException) as exc_info,
         ):
-            result = auth_service.google_login("google_credential")
+            auth_service.google_login("fake-credential")
 
-        assert result.access_token == "access"
+        assert exc_info.value.status_code == 409
 
     def test_login_creates_new_user(self, auth_service):
         """No existing user → new account is created."""

@@ -49,9 +49,11 @@ class ModelClient:
         self,
         timeout: float = 120.0,
         error_reporter: ErrorReporter | None = None,
+        http_client: httpx.AsyncClient | None = None,
     ):
         self.timeout = httpx.Timeout(timeout)
         self.error_reporter = error_reporter
+        self.http_client = http_client
 
     async def chat(
         self,
@@ -127,13 +129,15 @@ class ModelClient:
 
         last_error: ModelClientError | None = None
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        client = self.http_client or httpx.AsyncClient(timeout=self.timeout)
+        try:
             for attempt in range(1 + MAX_RETRIES):
                 try:
                     response = await client.post(
                         chat_url,
                         json=request_data,
                         headers=headers,
+                        timeout=self.timeout,
                     )
 
                     # Handle MPP 402 Payment Required
@@ -299,8 +303,12 @@ class ModelClient:
                         "Check that the endpoint's public URL is correct in Settings."
                     ) from e
 
-        # All retries exhausted
-        raise last_error or ModelClientError("Model request failed after retries")
+            # All retries exhausted
+            raise last_error or ModelClientError("Model request failed after retries")
+        finally:
+            # Close the client only if we created it (not the shared one)
+            if not self.http_client:
+                await client.aclose()
 
     async def chat_stream(
         self,
@@ -379,7 +387,8 @@ class ModelClient:
         extra_headers: dict[str, str] = {}
         if user_token and syfthub_url:
             # Make a quick non-streaming request to check for 402
-            async with httpx.AsyncClient(timeout=self.timeout) as probe_client:
+            probe_client = self.http_client or httpx.AsyncClient(timeout=self.timeout)
+            try:
                 probe_data = {**request_data, "stream": False}
                 probe_response = await probe_client.post(chat_url, json=probe_data, headers=headers)
                 if probe_response.status_code == 402:
@@ -410,16 +419,21 @@ class ModelClient:
                                 f"Payment failed: {pay_err}",
                                 status_code=402,
                             ) from pay_err
+            finally:
+                if not self.http_client:
+                    await probe_client.aclose()
 
         stream_headers = {**headers, **extra_headers}
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        client = self.http_client or httpx.AsyncClient(timeout=self.timeout)
+        try:
             try:
                 async with client.stream(
                     "POST",
                     chat_url,
                     json=request_data,
                     headers=stream_headers,
+                    timeout=self.timeout,
                 ) as response:
                     if response.status_code == 403:
                         error_text = await response.aread()
@@ -497,6 +511,10 @@ class ModelClient:
                     f"Cannot reach model at {chat_url}: {e}. "
                     "Check that the endpoint's public URL is correct in Settings."
                 ) from e
+        finally:
+            # Close the client only if we created it (not the shared one)
+            if not self.http_client:
+                await client.aclose()
 
     def _report_upstream_error(
         self,

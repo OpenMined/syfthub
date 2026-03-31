@@ -4,7 +4,7 @@ import logging
 from typing import Annotated, Union
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from syfthub.auth.db_dependencies import (
     OwnershipChecker,
@@ -61,6 +61,7 @@ async def get_current_user_profile(
 
 @router.get("/me/tunnel-credentials", response_model=TunnelCredentialsResponse)
 async def get_tunnel_credentials(
+    request: Request,
     current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> TunnelCredentialsResponse:
     """Get tunnel credentials for the authenticated user.
@@ -78,19 +79,19 @@ async def get_tunnel_credentials(
     domain = f"{current_user.username}.{settings.ngrok_base_domain}"
 
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                "https://api.ngrok.com/credentials",
-                headers={
-                    "Authorization": f"Bearer {settings.ngrok_api_key}",
-                    "Content-Type": "application/json",
-                    "ngrok-version": "2",
-                },
-                json={
-                    "description": f"SyftHub tunnel credential for {current_user.username}",
-                    "acl": [f"bind:{domain}"],
-                },
-            )
+        client = request.app.state.http_client
+        response = await client.post(
+            "https://api.ngrok.com/credentials",
+            headers={
+                "Authorization": f"Bearer {settings.ngrok_api_key}",
+                "Content-Type": "application/json",
+                "ngrok-version": "2",
+            },
+            json={
+                "description": f"SyftHub tunnel credential for {current_user.username}",
+                "acl": [f"bind:{domain}"],
+            },
+        )
     except httpx.RequestError as exc:
         logger.warning("Failed to connect to ngrok API", exc_info=True)
         raise HTTPException(

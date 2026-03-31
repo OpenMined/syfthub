@@ -958,12 +958,9 @@ class EndpointService(BaseService):
 
         # For user-owned endpoints
         if owner_type == "user" and endpoint.user_id:
-            # Owner can always access
-            if endpoint.user_id == current_user.id:
-                return True
-            # Internal endpoints are accessible to any authenticated user
-            # Private endpoints are only accessible to owner
-            return endpoint.visibility == EndpointVisibility.INTERNAL
+            # Owner can access; non-owners cannot — INTERNAL behaves like PRIVATE
+            # for user accounts (no "members" concept)
+            return endpoint.user_id == current_user.id
 
         # For organization-owned endpoints
         if owner_type == "organization" and endpoint.organization_id:
