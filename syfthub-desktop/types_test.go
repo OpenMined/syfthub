@@ -131,6 +131,8 @@ func TestConfigInfoJSON(t *testing.T) {
 		WatchEnabled:      true,
 		UseEmbeddedPython: false,
 		PythonPath:        "/usr/bin/python3",
+		AggregatorURL:     "https://agg.example.com",
+		ContainerEnabled:  true,
 	}
 
 	data, err := json.Marshal(info)
@@ -146,6 +148,103 @@ func TestConfigInfoJSON(t *testing.T) {
 	}
 	if decoded["spaceUrl"] != "tunneling:user" {
 		t.Errorf("spaceUrl = %v", decoded["spaceUrl"])
+	}
+	if decoded["endpointsPath"] != "/path/to/endpoints" {
+		t.Errorf("endpointsPath = %v", decoded["endpointsPath"])
+	}
+	if decoded["logLevel"] != "DEBUG" {
+		t.Errorf("logLevel = %v", decoded["logLevel"])
+	}
+	if decoded["watchEnabled"] != true {
+		t.Errorf("watchEnabled = %v", decoded["watchEnabled"])
+	}
+	if decoded["useEmbeddedPython"] != false {
+		t.Errorf("useEmbeddedPython = %v", decoded["useEmbeddedPython"])
+	}
+	if decoded["pythonPath"] != "/usr/bin/python3" {
+		t.Errorf("pythonPath = %v", decoded["pythonPath"])
+	}
+	if decoded["aggregatorUrl"] != "https://agg.example.com" {
+		t.Errorf("aggregatorUrl = %v", decoded["aggregatorUrl"])
+	}
+	if decoded["containerEnabled"] != true {
+		t.Errorf("containerEnabled = %v", decoded["containerEnabled"])
+	}
+}
+
+func TestConfigInfoJSONRoundTrip(t *testing.T) {
+	original := ConfigInfo{
+		HubURL:            "https://syfthub.openmined.org",
+		SpaceURL:          "tunneling:testuser",
+		EndpointsPath:     "/data/endpoints",
+		LogLevel:          "WARN",
+		WatchEnabled:      true,
+		UseEmbeddedPython: true,
+		PythonPath:        "/opt/python3/bin/python",
+		AggregatorURL:     "https://aggregator.example.com",
+		ContainerEnabled:  true,
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("json.Marshal error: %v", err)
+	}
+
+	var roundTripped ConfigInfo
+	if err := json.Unmarshal(data, &roundTripped); err != nil {
+		t.Fatalf("json.Unmarshal error: %v", err)
+	}
+
+	if roundTripped.HubURL != original.HubURL {
+		t.Errorf("HubURL = %q, want %q", roundTripped.HubURL, original.HubURL)
+	}
+	if roundTripped.SpaceURL != original.SpaceURL {
+		t.Errorf("SpaceURL = %q, want %q", roundTripped.SpaceURL, original.SpaceURL)
+	}
+	if roundTripped.EndpointsPath != original.EndpointsPath {
+		t.Errorf("EndpointsPath = %q, want %q", roundTripped.EndpointsPath, original.EndpointsPath)
+	}
+	if roundTripped.LogLevel != original.LogLevel {
+		t.Errorf("LogLevel = %q, want %q", roundTripped.LogLevel, original.LogLevel)
+	}
+	if roundTripped.WatchEnabled != original.WatchEnabled {
+		t.Errorf("WatchEnabled = %v, want %v", roundTripped.WatchEnabled, original.WatchEnabled)
+	}
+	if roundTripped.UseEmbeddedPython != original.UseEmbeddedPython {
+		t.Errorf("UseEmbeddedPython = %v, want %v", roundTripped.UseEmbeddedPython, original.UseEmbeddedPython)
+	}
+	if roundTripped.PythonPath != original.PythonPath {
+		t.Errorf("PythonPath = %q, want %q", roundTripped.PythonPath, original.PythonPath)
+	}
+	if roundTripped.AggregatorURL != original.AggregatorURL {
+		t.Errorf("AggregatorURL = %q, want %q", roundTripped.AggregatorURL, original.AggregatorURL)
+	}
+	if roundTripped.ContainerEnabled != original.ContainerEnabled {
+		t.Errorf("ContainerEnabled = %v, want %v", roundTripped.ContainerEnabled, original.ContainerEnabled)
+	}
+}
+
+func TestConfigInfoContainerFieldsFalse(t *testing.T) {
+	info := ConfigInfo{
+		HubURL:           "https://syfthub.openmined.org",
+		ContainerEnabled: false,
+	}
+
+	data, err := json.Marshal(info)
+	if err != nil {
+		t.Fatalf("json.Marshal error: %v", err)
+	}
+
+	var decoded map[string]interface{}
+	json.Unmarshal(data, &decoded)
+
+	// containerEnabled should be present even when false (no omitempty on this field)
+	val, ok := decoded["containerEnabled"]
+	if !ok {
+		t.Error("containerEnabled key should be present in JSON")
+	}
+	if val != false {
+		t.Errorf("containerEnabled = %v, want false", val)
 	}
 }
 
