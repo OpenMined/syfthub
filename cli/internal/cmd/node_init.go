@@ -434,7 +434,7 @@ func startNodeDaemon() (int, error) {
 	cmd := exec.Command(exe, "node", "run")
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	setDaemonSysProcAttr(cmd)
 
 	if err := cmd.Start(); err != nil {
 		logFile.Close()
