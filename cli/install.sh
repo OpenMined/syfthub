@@ -62,21 +62,23 @@ detect_arch() {
     esac
 }
 
-# Get the latest release version
+# Get the latest stable release version (skips pre-releases like alpha/beta/rc)
 get_latest_version() {
+    local releases_json
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "https://api.github.com/repos/${REPO}/releases" | \
-            grep -o '"tag_name": "cli/v[^"]*"' | \
-            head -1 | \
-            sed 's/.*"cli\/v\([^"]*\)".*/\1/'
+        releases_json=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases")
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO- "https://api.github.com/repos/${REPO}/releases" | \
-            grep -o '"tag_name": "cli/v[^"]*"' | \
-            head -1 | \
-            sed 's/.*"cli\/v\([^"]*\)".*/\1/'
+        releases_json=$(wget -qO- "https://api.github.com/repos/${REPO}/releases")
     else
         error "curl or wget is required"
     fi
+
+    # Extract all cli/v* tags, exclude pre-release suffixes, take the first
+    echo "$releases_json" | \
+        grep -o '"tag_name": "cli/v[^"]*"' | \
+        grep -v '\-alpha\|\-beta\|\-rc' | \
+        head -1 | \
+        sed 's/.*"cli\/v\([^"]*\)".*/\1/'
 }
 
 # Download file

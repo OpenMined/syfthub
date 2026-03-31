@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  GO_VERSION: "1.23"
+  GO_VERSION: "1.24"
   CLI_DIR: cli
 
 jobs:
@@ -56,6 +56,13 @@ jobs:
           TAG_VERSION=${GH_REF#refs/tags/cli/v}
           echo "Tag version: $TAG_VERSION"
           echo "version=$TAG_VERSION" >> $GITHUB_OUTPUT
+
+          # Detect pre-release (contains -beta, -alpha, -rc)
+          if echo "$TAG_VERSION" | grep -qE '\-(alpha|beta|rc)'; then
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Build binary
         env:
@@ -112,6 +119,13 @@ jobs:
           TAG_VERSION=${GH_REF#refs/tags/cli/v}
           echo "version=$TAG_VERSION" >> $GITHUB_OUTPUT
 
+          # Detect pre-release (contains -beta, -alpha, -rc)
+          if echo "$TAG_VERSION" | grep -qE '\-(alpha|beta|rc)'; then
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -138,6 +152,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           REPO: ${{ github.repository }}
         with:
+          prerelease: ${{ steps.version.outputs.prerelease == 'true' }}
           name: Syft CLI v${{ steps.version.outputs.version }}
           body: |
             ## Syft CLI v${{ steps.version.outputs.version }}
