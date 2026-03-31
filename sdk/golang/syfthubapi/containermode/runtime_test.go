@@ -1,6 +1,7 @@
 package containermode
 
 import (
+	"context"
 	"strings"
 	"testing"
 )
@@ -139,5 +140,236 @@ func TestBuildRunArgs_Resources(t *testing.T) {
 	}
 	if !strings.Contains(joined, "--network host") {
 		t.Error("expected --network")
+	}
+}
+
+func TestBuildRunArgs_NoNameWhenEmpty(t *testing.T) {
+	rt := &CLIRuntime{binary: "docker"}
+	spec := &ContainerSpec{
+		Image: "test:latest",
+	}
+
+	args := rt.buildRunArgs(spec)
+	joined := strings.Join(args, " ")
+
+	if strings.Contains(joined, "--name") {
+		t.Error("should not include --name when Name is empty")
+	}
+}
+
+func TestBuildRunArgs_NoResourcesWhenZero(t *testing.T) {
+	rt := &CLIRuntime{binary: "docker"}
+	spec := &ContainerSpec{
+		Image:    "test:latest",
+		CPUs:     0,
+		MemoryMB: 0,
+	}
+
+	args := rt.buildRunArgs(spec)
+	joined := strings.Join(args, " ")
+
+	if strings.Contains(joined, "--cpus") {
+		t.Error("should not include --cpus when CPUs is 0")
+	}
+	if strings.Contains(joined, "--memory") {
+		t.Error("should not include --memory when MemoryMB is 0")
+	}
+}
+
+func TestBuildRunArgs_NoGPUWhenEmpty(t *testing.T) {
+	rt := &CLIRuntime{binary: "docker"}
+	spec := &ContainerSpec{
+		Image: "test:latest",
+		GPU:   "",
+	}
+
+	args := rt.buildRunArgs(spec)
+	joined := strings.Join(args, " ")
+
+	if strings.Contains(joined, "--gpus") || strings.Contains(joined, "--device nvidia") {
+		t.Error("should not include GPU flag when GPU is empty")
+	}
+}
+
+func TestBuildRunArgs_NoNetworkWhenEmpty(t *testing.T) {
+	rt := &CLIRuntime{binary: "docker"}
+	spec := &ContainerSpec{
+		Image:   "test:latest",
+		Network: "",
+	}
+
+	args := rt.buildRunArgs(spec)
+	joined := strings.Join(args, " ")
+
+	if strings.Contains(joined, "--network") {
+		t.Error("should not include --network when Network is empty")
+	}
+}
+
+func TestBuildRunArgs_CommandArgs(t *testing.T) {
+	rt := &CLIRuntime{binary: "docker"}
+	spec := &ContainerSpec{
+		Image: "python:3.11",
+		Cmd:   []string{"python", "-m", "runner"},
+	}
+
+	args := rt.buildRunArgs(spec)
+	joined := strings.Join(args, " ")
+
+	// Image should come before command
+	imageIdx := strings.Index(joined, "python:3.11")
+	cmdIdx := strings.Index(joined, "python -m runner")
+	if imageIdx < 0 || cmdIdx < 0 {
+		t.Fatalf("expected image and cmd in args, got: %s", joined)
+	}
+	if cmdIdx <= imageIdx {
+		t.Error("command should come after image")
+	}
+}
+
+func TestBuildRunArgs_MultipleLabels(t *testing.T) {
+	rt := &CLIRuntime{binary: "docker"}
+	spec := &ContainerSpec{
+		Image: "test:latest",
+		Labels: map[string]string{
+			"syfthub.managed":  "true",
+			"syfthub.instance": "abc123",
+			"syfthub.endpoint": "my-model",
+		},
+	}
+
+	args := rt.buildRunArgs(spec)
+	joined := strings.Join(args, " ")
+
+	if !strings.Contains(joined, "--label syfthub.managed=true") {
+		t.Error("expected managed label")
+	}
+	if !strings.Contains(joined, "--label syfthub.instance=abc123") {
+		t.Error("expected instance label")
+	}
+	if !strings.Contains(joined, "--label syfthub.endpoint=my-model") {
+		t.Error("expected endpoint label")
+	}
+}
+
+func TestBuildRunArgs_MultiplePortMappings(t *testing.T) {
+	rt := &CLIRuntime{binary: "docker"}
+	spec := &ContainerSpec{
+		Image: "test:latest",
+		Ports: []PortMapping{
+			{HostPort: "0", ContainerPort: "8080"},
+			{HostPort: "9090", ContainerPort: "9090"},
+		},
+	}
+
+	args := rt.buildRunArgs(spec)
+	joined := strings.Join(args, " ")
+
+	if !strings.Contains(joined, "-p 0:8080") {
+		t.Error("expected first port mapping")
+	}
+	if !strings.Contains(joined, "-p 9090:9090") {
+		t.Error("expected second port mapping")
+	}
+}
+
+func TestBuildRunArgs_PodmanGPUDeviceSpec(t *testing.T) {
+	rt := &CLIRuntime{binary: "podman"}
+	spec := &ContainerSpec{
+		Image: "test:latest",
+		GPU:   "device=0",
+	}
+
+	args := rt.buildRunArgs(spec)
+	joined := strings.Join(args, " ")
+
+	if !strings.Contains(joined, "--device nvidia.com/gpu=device=0") {
+		t.Errorf("expected podman --device format, got: %s", joined)
+	}
+}
+
+func TestBuildRunArgs_FullSpec(t *testing.T) {
+	rt := &CLIRuntime{binary: "docker"}
+	spec := &ContainerSpec{
+		Name:         "syfthub-my-model-abc123",
+		Image:        "syfthub/endpoint-runner:latest",
+		User:         "1000:1000",
+		ReadOnlyFS:   true,
+		CapDrop:      []string{"ALL"},
+		SecurityOpts: []string{"no-new-privileges"},
+		Env:          []string{"SYFTHUB_API_KEY=secret", "LOG_LEVEL=DEBUG"},
+		Labels:       map[string]string{"syfthub.managed": "true", "syfthub.instance": "abc123"},
+		Mounts: []Mount{
+			{Type: "bind", Source: "/app/endpoint", Target: "/app/endpoint", ReadOnly: true},
+		},
+		Tmpfs:    []string{"/tmp"},
+		Ports:    []PortMapping{{HostPort: "0", ContainerPort: "8080"}},
+		CPUs:     1.0,
+		MemoryMB: 512,
+		Network:  "bridge",
+	}
+
+	args := rt.buildRunArgs(spec)
+	joined := strings.Join(args, " ")
+
+	expected := []string{
+		"run -d",
+		"--name syfthub-my-model-abc123",
+		"--user 1000:1000",
+		"--read-only",
+		"--cap-drop ALL",
+		"--security-opt no-new-privileges",
+		"-e SYFTHUB_API_KEY=secret",
+		"-e LOG_LEVEL=DEBUG",
+		"--tmpfs /tmp",
+		"--cpus 1.0",
+		"--memory 512m",
+		"--network bridge",
+		"-p 0:8080",
+		"syfthub/endpoint-runner:latest",
+	}
+
+	for _, exp := range expected {
+		if !strings.Contains(joined, exp) {
+			t.Errorf("expected %q in args, got: %s", exp, joined)
+		}
+	}
+}
+
+func TestCLIRuntime_CreateRejectsBadSpecType(t *testing.T) {
+	rt := &CLIRuntime{binary: "docker"}
+
+	_, err := rt.Create(context.Background(), "not-a-spec")
+	if err == nil {
+		t.Fatal("expected error for non-*ContainerSpec argument")
+	}
+	if !strings.Contains(err.Error(), "expected *ContainerSpec") {
+		t.Errorf("error message should mention expected type, got: %v", err)
+	}
+}
+
+func TestContainerOverrides_Fields(t *testing.T) {
+	o := ContainerOverrides{
+		Image:    "custom:v3",
+		CPUs:     8.0,
+		MemoryMB: 4096,
+		GPU:      "device=1",
+		Network:  "host",
+	}
+
+	if o.Image != "custom:v3" {
+		t.Errorf("Image = %q", o.Image)
+	}
+	if o.CPUs != 8.0 {
+		t.Errorf("CPUs = %f", o.CPUs)
+	}
+	if o.MemoryMB != 4096 {
+		t.Errorf("MemoryMB = %d", o.MemoryMB)
+	}
+	if o.GPU != "device=1" {
+		t.Errorf("GPU = %q", o.GPU)
+	}
+	if o.Network != "host" {
+		t.Errorf("Network = %q", o.Network)
 	}
 }

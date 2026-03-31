@@ -590,6 +590,389 @@ func TestOptionFunctions(t *testing.T) {
 	})
 }
 
+func TestDefaultConfig_ContainerDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+
+	tests := []struct {
+		name     string
+		got      any
+		expected any
+	}{
+		{"Container.Enabled", cfg.Container.Enabled, false},
+		{"Container.Runtime", cfg.Container.Runtime, "auto"},
+		{"Container.Image", cfg.Container.Image, "syfthub/endpoint-runner:latest"},
+		{"Container.CPUs", cfg.Container.CPUs, 1.0},
+		{"Container.MemoryMB", cfg.Container.MemoryMB, 512},
+		{"Container.Network", cfg.Container.Network, "bridge"},
+		{"Container.GPU", cfg.Container.GPU, ""},
+		{"Container.StartTimeout", cfg.Container.StartTimeout, 60 * time.Second},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.got != tt.expected {
+				t.Errorf("DefaultConfig().%s = %v, want %v", tt.name, tt.got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestConfigLoadFromEnv_ContainerVars(t *testing.T) {
+	t.Run("loads all container environment variables", func(t *testing.T) {
+		t.Setenv("CONTAINER_ENABLED", "true")
+		t.Setenv("CONTAINER_RUNTIME", "podman")
+		t.Setenv("CONTAINER_IMAGE", "custom:latest")
+		t.Setenv("CONTAINER_CPUS", "2.5")
+		t.Setenv("CONTAINER_MEMORY_MB", "1024")
+		t.Setenv("CONTAINER_NETWORK", "host")
+		t.Setenv("CONTAINER_GPU", "all")
+		t.Setenv("CONTAINER_START_TIMEOUT", "90s")
+
+		cfg := DefaultConfig()
+		err := cfg.LoadFromEnv()
+		if err != nil {
+			t.Fatalf("LoadFromEnv() error = %v", err)
+		}
+
+		if !cfg.Container.Enabled {
+			t.Error("Container.Enabled should be true")
+		}
+		if cfg.Container.Runtime != "podman" {
+			t.Errorf("Container.Runtime = %q, want %q", cfg.Container.Runtime, "podman")
+		}
+		if cfg.Container.Image != "custom:latest" {
+			t.Errorf("Container.Image = %q, want %q", cfg.Container.Image, "custom:latest")
+		}
+		if cfg.Container.CPUs != 2.5 {
+			t.Errorf("Container.CPUs = %f, want %f", cfg.Container.CPUs, 2.5)
+		}
+		if cfg.Container.MemoryMB != 1024 {
+			t.Errorf("Container.MemoryMB = %d, want %d", cfg.Container.MemoryMB, 1024)
+		}
+		if cfg.Container.Network != "host" {
+			t.Errorf("Container.Network = %q, want %q", cfg.Container.Network, "host")
+		}
+		if cfg.Container.GPU != "all" {
+			t.Errorf("Container.GPU = %q, want %q", cfg.Container.GPU, "all")
+		}
+		if cfg.Container.StartTimeout != 90*time.Second {
+			t.Errorf("Container.StartTimeout = %v, want %v", cfg.Container.StartTimeout, 90*time.Second)
+		}
+	})
+
+	t.Run("container disabled by default when env unset", func(t *testing.T) {
+		cfg := DefaultConfig()
+		err := cfg.LoadFromEnv()
+		if err != nil {
+			t.Fatalf("LoadFromEnv() error = %v", err)
+		}
+		if cfg.Container.Enabled {
+			t.Error("Container.Enabled should be false by default")
+		}
+	})
+
+	t.Run("CONTAINER_ENABLED=false", func(t *testing.T) {
+		t.Setenv("CONTAINER_ENABLED", "false")
+
+		cfg := DefaultConfig()
+		err := cfg.LoadFromEnv()
+		if err != nil {
+			t.Fatalf("LoadFromEnv() error = %v", err)
+		}
+		if cfg.Container.Enabled {
+			t.Error("Container.Enabled should be false")
+		}
+	})
+
+	t.Run("invalid CONTAINER_CPUS", func(t *testing.T) {
+		t.Setenv("CONTAINER_CPUS", "not-a-float")
+
+		cfg := DefaultConfig()
+		err := cfg.LoadFromEnv()
+		if err == nil {
+			t.Error("expected error for invalid CONTAINER_CPUS")
+		}
+	})
+
+	t.Run("invalid CONTAINER_MEMORY_MB", func(t *testing.T) {
+		t.Setenv("CONTAINER_MEMORY_MB", "xyz")
+
+		cfg := DefaultConfig()
+		err := cfg.LoadFromEnv()
+		if err == nil {
+			t.Error("expected error for invalid CONTAINER_MEMORY_MB")
+		}
+	})
+
+	t.Run("invalid CONTAINER_START_TIMEOUT", func(t *testing.T) {
+		t.Setenv("CONTAINER_START_TIMEOUT", "not-a-duration")
+
+		cfg := DefaultConfig()
+		err := cfg.LoadFromEnv()
+		if err == nil {
+			t.Error("expected error for invalid CONTAINER_START_TIMEOUT")
+		}
+	})
+}
+
+func TestConfigValidate_ContainerEnabled(t *testing.T) {
+	validContainerConfig := func() *Config {
+		return &Config{
+			SyftHubURL:                  "https://hub.example.com",
+			APIKey:                      "test-api-key",
+			SpaceURL:                    "https://space.example.com",
+			LogLevel:                    "INFO",
+			HeartbeatTTLSeconds:         300,
+			HeartbeatIntervalMultiplier: 0.8,
+			Container: ContainerConfig{
+				Enabled:      true,
+				Runtime:      "docker",
+				Image:        "syfthub/endpoint-runner:latest",
+				CPUs:         1.0,
+				MemoryMB:     512,
+				Network:      "bridge",
+				StartTimeout: 60 * time.Second,
+			},
+		}
+	}
+
+	t.Run("valid container config", func(t *testing.T) {
+		cfg := validContainerConfig()
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() error = %v", err)
+		}
+	})
+
+	t.Run("valid runtimes", func(t *testing.T) {
+		for _, runtime := range []string{"docker", "podman", "auto"} {
+			cfg := validContainerConfig()
+			cfg.Container.Runtime = runtime
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("Runtime %q should be valid, got error: %v", runtime, err)
+			}
+		}
+	})
+
+	t.Run("invalid runtime", func(t *testing.T) {
+		cfg := validContainerConfig()
+		cfg.Container.Runtime = "containerd"
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("expected error for invalid runtime")
+		}
+	})
+
+	t.Run("empty image when enabled", func(t *testing.T) {
+		cfg := validContainerConfig()
+		cfg.Container.Image = ""
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("expected error for empty image when container mode is enabled")
+		}
+	})
+
+	t.Run("CPUs <= 0", func(t *testing.T) {
+		cfg := validContainerConfig()
+		cfg.Container.CPUs = 0
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("expected error for CPUs = 0")
+		}
+	})
+
+	t.Run("MemoryMB too small", func(t *testing.T) {
+		cfg := validContainerConfig()
+		cfg.Container.MemoryMB = 32
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("expected error for MemoryMB = 32")
+		}
+	})
+
+	t.Run("MemoryMB at minimum boundary", func(t *testing.T) {
+		cfg := validContainerConfig()
+		cfg.Container.MemoryMB = 64
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("MemoryMB = 64 should be valid, got error: %v", err)
+		}
+	})
+
+	t.Run("invalid network", func(t *testing.T) {
+		cfg := validContainerConfig()
+		cfg.Container.Network = "overlay"
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("expected error for invalid network")
+		}
+	})
+
+	t.Run("valid networks", func(t *testing.T) {
+		for _, network := range []string{"bridge", "none", "host"} {
+			cfg := validContainerConfig()
+			cfg.Container.Network = network
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("Network %q should be valid, got error: %v", network, err)
+			}
+		}
+	})
+
+	t.Run("StartTimeout <= 0", func(t *testing.T) {
+		cfg := validContainerConfig()
+		cfg.Container.StartTimeout = 0
+		err := cfg.Validate()
+		if err == nil {
+			t.Error("expected error for StartTimeout = 0")
+		}
+	})
+
+	t.Run("container disabled skips validation", func(t *testing.T) {
+		cfg := validContainerConfig()
+		cfg.Container.Enabled = false
+		cfg.Container.Runtime = "invalid"
+		cfg.Container.Image = ""
+		cfg.Container.CPUs = -1
+		cfg.Container.MemoryMB = 0
+		cfg.Container.Network = "invalid"
+		cfg.Container.StartTimeout = 0
+		// None of these should cause an error when container mode is disabled
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("Validate() should pass when container is disabled, got error: %v", err)
+		}
+	})
+}
+
+func TestContainerOptionFunctions(t *testing.T) {
+	t.Run("WithContainerEnabled", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithContainerEnabled(true)
+		opt(cfg)
+		if !cfg.Container.Enabled {
+			t.Error("expected Container.Enabled = true")
+		}
+
+		opt2 := WithContainerEnabled(false)
+		opt2(cfg)
+		if cfg.Container.Enabled {
+			t.Error("expected Container.Enabled = false")
+		}
+	})
+
+	t.Run("WithContainerRuntime", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithContainerRuntime("docker")
+		opt(cfg)
+		if cfg.Container.Runtime != "docker" {
+			t.Errorf("expected %q, got %q", "docker", cfg.Container.Runtime)
+		}
+	})
+
+	t.Run("WithContainerRuntime podman", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithContainerRuntime("podman")
+		opt(cfg)
+		if cfg.Container.Runtime != "podman" {
+			t.Errorf("expected %q, got %q", "podman", cfg.Container.Runtime)
+		}
+	})
+
+	t.Run("WithContainerImage", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithContainerImage("myimage:v2")
+		opt(cfg)
+		if cfg.Container.Image != "myimage:v2" {
+			t.Errorf("expected %q, got %q", "myimage:v2", cfg.Container.Image)
+		}
+	})
+
+	t.Run("WithContainerCPUs", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithContainerCPUs(4.0)
+		opt(cfg)
+		if cfg.Container.CPUs != 4.0 {
+			t.Errorf("expected %f, got %f", 4.0, cfg.Container.CPUs)
+		}
+	})
+
+	t.Run("WithContainerMemoryMB", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithContainerMemoryMB(2048)
+		opt(cfg)
+		if cfg.Container.MemoryMB != 2048 {
+			t.Errorf("expected %d, got %d", 2048, cfg.Container.MemoryMB)
+		}
+	})
+
+	t.Run("WithContainerNetwork", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithContainerNetwork("host")
+		opt(cfg)
+		if cfg.Container.Network != "host" {
+			t.Errorf("expected %q, got %q", "host", cfg.Container.Network)
+		}
+	})
+
+	t.Run("WithContainerGPU", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithContainerGPU("all")
+		opt(cfg)
+		if cfg.Container.GPU != "all" {
+			t.Errorf("expected %q, got %q", "all", cfg.Container.GPU)
+		}
+	})
+
+	t.Run("WithContainerStartTimeout", func(t *testing.T) {
+		cfg := DefaultConfig()
+		opt := WithContainerStartTimeout(120 * time.Second)
+		opt(cfg)
+		if cfg.Container.StartTimeout != 120*time.Second {
+			t.Errorf("expected %v, got %v", 120*time.Second, cfg.Container.StartTimeout)
+		}
+	})
+}
+
+func TestContainerOptionChaining(t *testing.T) {
+	cfg := DefaultConfig()
+	options := []Option{
+		WithContainerEnabled(true),
+		WithContainerRuntime("docker"),
+		WithContainerImage("custom:latest"),
+		WithContainerCPUs(2.0),
+		WithContainerMemoryMB(1024),
+		WithContainerNetwork("none"),
+		WithContainerGPU("device=0"),
+		WithContainerStartTimeout(30 * time.Second),
+	}
+
+	for _, opt := range options {
+		opt(cfg)
+	}
+
+	if !cfg.Container.Enabled {
+		t.Error("Container.Enabled not set correctly")
+	}
+	if cfg.Container.Runtime != "docker" {
+		t.Error("Container.Runtime not set correctly")
+	}
+	if cfg.Container.Image != "custom:latest" {
+		t.Error("Container.Image not set correctly")
+	}
+	if cfg.Container.CPUs != 2.0 {
+		t.Error("Container.CPUs not set correctly")
+	}
+	if cfg.Container.MemoryMB != 1024 {
+		t.Error("Container.MemoryMB not set correctly")
+	}
+	if cfg.Container.Network != "none" {
+		t.Error("Container.Network not set correctly")
+	}
+	if cfg.Container.GPU != "device=0" {
+		t.Error("Container.GPU not set correctly")
+	}
+	if cfg.Container.StartTimeout != 30*time.Second {
+		t.Error("Container.StartTimeout not set correctly")
+	}
+}
+
 func TestOptionChaining(t *testing.T) {
 	cfg := DefaultConfig()
 	options := []Option{

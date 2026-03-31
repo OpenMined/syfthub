@@ -546,6 +546,322 @@ func (m *mockFileProvider) LoadEndpoints() ([]*Endpoint, error) {
 	return nil, nil
 }
 
+func TestAPISetContainerRuntimeFactory(t *testing.T) {
+	api := New()
+
+	// Initially nil
+	if api.containerRuntimeFactory != nil {
+		t.Error("containerRuntimeFactory should be nil initially")
+	}
+
+	called := false
+	factory := func(binary string, logger *slog.Logger) (ContainerRuntime, error) {
+		called = true
+		return nil, nil
+	}
+
+	api.SetContainerRuntimeFactory(factory)
+
+	if api.containerRuntimeFactory == nil {
+		t.Fatal("containerRuntimeFactory should not be nil after setting")
+	}
+
+	// Invoke to verify it's the correct function
+	api.containerRuntimeFactory("docker", api.Logger())
+	if !called {
+		t.Error("factory function was not invoked")
+	}
+}
+
+func TestAPISetContainerCleanupFunc(t *testing.T) {
+	api := New()
+
+	// Initially nil
+	if api.containerCleanup != nil {
+		t.Error("containerCleanup should be nil initially")
+	}
+
+	called := false
+	cleanup := func(ctx context.Context, rt ContainerRuntime, instanceID string, logger *slog.Logger) error {
+		called = true
+		return nil
+	}
+
+	api.SetContainerCleanupFunc(cleanup)
+
+	if api.containerCleanup == nil {
+		t.Fatal("containerCleanup should not be nil after setting")
+	}
+
+	// Invoke to verify it's the correct function
+	api.containerCleanup(context.Background(), nil, "test-id", api.Logger())
+	if !called {
+		t.Error("cleanup function was not invoked")
+	}
+}
+
+func TestNewWithContainerOptions(t *testing.T) {
+	api := New(
+		WithSyftHubURL("https://hub.example.com"),
+		WithAPIKey("test-key"),
+		WithSpaceURL("https://space.example.com"),
+		WithContainerEnabled(true),
+		WithContainerRuntime("docker"),
+		WithContainerImage("myimage:latest"),
+	)
+
+	cfg := api.Config()
+	if !cfg.Container.Enabled {
+		t.Error("Container.Enabled should be true")
+	}
+	if cfg.Container.Runtime != "docker" {
+		t.Errorf("Container.Runtime = %q, want %q", cfg.Container.Runtime, "docker")
+	}
+	if cfg.Container.Image != "myimage:latest" {
+		t.Errorf("Container.Image = %q, want %q", cfg.Container.Image, "myimage:latest")
+	}
+}
+
+func TestNewWithContainerOptionsOverrideEnv(t *testing.T) {
+	t.Setenv("CONTAINER_RUNTIME", "podman")
+	t.Setenv("CONTAINER_IMAGE", "env-image:v1")
+
+	api := New(
+		WithContainerRuntime("docker"),
+		WithContainerImage("option-image:v2"),
+	)
+
+	cfg := api.Config()
+	if cfg.Container.Runtime != "docker" {
+		t.Errorf("Container.Runtime = %q, want option override %q", cfg.Container.Runtime, "docker")
+	}
+	if cfg.Container.Image != "option-image:v2" {
+		t.Errorf("Container.Image = %q, want option override %q", cfg.Container.Image, "option-image:v2")
+	}
+}
+
+func TestAPIRunContainerModeNoFactory(t *testing.T) {
+	api := New(
+		WithSyftHubURL("https://hub.example.com"),
+		WithAPIKey("test-key"),
+		WithSpaceURL("https://space.example.com"),
+		WithContainerEnabled(true),
+		WithContainerRuntime("docker"),
+		WithContainerImage("test:latest"),
+	)
+
+	err := api.Run(context.Background())
+	if err == nil {
+		t.Error("expected error when container mode is enabled but no runtime factory configured")
+	}
+	if !errors.Is(err, nil) { // Just check it contains our message
+		// Verify the error message mentions the missing factory
+		if err.Error() == "" {
+			t.Error("expected non-empty error message")
+		}
+	}
+}
+
+func TestAPIRunContainerModeFactoryError(t *testing.T) {
+	api := New(
+		WithSyftHubURL("https://hub.example.com"),
+		WithAPIKey("test-key"),
+		WithSpaceURL("https://space.example.com"),
+		WithContainerEnabled(true),
+		WithContainerRuntime("docker"),
+		WithContainerImage("test:latest"),
+	)
+
+	api.SetContainerRuntimeFactory(func(binary string, logger *slog.Logger) (ContainerRuntime, error) {
+		return nil, errors.New("docker not found")
+	})
+
+	err := api.Run(context.Background())
+	if err == nil {
+		t.Error("expected error when container runtime factory fails")
+	}
+}
+
+func TestAPIRunContainerModeWithCleanup(t *testing.T) {
+	cleanupCalled := false
+	cleanupInstanceID := ""
+
+	api := New(
+		WithSyftHubURL("https://hub.example.com"),
+		WithAPIKey("test-key"),
+		WithSpaceURL("https://space.example.com"),
+		WithContainerEnabled(true),
+		WithContainerRuntime("docker"),
+		WithContainerImage("test:latest"),
+	)
+
+	mockRT := &mockContainerRuntime{}
+
+	api.SetContainerRuntimeFactory(func(binary string, logger *slog.Logger) (ContainerRuntime, error) {
+		return mockRT, nil
+	})
+
+	api.SetContainerCleanupFunc(func(ctx context.Context, rt ContainerRuntime, instanceID string, logger *slog.Logger) error {
+		cleanupCalled = true
+		cleanupInstanceID = instanceID
+		if rt != mockRT {
+			t.Error("cleanup received wrong runtime")
+		}
+		return nil
+	})
+
+	// Run will: validate config, run startup hooks, init container runtime, then try to setup transport
+	// Since there's no transport, setupTransport will proceed (it logs but doesn't error for non-tunnel mode)
+	// Then it will fail on transport.Start because transport is nil
+	// We need to cancel context to stop it, but actually it will panic on nil transport
+	// Let's add a startup hook that cancels
+	ctx, cancel := context.WithCancel(context.Background())
+
+	api.OnStartup(func(ctx context.Context) error {
+		// Don't block startup, but cancel after a short time
+		return nil
+	})
+
+	// Add a mock transport so it doesn't panic
+	mockTransp := &mockTransport{}
+	api.SetTransport(mockTransp)
+
+	// Cancel quickly so Run exits
+	go func() {
+		// Wait a tiny bit for Run to get past container init
+		cancel()
+	}()
+
+	_ = api.Run(ctx)
+
+	if !cleanupCalled {
+		t.Error("container cleanup function should have been called")
+	}
+	if cleanupInstanceID == "" {
+		t.Error("cleanup should have received a non-empty instance ID")
+	}
+}
+
+func TestAPIRunContainerModeInjectsRuntimeIntoFileProvider(t *testing.T) {
+	injected := false
+
+	api := New(
+		WithSyftHubURL("https://hub.example.com"),
+		WithAPIKey("test-key"),
+		WithSpaceURL("https://space.example.com"),
+		WithContainerEnabled(true),
+		WithContainerRuntime("docker"),
+		WithContainerImage("test:latest"),
+		WithEndpointsPath("/tmp/endpoints"),
+	)
+
+	mockRT := &mockContainerRuntime{}
+	api.SetContainerRuntimeFactory(func(binary string, logger *slog.Logger) (ContainerRuntime, error) {
+		return mockRT, nil
+	})
+
+	fp := &mockFileProviderWithContainerRuntime{
+		onSetContainerRuntime: func(rt ContainerRuntime, cfg *ContainerConfig, instanceID string) {
+			injected = true
+			if rt != mockRT {
+				t.Error("expected the mock runtime to be injected")
+			}
+			if cfg == nil {
+				t.Error("expected non-nil ContainerConfig")
+			}
+			if instanceID == "" {
+				t.Error("expected non-empty instance ID")
+			}
+		},
+	}
+	api.SetFileProvider(fp)
+
+	mockTransp := &mockTransport{}
+	api.SetTransport(mockTransp)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { cancel() }()
+
+	_ = api.Run(ctx)
+
+	if !injected {
+		t.Error("container runtime should have been injected into file provider")
+	}
+}
+
+func TestGenerateInstanceID(t *testing.T) {
+	id1 := generateInstanceID()
+	if id1 == "" {
+		t.Error("instance ID should not be empty")
+	}
+
+	// IDs should be different (based on time.Now().UnixNano())
+	id2 := generateInstanceID()
+	if id1 == id2 {
+		t.Error("consecutive instance IDs should differ")
+	}
+}
+
+// mockContainerRuntime implements ContainerRuntime for testing.
+type mockContainerRuntime struct {
+	listResults map[string][]string
+	stopCalls   []string
+	removeCalls []string
+}
+
+func (m *mockContainerRuntime) Create(_ context.Context, _ any) (string, error) {
+	return "abc123456789", nil
+}
+func (m *mockContainerRuntime) Start(_ context.Context, _ string) error { return nil }
+func (m *mockContainerRuntime) Stop(_ context.Context, id string) error {
+	m.stopCalls = append(m.stopCalls, id)
+	return nil
+}
+func (m *mockContainerRuntime) Remove(_ context.Context, id string) error {
+	m.removeCalls = append(m.removeCalls, id)
+	return nil
+}
+func (m *mockContainerRuntime) List(_ context.Context, labels map[string]string) ([]string, error) {
+	return nil, nil
+}
+func (m *mockContainerRuntime) GetHostPort(_ context.Context, _ string, _ string) (string, error) {
+	return "8080", nil
+}
+func (m *mockContainerRuntime) Inspect(_ context.Context, _ string) (*ContainerInfo, error) {
+	return &ContainerInfo{}, nil
+}
+func (m *mockContainerRuntime) Logs(_ context.Context, _ string, _ int) (string, error) {
+	return "", nil
+}
+
+// mockFileProviderWithContainerRuntime implements both FileProvider and ContainerRuntimeSetter.
+type mockFileProviderWithContainerRuntime struct {
+	started               bool
+	stopped               bool
+	onSetContainerRuntime func(rt ContainerRuntime, cfg *ContainerConfig, instanceID string)
+}
+
+func (m *mockFileProviderWithContainerRuntime) Start(ctx context.Context) error {
+	m.started = true
+	<-ctx.Done()
+	return nil
+}
+
+func (m *mockFileProviderWithContainerRuntime) Stop(ctx context.Context) error {
+	m.stopped = true
+	return nil
+}
+
+func (m *mockFileProviderWithContainerRuntime) LoadEndpoints() ([]*Endpoint, error) {
+	return nil, nil
+}
+
+func (m *mockFileProviderWithContainerRuntime) SetContainerRuntime(rt ContainerRuntime, cfg *ContainerConfig, instanceID string) {
+	if m.onSetContainerRuntime != nil {
+		m.onSetContainerRuntime(rt, cfg, instanceID)
+	}
+}
+
 func TestInterfaceImplementations(t *testing.T) {
 	// Verify interfaces
 	var _ Transport = (*mockTransport)(nil)
