@@ -8,9 +8,10 @@ import (
 )
 
 var addCmd = &cobra.Command{
-	Use:   "add",
-	Short: "Add infrastructure aliases",
-	Long:  `Add infrastructure aliases for aggregators and accounting services.`,
+	Use:         "add",
+	Annotations: map[string]string{authExemptKey: "true"},
+	Short:       "Add infrastructure aliases",
+	Long:        `Add infrastructure aliases for aggregators and accounting services.`,
 }
 
 // Add aggregator subcommand
@@ -74,7 +75,7 @@ func runAddAggregator(cmd *cobra.Command, args []string) error {
 	cfg.Aggregators[alias] = config.AggregatorConfig{URL: url}
 
 	if addAggregatorDefault {
-		cfg.DefaultAggregator = &alias
+		cfg.DefaultAggregator = alias
 	}
 
 	if err := cfg.Save(); err != nil {
@@ -128,7 +129,7 @@ func runAddAccounting(cmd *cobra.Command, args []string) error {
 	cfg.AccountingServices[alias] = config.AccountingConfig{URL: url}
 
 	if addAccountingDefault {
-		cfg.DefaultAccounting = &alias
+		cfg.DefaultAccounting = alias
 	}
 
 	if err := cfg.Save(); err != nil {

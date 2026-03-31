@@ -17,6 +17,7 @@ from syfthub.repositories.organization import (
     OrganizationRepository,
 )
 from syfthub.repositories.user import UserRepository
+from syfthub.schemas.auth import UserRole
 from syfthub.schemas.endpoint import (
     RESERVED_SLUGS,
     Endpoint,
@@ -72,9 +73,21 @@ class EndpointService(BaseService):
             return org.domain if org else None
         return None
 
-    def _to_response_with_urls(self, endpoint: Endpoint) -> EndpointResponse:
-        """Convert Endpoint to EndpointResponse with transformed URLs."""
-        domain = self._get_owner_domain(endpoint)
+    def _to_response_with_urls(
+        self, endpoint: Endpoint, owner_domain: Optional[str] = None
+    ) -> EndpointResponse:
+        """Convert Endpoint to EndpointResponse with transformed URLs.
+
+        Args:
+            endpoint: The endpoint model to convert.
+            owner_domain: Pre-fetched owner domain. When provided, skips the
+                per-endpoint DB lookup (use in listing methods to avoid N+1).
+        """
+        domain = (
+            owner_domain
+            if owner_domain is not None
+            else self._get_owner_domain(endpoint)
+        )
 
         # Transform connection URLs
         transformed_connect = transform_connection_urls(
@@ -296,10 +309,16 @@ class EndpointService(BaseService):
             user_id, skip, limit, visibility, search
         )
 
+        # Look up user domain once for all endpoints (avoids N+1)
+        user = self.user_repository.get_by_id(user_id)
+        user_domain = user.domain if user else None
+
         accessible_endpoints = []
         for endpoint in endpoints:
             if self._can_access_endpoint(endpoint, current_user, "user"):
-                accessible_endpoints.append(self._to_response_with_urls(endpoint))
+                accessible_endpoints.append(
+                    self._to_response_with_urls(endpoint, owner_domain=user_domain)
+                )
 
         return accessible_endpoints
 
@@ -316,10 +335,16 @@ class EndpointService(BaseService):
             org_id, skip, limit, visibility
         )
 
+        # Look up org domain once for all endpoints (avoids N+1)
+        org = self.org_repository.get_by_id(org_id)
+        org_domain = org.domain if org else None
+
         accessible_endpoints = []
         for endpoint in endpoints:
             if self._can_access_endpoint(endpoint, current_user, "organization"):
-                accessible_endpoints.append(self._to_response_with_urls(endpoint))
+                accessible_endpoints.append(
+                    self._to_response_with_urls(endpoint, owner_domain=org_domain)
+                )
 
         return accessible_endpoints
 
@@ -783,20 +808,9 @@ class EndpointService(BaseService):
 
         # Convert to EndpointSearchResult with relevance scores
         results: List[EndpointSearchResult] = []
-        for ep in endpoints:
-            # Get the endpoint ID from the slug by looking up the original results
-            # Since endpoints are returned in the same order as endpoint_ids,
-            # we can find the corresponding score
-            endpoint_id = next(
-                (eid for eid, _ in search_results if score_map.get(eid) is not None),
-                None,
-            )
-            # Find the actual endpoint ID by matching slug
-            # We need to look up by position since EndpointPublicResponse doesn't have id
-            ep_index = endpoints.index(ep)
+        for ep_index, ep in enumerate(endpoints):
             if ep_index < len(endpoint_ids):
-                endpoint_id = endpoint_ids[ep_index]
-                score = score_map.get(endpoint_id, 0.0)
+                score = score_map.get(endpoint_ids[ep_index], 0.0)
             else:
                 score = 0.0
 
@@ -953,7 +967,7 @@ class EndpointService(BaseService):
             return False
 
         # Admin can access everything
-        if current_user.role == "admin":
+        if current_user.role == UserRole.ADMIN:
             return True
 
         # For user-owned endpoints
@@ -963,15 +977,15 @@ class EndpointService(BaseService):
             return endpoint.user_id == current_user.id
 
         # For organization-owned endpoints
-        if owner_type == "organization" and endpoint.organization_id:
-            if endpoint.visibility == EndpointVisibility.INTERNAL:
-                return self.org_member_repository.is_member(
-                    endpoint.organization_id, current_user.id
-                )
-            if endpoint.visibility == EndpointVisibility.PRIVATE:
-                return self.org_member_repository.is_member(
-                    endpoint.organization_id, current_user.id
-                )
+        if (
+            owner_type == "organization"
+            and endpoint.organization_id
+            and endpoint.visibility
+            in (EndpointVisibility.INTERNAL, EndpointVisibility.PRIVATE)
+        ):
+            return self.org_member_repository.is_member(
+                endpoint.organization_id, current_user.id
+            )
 
         return False
 
@@ -982,7 +996,7 @@ class EndpointService(BaseService):
         if current_user is None:
             return endpoint.visibility == EndpointVisibility.PUBLIC
 
-        if current_user.role == "admin":
+        if current_user.role == UserRole.ADMIN:
             return True
 
         # For user-owned endpoints
@@ -999,7 +1013,7 @@ class EndpointService(BaseService):
 
     def _can_modify_endpoint(self, endpoint: Endpoint, current_user: User) -> bool:
         """Check if user can modify endpoint."""
-        if current_user.role == "admin":
+        if current_user.role == UserRole.ADMIN:
             return True
 
         # For user-owned endpoints
@@ -1247,9 +1261,12 @@ class EndpointService(BaseService):
                     if endpoint.visibility == EndpointVisibility.PUBLIC:
                         self._ingest_to_rag(endpoint.id)
 
-            # Transform URLs for response
+            # Transform URLs for response (look up user domain once)
+            user = self.user_repository.get_by_id(current_user.id)
+            user_domain = user.domain if user else None
             response_endpoints = [
-                self._to_response_with_urls(ep) for ep in created_endpoints
+                self._to_response_with_urls(ep, owner_domain=user_domain)
+                for ep in created_endpoints
             ]
 
             return SyncEndpointsResponse(

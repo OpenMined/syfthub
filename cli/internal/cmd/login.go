@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -18,64 +17,70 @@ import (
 )
 
 var (
-	loginUsername   string
-	loginPassword   string
+	loginToken      string
 	loginJSONOutput bool
 )
 
 var loginCmd = &cobra.Command{
-	Use:   "login",
-	Short: "Authenticate with SyftHub",
-	Long: `Authenticate with SyftHub.
+	Use:         "login",
+	Annotations: map[string]string{authExemptKey: "true"},
+	Short:       "Authenticate with SyftHub using an API token",
+	Long: `Authenticate with SyftHub using a Personal Access Token (PAT).
 
-Prompts for username and password if not provided via options.`,
+Provide your API token via --token flag or enter it interactively.
+You can generate a PAT from your SyftHub account settings.`,
 	RunE: runLogin,
 }
 
 func init() {
-	loginCmd.Flags().StringVarP(&loginUsername, "username", "u", "", "Username for authentication")
-	loginCmd.Flags().StringVarP(&loginPassword, "password", "p", "", "Password for authentication")
+	loginCmd.Flags().StringVarP(&loginToken, "token", "t", "", "API token (PAT)")
 	loginCmd.Flags().BoolVar(&loginJSONOutput, "json", false, "Output result as JSON")
 }
 
 func runLogin(cmd *cobra.Command, args []string) error {
 	cfg := config.Load()
 
-	// Prompt for credentials if not provided
-	username := loginUsername
-	password := loginPassword
+	token := loginToken
 
-	if username == "" {
-		fmt.Print("Username: ")
-		reader := bufio.NewReader(os.Stdin)
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			return fmt.Errorf("failed to read username: %w", err)
+	// Prompt for token if not provided
+	if token == "" {
+		if term.IsTerminal(int(os.Stdin.Fd())) {
+			fmt.Print("API Token: ")
+			byteToken, err := term.ReadPassword(int(os.Stdin.Fd()))
+			if err != nil {
+				return fmt.Errorf("failed to read token: %w", err)
+			}
+			fmt.Println()
+			token = strings.TrimSpace(string(byteToken))
+		} else {
+			reader := bufio.NewReader(os.Stdin)
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				return fmt.Errorf("failed to read token from stdin: %w", err)
+			}
+			token = strings.TrimSpace(line)
 		}
-		username = strings.TrimSpace(input)
 	}
 
-	if password == "" {
-		fmt.Print("Password: ")
-		bytePassword, err := term.ReadPassword(int(syscall.Stdin))
-		if err != nil {
-			return fmt.Errorf("failed to read password: %w", err)
+	if token == "" {
+		msg := "API token is required"
+		if loginJSONOutput {
+			output.JSON(map[string]interface{}{"status": "error", "message": msg})
+		} else {
+			output.Error(msg)
 		}
-		fmt.Println() // Print newline after password input
-		password = string(bytePassword)
+		return fmt.Errorf("%s", msg)
 	}
 
-	// Create client
+	// Validate the token by calling /auth/me
 	client, err := syfthub.NewClient(
 		syfthub.WithBaseURL(cfg.HubURL),
+		syfthub.WithAPIToken(token),
 		syfthub.WithTimeout(time.Duration(cfg.Timeout)*time.Second),
 	)
 	if err != nil {
 		if loginJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": err.Error(),
-			})
+			output.JSON(map[string]interface{}{"status": "error", "message": err.Error()})
 		} else {
 			output.Error("Failed to create client: %v", err)
 		}
@@ -83,36 +88,26 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 	defer client.Close()
 
-	// Login
 	ctx := context.Background()
-	user, err := client.Login(ctx, username, password)
+	user, err := client.Me(ctx)
 	if err != nil {
 		if loginJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": err.Error(),
-			})
+			output.JSON(map[string]interface{}{"status": "error", "message": "Invalid API token"})
 		} else {
-			output.Error("Authentication failed: %v", err)
+			output.Error("Invalid API token: %v", err)
 		}
 		return err
 	}
 
-	// Store tokens in config
-	tokens := client.GetTokens()
-	if tokens != nil {
-		cfg.SetTokens(tokens.AccessToken, tokens.RefreshToken)
-		if err := cfg.Save(); err != nil {
-			if loginJSONOutput {
-				output.JSON(map[string]interface{}{
-					"status":  "error",
-					"message": fmt.Sprintf("Failed to save tokens: %v", err),
-				})
-			} else {
-				output.Error("Failed to save tokens: %v", err)
-			}
-			return err
+	// Store token in config
+	cfg.SetAPIToken(token)
+	if err := cfg.Save(); err != nil {
+		if loginJSONOutput {
+			output.JSON(map[string]interface{}{"status": "error", "message": err.Error()})
+		} else {
+			output.Error("Failed to save token: %v", err)
 		}
+		return err
 	}
 
 	if loginJSONOutput {

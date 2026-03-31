@@ -8,9 +8,10 @@ import (
 )
 
 var removeCmd = &cobra.Command{
-	Use:   "remove",
-	Short: "Remove infrastructure aliases",
-	Long:  `Remove infrastructure aliases for aggregators and accounting services.`,
+	Use:         "remove",
+	Annotations: map[string]string{authExemptKey: "true"},
+	Short:       "Remove infrastructure aliases",
+	Long:        `Remove infrastructure aliases for aggregators and accounting services.`,
 }
 
 // Remove aggregator subcommand
@@ -61,8 +62,8 @@ func runRemoveAggregator(cmd *cobra.Command, args []string) error {
 	delete(cfg.Aggregators, alias)
 
 	// Clear default if it was this alias
-	if cfg.DefaultAggregator != nil && *cfg.DefaultAggregator == alias {
-		cfg.DefaultAggregator = nil
+	if cfg.DefaultAggregator == alias {
+		cfg.DefaultAggregator = ""
 	}
 
 	if err := cfg.Save(); err != nil {
@@ -110,8 +111,8 @@ func runRemoveAccounting(cmd *cobra.Command, args []string) error {
 	delete(cfg.AccountingServices, alias)
 
 	// Clear default if it was this alias
-	if cfg.DefaultAccounting != nil && *cfg.DefaultAccounting == alias {
-		cfg.DefaultAccounting = nil
+	if cfg.DefaultAccounting == alias {
+		cfg.DefaultAccounting = ""
 	}
 
 	if err := cfg.Save(); err != nil {

@@ -1,0 +1,61 @@
+meta:
+  id: google-sheets
+  name: "Google Sheets"
+  description: "Access spreadsheets from Google Sheets"
+  category: storage
+  tags: [google, sheets, spreadsheet, data]
+
+params:
+  scopes:
+    default: ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+    description: "OAuth scopes for Google Sheets access"
+
+steps:
+  - id: google_auth
+    type: oauth2
+    name: "Connect to Google"
+    required: true
+    oauth2:
+      auth_url: "https://accounts.google.com/o/oauth2/auth"
+      token_url: "https://oauth2.googleapis.com/token"
+      scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+      extra_params:
+        access_type: "offline"
+        prompt: "consent"
+    outputs:
+      GOOGLE_ACCESS_TOKEN: "{{response.access_token}}"
+      GOOGLE_REFRESH_TOKEN: "{{response.refresh_token}}"
+
+  - id: list_spreadsheets
+    type: http
+    name: "Fetching your spreadsheets..."
+    depends_on: [google_auth]
+    http:
+      method: GET
+      url: "https://www.googleapis.com/drive/v3/files"
+      headers:
+        Authorization: "Bearer {{steps.google_auth.outputs.GOOGLE_ACCESS_TOKEN}}"
+      query:
+        q: "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false"
+        fields: "files(id,name)"
+        pageSize: "100"
+      expect_status: 200
+
+  - id: pick_spreadsheet
+    type: select
+    name: "Select spreadsheet"
+    depends_on: [list_spreadsheets]
+    required: true
+    env_key: GOOGLE_SPREADSHEET_ID
+    select:
+      options_from:
+        step_id: list_spreadsheets
+        path: "files"
+        value_field: "id"
+        label_field: "name"
+
+lifecycle:
+  refresh:
+    trigger: token_expiry
+    steps: [google_auth]
+    strategy: refresh_token

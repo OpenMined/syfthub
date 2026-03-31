@@ -57,8 +57,8 @@ func TestAuthResourceRegister(t *testing.T) {
 		if user == nil {
 			t.Fatal("user should not be nil")
 		}
-		if user.Username != "newuser" {
-			t.Errorf("Username = %q", user.Username)
+		if user.User.Username != "newuser" {
+			t.Errorf("Username = %q", user.User.Username)
 		}
 
 		// Should be authenticated after registration

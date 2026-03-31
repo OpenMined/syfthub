@@ -18,6 +18,7 @@ import { ErrorBoundary } from './observability';
 const googleClientId = getGoogleClientId();
 
 // Lazy load all pages for code splitting (with auto-reload on stale chunks)
+const CLISetupPage = lazyWithRetry(() => import('./pages/cli-setup'));
 const HomePage = lazyWithRetry(() => import('./pages/home'));
 const BrowsePage = lazyWithRetry(() => import('./pages/browse'));
 const ChatPage = lazyWithRetry(() => import('./pages/chat'));
@@ -26,6 +27,7 @@ const AboutPage = lazyWithRetry(() => import('./pages/about'));
 const ProfilePage = lazyWithRetry(() => import('./pages/profile'));
 const EndpointsPage = lazyWithRetry(() => import('./pages/endpoints'));
 const EndpointDetailPage = lazyWithRetry(() => import('./pages/endpoint-detail'));
+const AgentPage = lazyWithRetry(() => import('./pages/agent'));
 const NotFoundPage = lazyWithRetry(() => import('./pages/not-found'));
 
 /**
@@ -40,6 +42,8 @@ const NotFoundPage = lazyWithRetry(() => import('./pages/not-found'));
  * - /endpoints : Endpoint management with onboarding (protected)
  * - /:username/:slug : GitHub-style endpoint detail
  * - * : 404 Not Found
+ *
+ * Note: /q is handled by nginx (proxied directly to the aggregator).
  *
  * All routes are wrapped in MainLayout which provides:
  * - Sidebar navigation
@@ -70,6 +74,16 @@ export default function App() {
                 <BrowserRouter>
                   <ScrollToTop />
                   <Routes>
+                    {/* CLI setup — standalone page, no sidebar or navbar */}
+                    <Route
+                      path='cli-setup'
+                      element={
+                        <RouteBoundary>
+                          <CLISetupPage />
+                        </RouteBoundary>
+                      }
+                    />
+
                     <Route element={<MainLayout />}>
                       {/* Public routes */}
                       <Route
@@ -132,6 +146,16 @@ export default function App() {
                               <EndpointsPage />
                             </RouteBoundary>
                           </ProtectedRoute>
+                        }
+                      />
+
+                      {/* Agent session: /agent/:owner/:slug */}
+                      <Route
+                        path='agent/:owner/:slug'
+                        element={
+                          <RouteBoundary>
+                            <AgentPage />
+                          </RouteBoundary>
                         }
                       />
 

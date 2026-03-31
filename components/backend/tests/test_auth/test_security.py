@@ -218,7 +218,7 @@ class TestTokenBlacklist:
     def test_is_token_blacklisted_true(self):
         """Test checking if token is blacklisted (true case)."""
         token = "blacklisted_token"
-        token_blacklist.add(token)
+        blacklist_token(token)
 
         assert is_token_blacklisted(token) is True
 

@@ -1,6 +1,5 @@
 import { memo, useMemo } from 'react';
 
-import type { EndpointType } from '@/lib/types';
 import type { Components } from 'react-markdown';
 
 import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left';
@@ -15,6 +14,7 @@ import { Markdown } from '@/components/prompt-kit/markdown';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useEndpointByPath } from '@/hooks/use-endpoint-queries';
+import { getEndpointTypeBadgeStyles, getEndpointTypeLabel } from '@/lib/endpoint-utils';
 
 import { AccessPoliciesCard } from './access-policies-card';
 
@@ -72,39 +72,8 @@ function getStatusLabel(status: EndpointStatus) {
   }
 }
 
-function getTypeStyles(type: EndpointType) {
-  switch (type) {
-    case 'model': {
-      return 'bg-purple-100 text-purple-800 border-purple-200 hover:bg-purple-200';
-    }
-    case 'data_source': {
-      return 'bg-emerald-100 text-emerald-800 border-emerald-200 hover:bg-emerald-200';
-    }
-    case 'model_data_source': {
-      return 'bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-200';
-    }
-    default: {
-      return 'bg-muted text-foreground border-border';
-    }
-  }
-}
-
-function getTypeLabel(type: EndpointType) {
-  switch (type) {
-    case 'model': {
-      return 'Model';
-    }
-    case 'data_source': {
-      return 'Data Source';
-    }
-    case 'model_data_source': {
-      return 'Model + Data Source';
-    }
-    default: {
-      return type;
-    }
-  }
-}
+// getTypeStyles and getTypeLabel are now centralized in @/lib/endpoint-utils
+// as getEndpointTypeBadgeStyles and getEndpointTypeLabel respectively.
 
 // Skeleton loading state that mirrors the real page layout
 function EndpointDetailSkeleton() {
@@ -308,8 +277,8 @@ export const EndpointDetail = memo(function EndpointDetail({
 
               {/* Badges */}
               <div className='mb-4 flex flex-wrap gap-2'>
-                <Badge className={`border ${getTypeStyles(endpoint.type)}`}>
-                  {getTypeLabel(endpoint.type)}
+                <Badge className={`border ${getEndpointTypeBadgeStyles(endpoint.type)}`}>
+                  {getEndpointTypeLabel(endpoint.type)}
                 </Badge>
                 <Badge className={getStatusBadgeColor(endpoint.status)}>
                   <span
@@ -379,8 +348,8 @@ export const EndpointDetail = memo(function EndpointDetail({
 
                 <div>
                   <p className='font-inter text-muted-foreground mb-1 text-xs'>Endpoint Type</p>
-                  <Badge className={`border ${getTypeStyles(endpoint.type)}`}>
-                    {getTypeLabel(endpoint.type)}
+                  <Badge className={`border ${getEndpointTypeBadgeStyles(endpoint.type)}`}>
+                    {getEndpointTypeLabel(endpoint.type)}
                   </Badge>
                 </div>
 

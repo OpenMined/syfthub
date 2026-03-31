@@ -14,6 +14,7 @@ type RequestLog struct {
 	ID string `json:"id"`
 
 	// Timestamp is when the request was received.
+	// Derived from Timing.ReceivedAt; kept for JSON compatibility and external consumers.
 	Timestamp time.Time `json:"timestamp"`
 
 	// CorrelationID is the request tracking ID from the tunnel protocol.
@@ -227,17 +228,19 @@ func BuildRequestLog(
 ) *RequestLog {
 	processedAt := time.Now()
 
+	timing := &LogTiming{
+		ReceivedAt:  startTime,
+		ProcessedAt: processedAt,
+		DurationMs:  processedAt.Sub(startTime).Milliseconds(),
+	}
+
 	log := &RequestLog{
 		ID:            NewRequestLogID(),
-		Timestamp:     startTime,
+		Timestamp:     timing.ReceivedAt,
 		CorrelationID: req.CorrelationID,
 		EndpointSlug:  req.Endpoint.Slug,
 		EndpointType:  req.Endpoint.Type,
-		Timing: &LogTiming{
-			ReceivedAt:  startTime,
-			ProcessedAt: processedAt,
-			DurationMs:  processedAt.Sub(startTime).Milliseconds(),
-		},
+		Timing:        timing,
 	}
 
 	// User info

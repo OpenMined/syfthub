@@ -1,5 +1,13 @@
 import type { HTTPClient } from '../http.js';
-import type { User, UserRegisterInput } from '../models/index.js';
+import type {
+  AuthConfig,
+  PasswordResetConfirmInput,
+  PasswordResetRequestInput,
+  RegisterResult,
+  User,
+  UserRegisterInput,
+  VerifyOTPInput,
+} from '../models/index.js';
 import { AuthenticationError } from '../errors.js';
 
 /**
@@ -10,6 +18,17 @@ interface AuthResponse {
   accessToken: string;
   refreshToken: string;
   tokenType: string;
+}
+
+/**
+ * Response from registration endpoint (may have null tokens).
+ */
+interface RegistrationResponse {
+  user: User;
+  accessToken: string | null;
+  refreshToken: string | null;
+  tokenType: string;
+  requiresEmailVerification: boolean;
 }
 
 /**
@@ -96,15 +115,20 @@ export class AuthResource {
    *   }
    * }
    */
-  async register(input: UserRegisterInput): Promise<User> {
-    const response = await this.http.post<AuthResponse>('/api/v1/auth/register', input, {
+  async register(input: UserRegisterInput): Promise<RegisterResult> {
+    const response = await this.http.post<RegistrationResponse>('/api/v1/auth/register', input, {
       includeAuth: false,
     });
 
-    // Store tokens in HTTP client
-    this.http.setTokens(response.accessToken, response.refreshToken);
+    // Store tokens if present (not withheld for email verification)
+    if (response.accessToken && response.refreshToken) {
+      this.http.setTokens(response.accessToken, response.refreshToken);
+    }
 
-    return response.user;
+    return {
+      user: response.user,
+      requiresEmailVerification: response.requiresEmailVerification,
+    };
   }
 
   /**
@@ -194,6 +218,80 @@ export class AuthResource {
   }
 
   /**
+   * Get the platform's authentication configuration.
+   *
+   * No authentication required. Use this to determine whether email
+   * verification or password reset is available.
+   *
+   * @returns AuthConfig with feature flags
+   */
+  async getAuthConfig(): Promise<AuthConfig> {
+    return this.http.get<AuthConfig>('/api/v1/auth/config', undefined, { includeAuth: false });
+  }
+
+  /**
+   * Verify a registration OTP and receive auth tokens.
+   *
+   * After registering when email verification is required, call this with
+   * the 6-digit code sent to the user's email.
+   *
+   * Idempotent: if the user is already verified, tokens are issued immediately.
+   *
+   * @param input - Email and 6-digit code
+   * @returns The authenticated User
+   * @throws {APIError} If the code is invalid or max attempts exceeded
+   */
+  async verifyOtp(input: VerifyOTPInput): Promise<User> {
+    const response = await this.http.post<AuthResponse>(
+      '/api/v1/auth/register/verify-otp',
+      input,
+      { includeAuth: false }
+    );
+
+    this.http.setTokens(response.accessToken, response.refreshToken);
+    return response.user;
+  }
+
+  /**
+   * Resend the registration OTP code.
+   *
+   * Rate-limited. Always returns successfully to prevent email enumeration.
+   *
+   * @param email - Email address to resend the OTP to
+   */
+  async resendOtp(email: string): Promise<void> {
+    await this.http.post<void>('/api/v1/auth/register/resend-otp', { email }, {
+      includeAuth: false,
+    });
+  }
+
+  /**
+   * Request a password reset OTP.
+   *
+   * Always returns successfully to prevent email enumeration.
+   * If SMTP is not configured on the server, this is a no-op.
+   *
+   * @param input - Email address for password reset
+   */
+  async requestPasswordReset(input: PasswordResetRequestInput): Promise<void> {
+    await this.http.post<void>('/api/v1/auth/password-reset/request', input, {
+      includeAuth: false,
+    });
+  }
+
+  /**
+   * Confirm a password reset with OTP and set a new password.
+   *
+   * @param input - Email, 6-digit code, and new password
+   * @throws {APIError} If the code is invalid or max attempts exceeded
+   */
+  async confirmPasswordReset(input: PasswordResetConfirmInput): Promise<void> {
+    await this.http.post<void>('/api/v1/auth/password-reset/confirm', input, {
+      includeAuth: false,
+    });
+  }
+
+  /**
    * Get a peer token for NATS communication with tunneling spaces.
    *
    * Peer tokens are short-lived credentials that allow the aggregator to
@@ -211,6 +309,27 @@ export class AuthResource {
     return this.http.post<PeerTokenResponse>('/api/v1/peer-token', {
       target_usernames: targetUsernames,
     });
+  }
+
+  /**
+   * Get a guest peer token for NATS communication without authentication.
+   *
+   * Guest peer tokens are rate-limited by IP address. They use the same
+   * response format as authenticated peer tokens.
+   *
+   * @param targetUsernames - Usernames of the tunneling spaces to communicate with
+   * @returns PeerTokenResponse with token, channel, expiry, and NATS URL
+   *
+   * @example
+   * const peer = await client.auth.getGuestPeerToken(['alice']);
+   * console.log(`Guest peer channel: ${peer.peerChannel}`);
+   */
+  async getGuestPeerToken(targetUsernames: string[]): Promise<PeerTokenResponse> {
+    return this.http.post<PeerTokenResponse>(
+      '/api/v1/nats/guest-peer-token',
+      { target_usernames: targetUsernames },
+      { includeAuth: false }
+    );
   }
 
   /**

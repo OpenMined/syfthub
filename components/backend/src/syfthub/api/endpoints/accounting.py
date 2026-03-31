@@ -6,7 +6,7 @@ avoiding CORS issues by making server-to-server calls.
 The frontend calls these endpoints instead of the accounting service directly.
 """
 
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -103,6 +103,59 @@ class TransactionTokensResponse(BaseModel):
 # =============================================================================
 # Helper Functions
 # =============================================================================
+
+
+def _build_transaction_response(tx: dict[str, Any]) -> AccountingTransactionResponse:
+    """Build an AccountingTransactionResponse from an upstream transaction dict.
+
+    Args:
+        tx: Raw transaction dictionary from the accounting service (camelCase keys).
+
+    Returns:
+        AccountingTransactionResponse with snake_case field mapping.
+    """
+    return AccountingTransactionResponse(
+        id=tx.get("id", ""),
+        sender_email=tx.get("senderEmail", ""),
+        recipient_email=tx.get("recipientEmail", ""),
+        amount=tx.get("amount", 0),
+        status=tx.get("status", ""),
+        created_by=tx.get("createdBy", ""),
+        resolved_by=tx.get("resolvedBy"),
+        created_at=tx.get("createdAt", ""),
+        resolved_at=tx.get("resolvedAt"),
+        app_name=tx.get("appName"),
+        app_ep_path=tx.get("appEpPath"),
+    )
+
+
+def _handle_upstream_error(response: Any, default_msg: str) -> None:
+    """Raise an HTTPException from an upstream accounting service error response.
+
+    Maps upstream 4xx to the same status code and 5xx to 502 Bad Gateway.
+
+    Args:
+        response: The httpx response from the accounting service.
+        default_msg: Fallback error message if parsing fails.
+
+    Raises:
+        HTTPException: Always raised.
+    """
+
+    try:
+        error_data = response.json()
+        msg = error_data.get("detail", error_data.get("message", default_msg))
+    except Exception:
+        msg = default_msg
+    upstream_status = (
+        response.status_code
+        if response.status_code < 500
+        else status.HTTP_502_BAD_GATEWAY
+    )
+    raise HTTPException(
+        status_code=upstream_status,
+        detail={"code": "ACCOUNTING_UPSTREAM_ERROR", "message": msg},
+    )
 
 
 def get_accounting_client(user: User) -> tuple[AccountingClient, str]:
@@ -248,23 +301,7 @@ async def get_transactions(
             transactions_list = []
 
         # Transform the response to match frontend expectations
-        result = []
-        for tx in transactions_list:
-            result.append(
-                AccountingTransactionResponse(
-                    id=tx.get("id", ""),
-                    sender_email=tx.get("senderEmail", ""),
-                    recipient_email=tx.get("recipientEmail", ""),
-                    amount=tx.get("amount", 0),
-                    status=tx.get("status", ""),
-                    created_by=tx.get("createdBy", ""),
-                    resolved_by=tx.get("resolvedBy"),
-                    created_at=tx.get("createdAt", ""),
-                    resolved_at=tx.get("resolvedAt"),
-                    app_name=tx.get("appName"),
-                    app_ep_path=tx.get("appEpPath"),
-                )
-            )
+        result = [_build_transaction_response(tx) for tx in transactions_list]
 
         return result
     except HTTPException:
@@ -315,36 +352,9 @@ async def create_transaction(
         )
 
         if response.status_code not in (200, 201):
-            default_msg = "Failed to create transaction"
-            try:
-                error_data = response.json()
-                msg = error_data.get("detail", error_data.get("message", default_msg))
-            except Exception:
-                msg = default_msg
-            upstream_status = (
-                response.status_code
-                if response.status_code < 500
-                else status.HTTP_502_BAD_GATEWAY
-            )
-            raise HTTPException(
-                status_code=upstream_status,
-                detail={"code": "ACCOUNTING_UPSTREAM_ERROR", "message": msg},
-            )
+            _handle_upstream_error(response, "Failed to create transaction")
 
-        tx = response.json()
-        return AccountingTransactionResponse(
-            id=tx.get("id", ""),
-            sender_email=tx.get("senderEmail", ""),
-            recipient_email=tx.get("recipientEmail", ""),
-            amount=tx.get("amount", 0),
-            status=tx.get("status", ""),
-            created_by=tx.get("createdBy", ""),
-            resolved_by=tx.get("resolvedBy"),
-            created_at=tx.get("createdAt", ""),
-            resolved_at=tx.get("resolvedAt"),
-            app_name=tx.get("appName"),
-            app_ep_path=tx.get("appEpPath"),
-        )
+        return _build_transaction_response(response.json())
     except HTTPException:
         raise
     except Exception as e:
@@ -383,36 +393,9 @@ async def confirm_transaction(
         )
 
         if response.status_code != 200:
-            default_msg = "Failed to confirm transaction"
-            try:
-                error_data = response.json()
-                msg = error_data.get("detail", error_data.get("message", default_msg))
-            except Exception:
-                msg = default_msg
-            upstream_status = (
-                response.status_code
-                if response.status_code < 500
-                else status.HTTP_502_BAD_GATEWAY
-            )
-            raise HTTPException(
-                status_code=upstream_status,
-                detail={"code": "ACCOUNTING_UPSTREAM_ERROR", "message": msg},
-            )
+            _handle_upstream_error(response, "Failed to confirm transaction")
 
-        tx = response.json()
-        return AccountingTransactionResponse(
-            id=tx.get("id", ""),
-            sender_email=tx.get("senderEmail", ""),
-            recipient_email=tx.get("recipientEmail", ""),
-            amount=tx.get("amount", 0),
-            status=tx.get("status", ""),
-            created_by=tx.get("createdBy", ""),
-            resolved_by=tx.get("resolvedBy"),
-            created_at=tx.get("createdAt", ""),
-            resolved_at=tx.get("resolvedAt"),
-            app_name=tx.get("appName"),
-            app_ep_path=tx.get("appEpPath"),
-        )
+        return _build_transaction_response(response.json())
     except HTTPException:
         raise
     except Exception as e:
@@ -451,36 +434,9 @@ async def cancel_transaction(
         )
 
         if response.status_code != 200:
-            default_msg = "Failed to cancel transaction"
-            try:
-                error_data = response.json()
-                msg = error_data.get("detail", error_data.get("message", default_msg))
-            except Exception:
-                msg = default_msg
-            upstream_status = (
-                response.status_code
-                if response.status_code < 500
-                else status.HTTP_502_BAD_GATEWAY
-            )
-            raise HTTPException(
-                status_code=upstream_status,
-                detail={"code": "ACCOUNTING_UPSTREAM_ERROR", "message": msg},
-            )
+            _handle_upstream_error(response, "Failed to cancel transaction")
 
-        tx = response.json()
-        return AccountingTransactionResponse(
-            id=tx.get("id", ""),
-            sender_email=tx.get("senderEmail", ""),
-            recipient_email=tx.get("recipientEmail", ""),
-            amount=tx.get("amount", 0),
-            status=tx.get("status", ""),
-            created_by=tx.get("createdBy", ""),
-            resolved_by=tx.get("resolvedBy"),
-            created_at=tx.get("createdAt", ""),
-            resolved_at=tx.get("resolvedAt"),
-            app_name=tx.get("appName"),
-            app_ep_path=tx.get("appEpPath"),
-        )
+        return _build_transaction_response(response.json())
     except HTTPException:
         raise
     except Exception as e:

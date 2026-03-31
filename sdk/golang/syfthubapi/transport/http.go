@@ -128,8 +128,8 @@ func (t *HTTPTransport) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 	// Build tunnel request (matching Python syfthub-api format)
 	tunnelReq := &syfthubapi.TunnelRequest{
-		Protocol:      "syfthub-tunnel/v1",
-		Type:          "endpoint_request",
+		Protocol:      syfthubapi.TunnelProtocolV1,
+		Type:          syfthubapi.TunnelTypeRequest,
 		CorrelationID: fmt.Sprintf("%d", time.Now().UnixNano()),
 		Endpoint: syfthubapi.TunnelEndpointInfo{
 			Slug: slug,
@@ -157,10 +157,11 @@ func (t *HTTPTransport) handleQuery(w http.ResponseWriter, r *http.Request) {
 	t.writeResponse(w, resp)
 }
 
-// handleListEndpoints handles listing available endpoints.
+// handleListEndpoints is a non-functional stub.
+// TODO: This always returns an empty list because the transport layer has no
+// access to the endpoint registry. Either wire the registry into the transport
+// or remove this handler entirely once callers have been migrated.
 func (t *HTTPTransport) handleListEndpoints(w http.ResponseWriter, r *http.Request) {
-	// This would typically query the registry, but we don't have direct access here
-	// Return empty list for now - actual implementation would need registry access
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]any{"endpoints": []any{}})
@@ -217,7 +218,7 @@ func (t *HTTPTransport) writeError(w http.ResponseWriter, status int, message st
 func (t *HTTPTransport) writeResponse(w http.ResponseWriter, resp *syfthubapi.TunnelResponse) {
 	w.Header().Set("Content-Type", "application/json")
 
-	if resp.Status == "error" && resp.Error != nil {
+	if resp.Status == syfthubapi.TunnelStatusError && resp.Error != nil {
 		status := t.errorCodeToHTTPStatus(resp.Error.Code)
 		w.WriteHeader(status)
 		json.NewEncoder(w).Encode(map[string]any{

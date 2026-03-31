@@ -92,6 +92,11 @@ export type {
   UserRegisterInput,
   UserUpdateInput,
   PasswordChangeInput,
+  RegisterResult,
+  VerifyOTPInput,
+  PasswordResetRequestInput,
+  PasswordResetConfirmInput,
+  AuthConfig,
   AccountingCredentials,
   HeartbeatInput,
   HeartbeatResponse,
@@ -124,6 +129,7 @@ export type {
   // Chat types
   EndpointRef,
   Document,
+  DocumentSource,
   SourceStatus,
   SourceInfo,
   ChatMetadata,
@@ -157,6 +163,27 @@ export {
 // Accounting Resource (standalone client for external accounting service)
 export { AccountingResource, createAccountingResource } from './resources/accounting.js';
 export type { AccountingResourceOptions, TransactionsOptions } from './resources/accounting.js';
+
+// Agent Resource and types
+export { AgentResource, AgentSessionClient, AgentSessionError } from './resources/agent.js';
+export type {
+  AgentEvent,
+  AgentSessionState,
+  AgentSessionOptions,
+  AgentConfig,
+  AgentHistoryMessage,
+  ThinkingEvent as AgentThinkingEvent,
+  ToolCallEvent as AgentToolCallEvent,
+  ToolResultEvent as AgentToolResultEvent,
+  AgentMessageEvent,
+  TokenEvent as AgentTokenEvent,
+  StatusEvent as AgentStatusEvent,
+  RequestInputEvent as AgentRequestInputEvent,
+  SessionCreatedEvent as AgentSessionCreatedEvent,
+  SessionCompletedEvent as AgentSessionCompletedEvent,
+  SessionFailedEvent as AgentSessionFailedEvent,
+  AgentErrorEvent,
+} from './models/agent.js';
 
 // Chat Resource (for type hints)
 export { ChatResource } from './resources/chat.js';

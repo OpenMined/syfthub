@@ -18,7 +18,7 @@ from syfthub_sdk.auth import AuthResource
 from syfthub_sdk.chat import ChatResource
 from syfthub_sdk.exceptions import ConfigurationError
 from syfthub_sdk.hub import HubResource
-from syfthub_sdk.models import AuthTokens, User
+from syfthub_sdk.models import AuthTokens, RegisterResult, User
 from syfthub_sdk.my_endpoints import MyEndpointsResource
 from syfthub_sdk.syftai import SyftAIResource
 from syfthub_sdk.users import UsersResource
@@ -371,7 +371,7 @@ class SyftHubClient:
         email: str,
         password: str,
         full_name: str,
-    ) -> User:
+    ) -> RegisterResult:
         """Register a new user. Alias for client.auth.register()."""
         return self._auth.register(
             username=username,

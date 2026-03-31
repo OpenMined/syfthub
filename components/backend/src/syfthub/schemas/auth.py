@@ -25,6 +25,22 @@ class AuthProvider(str, Enum):
     GOOGLE = "google"
 
 
+def _validate_password_strength(v: str) -> str:
+    """Validate password meets strength requirements."""
+    if len(v) < settings.password_min_length:
+        msg = (
+            f"Password must be at least {settings.password_min_length} characters long"
+        )
+        raise ValueError(msg)
+    if not any(c.isdigit() for c in v):
+        msg = "Password must contain at least one digit"
+        raise ValueError(msg)
+    if not any(c.isalpha() for c in v):
+        msg = "Password must contain at least one letter"
+        raise ValueError(msg)
+    return v
+
+
 class Token(BaseModel):
     """Token response schema."""
 
@@ -94,20 +110,7 @@ class UserRegister(BaseModel):
     @classmethod
     def validate_password(cls, v: str) -> str:
         """Validate password requirements."""
-        if len(v) < settings.password_min_length:
-            msg = f"Password must be at least {settings.password_min_length} characters long"
-            raise ValueError(msg)
-
-        # Check for at least one number and one letter
-        if not any(c.isdigit() for c in v):
-            msg = "Password must contain at least one digit"
-            raise ValueError(msg)
-
-        if not any(c.isalpha() for c in v):
-            msg = "Password must contain at least one letter"
-            raise ValueError(msg)
-
-        return v
+        return _validate_password_strength(v)
 
     @field_validator("username")
     @classmethod
@@ -135,20 +138,7 @@ class PasswordChange(BaseModel):
     @classmethod
     def validate_new_password(cls, v: str) -> str:
         """Validate new password requirements."""
-        if len(v) < settings.password_min_length:
-            msg = f"Password must be at least {settings.password_min_length} characters long"
-            raise ValueError(msg)
-
-        # Check for at least one number and one letter
-        if not any(c.isdigit() for c in v):
-            msg = "Password must contain at least one digit"
-            raise ValueError(msg)
-
-        if not any(c.isalpha() for c in v):
-            msg = "Password must contain at least one letter"
-            raise ValueError(msg)
-
-        return v
+        return _validate_password_strength(v)
 
 
 class AuthResponse(BaseModel):
@@ -162,8 +152,97 @@ class AuthResponse(BaseModel):
     token_type: str = Field(default="bearer", description="Token type")
 
 
-# RegistrationResponse is now identical to AuthResponse
-RegistrationResponse = AuthResponse
+class RegistrationResponse(BaseModel):
+    """Registration response with conditional token delivery.
+
+    When email verification is required, tokens are null and
+    requires_email_verification is True. The client must verify
+    the OTP before receiving tokens.
+    """
+
+    user: Dict[str, Union[str, int, bool, None]] = Field(
+        ..., description="User information"
+    )
+    access_token: Optional[str] = Field(
+        None, description="JWT access token (null when verification required)"
+    )
+    refresh_token: Optional[str] = Field(
+        None, description="JWT refresh token (null when verification required)"
+    )
+    token_type: str = Field(default="bearer", description="Token type")
+    requires_email_verification: bool = Field(
+        default=False,
+        description="Whether the user must verify their email before receiving tokens",
+    )
+
+
+class VerifyOTPRequest(BaseModel):
+    """Request to verify an OTP code."""
+
+    email: EmailStr = Field(..., description="Email address that received the OTP")
+    code: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="6-digit OTP code",
+    )
+
+
+class ResendOTPRequest(BaseModel):
+    """Request to resend an OTP code."""
+
+    email: EmailStr = Field(..., description="Email address to resend the OTP to")
+
+
+class PasswordResetRequest(BaseModel):
+    """Request to initiate password reset."""
+
+    email: EmailStr = Field(..., description="Email address for password reset")
+
+
+class PasswordResetConfirm(BaseModel):
+    """Request to confirm password reset with OTP and new password."""
+
+    email: EmailStr = Field(..., description="Email address for password reset")
+    code: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="6-digit OTP code",
+    )
+    new_password: str = Field(..., description="New password")
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v: str) -> str:
+        """Validate new password requirements."""
+        if len(v) < settings.password_min_length:
+            msg = f"Password must be at least {settings.password_min_length} characters long"
+            raise ValueError(msg)
+
+        if not any(c.isdigit() for c in v):
+            msg = "Password must contain at least one digit"
+            raise ValueError(msg)
+
+        if not any(c.isalpha() for c in v):
+            msg = "Password must contain at least one letter"
+            raise ValueError(msg)
+
+        return v
+
+
+class AuthConfigResponse(BaseModel):
+    """Platform authentication configuration (public, no auth required)."""
+
+    require_email_verification: bool = Field(
+        ..., description="Whether registration requires email OTP verification"
+    )
+    smtp_configured: bool = Field(..., description="Whether SMTP email is configured")
+    password_reset_enabled: bool = Field(
+        ..., description="Whether password reset via email is available"
+    )
 
 
 class GoogleAuthRequest(BaseModel):

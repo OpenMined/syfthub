@@ -1,7 +1,9 @@
 import { useModalStore } from '@/stores/modal-store';
 
 import { LoginModal } from './login-modal';
+import { PasswordResetModal } from './password-reset-modal';
 import { RegisterModal } from './register-modal';
+import { VerifyOtpModal } from './verify-otp-modal';
 
 /**
  * AuthModals - Container component that renders authentication modals
@@ -11,7 +13,8 @@ import { RegisterModal } from './register-modal';
  * and the modals can be opened from anywhere using the useModalStore hook.
  */
 export function AuthModals() {
-  const { activeModal, closeModal, switchToLogin, switchToRegister } = useModalStore();
+  const { activeModal, pendingEmail, closeModal, switchToLogin, switchToRegister } =
+    useModalStore();
 
   return (
     <>
@@ -22,6 +25,18 @@ export function AuthModals() {
       />
       <RegisterModal
         isOpen={activeModal === 'register'}
+        onClose={closeModal}
+        onSwitchToLogin={switchToLogin}
+      />
+      <VerifyOtpModal
+        isOpen={activeModal === 'verify-otp'}
+        email={pendingEmail ?? ''}
+        onClose={closeModal}
+        onSwitchToLogin={switchToLogin}
+      />
+      <PasswordResetModal
+        isOpen={activeModal === 'password-reset'}
+        initialEmail={pendingEmail}
         onClose={closeModal}
         onSwitchToLogin={switchToLogin}
       />

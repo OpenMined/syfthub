@@ -23,6 +23,7 @@ class EndpointType(str, Enum):
     MODEL = "model"
     DATA_SOURCE = "data_source"
     MODEL_DATA_SOURCE = "model_data_source"
+    AGENT = "agent"
 
 
 class UserRole(str, Enum):
@@ -65,6 +66,29 @@ class AuthTokens(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+
+    model_config = {"frozen": True}
+
+
+class RegisterResult(BaseModel):
+    """Result of user registration.
+
+    When ``requires_email_verification`` is True, the client must call
+    ``auth.verify_otp()`` before the user can log in.
+    """
+
+    user: User
+    requires_email_verification: bool = False
+
+    model_config = {"frozen": True}
+
+
+class AuthConfig(BaseModel):
+    """Platform authentication configuration (from GET /auth/config)."""
+
+    require_email_verification: bool = False
+    smtp_configured: bool = False
+    password_reset_enabled: bool = False
 
     model_config = {"frozen": True}
 

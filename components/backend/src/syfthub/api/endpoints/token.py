@@ -30,12 +30,10 @@ from syfthub.auth.satellite_tokens import (
     GUEST_ROLE,
     GUEST_SUB,
     GUEST_USERNAME,
-    AudienceValidationResult,
     TokenVerificationResult,
     create_guest_satellite_token,
     create_satellite_token,
     get_allowed_audiences,
-    validate_audience,
     verify_satellite_token_for_service,
 )
 from syfthub.core.config import settings
@@ -133,7 +131,7 @@ async def get_satellite_token(
     if not key_manager.is_configured:
         raise KeyNotConfiguredError()
 
-    # Validate audience parameter
+    # Validate audience parameter presence (route concern)
     if not aud or not aud.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -143,20 +141,9 @@ async def get_satellite_token(
             },
         )
 
-    # Validate audience against user database (dynamic validation)
-    validation_result: AudienceValidationResult = validate_audience(aud, user_repo)
-    if not validation_result.valid:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "code": validation_result.error_code or "INVALID_AUDIENCE",
-                "message": validation_result.error
-                or f"The requested audience '{aud}' is not valid.",
-            },
-        )
-
-    # Create satellite token — domain exceptions (AudienceNotFoundError,
-    # AudienceInactiveError, KeyNotConfiguredError) bubble up to the
+    # Create satellite token — audience validation and domain exceptions
+    # (AudienceNotFoundError, AudienceInactiveError, KeyNotConfiguredError)
+    # are handled inside create_satellite_token and bubble up to the
     # DomainException handler which auto-maps them to the correct status code.
     target_token = create_satellite_token(
         user=current_user,
@@ -249,7 +236,7 @@ async def get_guest_satellite_token(
     if not key_manager.is_configured:
         raise KeyNotConfiguredError()
 
-    # Validate audience parameter
+    # Validate audience parameter presence (route concern)
     if not aud or not aud.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -259,19 +246,8 @@ async def get_guest_satellite_token(
             },
         )
 
-    # Validate audience against user database (dynamic validation)
-    validation_result: AudienceValidationResult = validate_audience(aud, user_repo)
-    if not validation_result.valid:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "code": validation_result.error_code or "INVALID_AUDIENCE",
-                "message": validation_result.error
-                or f"The requested audience '{aud}' is not valid.",
-            },
-        )
-
-    # Create guest satellite token — domain exceptions bubble up to the
+    # Create guest satellite token — audience validation and domain exceptions
+    # are handled inside create_guest_satellite_token and bubble up to the
     # DomainException handler which auto-maps them to the correct status code.
     target_token = create_guest_satellite_token(
         audience=aud,

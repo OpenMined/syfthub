@@ -13,7 +13,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
+
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
 // venvPythonPath returns the path to the Python interpreter in a venv,
@@ -30,7 +31,7 @@ type VenvManager struct {
 	cacheDir   string
 	pythonPath string
 	logger     *slog.Logger
-	mu         sync.Mutex
+	locks      sync.Map // map[string]*sync.Mutex — per-hash locks for concurrent venv creation
 }
 
 // VenvConfig holds venv manager configuration.
@@ -78,30 +79,37 @@ func NewVenvManager(cfg *VenvConfig) (*VenvManager, error) {
 	}, nil
 }
 
+// lockForHash returns a per-hash mutex, creating one if it doesn't exist yet.
+// This allows concurrent venv creation for endpoints with different dependency sets
+// while serializing operations on the same dependency hash.
+func (m *VenvManager) lockForHash(key string) *sync.Mutex {
+	val, _ := m.locks.LoadOrStore(key, &sync.Mutex{})
+	return val.(*sync.Mutex)
+}
+
+// resolveDeps reads pyproject.toml or requirements.txt from endpointDir and
+// returns the list of pip dependencies. extras selects optional-dependency
+// groups from pyproject.toml.
+func (m *VenvManager) resolveDeps(endpointDir string, extras []string) ([]string, error) {
+	pyprojectPath := filepath.Join(endpointDir, "pyproject.toml")
+	requirementsPath := filepath.Join(endpointDir, "requirements.txt")
+
+	if _, statErr := os.Stat(pyprojectPath); statErr == nil {
+		return m.parsePyprojectDeps(pyprojectPath, extras)
+	}
+	if _, statErr := os.Stat(requirementsPath); statErr == nil {
+		return m.parseRequirementsTxt(requirementsPath)
+	}
+	return nil, nil
+}
+
 // EnsureVenv ensures a virtual environment exists for the given endpoint.
 // Returns the path to the Python interpreter in the venv.
 // additionalDeps are extra packages to install (e.g., "policy-manager" for policy enforcement).
 func (m *VenvManager) EnsureVenv(endpointDir string, extras []string, additionalDeps ...string) (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Check for pyproject.toml
-	pyprojectPath := filepath.Join(endpointDir, "pyproject.toml")
-	requirementsPath := filepath.Join(endpointDir, "requirements.txt")
-
-	var deps []string
-	var err error
-
-	if _, statErr := os.Stat(pyprojectPath); statErr == nil {
-		deps, err = m.parsePyprojectDeps(pyprojectPath, extras)
-		if err != nil {
-			return "", err
-		}
-	} else if _, statErr := os.Stat(requirementsPath); statErr == nil {
-		deps, err = m.parseRequirementsTxt(requirementsPath)
-		if err != nil {
-			return "", err
-		}
+	deps, err := m.resolveDeps(endpointDir, extras)
+	if err != nil {
+		return "", err
 	}
 
 	// Add additional dependencies (e.g., policy-manager for policy enforcement)
@@ -115,8 +123,12 @@ func (m *VenvManager) EnsureVenv(endpointDir string, extras []string, additional
 		return m.pythonPath, nil
 	}
 
-	// Calculate hash of dependencies
+	// Calculate hash of dependencies and lock per-hash
 	hash := m.hashDeps(deps)
+	mu := m.lockForHash(hash)
+	mu.Lock()
+	defer mu.Unlock()
+
 	venvDir := filepath.Join(m.cacheDir, hash)
 	pythonPath := venvPythonPath(venvDir)
 
@@ -150,57 +162,6 @@ func (m *VenvManager) EnsureVenv(endpointDir string, extras []string, additional
 		"endpoint", filepath.Base(endpointDir),
 		"hash", hash[:8],
 	)
-
-	return pythonPath, nil
-}
-
-// EnsureLocalVenv creates a venv in the endpoint directory itself.
-func (m *VenvManager) EnsureLocalVenv(endpointDir string, extras []string) (string, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	venvDir := filepath.Join(endpointDir, ".venv")
-	pythonPath := venvPythonPath(venvDir)
-
-	// Check if venv already exists
-	if _, err := os.Stat(pythonPath); err == nil {
-		return pythonPath, nil
-	}
-
-	// Check for dependencies
-	pyprojectPath := filepath.Join(endpointDir, "pyproject.toml")
-	requirementsPath := filepath.Join(endpointDir, "requirements.txt")
-
-	var deps []string
-	var err error
-
-	if _, statErr := os.Stat(pyprojectPath); statErr == nil {
-		deps, err = m.parsePyprojectDeps(pyprojectPath, extras)
-		if err != nil {
-			return "", err
-		}
-	} else if _, statErr := os.Stat(requirementsPath); statErr == nil {
-		deps, err = m.parseRequirementsTxt(requirementsPath)
-		if err != nil {
-			return "", err
-		}
-	}
-
-	// Create venv
-	m.logger.Info("creating local venv",
-		"endpoint", filepath.Base(endpointDir),
-	)
-
-	if err := m.createVenv(venvDir); err != nil {
-		return "", err
-	}
-
-	// Install dependencies
-	if len(deps) > 0 {
-		if err := m.installDeps(pythonPath, deps); err != nil {
-			return "", err
-		}
-	}
 
 	return pythonPath, nil
 }
@@ -249,68 +210,51 @@ func (m *VenvManager) parsePyprojectDeps(path string, extras []string) ([]string
 	scanner := bufio.NewScanner(file)
 	inDeps := false
 	inOptionalDeps := false
-	currentExtra := ""
 
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 
-		// Check for section headers
-		if line == "[project.dependencies]" || line == "dependencies = [" {
+		// Section headers
+		if line == "[project.dependencies]" {
 			inDeps = true
 			continue
 		}
-		if strings.HasPrefix(line, "[project.optional-dependencies") || strings.HasPrefix(line, "[tool.") {
-			inDeps = false
-		}
 		if strings.HasPrefix(line, "[project.optional-dependencies.") {
 			extra := strings.TrimSuffix(strings.TrimPrefix(line, "[project.optional-dependencies."), "]")
+			inOptionalDeps = false
 			for _, e := range extras {
 				if e == extra {
 					inOptionalDeps = true
-					currentExtra = extra
 					break
 				}
 			}
 			continue
 		}
-		if strings.HasPrefix(line, "[") && !strings.HasPrefix(line, "[project.optional-dependencies") {
+		if strings.HasPrefix(line, "[") {
+			inDeps = false
 			inOptionalDeps = false
-			currentExtra = ""
-		}
-
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 
-		// Parse dependency line
-		if inDeps || inOptionalDeps {
-			// Handle TOML array format
-			dep := strings.Trim(line, `"',[]`)
-			if dep != "" && !strings.HasPrefix(dep, "#") {
-				deps = append(deps, dep)
-			}
-		}
-
-		// Simple inline dependencies format
-		if strings.HasPrefix(line, "dependencies = [") && strings.HasSuffix(line, "]") {
-			content := strings.TrimPrefix(line, "dependencies = [")
-			content = strings.TrimSuffix(content, "]")
-			for _, dep := range strings.Split(content, ",") {
-				dep = strings.Trim(dep, `"' `)
-				if dep != "" {
-					deps = append(deps, dep)
+		// Inline dependencies = [...] (handled via shared helper)
+		if strings.HasPrefix(line, "dependencies = [") {
+			if entries, ok := nodeops.ParseInlineDeps(line); ok {
+				for _, entry := range entries {
+					deps = append(deps, strings.Trim(entry, `"'`))
 				}
+				continue
 			}
+			// Multi-line array start
+			inDeps = true
+			continue
 		}
 
-		// Check for extras inline format
+		// Inline extras format: extra_name = ["dep1", "dep2"]
 		for _, extra := range extras {
-			prefix := fmt.Sprintf("%s = [", extra)
-			if strings.HasPrefix(line, prefix) && strings.HasSuffix(line, "]") {
-				content := strings.TrimPrefix(line, prefix)
-				content = strings.TrimSuffix(content, "]")
-				for _, dep := range strings.Split(content, ",") {
+			prefix := extra + " = ["
+			if strings.HasPrefix(line, prefix) && strings.Contains(line, "]") {
+				inner := line[len(prefix):strings.Index(line, "]")]
+				for _, dep := range strings.Split(inner, ",") {
 					dep = strings.Trim(dep, `"' `)
 					if dep != "" {
 						deps = append(deps, dep)
@@ -318,13 +262,28 @@ func (m *VenvManager) parsePyprojectDeps(path string, extras []string) ([]string
 				}
 			}
 		}
+
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") || line == "]" {
+			if line == "]" {
+				inDeps = false
+				inOptionalDeps = false
+			}
+			continue
+		}
+
+		// Multi-line array entries
+		if inDeps || inOptionalDeps {
+			dep := strings.Trim(line, `"',`)
+			if dep != "" {
+				deps = append(deps, dep)
+			}
+		}
 	}
 
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
-
-	_ = currentExtra // Avoid unused variable warning
 
 	return deps, nil
 }
@@ -377,39 +336,4 @@ func (m *VenvManager) hashDeps(deps []string) string {
 	}
 
 	return hex.EncodeToString(h.Sum(nil))
-}
-
-// CleanupOldVenvs removes venvs that haven't been used recently.
-func (m *VenvManager) CleanupOldVenvs(maxAge int64) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	entries, err := os.ReadDir(m.cacheDir)
-	if err != nil {
-		return err
-	}
-
-	now := time.Now().Unix()
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-
-		path := filepath.Join(m.cacheDir, entry.Name())
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-
-		age := now - info.ModTime().Unix()
-		if age > maxAge {
-			m.logger.Info("removing old venv",
-				"name", entry.Name(),
-				"age_days", age/86400,
-			)
-			os.RemoveAll(path)
-		}
-	}
-
-	return nil
 }

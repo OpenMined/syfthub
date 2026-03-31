@@ -6,6 +6,7 @@ import { UsersResource } from './resources/users.js';
 import { MyEndpointsResource } from './resources/my-endpoints.js';
 import { HubResource } from './resources/hub.js';
 import { AccountingResource } from './resources/accounting.js';
+import { AgentResource } from './resources/agent.js';
 import { ChatResource } from './resources/chat.js';
 import { SyftAIResource } from './resources/syftai.js';
 
@@ -118,6 +119,7 @@ export class SyftHubClient {
   private _hub?: HubResource;
   private _accounting?: AccountingResource;
   private _accountingInitPromise: Promise<AccountingResource> | null = null;
+  private _agent?: AgentResource;
   private _chat?: ChatResource;
   private _syftai?: SyftAIResource;
   private _apiTokens?: APITokensResource;
@@ -216,6 +218,26 @@ export class SyftHubClient {
       this._hub = new HubResource(this.http);
     }
     return this._hub;
+  }
+
+  /**
+   * Agent resource for bidirectional agent sessions via WebSocket.
+   *
+   * @example
+   * const session = await client.agent.startSession({
+   *   prompt: 'Help me refactor this code',
+   *   endpoint: 'alice/code-assistant',
+   * });
+   *
+   * for await (const event of session.events()) {
+   *   console.log(event.type, event.payload);
+   * }
+   */
+  get agent(): AgentResource {
+    if (!this._agent) {
+      this._agent = new AgentResource(this.auth, this.aggregatorUrl);
+    }
+    return this._agent;
   }
 
   /**

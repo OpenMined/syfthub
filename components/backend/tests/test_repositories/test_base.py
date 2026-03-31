@@ -131,11 +131,8 @@ class TestBaseRepositoryBasicOperations:
 
         with (
             patch.object(base_repo, "get_by_id", return_value=mock_obj),
-            patch("logging.getLogger") as mock_get_logger,
+            patch("syfthub.repositories.base.logger") as mock_logger,
         ):
-            mock_logger = Mock()
-            mock_get_logger.return_value = mock_logger
-
             result = base_repo.delete(1)
 
         assert result is False
@@ -177,9 +174,7 @@ class TestBaseRepositoryQueryOperations:
     def test_count_with_results(self, base_repo, mock_session):
         """Test count operation with results."""
         mock_result = Mock()
-        mock_scalars = Mock()
-        mock_scalars.all.return_value = [MockModel(id=1), MockModel(id=2)]
-        mock_result.scalars.return_value = mock_scalars
+        mock_result.scalar_one.return_value = 2
         mock_session.execute.return_value = mock_result
 
         result = base_repo.count()

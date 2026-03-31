@@ -2,6 +2,8 @@ package syfthubapi
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"regexp"
 	"sync"
 )
@@ -44,11 +46,18 @@ type Endpoint struct {
 	// modelHandler is the handler for model endpoints.
 	modelHandler ModelHandler
 
+	// agentHandler is the handler for agent endpoints.
+	agentHandler AgentHandler
+
 	// isFileBasedEndpoint indicates if this is from file mode.
 	isFileBased bool
 
 	// executor is the subprocess executor (for file-based endpoints).
 	executor Executor
+
+	// policyExecutor runs policy checks without executing the handler.
+	// Used by agent endpoints where the handler lifecycle differs from model/data_source.
+	policyExecutor Executor
 }
 
 // Executor interface for executing endpoint handlers.
@@ -75,6 +84,87 @@ func (e *Endpoint) Info() EndpointInfo {
 func (e *Endpoint) SetExecutor(exec Executor) {
 	e.executor = exec
 	e.isFileBased = true
+}
+
+// SetAgentHandler sets the agent handler for file-based agent endpoints.
+// This also marks the endpoint as file-based.
+func (e *Endpoint) SetAgentHandler(handler AgentHandler) {
+	e.agentHandler = handler
+	e.isFileBased = true
+}
+
+// SetPolicyExecutor sets a dedicated policy-check executor.
+// Used by agent endpoints that need policy enforcement but don't use the
+// standard SubprocessExecutor for their handler lifecycle.
+func (e *Endpoint) SetPolicyExecutor(exec Executor) {
+	e.policyExecutor = exec
+}
+
+// buildExecutorInput creates an ExecutorInput with the given type and populates
+// context and transaction token from the RequestContext.
+func (e *Endpoint) buildExecutorInput(inputType string, reqCtx *RequestContext) *ExecutorInput {
+	input := &ExecutorInput{Type: inputType}
+	if reqCtx != nil {
+		userID := ""
+		if reqCtx.User != nil {
+			userID = reqCtx.User.Username
+		}
+		input.Context = &ExecutionContext{
+			UserID:       userID,
+			EndpointSlug: e.Slug,
+			EndpointType: string(e.Type),
+			Metadata:     reqCtx.Metadata,
+		}
+		input.TransactionToken = reqCtx.TransactionToken
+	}
+	return input
+}
+
+// executeViaSubprocess runs the executor, captures policy results, checks for
+// errors, and returns the raw result bytes. Callers unmarshal into the
+// appropriate type.
+func (e *Endpoint) executeViaSubprocess(ctx context.Context, input *ExecutorInput, reqCtx *RequestContext) (json.RawMessage, error) {
+	output, err := e.executor.Execute(ctx, input)
+	if err != nil {
+		return nil, &ExecutionError{
+			Endpoint: e.Slug,
+			Message:  "subprocess execution failed",
+			Cause:    err,
+		}
+	}
+
+	// Capture policy result in request context for logging
+	if reqCtx != nil && output.PolicyResult != nil {
+		reqCtx.PolicyResult = output.PolicyResult
+	}
+
+	if !output.Success {
+		return nil, &ExecutionError{
+			Endpoint:  e.Slug,
+			Message:   output.Error,
+			ErrorType: output.ErrorType,
+		}
+	}
+
+	return output.Result, nil
+}
+
+// CheckPolicies runs policy evaluation without executing the endpoint handler.
+// Returns nil PolicyResultOutput if no policy executor is configured (no policies).
+func (e *Endpoint) CheckPolicies(ctx context.Context, reqCtx *RequestContext) (*PolicyResultOutput, error) {
+	if e.policyExecutor == nil {
+		return nil, nil
+	}
+
+	input := e.buildExecutorInput(string(e.Type), reqCtx)
+	input.Messages = []Message{{Role: "user", Content: "policy_check"}}
+
+	output, err := e.policyExecutor.Execute(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("policy check failed: %w", err)
+	}
+
+	return output.PolicyResult, nil
 }
 
 // IsFileBased returns whether this endpoint is file-based.
@@ -128,52 +218,36 @@ func (e *Endpoint) InvokeModel(ctx context.Context, messages []Message, reqCtx *
 	return e.modelHandler(ctx, messages, reqCtx)
 }
 
-// executeDataSourceViaSubprocess executes via subprocess.
-func (e *Endpoint) executeDataSourceViaSubprocess(ctx context.Context, query string, reqCtx *RequestContext) ([]Document, error) {
-	input := &ExecutorInput{
-		Type:  "data_source",
-		Query: query,
-	}
-	if reqCtx != nil {
-		userID := ""
-		if reqCtx.User != nil {
-			userID = reqCtx.User.Username
-		}
-		input.Context = &ExecutionContext{
-			UserID:       userID,
-			EndpointSlug: e.Slug,
-			EndpointType: string(e.Type),
-			Metadata:     reqCtx.Metadata,
-		}
-		// Pass transaction token for billing policies
-		input.TransactionToken = reqCtx.TransactionToken
-	}
-
-	output, err := e.executor.Execute(ctx, input)
-	if err != nil {
+// GetAgentHandler returns the agent handler for this endpoint.
+// Returns an error if the endpoint is not an agent type or has no handler.
+func (e *Endpoint) GetAgentHandler() (AgentHandler, error) {
+	if e.Type != EndpointTypeAgent {
 		return nil, &ExecutionError{
 			Endpoint: e.Slug,
-			Message:  "subprocess execution failed",
-			Cause:    err,
+			Message:  "endpoint is not an agent",
 		}
 	}
-
-	// Capture policy result in request context for logging
-	if reqCtx != nil && output.PolicyResult != nil {
-		reqCtx.PolicyResult = output.PolicyResult
-	}
-
-	if !output.Success {
+	if e.agentHandler == nil {
 		return nil, &ExecutionError{
-			Endpoint:  e.Slug,
-			Message:   output.Error,
-			ErrorType: output.ErrorType,
+			Endpoint: e.Slug,
+			Message:  "no agent handler registered",
 		}
 	}
+	return e.agentHandler, nil
+}
 
-	// Parse result as []Document
+// executeDataSourceViaSubprocess executes via subprocess.
+func (e *Endpoint) executeDataSourceViaSubprocess(ctx context.Context, query string, reqCtx *RequestContext) ([]Document, error) {
+	input := e.buildExecutorInput("data_source", reqCtx)
+	input.Query = query
+
+	raw, err := e.executeViaSubprocess(ctx, input, reqCtx)
+	if err != nil {
+		return nil, err
+	}
+
 	var docs []Document
-	if err := unmarshalJSON(output.Result, &docs); err != nil {
+	if err := json.Unmarshal(raw, &docs); err != nil {
 		return nil, &ExecutionError{
 			Endpoint: e.Slug,
 			Message:  "failed to parse handler result",
@@ -186,50 +260,16 @@ func (e *Endpoint) executeDataSourceViaSubprocess(ctx context.Context, query str
 
 // executeModelViaSubprocess executes via subprocess.
 func (e *Endpoint) executeModelViaSubprocess(ctx context.Context, messages []Message, reqCtx *RequestContext) (string, error) {
-	input := &ExecutorInput{
-		Type:     "model",
-		Messages: messages,
-	}
-	if reqCtx != nil {
-		userID := ""
-		if reqCtx.User != nil {
-			userID = reqCtx.User.Username
-		}
-		input.Context = &ExecutionContext{
-			UserID:       userID,
-			EndpointSlug: e.Slug,
-			EndpointType: string(e.Type),
-			Metadata:     reqCtx.Metadata,
-		}
-		// Pass transaction token for billing policies
-		input.TransactionToken = reqCtx.TransactionToken
-	}
+	input := e.buildExecutorInput("model", reqCtx)
+	input.Messages = messages
 
-	output, err := e.executor.Execute(ctx, input)
+	raw, err := e.executeViaSubprocess(ctx, input, reqCtx)
 	if err != nil {
-		return "", &ExecutionError{
-			Endpoint: e.Slug,
-			Message:  "subprocess execution failed",
-			Cause:    err,
-		}
+		return "", err
 	}
 
-	// Capture policy result in request context for logging
-	if reqCtx != nil && output.PolicyResult != nil {
-		reqCtx.PolicyResult = output.PolicyResult
-	}
-
-	if !output.Success {
-		return "", &ExecutionError{
-			Endpoint:  e.Slug,
-			Message:   output.Error,
-			ErrorType: output.ErrorType,
-		}
-	}
-
-	// Parse result as string
 	var result string
-	if err := unmarshalJSON(output.Result, &result); err != nil {
+	if err := json.Unmarshal(raw, &result); err != nil {
 		return "", &ExecutionError{
 			Endpoint: e.Slug,
 			Message:  "failed to parse handler result",
@@ -312,15 +352,36 @@ func (r *EndpointRegistry) Clear() {
 }
 
 // ReplaceFileBased replaces all file-based endpoints atomically.
+// Stale executors (those not reused by the incoming list) are closed.
 func (r *EndpointRegistry) ReplaceFileBased(endpoints []*Endpoint) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Remove existing file-based endpoints
+	// Collect executor instances from the incoming list so we skip closing
+	// executors that are being reused (e.g. during selective reload where
+	// only some endpoints are recreated and the rest keep their executors).
+	reused := make(map[Executor]struct{})
+	for _, ep := range endpoints {
+		if ep.executor != nil {
+			reused[ep.executor] = struct{}{}
+		}
+		if ep.policyExecutor != nil {
+			reused[ep.policyExecutor] = struct{}{}
+		}
+	}
+
+	// Remove existing file-based endpoints, closing only stale executors.
 	for slug, ep := range r.endpoints {
 		if ep.isFileBased {
 			if ep.executor != nil {
-				ep.executor.Close()
+				if _, ok := reused[ep.executor]; !ok {
+					ep.executor.Close()
+				}
+			}
+			if ep.policyExecutor != nil {
+				if _, ok := reused[ep.policyExecutor]; !ok {
+					ep.policyExecutor.Close()
+				}
 			}
 			delete(r.endpoints, slug)
 		}
@@ -347,17 +408,17 @@ func (r *EndpointRegistry) SetEnabled(slug string, enabled bool) bool {
 	return false
 }
 
-// DataSourceBuilder builds data source endpoints using the builder pattern.
-type DataSourceBuilder struct {
+// baseEndpointBuilder holds the fields and logic shared by all endpoint builders.
+type baseEndpointBuilder struct {
 	api      *SyftAPI
 	endpoint *Endpoint
 	err      error
 }
 
-// Name sets the endpoint display name.
-func (b *DataSourceBuilder) Name(name string) *DataSourceBuilder {
+// setName validates and sets the endpoint display name.
+func (b *baseEndpointBuilder) setName(name string) {
 	if b.err != nil {
-		return b
+		return
 	}
 	if name == "" {
 		b.err = &EndpointRegistrationError{
@@ -365,16 +426,15 @@ func (b *DataSourceBuilder) Name(name string) *DataSourceBuilder {
 			Field:   "name",
 			Message: "name is required",
 		}
-		return b
+		return
 	}
 	b.endpoint.Name = name
-	return b
 }
 
-// Description sets the endpoint description.
-func (b *DataSourceBuilder) Description(description string) *DataSourceBuilder {
+// setDescription validates and sets the endpoint description.
+func (b *baseEndpointBuilder) setDescription(description string) {
 	if b.err != nil {
-		return b
+		return
 	}
 	if description == "" {
 		b.err = &EndpointRegistrationError{
@@ -382,41 +442,32 @@ func (b *DataSourceBuilder) Description(description string) *DataSourceBuilder {
 			Field:   "description",
 			Message: "description is required",
 		}
-		return b
+		return
 	}
 	b.endpoint.Description = description
-	return b
 }
 
-// Version sets the endpoint version.
-func (b *DataSourceBuilder) Version(version string) *DataSourceBuilder {
+// setVersion sets the endpoint version.
+func (b *baseEndpointBuilder) setVersion(version string) {
 	if b.err != nil {
-		return b
+		return
 	}
 	b.endpoint.Version = version
-	return b
 }
 
-// Enabled sets whether the endpoint is enabled.
-func (b *DataSourceBuilder) Enabled(enabled bool) *DataSourceBuilder {
+// setEnabled sets whether the endpoint is enabled.
+func (b *baseEndpointBuilder) setEnabled(enabled bool) {
 	if b.err != nil {
-		return b
+		return
 	}
 	b.endpoint.Enabled = enabled
-	return b
 }
 
-// Handler sets the data source handler and registers the endpoint.
-func (b *DataSourceBuilder) Handler(handler DataSourceHandler) error {
+// validateForRegistration checks common preconditions before registering an endpoint.
+// Returns a non-nil error if the builder has a previous error, or if name/description are missing.
+func (b *baseEndpointBuilder) validateForRegistration() error {
 	if b.err != nil {
 		return b.err
-	}
-	if handler == nil {
-		return &EndpointRegistrationError{
-			Slug:    b.endpoint.Slug,
-			Field:   "handler",
-			Message: "handler is required",
-		}
 	}
 	if b.endpoint.Name == "" {
 		return &EndpointRegistrationError{
@@ -430,6 +481,50 @@ func (b *DataSourceBuilder) Handler(handler DataSourceHandler) error {
 			Slug:    b.endpoint.Slug,
 			Field:   "description",
 			Message: "description is required",
+		}
+	}
+	return nil
+}
+
+// DataSourceBuilder builds data source endpoints using the builder pattern.
+type DataSourceBuilder struct {
+	baseEndpointBuilder
+}
+
+// Name sets the endpoint display name.
+func (b *DataSourceBuilder) Name(name string) *DataSourceBuilder {
+	b.setName(name)
+	return b
+}
+
+// Description sets the endpoint description.
+func (b *DataSourceBuilder) Description(description string) *DataSourceBuilder {
+	b.setDescription(description)
+	return b
+}
+
+// Version sets the endpoint version.
+func (b *DataSourceBuilder) Version(version string) *DataSourceBuilder {
+	b.setVersion(version)
+	return b
+}
+
+// Enabled sets whether the endpoint is enabled.
+func (b *DataSourceBuilder) Enabled(enabled bool) *DataSourceBuilder {
+	b.setEnabled(enabled)
+	return b
+}
+
+// Handler sets the data source handler and registers the endpoint.
+func (b *DataSourceBuilder) Handler(handler DataSourceHandler) error {
+	if err := b.validateForRegistration(); err != nil {
+		return err
+	}
+	if handler == nil {
+		return &EndpointRegistrationError{
+			Slug:    b.endpoint.Slug,
+			Field:   "handler",
+			Message: "handler is required",
 		}
 	}
 
@@ -439,87 +534,43 @@ func (b *DataSourceBuilder) Handler(handler DataSourceHandler) error {
 
 // ModelBuilder builds model endpoints using the builder pattern.
 type ModelBuilder struct {
-	api      *SyftAPI
-	endpoint *Endpoint
-	err      error
+	baseEndpointBuilder
 }
 
 // Name sets the endpoint display name.
 func (b *ModelBuilder) Name(name string) *ModelBuilder {
-	if b.err != nil {
-		return b
-	}
-	if name == "" {
-		b.err = &EndpointRegistrationError{
-			Slug:    b.endpoint.Slug,
-			Field:   "name",
-			Message: "name is required",
-		}
-		return b
-	}
-	b.endpoint.Name = name
+	b.setName(name)
 	return b
 }
 
 // Description sets the endpoint description.
 func (b *ModelBuilder) Description(description string) *ModelBuilder {
-	if b.err != nil {
-		return b
-	}
-	if description == "" {
-		b.err = &EndpointRegistrationError{
-			Slug:    b.endpoint.Slug,
-			Field:   "description",
-			Message: "description is required",
-		}
-		return b
-	}
-	b.endpoint.Description = description
+	b.setDescription(description)
 	return b
 }
 
 // Version sets the endpoint version.
 func (b *ModelBuilder) Version(version string) *ModelBuilder {
-	if b.err != nil {
-		return b
-	}
-	b.endpoint.Version = version
+	b.setVersion(version)
 	return b
 }
 
 // Enabled sets whether the endpoint is enabled.
 func (b *ModelBuilder) Enabled(enabled bool) *ModelBuilder {
-	if b.err != nil {
-		return b
-	}
-	b.endpoint.Enabled = enabled
+	b.setEnabled(enabled)
 	return b
 }
 
 // Handler sets the model handler and registers the endpoint.
 func (b *ModelBuilder) Handler(handler ModelHandler) error {
-	if b.err != nil {
-		return b.err
+	if err := b.validateForRegistration(); err != nil {
+		return err
 	}
 	if handler == nil {
 		return &EndpointRegistrationError{
 			Slug:    b.endpoint.Slug,
 			Field:   "handler",
 			Message: "handler is required",
-		}
-	}
-	if b.endpoint.Name == "" {
-		return &EndpointRegistrationError{
-			Slug:    b.endpoint.Slug,
-			Field:   "name",
-			Message: "name is required",
-		}
-	}
-	if b.endpoint.Description == "" {
-		return &EndpointRegistrationError{
-			Slug:    b.endpoint.Slug,
-			Field:   "description",
-			Message: "description is required",
 		}
 	}
 

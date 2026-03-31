@@ -92,6 +92,10 @@ export class ChatResource {
     if (actualType === EndpointType.MODEL_DATA_SOURCE) {
       return expectedType === EndpointType.MODEL || expectedType === EndpointType.DATA_SOURCE;
     }
+    // Agent endpoints can be used where model endpoints are expected
+    if (actualType === EndpointType.AGENT && expectedType === EndpointType.MODEL) {
+      return true;
+    }
     return false;
   }
 
@@ -295,7 +299,9 @@ export class ChatResource {
     if (!peerToken) {
       const tunnelingUsernames = this.collectTunnelingUsernames(modelRef, dsRefs);
       if (tunnelingUsernames.length > 0) {
-        const peerResponse = await this.auth.getPeerToken(tunnelingUsernames);
+        const peerResponse = guestMode
+          ? await this.auth.getGuestPeerToken(tunnelingUsernames)
+          : await this.auth.getPeerToken(tunnelingUsernames);
         peerToken = peerResponse.peerToken;
         peerChannel = peerResponse.peerChannel;
       }

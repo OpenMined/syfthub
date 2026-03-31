@@ -19,9 +19,12 @@ from syfthub.domain.exceptions import (
     DomainException,
     IdPException,
     InvalidAccountingPasswordError,
+    InvalidOTPError,
     KeyLoadError,
     KeyNotConfiguredError,
     NotFoundError,
+    OTPMaxAttemptsError,
+    OTPRateLimitedError,
     PermissionDeniedError,
     UserAlreadyExistsError,
     ValidationError,
@@ -76,6 +79,10 @@ DOMAIN_EXCEPTION_STATUS_MAP: dict[type[DomainException], int] = {
     AccountingAccountExistsError: status.HTTP_424_FAILED_DEPENDENCY,
     InvalidAccountingPasswordError: status.HTTP_401_UNAUTHORIZED,
     AccountingServiceUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
+    # OTP
+    InvalidOTPError: status.HTTP_400_BAD_REQUEST,
+    OTPMaxAttemptsError: status.HTTP_429_TOO_MANY_REQUESTS,
+    OTPRateLimitedError: status.HTTP_429_TOO_MANY_REQUESTS,
     # Base fallback — must be last
     DomainException: status.HTTP_500_INTERNAL_SERVER_ERROR,
 }

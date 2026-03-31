@@ -14,6 +14,7 @@ import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/context/auth-context';
 import { loginSchema } from '@/lib/schemas';
 import { isGoogleOAuthEnabled } from '@/lib/sdk-client';
+import { useModalStore } from '@/stores/modal-store';
 
 import { AuthErrorAlert, AuthLoadingOverlay } from './auth-utils';
 
@@ -31,16 +32,19 @@ export function LoginModal({
   onSwitchToRegister
 }: Readonly<LoginModalProperties>) {
   const { login, loginWithGoogle, isLoading, error, clearError } = useAuth();
+  const { openPasswordReset, openVerifyOtp } = useModalStore();
+
+  const formMethods = useForm<LoginFormValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: { email: '', password: '' }
+  });
 
   const {
     register,
     handleSubmit,
     reset,
     formState: { errors }
-  } = useForm<LoginFormValues>({
-    resolver: zodResolver(loginSchema),
-    defaultValues: { email: '', password: '' }
-  });
+  } = formMethods;
 
   const onSubmit = async (data: LoginFormValues) => {
     try {
@@ -50,7 +54,8 @@ export function LoginModal({
       });
       onClose();
     } catch {
-      // Error is handled by the auth context
+      // Error is set by auth context; the "Verify email" link is shown
+      // in the error area when the error message contains the right text.
     }
   };
 
@@ -81,7 +86,23 @@ export function LoginModal({
         {isLoading && <AuthLoadingOverlay />}
 
         {/* Global Error */}
-        {error && <AuthErrorAlert error={error} onDismiss={clearError} />}
+        {error && (
+          <div>
+            <AuthErrorAlert error={error} onDismiss={clearError} />
+            {error.includes('email has not been verified') && (
+              <button
+                type='button'
+                onClick={() => {
+                  const emailValue = formMethods.getValues('email');
+                  openVerifyOtp(emailValue.trim());
+                }}
+                className='font-inter text-foreground hover:text-secondary mt-1 text-xs font-medium underline'
+              >
+                Verify your email now
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Email/Password Form */}
         <form onSubmit={handleSubmit(onSubmit)} className='space-y-4'>
@@ -119,9 +140,15 @@ export function LoginModal({
               />
               <span className='font-inter text-muted-foreground'>Remember me</span>
             </label>
-            <a href='#' className='font-inter text-foreground hover:text-secondary font-medium'>
+            <button
+              type='button'
+              onClick={() => {
+                openPasswordReset(formMethods.getValues('email') || undefined);
+              }}
+              className='font-inter text-foreground hover:text-secondary font-medium'
+            >
               Forgot password?
-            </a>
+            </button>
           </div>
 
           <Button type='submit' size='lg' className='font-inter w-full' disabled={isLoading}>

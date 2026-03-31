@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, List, Optional
-from urllib.parse import urlparse
 
 from fastapi import HTTPException, status
 
@@ -13,6 +12,7 @@ from syfthub.repositories.organization import (
     OrganizationMemberRepository,
     OrganizationRepository,
 )
+from syfthub.schemas.auth import UserRole
 from syfthub.schemas.organization import (
     Organization,
     OrganizationCreate,
@@ -24,6 +24,7 @@ from syfthub.schemas.organization import (
 )
 from syfthub.schemas.user import HeartbeatResponse
 from syfthub.services.base import BaseService
+from syfthub.services.user_service import extract_domain_from_url
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -177,7 +178,7 @@ class OrganizationService(BaseService):
 
     def _can_manage_organization(self, org_id: int, user: User) -> bool:
         """Check if user can manage organization (owner/admin role)."""
-        if user.role == "admin":
+        if user.role == UserRole.ADMIN:
             return True
 
         member_role = self.member_repository.get_member_role(org_id, user.id)
@@ -185,7 +186,7 @@ class OrganizationService(BaseService):
 
     def _can_view_organization(self, org_id: int, user: User) -> bool:
         """Check if user can view organization details."""
-        if user.role == "admin":
+        if user.role == UserRole.ADMIN:
             return True
 
         return self.member_repository.is_member(org_id, user.id)
@@ -258,14 +259,14 @@ class OrganizationService(BaseService):
         requested_ttl = ttl_seconds or settings.heartbeat_default_ttl_seconds
         effective_ttl = min(requested_ttl, settings.heartbeat_max_ttl_seconds)
 
-        # Extract domain with protocol (scheme + host + port) from URL
-        parsed = urlparse(url)
-        if not parsed.netloc:
+        # Extract domain from URL (includes tunneling support via shared helper)
+        try:
+            domain = extract_domain_from_url(url)
+        except ValueError as e:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Invalid URL: could not extract domain",
-            )
-        domain = f"{parsed.scheme}://{parsed.netloc}"
+                detail=str(e),
+            ) from e
 
         expires_at = now + timedelta(seconds=effective_ttl)
 

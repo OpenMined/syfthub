@@ -92,6 +92,51 @@ async def create_peer_token(
     )
 
 
+async def create_guest_peer_token(
+    target_usernames: List[str],
+    redis: Redis,
+) -> PeerTokenData:
+    """Create a peer token for an unauthenticated (guest) user.
+
+    Uses user_id=0 to mark as guest and a distinct Redis key prefix
+    (nats:guest-peer:) for easier monitoring and separation.
+
+    Args:
+        target_usernames: Usernames of tunneling spaces (for auditing).
+        redis: Async Redis client.
+
+    Returns:
+        PeerTokenData with the generated token, channel, and connection info.
+    """
+    settings = get_settings()
+
+    token = _generate_peer_token()
+    peer_channel = _generate_peer_channel()
+    expires_in = settings.guest_peer_token_expire_seconds
+
+    # Store token data in Redis with TTL
+    token_data = {
+        "user_id": 0,
+        "peer_channel": peer_channel,
+        "target_usernames": target_usernames,
+        "nats_url": settings.nats_url,
+        "nats_auth_token": settings.nats_auth_token,
+    }
+
+    redis_key = f"nats:guest-peer:{token}"
+    await redis.set(redis_key, json.dumps(token_data), ex=expires_in)
+
+    return PeerTokenData(
+        token=token,
+        peer_channel=peer_channel,
+        user_id=0,
+        target_usernames=target_usernames,
+        expires_in=expires_in,
+        nats_url=settings.nats_url,
+        nats_auth_token=settings.nats_auth_token,
+    )
+
+
 async def validate_peer_token(
     token: str,
     redis: Redis,

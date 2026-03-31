@@ -360,6 +360,7 @@ func TestSyncClientUpdateDomain(t *testing.T) {
 func TestNewAPIAuthenticator(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	slogLogger := NewSlogLogger(logger)
 
 	cfg := &Config{
 		SyftHubURL: "https://hub.example.com",
@@ -367,7 +368,9 @@ func TestNewAPIAuthenticator(t *testing.T) {
 		SpaceURL:   "https://space.example.com",
 	}
 
-	auth := NewAPIAuthenticator(cfg, NewSlogLogger(logger))
+	authClient := NewAuthClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
+	syncClient := NewSyncClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
+	auth := NewAPIAuthenticator(cfg, slogLogger, authClient, syncClient)
 
 	if auth == nil {
 		t.Fatal("authenticator is nil")
@@ -383,6 +386,7 @@ func TestNewAPIAuthenticator(t *testing.T) {
 func TestAPIAuthenticatorAuthenticate(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	slogLogger := NewSlogLogger(logger)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -399,7 +403,9 @@ func TestAPIAuthenticatorAuthenticate(t *testing.T) {
 		SpaceURL:   "https://space.example.com",
 	}
 
-	auth := NewAPIAuthenticator(cfg, NewSlogLogger(logger))
+	authClient := NewAuthClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
+	syncClient := NewSyncClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
+	auth := NewAPIAuthenticator(cfg, slogLogger, authClient, syncClient)
 	user, err := auth.Authenticate(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -413,6 +419,7 @@ func TestAPIAuthenticatorAuthenticate(t *testing.T) {
 func TestAPIAuthenticatorSyncEndpoints(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	slogLogger := NewSlogLogger(logger)
 
 	t.Run("non-tunnel mode updates domain first", func(t *testing.T) {
 		domainUpdated := false
@@ -437,7 +444,9 @@ func TestAPIAuthenticatorSyncEndpoints(t *testing.T) {
 			SpaceURL:   "https://space.example.com", // Non-tunnel mode
 		}
 
-		auth := NewAPIAuthenticator(cfg, NewSlogLogger(logger))
+		authClient := NewAuthClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
+		syncClient := NewSyncClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
+		auth := NewAPIAuthenticator(cfg, slogLogger, authClient, syncClient)
 		err := auth.SyncEndpoints(context.Background(), []EndpointInfo{
 			{Slug: "ep1"},
 		})
@@ -474,7 +483,9 @@ func TestAPIAuthenticatorSyncEndpoints(t *testing.T) {
 			SpaceURL:   "tunneling:testuser", // Tunnel mode
 		}
 
-		auth := NewAPIAuthenticator(cfg, NewSlogLogger(logger))
+		authClient := NewAuthClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
+		syncClient := NewSyncClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
+		auth := NewAPIAuthenticator(cfg, slogLogger, authClient, syncClient)
 		err := auth.SyncEndpoints(context.Background(), nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -489,6 +500,7 @@ func TestAPIAuthenticatorSyncEndpoints(t *testing.T) {
 func TestAPIAuthenticatorVerifyToken(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	slogLogger := NewSlogLogger(logger)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -506,7 +518,9 @@ func TestAPIAuthenticatorVerifyToken(t *testing.T) {
 		SpaceURL:   "https://space.example.com",
 	}
 
-	auth := NewAPIAuthenticator(cfg, NewSlogLogger(logger))
+	authClient := NewAuthClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
+	syncClient := NewSyncClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
+	auth := NewAPIAuthenticator(cfg, slogLogger, authClient, syncClient)
 	user, err := auth.VerifyToken(context.Background(), "token")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -520,6 +534,7 @@ func TestAPIAuthenticatorVerifyToken(t *testing.T) {
 func TestAPIAuthenticatorGetNATSCredentials(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	slogLogger := NewSlogLogger(logger)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -535,7 +550,9 @@ func TestAPIAuthenticatorGetNATSCredentials(t *testing.T) {
 		SpaceURL:   "tunneling:mytunneluser",
 	}
 
-	auth := NewAPIAuthenticator(cfg, NewSlogLogger(logger))
+	authClient := NewAuthClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
+	syncClient := NewSyncClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
+	auth := NewAPIAuthenticator(cfg, slogLogger, authClient, syncClient)
 	creds, err := auth.GetNATSCredentials(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

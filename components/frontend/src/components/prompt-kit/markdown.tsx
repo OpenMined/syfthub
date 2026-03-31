@@ -1,5 +1,6 @@
-import { memo, useId, useMemo } from 'react';
+import { isValidElement, memo, useId, useMemo } from 'react';
 
+import type { ReactNode } from 'react';
 import type { Components } from 'react-markdown';
 
 import { marked } from 'marked';
@@ -32,6 +33,20 @@ function extractLanguage(className?: string): string {
   return match?.[1] ?? 'plaintext';
 }
 
+/** Recursively extract text from React children, converting <br> back to \n. */
+function flattenChildren(node: ReactNode): string {
+  if (node == null || typeof node === 'boolean') return '';
+  if (typeof node === 'string') return node;
+  if (typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map((n) => flattenChildren(n as ReactNode)).join('');
+  if (isValidElement(node)) {
+    if (node.type === 'br') return '\n';
+    const props = node.props as Record<string, unknown>;
+    if (props.children) return flattenChildren(props.children as ReactNode);
+  }
+  return '';
+}
+
 const INITIAL_COMPONENTS: Partial<Components> = {
   code: function CodeComponent({ className, children, ...props }) {
     const isInline =
@@ -50,10 +65,11 @@ const INITIAL_COMPONENTS: Partial<Components> = {
     }
 
     const language = extractLanguage(className);
+    const code = flattenChildren(children);
 
     return (
       <CodeBlock className={className}>
-        <CodeBlockCode code={children as string} language={language} />
+        <CodeBlockCode code={code} language={language} />
       </CodeBlock>
     );
   },

@@ -219,7 +219,10 @@ describe('auth-context', () => {
 
   describe('register', () => {
     it('registers and sets user on success', async () => {
-      vi.mocked(syftClient.auth.register).mockResolvedValue(createMockSdkUser() as never);
+      vi.mocked(syftClient.auth.register).mockResolvedValue({
+        user: createMockSdkUser(),
+        requiresEmailVerification: false
+      } as never);
 
       const { result } = renderHook(() => useAuth(), { wrapper });
 
@@ -243,7 +246,10 @@ describe('auth-context', () => {
       const usernameError = new UserAlreadyExistsError('Username taken', 'username');
       vi.mocked(syftClient.auth.register)
         .mockRejectedValueOnce(usernameError)
-        .mockResolvedValueOnce(createMockSdkUser() as never);
+        .mockResolvedValueOnce({
+          user: createMockSdkUser(),
+          requiresEmailVerification: false
+        } as never);
 
       const { result } = renderHook(() => useAuth(), { wrapper });
 

@@ -1,17 +1,11 @@
 package syfthubapi
 
-// PolicyConfig represents a policy configuration loaded from YAML.
+import "github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
+
+// PolicyConfig is a type alias for nodeops.Policy, the canonical definition.
+// Both types share identical fields and JSON/YAML tags.
 // This matches the Python policy_manager.runner.schema.PolicyConfigSchema.
-type PolicyConfig struct {
-	// Name is the unique identifier for this policy instance.
-	Name string `yaml:"name" json:"name"`
-
-	// Type is the policy type (e.g., "rate_limit", "access_group").
-	Type string `yaml:"type" json:"type"`
-
-	// Config contains type-specific configuration parameters.
-	Config map[string]any `yaml:"config" json:"config"`
-}
+type PolicyConfig = nodeops.Policy
 
 // StoreConfig represents storage configuration for stateful policies.
 // This matches the Python policy_manager.runner.schema.StoreConfigSchema.
