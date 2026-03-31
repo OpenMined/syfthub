@@ -55,6 +55,12 @@ export function transformKeys<T>(
     return obj.map((item) => transformKeys(item, keyTransformer, parseDates)) as T;
   }
 
+  // Serialize Date objects to ISO strings. Must come before the object branch,
+  // which would otherwise enumerate a Date's (empty) own properties.
+  if (obj instanceof Date) {
+    return obj.toISOString() as T;
+  }
+
   // Handle date strings
   if (parseDates && isISODateString(obj)) {
     return new Date(obj) as T;
