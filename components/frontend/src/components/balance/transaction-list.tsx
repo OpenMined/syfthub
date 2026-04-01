@@ -1,4 +1,4 @@
-import type { AccountingTransaction } from '@/lib/types';
+import type { WalletTransaction } from '@/lib/types';
 
 import { TransactionItem } from './transaction-item';
 
@@ -6,9 +6,9 @@ export interface TransactionListProps {
   /** Whether transaction data is still loading */
   isLoading: boolean;
   /** List of transactions to display */
-  transactions: AccountingTransaction[];
-  /** The current user's email, used by TransactionItem to determine direction */
-  userEmail: string | undefined;
+  transactions: WalletTransaction[];
+  /** The current user's wallet address, used by TransactionItem to determine direction */
+  walletAddress: string;
 }
 
 /**
@@ -18,7 +18,7 @@ export interface TransactionListProps {
 export function TransactionList({
   isLoading,
   transactions,
-  userEmail
+  walletAddress
 }: Readonly<TransactionListProps>) {
   if (isLoading) {
     return (
@@ -46,7 +46,7 @@ export function TransactionList({
   return (
     <div className='space-y-2'>
       {transactions.map((tx) => (
-        <TransactionItem key={tx.id} transaction={tx} userEmail={userEmail} />
+        <TransactionItem key={tx.id} transaction={tx} walletAddress={walletAddress} />
       ))}
     </div>
   );

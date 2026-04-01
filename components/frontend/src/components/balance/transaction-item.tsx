@@ -1,4 +1,4 @@
-import type { AccountingTransaction } from '@/lib/types';
+import type { WalletTransaction } from '@/lib/types';
 
 import ArrowDownLeft from 'lucide-react/dist/esm/icons/arrow-down-left';
 import ArrowUpRight from 'lucide-react/dist/esm/icons/arrow-up-right';
@@ -10,7 +10,8 @@ import { formatBalance } from './balance-display';
 /**
  * Format relative time for transactions.
  */
-function formatRelativeTime(date: Date): string {
+function formatRelativeTime(dateStr: string): string {
+  const date = new Date(dateStr);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffMins = Math.floor(diffMs / 60_000);
@@ -25,34 +26,41 @@ function formatRelativeTime(date: Date): string {
 }
 
 /**
- * Truncate email for display.
+ * Truncate an identifier (email or wallet address) for display.
  */
-function truncateEmail(email: string | null | undefined, maxLength = 20): string {
-  if (!email) return 'Unknown';
-  if (email.length <= maxLength) return email;
-  const atIndex = email.indexOf('@');
-  if (atIndex === -1) return email.slice(0, maxLength) + '…';
-  const local = email.slice(0, atIndex);
-  const domain = email.slice(atIndex + 1);
-  const availableLocal = maxLength - domain.length - 4; // 4 for "…@"
-  if (availableLocal < 3) return email.slice(0, maxLength) + '…';
-  return `${local.slice(0, availableLocal)}…@${domain}`;
+function truncateIdentifier(value: string | null | undefined, maxLength = 20): string {
+  if (!value) return 'Unknown';
+
+  // Wallet address: show 0xABCD...1234
+  if (value.startsWith('0x') && value.length > 12) {
+    return `${value.slice(0, 6)}...${value.slice(-4)}`;
+  }
+
+  // Email: truncate local part
+  if (value.length <= maxLength) return value;
+  const atIndex = value.indexOf('@');
+  if (atIndex === -1) return value.slice(0, maxLength) + '...';
+  const local = value.slice(0, atIndex);
+  const domain = value.slice(atIndex + 1);
+  const availableLocal = maxLength - domain.length - 4; // 4 for "...@"
+  if (availableLocal < 3) return value.slice(0, maxLength) + '...';
+  return `${local.slice(0, availableLocal)}...@${domain}`;
 }
 
 export interface TransactionItemProps {
   /** The transaction to display */
-  transaction: AccountingTransaction;
-  /** The current user's email, used to determine direction */
-  userEmail: string | undefined;
+  transaction: WalletTransaction;
+  /** The current user's wallet address, used to determine direction */
+  walletAddress: string;
 }
 
 /**
  * TransactionItem - Renders a single transaction row with
  * direction icon, party info, timestamp, and amount.
  */
-export function TransactionItem({ transaction, userEmail }: Readonly<TransactionItemProps>) {
-  const isIncoming = transaction.recipientEmail === userEmail;
-  const otherParty = isIncoming ? transaction.senderEmail : transaction.recipientEmail;
+export function TransactionItem({ transaction, walletAddress }: Readonly<TransactionItemProps>) {
+  const isIncoming = transaction.recipient_email.toLowerCase() === walletAddress.toLowerCase();
+  const otherParty = isIncoming ? transaction.sender_email : transaction.recipient_email;
 
   return (
     <div className='flex items-center gap-3'>
@@ -71,10 +79,10 @@ export function TransactionItem({ transaction, userEmail }: Readonly<Transaction
       <div className='min-w-0 flex-1'>
         <div className='text-foreground truncate text-xs font-medium'>
           {isIncoming ? 'From ' : 'To '}
-          {truncateEmail(otherParty)}
+          {truncateIdentifier(otherParty)}
         </div>
         <div className='text-muted-foreground text-[10px]'>
-          {formatRelativeTime(transaction.createdAt)}
+          {formatRelativeTime(transaction.created_at)}
         </div>
       </div>
       <div className={cn('text-xs font-medium', isIncoming ? 'text-emerald-600' : 'text-red-600')}>

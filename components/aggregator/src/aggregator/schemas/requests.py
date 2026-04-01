@@ -48,10 +48,12 @@ class ChatRequest(BaseModel):
         The aggregator forwards these tokens in Authorization headers to SyftAI-Space.
         User identity is derived from the satellite tokens (not passed separately).
 
-    Billing:
-        The transaction_tokens field maps owner usernames to accounting transaction tokens.
-        These tokens authorize endpoint owners to charge the user for usage.
-        The aggregator forwards these tokens to SyftAI-Space endpoints via headers.
+    Billing (MPP):
+        When an endpoint requires payment, it returns HTTP 402 with a
+        WWW-Authenticate challenge. The aggregator uses user_token to call
+        Hub's wallet/pay endpoint and obtains an X-Payment credential for
+        the retry. The legacy transaction_tokens field is deprecated and
+        ignored.
     """
 
     prompt: str = Field(..., min_length=1, description="The user's question or prompt")
@@ -66,7 +68,14 @@ class ChatRequest(BaseModel):
     )
     transaction_tokens: dict[str, str] = Field(
         default_factory=dict,
-        description="Mapping of owner username to transaction token for billing authorization",
+        description=(
+            "DEPRECATED: Legacy mapping of owner username to transaction token. "
+            "Billing is now handled via the MPP 402 payment flow using user_token."
+        ),
+    )
+    user_token: str | None = Field(
+        default=None,
+        description="User's Hub JWT for authorizing MPP wallet payments on 402 responses",
     )
     top_k: int = Field(
         default=5,

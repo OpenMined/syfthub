@@ -55,13 +55,6 @@ class User(UserBase):
         default=AuthProvider.LOCAL, description="Authentication provider"
     )
     google_id: Optional[str] = Field(None, description="Google OAuth user ID")
-    # Accounting fields
-    accounting_service_url: Optional[str] = Field(
-        None, description="URL to external accounting service"
-    )
-    accounting_password_encrypted: Optional[str] = Field(
-        None, description="Fernet-encrypted password for external accounting service"
-    )
     # Domain with protocol for dynamic endpoint URL construction
     domain: Optional[str] = Field(
         None,
@@ -79,6 +72,15 @@ class User(UserBase):
     heartbeat_expires_at: Optional[datetime] = Field(
         None, description="Timestamp when heartbeat expires"
     )
+    # MPP wallet fields (Tempo blockchain)
+    wallet_address: Optional[str] = Field(
+        None, description="Tempo wallet address (Ethereum-format)"
+    )
+
+    # NOTE: wallet_private_key is intentionally excluded from this response
+    # schema.  It lives only on the DB model (UserModel) and must NEVER be
+    # serialized in API responses.
+
     # X25519 public key for NATS tunnel encryption (base64url-encoded)
     encryption_public_key: Optional[str] = Field(
         None, description="X25519 public key for tunnel encryption (base64url)"
@@ -100,9 +102,9 @@ class UserResponse(BaseModel):
     auth_provider: AuthProvider = Field(..., description="Authentication provider")
     created_at: datetime = Field(..., description="When the user was created")
     updated_at: datetime = Field(..., description="When the user was last updated")
-    # Accounting - only expose URL, never expose password in user response
-    accounting_service_url: Optional[str] = Field(
-        None, description="URL to external accounting service"
+    # MPP wallet address (Tempo blockchain)
+    wallet_address: Optional[str] = Field(
+        None, description="Tempo blockchain wallet address"
     )
     # Domain with protocol for dynamic endpoint URL construction
     domain: Optional[str] = Field(
@@ -142,14 +144,9 @@ class UserUpdate(BaseModel):
         None, max_length=500, description="URL to user's avatar image"
     )
     is_active: Optional[bool] = Field(None, description="Whether the user is active")
-    # Accounting service credentials
-    accounting_service_url: Optional[str] = Field(
-        None, max_length=500, description="URL to external accounting service"
-    )
-    accounting_password: Optional[str] = Field(
-        None,
-        max_length=255,
-        description="Password for external accounting service (will be encrypted at rest)",
+    # MPP wallet address (Tempo blockchain)
+    wallet_address: Optional[str] = Field(
+        None, max_length=42, description="Tempo blockchain wallet address"
     )
     # Domain with protocol for dynamic endpoint URL construction
     domain: Optional[str] = Field(
@@ -198,16 +195,6 @@ class UserUpdate(BaseModel):
         if not parsed.netloc:
             raise ValueError("Domain must contain a valid hostname")
         return v
-
-
-class AccountingCredentialsResponse(BaseModel):
-    """Schema for accounting credentials response."""
-
-    url: Optional[str] = Field(None, description="Accounting service URL")
-    email: str = Field(..., description="User's email (same as SyftHub email)")
-    password: Optional[str] = Field(None, description="Accounting service password")
-
-    model_config = {"from_attributes": True}
 
 
 class TunnelCredentialsResponse(BaseModel):
@@ -432,3 +419,62 @@ class UserAggregatorListResponse(BaseModel):
     default_aggregator_id: Optional[int] = Field(
         None, description="ID of the default aggregator, if any"
     )
+
+
+# =============================================================================
+# MPP / Wallet Schemas
+# =============================================================================
+
+
+class WalletResponse(BaseModel):
+    """Response schema for wallet status check."""
+
+    address: Optional[str] = None
+    exists: bool = False
+
+
+class CreateWalletResponse(BaseModel):
+    """Response schema for wallet creation."""
+
+    address: str
+
+
+class ImportWalletRequest(BaseModel):
+    """Request schema for importing an existing wallet."""
+
+    private_key: str
+
+
+class PaymentRequest(BaseModel):
+    """Request schema for MPP payment."""
+
+    www_authenticate: str
+    endpoint_slug: str
+
+
+class PaymentResponse(BaseModel):
+    """Response schema for MPP payment."""
+
+    x_payment: str
+
+
+class WalletTransaction(BaseModel):
+    """Schema for a single wallet transaction."""
+
+    id: str
+    sender_email: str
+    recipient_email: str
+    amount: float
+    status: str
+    created_at: str
+    app_name: Optional[str] = None
+    app_ep_path: Optional[str] = None
+
+
+class WalletBalanceResponse(BaseModel):
+    """Response schema for wallet balance query."""
+
+    balance: float
+    currency: str = "USD"
+    recent_transactions: list[WalletTransaction] = []
+    wallet_configured: bool = False

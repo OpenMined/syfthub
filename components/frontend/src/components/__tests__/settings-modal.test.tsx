@@ -76,7 +76,7 @@ describe('SettingsModal', () => {
 
     expect(screen.getByText('Profile')).toBeInTheDocument();
     expect(screen.getByText('Security')).toBeInTheDocument();
-    expect(screen.getByText('Payment')).toBeInTheDocument();
+    expect(screen.getByText('Wallet')).toBeInTheDocument();
     expect(screen.getByText('Aggregator')).toBeInTheDocument();
     expect(screen.getByText('Danger Zone')).toBeInTheDocument();
   });

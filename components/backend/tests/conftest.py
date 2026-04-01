@@ -5,10 +5,6 @@ import os
 import tempfile
 from collections.abc import Generator
 
-# Disable accounting integration for tests - must be set before syfthub imports
-# This environment variable is read by Settings() during initialization
-os.environ["DEFAULT_ACCOUNTING_URL"] = ""
-
 # Set worker-specific database URL for pytest-xdist parallel execution
 # This MUST happen before any syfthub imports to ensure each worker uses its own database
 _worker_id = os.environ.get("PYTEST_XDIST_WORKER", "")
@@ -34,27 +30,6 @@ def pytest_sessionfinish(session, exitstatus):
     if os.path.exists(db_file):
         with contextlib.suppress(OSError):
             os.unlink(db_file)
-
-
-@pytest.fixture(autouse=True)
-def disable_accounting_integration(monkeypatch):
-    """Disable accounting service integration for all tests.
-
-    This fixture ensures no external accounting service calls are made during tests.
-    It sets the default_accounting_url to empty string, which causes the
-    auth service to skip accounting integration entirely.
-
-    The auth_service._handle_accounting_registration() checks:
-        if not effective_url:
-            return (None, None)  # Skip accounting
-
-    Empty string evaluates to False, so accounting is skipped.
-    """
-    monkeypatch.setattr(
-        "syfthub.core.config.settings.default_accounting_url",
-        "",
-    )
-    yield
 
 
 @pytest.fixture

@@ -102,11 +102,8 @@ class TestDomainExceptionStatusMap:
     def test_all_concrete_exceptions_have_entries(self):
         """Verify all concrete exception types produce a non-500 status."""
         from syfthub.domain.exceptions import (
-            AccountingAccountExistsError,
-            AccountingServiceUnavailableError,
             AudienceInactiveError,
             AudienceNotFoundError,
-            InvalidAccountingPasswordError,
             KeyLoadError,
             KeyNotConfiguredError,
         )
@@ -121,9 +118,6 @@ class TestDomainExceptionStatusMap:
             AudienceInactiveError("audience"),
             KeyNotConfiguredError(),
             KeyLoadError("reason"),
-            AccountingAccountExistsError("email@test.com"),
-            InvalidAccountingPasswordError(),
-            AccountingServiceUnavailableError("detail"),
         ]
         for exc in concrete_exceptions:
             status = _get_domain_exception_status(exc)

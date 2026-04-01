@@ -11,11 +11,9 @@ import type { User as SdkUser } from '@/lib/sdk-client';
 import type { User } from '@/lib/types';
 
 import {
-  AccountingAccountExistsError,
   AuthenticationError,
   clearPersistedTokens,
   googleLoginAPI,
-  InvalidAccountingPasswordError,
   NetworkError,
   persistTokens,
   restoreTokens,
@@ -28,7 +26,6 @@ interface RegisterData {
   name: string;
   email: string;
   password: string;
-  accountingPassword?: string;
 }
 
 interface AuthContextType {
@@ -98,8 +95,7 @@ async function attemptRegistration(
         username,
         email: userData.email,
         password: userData.password,
-        fullName: userData.name,
-        accountingPassword: userData.accountingPassword
+        fullName: userData.name
       });
     } catch (registerError) {
       const isLastAttempt = attempt === maxAttempts - 1;
@@ -146,12 +142,6 @@ function getErrorMessage(error: unknown): string {
       return 'This email is already registered. Please use a different email or try logging in.';
     }
     return 'This username is already taken. Please try a different one.';
-  }
-  if (error instanceof AccountingAccountExistsError) {
-    return 'This email already has an accounting service account. Please provide your existing accounting password to link your accounts.';
-  }
-  if (error instanceof InvalidAccountingPasswordError) {
-    return 'The accounting password you provided is incorrect. Please try again.';
   }
   if (error instanceof AuthenticationError) {
     return 'Invalid email or password';
