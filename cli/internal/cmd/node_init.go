@@ -246,12 +246,16 @@ func startNodeDaemon() (int, error) {
 	setDaemonSysProcAttr(cmd)
 
 	if err := cmd.Start(); err != nil {
-		logFile.Close()
+		if closeErr := logFile.Close(); closeErr != nil {
+			return 0, fmt.Errorf("failed to start daemon: %w (also failed to close log file: %v)", err, closeErr)
+		}
 		return 0, fmt.Errorf("failed to start daemon: %w", err)
 	}
 
 	pid := cmd.Process.Pid
-	logFile.Close()
+	if err := logFile.Close(); err != nil {
+		return 0, fmt.Errorf("failed to close log file after starting daemon: %w", err)
+	}
 	cmd.Process.Release()
 
 	// Brief wait to catch an immediate crash
