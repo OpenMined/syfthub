@@ -247,6 +247,7 @@ class ChatResource:
         """Check if an endpoint type matches the expected type.
 
         A model_data_source endpoint matches both 'model' and 'data_source'.
+        An agent endpoint matches 'model'.
         """
         if actual_type == expected_type:
             return True
@@ -255,7 +256,10 @@ class ChatResource:
                 EndpointType.MODEL.value,
                 EndpointType.DATA_SOURCE.value,
             )
-        return False
+        return (
+            actual_type == EndpointType.AGENT.value
+            and expected_type == EndpointType.MODEL.value
+        )
 
     def _resolve_endpoint_ref(
         self,
@@ -557,6 +561,7 @@ class ChatResource:
         stream: bool,
         messages: list[dict[str, str]] | None,
         aggregator_url: str | None,
+        guest_mode: bool = False,
     ) -> tuple[dict[str, Any], str]:
         """Resolve endpoints, fetch tokens, and build the aggregator request body.
 
@@ -572,14 +577,21 @@ class ChatResource:
         ]
 
         unique_owners = self._collect_unique_owners(model_ref, ds_refs)
-        endpoint_tokens = self._get_satellite_tokens_for_owners(unique_owners)
-        transaction_tokens = self._get_transaction_tokens_for_owners(unique_owners)
+        if guest_mode:
+            endpoint_tokens = self._auth.get_guest_satellite_tokens(unique_owners)
+            transaction_tokens: dict[str, str] = {}
+        else:
+            endpoint_tokens = self._get_satellite_tokens_for_owners(unique_owners)
+            transaction_tokens = self._get_transaction_tokens_for_owners(unique_owners)
 
         peer_token = None
         peer_channel = None
         tunneling_usernames = self._collect_tunneling_usernames(model_ref, ds_refs)
         if tunneling_usernames:
-            peer_response = self._auth.get_peer_token(tunneling_usernames)
+            if guest_mode:
+                peer_response = self._auth.get_guest_peer_token(tunneling_usernames)
+            else:
+                peer_response = self._auth.get_peer_token(tunneling_usernames)
             peer_token = peer_response.peer_token
             peer_channel = peer_response.peer_channel
 
@@ -665,6 +677,7 @@ class ChatResource:
         similarity_threshold: float = 0.5,
         aggregator_url: str | None = None,
         messages: list[dict[str, str]] | None = None,
+        guest_mode: bool = False,
     ) -> ChatResponse:
         """Send a chat request and get the complete response.
 
@@ -682,6 +695,8 @@ class ChatResource:
             temperature: Generation temperature (default: 0.7)
             similarity_threshold: Minimum similarity for retrieved docs (default: 0.5)
             aggregator_url: Custom aggregator URL (optional, uses default if not provided)
+            messages: Optional conversation history
+            guest_mode: Use guest (unauthenticated) tokens for tunneling (default: False)
 
         Returns:
             ChatResponse with response text, sources, and metadata
@@ -711,6 +726,7 @@ class ChatResource:
             stream=False,
             messages=messages,
             aggregator_url=aggregator_url,
+            guest_mode=guest_mode,
         )
 
         try:
@@ -756,6 +772,7 @@ class ChatResource:
         similarity_threshold: float = 0.5,
         aggregator_url: str | None = None,
         messages: list[dict[str, str]] | None = None,
+        guest_mode: bool = False,
     ) -> Iterator[ChatStreamEvent]:
         """Send a chat request and stream response events.
 
@@ -773,6 +790,8 @@ class ChatResource:
             temperature: Generation temperature (default: 0.7)
             similarity_threshold: Minimum similarity for retrieved docs (default: 0.5)
             aggregator_url: Custom aggregator URL (optional, uses default if not provided)
+            messages: Optional conversation history
+            guest_mode: Use guest (unauthenticated) tokens for tunneling (default: False)
 
         Yields:
             ChatStreamEvent objects as they arrive
@@ -807,6 +826,7 @@ class ChatResource:
             stream=True,
             messages=messages,
             aggregator_url=aggregator_url,
+            guest_mode=guest_mode,
         )
 
         try:

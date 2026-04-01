@@ -16,9 +16,12 @@ from syfthub.domain.exceptions import (
     ConflictError,
     DomainException,
     IdPException,
+    InvalidOTPError,
     KeyLoadError,
     KeyNotConfiguredError,
     NotFoundError,
+    OTPMaxAttemptsError,
+    OTPRateLimitedError,
     PermissionDeniedError,
     UserAlreadyExistsError,
     ValidationError,
@@ -69,6 +72,10 @@ DOMAIN_EXCEPTION_STATUS_MAP: dict[type[DomainException], int] = {
     KeyNotConfiguredError: status.HTTP_503_SERVICE_UNAVAILABLE,
     KeyLoadError: status.HTTP_503_SERVICE_UNAVAILABLE,
     IdPException: status.HTTP_400_BAD_REQUEST,
+    # OTP
+    InvalidOTPError: status.HTTP_400_BAD_REQUEST,
+    OTPMaxAttemptsError: status.HTTP_429_TOO_MANY_REQUESTS,
+    OTPRateLimitedError: status.HTTP_429_TOO_MANY_REQUESTS,
     # Base fallback — must be last
     DomainException: status.HTTP_500_INTERNAL_SERVER_ERROR,
 }

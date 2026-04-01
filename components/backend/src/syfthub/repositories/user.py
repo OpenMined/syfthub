@@ -107,6 +107,7 @@ class UserRepository(BaseRepository[UserModel]):
                 full_name=user_data.full_name,
                 password_hash=password_hash,
                 is_active=True,
+                is_email_verified=user_data.is_email_verified,
                 auth_provider=auth_provider,
                 google_id=google_id,
                 avatar_url=avatar_url,
@@ -161,6 +162,34 @@ class UserRepository(BaseRepository[UserModel]):
                 return False
 
             user_model.password_hash = new_password_hash
+            self.session.commit()
+            return True
+        except Exception:
+            self.session.rollback()
+            return False
+
+    def get_model_by_email(self, email: str) -> Optional[UserModel]:
+        """Get the raw SQLAlchemy user model by email.
+
+        Unlike get_by_email(), this returns the ORM model directly
+        so callers can inspect fields like auth_provider and password_hash
+        without going through the Pydantic schema.
+        """
+        try:
+            stmt = select(self.model).where(self.model.email == email.lower())
+            result = self.session.execute(stmt)
+            return result.scalar_one_or_none()
+        except Exception:
+            return None
+
+    def set_email_verified(self, user_id: int) -> bool:
+        """Mark a user's email as verified."""
+        try:
+            user_model = self.session.get(self.model, user_id)
+            if not user_model:
+                return False
+
+            user_model.is_email_verified = True
             self.session.commit()
             return True
         except Exception:

@@ -12,6 +12,7 @@ import respx
 from syfthub_sdk import SyftHubClient
 from syfthub_sdk.chat import (
     TUNNELING_PREFIX,
+    ChatResource,
     ChatStreamEvent,
     DoneEvent,
     ErrorEvent,
@@ -720,3 +721,49 @@ class TestTunnelingDetection:
         assert response.peer_channel == "peer_def456"
         assert response.expires_in == 120
         assert response.nats_url == "ws://localhost:8080/nats"
+
+
+class TestTypeMatches:
+    """Tests for ChatResource._type_matches().
+
+    Shared type-match test vectors — keep in sync across Go/Python/TypeScript SDKs.
+    These vectors ensure all three SDK implementations of _type_matches stay consistent.
+    Rules:
+      1. Exact match always returns true
+      2. model_data_source matches both model and data_source
+      3. agent matches model (agents can be used where models are expected)
+      4. All other cross-type combinations return false
+    """
+
+    @pytest.mark.parametrize(
+        ("actual_type", "expected_type", "want"),
+        [
+            # Exact matches
+            ("model", "model", True),
+            ("data_source", "data_source", True),
+            ("model_data_source", "model_data_source", True),
+            ("agent", "agent", True),
+            # model_data_source matches both model and data_source
+            ("model_data_source", "model", True),
+            ("model_data_source", "data_source", True),
+            # agent matches model
+            ("agent", "model", True),
+            # Cross-type mismatches
+            ("model", "data_source", False),
+            ("data_source", "model", False),
+            ("model", "agent", False),
+            ("data_source", "agent", False),
+            ("model_data_source", "agent", False),
+            ("agent", "data_source", False),
+            ("model", "model_data_source", False),
+            ("data_source", "model_data_source", False),
+        ],
+    )
+    def test_type_matches(
+        self, actual_type: str, expected_type: str, want: bool
+    ) -> None:
+        """Verify _type_matches returns the expected result."""
+        got = ChatResource._type_matches(actual_type, expected_type)
+        assert got is want, (
+            f"_type_matches({actual_type!r}, {expected_type!r}) = {got}, want {want}"
+        )

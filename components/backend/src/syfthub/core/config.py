@@ -226,6 +226,91 @@ class Settings(BaseSettings):
         )
 
     # ===========================================
+    # EMAIL SETTINGS
+    # ===========================================
+
+    # Resend API
+    resend_api_key: Optional[str] = Field(
+        default=None,
+        description="Resend API key for email delivery",
+    )
+
+    # Sender identity
+    smtp_from_email: str = Field(
+        default="noreply@openmined.org",
+        description="From address for outgoing emails",
+    )
+    smtp_from_name: str = Field(
+        default="SyftHub",
+        description="From display name for outgoing emails",
+    )
+
+    @property
+    def resend_configured(self) -> bool:
+        """Check if Resend API is configured."""
+        return self.resend_api_key is not None and len(self.resend_api_key.strip()) > 0
+
+    @property
+    def smtp_configured(self) -> bool:
+        """Check if email sending is configured.
+
+        This property is used throughout the codebase to gate email-dependent
+        features (email verification, password reset).
+        """
+        return self.resend_configured
+
+    # ===========================================
+    # EMAIL VERIFICATION / OTP SETTINGS
+    # ===========================================
+
+    otp_expiry_minutes: int = Field(
+        default=10,
+        description="OTP code expiry in minutes",
+    )
+    otp_max_attempts: int = Field(
+        default=5,
+        description="Max OTP verification attempts before code is invalidated",
+    )
+    otp_rate_limit_max_requests: int = Field(
+        default=3,
+        description="Max OTP send requests per rate limit window",
+    )
+    otp_rate_limit_window_minutes: int = Field(
+        default=10,
+        description="OTP rate limit window in minutes",
+    )
+
+    # Per-IP rate limiting
+    otp_ip_rate_limit_max_requests: int = Field(
+        default=10,
+        description="Max OTP requests per IP per rate limit window",
+    )
+    otp_ip_rate_limit_window_minutes: int = Field(
+        default=10,
+        description="Per-IP OTP rate limit window in minutes",
+    )
+
+    # Email delivery retry
+    otp_email_max_retries: int = Field(
+        default=3,
+        description="Max retry attempts for OTP email delivery",
+    )
+    otp_email_retry_delay_seconds: float = Field(
+        default=2.0,
+        description="Base delay between email retry attempts in seconds",
+    )
+
+    # OTP cleanup
+    otp_cleanup_interval_minutes: int = Field(
+        default=60,
+        description="Interval between OTP cleanup cycles in minutes",
+    )
+    otp_cleanup_retention_hours: int = Field(
+        default=24,
+        description="Hours to retain expired/used OTP records before deletion",
+    )
+
+    # ===========================================
     # ENDPOINT HEALTH CHECK SETTINGS
     # ===========================================
 
@@ -354,6 +439,20 @@ class Settings(BaseSettings):
     peer_token_expire_seconds: int = Field(
         default=120,
         description="Peer token lifetime in seconds (short-lived)",
+    )
+
+    # Guest peer token settings
+    guest_peer_token_expire_seconds: int = Field(
+        default=90,
+        description="Guest peer token lifetime in seconds (shorter than authenticated)",
+    )
+    guest_peer_token_rate_limit_max: int = Field(
+        default=10,
+        description="Maximum guest peer token requests per IP per window",
+    )
+    guest_peer_token_rate_limit_window_seconds: int = Field(
+        default=60,
+        description="Guest peer token rate limit window in seconds",
     )
 
     # ===========================================

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 )
 
@@ -163,10 +164,10 @@ func (p *RequestProcessor) Process(ctx context.Context, req *TunnelRequest) (*Tu
 
 	processedAt := time.Now()
 	resp := &TunnelResponse{
-		Protocol:      "syfthub-tunnel/v1",
-		Type:          "endpoint_response",
+		Protocol:      TunnelProtocolV1,
+		Type:          TunnelTypeResponse,
 		CorrelationID: req.CorrelationID,
-		Status:        "success",
+		Status:        TunnelStatusSuccess,
 		EndpointSlug:  req.Endpoint.Slug,
 		Payload:       payload,
 		Timing: &TunnelTiming{
@@ -184,17 +185,19 @@ func (p *RequestProcessor) enrichLogWithRequestContent(log *RequestLog, req *Tun
 		return
 	}
 
-	switch req.Endpoint.Type {
-	case "model":
+	switch EndpointType(req.Endpoint.Type) {
+	case EndpointTypeModel:
 		var modelReq ModelQueryRequest
 		if err := json.Unmarshal(req.Payload, &modelReq); err == nil {
 			log.Request.Messages = modelReq.Messages
 		}
-	case "data_source":
+	case EndpointTypeDataSource:
 		var dsReq DataSourceQueryRequest
 		if err := json.Unmarshal(req.Payload, &dsReq); err == nil {
 			log.Request.Query = dsReq.GetQuery()
 		}
+	case EndpointTypeAgent:
+		// Agent sessions use separate handler path; no enrichment needed
 	}
 }
 
@@ -208,11 +211,14 @@ func (p *RequestProcessor) verifyToken(ctx context.Context, token string) (*User
 
 // invokeEndpoint executes the endpoint handler based on type.
 func (p *RequestProcessor) invokeEndpoint(ctx context.Context, req *TunnelRequest, endpoint *Endpoint, reqCtx *RequestContext) (any, error) {
-	endpointType := EndpointType(req.Endpoint.Type)
+	// Use the actual registered endpoint type, not the request type,
+	// so agent endpoints work even when the aggregator sends type="model".
+	endpointType := endpoint.Type
 
 	p.logger.Info("[INVOKE] Invoking endpoint",
 		"correlation_id", req.CorrelationID,
 		"endpoint_type", endpointType,
+		"request_type", req.Endpoint.Type,
 		"user_sub", reqCtx.User.Sub,
 	)
 
@@ -291,12 +297,130 @@ func (p *RequestProcessor) invokeEndpoint(ctx context.Context, req *TunnelReques
 			},
 		}, nil
 
+	case EndpointTypeAgent:
+		// Enforce policies before starting agent handler.
+		policyResult, err := endpoint.CheckPolicies(ctx, reqCtx)
+		if err != nil {
+			p.logger.Error("[INVOKE] Agent policy check failed",
+				"correlation_id", req.CorrelationID, "error", err)
+			return nil, fmt.Errorf("policy check failed: %w", err)
+		}
+		if policyResult != nil {
+			reqCtx.PolicyResult = policyResult
+			if !policyResult.Allowed {
+				p.logger.Warn("[INVOKE] Agent request denied by policy",
+					"correlation_id", req.CorrelationID,
+					"policy_name", policyResult.PolicyName,
+					"reason", policyResult.Reason,
+				)
+				return nil, &ExecutionError{
+					Endpoint: endpoint.Slug,
+					Message:  fmt.Sprintf("access denied by policy %q: %s", policyResult.PolicyName, policyResult.Reason),
+				}
+			}
+		}
+
+		// One-shot agent invocation: run the agent handler synchronously,
+		// collect all agent.message events, and return as a model response.
+		// This allows agent endpoints to work with the regular chat flow.
+		var modelReq ModelQueryRequest
+		if err := json.Unmarshal(req.Payload, &modelReq); err != nil {
+			return nil, fmt.Errorf("invalid request payload: %w", err)
+		}
+		reqCtx.Input = modelReq.Messages
+
+		// Extract prompt from last user message
+		prompt := ""
+		for i := len(modelReq.Messages) - 1; i >= 0; i-- {
+			if modelReq.Messages[i].Role == "user" {
+				prompt = modelReq.Messages[i].Content
+				break
+			}
+		}
+
+		handler, err := endpoint.GetAgentHandler()
+		if err != nil {
+			return nil, err
+		}
+
+		p.logger.Info("[INVOKE] Agent one-shot invocation",
+			"correlation_id", req.CorrelationID,
+			"prompt_length", len(prompt),
+			"messages_count", len(modelReq.Messages),
+		)
+
+		// Create a temporary session for one-shot invocation.
+		// Use the request context so the session inherits the NATS timeout.
+		session := NewAgentSession(ctx, AgentSessionParams{
+			ID:           fmt.Sprintf("oneshot-%s", req.CorrelationID),
+			Prompt:       prompt,
+			EndpointSlug: endpoint.Slug,
+			Messages:     modelReq.Messages,
+			Config:       AgentConfig{},
+			User:         reqCtx.User,
+		})
+
+		// Run handler via the canonical lifecycle method (spawns goroutine,
+		// sends terminal events, closes sendCh/done on completion).
+		session.RunHandler(handler)
+
+		// Collect all agent.message events until handler completes.
+		// If the agent requests interactive input, cancel the session
+		// gracefully instead of auto-responding with fabricated input.
+		var buf strings.Builder
+		inputRequested := false
+		for event := range session.SendCh() {
+			switch event.EventType {
+			case "agent.message":
+				var data map[string]any
+				if json.Unmarshal(event.Data, &data) == nil {
+					if content, ok := data["content"].(string); ok {
+						buf.WriteString(content)
+					}
+				}
+			case "agent.request_input":
+				// The agent handler is asking for user input, which
+				// cannot be provided in one-shot mode. Cancel the
+				// session so the handler's Receive() unblocks with a
+				// context error and the handler can exit cleanly.
+				inputRequested = true
+				p.logger.Info("[INVOKE] Agent requested input in one-shot mode, cancelling session",
+					"correlation_id", req.CorrelationID,
+				)
+				session.Cancel()
+			}
+		}
+
+		response := buf.String()
+		if inputRequested {
+			if response != "" {
+				response += "\n\n"
+			}
+			response += "[Note: This agent requires interactive mode. " +
+				"It attempted to request user input, which is not supported in one-shot invocation. " +
+				"Use an interactive agent session for full functionality.]"
+		}
+		if response == "" {
+			response = "Agent completed without producing a message."
+		}
+
+		p.logger.Info("[INVOKE] Agent one-shot invocation succeeded",
+			"correlation_id", req.CorrelationID,
+			"response_length", len(response),
+		)
+
+		return ModelQueryResponse{
+			Summary: ModelSummary{
+				Message: ModelSummaryMessage{Content: response},
+			},
+		}, nil
+
 	default:
 		p.logger.Error("[INVOKE] Unknown endpoint type",
 			"correlation_id", req.CorrelationID,
-			"type", req.Endpoint.Type,
+			"type", endpoint.Type,
 		)
-		return nil, fmt.Errorf("unknown endpoint type: %s", req.Endpoint.Type)
+		return nil, fmt.Errorf("unknown endpoint type: %s", endpoint.Type)
 	}
 }
 
@@ -308,10 +432,10 @@ func (p *RequestProcessor) errorResponse(req *TunnelRequest, code TunnelErrorCod
 		"message", message,
 	)
 	return &TunnelResponse{
-		Protocol:      "syfthub-tunnel/v1",
-		Type:          "endpoint_response",
+		Protocol:      TunnelProtocolV1,
+		Type:          TunnelTypeResponse,
 		CorrelationID: req.CorrelationID,
-		Status:        "error",
+		Status:        TunnelStatusError,
 		EndpointSlug:  req.Endpoint.Slug,
 		Error: &TunnelError{
 			Code:    code,

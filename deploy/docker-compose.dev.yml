@@ -69,6 +69,10 @@ services:
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-dev-master-key}
       # Redis configuration for peer token storage
       - REDIS_URL=redis://redis:6379/0
+      # Email delivery via Resend (optional - OTP emails disabled if not set)
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - SMTP_FROM_EMAIL=noreply@openmined.org
+      - SMTP_FROM_NAME=SyftHub
       # Auto-generate RSA keys for satellite token signing (dev only)
       - AUTO_GENERATE_RSA_KEYS=true
     networks:
@@ -117,6 +121,7 @@ services:
       - NODE_ENV=development
       # Empty - API calls use relative paths (same origin via proxy)
       - VITE_API_URL=
+      - VITE_DEFAULT_MODEL=${VITE_DEFAULT_MODEL:-}
     networks:
       - syfthub-network
     depends_on:

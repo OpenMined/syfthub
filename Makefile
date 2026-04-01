@@ -73,8 +73,14 @@ test:  ## Run all tests (parallel execution using all CPU cores)
 	@echo 'Aggregator tests...'
 	@cd components/aggregator && uv sync --extra dev && uv run pytest
 	@echo ''
-	@echo 'CLI tests...'
-	@cd cli && uv sync --extra dev && uv run pytest
+	@echo 'CLI Go tests...'
+	@cd cli && go test ./internal/nodeconfig/... ./internal/cmd/... ./internal/connectors/...
+	@echo ''
+	@echo 'Desktop app Go tests...'
+	@cd syfthub-desktop && go test ./...
+	@echo ''
+	@echo 'Go SDK tests...'
+	@cd sdk/golang/syfthubapi && go test ./...
 	@echo ''
 	@echo 'Python SDK unit tests...'
 	@cd sdk/python && uv sync --extra dev && uv run pytest tests/unit

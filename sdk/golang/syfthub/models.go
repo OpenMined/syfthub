@@ -24,6 +24,7 @@ const (
 	EndpointTypeModel           EndpointType = "model"
 	EndpointTypeDataSource      EndpointType = "data_source"
 	EndpointTypeModelDataSource EndpointType = "model_data_source"
+	EndpointTypeAgent           EndpointType = "agent"
 )
 
 // UserRole represents user role levels.
@@ -435,6 +436,21 @@ type UserAggregator struct {
 // Request/Input Models
 // =============================================================================
 
+// RegisterResult represents the result of user registration.
+// When RequiresEmailVerification is true, the caller must verify the
+// user's email via VerifyOTP before tokens are issued.
+type RegisterResult struct {
+	User                      User `json:"user"`
+	RequiresEmailVerification bool `json:"requires_email_verification"`
+}
+
+// AuthConfig represents the platform's authentication configuration.
+type AuthConfig struct {
+	RequireEmailVerification bool `json:"require_email_verification"`
+	SMTPConfigured           bool `json:"smtp_configured"`
+	PasswordResetEnabled     bool `json:"password_reset_enabled"`
+}
+
 // RegisterRequest represents the input for user registration.
 type RegisterRequest struct {
 	Username           string  `json:"username"`
@@ -442,6 +458,24 @@ type RegisterRequest struct {
 	Password           string  `json:"password"`
 	FullName           string  `json:"full_name"`
 	AccountingPassword *string `json:"accounting_password,omitempty"`
+}
+
+// VerifyOTPRequest represents the input for verifying a registration OTP.
+type VerifyOTPRequest struct {
+	Email string `json:"email"`
+	Code  string `json:"code"`
+}
+
+// PasswordResetRequest represents the input for requesting a password reset.
+type PasswordResetRequest struct {
+	Email string `json:"email"`
+}
+
+// PasswordResetConfirmRequest represents the input for confirming a password reset.
+type PasswordResetConfirmRequest struct {
+	Email       string `json:"email"`
+	Code        string `json:"code"`
+	NewPassword string `json:"new_password"`
 }
 
 // CreateEndpointRequest represents the input for creating an endpoint.

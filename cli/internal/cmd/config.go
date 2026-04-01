@@ -22,9 +22,10 @@ var allowedKeys = map[string]string{
 }
 
 var configCmd = &cobra.Command{
-	Use:   "config",
-	Short: "Manage CLI configuration",
-	Long:  `Manage CLI configuration settings.`,
+	Use:         "config",
+	Annotations: map[string]string{authExemptKey: "true"},
+	Short:       "Manage CLI configuration",
+	Long:        `Manage CLI configuration settings.`,
 }
 
 // Config set subcommand
@@ -116,19 +117,19 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 
 	case "default_aggregator":
 		if value == "" {
-			cfg.DefaultAggregator = nil
+			cfg.DefaultAggregator = ""
 			typedValue = nil
 		} else {
-			cfg.DefaultAggregator = &value
+			cfg.DefaultAggregator = value
 			typedValue = value
 		}
 
 	case "default_accounting":
 		if value == "" {
-			cfg.DefaultAccounting = nil
+			cfg.DefaultAccounting = ""
 			typedValue = nil
 		} else {
-			cfg.DefaultAccounting = &value
+			cfg.DefaultAccounting = value
 			typedValue = value
 		}
 
@@ -179,8 +180,7 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 		}
 
 		data := map[string]interface{}{
-			"access_token":        cfg.AccessToken,
-			"refresh_token":       cfg.RefreshToken,
+			"api_token":           cfg.APIToken,
 			"aggregators":         aggregators,
 			"accounting_services": accountingServices,
 			"default_aggregator":  cfg.DefaultAggregator,
@@ -196,23 +196,14 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 	} else {
 		var values []output.ConfigValue
 
-		// Access token
-		var accessToken string
-		if cfg.AccessToken != nil {
-			accessToken = output.MaskToken(*cfg.AccessToken)
+		// API token
+		var apiToken string
+		if cfg.APIToken != "" {
+			apiToken = output.MaskToken(cfg.APIToken)
 		} else {
-			accessToken = output.Dim.Sprint("not set")
+			apiToken = output.Dim.Sprint("not set")
 		}
-		values = append(values, output.ConfigValue{Key: "access_token", Value: accessToken})
-
-		// Refresh token
-		var refreshToken string
-		if cfg.RefreshToken != nil {
-			refreshToken = output.MaskToken(*cfg.RefreshToken)
-		} else {
-			refreshToken = output.Dim.Sprint("not set")
-		}
-		values = append(values, output.ConfigValue{Key: "refresh_token", Value: refreshToken})
+		values = append(values, output.ConfigValue{Key: "api_token", Value: apiToken})
 
 		// Aggregators
 		values = append(values, output.ConfigValue{
@@ -228,8 +219,8 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 
 		// Default aggregator
 		var defaultAgg string
-		if cfg.DefaultAggregator != nil {
-			defaultAgg = *cfg.DefaultAggregator
+		if cfg.DefaultAggregator != "" {
+			defaultAgg = cfg.DefaultAggregator
 		} else {
 			defaultAgg = output.Dim.Sprint("not set")
 		}
@@ -237,8 +228,8 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 
 		// Default accounting
 		var defaultAcc string
-		if cfg.DefaultAccounting != nil {
-			defaultAcc = *cfg.DefaultAccounting
+		if cfg.DefaultAccounting != "" {
+			defaultAcc = cfg.DefaultAccounting
 		} else {
 			defaultAcc = output.Dim.Sprint("not set")
 		}

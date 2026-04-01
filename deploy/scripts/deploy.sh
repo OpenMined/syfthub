@@ -31,6 +31,15 @@ GITHUB_REPOSITORY=$(echo "${GITHUB_REPOSITORY:-}" | tr '[:upper:]' '[:lower:]')
 
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/syfthub}"
 COMPOSE_FILE="docker-compose.deploy.yml"
+COMPOSE_OVERRIDE="${COMPOSE_OVERRIDE:-}"
+
+# Build compose file arguments (supports staging override for resource limits)
+# shellcheck disable=SC2086
+COMPOSE_ARGS="-f ${COMPOSE_FILE}"
+if [[ -n "$COMPOSE_OVERRIDE" && -f "${DEPLOY_DIR}/${COMPOSE_OVERRIDE}" ]]; then
+    COMPOSE_ARGS="${COMPOSE_ARGS} -f ${COMPOSE_OVERRIDE}"
+fi
+
 LOG_DIR="/var/log/syfthub"
 LOG_FILE="${LOG_DIR}/deploy-$(date +%Y%m%d-%H%M%S).log"
 HEALTH_CHECK_RETRIES=30
@@ -134,7 +143,7 @@ backup_current_state() {
     local backup_file="${DEPLOY_DIR}/.deploy-backup"
 
     # Save current image tags
-    if docker compose -f "${DEPLOY_DIR}/${COMPOSE_FILE}" ps -q backend &> /dev/null; then
+    if docker compose -f "${DEPLOY_DIR}/${COMPOSE_FILE}" ${COMPOSE_OVERRIDE:+-f "${DEPLOY_DIR}/${COMPOSE_OVERRIDE}"} ps -q backend &> /dev/null; then
         local current_backend=$(docker inspect --format='{{.Config.Image}}' syfthub-backend 2>/dev/null || echo "none")
         local current_aggregator=$(docker inspect --format='{{.Config.Image}}' syfthub-aggregator 2>/dev/null || echo "none")
         local current_frontend=$(docker inspect --format='{{.Config.Image}}' syfthub-frontend-init 2>/dev/null || echo "none")
@@ -163,7 +172,7 @@ pull_images() {
     cd "$DEPLOY_DIR"
 
     # Pull all images
-    docker compose -f "$COMPOSE_FILE" pull backend aggregator mcp || die "Failed to pull backend/aggregator/mcp images"
+    docker compose $COMPOSE_ARGS pull backend aggregator mcp || die "Failed to pull backend/aggregator/mcp images"
 
     # Pull frontend image (for frontend-init)
     docker pull "ghcr.io/${GITHUB_REPOSITORY}-frontend:${IMAGE_TAG}" || die "Failed to pull frontend image"
@@ -181,7 +190,7 @@ update_frontend() {
     cd "$DEPLOY_DIR"
 
     # Run frontend-init to copy static files to volume
-    docker compose -f "$COMPOSE_FILE" up frontend-init --force-recreate || die "Failed to update frontend files"
+    docker compose $COMPOSE_ARGS up frontend-init --force-recreate || die "Failed to update frontend files"
 
     log INFO "Frontend files updated"
 }
@@ -196,11 +205,11 @@ run_migrations() {
     cd "$DEPLOY_DIR"
 
     # Ensure database is running and healthy
-    docker compose -f "$COMPOSE_FILE" up -d db
+    docker compose $COMPOSE_ARGS up -d db
 
     local retries=30
     while [ $retries -gt 0 ]; do
-        if docker compose -f "$COMPOSE_FILE" exec -T db pg_isready -U syfthub -d syfthub &>/dev/null; then
+        if docker compose $COMPOSE_ARGS exec -T db pg_isready -U syfthub -d syfthub &>/dev/null; then
             break
         fi
         log INFO "Waiting for database to be ready... ($retries retries left)"
@@ -214,7 +223,7 @@ run_migrations() {
 
     # Try to run migrations - handle case where Alembic isn't configured
     local migration_output
-    if migration_output=$(docker compose -f "$COMPOSE_FILE" --profile migrate run --rm migrate 2>&1); then
+    if migration_output=$(docker compose $COMPOSE_ARGS --profile migrate run --rm migrate 2>&1); then
         log INFO "Migrations completed successfully"
     else
         # Check if the error is because Alembic isn't configured
@@ -228,13 +237,13 @@ run_migrations() {
             # existed pre-Alembic), then retry so only genuinely new migrations run.
             log WARN "Detected pre-Alembic database (tables exist without a version stamp)."
             log INFO "Stamping baseline revision (002_api_tokens)..."
-            if ! docker compose -f "$COMPOSE_FILE" --profile migrate run --rm migrate \
+            if ! docker compose $COMPOSE_ARGS --profile migrate run --rm migrate \
                     .venv/bin/alembic stamp 002_api_tokens 2>&1; then
                 echo "$migration_output"
                 die "Failed to stamp baseline migration"
             fi
             log INFO "Retrying migrations after baseline stamp..."
-            if ! docker compose -f "$COMPOSE_FILE" --profile migrate run --rm migrate 2>&1; then
+            if ! docker compose $COMPOSE_ARGS --profile migrate run --rm migrate 2>&1; then
                 die "Database migration failed after stamping baseline"
             fi
             log INFO "Migrations completed successfully after baseline stamp"
@@ -257,12 +266,12 @@ deploy_services() {
 
     # Ensure database, redis, and meilisearch are running
     log INFO "Ensuring database, redis, and meilisearch are running..."
-    docker compose -f "$COMPOSE_FILE" up -d db redis meilisearch
+    docker compose $COMPOSE_ARGS up -d db redis meilisearch
 
     # Wait for database to be healthy
     log INFO "Waiting for database to be healthy..."
     local retries=0
-    while ! docker compose -f "$COMPOSE_FILE" exec -T db pg_isready -U syfthub -d syfthub &> /dev/null; do
+    while ! docker compose $COMPOSE_ARGS exec -T db pg_isready -U syfthub -d syfthub &> /dev/null; do
         retries=$((retries + 1))
         if [[ $retries -ge 30 ]]; then
             die "Database failed to become healthy"
@@ -273,7 +282,7 @@ deploy_services() {
     # Wait for meilisearch to be healthy
     log INFO "Waiting for meilisearch to be healthy..."
     retries=0
-    while ! docker compose -f "$COMPOSE_FILE" exec -T meilisearch curl -sf http://localhost:7700/health &> /dev/null; do
+    while ! docker compose $COMPOSE_ARGS exec -T meilisearch curl -sf http://localhost:7700/health &> /dev/null; do
         retries=$((retries + 1))
         if [[ $retries -ge 30 ]]; then
             die "Meilisearch failed to become healthy"
@@ -284,13 +293,13 @@ deploy_services() {
 
     # Rolling restart: Backend first
     log INFO "Restarting backend..."
-    docker compose -f "$COMPOSE_FILE" up -d --no-deps --force-recreate backend
+    docker compose $COMPOSE_ARGS up -d --no-deps --force-recreate backend
     sleep 5
 
     # Wait for backend to be healthy
     log INFO "Waiting for backend to be healthy..."
     retries=0
-    while ! docker compose -f "$COMPOSE_FILE" exec -T backend curl -sf http://localhost:8000/health &> /dev/null; do
+    while ! docker compose $COMPOSE_ARGS exec -T backend curl -sf http://localhost:8000/health &> /dev/null; do
         retries=$((retries + 1))
         if [[ $retries -ge $HEALTH_CHECK_RETRIES ]]; then
             die "Backend failed health check after restart"
@@ -301,13 +310,13 @@ deploy_services() {
 
     # Rolling restart: Aggregator
     log INFO "Restarting aggregator..."
-    docker compose -f "$COMPOSE_FILE" up -d --no-deps --force-recreate aggregator
+    docker compose $COMPOSE_ARGS up -d --no-deps --force-recreate aggregator
     sleep 5
 
     # Wait for aggregator to be healthy (use Python since curl not installed in aggregator container)
     log INFO "Waiting for aggregator to be healthy..."
     retries=0
-    while ! docker compose -f "$COMPOSE_FILE" exec -T aggregator python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)" &> /dev/null; do
+    while ! docker compose $COMPOSE_ARGS exec -T aggregator python -c "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=5)" &> /dev/null; do
         retries=$((retries + 1))
         if [[ $retries -ge $HEALTH_CHECK_RETRIES ]]; then
             die "Aggregator failed health check after restart"
@@ -318,13 +327,13 @@ deploy_services() {
 
     # Rolling restart: MCP Server
     log INFO "Restarting MCP server..."
-    docker compose -f "$COMPOSE_FILE" up -d --no-deps --force-recreate mcp
+    docker compose $COMPOSE_ARGS up -d --no-deps --force-recreate mcp
     sleep 5
 
     # Wait for MCP to be healthy
     log INFO "Waiting for MCP server to be healthy..."
     retries=0
-    while ! docker compose -f "$COMPOSE_FILE" exec -T mcp curl -sf http://localhost:8002/health &> /dev/null; do
+    while ! docker compose $COMPOSE_ARGS exec -T mcp curl -sf http://localhost:8002/health &> /dev/null; do
         retries=$((retries + 1))
         if [[ $retries -ge $HEALTH_CHECK_RETRIES ]]; then
             die "MCP server failed health check after restart"
@@ -335,13 +344,13 @@ deploy_services() {
 
     # Start NATS server (proxy depends on it being healthy)
     log INFO "Starting NATS server..."
-    docker compose -f "$COMPOSE_FILE" up -d --no-deps --force-recreate nats
+    docker compose $COMPOSE_ARGS up -d --no-deps --force-recreate nats
     sleep 3
 
     # Wait for NATS to be healthy
     log INFO "Waiting for NATS to be healthy..."
     retries=0
-    while ! docker compose -f "$COMPOSE_FILE" exec -T nats wget --spider -q http://localhost:8222/healthz 2>/dev/null; do
+    while ! docker compose $COMPOSE_ARGS exec -T nats wget --spider -q http://localhost:8222/healthz 2>/dev/null; do
         retries=$((retries + 1))
         if [[ $retries -ge $HEALTH_CHECK_RETRIES ]]; then
             die "NATS server failed health check after restart"
@@ -352,11 +361,11 @@ deploy_services() {
 
     # Restart proxy (to pick up any nginx config changes)
     log INFO "Restarting proxy..."
-    docker compose -f "$COMPOSE_FILE" up -d --no-deps --force-recreate proxy
+    docker compose $COMPOSE_ARGS up -d --no-deps --force-recreate proxy
     sleep 3
 
     # Clean up orphaned containers
-    docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
+    docker compose $COMPOSE_ARGS up -d --remove-orphans
 
     log INFO "All services deployed"
 }
@@ -384,7 +393,7 @@ health_check() {
 
     # Show service status
     log INFO "Current service status:"
-    docker compose -f "${DEPLOY_DIR}/${COMPOSE_FILE}" ps
+    docker compose -f "${DEPLOY_DIR}/${COMPOSE_FILE}" ${COMPOSE_OVERRIDE:+-f "${DEPLOY_DIR}/${COMPOSE_OVERRIDE}"} ps
 }
 
 # =============================================================================
@@ -436,7 +445,7 @@ rollback() {
 
     # Restart with previous images
     # This is a simplified rollback - in production you might want more sophisticated handling
-    docker compose -f "$COMPOSE_FILE" up -d --force-recreate
+    docker compose $COMPOSE_ARGS up -d --force-recreate
 
     log INFO "Rollback completed"
 }

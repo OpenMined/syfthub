@@ -10,23 +10,37 @@ import (
 	"time"
 )
 
-// AuthClient handles authentication with SyftHub backend.
-type AuthClient struct {
+// hubHTTPClient is the shared base for AuthClient and SyncClient.
+// It provides a single HTTP client, base URL, API key, and logger
+// so both clients avoid duplicating connection setup.
+type hubHTTPClient struct {
 	httpClient *http.Client
 	baseURL    string
 	apiKey     string
 	logger     Logger
 }
 
-// NewAuthClient creates a new authentication client.
-func NewAuthClient(baseURL, apiKey string, logger Logger) *AuthClient {
-	return &AuthClient{
+// newHubHTTPClient creates a shared HTTP client configuration.
+func newHubHTTPClient(baseURL, apiKey string, logger Logger) hubHTTPClient {
+	return hubHTTPClient{
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
 		baseURL: baseURL,
 		apiKey:  apiKey,
 		logger:  logger,
+	}
+}
+
+// AuthClient handles authentication with SyftHub backend.
+type AuthClient struct {
+	hubHTTPClient
+}
+
+// NewAuthClient creates a new authentication client.
+func NewAuthClient(baseURL, apiKey string, logger Logger) *AuthClient {
+	return &AuthClient{
+		hubHTTPClient: newHubHTTPClient(baseURL, apiKey, logger),
 	}
 }
 
@@ -252,21 +266,13 @@ func (c *AuthClient) RegisterEncryptionPublicKey(ctx context.Context, publicKeyB
 
 // SyncClient handles endpoint synchronization with SyftHub backend.
 type SyncClient struct {
-	httpClient *http.Client
-	baseURL    string
-	apiKey     string
-	logger     Logger
+	hubHTTPClient
 }
 
 // NewSyncClient creates a new sync client.
 func NewSyncClient(baseURL, apiKey string, logger Logger) *SyncClient {
 	return &SyncClient{
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
-		baseURL: baseURL,
-		apiKey:  apiKey,
-		logger:  logger,
+		hubHTTPClient: newHubHTTPClient(baseURL, apiKey, logger),
 	}
 }
 
@@ -377,6 +383,8 @@ func (c *SyncClient) UpdateDomain(ctx context.Context, domain string) error {
 }
 
 // APIAuthenticator provides authentication for the SyftAPI.
+// It wraps pre-created AuthClient and SyncClient instances rather than
+// creating its own HTTP clients, avoiding duplicate connections.
 type APIAuthenticator struct {
 	authClient *AuthClient
 	syncClient *SyncClient
@@ -384,11 +392,13 @@ type APIAuthenticator struct {
 	logger     Logger
 }
 
-// NewAPIAuthenticator creates a new API authenticator.
-func NewAPIAuthenticator(config *Config, logger Logger) *APIAuthenticator {
+// NewAPIAuthenticator creates a new API authenticator using the provided
+// AuthClient and SyncClient. This avoids creating duplicate HTTP clients
+// when SyftAPI already has its own instances.
+func NewAPIAuthenticator(config *Config, logger Logger, authClient *AuthClient, syncClient *SyncClient) *APIAuthenticator {
 	return &APIAuthenticator{
-		authClient: NewAuthClient(config.SyftHubURL, config.APIKey, logger),
-		syncClient: NewSyncClient(config.SyftHubURL, config.APIKey, logger),
+		authClient: authClient,
+		syncClient: syncClient,
 		config:     config,
 		logger:     logger,
 	}

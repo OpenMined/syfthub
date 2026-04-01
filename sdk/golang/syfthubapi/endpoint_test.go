@@ -516,6 +516,72 @@ func TestEndpointRegistry(t *testing.T) {
 		}
 	})
 
+	t.Run("ReplaceFileBased preserves reused executors", func(t *testing.T) {
+		reg := NewEndpointRegistry()
+
+		// Simulate selective reload: two endpoints where only one is recreated.
+		sharedExec := &mockExecutor{} // executor reused by unchanged endpoint
+		staleExec := &mockExecutor{}  // executor replaced during reload
+
+		reg.Register(&Endpoint{Slug: "unchanged-ep", isFileBased: true, executor: sharedExec})
+		reg.Register(&Endpoint{Slug: "changed-ep", isFileBased: true, executor: staleExec})
+
+		newExec := &mockExecutor{} // fresh executor for the changed endpoint
+		reg.ReplaceFileBased([]*Endpoint{
+			{Slug: "unchanged-ep", executor: sharedExec}, // same instance reused
+			{Slug: "changed-ep", executor: newExec},      // new instance
+		})
+
+		// Reused executor must NOT be closed
+		if sharedExec.closed {
+			t.Error("reused executor should not be closed")
+		}
+
+		// Stale executor must be closed
+		if !staleExec.closed {
+			t.Error("stale executor should be closed")
+		}
+
+		// New executor must not be closed
+		if newExec.closed {
+			t.Error("new executor should not be closed")
+		}
+
+		// Both endpoints should be in registry
+		if _, ok := reg.Get("unchanged-ep"); !ok {
+			t.Error("unchanged endpoint should be in registry")
+		}
+		if _, ok := reg.Get("changed-ep"); !ok {
+			t.Error("changed endpoint should be in registry")
+		}
+	})
+
+	t.Run("ReplaceFileBased preserves reused policy executors", func(t *testing.T) {
+		reg := NewEndpointRegistry()
+
+		sharedPolicyExec := &mockExecutor{}
+		stalePolicyExec := &mockExecutor{}
+
+		reg.Register(&Endpoint{Slug: "agent1", isFileBased: true, policyExecutor: sharedPolicyExec})
+		reg.Register(&Endpoint{Slug: "agent2", isFileBased: true, policyExecutor: stalePolicyExec})
+
+		newPolicyExec := &mockExecutor{}
+		reg.ReplaceFileBased([]*Endpoint{
+			{Slug: "agent1", policyExecutor: sharedPolicyExec},
+			{Slug: "agent2", policyExecutor: newPolicyExec},
+		})
+
+		if sharedPolicyExec.closed {
+			t.Error("reused policy executor should not be closed")
+		}
+		if !stalePolicyExec.closed {
+			t.Error("stale policy executor should be closed")
+		}
+		if newPolicyExec.closed {
+			t.Error("new policy executor should not be closed")
+		}
+	})
+
 	t.Run("SetEnabled", func(t *testing.T) {
 		reg := NewEndpointRegistry()
 		reg.Register(&Endpoint{Slug: "test-ep", Enabled: true})
@@ -595,7 +661,7 @@ func TestEndpointRegistryConcurrency(t *testing.T) {
 func TestDataSourceBuilder(t *testing.T) {
 	t.Run("empty name error", func(t *testing.T) {
 		builder := &DataSourceBuilder{
-			endpoint: &Endpoint{Slug: "test", Type: EndpointTypeDataSource},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Type: EndpointTypeDataSource}},
 		}
 
 		builder.Name("")
@@ -606,7 +672,7 @@ func TestDataSourceBuilder(t *testing.T) {
 
 	t.Run("empty description error", func(t *testing.T) {
 		builder := &DataSourceBuilder{
-			endpoint: &Endpoint{Slug: "test", Type: EndpointTypeDataSource},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Type: EndpointTypeDataSource}},
 		}
 
 		builder.Description("")
@@ -617,8 +683,7 @@ func TestDataSourceBuilder(t *testing.T) {
 
 	t.Run("error propagation", func(t *testing.T) {
 		builder := &DataSourceBuilder{
-			endpoint: &Endpoint{Slug: "test"},
-			err:      errors.New("previous error"),
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test"}, err: errors.New("previous error")},
 		}
 
 		// All methods should return early on error
@@ -632,7 +697,7 @@ func TestDataSourceBuilder(t *testing.T) {
 
 	t.Run("Version does not require value", func(t *testing.T) {
 		builder := &DataSourceBuilder{
-			endpoint: &Endpoint{Slug: "test"},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test"}},
 		}
 
 		builder.Version("2.0.0")
@@ -646,7 +711,7 @@ func TestDataSourceBuilder(t *testing.T) {
 
 	t.Run("Enabled sets value", func(t *testing.T) {
 		builder := &DataSourceBuilder{
-			endpoint: &Endpoint{Slug: "test"},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test"}},
 		}
 
 		builder.Enabled(false)
@@ -660,7 +725,7 @@ func TestDataSourceBuilder(t *testing.T) {
 
 	t.Run("Handler requires handler", func(t *testing.T) {
 		builder := &DataSourceBuilder{
-			endpoint: &Endpoint{Slug: "test", Name: "Test", Description: "Test desc"},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Name: "Test", Description: "Test desc"}},
 		}
 
 		err := builder.Handler(nil)
@@ -671,7 +736,7 @@ func TestDataSourceBuilder(t *testing.T) {
 
 	t.Run("Handler requires name", func(t *testing.T) {
 		builder := &DataSourceBuilder{
-			endpoint: &Endpoint{Slug: "test", Description: "Desc"},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Description: "Desc"}},
 		}
 
 		err := builder.Handler(func(ctx context.Context, query string, reqCtx *RequestContext) ([]Document, error) {
@@ -684,7 +749,7 @@ func TestDataSourceBuilder(t *testing.T) {
 
 	t.Run("Handler requires description", func(t *testing.T) {
 		builder := &DataSourceBuilder{
-			endpoint: &Endpoint{Slug: "test", Name: "Test"},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Name: "Test"}},
 		}
 
 		err := builder.Handler(func(ctx context.Context, query string, reqCtx *RequestContext) ([]Document, error) {
@@ -697,8 +762,7 @@ func TestDataSourceBuilder(t *testing.T) {
 
 	t.Run("Handler returns previous error", func(t *testing.T) {
 		builder := &DataSourceBuilder{
-			endpoint: &Endpoint{Slug: "test"},
-			err:      errors.New("builder error"),
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test"}, err: errors.New("builder error")},
 		}
 
 		err := builder.Handler(func(ctx context.Context, query string, reqCtx *RequestContext) ([]Document, error) {
@@ -713,7 +777,7 @@ func TestDataSourceBuilder(t *testing.T) {
 func TestModelBuilder(t *testing.T) {
 	t.Run("empty name error", func(t *testing.T) {
 		builder := &ModelBuilder{
-			endpoint: &Endpoint{Slug: "test", Type: EndpointTypeModel},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Type: EndpointTypeModel}},
 		}
 
 		builder.Name("")
@@ -724,7 +788,7 @@ func TestModelBuilder(t *testing.T) {
 
 	t.Run("empty description error", func(t *testing.T) {
 		builder := &ModelBuilder{
-			endpoint: &Endpoint{Slug: "test", Type: EndpointTypeModel},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Type: EndpointTypeModel}},
 		}
 
 		builder.Description("")
@@ -735,8 +799,7 @@ func TestModelBuilder(t *testing.T) {
 
 	t.Run("error propagation", func(t *testing.T) {
 		builder := &ModelBuilder{
-			endpoint: &Endpoint{Slug: "test"},
-			err:      errors.New("previous error"),
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test"}, err: errors.New("previous error")},
 		}
 
 		builder.Name("Test").Description("Desc").Version("1.0").Enabled(true)
@@ -748,7 +811,7 @@ func TestModelBuilder(t *testing.T) {
 
 	t.Run("Handler requires handler", func(t *testing.T) {
 		builder := &ModelBuilder{
-			endpoint: &Endpoint{Slug: "test", Name: "Test", Description: "Desc"},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Name: "Test", Description: "Desc"}},
 		}
 
 		err := builder.Handler(nil)
@@ -759,7 +822,7 @@ func TestModelBuilder(t *testing.T) {
 
 	t.Run("Handler requires name", func(t *testing.T) {
 		builder := &ModelBuilder{
-			endpoint: &Endpoint{Slug: "test", Description: "Desc"},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Description: "Desc"}},
 		}
 
 		err := builder.Handler(func(ctx context.Context, messages []Message, reqCtx *RequestContext) (string, error) {
@@ -772,7 +835,7 @@ func TestModelBuilder(t *testing.T) {
 
 	t.Run("Handler requires description", func(t *testing.T) {
 		builder := &ModelBuilder{
-			endpoint: &Endpoint{Slug: "test", Name: "Test"},
+			baseEndpointBuilder: baseEndpointBuilder{endpoint: &Endpoint{Slug: "test", Name: "Test"}},
 		}
 
 		err := builder.Handler(func(ctx context.Context, messages []Message, reqCtx *RequestContext) (string, error) {

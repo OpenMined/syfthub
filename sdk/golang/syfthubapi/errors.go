@@ -18,6 +18,7 @@ var (
 	ErrTimeout              = errors.New("timeout")
 	ErrValidation           = errors.New("validation error")
 	ErrTransport            = errors.New("transport error")
+	ErrContainer            = errors.New("container error")
 )
 
 // SyftAPIError is the base error type for all syfthubapi errors.
@@ -306,6 +307,47 @@ func (e *TransportError) Error() string {
 // Unwrap returns ErrTransport for errors.Is().
 func (e *TransportError) Unwrap() error {
 	return ErrTransport
+}
+
+// ContainerError indicates an error in container operations.
+type ContainerError struct {
+	// Operation is the container operation that failed (create, start, stop, health_check, execute, pull).
+	Operation string
+
+	// Container is the container ID or name.
+	Container string
+
+	// Image is the image name (for pull/create failures).
+	Image string
+
+	// Message describes the error.
+	Message string
+
+	// Cause is the underlying error.
+	Cause error
+
+	// ExitCode is the container exit code (e.g., 137 for OOM kill).
+	ExitCode int
+
+	// Logs contains captured container logs for diagnostics.
+	Logs string
+}
+
+// Error implements the error interface.
+func (e *ContainerError) Error() string {
+	msg := fmt.Sprintf("container error (%s): %s", e.Operation, e.Message)
+	if e.ExitCode != 0 {
+		msg += fmt.Sprintf(" (exit code %d)", e.ExitCode)
+	}
+	if e.Cause != nil {
+		msg += fmt.Sprintf(": %v", e.Cause)
+	}
+	return msg
+}
+
+// Unwrap returns ErrContainer for errors.Is().
+func (e *ContainerError) Unwrap() error {
+	return ErrContainer
 }
 
 // FileLoadError indicates an error loading file-based endpoints.

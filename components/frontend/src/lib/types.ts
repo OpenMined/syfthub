@@ -147,7 +147,7 @@ export interface AvailabilityResponse {
 export type EndpointVisibility = 'public' | 'private' | 'internal';
 
 // Endpoint type classification
-export type EndpointType = 'model' | 'data_source' | 'model_data_source';
+export type EndpointType = 'model' | 'data_source' | 'model_data_source' | 'agent';
 
 // Policy and Connection types for endpoints
 export interface Policy {

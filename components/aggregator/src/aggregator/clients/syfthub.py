@@ -6,7 +6,7 @@ from typing import Any
 import httpx
 
 from aggregator.core.config import Settings
-from aggregator.schemas.internal import ResolvedEndpoint
+from aggregator.schemas.internal import VALID_ENDPOINT_TYPES, ResolvedEndpoint
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +107,7 @@ class SyftHubClient:
         """Parse SyftHub endpoint response to extract connection URL."""
         # Extract endpoint type
         endpoint_type = data.get("type", "model")
-        if endpoint_type not in ("model", "data_source"):
+        if endpoint_type not in VALID_ENDPOINT_TYPES:
             logger.warning(f"Unknown endpoint type '{endpoint_type}', defaulting to 'model'")
             endpoint_type = "model"
 

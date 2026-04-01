@@ -2,11 +2,12 @@ package syfthubapi
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -47,6 +48,18 @@ type SyftAPI struct {
 	// fileProvider manages file-based endpoints.
 	fileProvider FileProvider
 
+	// containerRuntime manages container lifecycle (nil when disabled).
+	containerRuntime ContainerRuntime
+
+	// containerInstanceID uniquely identifies this SyftAPI instance for container labeling.
+	containerInstanceID string
+
+	// containerRuntimeFactory creates a ContainerRuntime (set via option).
+	containerRuntimeFactory ContainerRuntimeFactory
+
+	// containerCleanup cleans up orphaned containers (set via option).
+	containerCleanup ContainerCleanupFunc
+
 	// authClient handles token verification with SyftHub backend.
 	authClient *AuthClient
 
@@ -55,6 +68,9 @@ type SyftAPI struct {
 
 	// processor handles request execution.
 	processor *RequestProcessor
+
+	// agentSessionManager manages active agent sessions (Space-side).
+	agentSessionManager *AgentSessionManager
 
 	// middleware chain.
 	middleware []Middleware
@@ -82,6 +98,47 @@ type FileProvider interface {
 	Stop(ctx context.Context) error
 	LoadEndpoints() ([]*Endpoint, error)
 }
+
+// ContainerRuntime is the interface for container lifecycle management.
+// Implementations live in the containermode package; the interface is defined here
+// to avoid an import cycle between syfthubapi and containermode.
+type ContainerRuntime interface {
+	// Create creates and starts a new container from the given spec, returning its ID.
+	Create(ctx context.Context, spec any) (string, error)
+	// Start starts a stopped container.
+	Start(ctx context.Context, containerID string) error
+	// Stop stops a running container.
+	Stop(ctx context.Context, containerID string) error
+	// Remove removes a container.
+	Remove(ctx context.Context, containerID string) error
+	// List lists container IDs matching the given labels.
+	List(ctx context.Context, labels map[string]string) ([]string, error)
+	// GetHostPort returns the host port mapped to the given container port.
+	GetHostPort(ctx context.Context, containerID string, containerPort string) (string, error)
+	// Inspect returns information about a container.
+	Inspect(ctx context.Context, containerID string) (*ContainerInfo, error)
+	// Logs returns the last N lines of container logs.
+	Logs(ctx context.Context, containerID string, tail int) (string, error)
+}
+
+// ContainerInfo holds information about a container.
+type ContainerInfo struct {
+	ID      string
+	Name    string
+	Status  string
+	Running bool
+}
+
+// ContainerRuntimeSetter is implemented by file providers that support container mode.
+type ContainerRuntimeSetter interface {
+	SetContainerRuntime(rt ContainerRuntime, cfg *ContainerConfig, instanceID string)
+}
+
+// ContainerRuntimeFactory creates a ContainerRuntime from the given binary path and logger.
+type ContainerRuntimeFactory func(binary string, logger *slog.Logger) (ContainerRuntime, error)
+
+// ContainerCleanupFunc cleans up orphaned containers from previous runs.
+type ContainerCleanupFunc func(ctx context.Context, rt ContainerRuntime, instanceID string, logger *slog.Logger) error
 
 // New creates a new SyftAPI instance with the given options.
 func New(opts ...Option) *SyftAPI {
@@ -115,8 +172,7 @@ func New(opts ...Option) *SyftAPI {
 	}))
 
 	// Create auth client for token verification
-	slogLogger := NewSlogLogger(logger)
-	authClient := NewAuthClient(config.SyftHubURL, config.APIKey, slogLogger)
+	authClient := NewAuthClient(config.SyftHubURL, config.APIKey, logger)
 
 	// Create sync client for endpoint synchronization
 	syncClient := NewSyncClient(config.SyftHubURL, config.APIKey, logger)
@@ -143,40 +199,39 @@ func New(opts ...Option) *SyftAPI {
 	}
 }
 
-// DataSource starts building a data source endpoint.
-func (api *SyftAPI) DataSource(slug string) *DataSourceBuilder {
-	builder := &DataSourceBuilder{
+// newBaseBuilder creates a baseEndpointBuilder with the given slug and endpoint type.
+func (api *SyftAPI) newBaseBuilder(slug string, endpointType EndpointType) baseEndpointBuilder {
+	b := baseEndpointBuilder{
 		api: api,
 		endpoint: &Endpoint{
 			Slug:    slug,
-			Type:    EndpointTypeDataSource,
+			Type:    endpointType,
 			Enabled: true,
 		},
 	}
+	b.err = validateSlug(slug)
+	return b
+}
 
-	if err := validateSlug(slug); err != nil {
-		builder.err = err
+// DataSource starts building a data source endpoint.
+func (api *SyftAPI) DataSource(slug string) *DataSourceBuilder {
+	return &DataSourceBuilder{
+		baseEndpointBuilder: api.newBaseBuilder(slug, EndpointTypeDataSource),
 	}
-
-	return builder
 }
 
 // Model starts building a model endpoint.
 func (api *SyftAPI) Model(slug string) *ModelBuilder {
-	builder := &ModelBuilder{
-		api: api,
-		endpoint: &Endpoint{
-			Slug:    slug,
-			Type:    EndpointTypeModel,
-			Enabled: true,
-		},
+	return &ModelBuilder{
+		baseEndpointBuilder: api.newBaseBuilder(slug, EndpointTypeModel),
 	}
+}
 
-	if err := validateSlug(slug); err != nil {
-		builder.err = err
+// Agent starts building an agent endpoint.
+func (api *SyftAPI) Agent(slug string) *AgentBuilder {
+	return &AgentBuilder{
+		baseEndpointBuilder: api.newBaseBuilder(slug, EndpointTypeAgent),
 	}
-
-	return builder
 }
 
 // registerEndpoint registers an endpoint with the API.
@@ -254,6 +309,39 @@ func (api *SyftAPI) Run(ctx context.Context) error {
 		}
 	}
 
+	// Initialize container runtime if enabled (must happen before LoadEndpoints)
+	if api.config.Container.Enabled {
+		if api.containerRuntimeFactory == nil {
+			return fmt.Errorf("container mode enabled but no runtime factory configured: call SetContainerRuntimeFactory before Run()")
+		}
+
+		rt, err := api.containerRuntimeFactory(api.config.Container.Runtime, api.logger)
+		if err != nil {
+			return fmt.Errorf("failed to create container runtime: %w", err)
+		}
+		api.containerRuntime = rt
+		api.containerInstanceID = generateInstanceID()
+
+		api.logger.Info("container runtime initialized",
+			"runtime", api.config.Container.Runtime,
+			"image", api.config.Container.Image,
+			"instance_id", api.containerInstanceID,
+		)
+
+		// Clean up orphaned containers from previous runs
+		if api.containerCleanup != nil {
+			if err := api.containerCleanup(ctx, rt, api.containerInstanceID, api.logger); err != nil {
+				api.logger.Warn("failed to clean up orphaned containers", "error", err)
+			}
+		}
+
+		// Inject runtime into file provider if it supports container mode
+		if setter, ok := api.fileProvider.(ContainerRuntimeSetter); ok {
+			setter.SetContainerRuntime(rt, &api.config.Container, api.containerInstanceID)
+			api.logger.Info("container runtime injected into file provider")
+		}
+	}
+
 	// Initialize file-based endpoints if configured and not already loaded
 	// Skip loading if endpoints are already in the registry (loaded by example before Run())
 	if api.config.EndpointsPath != "" && api.fileProvider != nil {
@@ -287,6 +375,33 @@ func (api *SyftAPI) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to setup transport: %w", err)
 	}
 	api.transport.SetRequestHandler(api.handleRequest)
+
+	// Initialize agent session manager unconditionally. Agent endpoints may be
+	// registered dynamically after startup (e.g., via the desktop app's CreateEndpoint),
+	// so the manager must be ready before any endpoints exist.
+	api.agentSessionManager = NewAgentSessionManager(api.registry, api.logger, 0)
+	api.agentSessionManager.StartReaper(ctx, 60*time.Second)
+	api.logger.Info("agent session manager initialized")
+
+	// Wire agent session manager to NATS transport for agent message dispatch.
+	// Use anonymous interface to avoid import cycle with transport package.
+	type agentHandlerSetter interface {
+		SetAgentHandler(handler AgentSessionHandler)
+	}
+	if nt, ok := api.transport.(agentHandlerSetter); ok {
+		nt.SetAgentHandler(api.agentSessionManager)
+		api.logger.Info("agent handler wired to transport")
+	}
+
+	// Wire token verifier so agent sessions authenticate satellite tokens
+	// using the same AuthClient as the standard request pipeline.
+	type tokenVerifierSetter interface {
+		SetTokenVerifier(func(ctx context.Context, token string) (*UserContext, error))
+	}
+	if tv, ok := api.transport.(tokenVerifierSetter); ok {
+		tv.SetTokenVerifier(api.authClient.VerifyToken)
+		api.logger.Info("token verifier wired to agent transport")
+	}
 
 	// Register X25519 encryption public key if the transport supports it (NATS tunnel mode).
 	// The aggregator fetches this key to encrypt requests before sending them.
@@ -333,6 +448,12 @@ func (api *SyftAPI) Run(ctx context.Context) error {
 // shutdown performs graceful shutdown.
 func (api *SyftAPI) shutdown(ctx context.Context) {
 	api.logger.Info("shutting down SyftAPI")
+
+	// Cancel all active agent sessions and stop the reaper
+	if api.agentSessionManager != nil {
+		api.agentSessionManager.CancelAllSessions()
+		api.agentSessionManager.StopReaper()
+	}
 
 	// Stop file provider
 	if api.fileProvider != nil {
@@ -505,7 +626,25 @@ func (api *SyftAPI) Registry() *EndpointRegistry {
 	return api.registry
 }
 
-// unmarshalJSON is a helper to unmarshal JSON.
-func unmarshalJSON(data json.RawMessage, v any) error {
-	return json.Unmarshal(data, v)
+// AgentSessionManager returns the agent session manager, or nil if not initialized.
+func (api *SyftAPI) AgentSessionManager() *AgentSessionManager {
+	return api.agentSessionManager
+}
+
+// SetContainerRuntimeFactory sets the factory for creating container runtimes.
+func (api *SyftAPI) SetContainerRuntimeFactory(factory ContainerRuntimeFactory) {
+	api.containerRuntimeFactory = factory
+}
+
+// SetContainerCleanupFunc sets the function for cleaning up orphaned containers.
+func (api *SyftAPI) SetContainerCleanupFunc(cleanup ContainerCleanupFunc) {
+	api.containerCleanup = cleanup
+}
+
+// generateInstanceID creates a short unique identifier for container labeling.
+func generateInstanceID() string {
+	hostname, _ := os.Hostname()
+	h := fnv.New32a()
+	fmt.Fprintf(h, "%s-%d-%d", hostname, os.Getpid(), time.Now().UnixNano())
+	return strconv.FormatUint(uint64(h.Sum32()), 16)
 }

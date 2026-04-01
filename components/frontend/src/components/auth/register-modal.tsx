@@ -16,19 +16,12 @@ import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/context/auth-context';
 import { registerSchema } from '@/lib/schemas';
 import { isGoogleOAuthEnabled } from '@/lib/sdk-client';
-import { getPasswordStrength } from '@/lib/validation';
+import { getPasswordStrengthInfo } from '@/lib/validation';
+import { useModalStore } from '@/stores/modal-store';
 
 import { AuthErrorAlert, AuthLoadingOverlay } from './auth-utils';
 
 const googleOAuthEnabled = isGoogleOAuthEnabled();
-
-// Password strength indicator
-function getPasswordStrengthInfo(password: string) {
-  const score = getPasswordStrength(password);
-  if (score < 2) return { score, label: 'Weak', color: 'bg-red-500' };
-  if (score < 4) return { score, label: 'Medium', color: 'bg-yellow-500' };
-  return { score, label: 'Strong', color: 'bg-green-500' };
-}
 
 interface RegisterModalProperties {
   isOpen: boolean;
@@ -42,6 +35,7 @@ export function RegisterModal({
   onSwitchToLogin
 }: Readonly<RegisterModalProperties>) {
   const { register: authRegister, loginWithGoogle, isLoading, error, clearError } = useAuth();
+  const { openVerifyOtp } = useModalStore();
 
   const {
     register,
@@ -66,12 +60,18 @@ export function RegisterModal({
 
   const onSubmit = async (data: RegisterFormValues) => {
     try {
-      await authRegister({
+      const result = await authRegister({
         name: data.name.trim(),
         email: data.email.trim(),
         password: data.password
       });
-      onClose();
+
+      if (result.requiresEmailVerification) {
+        // Switch to OTP verification modal with the user's email
+        openVerifyOtp(data.email.trim());
+      } else {
+        onClose();
+      }
     } catch {
       // Error is handled by auth context
     }
@@ -155,18 +155,16 @@ export function RegisterModal({
 
             {/* Password Strength Indicator */}
             {passwordValue ? (
-              <div className='space-y-1'>
-                <div className='flex items-center gap-2'>
-                  <div className='bg-muted h-1.5 flex-1 overflow-hidden rounded-full'>
-                    <div
-                      className={`h-full transition-[width] duration-300 ${passwordStrength.color}`}
-                      style={{ width: `${String((passwordStrength.score / 5) * 100)}%` }}
-                    />
-                  </div>
-                  <span className='font-inter text-muted-foreground min-w-0 text-xs'>
-                    {passwordStrength.label}
-                  </span>
+              <div className='flex items-center gap-2'>
+                <div className='bg-muted h-1.5 flex-1 overflow-hidden rounded-full'>
+                  <div
+                    className={`h-full transition-[width] duration-300 ${passwordStrength.color}`}
+                    style={{ width: `${String((passwordStrength.score / 5) * 100)}%` }}
+                  />
                 </div>
+                <span className='font-inter text-muted-foreground min-w-0 text-xs'>
+                  {passwordStrength.label}
+                </span>
               </div>
             ) : null}
           </div>

@@ -21,6 +21,7 @@ type SubprocessExecutor struct {
 	runnerPath      string
 	workDir         string
 	env             []string
+	baseEnv         []string // cached os.Environ() snapshot from construction time
 	timeout         time.Duration
 	logger          *slog.Logger
 	policyConfigs   []syfthubapi.PolicyConfig
@@ -76,6 +77,7 @@ func NewSubprocessExecutor(cfg *ExecutorConfig) (*SubprocessExecutor, error) {
 		runnerPath:      cfg.RunnerPath,
 		workDir:         cfg.WorkDir,
 		env:             cfg.Env,
+		baseEnv:         os.Environ(),
 		timeout:         timeout,
 		logger:          logger,
 		policyConfigs:   cfg.PolicyConfigs,
@@ -163,7 +165,6 @@ func (e *SubprocessExecutor) Execute(ctx context.Context, input *syfthubapi.Exec
 
 	e.logger.Debug("[POLICY-EXEC] Serialized input JSON",
 		"length", len(inputJSON),
-		"content", string(inputJSON),
 	)
 
 	cmd.Dir = e.workDir
@@ -171,8 +172,8 @@ func (e *SubprocessExecutor) Execute(ctx context.Context, input *syfthubapi.Exec
 	// Hide console window on Windows
 	hideWindow(cmd)
 
-	// Set environment
-	cmd.Env = append(os.Environ(), e.env...)
+	// Set environment: use cached base env snapshot + endpoint-specific vars.
+	cmd.Env = append(e.baseEnv, e.env...)
 
 	// Setup pipes
 	stdin, err := cmd.StdinPipe()

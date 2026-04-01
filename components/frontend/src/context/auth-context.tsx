@@ -7,10 +7,11 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
-import type { User as SdkUser } from '@/lib/sdk-client';
+import type { RegisterResult, User as SdkUser } from '@/lib/sdk-client';
 import type { User } from '@/lib/types';
 
 import {
+  APIError,
   AuthenticationError,
   clearPersistedTokens,
   googleLoginAPI,
@@ -35,7 +36,11 @@ interface AuthContextType {
   error: string | null;
   login: (credentials: { email: string; password: string }) => Promise<void>;
   loginWithGoogle: (credential: string) => Promise<void>;
-  register: (userData: RegisterData) => Promise<void>;
+  register: (userData: RegisterData) => Promise<RegisterResult>;
+  verifyOtp: (email: string, code: string) => Promise<void>;
+  resendOtp: (email: string) => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<void>;
+  confirmPasswordReset: (email: string, code: string, newPassword: string) => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
   refreshUser: () => Promise<void>;
@@ -86,7 +91,7 @@ async function attemptRegistration(
   userData: RegisterData,
   baseUsername: string,
   maxAttempts = 5
-): Promise<SdkUser> {
+): Promise<RegisterResult> {
   let username = baseUsername;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -107,6 +112,18 @@ async function attemptRegistration(
   }
 
   throw new Error('Username already taken. Please try a different email or contact support.');
+}
+
+/**
+ * Check if an API error indicates the user's email is not verified.
+ */
+function isEmailNotVerifiedError(error: unknown): boolean {
+  return (
+    error instanceof APIError &&
+    error.status === 403 &&
+    typeof error.message === 'string' &&
+    error.message.includes('email')
+  );
 }
 
 /**
@@ -206,6 +223,12 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
         // Update state
         setUser(mapSdkUserToFrontend(sdkUser));
       } catch (loginError) {
+        if (isEmailNotVerifiedError(loginError)) {
+          setError(
+            'Your email has not been verified. Please check your inbox for a verification code.'
+          );
+          throw loginError;
+        }
         const message = getErrorMessage(loginError);
         setError(message);
         throw loginError;
@@ -240,19 +263,22 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
   }, []);
 
   // Memoized register callback for stable reference
-  const register = useCallback(async (userData: RegisterData): Promise<void> => {
+  const register = useCallback(async (userData: RegisterData): Promise<RegisterResult> => {
     try {
       setIsLoading(true);
       setError(null);
 
       const baseUsername = generateUsernameFromEmail(userData.email);
-      const sdkUser = await attemptRegistration(userData, baseUsername);
+      const result = await attemptRegistration(userData, baseUsername);
 
-      // Persist tokens to localStorage
-      persistTokens();
+      if (!result.requiresEmailVerification) {
+        // No verification needed — persist tokens and set user
+        persistTokens();
+        setUser(mapSdkUserToFrontend(result.user));
+      }
+      // If verification is required, tokens are withheld — caller opens verify-otp modal
 
-      // Update state
-      setUser(mapSdkUserToFrontend(sdkUser));
+      return result;
     } catch (registerError) {
       const message = getErrorMessage(registerError);
       setError(message);
@@ -261,6 +287,72 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
       setIsLoading(false);
     }
   }, []);
+
+  // Verify registration OTP
+  const verifyOtp = useCallback(async (email: string, code: string): Promise<void> => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const sdkUser = await syftClient.auth.verifyOtp({ email, code });
+
+      // Persist tokens and set user
+      persistTokens();
+      setUser(mapSdkUserToFrontend(sdkUser));
+    } catch (verifyError) {
+      const message = getErrorMessage(verifyError);
+      setError(message);
+      throw verifyError;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Resend registration OTP
+  const resendOtp = useCallback(async (email: string): Promise<void> => {
+    try {
+      await syftClient.auth.resendOtp(email);
+    } catch (resendError) {
+      const message = getErrorMessage(resendError);
+      setError(message);
+      throw resendError;
+    }
+  }, []);
+
+  // Request password reset
+  const requestPasswordReset = useCallback(async (email: string): Promise<void> => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      await syftClient.auth.requestPasswordReset({ email });
+    } catch (resetError) {
+      const message = getErrorMessage(resetError);
+      setError(message);
+      throw resetError;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Confirm password reset with OTP
+  const confirmPasswordReset = useCallback(
+    async (email: string, code: string, newPassword: string): Promise<void> => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        await syftClient.auth.confirmPasswordReset({ email, code, newPassword });
+      } catch (confirmError) {
+        const message = getErrorMessage(confirmError);
+        setError(message);
+        throw confirmError;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    []
+  );
 
   // Memoized logout callback for stable reference
   const logout = useCallback(async (): Promise<void> => {
@@ -320,6 +412,10 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
       login,
       loginWithGoogle,
       register,
+      verifyOtp,
+      resendOtp,
+      requestPasswordReset,
+      confirmPasswordReset,
       logout,
       clearError,
       refreshUser,
@@ -333,6 +429,10 @@ export function AuthProvider({ children }: Readonly<AuthProviderProperties>) {
       login,
       loginWithGoogle,
       register,
+      verifyOtp,
+      resendOtp,
+      requestPasswordReset,
+      confirmPasswordReset,
       logout,
       clearError,
       refreshUser,

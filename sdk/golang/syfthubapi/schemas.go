@@ -3,15 +3,58 @@ package syfthubapi
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/openmined/syfthub/sdk/golang/agenttypes"
 )
+
+// Message is an alias for the shared message type.
+// Kept for backward compatibility so callers can continue using syfthubapi.Message.
+type Message = agenttypes.Message
 
 // EndpointType represents the type of endpoint.
 type EndpointType string
 
 const (
-	EndpointTypeDataSource EndpointType = "data_source"
-	EndpointTypeModel      EndpointType = "model"
+	EndpointTypeDataSource      EndpointType = "data_source"
+	EndpointTypeModel           EndpointType = "model"
+	EndpointTypeModelDataSource EndpointType = "model_data_source"
+	EndpointTypeAgent           EndpointType = "agent"
 )
+
+// Agent NATS message type constants.
+const (
+	MsgTypeAgentSessionStart  = "agent_session_start"
+	MsgTypeAgentUserMessage   = "agent_user_message"
+	MsgTypeAgentSessionCancel = "agent_session_cancel"
+	MsgTypeAgentEvent         = "agent_event"
+)
+
+// Tunnel protocol constants.
+const (
+	TunnelProtocolV1    = "syfthub-tunnel/v1"
+	TunnelTypeRequest   = "endpoint_request"
+	TunnelTypeResponse  = "endpoint_response"
+	TunnelStatusSuccess = "success"
+	TunnelStatusError   = "error"
+)
+
+// ValidEndpointTypes lists all recognized endpoint types.
+var ValidEndpointTypes = []EndpointType{
+	EndpointTypeModel,
+	EndpointTypeDataSource,
+	EndpointTypeModelDataSource,
+	EndpointTypeAgent,
+}
+
+// IsValidEndpointType reports whether t is a recognized endpoint type.
+func IsValidEndpointType(t string) bool {
+	for _, v := range ValidEndpointTypes {
+		if string(v) == t {
+			return true
+		}
+	}
+	return false
+}
 
 // String returns the string representation of the endpoint type.
 func (t EndpointType) String() string {
@@ -31,15 +74,6 @@ type Document struct {
 
 	// SimilarityScore is the relevance score (0-1).
 	SimilarityScore float64 `json:"similarity_score,omitempty"`
-}
-
-// Message represents a chat message.
-type Message struct {
-	// Role is the message role: "system", "user", or "assistant".
-	Role string `json:"role"`
-
-	// Content is the message content.
-	Content string `json:"content"`
 }
 
 // UserContext contains verified user identity information.
@@ -250,21 +284,6 @@ type TunnelRequest struct {
 	Timestamp time.Time `json:"-"`
 }
 
-// RequestID returns the correlation ID (for backward compatibility).
-func (r *TunnelRequest) RequestID() string {
-	return r.CorrelationID
-}
-
-// EndpointSlug returns the endpoint slug from the nested endpoint info.
-func (r *TunnelRequest) EndpointSlug() string {
-	return r.Endpoint.Slug
-}
-
-// EndpointType returns the endpoint type from the nested endpoint info.
-func (r *TunnelRequest) EndpointType() EndpointType {
-	return EndpointType(r.Endpoint.Type)
-}
-
 // TunnelResponse is the response format for tunnel mode communication.
 // Matches Python syfthub-api TunnelResponse schema.
 type TunnelResponse struct {
@@ -279,6 +298,9 @@ type TunnelResponse struct {
 
 	// Status is "success" or "error".
 	Status string `json:"status"`
+
+	// SessionID identifies the agent session (only for agent_event messages).
+	SessionID string `json:"session_id,omitempty"`
 
 	// EndpointSlug is the endpoint that processed the request.
 	EndpointSlug string `json:"endpoint_slug"`
@@ -299,6 +321,37 @@ type TunnelResponse struct {
 	// EncryptedPayload is the base64url-encoded AES-256-GCM ciphertext of the
 	// original Payload JSON. Always present in encrypted tunnel responses.
 	EncryptedPayload string `json:"encrypted_payload"`
+}
+
+// AgentEventPayload is the decrypted payload structure for agent events
+// published to the peer channel. The Space encrypts this and publishes as agent_event.
+type AgentEventPayload struct {
+	// SessionID identifies the agent session.
+	SessionID string `json:"session_id"`
+
+	// EventType is the agent event type (e.g., "agent.thinking", "agent.tool_call").
+	EventType string `json:"event_type"`
+
+	// Sequence is a monotonically increasing event counter within the session.
+	Sequence int `json:"sequence"`
+
+	// Data contains the event-specific payload.
+	Data json.RawMessage `json:"data"`
+}
+
+// AgentSessionHandler defines the interface that the transport layer uses to
+// delegate agent session lifecycle operations to the session manager.
+// This interface lives in the parent package so both api.go and transport can
+// reference it without import cycles.
+type AgentSessionHandler interface {
+	// StartSession creates a new session and spawns the handler goroutine.
+	StartSession(payload AgentSessionStartPayload, user *UserContext) (*AgentSession, error)
+
+	// RouteMessage routes a user message to the correct session.
+	RouteMessage(payload AgentUserMessagePayload) error
+
+	// CancelSession cancels a session by ID.
+	CancelSession(sessionID string) error
 }
 
 // TunnelError contains error information for tunnel responses.
@@ -436,21 +489,6 @@ func (r *VerifyTokenResponse) ToUserContext() *UserContext {
 	}
 }
 
-// HeartbeatRequest is the request to send a heartbeat.
-type HeartbeatRequest struct {
-	// TTLSeconds is the requested TTL.
-	TTLSeconds int `json:"ttl_seconds"`
-}
-
-// HeartbeatResponse is the response from a heartbeat request.
-type HeartbeatResponse struct {
-	// EffectiveTTLSeconds is the actual TTL applied.
-	EffectiveTTLSeconds int `json:"effective_ttl_seconds"`
-
-	// ExpiresAt is when the heartbeat expires.
-	ExpiresAt time.Time `json:"expires_at"`
-}
-
 // ExecutorInput is the input format for subprocess execution.
 // This matches the Python policy_manager.runner.schema.RunnerInput.
 type ExecutorInput struct {
@@ -481,12 +519,6 @@ type ExecutorInput struct {
 	// TransactionToken is the pre-authorized billing token for this request.
 	// Used by TransactionPolicy to verify billing authorization before execution.
 	TransactionToken string `json:"transaction_token,omitempty"`
-
-	// MaxTokens is the max tokens for model responses (legacy, not used by runner).
-	MaxTokens int `json:"max_tokens,omitempty"`
-
-	// Temperature is the sampling temperature (legacy, not used by runner).
-	Temperature float64 `json:"temperature,omitempty"`
 }
 
 // ExecutorOutput is the output format from subprocess execution.

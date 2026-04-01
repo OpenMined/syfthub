@@ -177,3 +177,50 @@ class ConflictError(DomainException):
         self.resource = resource
         self.field = field
         super().__init__(f"{field.capitalize()} already exists", "CONFLICT")
+
+
+# ===========================================
+# OTP / EMAIL VERIFICATION EXCEPTIONS
+# ===========================================
+
+
+class InvalidOTPError(DomainException):
+    """Raised when an OTP code is wrong or expired."""
+
+    def __init__(self, message: str = "Invalid or expired verification code"):
+        """Initialize invalid OTP error."""
+        super().__init__(message, "INVALID_OTP")
+
+
+class OTPMaxAttemptsError(DomainException):
+    """Raised when OTP verification attempts are exhausted."""
+
+    def __init__(self) -> None:
+        """Initialize OTP max attempts error."""
+        super().__init__(
+            "Too many verification attempts. Please request a new code.",
+            "OTP_MAX_ATTEMPTS",
+        )
+
+
+class OTPRateLimitedError(DomainException):
+    """Raised when OTP send requests exceed rate limit."""
+
+    def __init__(self) -> None:
+        """Initialize OTP rate limited error."""
+        super().__init__(
+            "Too many code requests. Please wait before requesting a new code.",
+            "OTP_RATE_LIMITED",
+        )
+
+
+class EmailNotVerifiedError(DomainException):
+    """Raised when an unverified user attempts to log in."""
+
+    def __init__(self) -> None:
+        """Initialize email not verified error."""
+        super().__init__(
+            "Email address has not been verified. "
+            "Please check your inbox for a verification code.",
+            "EMAIL_NOT_VERIFIED",
+        )

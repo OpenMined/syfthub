@@ -22,6 +22,8 @@ export const EndpointType = {
   DATA_SOURCE: 'data_source',
   /** Both model and data source endpoint */
   MODEL_DATA_SOURCE: 'model_data_source',
+  /** Agent endpoint with session-based interaction */
+  AGENT: 'agent',
 } as const;
 
 export type EndpointType = (typeof EndpointType)[keyof typeof EndpointType];

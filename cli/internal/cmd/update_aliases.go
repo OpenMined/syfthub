@@ -8,9 +8,10 @@ import (
 )
 
 var updateCmd = &cobra.Command{
-	Use:   "update",
-	Short: "Update infrastructure aliases",
-	Long:  `Update infrastructure aliases for aggregators and accounting services.`,
+	Use:         "update",
+	Annotations: map[string]string{authExemptKey: "true"},
+	Short:       "Update infrastructure aliases",
+	Long:        `Update infrastructure aliases for aggregators and accounting services.`,
 }
 
 // Update aggregator subcommand
@@ -91,7 +92,7 @@ func runUpdateAggregator(cmd *cobra.Command, args []string) error {
 	}
 
 	if updateAggregatorDefault {
-		cfg.DefaultAggregator = &alias
+		cfg.DefaultAggregator = alias
 	}
 
 	if err := cfg.Save(); err != nil {
@@ -106,7 +107,7 @@ func runUpdateAggregator(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	isDefault := cfg.DefaultAggregator != nil && *cfg.DefaultAggregator == alias
+	isDefault := cfg.DefaultAggregator == alias
 
 	if updateAggregatorJSONOutput {
 		output.JSON(map[string]interface{}{
@@ -156,7 +157,7 @@ func runUpdateAccounting(cmd *cobra.Command, args []string) error {
 	}
 
 	if updateAccountingDefault {
-		cfg.DefaultAccounting = &alias
+		cfg.DefaultAccounting = alias
 	}
 
 	if err := cfg.Save(); err != nil {
@@ -171,7 +172,7 @@ func runUpdateAccounting(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	isDefault := cfg.DefaultAccounting != nil && *cfg.DefaultAccounting == alias
+	isDefault := cfg.DefaultAccounting == alias
 
 	if updateAccountingJSONOutput {
 		output.JSON(map[string]interface{}{

@@ -20,8 +20,9 @@ var (
 )
 
 var upgradeCmd = &cobra.Command{
-	Use:   "upgrade",
-	Short: "Check for and install CLI updates",
+	Use:         "upgrade",
+	Annotations: map[string]string{authExemptKey: "true"},
+	Short:       "Check for and install CLI updates",
 	Long: `Check for and install CLI updates.
 
 Checks GitHub releases for a newer version and optionally installs it.`,

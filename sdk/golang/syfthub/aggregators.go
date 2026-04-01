@@ -45,20 +45,26 @@ func newAggregatorsResource(http *httpClient) *AggregatorsResource {
 	return &AggregatorsResource{http: http}
 }
 
+// aggregatorListResponse is the envelope returned by GET /users/me/aggregators.
+type aggregatorListResponse struct {
+	Aggregators         []UserAggregator `json:"aggregators"`
+	DefaultAggregatorID *int             `json:"default_aggregator_id"`
+}
+
 // List returns all aggregator configurations for the current user.
 //
 // Errors:
 //   - AuthenticationError: If not authenticated
 func (a *AggregatorsResource) List(ctx context.Context) ([]UserAggregator, error) {
-	var aggregators []UserAggregator
-	err := a.http.Get(ctx, "/api/v1/users/me/aggregators", &aggregators)
+	var resp aggregatorListResponse
+	err := a.http.Get(ctx, "/api/v1/users/me/aggregators", &resp)
 	if err != nil {
 		return nil, err
 	}
-	if aggregators == nil {
-		aggregators = []UserAggregator{}
+	if resp.Aggregators == nil {
+		resp.Aggregators = []UserAggregator{}
 	}
-	return aggregators, nil
+	return resp.Aggregators, nil
 }
 
 // Get returns a specific aggregator configuration by ID.

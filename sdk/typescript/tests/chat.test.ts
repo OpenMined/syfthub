@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SyftHubClient } from '../src/client.js';
 import type { EndpointRef } from '../src/models/index.js';
-import { AggregatorError, EndpointResolutionError } from '../src/index.js';
+import { AggregatorError, ChatResource, EndpointResolutionError } from '../src/index.js';
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -553,4 +553,51 @@ describe('ChatResource', () => {
       }
     });
   });
+});
+
+/**
+ * Shared type-match test vectors — keep in sync across Go/Python/TypeScript SDKs.
+ * These vectors ensure all three SDK implementations of typeMatches stay consistent.
+ * Rules:
+ *   1. Exact match always returns true
+ *   2. model_data_source matches both model and data_source
+ *   3. agent matches model (agents can be used where models are expected)
+ *   4. All other cross-type combinations return false
+ */
+describe('typeMatches', () => {
+  // Access the private static method via bracket notation for testing
+  const typeMatches = (actualType: string, expectedType: string): boolean =>
+    (ChatResource as unknown as Record<string, (a: string, b: string) => boolean>).typeMatches(
+      actualType,
+      expectedType
+    );
+
+  const testVectors: [string, string, boolean][] = [
+    // Exact matches
+    ['model', 'model', true],
+    ['data_source', 'data_source', true],
+    ['model_data_source', 'model_data_source', true],
+    ['agent', 'agent', true],
+    // model_data_source matches both model and data_source
+    ['model_data_source', 'model', true],
+    ['model_data_source', 'data_source', true],
+    // agent matches model
+    ['agent', 'model', true],
+    // Cross-type mismatches
+    ['model', 'data_source', false],
+    ['data_source', 'model', false],
+    ['model', 'agent', false],
+    ['data_source', 'agent', false],
+    ['model_data_source', 'agent', false],
+    ['agent', 'data_source', false],
+    ['model', 'model_data_source', false],
+    ['data_source', 'model_data_source', false],
+  ];
+
+  it.each(testVectors)(
+    'typeMatches(%s, %s) should return %s',
+    (actualType, expectedType, want) => {
+      expect(typeMatches(actualType, expectedType)).toBe(want);
+    }
+  );
 });

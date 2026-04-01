@@ -29,6 +29,9 @@ class UserBase(BaseModel):
         ..., min_length=1, max_length=100, description="User's full name"
     )
     is_active: bool = Field(True, description="Whether the user is active")
+    is_email_verified: bool = Field(
+        True, description="Whether the user has verified their email"
+    )
 
 
 class UserCreate(UserBase):
@@ -99,6 +102,9 @@ class UserResponse(BaseModel):
     avatar_url: Optional[str] = Field(None, description="URL to user's avatar image")
     role: UserRole = Field(..., description="User role")
     is_active: bool = Field(..., description="Whether the user is active")
+    is_email_verified: bool = Field(
+        ..., description="Whether the user has verified their email"
+    )
     auth_provider: AuthProvider = Field(..., description="Authentication provider")
     created_at: datetime = Field(..., description="When the user was created")
     updated_at: datetime = Field(..., description="When the user was last updated")

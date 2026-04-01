@@ -15,6 +15,7 @@ from syfthub.auth.security import (
 )
 from syfthub.core.config import settings
 from syfthub.domain.exceptions import (
+    EmailNotVerifiedError,
     UserAlreadyExistsError,
 )
 from syfthub.repositories.user import UserRepository
@@ -42,6 +43,50 @@ class AuthService(BaseService):
         """Initialize auth service."""
         super().__init__(session)
         self.user_repository = UserRepository(session)
+
+    @staticmethod
+    def _build_user_dict(user: User) -> dict[str, Any]:
+        """Build the standard user dictionary for auth responses.
+
+        Args:
+            user: The user model instance.
+
+        Returns:
+            Dictionary with the 7 standard user fields.
+        """
+        return {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "is_active": user.is_active,
+            "created_at": user.created_at.isoformat(),
+        }
+
+    @staticmethod
+    def _build_auth_response(user: User) -> AuthResponse:
+        """Build an AuthResponse with freshly minted tokens for a user.
+
+        Args:
+            user: The user model instance.
+
+        Returns:
+            AuthResponse with user info, access token, and refresh token.
+        """
+        user_dict = AuthService._build_user_dict(user)
+        access_token = create_access_token(
+            data={"sub": str(user.id), "username": user.username, "role": user.role}
+        )
+        refresh_token = create_refresh_token(
+            data={"sub": str(user.id), "username": user.username}
+        )
+        return AuthResponse(
+            user=user_dict,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_type="bearer",
+        )
 
     def register_user(self, register_data: UserRegister) -> RegistrationResponse:
         """Register a new user and return authentication tokens.
@@ -84,12 +129,16 @@ class AuthService(BaseService):
         # Generate password hash for SyftHub
         password_hash = hash_password(register_data.password)
 
+        # Email verification is required when Resend is configured
+        require_verification = settings.smtp_configured
+
         # Create user data
         user_data = UserCreate(
             username=register_data.username,
             email=register_data.email,
             full_name=register_data.full_name,
             is_active=True,
+            is_email_verified=not require_verification,
         )
 
         # Create user in database
@@ -104,7 +153,20 @@ class AuthService(BaseService):
                 detail="Failed to create user account",
             )
 
-        # Create tokens
+        if require_verification:
+            # Return response WITHOUT tokens — client must verify OTP first
+            logger.info(
+                f"Registered user {user.username} — email verification required"
+            )
+            return RegistrationResponse(
+                user=self._build_user_dict(user),
+                access_token=None,
+                refresh_token=None,
+                token_type="bearer",
+                requires_email_verification=True,
+            )
+
+        # No verification required — issue tokens immediately
         access_token = create_access_token(
             data={"sub": str(user.id), "username": user.username, "role": user.role}
         )
@@ -115,18 +177,11 @@ class AuthService(BaseService):
         logger.info(f"Successfully registered user: {user.username} ({user.email})")
 
         return RegistrationResponse(
-            user={
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "full_name": user.full_name,
-                "role": user.role,
-                "is_active": user.is_active,
-                "created_at": user.created_at.isoformat(),
-            },
+            user=self._build_user_dict(user),
             access_token=access_token,
             refresh_token=refresh_token,
             token_type="bearer",
+            requires_email_verification=False,
         )
 
     def login_user(self, login_data: UserLogin) -> AuthResponse:
@@ -165,28 +220,11 @@ class AuthService(BaseService):
                 detail="Account is deactivated",
             )
 
-        # Create tokens
-        access_token = create_access_token(
-            data={"sub": str(user.id), "username": user.username, "role": user.role}
-        )
-        refresh_token = create_refresh_token(
-            data={"sub": str(user.id), "username": user.username}
-        )
+        # Check email verification when Resend is configured
+        if settings.smtp_configured and not user.is_email_verified:
+            raise EmailNotVerifiedError()
 
-        return AuthResponse(
-            user={
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "full_name": user.full_name,
-                "role": user.role,
-                "is_active": user.is_active,
-                "created_at": user.created_at.isoformat(),
-            },
-            access_token=access_token,
-            refresh_token=refresh_token,
-            token_type="bearer",
-        )
+        return self._build_auth_response(user)
 
     def refresh_tokens(self, refresh_data: RefreshTokenRequest) -> AuthResponse:
         """Refresh access token using refresh token."""
@@ -223,28 +261,7 @@ class AuthService(BaseService):
                 detail="User not found or inactive",
             )
 
-        # Create new tokens
-        access_token = create_access_token(
-            data={"sub": str(user.id), "username": user.username, "role": user.role}
-        )
-        new_refresh_token = create_refresh_token(
-            data={"sub": str(user.id), "username": user.username}
-        )
-
-        return AuthResponse(
-            user={
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "full_name": user.full_name,
-                "role": user.role,
-                "is_active": user.is_active,
-                "created_at": user.created_at.isoformat(),
-            },
-            access_token=access_token,
-            refresh_token=new_refresh_token,
-            token_type="bearer",
-        )
+        return self._build_auth_response(user)
 
     def get_user_by_username(self, username: str) -> Optional[User]:
         """Get user by username."""
@@ -301,6 +318,23 @@ class AuthService(BaseService):
         # Hash new password and update
         new_password_hash = hash_password(new_password)
         self.user_repository.update_password(current_user.id, new_password_hash)
+
+    def reset_password(self, email: str, new_password: str) -> None:
+        """Reset a user's password (called after OTP verification).
+
+        Silently succeeds if user doesn't exist or is OAuth-only,
+        because the OTP layer already validated the email.
+        """
+        model = self.user_repository.get_model_by_email(email)
+        if not model:
+            return
+        if not model.password_hash:
+            # OAuth-only user — can't reset password
+            return
+
+        new_hash = hash_password(new_password)
+        self.user_repository.update_password(model.id, new_hash)
+        logger.info(f"Password reset for {email}")
 
     def _verify_google_token(self, credential: str) -> dict[str, Any]:
         """Verify Google ID token and extract user info.
@@ -449,6 +483,7 @@ class AuthService(BaseService):
                     email=email,
                     full_name=full_name or email.split("@")[0],
                     is_active=True,
+                    is_email_verified=True,  # Google verifies emails before providing them
                 )
 
                 user = self.user_repository.create_user(
@@ -480,27 +515,6 @@ class AuthService(BaseService):
                 detail="Account is deactivated",
             )
 
-        # Create tokens
-        access_token = create_access_token(
-            data={"sub": str(user.id), "username": user.username, "role": user.role}
-        )
-        refresh_token = create_refresh_token(
-            data={"sub": str(user.id), "username": user.username}
-        )
-
         logger.info(f"Google OAuth login successful: {user.username} ({user.email})")
 
-        return AuthResponse(
-            user={
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "full_name": user.full_name,
-                "role": user.role,
-                "is_active": user.is_active,
-                "created_at": user.created_at.isoformat(),
-            },
-            access_token=access_token,
-            refresh_token=refresh_token,
-            token_type="bearer",
-        )
+        return self._build_auth_response(user)

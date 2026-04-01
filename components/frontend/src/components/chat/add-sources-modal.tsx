@@ -147,9 +147,9 @@ export const AddSourcesModal = memo(function AddSourcesModal({
   const [isSearchLoading, setIsSearchLoading] = useState(false);
 
   // Sync local state when modal opens with new external selections
-  const previousOpenRef = useRef(false);
+  const previousOpenReference = useRef(false);
   useEffect(() => {
-    if (isOpen && !previousOpenRef.current) {
+    if (isOpen && !previousOpenReference.current) {
       setLocalSelected(new Set(selectedSourceIds));
       // Rebuild resolved map from pre-loaded sources matching the initial selection
       const initialMap = new Map<string, ChatSource>();
@@ -163,7 +163,7 @@ export const AddSourcesModal = memo(function AddSourcesModal({
       setDebouncedSearchQuery('');
       setSearchResults(null);
     }
-    previousOpenRef.current = isOpen;
+    previousOpenReference.current = isOpen;
   }, [isOpen, selectedSourceIds, availableSources]);
 
   // Debounce searchQuery → debouncedSearchQuery (300ms, matching Browse page)

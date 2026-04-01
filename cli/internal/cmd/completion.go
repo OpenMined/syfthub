@@ -10,9 +10,10 @@ import (
 )
 
 var completionCmd = &cobra.Command{
-	Use:   "completion",
-	Short: "Generate shell completion scripts",
-	Long:  `Generate shell completion scripts for bash, zsh, or fish.`,
+	Use:         "completion",
+	Annotations: map[string]string{authExemptKey: "true"},
+	Short:       "Generate shell completion scripts",
+	Long:        `Generate shell completion scripts for bash, zsh, or fish.`,
 }
 
 var completionBashCmd = &cobra.Command{

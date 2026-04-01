@@ -24,6 +24,7 @@ dependencies = [
     "email-validator>=2.3.0",
     "fastapi>=0.121.1",
     "httpx>=0.28.1",
+    "resend>=2.21.0",
     "jinja2>=3.1.0",
     "markdown>=3.6.0",
     "passlib[bcrypt]>=1.7.4",
@@ -188,6 +189,16 @@ ignore_missing_imports = true
 # Meilisearch Python client has no type stubs
 [[tool.mypy.overrides]]
 module = "meilisearch.*"
+ignore_missing_imports = true
+
+# resend SDK has no bundled type stubs
+[[tool.mypy.overrides]]
+module = "resend.*"
+ignore_missing_imports = true
+
+# Jinja2 stubs may not be available in all environments
+[[tool.mypy.overrides]]
+module = "jinja2.*"
 ignore_missing_imports = true
 
 # MPP SDK has no type stubs and uses dynamic exports
