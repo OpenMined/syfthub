@@ -156,10 +156,8 @@ class HTTPClient:
 
         if isinstance(inner_detail, dict):
             message = inner_detail.get("message", str(inner_detail))
-            error_code = inner_detail.get("code")
         else:
             message = str(inner_detail)
-            error_code = None
 
         # Standard error handling based on status code
         if status == 401:

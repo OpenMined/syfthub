@@ -28,7 +28,6 @@ var (
 
 	// ErrChat indicates a chat-related error.
 	ErrChat = errors.New("chat error")
-
 )
 
 // SyftHubError is the base error type for all API errors.

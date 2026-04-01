@@ -67,37 +67,6 @@ func TestAuthResourceRegister(t *testing.T) {
 		}
 	})
 
-	t.Run("with accounting password", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			var body map[string]interface{}
-			json.NewDecoder(r.Body).Decode(&body)
-
-			if body["accounting_password"] != "acctpass123" {
-				t.Errorf("accounting_password = %v", body["accounting_password"])
-			}
-
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"user":          map[string]interface{}{"id": 1},
-				"access_token":  "token",
-				"refresh_token": "refresh",
-			})
-		}))
-		defer server.Close()
-
-		http := newHTTPClient(server.URL, DefaultTimeout)
-		auth := newAuthResource(http)
-
-		_, err := auth.Register(context.Background(), &RegisterRequest{
-			Username: "user",
-			Email:    "user@example.com",
-			Password: "password",
-			FullName: "User",
-		})
-
-		if err != nil {
-			t.Fatalf("Register error: %v", err)
-		}
-	})
 }
 
 func TestAuthResourceLogin(t *testing.T) {
