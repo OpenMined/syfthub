@@ -326,21 +326,6 @@ def test_access_users_without_auth(client: TestClient) -> None:
         assert response.status_code == 401
 
 
-def test_get_accounting_credentials(
-    client: TestClient, regular_user_token: str
-) -> None:
-    """Test getting current user's accounting credentials."""
-    headers = {"Authorization": f"Bearer {regular_user_token}"}
-    response = client.get("/api/v1/users/me/accounting", headers=headers)
-
-    assert response.status_code == 200
-    data = response.json()
-    assert "url" in data
-    assert "email" in data
-    assert "password" in data
-    assert data["email"] == "regular@example.com"
-
-
 def test_check_username_availability(client: TestClient) -> None:
     """Test checking username availability."""
     # Check availability of a new username (should be available)

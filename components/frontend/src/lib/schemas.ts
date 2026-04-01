@@ -40,7 +40,6 @@ export const registerSchema = z
     email: emailField,
     password: passwordField,
     confirmPassword: z.string().min(1, 'Please confirm your password'),
-    accountingPassword: z.string(),
     termsAccepted: z.boolean().refine((value) => value, {
       message: 'You must accept the terms to continue'
     })

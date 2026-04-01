@@ -30,9 +30,9 @@ export const dataSourceKeys = {
     [...dataSourceKeys.all, 'chat', limit, isAuthenticated] as const
 };
 
-export const accountingKeys = {
-  all: ['accounting'] as const,
-  user: () => [...accountingKeys.all, 'user'] as const,
-  balance: () => [...accountingKeys.all, 'balance'] as const,
-  transactions: (pageSize: number) => [...accountingKeys.all, 'transactions', pageSize] as const
+export const walletKeys = {
+  all: ['wallet'] as const,
+  info: () => [...walletKeys.all, 'info'] as const,
+  balance: () => [...walletKeys.all, 'balance'] as const,
+  transactions: () => [...walletKeys.all, 'transactions'] as const
 };
