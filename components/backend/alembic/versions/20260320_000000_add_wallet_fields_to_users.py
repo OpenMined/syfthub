@@ -1,10 +1,12 @@
 """Replace accounting fields with wallet fields on users table.
 
 Adds wallet_address and wallet_private_key columns for MPP / Tempo blockchain
-payments. Drops old accounting_service_url and accounting_password columns.
+payments. Drops old accounting_service_url and accounting_password_encrypted
+columns (accounting_password was already replaced by
+accounting_password_encrypted in migration 008_encrypt_accounting_pw).
 
-Revision ID: 008_wallet_fields
-Revises: 007_endpoint_health
+Revision ID: 009_wallet_fields
+Revises: 008_encrypt_accounting_pw
 Create Date: 2026-03-20 00:00:00.000000+00:00
 """
 
@@ -14,8 +16,8 @@ import sqlalchemy as sa
 from alembic import op
 
 # Revision identifiers, used by Alembic
-revision: str = "008_wallet_fields"
-down_revision: str | None = "007_endpoint_health"
+revision: str = "009_wallet_fields"
+down_revision: str | None = "008_encrypt_accounting_pw"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -33,13 +35,15 @@ def upgrade() -> None:
     )
 
     # Drop old accounting fields
+    # Note: accounting_password was already dropped and replaced by
+    # accounting_password_encrypted in migration 008_encrypt_accounting_pw
     op.drop_column("users", "accounting_service_url")
-    op.drop_column("users", "accounting_password")
+    op.drop_column("users", "accounting_password_encrypted")
 
 
 def downgrade() -> None:
     """Remove wallet fields, restore accounting fields."""
-    # Restore accounting fields
+    # Restore accounting fields (as they existed after migration 008)
     op.add_column(
         "users",
         sa.Column(
@@ -49,7 +53,9 @@ def downgrade() -> None:
     op.add_column(
         "users",
         sa.Column(
-            "accounting_password", sa.String(), nullable=True, server_default=""
+            "accounting_password_encrypted",
+            sa.String(500),
+            nullable=True,
         ),
     )
 
