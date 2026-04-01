@@ -397,39 +397,6 @@ func TestHTTPClientErrorHandling(t *testing.T) {
 		}
 	})
 
-	t.Run("accounting-specific error codes", func(t *testing.T) {
-		testCases := []struct {
-			code        string
-			errType     string
-			expectedErr interface{}
-		}{
-			{"ACCOUNTING_ACCOUNT_EXISTS", "AccountingAccountExistsError", &AccountingAccountExistsError{}},
-			{"INVALID_ACCOUNTING_PASSWORD", "InvalidAccountingPasswordError", &InvalidAccountingPasswordError{}},
-			{"ACCOUNTING_SERVICE_UNAVAILABLE", "AccountingServiceUnavailableError", &AccountingServiceUnavailableError{}},
-		}
-
-		for _, tc := range testCases {
-			t.Run(tc.code, func(t *testing.T) {
-				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					w.WriteHeader(http.StatusBadRequest)
-					json.NewEncoder(w).Encode(map[string]interface{}{
-						"detail": map[string]interface{}{
-							"code":    tc.code,
-							"message": "test error",
-						},
-					})
-				}))
-				defer server.Close()
-
-				client := newHTTPClient(server.URL, 30*time.Second)
-				_, err := client.Request(context.Background(), "POST", "/api/test", nil)
-
-				if err == nil {
-					t.Fatal("expected error")
-				}
-			})
-		}
-	})
 }
 
 func TestHTTPClientTokenRefresh(t *testing.T) {

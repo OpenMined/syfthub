@@ -168,10 +168,6 @@ export {
   EndpointResolutionError,
   // User registration errors
   UserAlreadyExistsError,
-  // Accounting-related errors
-  AccountingAccountExistsError,
-  InvalidAccountingPasswordError,
-  AccountingServiceUnavailableError,
   // Enums
   Visibility,
   EndpointType,

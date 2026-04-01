@@ -45,33 +45,15 @@ func newAuthResource(http *httpClient) *AuthResource {
 
 // Register registers a new user.
 //
-// If an accounting service URL is configured, the backend handles accounting
-// integration using a "try-create-first" approach:
-//
-// Accounting Password Behavior:
-//   - Not provided: A secure password is auto-generated and a new
-//     accounting account is created.
-//   - Provided (new user): The account is created with your chosen password.
-//   - Provided (existing user): Your password is validated and accounts
-//     are linked.
-//
 // Errors:
 //   - ValidationError: If registration data is invalid
 //   - UserAlreadyExistsError: If username or email already exists in SyftHub
-//   - AccountingAccountExistsError: If email exists in accounting service
-//     and no accounting_password was provided
-//   - InvalidAccountingPasswordError: If the provided accounting password
-//     doesn't match an existing accounting account
-//   - AccountingServiceUnavailableError: If the accounting service is unreachable
 func (a *AuthResource) Register(ctx context.Context, req *RegisterRequest) (*RegisterResult, error) {
 	payload := map[string]interface{}{
 		"username":  req.Username,
 		"email":     req.Email,
 		"password":  req.Password,
 		"full_name": req.FullName,
-	}
-	if req.AccountingPassword != nil {
-		payload["accounting_password"] = *req.AccountingPassword
 	}
 
 	var response struct {

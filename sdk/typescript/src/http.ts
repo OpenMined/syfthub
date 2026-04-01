@@ -1,10 +1,7 @@
 import {
-  AccountingAccountExistsError,
-  AccountingServiceUnavailableError,
   APIError,
   AuthenticationError,
   AuthorizationError,
-  InvalidAccountingPasswordError,
   NetworkError,
   NotFoundError,
   UserAlreadyExistsError,
@@ -312,13 +309,6 @@ export class HTTPClient {
         // User registration errors
         case 'USER_ALREADY_EXISTS':
           throw new UserAlreadyExistsError(message, detail);
-        // Accounting-related errors
-        case 'ACCOUNTING_ACCOUNT_EXISTS':
-          throw new AccountingAccountExistsError(message, detail);
-        case 'INVALID_ACCOUNTING_PASSWORD':
-          throw new InvalidAccountingPasswordError(message, detail);
-        case 'ACCOUNTING_SERVICE_UNAVAILABLE':
-          throw new AccountingServiceUnavailableError(message, detail);
       }
     }
 

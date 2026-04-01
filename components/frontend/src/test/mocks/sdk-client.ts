@@ -47,20 +47,6 @@ export class UserAlreadyExistsError extends SyftHubError {
   }
 }
 
-export class AccountingAccountExistsError extends SyftHubError {
-  constructor(message = 'Accounting account exists') {
-    super(message);
-    this.name = 'AccountingAccountExistsError';
-  }
-}
-
-export class InvalidAccountingPasswordError extends SyftHubError {
-  constructor(message = 'Invalid accounting password') {
-    super(message);
-    this.name = 'InvalidAccountingPasswordError';
-  }
-}
-
 export class ValidationError extends SyftHubError {
   constructor(message = 'Validation error') {
     super(message);
@@ -95,13 +81,6 @@ export class NotFoundError extends SyftHubError {
   constructor(message = 'Not found') {
     super(message);
     this.name = 'NotFoundError';
-  }
-}
-
-export class AccountingServiceUnavailableError extends SyftHubError {
-  constructor(message = 'Accounting service unavailable') {
-    super(message);
-    this.name = 'AccountingServiceUnavailableError';
   }
 }
 
