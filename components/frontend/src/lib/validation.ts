@@ -35,7 +35,7 @@ export const getPasswordStrength = (password: string): number => {
 
 export function getPasswordStrengthLabel(score: number): { label: string; color: string } {
   if (score < 2) return { label: 'Weak', color: 'bg-red-500' };
-  if (score < 4) return { label: 'Fair', color: 'bg-yellow-500' };
+  if (score < 4) return { label: 'Medium', color: 'bg-yellow-500' };
   return { label: 'Strong', color: 'bg-green-500' };
 }
 
