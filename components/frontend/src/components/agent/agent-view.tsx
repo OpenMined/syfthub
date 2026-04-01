@@ -16,7 +16,7 @@ interface AgentViewProps {
 
 export function AgentView({ owner, slug }: AgentViewProps) {
   const { state, startSession, sendMessage, confirm, deny, cancel, reset } = useAgentWorkflow();
-  const [initialPrompt, setInitialPrompt] = useState('');
+  const [, setInitialPrompt] = useState('');
 
   const endpoint = `${owner}/${slug}`;
 
