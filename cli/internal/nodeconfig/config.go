@@ -101,12 +101,11 @@ type NodeConfig struct {
 	Timeout            float64                     `json:"timeout,omitempty"`
 
 	// Node / desktop daemon settings
-	EndpointsPath  string `json:"endpoints_path,omitempty"`
-	IsConfigured   bool   `json:"is_configured,omitempty"`
-	MarketplaceURL string `json:"marketplace_url,omitempty"`
-	LogLevel       string `json:"log_level,omitempty"`
-	PythonPath     string `json:"python_path,omitempty"`
-	Port           int    `json:"port,omitempty"`
+	EndpointsPath string `json:"endpoints_path,omitempty"`
+	IsConfigured  bool   `json:"is_configured,omitempty"`
+	LogLevel      string `json:"log_level,omitempty"`
+	PythonPath    string `json:"python_path,omitempty"`
+	Port          int    `json:"port,omitempty"`
 
 	// Container mode
 	ContainerEnabled bool   `json:"container_enabled,omitempty"`
@@ -259,17 +258,6 @@ func (c *NodeConfig) GetAccountingURL(alias string) string {
 		if acc, ok := c.AccountingServices[c.DefaultAccounting]; ok {
 			return acc.URL
 		}
-	}
-	return ""
-}
-
-// GetMarketplaceURL returns the marketplace manifest URL.
-func (c *NodeConfig) GetMarketplaceURL() string {
-	if c.MarketplaceURL != "" {
-		return c.MarketplaceURL
-	}
-	if c.HubURL != "" {
-		return strings.TrimRight(c.HubURL, "/") + "/marketplace/manifest.json"
 	}
 	return ""
 }

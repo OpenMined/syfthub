@@ -486,10 +486,6 @@ jobs:
             context: .
             dockerfile: components/mcp/Dockerfile
             target: production
-          - image: marketplace
-            context: ./components/marketplace
-            dockerfile: components/marketplace/Dockerfile
-            target: ""
     outputs:
       image_tag: ${{ steps.vars.outputs.sha_short }}
     steps:
@@ -604,13 +600,12 @@ jobs:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           LINEAR_TEAM_ID: ${{ secrets.LINEAR_TEAM_ID }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          MARKETPLACE_ADMIN_TOKEN: ${{ secrets.MARKETPLACE_ADMIN_TOKEN }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          envs: IMAGE_TAG,GITHUB_REPOSITORY,GHCR_TOKEN,MEILI_MASTER_KEY,NGROK_API_KEY,LINEAR_API_KEY,LINEAR_TEAM_ID,RESEND_API_KEY,MARKETPLACE_ADMIN_TOKEN
+          envs: IMAGE_TAG,GITHUB_REPOSITORY,GHCR_TOKEN,MEILI_MASTER_KEY,NGROK_API_KEY,LINEAR_API_KEY,LINEAR_TEAM_ID,RESEND_API_KEY
           script: |
             set -e
             cd /opt/syfthub
@@ -627,13 +622,6 @@ jobs:
             if ! grep -q "^MEILI_MASTER_KEY=" .env 2>/dev/null; then
               echo "MEILI_MASTER_KEY=${MEILI_MASTER_KEY}" >> .env
               echo "Added MEILI_MASTER_KEY to .env"
-            fi
-
-            # Ensure MARKETPLACE_ADMIN_TOKEN is persisted in .env for docker-compose
-            if grep -q "^MARKETPLACE_ADMIN_TOKEN=" .env 2>/dev/null; then
-              sed -i "s|^MARKETPLACE_ADMIN_TOKEN=.*|MARKETPLACE_ADMIN_TOKEN=${MARKETPLACE_ADMIN_TOKEN}|" .env
-            else
-              echo "MARKETPLACE_ADMIN_TOKEN=${MARKETPLACE_ADMIN_TOKEN}" >> .env
             fi
 
             # Ensure NGROK_API_KEY is persisted in .env for docker-compose
@@ -726,10 +714,6 @@ jobs:
             context: .
             dockerfile: components/mcp/Dockerfile
             target: production
-          - image: marketplace
-            context: ./components/marketplace
-            dockerfile: components/marketplace/Dockerfile
-            target: ""
     outputs:
       image_tag: ${{ steps.vars.outputs.sha_short }}-staging
     steps:
@@ -845,13 +829,12 @@ jobs:
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           LINEAR_TEAM_ID: ${{ secrets.LINEAR_TEAM_ID }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          MARKETPLACE_ADMIN_TOKEN: ${{ secrets.MARKETPLACE_ADMIN_TOKEN }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          envs: IMAGE_TAG,GITHUB_REPOSITORY,GHCR_TOKEN,MEILI_MASTER_KEY,NGROK_API_KEY,LINEAR_API_KEY,LINEAR_TEAM_ID,RESEND_API_KEY,MARKETPLACE_ADMIN_TOKEN
+          envs: IMAGE_TAG,GITHUB_REPOSITORY,GHCR_TOKEN,MEILI_MASTER_KEY,NGROK_API_KEY,LINEAR_API_KEY,LINEAR_TEAM_ID,RESEND_API_KEY
           script: |
             set -e
             cd /opt/syfthub
@@ -868,13 +851,6 @@ jobs:
             if ! grep -q "^MEILI_MASTER_KEY=" .env 2>/dev/null; then
               echo "MEILI_MASTER_KEY=${MEILI_MASTER_KEY}" >> .env
               echo "Added MEILI_MASTER_KEY to .env"
-            fi
-
-            # Ensure MARKETPLACE_ADMIN_TOKEN is persisted in .env for docker-compose
-            if grep -q "^MARKETPLACE_ADMIN_TOKEN=" .env 2>/dev/null; then
-              sed -i "s|^MARKETPLACE_ADMIN_TOKEN=.*|MARKETPLACE_ADMIN_TOKEN=${MARKETPLACE_ADMIN_TOKEN}|" .env
-            else
-              echo "MARKETPLACE_ADMIN_TOKEN=${MARKETPLACE_ADMIN_TOKEN}" >> .env
             fi
 
             # Ensure NGROK_API_KEY is persisted in .env for docker-compose

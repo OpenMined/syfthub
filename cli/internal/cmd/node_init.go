@@ -6,23 +6,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
-	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
-	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
 	"github.com/OpenMined/syfthub/cli/internal/nodeconfig"
 	"github.com/OpenMined/syfthub/cli/internal/output"
-	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
-	"github.com/openmined/syfthub/sdk/golang/syfthubapi/setupflow"
-	"github.com/openmined/syfthub/sdk/golang/syfthubapi/setupflow/handlers"
 )
 
 var (
@@ -180,10 +173,6 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if !nodeInitJSON {
-		promptEndpointSetup(cfg)
-	}
-
 	if err := cfg.Save(); err != nil {
 		if nodeInitJSON {
 			output.JSON(map[string]any{"status": "error", "message": err.Error()})
@@ -231,186 +220,6 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
-}
-
-// pkgDisplayType returns the display type for a marketplace package.
-// Packages tagged "agent" are shown as the "agent" type even when their
-// stored marketplace type is "model" (the schema only has model/data_source).
-func pkgDisplayType(pkg nodeops.MarketplacePackage) string {
-	if slices.Contains(pkg.Tags, "agent") {
-		return "agent"
-	}
-	return pkg.Type
-}
-
-// promptEndpointSetup presents an interactive marketplace picker when the
-// endpoints directory is empty. No-op in non-TTY environments or when
-// endpoints already exist.
-func promptEndpointSetup(cfg *nodeconfig.NodeConfig) {
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		return
-	}
-	entries, err := os.ReadDir(cfg.EndpointsPath)
-	if err != nil || len(entries) > 0 {
-		return
-	}
-
-	// ── Step 1: initial choice ────────────────────────────────────────────────
-
-	var choice string
-	err = huh.NewForm(
-		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("No endpoints installed yet").
-				Description("How would you like to start your node?").
-				Options(
-					huh.NewOption("Start empty  —  add endpoints later", "empty"),
-					huh.NewOption("Browse marketplace", "marketplace"),
-				).
-				Value(&choice),
-		),
-	).WithTheme(huh.ThemeCharm()).Run()
-
-	if err != nil || choice != "marketplace" {
-		return
-	}
-
-	// ── Step 2: fetch packages with a spinner ─────────────────────────────────
-
-	manifestURL := cfg.GetMarketplaceURL()
-	if manifestURL == "" {
-		output.Warning("Marketplace URL not configured.")
-		return
-	}
-
-	client := nodeops.NewMarketplaceClient(manifestURL)
-
-	var (
-		packages []nodeops.MarketplacePackage
-		fetchErr error
-		wg       sync.WaitGroup
-		stop     = make(chan struct{})
-	)
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		frames := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-		i := 0
-		for {
-			select {
-			case <-stop:
-				return
-			default:
-				fmt.Printf("\r  %s  Fetching marketplace…", output.Dim.Sprint(frames[i%len(frames)]))
-				i++
-				time.Sleep(80 * time.Millisecond)
-			}
-		}
-	}()
-
-	packages, fetchErr = client.FetchPackages()
-	close(stop)
-	wg.Wait()
-	fmt.Print("\r\033[K") // erase spinner line
-
-	if fetchErr != nil {
-		output.Warning("Could not reach marketplace (%v). Starting empty.", fetchErr)
-		return
-	}
-	if len(packages) == 0 {
-		output.Warning("No packages available. Starting empty.")
-		return
-	}
-
-	// ── Step 3: multi-select ──────────────────────────────────────────────────
-
-	// Sort: agents first, then models, then data_sources; alphabetically within each group.
-	typeOrder := map[string]int{"agent": 0, "model": 1, "data_source": 2}
-	sort.Slice(packages, func(i, j int) bool {
-		ti := pkgDisplayType(packages[i])
-		tj := pkgDisplayType(packages[j])
-		if typeOrder[ti] != typeOrder[tj] {
-			return typeOrder[ti] < typeOrder[tj]
-		}
-		return packages[i].Name < packages[j].Name
-	})
-
-	// Compute max name length for column alignment.
-	maxNameLen := 0
-	for _, pkg := range packages {
-		if len(pkg.Name) > maxNameLen {
-			maxNameLen = len(pkg.Name)
-		}
-	}
-
-	opts := make([]huh.Option[string], len(packages))
-	for i, pkg := range packages {
-		dt := pkgDisplayType(pkg)
-		badge := output.TypeBadge(dt)
-		name := fmt.Sprintf("%-*s", maxNameLen, pkg.Name)
-		ver := output.Dim.Sprintf("v%-6s", pkg.Version)
-		desc := output.Dim.Sprint(output.Truncate(pkg.Description, 42))
-		label := fmt.Sprintf("%s  %s  %s  %s", badge, name, ver, desc)
-		opts[i] = huh.NewOption(label, pkg.Slug)
-	}
-
-	var selected []string
-	err = huh.NewForm(
-		huh.NewGroup(
-			huh.NewMultiSelect[string]().
-				Title("Marketplace packages").
-				Description("Pick one or more packages to install with your node.").
-				Options(opts...).
-				Value(&selected).
-				Height(12),
-		),
-	).WithTheme(huh.ThemeCharm()).Run()
-
-	if err != nil || len(selected) == 0 {
-		return
-	}
-
-	// ── Step 4: install ───────────────────────────────────────────────────────
-
-	fmt.Println()
-	for _, slug := range selected {
-		idx := slices.IndexFunc(packages, func(p nodeops.MarketplacePackage) bool { return p.Slug == slug })
-		if idx < 0 {
-			continue
-		}
-		pkg := packages[idx]
-		fmt.Printf("  Installing %s… ", output.Cyan.Sprint(pkg.Slug))
-
-		if err := client.InstallPackage(cfg.EndpointsPath, pkg.Slug, pkg.DownloadURL); err != nil {
-			output.Red.Printf("✗  %v\n", err)
-			continue
-		}
-		output.Green.Println("✓")
-
-		endpointDir := filepath.Join(cfg.EndpointsPath, pkg.Slug)
-		spec, _ := nodeops.ParseSetupYaml(filepath.Join(endpointDir, "setup.yaml"))
-		if spec != nil {
-			fmt.Printf("\n  Configuring %s…\n\n", output.Cyan.Sprint(pkg.Slug))
-			state := &nodeops.SetupState{Version: "1", Steps: map[string]nodeops.StepState{}}
-			engine := handlers.NewDefaultEngine()
-			sctx := &setupflow.SetupContext{
-				EndpointDir: endpointDir,
-				Slug:        pkg.Slug,
-				HubURL:      cfg.HubURL,
-				APIKey:      cfg.APIToken,
-				IO:          NewCLISetupIO(),
-				StepOutputs: make(map[string]*setupflow.StepResult),
-				State:       state,
-				Spec:        spec,
-			}
-			if err := engine.Execute(sctx); err != nil {
-				output.Warning("Setup incomplete: %v", err)
-				output.Info("Run 'syft node endpoint setup %s' to complete.", pkg.Slug)
-			}
-		}
-	}
-	fmt.Println()
 }
 
 // startNodeDaemon spawns "syft node run" as a detached background process

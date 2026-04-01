@@ -17,7 +17,7 @@ Subcommands:
   logs          View node daemon logs
   endpoint      Manage local endpoints
   policy        Manage endpoint policies
-  marketplace   Browse and install marketplace packages`,
+`,
 }
 
 func init() {
@@ -28,5 +28,4 @@ func init() {
 	nodeCmd.AddCommand(nodeLogsCmd)
 	nodeCmd.AddCommand(nodeEndpointCmd)
 	nodeCmd.AddCommand(nodePolicyCmd)
-	nodeCmd.AddCommand(nodeMarketplaceCmd)
 }

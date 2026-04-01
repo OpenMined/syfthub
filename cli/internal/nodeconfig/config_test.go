@@ -77,7 +77,6 @@ func TestNodeConfig_JSONRoundTrip(t *testing.T) {
 		Timeout:           60.0,
 		EndpointsPath:     "/tmp/endpoints",
 		IsConfigured:      true,
-		MarketplaceURL:    "https://market.example.com",
 		LogLevel:          "DEBUG",
 		PythonPath:        "/usr/bin/python3",
 		Port:              9000,
@@ -100,7 +99,7 @@ func TestNodeConfig_JSONRoundTrip(t *testing.T) {
 	expectedKeys := []string{
 		"hub_url", "api_token", "aggregators", "accounting_services",
 		"default_aggregator", "default_accounting", "timeout",
-		"endpoints_path", "is_configured", "marketplace_url",
+		"endpoints_path", "is_configured",
 		"log_level", "python_path", "port",
 		"container_enabled", "container_runtime", "container_image",
 	}
@@ -139,9 +138,6 @@ func TestNodeConfig_JSONRoundTrip(t *testing.T) {
 	}
 	if restored.IsConfigured != cfg.IsConfigured {
 		t.Errorf("IsConfigured = %v, want %v", restored.IsConfigured, cfg.IsConfigured)
-	}
-	if restored.MarketplaceURL != cfg.MarketplaceURL {
-		t.Errorf("MarketplaceURL = %q, want %q", restored.MarketplaceURL, cfg.MarketplaceURL)
 	}
 	if restored.DefaultAggregator != cfg.DefaultAggregator {
 		t.Errorf("DefaultAggregator = %q, want %q", restored.DefaultAggregator, cfg.DefaultAggregator)
@@ -394,7 +390,6 @@ func TestNodeConfig_SaveAndLoad(t *testing.T) {
 		Timeout:           45.0,
 		EndpointsPath:     "/opt/syfthub/endpoints",
 		IsConfigured:      true,
-		MarketplaceURL:    "https://market.example.com/manifest.json",
 		LogLevel:          "DEBUG",
 		PythonPath:        "/usr/bin/python3.11",
 		Port:              9090,
@@ -432,9 +427,6 @@ func TestNodeConfig_SaveAndLoad(t *testing.T) {
 	}
 	if loaded.PythonPath != original.PythonPath {
 		t.Errorf("PythonPath = %q, want %q", loaded.PythonPath, original.PythonPath)
-	}
-	if loaded.MarketplaceURL != original.MarketplaceURL {
-		t.Errorf("MarketplaceURL = %q, want %q", loaded.MarketplaceURL, original.MarketplaceURL)
 	}
 	if loaded.ContainerEnabled != original.ContainerEnabled {
 		t.Errorf("ContainerEnabled = %v, want %v", loaded.ContainerEnabled, original.ContainerEnabled)
@@ -549,53 +541,6 @@ func TestNodeConfig_AccountingConfig(t *testing.T) {
 	}
 	if restored.URL != acc.URL {
 		t.Errorf("URL = %q, want %q", restored.URL, acc.URL)
-	}
-}
-
-func TestNodeConfig_MarketplaceURL(t *testing.T) {
-	tests := []struct {
-		name           string
-		marketplaceURL string
-		hubURL         string
-		want           string
-	}{
-		{
-			name:           "explicit marketplace URL",
-			marketplaceURL: "https://custom-market.example.com/manifest.json",
-			hubURL:         "https://hub.example.com",
-			want:           "https://custom-market.example.com/manifest.json",
-		},
-		{
-			name:           "derived from hub URL",
-			marketplaceURL: "",
-			hubURL:         "https://syfthub.openmined.org",
-			want:           "https://syfthub.openmined.org/marketplace/manifest.json",
-		},
-		{
-			name:           "derived from hub URL with trailing slash",
-			marketplaceURL: "",
-			hubURL:         "https://syfthub.openmined.org/",
-			want:           "https://syfthub.openmined.org/marketplace/manifest.json",
-		},
-		{
-			name:           "both empty",
-			marketplaceURL: "",
-			hubURL:         "",
-			want:           "",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := &NodeConfig{
-				MarketplaceURL: tt.marketplaceURL,
-				HubURL:         tt.hubURL,
-			}
-			got := cfg.GetMarketplaceURL()
-			if got != tt.want {
-				t.Errorf("GetMarketplaceURL() = %q, want %q", got, tt.want)
-			}
-		})
 	}
 }
 
