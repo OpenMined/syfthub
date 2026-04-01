@@ -16,16 +16,14 @@ const otpCodeField = z
 const passwordField = z
   .string()
   .min(1, 'Password is required')
-  .min(8, 'Password must be at least 8 characters')
-  .regex(/\d/, 'Password must contain at least one digit')
-  .regex(/[a-zA-Z]/, 'Password must contain at least one letter');
+  .min(6, 'Password must be at least 6 characters');
 
 export const loginSchema = z.object({
   email: emailField,
   password: z
     .string()
     .min(1, 'Password is required')
-    .min(8, 'Password must be at least 8 characters')
+    .min(6, 'Password must be at least 6 characters')
 });
 
 export type LoginFormValues = z.infer<typeof loginSchema>;
