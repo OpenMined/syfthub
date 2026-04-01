@@ -87,13 +87,11 @@ func TestAuthResourceRegister(t *testing.T) {
 		http := newHTTPClient(server.URL, DefaultTimeout)
 		auth := newAuthResource(http)
 
-		acctPass := "acctpass123"
 		_, err := auth.Register(context.Background(), &RegisterRequest{
-			Username:           "user",
-			Email:              "user@example.com",
-			Password:           "password",
-			FullName:           "User",
-			AccountingPassword: &acctPass,
+			Username: "user",
+			Email:    "user@example.com",
+			Password: "password",
+			FullName: "User",
 		})
 
 		if err != nil {

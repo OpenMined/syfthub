@@ -251,35 +251,6 @@ func TestEndpointResolutionError(t *testing.T) {
 	}
 }
 
-func TestAccountingErrors(t *testing.T) {
-	t.Run("AccountingAccountExistsError", func(t *testing.T) {
-		err := &AccountingAccountExistsError{
-			SyftHubError: newSyftHubError(409, "account exists"),
-		}
-		if !errors.Is(err, ErrAccounting) {
-			t.Error("should unwrap to ErrAccounting")
-		}
-	})
-
-	t.Run("InvalidAccountingPasswordError", func(t *testing.T) {
-		err := &InvalidAccountingPasswordError{
-			SyftHubError: newSyftHubError(401, "wrong password"),
-		}
-		if !errors.Is(err, ErrAccounting) {
-			t.Error("should unwrap to ErrAccounting")
-		}
-	})
-
-	t.Run("AccountingServiceUnavailableError", func(t *testing.T) {
-		err := &AccountingServiceUnavailableError{
-			SyftHubError: newSyftHubError(503, "service unavailable"),
-		}
-		if !errors.Is(err, ErrAccounting) {
-			t.Error("should unwrap to ErrAccounting")
-		}
-	})
-}
-
 func TestSentinelErrors(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -292,7 +263,6 @@ func TestSentinelErrors(t *testing.T) {
 		{"ErrNetwork", ErrNetwork},
 		{"ErrConfiguration", ErrConfiguration},
 		{"ErrChat", ErrChat},
-		{"ErrAccounting", ErrAccounting},
 	}
 
 	for _, tc := range testCases {

@@ -29,8 +29,6 @@ var (
 	// ErrChat indicates a chat-related error.
 	ErrChat = errors.New("chat error")
 
-	// ErrAccounting indicates an accounting service error.
-	ErrAccounting = errors.New("accounting error")
 )
 
 // SyftHubError is the base error type for all API errors.
@@ -190,36 +188,6 @@ type EndpointResolutionError struct {
 // Error provides detailed endpoint resolution error message.
 func (e *EndpointResolutionError) Error() string {
 	return fmt.Sprintf("syfthub: failed to resolve endpoint: %s", e.Path)
-}
-
-// AccountingAccountExistsError indicates the accounting account already exists.
-type AccountingAccountExistsError struct {
-	*SyftHubError
-}
-
-// Unwrap returns the sentinel error for errors.Is() checking.
-func (e *AccountingAccountExistsError) Unwrap() error {
-	return ErrAccounting
-}
-
-// InvalidAccountingPasswordError indicates wrong accounting password.
-type InvalidAccountingPasswordError struct {
-	*SyftHubError
-}
-
-// Unwrap returns the sentinel error for errors.Is() checking.
-func (e *InvalidAccountingPasswordError) Unwrap() error {
-	return ErrAccounting
-}
-
-// AccountingServiceUnavailableError indicates the accounting service is unavailable.
-type AccountingServiceUnavailableError struct {
-	*SyftHubError
-}
-
-// Unwrap returns the sentinel error for errors.Is() checking.
-func (e *AccountingServiceUnavailableError) Unwrap() error {
-	return ErrAccounting
 }
 
 // newSyftHubError creates a new base SyftHubError.

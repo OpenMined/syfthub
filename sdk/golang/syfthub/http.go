@@ -302,16 +302,12 @@ func (h *httpClient) handleError(statusCode int, body []byte) error {
 	// Try to parse error detail
 	var detail map[string]interface{}
 	var message string
-	var errorCode string
 
 	if err := json.Unmarshal(body, &detail); err == nil {
 		// Try to extract message from nested detail
 		if innerDetail, ok := detail["detail"].(map[string]interface{}); ok {
 			if msg, ok := innerDetail["message"].(string); ok {
 				message = msg
-			}
-			if code, ok := innerDetail["code"].(string); ok {
-				errorCode = code
 			}
 		} else if detailStr, ok := detail["detail"].(string); ok {
 			message = detailStr
@@ -322,24 +318,6 @@ func (h *httpClient) handleError(statusCode int, body []byte) error {
 
 	if message == "" {
 		message = string(body)
-	}
-
-	// Check for accounting-specific errors
-	if errorCode != "" {
-		switch errorCode {
-		case "ACCOUNTING_ACCOUNT_EXISTS":
-			return &AccountingAccountExistsError{
-				SyftHubError: newSyftHubError(statusCode, message),
-			}
-		case "INVALID_ACCOUNTING_PASSWORD":
-			return &InvalidAccountingPasswordError{
-				SyftHubError: newSyftHubError(statusCode, message),
-			}
-		case "ACCOUNTING_SERVICE_UNAVAILABLE":
-			return &AccountingServiceUnavailableError{
-				SyftHubError: newSyftHubError(statusCode, message),
-			}
-		}
 	}
 
 	// Standard error handling

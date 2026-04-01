@@ -7,12 +7,9 @@ from typing import Any
 import httpx
 
 from syfthub_sdk.exceptions import (
-    AccountingAccountExistsError,
-    AccountingServiceUnavailableError,
     APIError,
     AuthenticationError,
     AuthorizationError,
-    InvalidAccountingPasswordError,
     NetworkError,
     NotFoundError,
     SyftHubError,
@@ -163,19 +160,6 @@ class HTTPClient:
         else:
             message = str(inner_detail)
             error_code = None
-
-        # Check for accounting-specific errors based on error code
-        if isinstance(inner_detail, dict) and error_code:
-            if error_code == "ACCOUNTING_ACCOUNT_EXISTS":
-                raise AccountingAccountExistsError(message=message, detail=inner_detail)
-            elif error_code == "INVALID_ACCOUNTING_PASSWORD":
-                raise InvalidAccountingPasswordError(
-                    message=message, detail=inner_detail
-                )
-            elif error_code == "ACCOUNTING_SERVICE_UNAVAILABLE":
-                raise AccountingServiceUnavailableError(
-                    message=message, detail=inner_detail
-                )
 
         # Standard error handling based on status code
         if status == 401:
