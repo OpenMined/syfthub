@@ -40,7 +40,7 @@ const NotFoundPage = lazyWithRetry(() => import('./pages/not-found'));
  * - /chat : AI chat interface
  * - /build : Developer portal
  * - /profile : User profile (protected)
- * - /endpoints : Endpoint management with onboarding (protected)
+ * - /join : Endpoint management with onboarding (protected)
  * - /:username/:slug : GitHub-style endpoint detail
  * - * : 404 Not Found
  *
@@ -140,7 +140,7 @@ export default function App() {
                         }
                       />
                       <Route
-                        path='endpoints'
+                        path='join'
                         element={
                           <ProtectedRoute>
                             <RouteBoundary>
