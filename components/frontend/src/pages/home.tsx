@@ -30,7 +30,7 @@ export default function HomePage() {
   const handleJoinNetwork = () => {
     if (user) {
       // eslint-disable-next-line @typescript-eslint/no-floating-promises -- Navigation is fire-and-forget
-      navigate('/endpoints');
+      navigate('/join');
     } else {
       openLogin();
     }

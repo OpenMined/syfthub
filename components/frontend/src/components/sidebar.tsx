@@ -24,7 +24,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { id: 'home', path: '/', label: 'Chat', icon: MessageSquare, protected: false },
   { id: 'browse', path: '/browse', label: 'Browse', icon: Globe, protected: false },
-  { id: 'endpoints', path: '/endpoints', label: 'Participate', icon: UserPlus, protected: true },
+  { id: 'endpoints', path: '/join', label: 'Participate', icon: UserPlus, protected: true },
   { id: 'build', path: '/build', label: 'Build', icon: FileText, protected: false },
   { id: 'about', path: '/about', label: 'About', icon: Info, protected: false }
 ];
