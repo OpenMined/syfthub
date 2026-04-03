@@ -4,7 +4,8 @@ import type { ChatSource, EndpointType } from '@/lib/types';
 import type { LucideIcon } from 'lucide-react';
 import type { BrowseFilters } from './browse-filters-modal';
 
-import Bot from 'lucide-react/dist/esm/icons/bot';
+// TODO(agent-feature): Uncomment when agent endpoint UI is re-enabled
+// import Bot from 'lucide-react/dist/esm/icons/bot';
 import Calendar from 'lucide-react/dist/esm/icons/calendar';
 import Check from 'lucide-react/dist/esm/icons/check';
 import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right';
@@ -80,7 +81,8 @@ function getTypeIcon(type: EndpointType) {
 // Tab types
 // ============================================================================
 
-type BrowseTab = 'data_sources' | 'models' | 'agents';
+// TODO(agent-feature): Add 'agents' back to BrowseTab and TAB_CONFIG when agent endpoint UI is re-enabled
+type BrowseTab = 'data_sources' | 'models';
 
 const TAB_CONFIG: Record<
   BrowseTab,
@@ -92,8 +94,8 @@ const TAB_CONFIG: Record<
     icon: Database,
     label: 'Data Sources'
   },
-  models: { endpointType: 'model', entityName: 'models', icon: Sparkles, label: 'Models' },
-  agents: { endpointType: 'agent', entityName: 'agents', icon: Bot, label: 'Agents' }
+  models: { endpointType: 'model', entityName: 'models', icon: Sparkles, label: 'Models' }
+  // agents: { endpointType: 'agent', entityName: 'agents', icon: Bot, label: 'Agents' }
 };
 
 // ============================================================================

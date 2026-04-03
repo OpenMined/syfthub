@@ -27,7 +27,8 @@ const AboutPage = lazyWithRetry(() => import('./pages/about'));
 const ProfilePage = lazyWithRetry(() => import('./pages/profile'));
 const EndpointsPage = lazyWithRetry(() => import('./pages/endpoints'));
 const EndpointDetailPage = lazyWithRetry(() => import('./pages/endpoint-detail'));
-const AgentPage = lazyWithRetry(() => import('./pages/agent'));
+// TODO(agent-feature): Uncomment when agent endpoint UI is re-enabled
+// const AgentPage = lazyWithRetry(() => import('./pages/agent'));
 const NotFoundPage = lazyWithRetry(() => import('./pages/not-found'));
 
 /**
@@ -149,7 +150,7 @@ export default function App() {
                         }
                       />
 
-                      {/* Agent session: /agent/:owner/:slug */}
+                      {/* TODO(agent-feature): Uncomment route when agent endpoint UI is re-enabled
                       <Route
                         path='agent/:owner/:slug'
                         element={
@@ -158,6 +159,7 @@ export default function App() {
                           </RouteBoundary>
                         }
                       />
+                      */}
 
                       {/* GitHub-style endpoint URLs: /:username/:slug */}
                       <Route
