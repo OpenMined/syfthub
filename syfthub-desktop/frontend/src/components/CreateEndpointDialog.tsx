@@ -84,7 +84,8 @@ export function CreateEndpointDialog() {
 
   // Form state
   const [name, setName] = useState('');
-  const [type, setType] = useState<EndpointType>('model');
+  // TODO(AGENT_ONLY): Type hardcoded to 'agent'. To restore selection, change back to useState<EndpointType>('model')
+  const [type, setType] = useState<EndpointType>('agent');
   const [description, setDescription] = useState('');
   const [version, setVersion] = useState('1.0.0');
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -99,7 +100,8 @@ export function CreateEndpointDialog() {
   useEffect(() => {
     if (isCreateDialogOpen) {
       setName('');
-      setType('model');
+      // TODO(AGENT_ONLY): Reset default to 'agent'. To restore, change back to setType('model')
+      setType('agent');
       setDescription('');
       setVersion('1.0.0');
       setShowAdvanced(false);
@@ -162,8 +164,9 @@ export function CreateEndpointDialog() {
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>Create Endpoint</DialogTitle>
+          {/* TODO(AGENT_ONLY): Description updated for agent-only. To restore, change back to "model or data source". */}
           <DialogDescription>
-            Create a new endpoint to expose your model or data source.
+            Create a new agent endpoint with bidirectional communication.
           </DialogDescription>
         </DialogHeader>
 
@@ -199,8 +202,9 @@ export function CreateEndpointDialog() {
             </div>
           </div>
 
-          {/* Type selection */}
-          <div className="space-y-2">
+          {/* TODO(AGENT_ONLY): Type selection hidden — hardcoded to 'agent'.
+              To restore, uncomment the entire type selection block below. */}
+          {/* <div className="space-y-2">
             <Label>Type</Label>
             <div className="flex gap-3">
               <TypeCard
@@ -231,7 +235,7 @@ export function CreateEndpointDialog() {
                 onClick={() => setType('agent')}
               />
             </div>
-          </div>
+          </div> */}
 
           {/* Advanced options toggle */}
           <button

@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 
-import { ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, Copy, Loader2, MessageSquarePlus, Square, WifiOff } from 'lucide-react';
+// TODO(AGENT_ONLY): WifiOff removed from import — only used by ChatModeContent empty state.
+// To restore, add WifiOff back to this import.
+import { ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, Copy, Loader2, MessageSquarePlus, Square } from 'lucide-react';
 
 import { ChatContainerContent, ChatContainerRoot } from '@/components/prompt-kit/chat-container';
 import { Loader } from '@/components/prompt-kit/loader';
@@ -21,14 +23,18 @@ import { Tool, type ToolPart } from '@/components/prompt-kit/tool';
 
 import { MarkdownMessage } from '@/components/chat/markdown-message';
 import { ModelSelector } from '@/components/chat/model-selector';
-import { SourceSelector } from '@/components/chat/source-selector';
-import { SourcesSection } from '@/components/chat/sources-section';
-import { StatusIndicator } from '@/components/chat/status-indicator';
+// TODO(AGENT_ONLY): Imports below hidden — only used by ChatModeContent (standard chat).
+// To restore, uncomment these imports and re-enable ChatModeContent in ChatView().
+// import { SourceSelector } from '@/components/chat/source-selector';
+// import { SourcesSection } from '@/components/chat/sources-section';
+// import { StatusIndicator } from '@/components/chat/status-indicator';
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 
 import { useCopyToClipboard } from '@/components/tool-ui/shared/use-copy-to-clipboard';
-import { useChatWorkflow } from '@/hooks/use-chat-workflow';
-import type { AssistantMessage } from '@/hooks/use-chat-workflow';
+// TODO(AGENT_ONLY): useChatWorkflow import hidden — only used by ChatModeContent.
+// To restore, uncomment:
+// import { useChatWorkflow } from '@/hooks/use-chat-workflow';
+// import type { AssistantMessage } from '@/hooks/use-chat-workflow';
 import { useAgentWorkflow } from '@/hooks/use-agent-workflow';
 import type { AgentEntry } from '@/hooks/use-agent-workflow';
 import { useAppStore } from '@/stores/appStore';
@@ -38,7 +44,9 @@ import { useAppStore } from '@/stores/appStore';
 // =============================================================================
 
 function EmptyState({ hasAggregator, isAgent }: Readonly<{ hasAggregator: boolean; isAgent: boolean }>) {
-  if (!hasAggregator && !isAgent) {
+  // TODO(AGENT_ONLY): Aggregator-missing branch hidden — only agent mode used.
+  // To restore, uncomment the hasAggregator check below.
+  /* if (!hasAggregator && !isAgent) {
     return (
       <div className='flex h-full flex-col items-center justify-center gap-3 p-8'>
         <WifiOff className='text-muted-foreground h-8 w-8' />
@@ -49,7 +57,7 @@ function EmptyState({ hasAggregator, isAgent }: Readonly<{ hasAggregator: boolea
         </p>
       </div>
     );
-  }
+  } */
 
   return (
     <div className='flex h-full flex-col items-center justify-center gap-4 p-8'>
@@ -57,13 +65,13 @@ function EmptyState({ hasAggregator, isAgent }: Readonly<{ hasAggregator: boolea
         <Bot className='text-muted-foreground h-6 w-6' />
       </div>
       <div className='text-center'>
+        {/* TODO(AGENT_ONLY): Simplified to agent-only messaging.
+            To restore, use ternary: isAgent ? 'Start an agent session' : 'How can I help you today?' */}
         <p className='text-foreground text-sm font-medium'>
-          {isAgent ? 'Start an agent session' : 'How can I help you today?'}
+          Start an agent session
         </p>
         <p className='text-muted-foreground mt-1 text-xs'>
-          {isAgent
-            ? 'Type a prompt to start an interactive agent session with real-time feedback.'
-            : 'Select a model, then type a message to start chatting.'}
+          Type a prompt to start an interactive agent session with real-time feedback.
         </p>
       </div>
     </div>
@@ -201,7 +209,6 @@ function RequestInputEntry({ prompt }: { prompt: string }) {
 interface ChatInputAreaProps {
   isLoading: boolean;
   inputDisabled: boolean;
-  sourceDisabled: boolean;
   value: string;
   onValueChange: (v: string) => void;
   onSubmit: () => void;
@@ -219,7 +226,6 @@ interface ChatInputAreaProps {
 function ChatInputArea({
   isLoading,
   inputDisabled,
-  sourceDisabled,
   value,
   onValueChange,
   onSubmit,
@@ -239,14 +245,14 @@ function ChatInputArea({
   const setChatSelectedModel = useAppStore((s) => s.setChatSelectedModel);
   const toggleChatSource = useAppStore((s) => s.toggleChatSource);
 
-  const modelEndpoints = useMemo(
-    () => endpoints.filter((e) => e.type === 'model' || e.type === 'agent'),
-    [endpoints],
-  );
-  const dataSourceEndpoints = useMemo(
-    () => endpoints.filter((e) => e.type === 'data_source'),
-    [endpoints],
-  );
+  // TODO(AGENT_ONLY): Store already filters to agent-only. To restore, change filter back to:
+  //   (e) => e.type === 'model' || e.type === 'agent'
+  const modelEndpoints = endpoints;
+  // TODO(AGENT_ONLY): Data source endpoints hidden. To restore, uncomment:
+  // const dataSourceEndpoints = useMemo(
+  //   () => endpoints.filter((e) => e.type === 'data_source'),
+  //   [endpoints],
+  // );
 
   return (
     <div className='shrink-0 p-4'>
@@ -265,13 +271,9 @@ function ChatInputArea({
             disabled={inputDisabled}
           />
 
-          <PromptInputActions className='justify-between pt-1'>
-            <SourceSelector
-              endpoints={dataSourceEndpoints}
-              selectedSources={chatSelectedSources}
-              onToggle={toggleChatSource}
-              disabled={sourceDisabled}
-            />
+          {/* TODO(AGENT_ONLY): Changed to justify-end since SourceSelector (left element) is hidden.
+              To restore, change back to justify-between and uncomment SourceSelector. */}
+          <PromptInputActions className='justify-end pt-1'>
             <div className='flex items-center gap-1'>
               <ModelSelector
                 models={modelEndpoints}
@@ -508,11 +510,9 @@ function AgentChatContent() {
                 }
 
                 if (entry.kind === 'request_input') {
-                  return (
-                    <div key={entry.id} className='ml-10 max-w-2xl'>
-                      <RequestInputEntry prompt={entry.content} />
-                    </div>
-                  );
+                  // The input box is already visible and re-enabled by
+                  // awaitingInput — no need to show the prompt text.
+                  return null;
                 }
 
                 if (entry.kind === 'error') {
@@ -554,7 +554,6 @@ function AgentChatContent() {
       <ChatInputArea
         isLoading={isRunning && !awaitingInput}
         inputDisabled={isRunning && !awaitingInput}
-        sourceDisabled={isRunning}
         value={inputValue}
         onValueChange={setInputValue}
         onSubmit={handleSubmit}
@@ -572,14 +571,9 @@ function AgentChatContent() {
         stopTooltip='Stop agent'
         sendTooltip='Send (Enter)'
         isActive={isRunning}
-        banner={awaitingInput ? (
-          <div className='text-primary mb-2 text-center text-xs font-medium'>
-            The agent is waiting for your input
-          </div>
-        ) : undefined}
         footer={chatSelectedModel ? (
           <p className='text-muted-foreground mt-1.5 text-center text-[10px]'>
-            Agent: <span className='font-medium'>{chatSelectedModel.name}</span>
+            <span className='font-medium'>{chatSelectedModel.name}</span>
           </p>
         ) : undefined}
       />
@@ -587,9 +581,12 @@ function AgentChatContent() {
   );
 }
 
-// =============================================================================
-// Chat Mode Content (calls useChatWorkflow internally)
-// =============================================================================
+/* TODO(AGENT_ONLY): Entire ChatModeContent component commented out — only agent mode is active.
+   To restore:
+   1. Uncomment this entire function
+   2. Uncomment the SourceSelector, SourcesSection, StatusIndicator, useChatWorkflow, AssistantMessage imports above
+   3. Add WifiOff back to the lucide-react import
+   4. In ChatView(), restore the isAgent conditional: if (isAgent) return <AgentChatContent />; return <ChatModeContent />;
 
 function ChatModeContent() {
   const aggregatorURL = useAppStore((s) => s.aggregatorURL);
@@ -634,7 +631,6 @@ function ChatModeContent() {
 
   return (
     <div className='flex h-full flex-col'>
-      {/* Top bar */}
       <div className='border-border flex shrink-0 items-center justify-between border-b px-4 py-2'>
         <span className='text-foreground text-sm font-semibold'>Chat</span>
         {messages.length > 0 ? (
@@ -650,7 +646,6 @@ function ChatModeContent() {
         ) : null}
       </div>
 
-      {/* Scrollable message area */}
       <div className='relative min-h-0 flex-1'>
         <ChatContainerRoot className='h-full'>
           <ChatContainerContent className='mx-auto w-full max-w-4xl space-y-8 px-6 py-8'>
@@ -724,11 +719,9 @@ function ChatModeContent() {
         </ChatContainerRoot>
       </div>
 
-      {/* Input area */}
       <ChatInputArea
         isLoading={isActive}
         inputDisabled={!hasAggregator}
-        sourceDisabled={!hasAggregator}
         value={inputValue}
         onValueChange={setInputValue}
         onSubmit={handleSubmit}
@@ -757,18 +750,18 @@ function ChatModeContent() {
     </div>
   );
 }
+*/
 
 // =============================================================================
 // Main Component (thin wrapper — conditionally renders one mode)
 // =============================================================================
 
 export function ChatView() {
-  const chatSelectedModel = useAppStore((s) => s.chatSelectedModel);
-  const isAgent = chatSelectedModel?.type === 'agent';
-
-  if (isAgent) {
-    return <AgentChatContent />;
-  }
-
-  return <ChatModeContent />;
+  // TODO(AGENT_ONLY): Always render AgentChatContent — standard chat mode hidden.
+  // To restore, uncomment the isAgent check and ChatModeContent fallback below:
+  //   const chatSelectedModel = useAppStore((s) => s.chatSelectedModel);
+  //   const isAgent = chatSelectedModel?.type === 'agent';
+  //   if (isAgent) return <AgentChatContent />;
+  //   return <ChatModeContent />;
+  return <AgentChatContent />;
 }

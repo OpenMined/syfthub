@@ -174,7 +174,9 @@ function OverviewSection() {
           />
         </Field>
 
-        <Field label="Type">
+        {/* TODO(AGENT_ONLY): Type selector hidden — only agent endpoints supported.
+            To restore, uncomment the <Field label="Type"> block below and remove the read-only display. */}
+        {/* <Field label="Type">
           <Select value={endpointType} onValueChange={setEndpointType}>
             <SelectTrigger className="w-full h-9">
               <SelectValue />
@@ -184,10 +186,11 @@ function OverviewSection() {
                 <SelectLabel>Endpoint Type</SelectLabel>
                 <SelectItem value="model">Model</SelectItem>
                 <SelectItem value="data_source">Data Source</SelectItem>
+                <SelectItem value="agent">Agent</SelectItem>
               </SelectGroup>
             </SelectContent>
           </Select>
-        </Field>
+        </Field> */}
       </div>
 
       {/* File System */}

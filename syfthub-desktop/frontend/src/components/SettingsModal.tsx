@@ -15,7 +15,6 @@ import { Switch } from '@/components/ui/switch';
 import { useSettings } from '@/contexts/SettingsContext';
 import { extractErrorMessage, isValidUrl } from '@/lib/utils';
 import { BrowseForFolder, SetContainerEnabled } from '../../wailsjs/go/main/App';
-import { AggregatorSection } from './AggregatorSection';
 import { ErrorBanner } from '@/components/ui/error-banner';
 
 interface SettingsModalProps {
@@ -177,13 +176,6 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
 
           <ErrorBanner message={error} />
 
-          {/* Aggregator management — only shown when app is configured */}
-          {settings?.is_configured && (
-            <>
-              <div className="border-t border-border" />
-              <AggregatorSection isConfigured={settings.is_configured} />
-            </>
-          )}
         </div>
 
         <DialogFooter>
