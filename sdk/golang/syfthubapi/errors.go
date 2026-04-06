@@ -19,35 +19,9 @@ var (
 	ErrValidation           = errors.New("validation error")
 	ErrTransport            = errors.New("transport error")
 	ErrContainer            = errors.New("container error")
+	ErrFileLoad             = errors.New("file load error")
+	ErrPolicyLoad           = errors.New("policy load error")
 )
-
-// SyftAPIError is the base error type for all syfthubapi errors.
-type SyftAPIError struct {
-	// Err is the underlying sentinel error.
-	Err error
-
-	// Message is a human-readable error message.
-	Message string
-
-	// Details contains additional error context.
-	Details map[string]any
-}
-
-// Error implements the error interface.
-func (e *SyftAPIError) Error() string {
-	if e.Message != "" {
-		return e.Message
-	}
-	if e.Err != nil {
-		return e.Err.Error()
-	}
-	return "unknown error"
-}
-
-// Unwrap returns the underlying error for errors.Is() and errors.As().
-func (e *SyftAPIError) Unwrap() error {
-	return e.Err
-}
 
 // ConfigurationError indicates invalid or missing configuration.
 type ConfigurationError struct {
@@ -91,9 +65,12 @@ func (e *AuthenticationError) Error() string {
 	return fmt.Sprintf("authentication error: %s", e.Message)
 }
 
-// Unwrap returns ErrAuthentication for errors.Is().
-func (e *AuthenticationError) Unwrap() error {
-	return ErrAuthentication
+// Unwrap returns ErrAuthentication and the cause for errors.Is().
+func (e *AuthenticationError) Unwrap() []error {
+	if e.Cause != nil {
+		return []error{ErrAuthentication, e.Cause}
+	}
+	return []error{ErrAuthentication}
 }
 
 // AuthorizationError indicates authorization failure.
@@ -141,9 +118,12 @@ func (e *SyncError) Error() string {
 	return fmt.Sprintf("sync error: %s", e.Message)
 }
 
-// Unwrap returns ErrSync for errors.Is().
-func (e *SyncError) Unwrap() error {
-	return ErrSync
+// Unwrap returns ErrSync and the cause for errors.Is().
+func (e *SyncError) Unwrap() []error {
+	if e.Cause != nil {
+		return []error{ErrSync, e.Cause}
+	}
+	return []error{ErrSync}
 }
 
 // EndpointRegistrationError indicates invalid endpoint registration.
@@ -235,9 +215,12 @@ func (e *ExecutionError) Error() string {
 	return fmt.Sprintf("execution error: %s: %s", e.Endpoint, e.Message)
 }
 
-// Unwrap returns ErrExecutionFailed for errors.Is().
-func (e *ExecutionError) Unwrap() error {
-	return ErrExecutionFailed
+// Unwrap returns ErrExecutionFailed and the cause for errors.Is().
+func (e *ExecutionError) Unwrap() []error {
+	if e.Cause != nil {
+		return []error{ErrExecutionFailed, e.Cause}
+	}
+	return []error{ErrExecutionFailed}
 }
 
 // TimeoutError indicates an operation timed out.
@@ -304,9 +287,12 @@ func (e *TransportError) Error() string {
 	return fmt.Sprintf("transport error (%s): %s", e.Transport, e.Message)
 }
 
-// Unwrap returns ErrTransport for errors.Is().
-func (e *TransportError) Unwrap() error {
-	return ErrTransport
+// Unwrap returns ErrTransport and the cause for errors.Is().
+func (e *TransportError) Unwrap() []error {
+	if e.Cause != nil {
+		return []error{ErrTransport, e.Cause}
+	}
+	return []error{ErrTransport}
 }
 
 // ContainerError indicates an error in container operations.
@@ -345,9 +331,12 @@ func (e *ContainerError) Error() string {
 	return msg
 }
 
-// Unwrap returns ErrContainer for errors.Is().
-func (e *ContainerError) Unwrap() error {
-	return ErrContainer
+// Unwrap returns ErrContainer and the cause for errors.Is().
+func (e *ContainerError) Unwrap() []error {
+	if e.Cause != nil {
+		return []error{ErrContainer, e.Cause}
+	}
+	return []error{ErrContainer}
 }
 
 // FileLoadError indicates an error loading file-based endpoints.
@@ -370,9 +359,12 @@ func (e *FileLoadError) Error() string {
 	return fmt.Sprintf("file load error: %s: %s", e.Path, e.Message)
 }
 
-// Unwrap returns the underlying cause.
-func (e *FileLoadError) Unwrap() error {
-	return e.Cause
+// Unwrap returns ErrFileLoad and the cause for errors.Is().
+func (e *FileLoadError) Unwrap() []error {
+	if e.Cause != nil {
+		return []error{ErrFileLoad, e.Cause}
+	}
+	return []error{ErrFileLoad}
 }
 
 // PolicyLoadError indicates an error loading a policy.
@@ -398,7 +390,10 @@ func (e *PolicyLoadError) Error() string {
 	return fmt.Sprintf("policy load error: %s (%s): %s", e.Path, e.PolicyType, e.Message)
 }
 
-// Unwrap returns the underlying cause.
-func (e *PolicyLoadError) Unwrap() error {
-	return e.Cause
+// Unwrap returns ErrPolicyLoad and the cause for errors.Is().
+func (e *PolicyLoadError) Unwrap() []error {
+	if e.Cause != nil {
+		return []error{ErrPolicyLoad, e.Cause}
+	}
+	return []error{ErrPolicyLoad}
 }

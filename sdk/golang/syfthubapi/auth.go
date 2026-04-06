@@ -10,443 +10,167 @@ import (
 	"time"
 )
 
-// hubHTTPClient is the shared base for AuthClient and SyncClient.
-// It provides a single HTTP client, base URL, API key, and logger
-// so both clients avoid duplicating connection setup.
-type hubHTTPClient struct {
+// HubAPIError represents an HTTP-level error from the SyftHub backend.
+type HubAPIError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *HubAPIError) Error() string {
+	return fmt.Sprintf("hub API error (status %d): %s", e.StatusCode, e.Body)
+}
+
+// HubClient handles all communication with the SyftHub backend.
+// It provides a single HTTP client for auth, sync, and NATS credential operations.
+type HubClient struct {
 	httpClient *http.Client
 	baseURL    string
 	apiKey     string
 	logger     Logger
 }
 
-// newHubHTTPClient creates a shared HTTP client configuration.
-func newHubHTTPClient(baseURL, apiKey string, logger Logger) hubHTTPClient {
-	return hubHTTPClient{
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
-		baseURL: baseURL,
-		apiKey:  apiKey,
-		logger:  logger,
+// NewHubClient creates a new hub client.
+func NewHubClient(baseURL, apiKey string, logger Logger) *HubClient {
+	return &HubClient{
+		httpClient: &http.Client{Timeout: 30 * time.Second},
+		baseURL:    baseURL,
+		apiKey:     apiKey,
+		logger:     logger,
 	}
 }
 
-// AuthClient handles authentication with SyftHub backend.
-type AuthClient struct {
-	hubHTTPClient
-}
-
-// NewAuthClient creates a new authentication client.
-func NewAuthClient(baseURL, apiKey string, logger Logger) *AuthClient {
-	return &AuthClient{
-		hubHTTPClient: newHubHTTPClient(baseURL, apiKey, logger),
+// doJSON performs a JSON HTTP request and decodes the response.
+func (c *HubClient) doJSON(ctx context.Context, method, path string, reqBody, respBody any) error {
+	var body io.Reader
+	if reqBody != nil {
+		data, err := json.Marshal(reqBody)
+		if err != nil {
+			return fmt.Errorf("marshal request: %w", err)
+		}
+		body = bytes.NewReader(data)
 	}
+
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if reqBody != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode >= 300 {
+		return &HubAPIError{StatusCode: resp.StatusCode, Body: string(raw)}
+	}
+
+	if respBody != nil {
+		if err := json.Unmarshal(raw, respBody); err != nil {
+			return fmt.Errorf("parse response: %w", err)
+		}
+	}
+	return nil
 }
 
 // VerifyToken verifies a satellite token and returns the user context.
-func (c *AuthClient) VerifyToken(ctx context.Context, token string) (*UserContext, error) {
+func (c *HubClient) VerifyToken(ctx context.Context, token string) (*UserContext, error) {
 	if token == "" {
 		return nil, &AuthenticationError{Message: "missing token"}
 	}
 
-	reqBody := VerifyTokenRequest{Token: token}
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, &AuthenticationError{
-			Message: "failed to marshal request",
-			Cause:   err,
-		}
+	var resp VerifyTokenResponse
+	if err := c.doJSON(ctx, "POST", "/api/v1/verify", VerifyTokenRequest{Token: token}, &resp); err != nil {
+		return nil, &AuthenticationError{Message: "token verification failed", Cause: err}
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/v1/verify", bytes.NewReader(body))
-	if err != nil {
-		return nil, &AuthenticationError{
-			Message: "failed to create request",
-			Cause:   err,
+	if !resp.Valid {
+		msg := resp.Error
+		if resp.Message != "" {
+			msg = resp.Message
 		}
+		return nil, &AuthenticationError{Message: msg}
 	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, &AuthenticationError{
-			Message: "failed to verify token",
-			Cause:   err,
-		}
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, &AuthenticationError{
-			Message: "failed to read response",
-			Cause:   err,
-		}
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, &AuthenticationError{
-			Message: fmt.Sprintf("token verification failed: %s", string(respBody)),
-		}
-	}
-
-	var verifyResp VerifyTokenResponse
-	if err := json.Unmarshal(respBody, &verifyResp); err != nil {
-		return nil, &AuthenticationError{
-			Message: "failed to parse response",
-			Cause:   err,
-		}
-	}
-
-	if !verifyResp.Valid {
-		msg := verifyResp.Error
-		if verifyResp.Message != "" {
-			msg = verifyResp.Message
-		}
-		return nil, &AuthenticationError{
-			Message: msg,
-		}
-	}
-
-	userCtx := verifyResp.ToUserContext()
+	userCtx := resp.ToUserContext()
 	if userCtx == nil {
-		return nil, &AuthenticationError{
-			Message: "token valid but user context missing",
-		}
+		return nil, &AuthenticationError{Message: "token valid but user context missing"}
 	}
 
 	return userCtx, nil
 }
 
 // GetMe retrieves the current user information.
-func (c *AuthClient) GetMe(ctx context.Context) (*UserContext, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/api/v1/auth/me", nil)
-	if err != nil {
-		return nil, &AuthenticationError{
-			Message: "failed to create request",
-			Cause:   err,
-		}
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, &AuthenticationError{
-			Message: "failed to get user info",
-			Cause:   err,
-		}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, &AuthenticationError{
-			Message: fmt.Sprintf("authentication failed: %s", string(body)),
-		}
-	}
-
+func (c *HubClient) GetMe(ctx context.Context) (*UserContext, error) {
 	var user UserContext
-	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
-		return nil, &AuthenticationError{
-			Message: "failed to parse response",
-			Cause:   err,
-		}
+	if err := c.doJSON(ctx, "GET", "/api/v1/auth/me", nil, &user); err != nil {
+		return nil, &AuthenticationError{Message: "failed to get user info", Cause: err}
 	}
-
 	return &user, nil
 }
 
 // GetNATSCredentials retrieves NATS credentials for tunnel mode.
-func (c *AuthClient) GetNATSCredentials(ctx context.Context, username string) (*NATSCredentials, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+"/api/v1/nats/credentials", nil)
-	if err != nil {
-		return nil, &AuthenticationError{
-			Message: "failed to create request",
-			Cause:   err,
-		}
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, &AuthenticationError{
-			Message: "failed to get NATS credentials",
-			Cause:   err,
-		}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, &AuthenticationError{
-			Message: fmt.Sprintf("failed to get NATS credentials: %s", string(body)),
-		}
-	}
-
-	// Parse the response which contains nats_auth_token
+func (c *HubClient) GetNATSCredentials(ctx context.Context, username string) (*NATSCredentials, error) {
 	var credsResp struct {
 		NATSAuthToken string `json:"nats_auth_token"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&credsResp); err != nil {
-		return nil, &AuthenticationError{
-			Message: "failed to parse response",
-			Cause:   err,
-		}
+	if err := c.doJSON(ctx, "GET", "/api/v1/nats/credentials", nil, &credsResp); err != nil {
+		return nil, &AuthenticationError{Message: "failed to get NATS credentials", Cause: err}
 	}
 
-	// Derive NATS WebSocket URL from base URL
 	natsURL, err := DeriveNATSWebSocketURL(c.baseURL)
 	if err != nil {
-		return nil, &AuthenticationError{
-			Message: "failed to derive NATS URL",
-			Cause:   err,
-		}
+		return nil, &AuthenticationError{Message: "failed to derive NATS URL", Cause: err}
 	}
-
-	// Build the subject for this user
-	subject := fmt.Sprintf("syfthub.spaces.%s", username)
 
 	return &NATSCredentials{
 		URL:     natsURL,
 		Token:   credsResp.NATSAuthToken,
-		Subject: subject,
+		Subject: fmt.Sprintf("syfthub.spaces.%s", username),
 	}, nil
 }
 
 // RegisterEncryptionPublicKey registers the space's X25519 public key with the hub.
-// Called on startup after generating the keypair, before subscribing to NATS.
-func (c *AuthClient) RegisterEncryptionPublicKey(ctx context.Context, publicKeyB64 string) error {
-	body, err := json.Marshal(map[string]string{
-		"encryption_public_key": publicKeyB64,
-	})
-	if err != nil {
-		return &AuthenticationError{
-			Message: "failed to marshal key registration request",
-			Cause:   err,
-		}
+func (c *HubClient) RegisterEncryptionPublicKey(ctx context.Context, publicKeyB64 string) error {
+	if err := c.doJSON(ctx, "PUT", "/api/v1/nats/encryption-key", map[string]string{"encryption_public_key": publicKeyB64}, nil); err != nil {
+		return &AuthenticationError{Message: "failed to register encryption key", Cause: err}
 	}
-
-	req, err := http.NewRequestWithContext(
-		ctx, "PUT",
-		c.baseURL+"/api/v1/nats/encryption-key",
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		return &AuthenticationError{
-			Message: "failed to create request",
-			Cause:   err,
-		}
-	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return &AuthenticationError{
-			Message: "failed to register encryption key",
-			Cause:   err,
-		}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return &AuthenticationError{
-			Message: fmt.Sprintf("failed to register encryption key: %s", string(respBody)),
-		}
-	}
-
 	return nil
-}
-
-// SyncClient handles endpoint synchronization with SyftHub backend.
-type SyncClient struct {
-	hubHTTPClient
-}
-
-// NewSyncClient creates a new sync client.
-func NewSyncClient(baseURL, apiKey string, logger Logger) *SyncClient {
-	return &SyncClient{
-		hubHTTPClient: newHubHTTPClient(baseURL, apiKey, logger),
-	}
 }
 
 // SyncEndpoints synchronizes endpoints with SyftHub backend.
-func (c *SyncClient) SyncEndpoints(ctx context.Context, endpoints []EndpointInfo) (*SyncEndpointsResponse, error) {
-	reqBody := SyncEndpointsRequest{Endpoints: endpoints}
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, &SyncError{
-			Message: "failed to marshal request",
-			Cause:   err,
+func (c *HubClient) SyncEndpoints(ctx context.Context, endpoints []EndpointInfo) (*SyncEndpointsResponse, error) {
+	var resp SyncEndpointsResponse
+	if err := c.doJSON(ctx, "POST", "/api/v1/endpoints/sync", SyncEndpointsRequest{Endpoints: endpoints}, &resp); err != nil {
+		if apiErr, ok := err.(*HubAPIError); ok {
+			return nil, &SyncError{Message: fmt.Sprintf("sync failed: %s", apiErr.Body), StatusCode: apiErr.StatusCode}
 		}
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/api/v1/endpoints/sync", bytes.NewReader(body))
-	if err != nil {
-		return nil, &SyncError{
-			Message: "failed to create request",
-			Cause:   err,
-		}
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, &SyncError{
-			Message: "failed to sync endpoints",
-			Cause:   err,
-		}
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, &SyncError{
-			Message: "failed to read response",
-			Cause:   err,
-		}
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, &SyncError{
-			Message:    fmt.Sprintf("sync failed: %s", string(respBody)),
-			StatusCode: resp.StatusCode,
-		}
-	}
-
-	var syncResp SyncEndpointsResponse
-	if err := json.Unmarshal(respBody, &syncResp); err != nil {
-		return nil, &SyncError{
-			Message: "failed to parse response",
-			Cause:   err,
-		}
+		return nil, &SyncError{Message: "sync failed", Cause: err}
 	}
 
 	if c.logger != nil {
-		c.logger.Info("endpoints synced",
-			"synced", syncResp.Synced,
-			"deleted", syncResp.Deleted,
-		)
+		c.logger.Info("endpoints synced", "synced", resp.Synced, "deleted", resp.Deleted)
 	}
-
-	return &syncResp, nil
+	return &resp, nil
 }
 
 // UpdateDomain updates the user's space domain.
-func (c *SyncClient) UpdateDomain(ctx context.Context, domain string) error {
-	reqBody := map[string]string{"domain": domain}
-	body, err := json.Marshal(reqBody)
-	if err != nil {
-		return &SyncError{
-			Message: "failed to marshal request",
-			Cause:   err,
+func (c *HubClient) UpdateDomain(ctx context.Context, domain string) error {
+	if err := c.doJSON(ctx, "PUT", "/api/v1/users/me", map[string]string{"domain": domain}, nil); err != nil {
+		if apiErr, ok := err.(*HubAPIError); ok {
+			return &SyncError{Message: fmt.Sprintf("failed to update domain: %s", apiErr.Body), StatusCode: apiErr.StatusCode}
 		}
+		return &SyncError{Message: "failed to update domain", Cause: err}
 	}
-
-	req, err := http.NewRequestWithContext(ctx, "PUT", c.baseURL+"/api/v1/users/me", bytes.NewReader(body))
-	if err != nil {
-		return &SyncError{
-			Message: "failed to create request",
-			Cause:   err,
-		}
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return &SyncError{
-			Message: "failed to update domain",
-			Cause:   err,
-		}
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return &SyncError{
-			Message:    fmt.Sprintf("failed to update domain: %s", string(respBody)),
-			StatusCode: resp.StatusCode,
-		}
-	}
-
 	return nil
-}
-
-// APIAuthenticator provides authentication for the SyftAPI.
-// It wraps pre-created AuthClient and SyncClient instances rather than
-// creating its own HTTP clients, avoiding duplicate connections.
-type APIAuthenticator struct {
-	authClient *AuthClient
-	syncClient *SyncClient
-	config     *Config
-	logger     Logger
-}
-
-// NewAPIAuthenticator creates a new API authenticator using the provided
-// AuthClient and SyncClient. This avoids creating duplicate HTTP clients
-// when SyftAPI already has its own instances.
-func NewAPIAuthenticator(config *Config, logger Logger, authClient *AuthClient, syncClient *SyncClient) *APIAuthenticator {
-	return &APIAuthenticator{
-		authClient: authClient,
-		syncClient: syncClient,
-		config:     config,
-		logger:     logger,
-	}
-}
-
-// Authenticate authenticates with SyftHub and returns user info.
-func (a *APIAuthenticator) Authenticate(ctx context.Context) (*UserContext, error) {
-	user, err := a.authClient.GetMe(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	if a.logger != nil {
-		a.logger.Info("authenticated with SyftHub",
-			"username", user.Username,
-			"email", user.Email,
-		)
-	}
-
-	return user, nil
-}
-
-// SyncEndpoints syncs endpoints with SyftHub.
-func (a *APIAuthenticator) SyncEndpoints(ctx context.Context, endpoints []EndpointInfo) error {
-	// Update domain first
-	if !a.config.IsTunnelMode() {
-		if err := a.syncClient.UpdateDomain(ctx, a.config.SpaceURL); err != nil {
-			return err
-		}
-	}
-
-	// Sync endpoints
-	_, err := a.syncClient.SyncEndpoints(ctx, endpoints)
-	return err
-}
-
-// VerifyToken verifies a satellite token.
-func (a *APIAuthenticator) VerifyToken(ctx context.Context, token string) (*UserContext, error) {
-	return a.authClient.VerifyToken(ctx, token)
-}
-
-// GetNATSCredentials gets NATS credentials for tunnel mode.
-func (a *APIAuthenticator) GetNATSCredentials(ctx context.Context) (*NATSCredentials, error) {
-	username := a.config.GetTunnelUsername()
-	return a.authClient.GetNATSCredentials(ctx, username)
-}
-
-// RegisterEncryptionPublicKey registers the space's X25519 public key with the hub.
-func (a *APIAuthenticator) RegisterEncryptionPublicKey(ctx context.Context, publicKeyB64 string) error {
-	return a.authClient.RegisterEncryptionPublicKey(ctx, publicKeyB64)
 }

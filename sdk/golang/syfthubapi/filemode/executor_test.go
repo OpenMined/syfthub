@@ -618,7 +618,6 @@ func TestCreateExecutor(t *testing.T) {
 			WorkDir:    tmpDir,
 		}
 		runtime := &RuntimeConfig{
-			Mode:    "subprocess",
 			Timeout: 30,
 		}
 
@@ -649,7 +648,6 @@ func TestCreateExecutor(t *testing.T) {
 			WorkDir:    tmpDir,
 		}
 		runtime := &RuntimeConfig{
-			Mode:    "subprocess",
 			Timeout: 30,
 		}
 

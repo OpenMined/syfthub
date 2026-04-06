@@ -347,29 +347,3 @@ func TestCLIRuntime_CreateRejectsBadSpecType(t *testing.T) {
 		t.Errorf("error message should mention expected type, got: %v", err)
 	}
 }
-
-func TestContainerOverrides_Fields(t *testing.T) {
-	o := ContainerOverrides{
-		Image:    "custom:v3",
-		CPUs:     8.0,
-		MemoryMB: 4096,
-		GPU:      "device=1",
-		Network:  "host",
-	}
-
-	if o.Image != "custom:v3" {
-		t.Errorf("Image = %q", o.Image)
-	}
-	if o.CPUs != 8.0 {
-		t.Errorf("CPUs = %f", o.CPUs)
-	}
-	if o.MemoryMB != 4096 {
-		t.Errorf("MemoryMB = %d", o.MemoryMB)
-	}
-	if o.GPU != "device=1" {
-		t.Errorf("GPU = %q", o.GPU)
-	}
-	if o.Network != "host" {
-		t.Errorf("Network = %q", o.Network)
-	}
-}

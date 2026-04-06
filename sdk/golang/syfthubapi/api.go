@@ -60,11 +60,8 @@ type SyftAPI struct {
 	// containerCleanup cleans up orphaned containers (set via option).
 	containerCleanup ContainerCleanupFunc
 
-	// authClient handles token verification with SyftHub backend.
-	authClient *AuthClient
-
-	// syncClient handles endpoint synchronization with SyftHub backend.
-	syncClient *SyncClient
+	// hubClient handles all communication with the SyftHub backend.
+	hubClient *HubClient
 
 	// processor handles request execution.
 	processor *RequestProcessor
@@ -80,7 +77,8 @@ type SyftAPI struct {
 	shutdownHooks []LifecycleHook
 
 	// shutdown coordination.
-	shutdownCh chan struct{}
+	shutdownCh   chan struct{}
+	shutdownOnce sync.Once
 
 	// mu protects concurrent access.
 	mu sync.RWMutex
@@ -90,6 +88,16 @@ type SyftAPI struct {
 type HeartbeatManager interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
+}
+
+// TunnelTransport extends Transport with tunnel-mode (NATS) capabilities.
+// This replaces the anonymous interface assertions that were previously used
+// to discover transport capabilities at runtime.
+type TunnelTransport interface {
+	Transport
+	SetAgentHandler(handler AgentSessionHandler)
+	SetTokenVerifier(fn func(ctx context.Context, token string) (*UserContext, error))
+	PublicKeyB64() string
 }
 
 // FileProvider interface for file-based endpoint management.
@@ -171,11 +179,8 @@ func New(opts ...Option) *SyftAPI {
 		Level: level,
 	}))
 
-	// Create auth client for token verification
-	authClient := NewAuthClient(config.SyftHubURL, config.APIKey, logger)
-
-	// Create sync client for endpoint synchronization
-	syncClient := NewSyncClient(config.SyftHubURL, config.APIKey, logger)
+	// Create hub client for all backend communication
+	hubClient := NewHubClient(config.SyftHubURL, config.APIKey, logger)
 
 	// Create endpoint registry
 	registry := NewEndpointRegistry()
@@ -184,7 +189,7 @@ func New(opts ...Option) *SyftAPI {
 	// Note: Policy enforcement is handled by Python policy_manager.runner
 	processor := NewRequestProcessor(&ProcessorConfig{
 		Registry:   registry,
-		AuthClient: authClient,
+		AuthClient: hubClient,
 		Logger:     logger,
 	})
 
@@ -192,8 +197,7 @@ func New(opts ...Option) *SyftAPI {
 		config:     config,
 		logger:     logger,
 		registry:   registry,
-		authClient: authClient,
-		syncClient: syncClient,
+		hubClient:  hubClient,
 		processor:  processor,
 		shutdownCh: make(chan struct{}),
 	}
@@ -287,12 +291,10 @@ func (api *SyftAPI) GetEndpoint(slug string) (*Endpoint, bool) {
 
 // Run starts the SyftAPI server and blocks until shutdown.
 func (api *SyftAPI) Run(ctx context.Context) error {
-	// Validate configuration
 	if err := api.config.Validate(); err != nil {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	// Setup signal handling
 	ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
@@ -302,146 +304,156 @@ func (api *SyftAPI) Run(ctx context.Context) error {
 		"tunnel_mode", api.config.IsTunnelMode(),
 	)
 
-	// Run startup hooks
 	for _, hook := range api.startupHooks {
 		if err := hook(ctx); err != nil {
 			return fmt.Errorf("startup hook failed: %w", err)
 		}
 	}
 
-	// Initialize container runtime if enabled (must happen before LoadEndpoints)
-	if api.config.Container.Enabled {
-		if api.containerRuntimeFactory == nil {
-			return fmt.Errorf("container mode enabled but no runtime factory configured: call SetContainerRuntimeFactory before Run()")
-		}
-
-		rt, err := api.containerRuntimeFactory(api.config.Container.Runtime, api.logger)
-		if err != nil {
-			return fmt.Errorf("failed to create container runtime: %w", err)
-		}
-		api.containerRuntime = rt
-		api.containerInstanceID = generateInstanceID()
-
-		api.logger.Info("container runtime initialized",
-			"runtime", api.config.Container.Runtime,
-			"image", api.config.Container.Image,
-			"instance_id", api.containerInstanceID,
-		)
-
-		// Clean up orphaned containers from previous runs
-		if api.containerCleanup != nil {
-			if err := api.containerCleanup(ctx, rt, api.containerInstanceID, api.logger); err != nil {
-				api.logger.Warn("failed to clean up orphaned containers", "error", err)
-			}
-		}
-
-		// Inject runtime into file provider if it supports container mode
-		if setter, ok := api.fileProvider.(ContainerRuntimeSetter); ok {
-			setter.SetContainerRuntime(rt, &api.config.Container, api.containerInstanceID)
-			api.logger.Info("container runtime injected into file provider")
-		}
+	if err := api.initContainerRuntime(ctx); err != nil {
+		return err
 	}
-
-	// Initialize file-based endpoints if configured and not already loaded
-	// Skip loading if endpoints are already in the registry (loaded by example before Run())
-	if api.config.EndpointsPath != "" && api.fileProvider != nil {
-		existingFileBased := 0
-		for _, ep := range api.registry.List() {
-			if ep.IsFileBased() {
-				existingFileBased++
-			}
-		}
-
-		if existingFileBased == 0 {
-			endpoints, err := api.fileProvider.LoadEndpoints()
-			if err != nil {
-				api.logger.Warn("failed to load file-based endpoints", "error", err)
-			} else {
-				api.registry.ReplaceFileBased(endpoints)
-				api.logger.Info("loaded file-based endpoints", "count", len(endpoints))
-			}
-		} else {
-			api.logger.Debug("file-based endpoints already loaded", "count", existingFileBased)
-		}
+	if err := api.loadFileEndpoints(); err != nil {
+		return err
 	}
-
-	// Sync endpoints with SyftHub
 	if err := api.syncEndpoints(ctx); err != nil {
 		api.logger.Warn("failed to sync endpoints", "error", err)
 	}
-
-	// Setup transport
-	if err := api.setupTransport(); err != nil {
-		return fmt.Errorf("failed to setup transport: %w", err)
+	if err := api.initTransport(ctx); err != nil {
+		return err
 	}
-	api.transport.SetRequestHandler(api.handleRequest)
+
+	return api.runServices(ctx)
+}
+
+// initContainerRuntime initializes the container runtime if enabled.
+func (api *SyftAPI) initContainerRuntime(ctx context.Context) error {
+	if !api.config.Container.Enabled {
+		return nil
+	}
+
+	if api.containerRuntimeFactory == nil {
+		return fmt.Errorf("container mode enabled but no runtime factory configured: call SetContainerRuntimeFactory before Run()")
+	}
+
+	rt, err := api.containerRuntimeFactory(api.config.Container.Runtime, api.logger)
+	if err != nil {
+		return fmt.Errorf("failed to create container runtime: %w", err)
+	}
+	api.containerRuntime = rt
+	api.containerInstanceID = generateInstanceID()
+
+	api.logger.Info("container runtime initialized",
+		"runtime", api.config.Container.Runtime,
+		"image", api.config.Container.Image,
+		"instance_id", api.containerInstanceID,
+	)
+
+	if api.containerCleanup != nil {
+		if err := api.containerCleanup(ctx, rt, api.containerInstanceID, api.logger); err != nil {
+			api.logger.Warn("failed to clean up orphaned containers", "error", err)
+		}
+	}
+
+	if setter, ok := api.fileProvider.(ContainerRuntimeSetter); ok {
+		setter.SetContainerRuntime(rt, &api.config.Container, api.containerInstanceID)
+		api.logger.Info("container runtime injected into file provider")
+	}
+
+	return nil
+}
+
+// loadFileEndpoints loads file-based endpoints if configured and not already loaded.
+func (api *SyftAPI) loadFileEndpoints() error {
+	if api.config.EndpointsPath == "" || api.fileProvider == nil {
+		return nil
+	}
+
+	existingFileBased := 0
+	for _, ep := range api.registry.List() {
+		if ep.IsFileBased() {
+			existingFileBased++
+		}
+	}
+
+	if existingFileBased > 0 {
+		api.logger.Debug("file-based endpoints already loaded", "count", existingFileBased)
+		return nil
+	}
+
+	endpoints, err := api.fileProvider.LoadEndpoints()
+	if err != nil {
+		api.logger.Warn("failed to load file-based endpoints", "error", err)
+		return nil // non-fatal
+	}
+
+	api.registry.ReplaceFileBased(endpoints)
+	api.logger.Info("loaded file-based endpoints", "count", len(endpoints))
+	return nil
+}
+
+// initTransport configures the transport layer and agent session manager.
+func (api *SyftAPI) initTransport(ctx context.Context) error {
+	if api.transport == nil {
+		return &ConfigurationError{
+			Field:   "transport",
+			Message: "transport not configured — call SetTransport() before Run()",
+		}
+	}
+
+	// Compose middleware → processor pipeline
+	handler := RequestHandler(api.processor.Process)
+	if len(api.middleware) > 0 {
+		chain := NewMiddlewareChain(api.middleware...)
+		handler = chain.Then(handler)
+	}
+	api.transport.SetRequestHandler(handler)
 
 	// Initialize agent session manager unconditionally. Agent endpoints may be
-	// registered dynamically after startup (e.g., via the desktop app's CreateEndpoint),
-	// so the manager must be ready before any endpoints exist.
+	// registered dynamically after startup (e.g., via the desktop app's CreateEndpoint).
 	api.agentSessionManager = NewAgentSessionManager(api.registry, api.logger, 0)
 	api.agentSessionManager.StartReaper(ctx, 60*time.Second)
 	api.logger.Info("agent session manager initialized")
 
-	// Wire agent session manager to NATS transport for agent message dispatch.
-	// Use anonymous interface to avoid import cycle with transport package.
-	type agentHandlerSetter interface {
-		SetAgentHandler(handler AgentSessionHandler)
-	}
-	if nt, ok := api.transport.(agentHandlerSetter); ok {
-		nt.SetAgentHandler(api.agentSessionManager)
-		api.logger.Info("agent handler wired to transport")
-	}
+	// Wire tunnel-mode capabilities if the transport supports them.
+	if tt, ok := api.transport.(TunnelTransport); ok {
+		tt.SetAgentHandler(api.agentSessionManager)
+		tt.SetTokenVerifier(api.hubClient.VerifyToken)
+		api.logger.Info("agent handler and token verifier wired to tunnel transport")
 
-	// Wire token verifier so agent sessions authenticate satellite tokens
-	// using the same AuthClient as the standard request pipeline.
-	type tokenVerifierSetter interface {
-		SetTokenVerifier(func(ctx context.Context, token string) (*UserContext, error))
-	}
-	if tv, ok := api.transport.(tokenVerifierSetter); ok {
-		tv.SetTokenVerifier(api.authClient.VerifyToken)
-		api.logger.Info("token verifier wired to agent transport")
-	}
-
-	// Register X25519 encryption public key if the transport supports it (NATS tunnel mode).
-	// The aggregator fetches this key to encrypt requests before sending them.
-	if ekp, ok := api.transport.(interface{ PublicKeyB64() string }); ok {
-		pubKeyB64 := ekp.PublicKeyB64()
+		pubKeyB64 := tt.PublicKeyB64()
 		api.logger.Info("registering X25519 encryption public key with hub")
-		if err := api.authClient.RegisterEncryptionPublicKey(ctx, pubKeyB64); err != nil {
+		if err := api.hubClient.RegisterEncryptionPublicKey(ctx, pubKeyB64); err != nil {
 			return fmt.Errorf("failed to register encryption public key: %w", err)
 		}
 		api.logger.Info("registered X25519 encryption public key")
 	}
 
-	// Start components concurrently
+	return nil
+}
+
+// runServices starts all long-running components concurrently and blocks until shutdown.
+func (api *SyftAPI) runServices(ctx context.Context) error {
 	g, gCtx := errgroup.WithContext(ctx)
 
-	// Start heartbeat
 	if api.config.HeartbeatEnabled && api.heartbeatManager != nil {
 		g.Go(func() error {
 			return api.heartbeatManager.Start(gCtx)
 		})
 	}
 
-	// Start file watcher
 	if api.config.WatchEnabled && api.fileProvider != nil {
 		g.Go(func() error {
 			return api.fileProvider.Start(gCtx)
 		})
 	}
 
-	// Start transport
 	g.Go(func() error {
 		return api.transport.Start(gCtx)
 	})
 
-	// Wait for shutdown signal or error
 	err := g.Wait()
-
-	// Run shutdown
 	api.shutdown(context.Background())
-
 	return err
 }
 
@@ -476,11 +488,14 @@ func (api *SyftAPI) shutdown(ctx context.Context) {
 		}
 	}
 
-	// Close all endpoint executors
+	// Close all endpoint invokers (which close their owned executors).
+	// fileProvider.Stop() is called above before this point, which ensures
+	// the file watcher has stopped delivering reload events. This ordering
+	// prevents ReplaceFileBased from racing with the invoker close loop.
 	for _, ep := range api.registry.List() {
-		if ep.executor != nil {
-			if err := ep.executor.Close(); err != nil {
-				api.logger.Warn("error closing executor", "endpoint", ep.Slug, "error", err)
+		if ep.invoker != nil {
+			if err := ep.invoker.Close(); err != nil {
+				api.logger.Warn("error closing invoker", "endpoint", ep.Slug, "error", err)
 			}
 		}
 	}
@@ -495,27 +510,12 @@ func (api *SyftAPI) shutdown(ctx context.Context) {
 	api.logger.Info("SyftAPI shutdown complete")
 }
 
-// Shutdown initiates graceful shutdown.
+// Shutdown initiates graceful shutdown. Safe to call multiple times.
 func (api *SyftAPI) Shutdown(ctx context.Context) error {
-	close(api.shutdownCh)
+	api.shutdownOnce.Do(func() {
+		close(api.shutdownCh)
+	})
 	api.shutdown(ctx)
-	return nil
-}
-
-// setupTransport creates the appropriate transport based on config.
-func (api *SyftAPI) setupTransport() error {
-	if api.config.IsTunnelMode() {
-		// NATS transport will be set externally or created here
-		api.logger.Info("tunnel mode enabled",
-			"username", api.config.GetTunnelUsername(),
-		)
-	} else {
-		// HTTP transport will be created in transport package
-		api.logger.Info("HTTP mode enabled",
-			"host", api.config.ServerHost,
-			"port", api.config.ServerPort,
-		)
-	}
 	return nil
 }
 
@@ -555,13 +555,13 @@ func (api *SyftAPI) syncEndpoints(ctx context.Context) error {
 	api.logger.Info("syncing endpoints with SyftHub", "count", len(infos))
 
 	// First update user's domain
-	if err := api.syncClient.UpdateDomain(ctx, api.config.SpaceURL); err != nil {
+	if err := api.hubClient.UpdateDomain(ctx, api.config.SpaceURL); err != nil {
 		api.logger.Warn("failed to update domain", "error", err)
 		// Continue with sync even if domain update fails
 	}
 
 	// Sync endpoints
-	result, err := api.syncClient.SyncEndpoints(ctx, infos)
+	result, err := api.hubClient.SyncEndpoints(ctx, infos)
 	if err != nil {
 		return err
 	}
@@ -572,11 +572,6 @@ func (api *SyftAPI) syncEndpoints(ctx context.Context) error {
 	)
 
 	return nil
-}
-
-// handleRequest processes an incoming request by delegating to the processor.
-func (api *SyftAPI) handleRequest(ctx context.Context, req *TunnelRequest) (*TunnelResponse, error) {
-	return api.processor.Process(ctx, req)
 }
 
 // SetTransport sets the transport (used by transport package).
@@ -613,6 +608,12 @@ func (api *SyftAPI) SyncEndpoints(ctx context.Context) error {
 // Errors are logged but not returned.
 func (api *SyftAPI) SyncEndpointsAsync() {
 	go func() {
+		// Skip if already shut down to avoid racing with a subsequent Run().
+		select {
+		case <-api.shutdownCh:
+			return
+		default:
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := api.syncEndpoints(ctx); err != nil {

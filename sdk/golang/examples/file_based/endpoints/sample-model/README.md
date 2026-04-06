@@ -10,7 +10,6 @@ env:
   optional: [DEBUG]
   inherit: [PATH, HOME]
 runtime:
-  mode: subprocess
   workers: 1
   timeout: 30
 ---

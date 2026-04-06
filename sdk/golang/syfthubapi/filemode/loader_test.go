@@ -61,7 +61,6 @@ env:
   required: []
   optional: []
 runtime:
-  mode: subprocess
   timeout: 60
   workers: 2
 ---

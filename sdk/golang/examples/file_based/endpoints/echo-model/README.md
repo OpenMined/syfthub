@@ -6,7 +6,6 @@ description: Echos back the user message
 enabled: true
 version: "1.0.1"
 runtime:
-  mode: subprocess
   timeout: 30
 ---
 

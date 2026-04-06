@@ -23,7 +23,7 @@ type RequestLog struct {
 	// EndpointSlug is the target endpoint identifier.
 	EndpointSlug string `json:"endpoint_slug"`
 
-	// EndpointType is "model" or "data_source".
+	// EndpointType is "model", "data_source", or "agent".
 	EndpointType string `json:"endpoint_type"`
 
 	// User contains the authenticated user information.

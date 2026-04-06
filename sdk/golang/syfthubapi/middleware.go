@@ -214,19 +214,3 @@ type Logger interface {
 	Warn(msg string, args ...any)
 	Error(msg string, args ...any)
 }
-
-// SlogLogger wraps *slog.Logger to implement Logger interface.
-// Since *slog.Logger already has Debug, Info, Warn, Error methods with
-// matching signatures, the embedded field's promoted methods satisfy Logger
-// without any explicit re-implementation.
-//
-// Deprecated: *slog.Logger satisfies Logger directly; pass it without wrapping.
-type SlogLogger struct {
-	*slog.Logger
-}
-
-// NewSlogLogger creates a new SlogLogger.
-// Deprecated: *slog.Logger satisfies Logger directly; pass it without wrapping.
-func NewSlogLogger(logger *slog.Logger) *SlogLogger {
-	return &SlogLogger{Logger: logger}
-}

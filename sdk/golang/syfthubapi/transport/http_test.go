@@ -403,7 +403,7 @@ func TestNewHTTPTransportWithLogger(t *testing.T) {
 	cfg := &Config{
 		Host:   "localhost",
 		Port:   8080,
-		Logger: &syfthubapi.SlogLogger{Logger: logger},
+		Logger: logger,
 	}
 
 	transport, err := NewHTTPTransport(cfg)

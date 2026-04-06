@@ -110,10 +110,10 @@ func main() {
 		// In a real scenario, this would call the auth client
 		log.Println("Setting up NATS transport...")
 
-		// Create auth client to get NATS credentials
-		authClient := syfthubapi.NewAuthClient(config.SyftHubURL, config.APIKey, &slogAdapter{logger})
+		// Create hub client to get NATS credentials
+		hubClient := syfthubapi.NewHubClient(config.SyftHubURL, config.APIKey, &slogAdapter{logger})
 
-		natsCreds, err := authClient.GetNATSCredentials(context.Background(), config.GetTunnelUsername())
+		natsCreds, err := hubClient.GetNATSCredentials(context.Background(), config.GetTunnelUsername())
 		if err != nil {
 			log.Printf("Failed to get NATS credentials: %v", err)
 			log.Println("Using mock NATS credentials for testing...")

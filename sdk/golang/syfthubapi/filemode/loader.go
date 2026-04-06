@@ -11,14 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
-	"github.com/openmined/syfthub/sdk/golang/syfthubapi/containermode"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
-)
-
-// Execution mode constants for RuntimeConfig.Mode.
-const (
-	ExecutionModeSubprocess = "subprocess"
-	ExecutionModeContainer  = "container"
 )
 
 // EndpointConfig represents the configuration from README.md frontmatter.
@@ -40,13 +33,11 @@ type EnvConfig struct {
 	Inherit  []string `yaml:"inherit"`
 }
 
-// RuntimeConfig specifies runtime settings.
+// RuntimeConfig specifies runtime settings for subprocess execution.
 type RuntimeConfig struct {
-	Mode      string                            `yaml:"mode"`                // "subprocess" (default) or "container"
-	Workers   int                               `yaml:"workers"`             // Number of worker processes
-	Timeout   int                               `yaml:"timeout"`             // Execution timeout in seconds
-	Extras    []string                          `yaml:"extras"`              // pip extras groups
-	Container *containermode.ContainerOverrides `yaml:"container,omitempty"` // Per-endpoint container overrides
+	Workers int      `yaml:"workers"` // Number of worker processes
+	Timeout int      `yaml:"timeout"` // Execution timeout in seconds
+	Extras  []string `yaml:"extras"`  // pip extras groups
 }
 
 // LoadedEndpoint represents a fully loaded endpoint from the file system.
@@ -67,10 +58,16 @@ type Loader struct {
 }
 
 // NewLoader creates a new endpoint loader.
+// It ensures the base directory exists so that first-run or manual config
+// paths are created eagerly rather than on every LoadAll call.
 func NewLoader(basePath string, logger *slog.Logger) *Loader {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	// Best-effort: create the directory at init time so the first LoadAll
+	// doesn't fail with "no such directory" on a fresh install. Errors
+	// here are non-fatal; LoadAll will surface them when it reads.
+	_ = os.MkdirAll(basePath, 0755)
 	return &Loader{
 		basePath: basePath,
 		logger:   logger,
@@ -167,9 +164,6 @@ func (l *Loader) LoadEndpoint(dir string) (*LoadedEndpoint, error) {
 	if config.Enabled == nil {
 		enabled := true
 		config.Enabled = &enabled
-	}
-	if config.Runtime.Mode == "" {
-		config.Runtime.Mode = ExecutionModeSubprocess
 	}
 	if config.Runtime.Timeout == 0 {
 		config.Runtime.Timeout = 30

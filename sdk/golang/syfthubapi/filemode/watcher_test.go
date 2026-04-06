@@ -121,6 +121,11 @@ func TestWatcherShouldIgnoreDefaults(t *testing.T) {
 		{"/tmp/test/file.pyo", true},
 		{"/tmp/test/.DS_Store", true},
 		{"/tmp/test/.policy_store.db", true},
+		// SQLite policy store files — should be ignored to prevent spurious reloads
+		{"/tmp/test/store.db", true},
+		{"/tmp/test/store.db-wal", true},
+		{"/tmp/test/store.db-shm", true},
+		{"/tmp/test/store.db-journal", true},
 		{"/tmp/test/runner.py", false},
 		{"/tmp/test/.env", false}, // .env should NOT be ignored
 	}

@@ -11,11 +11,11 @@ import (
 	"testing"
 )
 
-func TestNewAuthClient(t *testing.T) {
+func TestNewHubClient(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
 
-	client := NewAuthClient("https://hub.example.com", "test-api-key", NewSlogLogger(logger))
+	client := NewHubClient("https://hub.example.com", "test-api-key", logger)
 
 	if client == nil {
 		t.Fatal("client is nil")
@@ -28,12 +28,12 @@ func TestNewAuthClient(t *testing.T) {
 	}
 }
 
-func TestAuthClientVerifyToken(t *testing.T) {
+func TestHubClientVerifyToken(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
 
 	t.Run("empty token", func(t *testing.T) {
-		client := NewAuthClient("http://localhost", "key", NewSlogLogger(logger))
+		client := NewHubClient("http://localhost", "key", logger)
 
 		_, err := client.VerifyToken(context.Background(), "")
 		if err == nil {
@@ -67,7 +67,7 @@ func TestAuthClientVerifyToken(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewAuthClient(server.URL, "test-key", NewSlogLogger(logger))
+		client := NewHubClient(server.URL, "test-key", logger)
 		ctx, err := client.VerifyToken(context.Background(), "valid-token")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -92,7 +92,7 @@ func TestAuthClientVerifyToken(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewAuthClient(server.URL, "test-key", NewSlogLogger(logger))
+		client := NewHubClient(server.URL, "test-key", logger)
 		_, err := client.VerifyToken(context.Background(), "invalid-token")
 		if err == nil {
 			t.Fatal("expected error for invalid token")
@@ -106,7 +106,7 @@ func TestAuthClientVerifyToken(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewAuthClient(server.URL, "test-key", NewSlogLogger(logger))
+		client := NewHubClient(server.URL, "test-key", logger)
 		_, err := client.VerifyToken(context.Background(), "token")
 		if err == nil {
 			t.Fatal("expected error for server error")
@@ -119,7 +119,7 @@ func TestAuthClientVerifyToken(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewAuthClient(server.URL, "test-key", NewSlogLogger(logger))
+		client := NewHubClient(server.URL, "test-key", logger)
 		_, err := client.VerifyToken(context.Background(), "token")
 		if err == nil {
 			t.Fatal("expected error for invalid json")
@@ -136,7 +136,7 @@ func TestAuthClientVerifyToken(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewAuthClient(server.URL, "test-key", NewSlogLogger(logger))
+		client := NewHubClient(server.URL, "test-key", logger)
 		_, err := client.VerifyToken(context.Background(), "token")
 		if err == nil {
 			t.Fatal("expected error for missing user context")
@@ -144,7 +144,7 @@ func TestAuthClientVerifyToken(t *testing.T) {
 	})
 }
 
-func TestAuthClientGetMe(t *testing.T) {
+func TestHubClientGetMe(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
 
@@ -166,7 +166,7 @@ func TestAuthClientGetMe(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewAuthClient(server.URL, "test-key", NewSlogLogger(logger))
+		client := NewHubClient(server.URL, "test-key", logger)
 		user, err := client.GetMe(context.Background())
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -184,7 +184,7 @@ func TestAuthClientGetMe(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewAuthClient(server.URL, "test-key", NewSlogLogger(logger))
+		client := NewHubClient(server.URL, "test-key", logger)
 		_, err := client.GetMe(context.Background())
 		if err == nil {
 			t.Fatal("expected error for unauthorized")
@@ -192,7 +192,7 @@ func TestAuthClientGetMe(t *testing.T) {
 	})
 }
 
-func TestAuthClientGetNATSCredentials(t *testing.T) {
+func TestHubClientGetNATSCredentials(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
 
@@ -209,7 +209,7 @@ func TestAuthClientGetNATSCredentials(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewAuthClient(server.URL, "test-key", NewSlogLogger(logger))
+		client := NewHubClient(server.URL, "test-key", logger)
 		creds, err := client.GetNATSCredentials(context.Background(), "testuser")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -233,7 +233,7 @@ func TestAuthClientGetNATSCredentials(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewAuthClient(server.URL, "test-key", NewSlogLogger(logger))
+		client := NewHubClient(server.URL, "test-key", logger)
 		_, err := client.GetNATSCredentials(context.Background(), "user")
 		if err == nil {
 			t.Fatal("expected error")
@@ -241,21 +241,7 @@ func TestAuthClientGetNATSCredentials(t *testing.T) {
 	})
 }
 
-func TestNewSyncClient(t *testing.T) {
-	var buf bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&buf, nil))
-
-	client := NewSyncClient("https://hub.example.com", "test-key", NewSlogLogger(logger))
-
-	if client == nil {
-		t.Fatal("client is nil")
-	}
-	if client.baseURL != "https://hub.example.com" {
-		t.Errorf("baseURL = %q", client.baseURL)
-	}
-}
-
-func TestSyncClientSyncEndpoints(t *testing.T) {
+func TestHubClientSyncEndpoints(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
 
@@ -276,7 +262,7 @@ func TestSyncClientSyncEndpoints(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewSyncClient(server.URL, "test-key", NewSlogLogger(logger))
+		client := NewHubClient(server.URL, "test-key", logger)
 		endpoints := []EndpointInfo{
 			{Slug: "ep1", Name: "Endpoint 1", Type: EndpointTypeModel},
 			{Slug: "ep2", Name: "Endpoint 2", Type: EndpointTypeDataSource},
@@ -302,7 +288,7 @@ func TestSyncClientSyncEndpoints(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewSyncClient(server.URL, "test-key", NewSlogLogger(logger))
+		client := NewHubClient(server.URL, "test-key", logger)
 		_, err := client.SyncEndpoints(context.Background(), nil)
 		if err == nil {
 			t.Fatal("expected error")
@@ -318,7 +304,7 @@ func TestSyncClientSyncEndpoints(t *testing.T) {
 	})
 }
 
-func TestSyncClientUpdateDomain(t *testing.T) {
+func TestHubClientUpdateDomain(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
 
@@ -335,7 +321,7 @@ func TestSyncClientUpdateDomain(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewSyncClient(server.URL, "test-key", NewSlogLogger(logger))
+		client := NewHubClient(server.URL, "test-key", logger)
 		err := client.UpdateDomain(context.Background(), "https://myspace.example.com")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -349,216 +335,10 @@ func TestSyncClientUpdateDomain(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := NewSyncClient(server.URL, "test-key", NewSlogLogger(logger))
+		client := NewHubClient(server.URL, "test-key", logger)
 		err := client.UpdateDomain(context.Background(), "invalid")
 		if err == nil {
 			t.Fatal("expected error")
 		}
 	})
-}
-
-func TestNewAPIAuthenticator(t *testing.T) {
-	var buf bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&buf, nil))
-	slogLogger := NewSlogLogger(logger)
-
-	cfg := &Config{
-		SyftHubURL: "https://hub.example.com",
-		APIKey:     "test-key",
-		SpaceURL:   "https://space.example.com",
-	}
-
-	authClient := NewAuthClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
-	syncClient := NewSyncClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
-	auth := NewAPIAuthenticator(cfg, slogLogger, authClient, syncClient)
-
-	if auth == nil {
-		t.Fatal("authenticator is nil")
-	}
-	if auth.authClient == nil {
-		t.Error("authClient is nil")
-	}
-	if auth.syncClient == nil {
-		t.Error("syncClient is nil")
-	}
-}
-
-func TestAPIAuthenticatorAuthenticate(t *testing.T) {
-	var buf bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&buf, nil))
-	slogLogger := NewSlogLogger(logger)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(UserContext{
-			Sub:      "user-123",
-			Username: "authuser",
-		})
-	}))
-	defer server.Close()
-
-	cfg := &Config{
-		SyftHubURL: server.URL,
-		APIKey:     "test-key",
-		SpaceURL:   "https://space.example.com",
-	}
-
-	authClient := NewAuthClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
-	syncClient := NewSyncClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
-	auth := NewAPIAuthenticator(cfg, slogLogger, authClient, syncClient)
-	user, err := auth.Authenticate(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if user.Username != "authuser" {
-		t.Errorf("Username = %q", user.Username)
-	}
-}
-
-func TestAPIAuthenticatorSyncEndpoints(t *testing.T) {
-	var buf bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&buf, nil))
-	slogLogger := NewSlogLogger(logger)
-
-	t.Run("non-tunnel mode updates domain first", func(t *testing.T) {
-		domainUpdated := false
-		endpointsSynced := false
-
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case "/api/v1/users/me":
-				domainUpdated = true
-				w.WriteHeader(http.StatusOK)
-			case "/api/v1/endpoints/sync":
-				endpointsSynced = true
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(SyncEndpointsResponse{Synced: 1})
-			}
-		}))
-		defer server.Close()
-
-		cfg := &Config{
-			SyftHubURL: server.URL,
-			APIKey:     "test-key",
-			SpaceURL:   "https://space.example.com", // Non-tunnel mode
-		}
-
-		authClient := NewAuthClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
-		syncClient := NewSyncClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
-		auth := NewAPIAuthenticator(cfg, slogLogger, authClient, syncClient)
-		err := auth.SyncEndpoints(context.Background(), []EndpointInfo{
-			{Slug: "ep1"},
-		})
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		if !domainUpdated {
-			t.Error("domain should be updated in non-tunnel mode")
-		}
-		if !endpointsSynced {
-			t.Error("endpoints should be synced")
-		}
-	})
-
-	t.Run("tunnel mode skips domain update", func(t *testing.T) {
-		domainUpdated := false
-
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			switch r.URL.Path {
-			case "/api/v1/users/me":
-				domainUpdated = true
-				w.WriteHeader(http.StatusOK)
-			case "/api/v1/endpoints/sync":
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(SyncEndpointsResponse{Synced: 1})
-			}
-		}))
-		defer server.Close()
-
-		cfg := &Config{
-			SyftHubURL: server.URL,
-			APIKey:     "test-key",
-			SpaceURL:   "tunneling:testuser", // Tunnel mode
-		}
-
-		authClient := NewAuthClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
-		syncClient := NewSyncClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
-		auth := NewAPIAuthenticator(cfg, slogLogger, authClient, syncClient)
-		err := auth.SyncEndpoints(context.Background(), nil)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		if domainUpdated {
-			t.Error("domain should NOT be updated in tunnel mode")
-		}
-	})
-}
-
-func TestAPIAuthenticatorVerifyToken(t *testing.T) {
-	var buf bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&buf, nil))
-	slogLogger := NewSlogLogger(logger)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(VerifyTokenResponse{
-			Valid:    true,
-			Sub:      "user-123",
-			Username: "verified",
-		})
-	}))
-	defer server.Close()
-
-	cfg := &Config{
-		SyftHubURL: server.URL,
-		APIKey:     "test-key",
-		SpaceURL:   "https://space.example.com",
-	}
-
-	authClient := NewAuthClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
-	syncClient := NewSyncClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
-	auth := NewAPIAuthenticator(cfg, slogLogger, authClient, syncClient)
-	user, err := auth.VerifyToken(context.Background(), "token")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if user.Username != "verified" {
-		t.Errorf("Username = %q", user.Username)
-	}
-}
-
-func TestAPIAuthenticatorGetNATSCredentials(t *testing.T) {
-	var buf bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&buf, nil))
-	slogLogger := NewSlogLogger(logger)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
-			"nats_auth_token": "nats-token",
-		})
-	}))
-	defer server.Close()
-
-	cfg := &Config{
-		SyftHubURL: server.URL,
-		APIKey:     "test-key",
-		SpaceURL:   "tunneling:mytunneluser",
-	}
-
-	authClient := NewAuthClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
-	syncClient := NewSyncClient(cfg.SyftHubURL, cfg.APIKey, slogLogger)
-	auth := NewAPIAuthenticator(cfg, slogLogger, authClient, syncClient)
-	creds, err := auth.GetNATSCredentials(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if creds.Subject != "syfthub.spaces.mytunneluser" {
-		t.Errorf("Subject = %q", creds.Subject)
-	}
 }

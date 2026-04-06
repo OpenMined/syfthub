@@ -195,6 +195,19 @@ class RequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        # Policy-check-only: return result without invoking the handler.
+        # Used by agent pre-session policy gates where there is no noop handler
+        # (unlike subprocess mode which loads a dedicated noop runner.py).
+        if executor_input.get("policy_check_only", False):
+            self._send_json(
+                200,
+                {
+                    "success": True,
+                    "policy_result": policy_result,
+                },
+            )
+            return
+
         # Execute handler
         endpoint_type = executor_input.get("type", "model")
         try:

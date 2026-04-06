@@ -46,15 +46,6 @@ type PortMapping struct {
 	ContainerPort string // e.g. "8080"
 }
 
-// ContainerOverrides allows per-endpoint customization of container resources.
-type ContainerOverrides struct {
-	Image    string  `yaml:"image,omitempty"`
-	CPUs     float64 `yaml:"cpus,omitempty"`
-	MemoryMB int     `yaml:"memory_mb,omitempty"`
-	GPU      string  `yaml:"gpu,omitempty"`
-	Network  string  `yaml:"network,omitempty"`
-}
-
 // CLIRuntime wraps a Docker or Podman CLI binary.
 type CLIRuntime struct {
 	binary string // "docker" or "podman"
@@ -95,6 +86,18 @@ func (r *CLIRuntime) Create(ctx context.Context, spec any) (string, error) {
 	cs, ok := spec.(*ContainerSpec)
 	if !ok {
 		return "", fmt.Errorf("expected *ContainerSpec, got %T", spec)
+	}
+
+	// Pre-create: force-remove any existing container with this name so we
+	// always start clean. This handles stale containers left behind by a
+	// crashed or SIGKILL'd process that CleanupOrphans may not have removed
+	// (e.g., same-instance restart with a static instanceID like "desktop").
+	// The removal is best-effort — errors are silently ignored because the
+	// container simply may not exist.
+	if cs.Name != "" {
+		if _, err := r.execCommand(ctx, "rm", "-f", cs.Name); err != nil {
+			r.logger.Debug("pre-create rm: container may not exist", "name", cs.Name)
+		}
 	}
 
 	args := r.buildRunArgs(cs)

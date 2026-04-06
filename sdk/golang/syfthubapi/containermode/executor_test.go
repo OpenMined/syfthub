@@ -19,7 +19,7 @@ func TestBuildEndpointSpec_Defaults(t *testing.T) {
 		Network:  "bridge",
 	}
 
-	spec := BuildEndpointSpec("my-model", "/path/to/endpoint", cfg, nil, []string{"KEY=value"}, "abc12345")
+	spec := BuildEndpointSpec("my-model", "/path/to/endpoint", cfg, []string{"KEY=value"}, "abc12345")
 
 	if spec.Name != "syfthub-my-model-abc12345" {
 		t.Errorf("unexpected name: %s", spec.Name)
@@ -55,40 +55,6 @@ func TestBuildEndpointSpec_Defaults(t *testing.T) {
 	}
 	if spec.Mounts[0].Target != "/app/endpoint" || !spec.Mounts[0].ReadOnly {
 		t.Error("expected read-only /app/endpoint bind mount")
-	}
-}
-
-func TestBuildEndpointSpec_WithOverrides(t *testing.T) {
-	cfg := syfthubapi.ContainerConfig{
-		Image:    "default:latest",
-		CPUs:     1.0,
-		MemoryMB: 512,
-		Network:  "bridge",
-	}
-	overrides := &ContainerOverrides{
-		Image:    "custom:v2",
-		CPUs:     4.0,
-		MemoryMB: 2048,
-		GPU:      "all",
-	}
-
-	spec := BuildEndpointSpec("gpu-model", "/path", cfg, overrides, nil, "xyz")
-
-	if spec.Image != "custom:v2" {
-		t.Errorf("override not applied for image: %s", spec.Image)
-	}
-	if spec.CPUs != 4.0 {
-		t.Errorf("override not applied for CPUs: %f", spec.CPUs)
-	}
-	if spec.MemoryMB != 2048 {
-		t.Errorf("override not applied for memory: %d", spec.MemoryMB)
-	}
-	if spec.GPU != "all" {
-		t.Errorf("override not applied for GPU: %s", spec.GPU)
-	}
-	// Network should fall through to global default since override is empty
-	if spec.Network != "bridge" {
-		t.Errorf("expected global default network, got: %s", spec.Network)
 	}
 }
 
@@ -150,7 +116,7 @@ func TestBuildEndpointSpec_Labels(t *testing.T) {
 		Network:  "bridge",
 	}
 
-	spec := BuildEndpointSpec("test-endpoint", "/tmp/ep", cfg, nil, nil, "instance-42")
+	spec := BuildEndpointSpec("test-endpoint", "/tmp/ep", cfg, nil, "instance-42")
 
 	expectedLabels := map[string]string{
 		"syfthub.managed":  "true",
@@ -178,7 +144,7 @@ func TestBuildEndpointSpec_Security(t *testing.T) {
 		Network:  "none",
 	}
 
-	spec := BuildEndpointSpec("secure-ep", "/tmp/ep", cfg, nil, nil, "sec-id")
+	spec := BuildEndpointSpec("secure-ep", "/tmp/ep", cfg, nil, "sec-id")
 
 	if spec.User != "1000:1000" {
 		t.Errorf("User = %q, want %q", spec.User, "1000:1000")
@@ -202,7 +168,7 @@ func TestBuildEndpointSpec_MountPaths(t *testing.T) {
 		Network:  "bridge",
 	}
 
-	spec := BuildEndpointSpec("my-ds", "/home/user/endpoints/my-ds", cfg, nil, nil, "mount-id")
+	spec := BuildEndpointSpec("my-ds", "/home/user/endpoints/my-ds", cfg, nil, "mount-id")
 
 	if len(spec.Mounts) != 3 {
 		t.Fatalf("expected 3 mounts, got %d", len(spec.Mounts))
@@ -251,7 +217,7 @@ func TestBuildEndpointSpec_EnvVars(t *testing.T) {
 	}
 
 	envVars := []string{"API_KEY=test123", "LOG_LEVEL=DEBUG", "ENDPOINT_SLUG=my-model"}
-	spec := BuildEndpointSpec("my-model", "/tmp/ep", cfg, nil, envVars, "env-id")
+	spec := BuildEndpointSpec("my-model", "/tmp/ep", cfg, envVars, "env-id")
 
 	if len(spec.Env) != 3 {
 		t.Fatalf("expected 3 env vars, got %d", len(spec.Env))
@@ -272,7 +238,7 @@ func TestBuildEndpointSpec_NilEnvVars(t *testing.T) {
 		Network:  "bridge",
 	}
 
-	spec := BuildEndpointSpec("my-model", "/tmp/ep", cfg, nil, nil, "nil-env-id")
+	spec := BuildEndpointSpec("my-model", "/tmp/ep", cfg, nil, "nil-env-id")
 
 	if spec.Env != nil {
 		t.Errorf("expected nil Env, got %v", spec.Env)
@@ -287,7 +253,7 @@ func TestBuildEndpointSpec_PortMapping(t *testing.T) {
 		Network:  "bridge",
 	}
 
-	spec := BuildEndpointSpec("port-test", "/tmp/ep", cfg, nil, nil, "port-id")
+	spec := BuildEndpointSpec("port-test", "/tmp/ep", cfg, nil, "port-id")
 
 	if len(spec.Ports) != 1 {
 		t.Fatalf("expected 1 port mapping, got %d", len(spec.Ports))
@@ -300,41 +266,6 @@ func TestBuildEndpointSpec_PortMapping(t *testing.T) {
 	}
 }
 
-func TestBuildEndpointSpec_PartialOverrides(t *testing.T) {
-	cfg := syfthubapi.ContainerConfig{
-		Image:    "default:latest",
-		CPUs:     1.0,
-		MemoryMB: 512,
-		Network:  "bridge",
-		GPU:      "",
-	}
-
-	// Only override image and GPU, leave other fields as zero values
-	overrides := &ContainerOverrides{
-		Image: "custom:v3",
-		GPU:   "all",
-	}
-
-	spec := BuildEndpointSpec("partial", "/tmp/ep", cfg, overrides, nil, "part-id")
-
-	if spec.Image != "custom:v3" {
-		t.Errorf("Image = %q, should be overridden", spec.Image)
-	}
-	if spec.GPU != "all" {
-		t.Errorf("GPU = %q, should be overridden", spec.GPU)
-	}
-	// Zero-value overrides should not replace global defaults
-	if spec.CPUs != 1.0 {
-		t.Errorf("CPUs = %f, should keep global default", spec.CPUs)
-	}
-	if spec.MemoryMB != 512 {
-		t.Errorf("MemoryMB = %d, should keep global default", spec.MemoryMB)
-	}
-	if spec.Network != "bridge" {
-		t.Errorf("Network = %q, should keep global default", spec.Network)
-	}
-}
-
 func TestBuildEndpointSpec_GPUFromGlobalConfig(t *testing.T) {
 	cfg := syfthubapi.ContainerConfig{
 		Image:    "runner:latest",
@@ -344,7 +275,7 @@ func TestBuildEndpointSpec_GPUFromGlobalConfig(t *testing.T) {
 		GPU:      "device=0",
 	}
 
-	spec := BuildEndpointSpec("gpu-global", "/tmp/ep", cfg, nil, nil, "gpu-id")
+	spec := BuildEndpointSpec("gpu-global", "/tmp/ep", cfg, nil, "gpu-id")
 
 	if spec.GPU != "device=0" {
 		t.Errorf("GPU = %q, should use global config", spec.GPU)
@@ -359,7 +290,7 @@ func TestBuildEndpointSpec_Tmpfs(t *testing.T) {
 		Network:  "bridge",
 	}
 
-	spec := BuildEndpointSpec("tmpfs-test", "/tmp/ep", cfg, nil, nil, "tmp-id")
+	spec := BuildEndpointSpec("tmpfs-test", "/tmp/ep", cfg, nil, "tmp-id")
 
 	if len(spec.Tmpfs) != 1 || spec.Tmpfs[0] != "/tmp" {
 		t.Errorf("Tmpfs = %v, want [/tmp]", spec.Tmpfs)
@@ -385,7 +316,7 @@ func TestBuildEndpointSpec_ContainerName(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		spec := BuildEndpointSpec(tt.slug, "/tmp/ep", cfg, nil, nil, tt.instanceID)
+		spec := BuildEndpointSpec(tt.slug, "/tmp/ep", cfg, nil, tt.instanceID)
 		if spec.Name != tt.wantName {
 			t.Errorf("slug=%q, instanceID=%q: Name = %q, want %q", tt.slug, tt.instanceID, spec.Name, tt.wantName)
 		}

@@ -43,6 +43,6 @@ func (b *AgentBuilder) Handler(handler AgentHandler) error {
 		}
 	}
 
-	b.endpoint.agentHandler = handler
+	b.endpoint.invoker = &AgentOneShotInvoker{handler: handler, slug: b.endpoint.Slug}
 	return b.api.registerEndpoint(b.endpoint)
 }

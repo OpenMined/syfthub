@@ -157,6 +157,13 @@ func (a *App) handleRequestLog(ctx context.Context, log *syfthubapi.RequestLog) 
 	}
 }
 
+// WriteLog writes a log entry through the same pipeline as request-driven logs,
+// persisting to the FileLogStore and notifying external listeners.
+// Used for agent sessions which are not processed by the RequestProcessor.
+func (a *App) WriteLog(ctx context.Context, log *syfthubapi.RequestLog) {
+	a.handleRequestLog(ctx, log)
+}
+
 // SetOnEndpointsChanged sets a callback that will be invoked when the file
 // watcher detects changes and endpoints are reloaded. This allows external
 // components (like the Wails GUI) to be notified of changes.
@@ -393,9 +400,9 @@ func (a *App) setupNATSTransport(ctx context.Context, cfg *syfthubapi.Config) (s
 	a.logger.Info("setting up NATS transport")
 
 	// Get NATS credentials from SyftHub
-	authClient := syfthubapi.NewAuthClient(cfg.SyftHubURL, cfg.APIKey, &slogAdapter{a.logger})
+	hubClient := syfthubapi.NewHubClient(cfg.SyftHubURL, cfg.APIKey, &slogAdapter{a.logger})
 
-	natsCreds, err := authClient.GetNATSCredentials(ctx, cfg.GetTunnelUsername())
+	natsCreds, err := hubClient.GetNATSCredentials(ctx, cfg.GetTunnelUsername())
 	if err != nil {
 		a.logger.Warn("failed to get NATS credentials, using fallback", "error", err)
 		natsCreds = &syfthubapi.NATSCredentials{

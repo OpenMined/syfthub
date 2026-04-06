@@ -70,7 +70,13 @@ func NewWatcher(cfg *WatcherConfig) (*Watcher, error) {
 			"*.pyc",
 			"*.pyo",
 			".DS_Store",
-			".policy_store.db", // SQLite policy store
+			// SQLite policy store files — written by policy_manager on every
+			// policy evaluation. Ignoring them prevents spurious container
+			// restarts after each policy check.
+			"store.db",
+			"store.db-wal",
+			"store.db-shm",
+			"store.db-journal",
 		}
 	}
 

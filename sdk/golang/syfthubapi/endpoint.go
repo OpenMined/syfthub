@@ -2,8 +2,7 @@ package syfthubapi
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
+	"log/slog"
 	"regexp"
 	"sync"
 )
@@ -40,24 +39,11 @@ type Endpoint struct {
 	// Readme is the markdown documentation (body after frontmatter).
 	Readme string
 
-	// dataSourceHandler is the handler for data source endpoints.
-	dataSourceHandler DataSourceHandler
+	// invoker encapsulates all type-specific and mode-specific execution logic.
+	invoker EndpointInvoker
 
-	// modelHandler is the handler for model endpoints.
-	modelHandler ModelHandler
-
-	// agentHandler is the handler for agent endpoints.
-	agentHandler AgentHandler
-
-	// isFileBasedEndpoint indicates if this is from file mode.
+	// isFileBased indicates if this is from file mode (for registry lifecycle management).
 	isFileBased bool
-
-	// executor is the subprocess executor (for file-based endpoints).
-	executor Executor
-
-	// policyExecutor runs policy checks without executing the handler.
-	// Used by agent endpoints where the handler lifecycle differs from model/data_source.
-	policyExecutor Executor
 }
 
 // Executor interface for executing endpoint handlers.
@@ -79,92 +65,44 @@ func (e *Endpoint) Info() EndpointInfo {
 	}
 }
 
-// SetExecutor sets the executor for file-based endpoints.
-// This also marks the endpoint as file-based.
-func (e *Endpoint) SetExecutor(exec Executor) {
-	e.executor = exec
+// SetInvoker sets the endpoint's invoker directly.
+func (e *Endpoint) SetInvoker(inv EndpointInvoker) {
+	e.invoker = inv
+}
+
+// Invoker returns the endpoint's invoker.
+func (e *Endpoint) Invoker() EndpointInvoker {
+	return e.invoker
+}
+
+// EndpointHandlerConfig holds the configuration for wiring an endpoint's handler.
+// This replaces the separate SetExecutor/SetAgentHandler/SetPolicyExecutor methods
+// with a single unified wiring point.
+type EndpointHandlerConfig struct {
+	Executor       Executor     // for model/data_source (subprocess/container)
+	AgentHandler   AgentHandler // for agents
+	PolicyExecutor Executor     // for agent policy checks
+	Logger         *slog.Logger // for agent invoker logging
+}
+
+// SetHandler wires the endpoint's invoker from the given config.
+// The endpoint type determines which fields are used.
+func (e *Endpoint) SetHandler(cfg EndpointHandlerConfig) {
 	e.isFileBased = true
-}
-
-// SetAgentHandler sets the agent handler for file-based agent endpoints.
-// This also marks the endpoint as file-based.
-func (e *Endpoint) SetAgentHandler(handler AgentHandler) {
-	e.agentHandler = handler
-	e.isFileBased = true
-}
-
-// SetPolicyExecutor sets a dedicated policy-check executor.
-// Used by agent endpoints that need policy enforcement but don't use the
-// standard SubprocessExecutor for their handler lifecycle.
-func (e *Endpoint) SetPolicyExecutor(exec Executor) {
-	e.policyExecutor = exec
-}
-
-// buildExecutorInput creates an ExecutorInput with the given type and populates
-// context and transaction token from the RequestContext.
-func (e *Endpoint) buildExecutorInput(inputType string, reqCtx *RequestContext) *ExecutorInput {
-	input := &ExecutorInput{Type: inputType}
-	if reqCtx != nil {
-		userID := ""
-		if reqCtx.User != nil {
-			userID = reqCtx.User.Username
+	switch e.Type {
+	case EndpointTypeAgent:
+		e.invoker = &AgentOneShotInvoker{
+			codec:          ModelCodec{},
+			handler:        cfg.AgentHandler,
+			policyExecutor: cfg.PolicyExecutor,
+			slug:           e.Slug,
+			logger:         cfg.Logger,
 		}
-		input.Context = &ExecutionContext{
-			UserID:       userID,
-			EndpointSlug: e.Slug,
-			EndpointType: string(e.Type),
-			Metadata:     reqCtx.Metadata,
-		}
-		input.TransactionToken = reqCtx.TransactionToken
+	case EndpointTypeDataSource:
+		e.invoker = &UnifiedInvoker{codec: DataSourceCodec{}, executor: cfg.Executor, slug: e.Slug, epType: e.Type}
+	case EndpointTypeModel, EndpointTypeModelDataSource:
+		e.invoker = &UnifiedInvoker{codec: ModelCodec{}, executor: cfg.Executor, slug: e.Slug, epType: e.Type}
 	}
-	return input
-}
-
-// executeViaSubprocess runs the executor, captures policy results, checks for
-// errors, and returns the raw result bytes. Callers unmarshal into the
-// appropriate type.
-func (e *Endpoint) executeViaSubprocess(ctx context.Context, input *ExecutorInput, reqCtx *RequestContext) (json.RawMessage, error) {
-	output, err := e.executor.Execute(ctx, input)
-	if err != nil {
-		return nil, &ExecutionError{
-			Endpoint: e.Slug,
-			Message:  "subprocess execution failed",
-			Cause:    err,
-		}
-	}
-
-	// Capture policy result in request context for logging
-	if reqCtx != nil && output.PolicyResult != nil {
-		reqCtx.PolicyResult = output.PolicyResult
-	}
-
-	if !output.Success {
-		return nil, &ExecutionError{
-			Endpoint:  e.Slug,
-			Message:   output.Error,
-			ErrorType: output.ErrorType,
-		}
-	}
-
-	return output.Result, nil
-}
-
-// CheckPolicies runs policy evaluation without executing the endpoint handler.
-// Returns nil PolicyResultOutput if no policy executor is configured (no policies).
-func (e *Endpoint) CheckPolicies(ctx context.Context, reqCtx *RequestContext) (*PolicyResultOutput, error) {
-	if e.policyExecutor == nil {
-		return nil, nil
-	}
-
-	input := e.buildExecutorInput(string(e.Type), reqCtx)
-	input.Messages = []Message{{Role: "user", Content: "policy_check"}}
-
-	output, err := e.policyExecutor.Execute(ctx, input)
-	if err != nil {
-		return nil, fmt.Errorf("policy check failed: %w", err)
-	}
-
-	return output.PolicyResult, nil
 }
 
 // IsFileBased returns whether this endpoint is file-based.
@@ -172,50 +110,42 @@ func (e *Endpoint) IsFileBased() bool {
 	return e.isFileBased
 }
 
+// invokeGuarded checks the endpoint type and invokes the registered invoker.
+// typeErrMsg is the message used when the endpoint type doesn't match expectedType.
+func (e *Endpoint) invokeGuarded(ctx context.Context, expectedType EndpointType, typeErrMsg string, input any, reqCtx *RequestContext) (any, error) {
+	if e.Type != expectedType {
+		return nil, &ExecutionError{Endpoint: e.Slug, Message: typeErrMsg}
+	}
+	if e.invoker == nil {
+		return nil, &ExecutionError{Endpoint: e.Slug, Message: "no handler registered"}
+	}
+	return e.invoker.Invoke(ctx, input, reqCtx)
+}
+
 // InvokeDataSource invokes a data source handler.
 func (e *Endpoint) InvokeDataSource(ctx context.Context, query string, reqCtx *RequestContext) ([]Document, error) {
-	if e.Type != EndpointTypeDataSource {
-		return nil, &ExecutionError{
-			Endpoint: e.Slug,
-			Message:  "endpoint is not a data source",
-		}
+	result, err := e.invokeGuarded(ctx, EndpointTypeDataSource, "endpoint is not a data source", query, reqCtx)
+	if err != nil {
+		return nil, err
 	}
-
-	if e.isFileBased && e.executor != nil {
-		return e.executeDataSourceViaSubprocess(ctx, query, reqCtx)
+	docs, ok := result.([]Document)
+	if !ok {
+		return nil, &ExecutionError{Endpoint: e.Slug, Message: "unexpected result type from invoker"}
 	}
-
-	if e.dataSourceHandler == nil {
-		return nil, &ExecutionError{
-			Endpoint: e.Slug,
-			Message:  "no handler registered",
-		}
-	}
-
-	return e.dataSourceHandler(ctx, query, reqCtx)
+	return docs, nil
 }
 
 // InvokeModel invokes a model handler.
 func (e *Endpoint) InvokeModel(ctx context.Context, messages []Message, reqCtx *RequestContext) (string, error) {
-	if e.Type != EndpointTypeModel {
-		return "", &ExecutionError{
-			Endpoint: e.Slug,
-			Message:  "endpoint is not a model",
-		}
+	result, err := e.invokeGuarded(ctx, EndpointTypeModel, "endpoint is not a model", messages, reqCtx)
+	if err != nil {
+		return "", err
 	}
-
-	if e.isFileBased && e.executor != nil {
-		return e.executeModelViaSubprocess(ctx, messages, reqCtx)
+	s, ok := result.(string)
+	if !ok {
+		return "", &ExecutionError{Endpoint: e.Slug, Message: "unexpected result type from invoker"}
 	}
-
-	if e.modelHandler == nil {
-		return "", &ExecutionError{
-			Endpoint: e.Slug,
-			Message:  "no handler registered",
-		}
-	}
-
-	return e.modelHandler(ctx, messages, reqCtx)
+	return s, nil
 }
 
 // GetAgentHandler returns the agent handler for this endpoint.
@@ -227,57 +157,22 @@ func (e *Endpoint) GetAgentHandler() (AgentHandler, error) {
 			Message:  "endpoint is not an agent",
 		}
 	}
-	if e.agentHandler == nil {
-		return nil, &ExecutionError{
-			Endpoint: e.Slug,
-			Message:  "no agent handler registered",
-		}
+	if inv, ok := e.invoker.(*AgentOneShotInvoker); ok && inv.handler != nil {
+		return inv.handler, nil
 	}
-	return e.agentHandler, nil
+	return nil, &ExecutionError{
+		Endpoint: e.Slug,
+		Message:  "no agent handler registered",
+	}
 }
 
-// executeDataSourceViaSubprocess executes via subprocess.
-func (e *Endpoint) executeDataSourceViaSubprocess(ctx context.Context, query string, reqCtx *RequestContext) ([]Document, error) {
-	input := e.buildExecutorInput("data_source", reqCtx)
-	input.Query = query
-
-	raw, err := e.executeViaSubprocess(ctx, input, reqCtx)
-	if err != nil {
-		return nil, err
+// CheckPolicies runs policy evaluation without executing the endpoint handler.
+// Returns nil PolicyResultOutput if no policy executor is configured.
+func (e *Endpoint) CheckPolicies(ctx context.Context, reqCtx *RequestContext) (*PolicyResultOutput, error) {
+	if inv, ok := e.invoker.(*AgentOneShotInvoker); ok && inv.policyExecutor != nil {
+		return inv.checkPolicies(ctx, reqCtx)
 	}
-
-	var docs []Document
-	if err := json.Unmarshal(raw, &docs); err != nil {
-		return nil, &ExecutionError{
-			Endpoint: e.Slug,
-			Message:  "failed to parse handler result",
-			Cause:    err,
-		}
-	}
-
-	return docs, nil
-}
-
-// executeModelViaSubprocess executes via subprocess.
-func (e *Endpoint) executeModelViaSubprocess(ctx context.Context, messages []Message, reqCtx *RequestContext) (string, error) {
-	input := e.buildExecutorInput("model", reqCtx)
-	input.Messages = messages
-
-	raw, err := e.executeViaSubprocess(ctx, input, reqCtx)
-	if err != nil {
-		return "", err
-	}
-
-	var result string
-	if err := json.Unmarshal(raw, &result); err != nil {
-		return "", &ExecutionError{
-			Endpoint: e.Slug,
-			Message:  "failed to parse handler result",
-			Cause:    err,
-		}
-	}
-
-	return result, nil
+	return nil, nil
 }
 
 // EndpointRegistry manages registered endpoints.
@@ -352,45 +247,42 @@ func (r *EndpointRegistry) Clear() {
 }
 
 // ReplaceFileBased replaces all file-based endpoints atomically.
-// Stale executors (those not reused by the incoming list) are closed.
+// Stale invokers (those not reused by the incoming list) are closed after the
+// lock is released to avoid blocking concurrent reads while subprocess cleanup runs.
 func (r *EndpointRegistry) ReplaceFileBased(endpoints []*Endpoint) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Collect executor instances from the incoming list so we skip closing
-	// executors that are being reused (e.g. during selective reload where
-	// only some endpoints are recreated and the rest keep their executors).
-	reused := make(map[Executor]struct{})
+	// Collect invoker instances from the incoming list so we skip closing
+	// invokers that are being reused (e.g. during selective reload where
+	// only some endpoints are recreated and the rest keep their invokers).
+	reused := make(map[EndpointInvoker]struct{})
 	for _, ep := range endpoints {
-		if ep.executor != nil {
-			reused[ep.executor] = struct{}{}
-		}
-		if ep.policyExecutor != nil {
-			reused[ep.policyExecutor] = struct{}{}
+		if ep.invoker != nil {
+			reused[ep.invoker] = struct{}{}
 		}
 	}
 
-	// Remove existing file-based endpoints, closing only stale executors.
+	var stale []EndpointInvoker
+
+	r.mu.Lock()
 	for slug, ep := range r.endpoints {
 		if ep.isFileBased {
-			if ep.executor != nil {
-				if _, ok := reused[ep.executor]; !ok {
-					ep.executor.Close()
-				}
-			}
-			if ep.policyExecutor != nil {
-				if _, ok := reused[ep.policyExecutor]; !ok {
-					ep.policyExecutor.Close()
+			if ep.invoker != nil {
+				if _, ok := reused[ep.invoker]; !ok {
+					stale = append(stale, ep.invoker)
 				}
 			}
 			delete(r.endpoints, slug)
 		}
 	}
-
-	// Add new file-based endpoints
 	for _, ep := range endpoints {
 		ep.isFileBased = true
 		r.endpoints[ep.Slug] = ep
+	}
+	r.mu.Unlock()
+
+	// Close stale invokers outside the lock so blocking subprocess shutdown
+	// does not delay concurrent registry reads.
+	for _, inv := range stale {
+		inv.Close()
 	}
 }
 
@@ -464,7 +356,6 @@ func (b *baseEndpointBuilder) setEnabled(enabled bool) {
 }
 
 // validateForRegistration checks common preconditions before registering an endpoint.
-// Returns a non-nil error if the builder has a previous error, or if name/description are missing.
 func (b *baseEndpointBuilder) validateForRegistration() error {
 	if b.err != nil {
 		return b.err
@@ -528,7 +419,14 @@ func (b *DataSourceBuilder) Handler(handler DataSourceHandler) error {
 		}
 	}
 
-	b.endpoint.dataSourceHandler = handler
+	b.endpoint.invoker = &UnifiedInvoker{
+		codec:  DataSourceCodec{},
+		slug:   b.endpoint.Slug,
+		epType: EndpointTypeDataSource,
+		handler: func(ctx context.Context, input any, reqCtx *RequestContext) (any, error) {
+			return handler(ctx, input.(string), reqCtx)
+		},
+	}
 	return b.api.registerEndpoint(b.endpoint)
 }
 
@@ -574,7 +472,14 @@ func (b *ModelBuilder) Handler(handler ModelHandler) error {
 		}
 	}
 
-	b.endpoint.modelHandler = handler
+	b.endpoint.invoker = &UnifiedInvoker{
+		codec:  ModelCodec{},
+		slug:   b.endpoint.Slug,
+		epType: EndpointTypeModel,
+		handler: func(ctx context.Context, input any, reqCtx *RequestContext) (any, error) {
+			return handler(ctx, input.([]Message), reqCtx)
+		},
+	}
 	return b.api.registerEndpoint(b.endpoint)
 }
 
@@ -596,3 +501,9 @@ func validateSlug(slug string) error {
 	}
 	return nil
 }
+
+// Ensure invokers implement the interface at compile time.
+var (
+	_ EndpointInvoker = (*UnifiedInvoker)(nil)
+	_ EndpointInvoker = (*AgentOneShotInvoker)(nil)
+)

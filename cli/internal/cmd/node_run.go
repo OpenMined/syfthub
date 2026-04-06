@@ -130,7 +130,7 @@ func runNodeRun(cmd *cobra.Command, args []string) error {
 	// Load initial endpoints.
 	// When container mode is enabled, skip pre-loading: api.Run() will load
 	// endpoints AFTER injecting the container runtime into the file provider,
-	// so that resolveExecutionMode sees the runtime and creates container executors.
+	// so that all endpoints are created with container executors.
 	if !cfg.ContainerEnabled {
 		endpoints, err := provider.LoadEndpoints()
 		if err != nil {
@@ -141,8 +141,8 @@ func runNodeRun(cmd *cobra.Command, args []string) error {
 	}
 
 	// Setup NATS transport (always tunnel mode)
-	authClient := syfthubapi.NewAuthClient(apiConfig.SyftHubURL, apiConfig.APIKey, newSlogAdapter(logger))
-	natsCreds, err := authClient.GetNATSCredentials(context.Background(), user.Username)
+	apiHubClient := syfthubapi.NewHubClient(apiConfig.SyftHubURL, apiConfig.APIKey, newSlogAdapter(logger))
+	natsCreds, err := apiHubClient.GetNATSCredentials(context.Background(), user.Username)
 	if err != nil {
 		return fmt.Errorf("failed to get NATS credentials: %w", err)
 	}

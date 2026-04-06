@@ -519,6 +519,12 @@ type ExecutorInput struct {
 	// TransactionToken is the pre-authorized billing token for this request.
 	// Used by TransactionPolicy to verify billing authorization before execution.
 	TransactionToken string `json:"transaction_token,omitempty"`
+
+	// PolicyCheckOnly instructs the executor to evaluate policies and return the
+	// result without invoking the endpoint handler. Used by AgentOneShotInvoker
+	// to run a pre-session policy gate against a container executor where there
+	// is no dedicated noop handler (unlike subprocess mode).
+	PolicyCheckOnly bool `json:"policy_check_only,omitempty"`
 }
 
 // ExecutorOutput is the output format from subprocess execution.
