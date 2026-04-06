@@ -101,6 +101,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	// Store token in config
 	cfg.SetAPIToken(token)
+	cfg.IsConfigured = true
 	if err := cfg.Save(); err != nil {
 		if loginJSONOutput {
 			output.JSON(map[string]interface{}{"status": "error", "message": err.Error()})
