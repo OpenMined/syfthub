@@ -9,9 +9,12 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { useAppStore, type MarketplacePackage } from '@/stores/appStore';
-import { typeLabels, extractErrorMessage } from '@/lib/utils';
+// TODO(AGENT_ONLY): Badge import hidden — type badge commented out.
+// To restore, uncomment: import { Badge } from '@/components/ui/badge';
+import { useAppStore, type LibraryPackage } from '@/stores/appStore';
+// TODO(AGENT_ONLY): typeLabels import hidden. To restore, add typeLabels back:
+// import { typeLabels, extractErrorMessage } from '@/lib/utils';
+import { extractErrorMessage } from '@/lib/utils';
 import { Spinner } from '@/components/ui/spinner';
 import { ErrorBanner } from '@/components/ui/error-banner';
 
@@ -22,7 +25,7 @@ function PackageCard({
   onInstall,
   onUninstall,
 }: {
-  pkg: MarketplacePackage;
+  pkg: LibraryPackage;
   isInstalled: boolean;
   isInstalling: boolean;
   onInstall: () => void;
@@ -32,9 +35,11 @@ function PackageCard({
     <div className="flex flex-col rounded-lg border border-border bg-card/50 p-4">
       <div className="flex items-start justify-between gap-2 mb-2">
         <h3 className="font-medium text-sm text-foreground leading-tight">{pkg.name}</h3>
-        <Badge variant="secondary" className="text-[10px] shrink-0">
+        {/* TODO(AGENT_ONLY): Type badge hidden — only agent packages shown.
+            To restore, uncomment the Badge below. */}
+        {/* <Badge variant="secondary" className="text-[10px] shrink-0">
           {typeLabels[pkg.type] ?? 'Model'}
-        </Badge>
+        </Badge> */}
       </div>
 
       <p className="text-xs text-muted-foreground mb-3 line-clamp-2 flex-1">
@@ -88,40 +93,40 @@ function PackageCard({
   );
 }
 
-export function MarketplaceView() {
+export function LibraryView() {
   const {
     endpoints,
-    marketplacePackages,
-    marketplaceLoading,
-    marketplaceError,
+    libraryPackages,
+    libraryLoading,
+    libraryError,
     installingPackageSlug,
-    fetchMarketplacePackages,
-    installMarketplacePackage,
-    uninstallMarketplacePackage,
+    fetchLibraryPackages,
+    installLibraryPackage,
+    uninstallLibraryPackage,
   } = useAppStore();
 
-  const [selectedPackage, setSelectedPackage] = useState<MarketplacePackage | null>(null);
+  const [selectedPackage, setSelectedPackage] = useState<LibraryPackage | null>(null);
   const [installError, setInstallError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    fetchMarketplacePackages();
-  }, [fetchMarketplacePackages]);
+    fetchLibraryPackages();
+  }, [fetchLibraryPackages]);
 
   const installedSlugs = useMemo(() => new Set(endpoints.map((ep) => ep.slug)), [endpoints]);
 
   const filteredPackages = useMemo(() => {
-    if (!searchQuery) return marketplacePackages;
+    if (!searchQuery) return libraryPackages;
     const query = searchQuery.toLowerCase();
-    return marketplacePackages.filter(
+    return libraryPackages.filter(
       (pkg) =>
         pkg.name.toLowerCase().includes(query) ||
         pkg.description.toLowerCase().includes(query) ||
         pkg.tags?.some((t) => t.toLowerCase().includes(query))
     );
-  }, [marketplacePackages, searchQuery]);
+  }, [libraryPackages, searchQuery]);
 
-  const handleOpenInstall = (pkg: MarketplacePackage) => {
+  const handleOpenInstall = (pkg: LibraryPackage) => {
     setSelectedPackage(pkg);
     setInstallError(null);
   };
@@ -131,7 +136,7 @@ export function MarketplaceView() {
 
     setInstallError(null);
     try {
-      await installMarketplacePackage(selectedPackage.slug, selectedPackage.downloadUrl);
+      await installLibraryPackage(selectedPackage.slug, selectedPackage.downloadUrl);
       setSelectedPackage(null);
     } catch (err) {
       setInstallError(extractErrorMessage(err, String(err)));
@@ -143,7 +148,7 @@ export function MarketplaceView() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">Marketplace</h1>
+          <h1 className="text-lg font-semibold text-foreground">Library</h1>
           <p className="text-xs text-muted-foreground mt-0.5">
             Browse and install pre-built endpoint packages
           </p>
@@ -152,10 +157,10 @@ export function MarketplaceView() {
           variant="outline"
           size="sm"
           className="h-7 text-xs"
-          onClick={() => fetchMarketplacePackages()}
-          disabled={marketplaceLoading}
+          onClick={() => fetchLibraryPackages()}
+          disabled={libraryLoading}
         >
-          {marketplaceLoading ? 'Loading...' : 'Refresh'}
+          {libraryLoading ? 'Loading...' : 'Refresh'}
         </Button>
       </div>
 
@@ -170,18 +175,18 @@ export function MarketplaceView() {
       </div>
 
       {/* Content */}
-      {marketplaceLoading && marketplacePackages.length === 0 ? (
+      {libraryLoading && libraryPackages.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <Spinner className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">Loading packages...</p>
           </div>
         </div>
-      ) : marketplaceError && marketplacePackages.length === 0 ? (
+      ) : libraryError && libraryPackages.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
-            <p className="text-sm text-destructive mb-3">{marketplaceError}</p>
-            <Button variant="outline" size="sm" onClick={() => fetchMarketplacePackages()}>
+            <p className="text-sm text-destructive mb-3">{libraryError}</p>
+            <Button variant="outline" size="sm" onClick={() => fetchLibraryPackages()}>
               Retry
             </Button>
           </div>
@@ -202,7 +207,7 @@ export function MarketplaceView() {
                 isInstalled={installedSlugs.has(pkg.slug)}
                 isInstalling={installingPackageSlug === pkg.slug}
                 onInstall={() => handleOpenInstall(pkg)}
-                onUninstall={() => uninstallMarketplacePackage(pkg.slug)}
+                onUninstall={() => uninstallLibraryPackage(pkg.slug)}
               />
             ))}
           </div>

@@ -25,9 +25,8 @@ import {
   CreateEndpoint,
   CheckEndpointExists,
   DeleteEndpoint,
-  GetUserAggregators,
-  GetMarketplacePackages,
-  InstallMarketplacePackage,
+  GetLibraryPackages,
+  InstallLibraryPackage,
   RunEndpointSetup,
   RespondToSetupPrompt,
   RespondToSetupSelect,
@@ -46,7 +45,7 @@ export type LogQueryResult = main.LogQueryResult;
 export type LogStats = main.LogStats;
 export type CreateEndpointRequest = main.CreateEndpointRequest;
 export type ChatRequest = main.ChatRequest;
-export type MarketplacePackage = main.MarketplacePackage;
+export type LibraryPackage = main.LibraryPackage;
 export type SetupStatusInfo = main.SetupStatusInfo;
 export type SetupSpecInfo = main.SetupSpecInfo;
 export type SetupStepInfo = main.SetupStepInfo;
@@ -131,7 +130,7 @@ interface AppState {
   activeTab: 'settings' | 'code' | 'docs' | 'logs';
   settingsSection: 'overview' | 'environment' | 'dependencies' | 'policies';
   mainView: 'endpoints' | 'chat';
-  showMarketplace: boolean;
+  showLibrary: boolean;
 
   // Logs state
   logs: RequestLogEntry[];
@@ -149,16 +148,18 @@ interface AppState {
   // Delete endpoint state
   isDeleteDialogOpen: boolean;
   isDeletingEndpoint: boolean;
+  lastOptimisticDeleteTime: number | null;
+  recentlyDeletedSlugs: string[];
 
   // Chat state
   chatSelectedModel: EndpointInfo | null;
   chatSelectedSources: EndpointInfo[];
   aggregatorURL: string | null;
 
-  // Marketplace state
-  marketplacePackages: MarketplacePackage[];
-  marketplaceLoading: boolean;
-  marketplaceError: string | null;
+  // Library state
+  libraryPackages: LibraryPackage[];
+  libraryLoading: boolean;
+  libraryError: string | null;
   installingPackageSlug: string | null;
 
   // Setup flow state
@@ -178,7 +179,7 @@ interface AppState {
   setActiveTab: (tab: 'settings' | 'code' | 'docs' | 'logs') => void;
   setSettingsSection: (section: 'overview' | 'environment' | 'dependencies' | 'policies') => void;
   setMainView: (view: 'endpoints' | 'chat') => void;
-  setShowMarketplace: (show: boolean) => void;
+  setShowLibrary: (show: boolean) => void;
 
   // Actions - Logs
   fetchLogs: (status?: string) => Promise<void>;
@@ -229,10 +230,10 @@ interface AppState {
   toggleChatSource: (source: EndpointInfo) => void;
   refreshAggregatorURL: () => Promise<void>;
 
-  // Actions - Marketplace
-  fetchMarketplacePackages: () => Promise<void>;
-  installMarketplacePackage: (slug: string, downloadUrl: string) => Promise<void>;
-  uninstallMarketplacePackage: (slug: string) => Promise<void>;
+  // Actions - Library
+  fetchLibraryPackages: () => Promise<void>;
+  installLibraryPackage: (slug: string, downloadUrl: string) => Promise<void>;
+  uninstallLibraryPackage: (slug: string) => Promise<void>;
 
   // Actions - Setup flow
   runSetup: (slug: string, force?: boolean) => Promise<void>;
@@ -251,6 +252,7 @@ const initialStatus: StatusInfo = {
 };
 
 let logStatsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+const DELETE_GRACE_MS = 3000;
 
 export const useAppStore = create<AppState>((set, get) => ({
   // Initial state
@@ -272,7 +274,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeTab: 'settings',
   settingsSection: 'overview',
   mainView: 'endpoints',
-  showMarketplace: false,
+  showLibrary: false,
 
   // Logs initial state
   logs: [],
@@ -290,16 +292,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Delete endpoint initial state
   isDeleteDialogOpen: false,
   isDeletingEndpoint: false,
+  lastOptimisticDeleteTime: null,
+  recentlyDeletedSlugs: [],
 
   // Chat initial state
   chatSelectedModel: null,
   chatSelectedSources: [],
   aggregatorURL: null,
 
-  // Marketplace initial state
-  marketplacePackages: [],
-  marketplaceLoading: false,
-  marketplaceError: null,
+  // Library initial state
+  libraryPackages: [],
+  libraryLoading: false,
+  libraryError: null,
   installingPackageSlug: null,
 
   // Setup flow initial state
@@ -355,10 +359,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         throw new Error('Timeout waiting for service to start');
       }
 
-      // Now reload endpoints from disk
-      await ReloadEndpoints();
-
       // Fetch all data including aggregator URL
+      // Note: no ReloadEndpoints() here — Setup() already loaded all endpoints
+      // during Start(). Calling it here would stop and recreate all containers
+      // unnecessarily (10s+ docker stop grace period per container).
       await Promise.all([
         get().fetchStatus(),
         get().fetchEndpoints(),
@@ -384,22 +388,31 @@ export const useAppStore = create<AppState>((set, get) => ({
       {
         // Listen for file watcher events (auto-refresh when files change)
         EventsOn('app:endpoints-changed', (incomingEndpoints: EndpointInfo[]) => {
-          const { endpoints: currentEndpoints, lastOptimisticAddTime } = get();
-          const gracePeriod = 3000; // 3 seconds
-          const inGracePeriod = lastOptimisticAddTime && (Date.now() - lastOptimisticAddTime) < gracePeriod;
+          // TODO(AGENT_ONLY): Filter incoming endpoints to agent-only.
+          // To restore all types, remove the agentOnly filter below and use incomingEndpoints directly.
+          let agentOnly = (incomingEndpoints || []).filter((ep: EndpointInfo) => ep.type === 'agent');
+          const { endpoints: currentEndpoints, lastOptimisticAddTime, lastOptimisticDeleteTime, recentlyDeletedSlugs } = get();
 
-          // During grace period, reject any update that would reduce our endpoint count
+          // During delete grace period, filter out recently deleted endpoints
+          // so the file watcher doesn't re-add them before the provider reloads
+          const inDeleteGracePeriod = lastOptimisticDeleteTime && (Date.now() - lastOptimisticDeleteTime) < DELETE_GRACE_MS;
+          if (inDeleteGracePeriod && recentlyDeletedSlugs.length > 0) {
+            agentOnly = agentOnly.filter(ep => !recentlyDeletedSlugs.includes(ep.slug));
+          }
+
+          // During add grace period, reject any update that would reduce our endpoint count
           // This protects against file watcher intermediate states during endpoint creation
-          if (inGracePeriod) {
-            if (!incomingEndpoints || incomingEndpoints.length < currentEndpoints.length) {
+          const inAddGracePeriod = lastOptimisticAddTime && (Date.now() - lastOptimisticAddTime) < DELETE_GRACE_MS;
+          if (inAddGracePeriod) {
+            if (!agentOnly || agentOnly.length < currentEndpoints.length) {
               return; // Reject - would lose endpoints
             }
             // Accept but keep grace period active (don't clear lastOptimisticAddTime)
-            set({ endpoints: incomingEndpoints });
+            set({ endpoints: agentOnly });
             return;
           }
 
-          set({ endpoints: incomingEndpoints || [] });
+          set({ endpoints: agentOnly });
         });
 
         // Listen for setup flow events
@@ -439,7 +452,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           const { selectedEndpointSlug, logs } = get();
           // Only add to logs if viewing the same endpoint
           if (entry.endpointSlug === selectedEndpointSlug) {
-            set({ logs: [entry, ...logs] });
+            set({ logs: logs.length < 200 ? [entry, ...logs] : [entry, ...logs.slice(0, 199)] });
             // Debounce stats refresh — one IPC call per burst, not per log entry
             if (logStatsDebounceTimer) clearTimeout(logStatsDebounceTimer);
             logStatsDebounceTimer = setTimeout(() => { get().fetchLogStats(); }, 2000);
@@ -464,7 +477,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   fetchEndpoints: async () => {
     try {
-      const endpoints = await GetEndpoints();
+      const allEndpoints = await GetEndpoints();
+      // TODO(AGENT_ONLY): Filter to agent-only endpoints for display.
+      // To restore all types, replace the line below with: set({ endpoints: allEndpoints });
+      const endpoints = allEndpoints.filter((ep: EndpointInfo) => ep.type === 'agent');
       set({ endpoints });
     } catch (err) {
       set({ error: `Failed to fetch endpoints: ${err}` });
@@ -552,7 +568,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     try {
-      set({ isLoading: true, error: null, showMarketplace: false });
+      set({ isLoading: true, error: null, showLibrary: false });
 
       // Fetch endpoint detail - includes runnerCode and readmeContent
       const detail = await GetEndpointDetail(slug);
@@ -603,14 +619,14 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setMainView: (view) => {
-    set({ mainView: view, showMarketplace: false });
+    set({ mainView: view, showLibrary: false });
   },
 
-  setShowMarketplace: (show) => {
+  setShowLibrary: (show) => {
     if (show) {
-      set({ showMarketplace: true, selectedEndpointSlug: null, selectedEndpointDetail: null });
+      set({ showLibrary: true, selectedEndpointSlug: null, selectedEndpointDetail: null });
     } else {
-      set({ showMarketplace: false });
+      set({ showLibrary: false });
     }
   },
 
@@ -955,21 +971,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
 
-  // Aggregator URL refresh — prefers the user's default custom aggregator URL;
-  // falls back to the SDK default ({syfthubURL}/aggregator/api/v1) when no
-  // custom aggregator is configured or the list call fails.
   refreshAggregatorURL: async () => {
-    try {
-      const aggregators = await GetUserAggregators();
-      const defaultAgg = aggregators?.find((a) => a.is_default) ?? null;
-      // If no custom default, fall back to the SDK-derived URL
-      const url = defaultAgg?.url || (await GetAggregatorURL().catch(() => ''));
-      set({ aggregatorURL: url || null });
-    } catch {
-      // GetUserAggregators failed (e.g. not yet configured) — use SDK URL
-      const url = await GetAggregatorURL().catch(() => '');
-      set({ aggregatorURL: url || null });
-    }
+    const url = await GetAggregatorURL().catch(() => '');
+    set({ aggregatorURL: url || null });
   },
 
   // Delete endpoint actions
@@ -987,7 +991,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     const slugToDelete = selectedEndpointSlug;
 
     try {
-      set({ isDeletingEndpoint: true, error: null });
+      set({
+        isDeletingEndpoint: true,
+        error: null,
+        lastOptimisticDeleteTime: Date.now(),
+        recentlyDeletedSlugs: [...get().recentlyDeletedSlugs, slugToDelete],
+      });
+      setTimeout(() => {
+        set(s => ({ recentlyDeletedSlugs: s.recentlyDeletedSlugs.filter(s => s !== slugToDelete) }));
+      }, DELETE_GRACE_MS);
 
       // Call backend to delete endpoint
       await DeleteEndpoint(slugToDelete);
@@ -999,12 +1011,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       // Close dialog
       set({ isDeleteDialogOpen: false });
 
-      // Select another endpoint or clear selection
-      if (remainingEndpoints.length > 0) {
-        await get().selectEndpoint(remainingEndpoints[0].slug);
-      } else {
-        await get().selectEndpoint(null);
-      }
+      await get().selectEndpoint(remainingEndpoints.length > 0 ? remainingEndpoints[0].slug : null);
     } catch (err) {
       set({ error: `Failed to delete endpoint: ${err}` });
       throw err;
@@ -1013,27 +1020,27 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  // Marketplace actions
-  fetchMarketplacePackages: async () => {
+  // Library actions
+  fetchLibraryPackages: async () => {
     try {
-      set({ marketplaceLoading: true, marketplaceError: null });
-      const packages = await GetMarketplacePackages();
-      set({ marketplacePackages: packages || [] });
+      set({ libraryLoading: true, libraryError: null });
+      const packages = await GetLibraryPackages();
+      set({ libraryPackages: packages || [] });
     } catch (err) {
-      set({ marketplaceError: `Failed to load packages: ${err}` });
+      set({ libraryError: `Failed to load packages: ${err}` });
     } finally {
-      set({ marketplaceLoading: false });
+      set({ libraryLoading: false });
     }
   },
 
-  installMarketplacePackage: async (slug: string, downloadUrl: string) => {
+  installLibraryPackage: async (slug: string, downloadUrl: string) => {
     try {
       set({ installingPackageSlug: slug });
       // The backend auto-triggers RunEndpointSetup if setup.yaml exists.
       // Setup flow state is managed entirely by event listeners (setupflow:*),
       // not set here, to avoid a race where this code overwrites prompt data
       // that the goroutine has already emitted.
-      await InstallMarketplacePackage(slug, downloadUrl);
+      await InstallLibraryPackage(slug, downloadUrl);
       await get().fetchEndpoints();
     } catch (err) {
       set({ error: `Failed to install package: ${err}` });
@@ -1043,22 +1050,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  uninstallMarketplacePackage: async (slug: string) => {
+  uninstallLibraryPackage: async (slug: string) => {
     try {
-      set({ installingPackageSlug: slug });
+      set({
+        installingPackageSlug: slug,
+        lastOptimisticDeleteTime: Date.now(),
+        recentlyDeletedSlugs: [...get().recentlyDeletedSlugs, slug],
+      });
+      setTimeout(() => {
+        set(s => ({ recentlyDeletedSlugs: s.recentlyDeletedSlugs.filter(s => s !== slug) }));
+      }, DELETE_GRACE_MS);
       await DeleteEndpoint(slug);
 
       // Optimistic UI: remove from endpoints immediately (mirrors deleteEndpoint)
       const remainingEndpoints = get().endpoints.filter(ep => ep.slug !== slug);
       set({ endpoints: remainingEndpoints });
 
-      // If the uninstalled endpoint was selected, navigate away
       if (get().selectedEndpointSlug === slug) {
-        if (remainingEndpoints.length > 0) {
-          await get().selectEndpoint(remainingEndpoints[0].slug);
-        } else {
-          await get().selectEndpoint(null);
-        }
+        await get().selectEndpoint(remainingEndpoints.length > 0 ? remainingEndpoints[0].slug : null);
       }
     } catch (err) {
       set({ error: `Failed to uninstall package: ${err}` });

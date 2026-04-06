@@ -14,8 +14,6 @@ export function CreateEndpoint(arg1:main.CreateEndpointRequest):Promise<string>;
 
 export function CreatePolicyFile(arg1:string,arg2:main.NewPolicyRequest):Promise<void>;
 
-export function CreateUserAggregator(arg1:string,arg2:string,arg3:boolean):Promise<main.UserAggregator>;
-
 export function DeleteDependency(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteEndpoint(arg1:string):Promise<void>;
@@ -24,11 +22,7 @@ export function DeleteEnvironment(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteLogs(arg1:string):Promise<void>;
 
-export function DeletePolicy(arg1:string,arg2:string):Promise<void>;
-
 export function DeletePolicyFile(arg1:string,arg2:string):Promise<void>;
-
-export function DeleteUserAggregator(arg1:number):Promise<void>;
 
 export function GetAggregatorURL():Promise<string>;
 
@@ -44,17 +38,13 @@ export function GetEndpoints():Promise<Array<main.EndpointInfo>>;
 
 export function GetEnvironment(arg1:string):Promise<Array<main.EnvVar>>;
 
+export function GetLibraryPackages():Promise<Array<main.LibraryPackage>>;
+
 export function GetLogDetail(arg1:string,arg2:string):Promise<main.RequestLogEntry>;
 
 export function GetLogStats(arg1:string):Promise<main.LogStats>;
 
 export function GetLogs(arg1:string,arg2:number,arg3:number,arg4:string):Promise<main.LogQueryResult>;
-
-export function GetMarketplacePackages():Promise<Array<main.MarketplacePackage>>;
-
-export function GetPolicies(arg1:string):Promise<Array<main.Policy>>;
-
-export function GetPoliciesYaml(arg1:string):Promise<string>;
 
 export function GetPolicyFileYaml(arg1:string,arg2:string):Promise<string>;
 
@@ -72,13 +62,11 @@ export function GetSetupStatus(arg1:string):Promise<main.SetupStatusInfo>;
 
 export function GetStatus():Promise<main.StatusInfo>;
 
-export function GetUserAggregators():Promise<Array<main.UserAggregator>>;
-
 export function GetVersion():Promise<string>;
 
 export function HasSettings():Promise<boolean>;
 
-export function InstallMarketplacePackage(arg1:string,arg2:string):Promise<void>;
+export function InstallLibraryPackage(arg1:string,arg2:string):Promise<void>;
 
 export function ListPolicyFiles(arg1:string):Promise<Array<main.PolicyFileInfo>>;
 
@@ -98,10 +86,6 @@ export function RespondToSetupSelect(arg1:string):Promise<void>;
 
 export function RunEndpointSetup(arg1:string,arg2:boolean):Promise<void>;
 
-export function SavePoliciesYaml(arg1:string,arg2:string):Promise<void>;
-
-export function SavePolicy(arg1:string,arg2:main.Policy):Promise<void>;
-
 export function SavePolicyFileYaml(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SaveReadme(arg1:string,arg2:string):Promise<void>;
@@ -113,8 +97,6 @@ export function SaveSettingsData(arg1:string,arg2:string,arg3:string):Promise<vo
 export function SendAgentMessage(arg1:string):Promise<void>;
 
 export function SetContainerEnabled(arg1:boolean):Promise<void>;
-
-export function SetDefaultUserAggregator(arg1:number):Promise<main.UserAggregator>;
 
 export function SetEnvironment(arg1:string,arg2:string,arg3:string):Promise<void>;
 
@@ -133,5 +115,3 @@ export function StreamChat(arg1:main.ChatRequest):Promise<void>;
 export function ToggleEndpointEnabled(arg1:string):Promise<boolean>;
 
 export function UpdateEndpointOverview(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
-
-export function UpdateUserAggregator(arg1:number,arg2:string,arg3:string):Promise<main.UserAggregator>;

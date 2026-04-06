@@ -134,18 +134,6 @@ type ChatStreamEvent struct {
 	ProfitShare        map[string]float64            `json:"profitShare,omitempty"`
 }
 
-// UserAggregator represents a configured aggregator for the desktop app.
-// JSON tags use snake_case to match the SyftHub API response format.
-// Wails serializes these to the frontend using the same tags, so models.ts
-// must read source["is_default"] / source["created_at"] accordingly.
-type UserAggregator struct {
-	ID        int    `json:"id"`
-	Name      string `json:"name"`
-	URL       string `json:"url"`
-	IsDefault bool   `json:"is_default"`
-	CreatedAt string `json:"created_at"`
-}
-
 // ConfigRequest represents a configuration update from the frontend.
 type ConfigRequest struct {
 	HubURL            string `json:"syfthubUrl,omitempty"`
@@ -243,11 +231,11 @@ type LogStats struct {
 }
 
 // ============================================================================
-// Marketplace Types
+// Library Types
 // ============================================================================
 
-// MarketplacePackage represents an installable endpoint package from the marketplace.
-type MarketplacePackage struct {
+// LibraryPackage represents an installable endpoint package from the library.
+type LibraryPackage struct {
 	Slug        string   `json:"slug"`
 	Name        string   `json:"name"`
 	Description string   `json:"description"`

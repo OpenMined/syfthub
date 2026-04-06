@@ -1,5 +1,5 @@
-// Package main provides marketplace operations for the SyftHub Desktop GUI.
-// The marketplace allows users to browse and install pre-built endpoint packages
+// Package main provides library operations for the SyftHub Desktop GUI.
+// The library allows users to browse and install pre-built endpoint packages
 // from a static JSON manifest hosted at a configurable URL.
 package main
 
@@ -13,9 +13,9 @@ import (
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
-// getMarketplaceURL returns the marketplace manifest URL derived from the configured
+// getLibraryURL returns the library manifest URL derived from the configured
 // SyftHub URL, with an optional explicit override via settings.MarketplaceURL.
-func (a *App) getMarketplaceURL() string {
+func (a *App) getLibraryURL() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
@@ -28,47 +28,47 @@ func (a *App) getMarketplaceURL() string {
 	return ""
 }
 
-// GetMarketplacePackages fetches and returns available packages from the marketplace manifest.
-func (a *App) GetMarketplacePackages() ([]MarketplacePackage, error) {
-	url := a.getMarketplaceURL()
+// GetLibraryPackages fetches and returns available packages from the library manifest.
+func (a *App) GetLibraryPackages() ([]LibraryPackage, error) {
+	url := a.getLibraryURL()
 	if url == "" {
-		return nil, fmt.Errorf("marketplace unavailable: no SyftHub URL configured")
+		return nil, fmt.Errorf("library unavailable: no SyftHub URL configured")
 	}
 
-	client := a.getMarketplaceClient(url)
+	client := a.getLibraryClient(url)
 	nPkgs, err := client.FetchPackages()
 	if err != nil {
-		runtime.LogError(a.ctx, fmt.Sprintf("Failed to fetch marketplace manifest: %v", err))
+		runtime.LogError(a.ctx, fmt.Sprintf("Failed to fetch library manifest: %v", err))
 		return nil, err
 	}
 
-	pkgs := fromNodeopsMarketplacePackages(nPkgs)
-	runtime.LogInfo(a.ctx, fmt.Sprintf("Loaded %d packages from marketplace", len(pkgs)))
+	pkgs := fromNodeopsLibraryPackages(nPkgs)
+	runtime.LogInfo(a.ctx, fmt.Sprintf("Loaded %d packages from library", len(pkgs)))
 	return pkgs, nil
 }
 
-// InstallMarketplacePackage downloads a package zip and extracts it to the endpoints directory.
-func (a *App) InstallMarketplacePackage(slug string, downloadURL string) error {
+// InstallLibraryPackage downloads a package zip and extracts it to the endpoints directory.
+func (a *App) InstallLibraryPackage(slug string, downloadURL string) error {
 	config, err := a.getConfig()
 	if err != nil {
 		return err
 	}
 
-	url := a.getMarketplaceURL()
+	url := a.getLibraryURL()
 	if url == "" {
-		return fmt.Errorf("marketplace unavailable: no SyftHub URL configured")
+		return fmt.Errorf("library unavailable: no SyftHub URL configured")
 	}
 
-	runtime.LogInfo(a.ctx, fmt.Sprintf("Downloading marketplace package: %s", slug))
+	runtime.LogInfo(a.ctx, fmt.Sprintf("Downloading library package: %s", slug))
 	a.setRuntimeState(slug, RuntimeStateInstalling)
 
-	client := a.getMarketplaceClient(url)
+	client := a.getLibraryClient(url)
 	if err := client.InstallPackage(config.EndpointsPath, slug, downloadURL); err != nil {
 		a.clearRuntimeState(slug)
 		return err
 	}
 
-	runtime.LogInfo(a.ctx, fmt.Sprintf("Installed marketplace package: %s", slug))
+	runtime.LogInfo(a.ctx, fmt.Sprintf("Installed library package: %s", slug))
 
 	// If the installed package has setup.yaml, auto-run the setup flow.
 	// This mirrors what the CLI does inline after install.
@@ -95,11 +95,11 @@ func (a *App) InstallMarketplacePackage(slug string, downloadURL string) error {
 	return nil
 }
 
-// fromNodeopsMarketplacePackages converts nodeops marketplace packages to desktop types.
-func fromNodeopsMarketplacePackages(nPkgs []nodeops.MarketplacePackage) []MarketplacePackage {
-	out := make([]MarketplacePackage, len(nPkgs))
+// fromNodeopsLibraryPackages converts nodeops marketplace packages to desktop types.
+func fromNodeopsLibraryPackages(nPkgs []nodeops.MarketplacePackage) []LibraryPackage {
+	out := make([]LibraryPackage, len(nPkgs))
 	for i, p := range nPkgs {
-		out[i] = MarketplacePackage{
+		out[i] = LibraryPackage{
 			Slug: p.Slug, Name: p.Name, Description: p.Description,
 			Type: p.Type, Author: p.Author, Version: p.Version,
 			DownloadURL: p.DownloadURL, Tags: p.Tags,

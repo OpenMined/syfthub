@@ -26,10 +26,6 @@ export function CreatePolicyFile(arg1, arg2) {
   return window['go']['main']['App']['CreatePolicyFile'](arg1, arg2);
 }
 
-export function CreateUserAggregator(arg1, arg2, arg3) {
-  return window['go']['main']['App']['CreateUserAggregator'](arg1, arg2, arg3);
-}
-
 export function DeleteDependency(arg1, arg2) {
   return window['go']['main']['App']['DeleteDependency'](arg1, arg2);
 }
@@ -46,16 +42,8 @@ export function DeleteLogs(arg1) {
   return window['go']['main']['App']['DeleteLogs'](arg1);
 }
 
-export function DeletePolicy(arg1, arg2) {
-  return window['go']['main']['App']['DeletePolicy'](arg1, arg2);
-}
-
 export function DeletePolicyFile(arg1, arg2) {
   return window['go']['main']['App']['DeletePolicyFile'](arg1, arg2);
-}
-
-export function DeleteUserAggregator(arg1) {
-  return window['go']['main']['App']['DeleteUserAggregator'](arg1);
 }
 
 export function GetAggregatorURL() {
@@ -86,6 +74,10 @@ export function GetEnvironment(arg1) {
   return window['go']['main']['App']['GetEnvironment'](arg1);
 }
 
+export function GetLibraryPackages() {
+  return window['go']['main']['App']['GetLibraryPackages']();
+}
+
 export function GetLogDetail(arg1, arg2) {
   return window['go']['main']['App']['GetLogDetail'](arg1, arg2);
 }
@@ -96,18 +88,6 @@ export function GetLogStats(arg1) {
 
 export function GetLogs(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GetLogs'](arg1, arg2, arg3, arg4);
-}
-
-export function GetMarketplacePackages() {
-  return window['go']['main']['App']['GetMarketplacePackages']();
-}
-
-export function GetPolicies(arg1) {
-  return window['go']['main']['App']['GetPolicies'](arg1);
-}
-
-export function GetPoliciesYaml(arg1) {
-  return window['go']['main']['App']['GetPoliciesYaml'](arg1);
 }
 
 export function GetPolicyFileYaml(arg1, arg2) {
@@ -142,10 +122,6 @@ export function GetStatus() {
   return window['go']['main']['App']['GetStatus']();
 }
 
-export function GetUserAggregators() {
-  return window['go']['main']['App']['GetUserAggregators']();
-}
-
 export function GetVersion() {
   return window['go']['main']['App']['GetVersion']();
 }
@@ -154,8 +130,8 @@ export function HasSettings() {
   return window['go']['main']['App']['HasSettings']();
 }
 
-export function InstallMarketplacePackage(arg1, arg2) {
-  return window['go']['main']['App']['InstallMarketplacePackage'](arg1, arg2);
+export function InstallLibraryPackage(arg1, arg2) {
+  return window['go']['main']['App']['InstallLibraryPackage'](arg1, arg2);
 }
 
 export function ListPolicyFiles(arg1) {
@@ -194,14 +170,6 @@ export function RunEndpointSetup(arg1, arg2) {
   return window['go']['main']['App']['RunEndpointSetup'](arg1, arg2);
 }
 
-export function SavePoliciesYaml(arg1, arg2) {
-  return window['go']['main']['App']['SavePoliciesYaml'](arg1, arg2);
-}
-
-export function SavePolicy(arg1, arg2) {
-  return window['go']['main']['App']['SavePolicy'](arg1, arg2);
-}
-
 export function SavePolicyFileYaml(arg1, arg2, arg3) {
   return window['go']['main']['App']['SavePolicyFileYaml'](arg1, arg2, arg3);
 }
@@ -224,10 +192,6 @@ export function SendAgentMessage(arg1) {
 
 export function SetContainerEnabled(arg1) {
   return window['go']['main']['App']['SetContainerEnabled'](arg1);
-}
-
-export function SetDefaultUserAggregator(arg1) {
-  return window['go']['main']['App']['SetDefaultUserAggregator'](arg1);
 }
 
 export function SetEnvironment(arg1, arg2, arg3) {
@@ -264,8 +228,4 @@ export function ToggleEndpointEnabled(arg1) {
 
 export function UpdateEndpointOverview(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['UpdateEndpointOverview'](arg1, arg2, arg3, arg4, arg5);
-}
-
-export function UpdateUserAggregator(arg1, arg2, arg3) {
-  return window['go']['main']['App']['UpdateUserAggregator'](arg1, arg2, arg3);
 }

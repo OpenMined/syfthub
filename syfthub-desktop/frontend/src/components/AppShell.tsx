@@ -4,7 +4,7 @@ import { CreateEndpointDialog } from './CreateEndpointDialog';
 import { DeleteEndpointDialog } from './DeleteEndpointDialog';
 import { SetupFlowDialog } from './SetupFlowDialog';
 import { ChatView } from './ChatView';
-import { MarketplaceView } from './MarketplaceView';
+import { LibraryView } from './LibraryView';
 import { WindowControls } from './ui/window-controls';
 
 interface AppShellProps {
@@ -13,7 +13,7 @@ interface AppShellProps {
 }
 
 export function AppShell({ sidebar, children }: AppShellProps) {
-  const { error, refreshAll, clearError, mainView, setMainView, showMarketplace } = useAppStore();
+  const { error, refreshAll, clearError, mainView, setMainView, showLibrary } = useAppStore();
 
   // Initial data load
   useEffect(() => {
@@ -85,9 +85,9 @@ export function AppShell({ sidebar, children }: AppShellProps) {
             {sidebar}
           </aside>
 
-          {/* Content area — marketplace or endpoint detail */}
+          {/* Content area — library or endpoint detail */}
           <main className="flex-1 overflow-y-auto bg-background">
-            {showMarketplace ? <MarketplaceView /> : children}
+            {showLibrary ? <LibraryView /> : children}
           </main>
         </div>
       )}

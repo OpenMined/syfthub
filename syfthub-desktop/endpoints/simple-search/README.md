@@ -6,7 +6,6 @@ description: A simple search endpoint that returns sample documents
 enabled: true
 version: "1.0.0"
 runtime:
-  mode: subprocess
   timeout: 30
 ---
 

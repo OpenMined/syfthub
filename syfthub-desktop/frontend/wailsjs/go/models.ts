@@ -1,5 +1,29 @@
 export namespace main {
 
+	export class AccountingConfig {
+	    url: string;
+
+	    static createFrom(source: any = {}) {
+	        return new AccountingConfig(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.url = source["url"];
+	    }
+	}
+	export class AggregatorConfig {
+	    url: string;
+
+	    static createFrom(source: any = {}) {
+	        return new AggregatorConfig(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.url = source["url"];
+	    }
+	}
 	export class ChatEndpointRef {
 	    url: string;
 	    slug: string;
@@ -242,7 +266,6 @@ export namespace main {
 	    runnerCode: string;
 	    readmeContent: string;
 	    policies: Policy[];
-	    policiesVersion: string;
 	    setupStatus?: SetupStatusInfo;
 	    setupSpec?: SetupSpecInfo;
 
@@ -265,7 +288,6 @@ export namespace main {
 	        this.runnerCode = source["runnerCode"];
 	        this.readmeContent = source["readmeContent"];
 	        this.policies = this.convertValues(source["policies"], Policy);
-	        this.policiesVersion = source["policiesVersion"];
 	        this.setupStatus = this.convertValues(source["setupStatus"], SetupStatusInfo);
 	        this.setupSpec = this.convertValues(source["setupSpec"], SetupSpecInfo);
 	    }
@@ -346,6 +368,32 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.key = source["key"];
 	        this.value = source["value"];
+	    }
+	}
+	export class LibraryPackage {
+	    slug: string;
+	    name: string;
+	    description: string;
+	    type: string;
+	    author?: string;
+	    version: string;
+	    downloadUrl: string;
+	    tags?: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new LibraryPackage(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.slug = source["slug"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.type = source["type"];
+	        this.author = source["author"];
+	        this.version = source["version"];
+	        this.downloadUrl = source["downloadUrl"];
+	        this.tags = source["tags"];
 	    }
 	}
 	export class LogPolicyInfo {
@@ -568,32 +616,6 @@ export namespace main {
 	}
 
 
-	export class MarketplacePackage {
-	    slug: string;
-	    name: string;
-	    description: string;
-	    type: string;
-	    author?: string;
-	    version: string;
-	    downloadUrl: string;
-	    tags?: string[];
-
-	    static createFrom(source: any = {}) {
-	        return new MarketplacePackage(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.slug = source["slug"];
-	        this.name = source["name"];
-	        this.description = source["description"];
-	        this.type = source["type"];
-	        this.author = source["author"];
-	        this.version = source["version"];
-	        this.downloadUrl = source["downloadUrl"];
-	        this.tags = source["tags"];
-	    }
-	}
 	export class NewPolicyRequest {
 	    name: string;
 	    type: string;
@@ -633,8 +655,13 @@ export namespace main {
 	export class Settings {
 	    hub_url: string;
 	    api_token?: string;
-	    endpoints_path: string;
-	    is_configured: boolean;
+	    aggregators?: Record<string, AggregatorConfig>;
+	    accounting_services?: Record<string, AccountingConfig>;
+	    default_aggregator?: string;
+	    default_accounting?: string;
+	    timeout?: number;
+	    endpoints_path?: string;
+	    is_configured?: boolean;
 	    marketplace_url?: string;
 	    log_level?: string;
 	    python_path?: string;
@@ -651,6 +678,11 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.hub_url = source["hub_url"];
 	        this.api_token = source["api_token"];
+	        this.aggregators = this.convertValues(source["aggregators"], AggregatorConfig, true);
+	        this.accounting_services = this.convertValues(source["accounting_services"], AccountingConfig, true);
+	        this.default_aggregator = source["default_aggregator"];
+	        this.default_accounting = source["default_accounting"];
+	        this.timeout = source["timeout"];
 	        this.endpoints_path = source["endpoints_path"];
 	        this.is_configured = source["is_configured"];
 	        this.marketplace_url = source["marketplace_url"];
@@ -661,6 +693,24 @@ export namespace main {
 	        this.container_runtime = source["container_runtime"];
 	        this.container_image = source["container_image"];
 	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 
@@ -681,26 +731,6 @@ export namespace main {
 	        this.errorMessage = source["errorMessage"];
 	        this.mode = source["mode"];
 	        this.uptime = source["uptime"];
-	    }
-	}
-	export class UserAggregator {
-	    id: number;
-	    name: string;
-	    url: string;
-	    is_default: boolean;
-	    created_at: string;
-
-	    static createFrom(source: any = {}) {
-	        return new UserAggregator(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.url = source["url"];
-	        this.is_default = source["is_default"];
-	        this.created_at = source["created_at"];
 	    }
 	}
 

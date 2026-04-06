@@ -6,7 +6,6 @@ description: Echoes back the user message with policy enforcement
 enabled: true
 version: "1.0.1"
 runtime:
-  mode: subprocess
   timeout: 30
 ---
 

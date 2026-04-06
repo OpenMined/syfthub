@@ -254,7 +254,7 @@ function getEndpointStatus(endpoint: EndpointInfo): {
 } {
   // Runtime state takes priority — these are active operations
   if (endpoint.runtimeState === RuntimeState.Installing) {
-    return { indicator: 'installing', tooltip: 'Installing from marketplace...' };
+    return { indicator: 'installing', tooltip: 'Installing from library...' };
   }
   if (endpoint.runtimeState === RuntimeState.SettingUp) {
     return { indicator: 'setting-up', tooltip: 'Running setup...' };
@@ -306,12 +306,13 @@ function EndpointItem({
       }`}
     >
       <div className="flex items-center gap-2">
-        {/* Type badge - first for immediate categorization */}
-        <span
+        {/* TODO(AGENT_ONLY): Type badge hidden — all endpoints are agents now.
+            To restore, uncomment the <span> below. */}
+        {/* <span
           className={`text-[11px] font-medium py-0.5 rounded-md flex-shrink-0 w-12 text-center ${colors.bg} ${colors.text}`}
         >
           {typeLabelsShort[endpoint.type] ?? endpoint.type}
-        </span>
+        </span> */}
 
         {/* Name - primary content */}
         <span className={`text-sm font-medium truncate flex-1 ${
@@ -351,7 +352,7 @@ function EndpointItem({
 }
 
 export function Sidebar({ onSettingsClick }: SidebarProps) {
-  const { endpoints, selectedEndpointSlug, selectEndpoint, isInitializing, setCreateDialogOpen, showMarketplace, setShowMarketplace } = useAppStore();
+  const { endpoints, selectedEndpointSlug, selectEndpoint, isInitializing, setCreateDialogOpen, showLibrary, setShowLibrary } = useAppStore();
 
   // Local filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -391,7 +392,8 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
           <div className="flex-1">
             <SearchInput value={searchQuery} onChange={setSearchQuery} />
           </div>
-          <FilterButton selected={typeFilter} onChange={setTypeFilter} />
+          {/* TODO(AGENT_ONLY): Type filter hidden — only agent endpoints shown.
+              To restore, uncomment: <FilterButton selected={typeFilter} onChange={setTypeFilter} /> */}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -465,21 +467,21 @@ export function Sidebar({ onSettingsClick }: SidebarProps) {
         )}
       </div>
 
-      {/* Marketplace button */}
+      {/* Library button */}
       <div className="px-2 pb-1 flex-shrink-0">
         <button
-          onClick={() => setShowMarketplace(!showMarketplace)}
+          onClick={() => setShowLibrary(!showLibrary)}
           className={`
             w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium
             transition-colors duration-150
-            ${showMarketplace
+            ${showLibrary
               ? 'bg-primary/10 text-primary border border-primary/20'
               : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50 border border-transparent'
             }
           `}
         >
           <Store className="w-4 h-4 flex-shrink-0" />
-          Marketplace
+          Library
         </button>
       </div>
 

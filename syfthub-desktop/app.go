@@ -58,8 +58,8 @@ type App struct {
 	setupStatusCache map[string]*SetupStatusInfo // Cached per-endpoint setup status; protected by mu
 	agentSessionID string     // ID of active agent session (empty if none); SessionManager owns the session
 	agentMu        sync.Mutex // Protects agentSessionID
-	marketplaceClient    *nodeops.MarketplaceClient // Cached marketplace client; protected by mu
-	marketplaceClientURL string                     // URL the cached client was created for
+	libraryClient    *nodeops.MarketplaceClient // Cached library client; protected by mu
+	libraryClientURL string                     // URL the cached client was created for
 }
 
 // NewApp creates a new App application struct.
@@ -482,12 +482,9 @@ func (a *App) Stop() error {
 
 // ReloadEndpoints reloads endpoints from the filesystem.
 func (a *App) ReloadEndpoints() error {
-	a.mu.RLock()
-	core := a.core
-	a.mu.RUnlock()
-
-	if core == nil {
-		return fmt.Errorf("application not initialized")
+	core, err := a.requireCore()
+	if err != nil {
+		return err
 	}
 
 	runtime.LogInfo(a.ctx, "Reloading endpoints...")
@@ -522,14 +519,15 @@ func (a *App) setErrorState(errMsg string) {
 	runtime.LogError(a.ctx, errMsg)
 }
 
-// getSyftClient returns the SDK client under read lock, or an error if not configured.
-func (a *App) getSyftClient() (*syfthub.Client, error) {
+// requireCore returns the core app, or an error if the app is not initialized.
+func (a *App) requireCore() (*app.App, error) {
 	a.mu.RLock()
-	defer a.mu.RUnlock()
-	if a.syftClient == nil {
-		return nil, ErrNotConfigured
+	core := a.core
+	a.mu.RUnlock()
+	if core == nil {
+		return nil, fmt.Errorf("application not initialized")
 	}
-	return a.syftClient, nil
+	return core, nil
 }
 
 // getConfig returns the current config under read lock, or an error if not configured.
@@ -542,16 +540,16 @@ func (a *App) getConfig() (*app.Config, error) {
 	return a.config, nil
 }
 
-// getMarketplaceClient returns a cached MarketplaceClient for the current
-// marketplace URL. A new client is created only when the URL changes.
-func (a *App) getMarketplaceClient(url string) *nodeops.MarketplaceClient {
+// getLibraryClient returns a cached MarketplaceClient for the current
+// library URL. A new client is created only when the URL changes.
+func (a *App) getLibraryClient(url string) *nodeops.MarketplaceClient {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.marketplaceClient == nil || a.marketplaceClientURL != url {
-		a.marketplaceClient = nodeops.NewMarketplaceClient(url)
-		a.marketplaceClientURL = url
+	if a.libraryClient == nil || a.libraryClientURL != url {
+		a.libraryClient = nodeops.NewMarketplaceClient(url)
+		a.libraryClientURL = url
 	}
-	return a.marketplaceClient
+	return a.libraryClient
 }
 
 // getMode returns the connection mode string.
@@ -745,12 +743,9 @@ func (a *App) GetLogStats(slug string) (*LogStats, error) {
 
 // GetLogDetail retrieves a specific log entry by ID.
 func (a *App) GetLogDetail(slug, logID string) (*RequestLogEntry, error) {
-	a.mu.RLock()
-	core := a.core
-	a.mu.RUnlock()
-
-	if core == nil {
-		return nil, fmt.Errorf("application not initialized")
+	core, err := a.requireCore()
+	if err != nil {
+		return nil, err
 	}
 
 	log, err := core.GetLogByID(context.Background(), slug, logID)
@@ -763,12 +758,9 @@ func (a *App) GetLogDetail(slug, logID string) (*RequestLogEntry, error) {
 
 // DeleteLogs deletes all logs for an endpoint.
 func (a *App) DeleteLogs(slug string) error {
-	a.mu.RLock()
-	core := a.core
-	a.mu.RUnlock()
-
-	if core == nil {
-		return fmt.Errorf("application not initialized")
+	core, err := a.requireCore()
+	if err != nil {
+		return err
 	}
 
 	return core.DeleteLogs(context.Background(), slug)
@@ -1078,126 +1070,4 @@ func (a *App) StopChat() {
 		a.chatCancel()
 		a.chatCancel = nil
 	}
-}
-
-// ============================================================================
-// Aggregator Management Bindings
-// ============================================================================
-
-// toUserAggregator converts the SDK's UserAggregator to the desktop's UserAggregator type.
-func toUserAggregator(a syfthub.UserAggregator) UserAggregator {
-	return UserAggregator{
-		ID:        a.ID,
-		Name:      a.Name,
-		URL:       a.URL,
-		IsDefault: a.IsDefault,
-		CreatedAt: a.CreatedAt.Format(time.RFC3339),
-	}
-}
-
-// GetUserAggregators fetches the list of aggregators for the current user via the SDK.
-func (a *App) GetUserAggregators() ([]UserAggregator, error) {
-	client, err := a.getSyftClient()
-	if err != nil {
-		runtime.LogWarning(a.ctx, "[aggregator] GetUserAggregators: app not configured")
-		return nil, err
-	}
-
-	ctx, cancel := apiTimeout()
-	defer cancel()
-
-	sdkAggregators, err := client.Users.Aggregators.List(ctx)
-	if err != nil {
-		runtime.LogError(a.ctx, fmt.Sprintf("[aggregator] List error: %v", err))
-		return nil, fmt.Errorf("failed to fetch aggregators: %w", err)
-	}
-
-	runtime.LogInfo(a.ctx, fmt.Sprintf("[aggregator] fetched %d aggregators", len(sdkAggregators)))
-
-	result := make([]UserAggregator, 0, len(sdkAggregators))
-	for _, agg := range sdkAggregators {
-		result = append(result, toUserAggregator(agg))
-	}
-	return result, nil
-}
-
-// CreateUserAggregator creates a new aggregator for the current user via the SDK.
-func (a *App) CreateUserAggregator(name, url string, isDefault bool) (UserAggregator, error) {
-	client, err := a.getSyftClient()
-	if err != nil {
-		return UserAggregator{}, err
-	}
-
-	ctx, cancel := apiTimeout()
-	defer cancel()
-
-	created, err := client.Users.Aggregators.Create(ctx, name, url)
-	if err != nil {
-		return UserAggregator{}, fmt.Errorf("failed to create aggregator: %w", err)
-	}
-
-	// If the caller wants this to be default but the server didn't set it as default, set it now.
-	if isDefault && !created.IsDefault {
-		updated, err := client.Users.Aggregators.SetDefault(ctx, created.ID)
-		if err != nil {
-			runtime.LogWarning(a.ctx, fmt.Sprintf("[aggregator] Failed to set default: %v", err))
-			return toUserAggregator(*created), nil
-		}
-		return toUserAggregator(*updated), nil
-	}
-
-	return toUserAggregator(*created), nil
-}
-
-// UpdateUserAggregator updates an existing aggregator by ID via the SDK.
-func (a *App) UpdateUserAggregator(id int, name, url string) (UserAggregator, error) {
-	client, err := a.getSyftClient()
-	if err != nil {
-		return UserAggregator{}, err
-	}
-
-	ctx, cancel := apiTimeout()
-	defer cancel()
-
-	req := &syfthub.UpdateAggregatorRequest{
-		Name: &name,
-		URL:  &url,
-	}
-	updated, err := client.Users.Aggregators.Update(ctx, id, req)
-	if err != nil {
-		return UserAggregator{}, fmt.Errorf("failed to update aggregator: %w", err)
-	}
-
-	return toUserAggregator(*updated), nil
-}
-
-// DeleteUserAggregator deletes an aggregator by ID via the SDK.
-func (a *App) DeleteUserAggregator(id int) error {
-	client, err := a.getSyftClient()
-	if err != nil {
-		return err
-	}
-
-	ctx, cancel := apiTimeout()
-	defer cancel()
-
-	return client.Users.Aggregators.Delete(ctx, id)
-}
-
-// SetDefaultUserAggregator sets the given aggregator as the default via the SDK.
-func (a *App) SetDefaultUserAggregator(id int) (UserAggregator, error) {
-	client, err := a.getSyftClient()
-	if err != nil {
-		return UserAggregator{}, err
-	}
-
-	ctx, cancel := apiTimeout()
-	defer cancel()
-
-	updated, err := client.Users.Aggregators.SetDefault(ctx, id)
-	if err != nil {
-		return UserAggregator{}, fmt.Errorf("failed to set default aggregator: %w", err)
-	}
-
-	return toUserAggregator(*updated), nil
 }
