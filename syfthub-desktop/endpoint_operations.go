@@ -32,8 +32,7 @@ type EndpointDetail struct {
 	EnvCount        int              `json:"envCount"`
 	RunnerCode      string           `json:"runnerCode"`
 	ReadmeContent   string           `json:"readmeContent"`
-	Policies        []Policy         `json:"policies"`
-	PoliciesVersion string           `json:"policiesVersion"`
+	Policies    []Policy         `json:"policies"`
 	SetupStatus     *SetupStatusInfo `json:"setupStatus,omitempty"`
 	SetupSpec       *SetupSpecInfo   `json:"setupSpec,omitempty"`
 }
@@ -50,25 +49,11 @@ type Dependency struct {
 	Version string `json:"version"`
 }
 
-// Policy represents a single policy from policies.yaml.
+// Policy represents a single policy configuration.
 type Policy struct {
 	Name   string                 `json:"name" yaml:"name"`
 	Type   string                 `json:"type" yaml:"type"`
 	Config map[string]interface{} `json:"config" yaml:"config"`
-}
-
-// --- nodeops type conversion helpers ---
-
-func toNodeopsPolicy(p Policy) nodeops.Policy {
-	return nodeops.Policy{Name: p.Name, Type: p.Type, Config: p.Config}
-}
-
-func fromNodeopsPolicies(ps []nodeops.Policy) []Policy {
-	out := make([]Policy, len(ps))
-	for i, p := range ps {
-		out[i] = Policy{Name: p.Name, Type: p.Type, Config: p.Config}
-	}
-	return out
 }
 
 func fromNodeopsEnvVars(vs []nodeops.EnvVar) []EnvVar {
@@ -161,12 +146,27 @@ func (a *App) GetEndpointDetail(slug string) (*EndpointDetail, error) {
 		detail.RunnerCode = string(content)
 	}
 
-	// Check for policies.yaml file and parse it
-	policiesPath := filepath.Join(endpointDir, "policies.yaml")
-	if policies, version, err := a.parsePoliciesYaml(policiesPath); err == nil {
-		detail.HasPolicies = true
-		detail.Policies = policies
-		detail.PoliciesVersion = version
+	// Load policies from the policy/ directory — the format read by the execution engine.
+	policyDir := filepath.Join(endpointDir, "policy")
+	if entries, err := os.ReadDir(policyDir); err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			if ext := filepath.Ext(e.Name()); ext != ".yaml" && ext != ".yml" {
+				continue
+			}
+			content, err := os.ReadFile(filepath.Join(policyDir, e.Name()))
+			if err != nil {
+				continue
+			}
+			var p Policy
+			if err := yaml.Unmarshal(content, &p); err != nil || p.Name == "" {
+				continue
+			}
+			detail.Policies = append(detail.Policies, p)
+		}
+		detail.HasPolicies = len(detail.Policies) > 0
 	}
 
 	// Count environment variables
@@ -195,14 +195,6 @@ func (a *App) GetEndpointDetail(slug string) (*EndpointDetail, error) {
 	return detail, nil
 }
 
-// parsePoliciesYaml parses policies.yaml and returns the policies list.
-func (a *App) parsePoliciesYaml(path string) ([]Policy, string, error) {
-	nPolicies, version, err := nodeops.ParsePoliciesYaml(path)
-	if err != nil {
-		return nil, "", err
-	}
-	return fromNodeopsPolicies(nPolicies), version, nil
-}
 
 // GetRunnerCode returns the runner.py content for an endpoint.
 func (a *App) GetRunnerCode(slug string) (string, error) {
@@ -703,115 +695,12 @@ func (a *App) OpenEndpointFolder(slug string) error {
 	return openInExplorer(endpointPath)
 }
 
-// SavePolicy creates or updates a policy in the endpoint's policies.yaml.
-// If a policy with the same name exists, it will be updated; otherwise, a new one is created.
-func (a *App) SavePolicy(slug string, policy Policy) error {
-	config, err := a.getConfig()
-	if err != nil {
-		return err
-	}
-
-	policiesPath := filepath.Join(config.EndpointsPath, slug, "policies.yaml")
-	if err := nodeops.SavePolicy(policiesPath, toNodeopsPolicy(policy)); err != nil {
-		return err
-	}
-
-	runtime.LogInfo(a.ctx, fmt.Sprintf("Saved policy '%s' for endpoint: %s", policy.Name, slug))
-	return nil
-}
-
-// DeletePolicy removes a policy from the endpoint's policies.yaml by name.
-func (a *App) DeletePolicy(slug, policyName string) error {
-	config, err := a.getConfig()
-	if err != nil {
-		return err
-	}
-
-	policiesPath := filepath.Join(config.EndpointsPath, slug, "policies.yaml")
-	if err := nodeops.DeletePolicy(policiesPath, policyName); err != nil {
-		return err
-	}
-
-	runtime.LogInfo(a.ctx, fmt.Sprintf("Deleted policy '%s' from endpoint: %s", policyName, slug))
-	return nil
-}
-
-// GetPolicies returns the policies for an endpoint.
-func (a *App) GetPolicies(slug string) ([]Policy, error) {
-	config, err := a.getConfig()
-	if err != nil {
-		return nil, err
-	}
-
-	policiesPath := filepath.Join(config.EndpointsPath, slug, "policies.yaml")
-	policies, _, err := a.parsePoliciesYaml(policiesPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return []Policy{}, nil
-		}
-		return nil, err
-	}
-
-	return policies, nil
-}
-
-// GetPoliciesYaml returns the raw policies.yaml content for an endpoint.
-func (a *App) GetPoliciesYaml(slug string) (string, error) {
-	config, err := a.getConfig()
-	if err != nil {
-		return "", err
-	}
-
-	policiesPath := filepath.Join(config.EndpointsPath, slug, "policies.yaml")
-	content, err := os.ReadFile(policiesPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Return default template if file doesn't exist
-			return `# Policy configuration
-version: "1.0"
-
-# Store configuration for stateful policies
-store:
-  type: sqlite
-  path: .policy_store.db
-
-# Policies are evaluated in order
-policies: []
-`, nil
-		}
-		return "", fmt.Errorf("failed to read policies.yaml: %w", err)
-	}
-
-	return string(content), nil
-}
-
 // validateYAML checks that a string contains valid YAML syntax.
 func validateYAML(content string) error {
 	var v interface{}
 	if err := yaml.Unmarshal([]byte(content), &v); err != nil {
 		return fmt.Errorf("invalid YAML syntax: %w", err)
 	}
-	return nil
-}
-
-// SavePoliciesYaml saves raw YAML content to the endpoint's policies.yaml file.
-func (a *App) SavePoliciesYaml(slug, content string) error {
-	config, err := a.getConfig()
-	if err != nil {
-		return err
-	}
-
-	// Validate YAML syntax before saving
-	if err := validateYAML(content); err != nil {
-		return err
-	}
-
-	policiesPath := filepath.Join(config.EndpointsPath, slug, "policies.yaml")
-	if err := os.WriteFile(policiesPath, []byte(content), 0644); err != nil {
-		return fmt.Errorf("failed to write policies.yaml: %w", err)
-	}
-
-	runtime.LogInfo(a.ctx, fmt.Sprintf("Saved policies.yaml for endpoint: %s", slug))
 	return nil
 }
 
@@ -1238,7 +1127,10 @@ func (a *App) DeleteEndpoint(slug string) error {
 	}
 
 	runtime.LogInfo(a.ctx, fmt.Sprintf("Deleted endpoint: %s", slug))
-	runtime.EventsEmit(a.ctx, "app:endpoints-changed", nil)
+	// Don't emit app:endpoints-changed here — the file watcher will detect
+	// the deletion and emit the correct endpoint list after reloading.
+	// Emitting nil here caused a race where the frontend's optimistic delete
+	// was overwritten before the file watcher could confirm it.
 	return nil
 }
 
@@ -1326,7 +1218,6 @@ env:
   optional: []
   inherit: [PATH, HOME]
 runtime:
-  mode: subprocess
   workers: 1
   timeout: 30
 ---
