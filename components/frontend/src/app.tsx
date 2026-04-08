@@ -6,8 +6,8 @@ import { ProtectedRoute } from './components/auth/protected-route';
 import RootProvider from './components/providers/root';
 import { RouteBoundary } from './components/route-boundary';
 import { ScrollToTop } from './components/scroll-to-top';
-import { AccountingProvider } from './context/accounting-context';
 import { AuthProvider } from './context/auth-context';
+import { WalletProvider } from './context/wallet-context';
 import { MainLayout } from './layouts/main-layout';
 import { lazyWithRetry } from './lib/lazy-with-retry';
 import { queryClient } from './lib/query-client';
@@ -70,7 +70,7 @@ export default function App() {
         <RootProvider>
           <GoogleOAuthWrapper>
             <AuthProvider>
-              <AccountingProvider>
+              <WalletProvider>
                 <BrowserRouter>
                   <ScrollToTop />
                   <Routes>
@@ -174,7 +174,7 @@ export default function App() {
                     </Route>
                   </Routes>
                 </BrowserRouter>
-              </AccountingProvider>
+              </WalletProvider>
             </AuthProvider>
           </GoogleOAuthWrapper>
         </RootProvider>

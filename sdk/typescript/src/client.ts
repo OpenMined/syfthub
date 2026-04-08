@@ -1,5 +1,5 @@
 import { HTTPClient, type AuthTokens } from './http.js';
-import { AuthenticationError, ConfigurationError, SyftHubError } from './errors.js';
+import { AuthenticationError, SyftHubError } from './errors.js';
 import { APITokensResource } from './resources/api-tokens.js';
 import { AuthResource } from './resources/auth.js';
 import { UsersResource } from './resources/users.js';
@@ -109,7 +109,6 @@ function isBrowser(): boolean {
  */
 export class SyftHubClient {
   private readonly http: HTTPClient;
-  private readonly options: SyftHubClientOptions;
   private readonly aggregatorUrl: string;
 
   // Lazy-initialized resources
@@ -118,7 +117,6 @@ export class SyftHubClient {
   private _myEndpoints?: MyEndpointsResource;
   private _hub?: HubResource;
   private _accounting?: AccountingResource;
-  private _accountingInitPromise: Promise<AccountingResource> | null = null;
   private _agent?: AgentResource;
   private _chat?: ChatResource;
   private _syftai?: SyftAIResource;
@@ -131,7 +129,6 @@ export class SyftHubClient {
    * @throws {SyftHubError} If baseUrl is not provided and SYFTHUB_URL is not set (in non-browser environments)
    */
   constructor(options: SyftHubClientOptions = {}) {
-    this.options = options;
     let baseUrl = options.baseUrl ?? getEnv('SYFTHUB_URL');
 
     // In browser environments, empty baseUrl means same-origin requests
@@ -241,13 +238,14 @@ export class SyftHubClient {
   }
 
   /**
-   * Accounting resource for billing and transactions.
+   * Accounting resource for wallet and payment operations.
    *
-   * The accounting service is external and uses separate credentials
-   * (email/password Basic auth) from SyftHub's JWT authentication.
+   * Provides access to MPP wallet management (balance, transactions,
+   * wallet creation/import). Uses the same SyftHub JWT authentication
+   * as other resources.
    *
-   * Credentials are automatically retrieved from the backend after login.
-   * You must call `initAccounting()` after login to initialize this resource.
+   * You must call `initAccounting()` after login to initialize this resource,
+   * or access it directly if already initialized.
    *
    * @throws {AuthenticationError} If not initialized
    *
@@ -257,7 +255,8 @@ export class SyftHubClient {
    * await client.initAccounting();
    *
    * // Now accounting is available
-   * const user = await client.accounting.getUser();
+   * const wallet = await client.accounting.getWallet();
+   * const balance = await client.accounting.getBalance();
    */
   get accounting(): AccountingResource {
     if (this._accounting) {
@@ -270,14 +269,13 @@ export class SyftHubClient {
   }
 
   /**
-   * Initialize accounting resource by fetching credentials from the backend.
+   * Initialize the accounting (wallet) resource.
    *
-   * This method retrieves accounting credentials from the SyftHub backend
-   * and initializes the accounting resource. Requires authentication.
+   * The wallet API uses the same SyftHub authentication as other resources.
+   * This method simply verifies authentication and creates the resource.
    *
    * @returns The initialized AccountingResource
    * @throws {AuthenticationError} If not authenticated
-   * @throws {ConfigurationError} If user has no accounting service configured
    *
    * @example
    * // Login first, then initialize accounting
@@ -285,7 +283,8 @@ export class SyftHubClient {
    * await client.initAccounting();
    *
    * // Now accounting is available
-   * const user = await client.accounting.getUser();
+   * const wallet = await client.accounting.getWallet();
+   * const balance = await client.accounting.getBalance();
    */
   async initAccounting(): Promise<AccountingResource> {
     // Return cached instance
@@ -293,54 +292,14 @@ export class SyftHubClient {
       return this._accounting;
     }
 
-    // Prevent concurrent initialization
-    if (this._accountingInitPromise) {
-      return this._accountingInitPromise;
-    }
-
-    this._accountingInitPromise = this._doInitAccounting();
-
-    try {
-      this._accounting = await this._accountingInitPromise;
-      return this._accounting;
-    } finally {
-      this._accountingInitPromise = null;
-    }
-  }
-
-  /**
-   * Internal method to perform accounting initialization.
-   */
-  private async _doInitAccounting(): Promise<AccountingResource> {
     if (!this.isAuthenticated) {
       throw new AuthenticationError(
         'Must be logged in to use accounting. ' + 'Call client.auth.login() first.'
       );
     }
 
-    // Fetch credentials from backend
-    const creds = await this.users.getAccountingCredentials();
-
-    if (!creds.url) {
-      throw new ConfigurationError(
-        'No accounting service configured for this user. ' +
-          'Contact your administrator to set up accounting.'
-      );
-    }
-
-    if (!creds.password) {
-      throw new ConfigurationError(
-        'Accounting password not available. ' +
-          'This may indicate an issue with your account setup.'
-      );
-    }
-
-    return new AccountingResource({
-      url: creds.url,
-      email: creds.email,
-      password: creds.password,
-      timeout: this.options.timeout,
-    });
+    this._accounting = new AccountingResource(this.http);
+    return this._accounting;
   }
 
   /**
@@ -487,7 +446,7 @@ export class SyftHubClient {
   }
 
   /**
-   * Check if accounting has been initialized.
+   * Check if the accounting (wallet) resource has been initialized.
    *
    * Use this to check if accounting is available before accessing
    * the `accounting` property, which will throw if not initialized.
@@ -496,7 +455,7 @@ export class SyftHubClient {
    *
    * @example
    * if (client.isAccountingInitialized) {
-   *   const user = await client.accounting.getUser();
+   *   const wallet = await client.accounting.getWallet();
    * }
    */
   get isAccountingInitialized(): boolean {

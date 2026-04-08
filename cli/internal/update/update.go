@@ -35,33 +35,88 @@ type VersionInfo struct {
 	PublishedAt string
 }
 
-// ParseVersion parses a version string into comparable integers.
-func ParseVersion(v string) []int {
-	v = strings.TrimPrefix(v, "v")
-	parts := strings.Split(strings.Split(v, "-")[0], ".")
+// SemVer represents a parsed semantic version.
+type SemVer struct {
+	Major      int
+	Minor      int
+	Patch      int
+	PreRelease string // e.g. "beta.1", "" for stable
+}
 
-	result := make([]int, len(parts))
-	for i, p := range parts {
-		n, _ := strconv.Atoi(p)
-		result[i] = n
+// ParseSemVer parses a version string into a SemVer struct.
+func ParseSemVer(v string) SemVer {
+	v = strings.TrimPrefix(v, "v")
+	var pre string
+	if idx := strings.IndexByte(v, '-'); idx >= 0 {
+		pre = v[idx+1:]
+		v = v[:idx]
 	}
-	return result
+	parts := strings.Split(v, ".")
+	atoi := func(s string) int { n, _ := strconv.Atoi(s); return n }
+
+	sv := SemVer{PreRelease: pre}
+	if len(parts) > 0 {
+		sv.Major = atoi(parts[0])
+	}
+	if len(parts) > 1 {
+		sv.Minor = atoi(parts[1])
+	}
+	if len(parts) > 2 {
+		sv.Patch = atoi(parts[2])
+	}
+	return sv
+}
+
+// IsPreRelease returns true if v contains a pre-release suffix (alpha, beta, rc).
+func IsPreRelease(v string) bool {
+	v = strings.TrimPrefix(v, "v")
+	if idx := strings.IndexByte(v, '-'); idx >= 0 {
+		suffix := strings.ToLower(v[idx+1:])
+		return strings.HasPrefix(suffix, "alpha") ||
+			strings.HasPrefix(suffix, "beta") ||
+			strings.HasPrefix(suffix, "rc")
+	}
+	return false
+}
+
+// ParseVersion parses a version string into comparable integers (base version only).
+func ParseVersion(v string) []int {
+	sv := ParseSemVer(v)
+	return []int{sv.Major, sv.Minor, sv.Patch}
 }
 
 // IsNewerVersion checks if latest is newer than current.
+// Pre-release versions are considered older than the same base version
+// (e.g. 0.2.0-beta.1 < 0.2.0). Between pre-releases with the same base,
+// comparison is lexicographic (alpha < beta < rc).
 func IsNewerVersion(latest, current string) bool {
-	latestParts := ParseVersion(latest)
-	currentParts := ParseVersion(current)
+	l := ParseSemVer(latest)
+	c := ParseSemVer(current)
 
-	for i := 0; i < len(latestParts) && i < len(currentParts); i++ {
-		if latestParts[i] > currentParts[i] {
-			return true
-		}
-		if latestParts[i] < currentParts[i] {
-			return false
-		}
+	// Compare base version (major.minor.patch)
+	if l.Major != c.Major {
+		return l.Major > c.Major
 	}
-	return len(latestParts) > len(currentParts)
+	if l.Minor != c.Minor {
+		return l.Minor > c.Minor
+	}
+	if l.Patch != c.Patch {
+		return l.Patch > c.Patch
+	}
+
+	// Same base version — compare pre-release
+	// Stable (no pre-release) is always newer than a pre-release
+	if c.PreRelease == "" && l.PreRelease == "" {
+		return false // same version
+	}
+	if c.PreRelease != "" && l.PreRelease == "" {
+		return true // latest is stable, current is pre-release
+	}
+	if c.PreRelease == "" && l.PreRelease != "" {
+		return false // latest is pre-release, current is stable
+	}
+	// Both are pre-releases — lexicographic (alpha < beta < rc, beta.1 < beta.2)
+	return l.PreRelease > c.PreRelease
 }
 
 // GetPlatformBinaryName returns the binary name for the current platform.
@@ -89,8 +144,21 @@ func GetPlatformBinaryName() string {
 	return fmt.Sprintf("syft-%s-%s", osName, arch)
 }
 
-// GetLatestRelease fetches the latest CLI release from GitHub.
+// GetLatestRelease fetches the latest stable CLI release from GitHub.
+// Pre-release versions (alpha, beta, rc) are excluded so stable users
+// are never prompted to upgrade to a pre-release.
 func GetLatestRelease() (*VersionInfo, error) {
+	return getLatestRelease(false)
+}
+
+// GetLatestPreRelease fetches the latest CLI release from GitHub,
+// including pre-releases. Use this when the current install is already
+// on a pre-release channel.
+func GetLatestPreRelease() (*VersionInfo, error) {
+	return getLatestRelease(true)
+}
+
+func getLatestRelease(includePreRelease bool) (*VersionInfo, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 
 	resp, err := client.Get(GitHubAPIURL)
@@ -106,6 +174,7 @@ func GetLatestRelease() (*VersionInfo, error) {
 	var releases []struct {
 		TagName     string `json:"tag_name"`
 		HTMLURL     string `json:"html_url"`
+		Prerelease  bool   `json:"prerelease"`
 		PublishedAt string `json:"published_at"`
 		Assets      []struct {
 			Name               string `json:"name"`
@@ -121,18 +190,24 @@ func GetLatestRelease() (*VersionInfo, error) {
 
 	// Find the latest CLI release (tag starts with "cli/v")
 	for _, release := range releases {
-		if strings.HasPrefix(release.TagName, "cli/v") {
-			version := strings.TrimPrefix(release.TagName, "cli/v")
+		if !strings.HasPrefix(release.TagName, "cli/v") {
+			continue
+		}
+		// Skip pre-releases unless explicitly requested
+		if release.Prerelease && !includePreRelease {
+			continue
+		}
 
-			for _, asset := range release.Assets {
-				if asset.Name == binaryName {
-					return &VersionInfo{
-						Version:     version,
-						DownloadURL: asset.BrowserDownloadURL,
-						ReleaseURL:  release.HTMLURL,
-						PublishedAt: release.PublishedAt,
-					}, nil
-				}
+		ver := strings.TrimPrefix(release.TagName, "cli/v")
+
+		for _, asset := range release.Assets {
+			if asset.Name == binaryName {
+				return &VersionInfo{
+					Version:     ver,
+					DownloadURL: asset.BrowserDownloadURL,
+					ReleaseURL:  release.HTMLURL,
+					PublishedAt: release.PublishedAt,
+				}, nil
 			}
 		}
 	}
@@ -210,8 +285,16 @@ func CheckForUpdates(force bool) (*VersionInfo, error) {
 		return nil, nil
 	}
 
-	// Fetch latest release
-	latest, err := GetLatestRelease()
+	// If the current version is a pre-release, also consider newer pre-releases
+	var (
+		latest *VersionInfo
+		err    error
+	)
+	if IsPreRelease(version.Version) {
+		latest, err = GetLatestPreRelease()
+	} else {
+		latest, err = GetLatestRelease()
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/coder/websocket"
 	"github.com/openmined/syfthub/sdk/golang/agenttypes"
-	"nhooyr.io/websocket"
 )
 
 // AgentSessionConfig is an alias for the shared agent config type.

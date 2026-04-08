@@ -1,52 +1,34 @@
 /**
- * Accounting Resource for SyftHub SDK
+ * Accounting Resource for SyftHub SDK (MPP Wallet)
  *
- * This module connects to an external accounting/billing service for managing
- * user balances and transactions. The accounting service is separate from SyftHub
- * and uses its own authentication (Basic auth with email/password).
+ * This module provides wallet management operations via the SyftHub API.
+ * Payments are handled through the MPP (Micropayment Protocol) 402 flow,
+ * replacing the previous external accounting service with direct wallet support.
  *
  * @example
  * ```typescript
- * // Create accounting client
- * const accounting = new AccountingResource({
- *   url: 'https://accounting.example.com',
- *   email: 'user@example.com',
- *   password: 'secret'
- * });
+ * // Initialize via client (after login)
+ * await client.auth.login('alice', 'password');
+ * await client.initAccounting();
  *
- * // Get user balance
- * const user = await accounting.getUser();
- * console.log(`Balance: ${user.balance}`);
+ * // Get wallet info
+ * const wallet = await client.accounting.getWallet();
+ * console.log(`Wallet address: ${wallet.address}`);
  *
- * // Create a transaction
- * const tx = await accounting.createTransaction({
- *   recipientEmail: 'recipient@example.com',
- *   amount: 10.0,
- *   appName: 'syftai-space',
- *   appEpPath: 'alice/my-model'
- * });
+ * // Get balance
+ * const balance = await client.accounting.getBalance();
+ * console.log(`Balance: ${balance.balance} ${balance.currency}`);
  *
- * // Confirm the transaction
- * await accounting.confirmTransaction(tx.id);
+ * // Get transactions
+ * const transactions = await client.accounting.getTransactions();
+ * for (const tx of transactions) {
+ *   console.log(`${tx.created_at}: ${tx.amount} from ${tx.sender_email}`);
+ * }
  * ```
  */
 
-import {
-  type AccountingUser,
-  type Transaction,
-  type TransactionResponse,
-  type CreateTransactionInput,
-  parseTransaction,
-} from '../models/index.js';
-import { PageIterator } from '../pagination.js';
-import {
-  AuthenticationError,
-  AuthorizationError,
-  NotFoundError,
-  ValidationError,
-  APIError,
-  SyftHubError,
-} from '../errors.js';
+import type { HTTPClient } from '../http.js';
+import type { WalletInfo, WalletBalance, WalletTransaction } from '../models/accounting.js';
 
 // =============================================================================
 // Types
@@ -54,20 +36,25 @@ import {
 
 /**
  * Options for creating an AccountingResource.
+ *
+ * @deprecated The old AccountingResourceOptions with external service credentials
+ * are no longer needed. Use the HTTPClient-based constructor instead.
  */
 export interface AccountingResourceOptions {
-  /** Accounting service URL */
+  /** @deprecated No longer used - wallet API is accessed via SyftHub */
   url: string;
-  /** Email for Basic auth */
+  /** @deprecated No longer used */
   email: string;
-  /** Password for Basic auth */
+  /** @deprecated No longer used */
   password: string;
-  /** Request timeout in milliseconds (default: 30000) */
+  /** @deprecated No longer used */
   timeout?: number;
 }
 
 /**
  * Options for listing transactions.
+ *
+ * @deprecated Use getTransactions() which returns all transactions directly.
  */
 export interface TransactionsOptions {
   /** Number of items per page (default: 20) */
@@ -75,492 +62,131 @@ export interface TransactionsOptions {
 }
 
 // =============================================================================
-// Error Handling
-// =============================================================================
-
-/**
- * Handle HTTP error responses from accounting service.
- */
-async function handleResponseError(response: Response): Promise<void> {
-  if (response.ok) return;
-
-  let detail: string;
-  try {
-    const body = (await response.json()) as { detail?: string; message?: string };
-    detail = body.detail ?? body.message ?? JSON.stringify(body);
-  } catch {
-    detail = (await response.text()) || `HTTP ${response.status}`;
-  }
-
-  switch (response.status) {
-    case 401:
-      throw new AuthenticationError(`Authentication failed: ${detail}`);
-    case 403:
-      throw new AuthorizationError(`Permission denied: ${detail}`);
-    case 404:
-      throw new NotFoundError(`Not found: ${detail}`);
-    case 422:
-      throw new ValidationError(`Validation error: ${detail}`);
-    default:
-      throw new APIError(`Accounting API error: ${detail}`, response.status);
-  }
-}
-
-/**
- * Create Basic auth header value.
- */
-function createBasicAuth(email: string, password: string): string {
-  const credentials = `${email}:${password}`;
-  // Use btoa for browser, Buffer for Node.js
-  const encoded =
-    typeof btoa !== 'undefined' ? btoa(credentials) : Buffer.from(credentials).toString('base64');
-  return `Basic ${encoded}`;
-}
-
-// =============================================================================
 // AccountingResource
 // =============================================================================
 
 /**
- * Handle accounting/billing operations with external service.
+ * Wallet and payment operations via the SyftHub API.
  *
- * The accounting service manages user balances and transactions. It uses
- * Basic auth (email/password) for authentication, which is separate from
- * SyftHub's JWT-based authentication.
+ * Manages MPP (Micropayment Protocol) wallets for users. Payments for
+ * endpoint usage are handled automatically via the 402 payment flow
+ * between the aggregator and SyftAI-Space instances.
  *
- * Transaction Workflow:
- * 1. Sender creates transaction (status=PENDING)
- * 2. Either party confirms (status=COMPLETED) or cancels (status=CANCELLED)
+ * @example
+ * ```typescript
+ * // Get wallet info
+ * const wallet = await client.accounting.getWallet();
+ * if (!wallet.exists) {
+ *   // Create a new wallet
+ *   const result = await client.accounting.createWallet();
+ *   console.log(`Created wallet: ${result.address}`);
+ * }
  *
- * Delegated Transaction Workflow:
- * 1. Sender creates a transaction token for recipient
- * 2. Recipient uses token to create delegated transaction
- * 3. Recipient confirms the transaction
+ * // Check balance
+ * const balance = await client.accounting.getBalance();
+ * console.log(`Balance: ${balance.balance} ${balance.currency}`);
+ * ```
  */
 export class AccountingResource {
-  private readonly baseUrl: string;
-  private readonly email: string;
-  private readonly password: string;
-  private readonly timeout: number;
-  private readonly authHeader: string;
-
-  constructor(options: AccountingResourceOptions) {
-    this.baseUrl = options.url.replace(/\/$/, ''); // Remove trailing slash
-    this.email = options.email;
-    this.password = options.password;
-    this.timeout = options.timeout ?? 30000;
-    this.authHeader = createBasicAuth(this.email, this.password);
-  }
+  constructor(private readonly http: HTTPClient) {}
 
   // ===========================================================================
-  // Private HTTP Methods
+  // Wallet Operations
   // ===========================================================================
 
   /**
-   * Make an authenticated request to the accounting service.
-   */
-  private async request<T>(
-    method: string,
-    path: string,
-    options?: {
-      body?: Record<string, unknown>;
-      params?: Record<string, string | number>;
-    }
-  ): Promise<T> {
-    const url = new URL(path, this.baseUrl);
-
-    if (options?.params) {
-      for (const [key, value] of Object.entries(options.params)) {
-        url.searchParams.set(key, String(value));
-      }
-    }
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-
-    try {
-      const response = await fetch(url.toString(), {
-        method,
-        headers: {
-          Authorization: this.authHeader,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: options?.body ? JSON.stringify(options.body) : undefined,
-        signal: controller.signal,
-      });
-
-      await handleResponseError(response);
-
-      if (response.status === 204) {
-        return {} as T;
-      }
-
-      return (await response.json()) as T;
-    } catch (error) {
-      if (error instanceof SyftHubError) {
-        throw error;
-      }
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new APIError('Request timeout', 408);
-      }
-      throw new APIError(
-        `Accounting request failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        0
-      );
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }
-
-  /**
-   * Make a request using Bearer token auth (for delegated transactions).
-   */
-  private async requestWithToken<T>(
-    method: string,
-    path: string,
-    token: string,
-    options?: {
-      body?: Record<string, unknown>;
-    }
-  ): Promise<T> {
-    const url = new URL(path, this.baseUrl);
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-
-    try {
-      const response = await fetch(url.toString(), {
-        method,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: options?.body ? JSON.stringify(options.body) : undefined,
-        signal: controller.signal,
-      });
-
-      await handleResponseError(response);
-
-      if (response.status === 204) {
-        return {} as T;
-      }
-
-      return (await response.json()) as T;
-    } catch (error) {
-      if (error instanceof SyftHubError) {
-        throw error;
-      }
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new APIError('Request timeout', 408);
-      }
-      throw new APIError(
-        `Accounting request failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        0
-      );
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }
-
-  // ===========================================================================
-  // User Operations
-  // ===========================================================================
-
-  /**
-   * Get the current user's account information including balance.
+   * Get the current user's wallet information.
    *
-   * @returns AccountingUser with id, email, balance, and organization
-   * @throws {AuthenticationError} If authentication fails
-   * @throws {APIError} On other errors
+   * @returns WalletInfo with address and existence status
+   * @throws {AuthenticationError} If not authenticated
    *
    * @example
    * ```typescript
-   * const user = await accounting.getUser();
-   * console.log(`Balance: ${user.balance}`);
-   * console.log(`Organization: ${user.organization}`);
-   * ```
-   */
-  async getUser(): Promise<AccountingUser> {
-    return this.request<AccountingUser>('GET', '/user');
-  }
-
-  /**
-   * Update the user's password.
-   *
-   * @param currentPassword - Current password for verification
-   * @param newPassword - New password to set
-   * @throws {AuthenticationError} If current password is wrong
-   * @throws {ValidationError} If new password doesn't meet requirements
-   *
-   * @example
-   * ```typescript
-   * await accounting.updatePassword('old_secret', 'new_secret');
-   * ```
-   */
-  async updatePassword(currentPassword: string, newPassword: string): Promise<void> {
-    await this.request<void>('PUT', '/user/password', {
-      body: {
-        oldPassword: currentPassword,
-        newPassword: newPassword,
-      },
-    });
-  }
-
-  /**
-   * Update the user's organization.
-   *
-   * @param organization - New organization name
-   * @throws {AuthenticationError} If authentication fails
-   *
-   * @example
-   * ```typescript
-   * await accounting.updateOrganization('OpenMined');
-   * ```
-   */
-  async updateOrganization(organization: string): Promise<void> {
-    await this.request<void>('PUT', '/user/organization', {
-      body: { organization },
-    });
-  }
-
-  // ===========================================================================
-  // Transaction Listing
-  // ===========================================================================
-
-  /**
-   * List account transactions with pagination.
-   *
-   * Returns a lazy iterator that fetches pages on demand.
-   *
-   * @param options - Pagination options
-   * @returns PageIterator that yields Transaction objects
-   *
-   * @example
-   * ```typescript
-   * // Iterate through all transactions
-   * for await (const tx of accounting.getTransactions()) {
-   *   console.log(`${tx.createdAt}: ${tx.amount} from ${tx.senderEmail}`);
+   * const wallet = await client.accounting.getWallet();
+   * if (wallet.exists) {
+   *   console.log(`Wallet address: ${wallet.address}`);
+   * } else {
+   *   console.log('No wallet configured');
    * }
-   *
-   * // Get first page only
-   * const firstPage = await accounting.getTransactions().firstPage();
-   *
-   * // Get all transactions
-   * const allTxs = await accounting.getTransactions().all();
    * ```
    */
-  getTransactions(options?: TransactionsOptions): PageIterator<Transaction> {
-    const pageSize = options?.pageSize ?? 20;
-
-    return new PageIterator<Transaction>(async (skip, limit) => {
-      const response = await this.request<TransactionResponse[]>('GET', '/transactions', {
-        params: { skip, limit },
-      });
-      return response.map(parseTransaction);
-    }, pageSize);
+  async getWallet(): Promise<WalletInfo> {
+    return this.http.get<WalletInfo>('/api/v1/wallet/');
   }
 
   /**
-   * Get a specific transaction by ID.
+   * Get the current user's wallet balance and recent transactions.
    *
-   * @param transactionId - The transaction ID
-   * @returns Transaction object
-   * @throws {NotFoundError} If transaction not found
+   * @returns WalletBalance with balance, currency, and recent transactions
+   * @throws {AuthenticationError} If not authenticated
    *
    * @example
    * ```typescript
-   * const tx = await accounting.getTransaction('tx_123');
-   * console.log(`Status: ${tx.status}`);
+   * const balance = await client.accounting.getBalance();
+   * console.log(`Balance: ${balance.balance} ${balance.currency}`);
+   * console.log(`Wallet configured: ${balance.wallet_configured}`);
    * ```
    */
-  async getTransaction(transactionId: string): Promise<Transaction> {
-    const response = await this.request<TransactionResponse>(
-      'GET',
-      `/transactions/${transactionId}`
-    );
-    return parseTransaction(response);
+  async getBalance(): Promise<WalletBalance> {
+    return this.http.get<WalletBalance>('/api/v1/wallet/balance');
   }
 
-  // ===========================================================================
-  // Direct Transaction Operations
-  // ===========================================================================
-
   /**
-   * Create a new transaction (direct transfer).
+   * Get the current user's wallet transactions.
    *
-   * Creates a PENDING transaction that must be confirmed or cancelled.
-   * The transaction is created by the sender (current user).
-   *
-   * @param input - Transaction details
-   * @returns Transaction in PENDING status
-   * @throws {ValidationError} If amount <= 0 or insufficient balance
+   * @returns Array of WalletTransaction objects
+   * @throws {AuthenticationError} If not authenticated
    *
    * @example
    * ```typescript
-   * const tx = await accounting.createTransaction({
-   *   recipientEmail: 'bob@example.com',
-   *   amount: 10.0,
-   *   appName: 'syftai-space',
-   *   appEpPath: 'alice/my-model'
-   * });
-   * console.log(`Created transaction ${tx.id}: ${tx.status}`);
-   *
-   * // Later, confirm or cancel
-   * await accounting.confirmTransaction(tx.id);
+   * const transactions = await client.accounting.getTransactions();
+   * for (const tx of transactions) {
+   *   console.log(`${tx.created_at}: ${tx.amount} ${tx.status}`);
+   * }
    * ```
    */
-  async createTransaction(input: CreateTransactionInput): Promise<Transaction> {
-    if (input.amount <= 0) {
-      throw new ValidationError('Amount must be greater than 0');
-    }
+  async getTransactions(): Promise<WalletTransaction[]> {
+    return this.http.get<WalletTransaction[]>('/api/v1/wallet/transactions');
+  }
 
-    const response = await this.request<TransactionResponse>('POST', '/transactions', {
-      body: {
-        recipientEmail: input.recipientEmail,
-        amount: input.amount,
-        ...(input.appName && { appName: input.appName }),
-        ...(input.appEpPath && { appEpPath: input.appEpPath }),
-      },
+  /**
+   * Create a new wallet for the current user.
+   *
+   * Generates a new wallet with a fresh keypair. The wallet address
+   * is returned and stored on the server.
+   *
+   * @returns Object with the new wallet address
+   * @throws {AuthenticationError} If not authenticated
+   * @throws {ValidationError} If user already has a wallet
+   *
+   * @example
+   * ```typescript
+   * const result = await client.accounting.createWallet();
+   * console.log(`New wallet address: ${result.address}`);
+   * ```
+   */
+  async createWallet(): Promise<{ address: string }> {
+    return this.http.post<{ address: string }>('/api/v1/wallet/create', {});
+  }
+
+  /**
+   * Import an existing wallet using a private key.
+   *
+   * @param privateKey - The private key to import
+   * @returns Object with the imported wallet address
+   * @throws {AuthenticationError} If not authenticated
+   * @throws {ValidationError} If the private key is invalid
+   *
+   * @example
+   * ```typescript
+   * const result = await client.accounting.importWallet('0x...');
+   * console.log(`Imported wallet address: ${result.address}`);
+   * ```
+   */
+  async importWallet(privateKey: string): Promise<{ address: string }> {
+    return this.http.post<{ address: string }>('/api/v1/wallet/import', {
+      private_key: privateKey,
     });
-
-    return parseTransaction(response);
-  }
-
-  /**
-   * Confirm a pending transaction.
-   *
-   * Confirms the transaction, transferring funds from sender to recipient.
-   * Can be called by either the sender or recipient.
-   *
-   * @param transactionId - The transaction ID to confirm
-   * @returns Transaction in COMPLETED status
-   * @throws {NotFoundError} If transaction not found
-   * @throws {ValidationError} If transaction is not in PENDING status
-   *
-   * @example
-   * ```typescript
-   * const tx = await accounting.confirmTransaction('tx_123');
-   * console.log(`Confirmed: ${tx.status}`); // "completed"
-   * ```
-   */
-  async confirmTransaction(transactionId: string): Promise<Transaction> {
-    const response = await this.request<TransactionResponse>(
-      'POST',
-      `/transactions/${transactionId}/confirm`
-    );
-    return parseTransaction(response);
-  }
-
-  /**
-   * Cancel a pending transaction.
-   *
-   * Cancels the transaction without transferring funds.
-   * Can be called by either the sender or recipient.
-   *
-   * @param transactionId - The transaction ID to cancel
-   * @returns Transaction in CANCELLED status
-   * @throws {NotFoundError} If transaction not found
-   * @throws {ValidationError} If transaction is not in PENDING status
-   *
-   * @example
-   * ```typescript
-   * const tx = await accounting.cancelTransaction('tx_123');
-   * console.log(`Cancelled: ${tx.status}`); // "cancelled"
-   * ```
-   */
-  async cancelTransaction(transactionId: string): Promise<Transaction> {
-    const response = await this.request<TransactionResponse>(
-      'POST',
-      `/transactions/${transactionId}/cancel`
-    );
-    return parseTransaction(response);
-  }
-
-  // ===========================================================================
-  // Delegated Transaction Operations
-  // ===========================================================================
-
-  /**
-   * Create a transaction token for delegated transfers.
-   *
-   * Creates a JWT token that authorizes the recipient to create a
-   * transaction on behalf of the sender (current user). The token
-   * is short-lived (typically ~5 minutes).
-   *
-   * Use this when you want to pre-authorize a payment that will be
-   * initiated by the recipient (e.g., a service charging for usage).
-   *
-   * @param recipientEmail - Email of the authorized recipient
-   * @returns JWT token string to share with recipient
-   *
-   * @example
-   * ```typescript
-   * // Sender creates token
-   * const token = await accounting.createTransactionToken('service@example.com');
-   *
-   * // Share token with recipient out-of-band
-   * // Recipient uses token to create delegated transaction
-   * ```
-   */
-  async createTransactionToken(recipientEmail: string): Promise<string> {
-    const response = await this.request<{ token: string }>('POST', '/token/create', {
-      body: { recipientEmail },
-    });
-    return response.token;
-  }
-
-  /**
-   * Create a delegated transaction using a pre-authorized token.
-   *
-   * Creates a transaction on behalf of the sender using their token.
-   * This is typically used by services to charge users for usage.
-   *
-   * The token authenticates the request instead of Basic auth.
-   *
-   * @param senderEmail - Email of the sender who created the token
-   * @param amount - Amount to transfer (must be > 0)
-   * @param token - JWT token from sender's createTransactionToken()
-   * @returns Transaction in PENDING status (createdBy=RECIPIENT)
-   * @throws {AuthenticationError} If token is invalid or expired
-   * @throws {ValidationError} If amount <= 0
-   *
-   * @example
-   * ```typescript
-   * // Recipient creates transaction using sender's token
-   * const tx = await accounting.createDelegatedTransaction(
-   *   'alice@example.com',
-   *   5.0,
-   *   aliceToken
-   * );
-   *
-   * // Recipient confirms the transaction
-   * await accounting.confirmTransaction(tx.id);
-   * ```
-   */
-  async createDelegatedTransaction(
-    senderEmail: string,
-    amount: number,
-    token: string
-  ): Promise<Transaction> {
-    if (amount <= 0) {
-      throw new ValidationError('Amount must be greater than 0');
-    }
-
-    const response = await this.requestWithToken<TransactionResponse>(
-      'POST',
-      '/transactions',
-      token,
-      {
-        body: {
-          senderEmail,
-          amount,
-        },
-      }
-    );
-
-    return parseTransaction(response);
   }
 }
 
@@ -571,18 +197,18 @@ export class AccountingResource {
 /**
  * Create a new AccountingResource instance.
  *
- * @param options - Configuration options
- * @returns AccountingResource instance
+ * @deprecated Use the SyftHubClient's built-in accounting resource instead.
+ * The wallet API is now accessed through the SyftHub HTTP client, not
+ * a separate external service.
  *
- * @example
- * ```typescript
- * const accounting = createAccountingResource({
- *   url: process.env.ACCOUNTING_URL!,
- *   email: process.env.ACCOUNTING_EMAIL!,
- *   password: process.env.ACCOUNTING_PASSWORD!
- * });
- * ```
+ * @param options - Configuration options (ignored, kept for backward compatibility)
+ * @returns AccountingResource instance
  */
 export function createAccountingResource(options: AccountingResourceOptions): AccountingResource {
-  return new AccountingResource(options);
+  void options;
+  throw new Error(
+    'createAccountingResource() is deprecated. ' +
+      'The wallet API is now accessed through the SyftHubClient. ' +
+      'Use client.initAccounting() after login instead.'
+  );
 }

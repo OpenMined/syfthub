@@ -46,6 +46,8 @@ class RetrievalService:
         endpoint_tokens: dict[str, str] | None = None,
         transaction_tokens: dict[str, str] | None = None,
         peer_channel: str | None = None,
+        user_token: str | None = None,
+        syfthub_url: str | None = None,
     ) -> AggregatedContext:
         """
         Retrieve relevant documents from multiple SyftAI-Space data sources in parallel.
@@ -58,7 +60,10 @@ class RetrievalService:
             top_k: Number of documents to retrieve per source
             similarity_threshold: Minimum similarity score for documents
             endpoint_tokens: Mapping of owner username to satellite token for auth
-            transaction_tokens: Mapping of owner username to transaction token for billing
+            transaction_tokens: Mapping of owner username to transaction token for billing (deprecated)
+            peer_channel: Peer channel for NATS reply (required for tunneling endpoints)
+            user_token: User's Hub JWT for MPP 402 payment flow
+            syfthub_url: SyftHub base URL for MPP wallet pay callback
 
         Returns:
             AggregatedContext with all documents and retrieval results
@@ -105,7 +110,8 @@ class RetrievalService:
                         similarity_threshold=similarity_threshold,
                         tenant_name=ds.tenant_name,
                         authorization_token=self._get_token_for_endpoint(ds, endpoint_tokens),
-                        transaction_token=self._get_token_for_endpoint(ds, transaction_tokens),
+                        user_token=user_token,
+                        syfthub_url=syfthub_url,
                     )
                 )
 
@@ -145,6 +151,8 @@ class RetrievalService:
         endpoint_tokens: dict[str, str] | None = None,
         transaction_tokens: dict[str, str] | None = None,
         peer_channel: str | None = None,
+        user_token: str | None = None,
+        syfthub_url: str | None = None,
     ) -> AsyncIterator[RetrievalResult]:
         """
         Retrieve from SyftAI-Space data sources and yield results as they complete.
@@ -158,7 +166,10 @@ class RetrievalService:
             top_k: Number of documents to retrieve per source
             similarity_threshold: Minimum similarity score for documents
             endpoint_tokens: Mapping of owner username to satellite token for auth
-            transaction_tokens: Mapping of owner username to transaction token for billing
+            transaction_tokens: Mapping of owner username to transaction token for billing (deprecated)
+            peer_channel: Peer channel for NATS reply (required for tunneling endpoints)
+            user_token: User's Hub JWT for MPP 402 payment flow
+            syfthub_url: SyftHub base URL for MPP wallet pay callback
 
         Yields:
             RetrievalResult for each data source as it completes
@@ -198,7 +209,8 @@ class RetrievalService:
                         similarity_threshold=similarity_threshold,
                         tenant_name=ds.tenant_name,
                         authorization_token=self._get_token_for_endpoint(ds, endpoint_tokens),
-                        transaction_token=self._get_token_for_endpoint(ds, transaction_tokens),
+                        user_token=user_token,
+                        syfthub_url=syfthub_url,
                     )
                 )
             tasks[task] = ds

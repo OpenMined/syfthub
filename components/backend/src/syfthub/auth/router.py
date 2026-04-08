@@ -23,10 +23,7 @@ from syfthub.database.dependencies import (
     get_otp_service,
 )
 from syfthub.domain.exceptions import (
-    AccountingAccountExistsError,
-    AccountingServiceUnavailableError,
     EmailNotVerifiedError,
-    InvalidAccountingPasswordError,
     InvalidOTPError,
     OTPMaxAttemptsError,
     OTPRateLimitedError,
@@ -98,46 +95,6 @@ async def get_auth_config() -> AuthConfigResponse:
                 }
             },
         },
-        424: {
-            "description": "Email already exists in accounting service (requires password)",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detail": {
-                            "code": "ACCOUNTING_ACCOUNT_EXISTS",
-                            "message": "This email already has an account...",
-                            "requires_accounting_password": True,
-                        }
-                    }
-                }
-            },
-        },
-        401: {
-            "description": "Invalid accounting password",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detail": {
-                            "code": "INVALID_ACCOUNTING_PASSWORD",
-                            "message": "The provided accounting password is invalid.",
-                        }
-                    }
-                }
-            },
-        },
-        503: {
-            "description": "Accounting service unavailable",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detail": {
-                            "code": "ACCOUNTING_SERVICE_UNAVAILABLE",
-                            "message": "Accounting service error: ...",
-                        }
-                    }
-                }
-            },
-        },
     },
 )
 async def register_user(
@@ -149,15 +106,7 @@ async def register_user(
 ) -> RegistrationResponse:
     """Register a new user.
 
-    This endpoint handles user registration with optional accounting service integration
-    and optional email OTP verification.
-
     If username or email already exists in SyftHub, a 409 Conflict is returned.
-
-    If an accounting service URL is configured (via request or default config), the backend
-    will automatically create an accounting account for the user. If the email already
-    exists in the accounting service, a 424 Failed Dependency response is returned and
-    the user must provide their existing accounting password to link accounts.
 
     When email verification is enabled (REQUIRE_EMAIL_VERIFICATION=true and SMTP configured),
     the response will have null tokens and requires_email_verification=True. The client must
@@ -185,34 +134,6 @@ async def register_user(
                 "code": e.error_code,
                 "message": e.message,
                 "field": e.field,
-            },
-        ) from e
-
-    except AccountingAccountExistsError as e:
-        raise HTTPException(
-            status_code=status.HTTP_424_FAILED_DEPENDENCY,
-            detail={
-                "code": e.error_code,
-                "message": e.message,
-                "requires_accounting_password": e.requires_accounting_password,
-            },
-        ) from e
-
-    except InvalidAccountingPasswordError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={
-                "code": e.error_code,
-                "message": e.message,
-            },
-        ) from e
-
-    except AccountingServiceUnavailableError as e:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "code": e.error_code,
-                "message": e.message,
             },
         ) from e
 

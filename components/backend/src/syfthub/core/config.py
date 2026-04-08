@@ -311,29 +311,6 @@ class Settings(BaseSettings):
     )
 
     # ===========================================
-    # ACCOUNTING SERVICE SETTINGS
-    # ===========================================
-
-    # Default accounting service URL - used if user doesn't provide one during registration
-    # Uses OpenMined's hosted accounting service by default
-    default_accounting_url: Optional[str] = Field(
-        default="https://syftaccounting.centralus.cloudapp.azure.com",
-        description="Default accounting service URL for user registration",
-    )
-
-    # Generated accounting password length
-    accounting_password_length: int = Field(
-        default=32,
-        description="Length of auto-generated accounting passwords",
-    )
-
-    # Timeout for accounting service requests
-    accounting_timeout: float = Field(
-        default=30.0,
-        description="Timeout in seconds for accounting service requests",
-    )
-
-    # ===========================================
     # ENDPOINT HEALTH CHECK SETTINGS
     # ===========================================
 
@@ -503,6 +480,19 @@ class Settings(BaseSettings):
     ngrok_base_domain: str = Field(
         default="syfthub.ngrok.app",
         description="Base domain for ngrok reserved tunnel domains",
+    )
+
+    # ===========================================
+    # MPP / TEMPO SETTINGS
+    # ===========================================
+
+    tempo_testnet: bool = Field(
+        default=True,
+        description="Use Tempo testnet (moderato) instead of mainnet",
+    )
+    mpp_secret_key: str = Field(
+        default="",
+        description="Secret key for MPP payment signing",
     )
 
     # ===========================================

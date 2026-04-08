@@ -11,12 +11,10 @@ from syfthub.auth.db_dependencies import (
     get_current_active_user,
     require_admin,
 )
-from syfthub.auth.security import decrypt_field
 from syfthub.core.config import settings
 from syfthub.database.dependencies import get_user_service
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.user import (
-    AccountingCredentialsResponse,
     HeartbeatRequest,
     HeartbeatResponse,
     TunnelCredentialsResponse,
@@ -49,33 +47,6 @@ async def get_current_user_profile(
 ) -> UserResponse:
     """Get current user's profile."""
     return UserResponse.model_validate(current_user)
-
-
-@router.get("/me/accounting", response_model=AccountingCredentialsResponse)
-async def get_my_accounting_credentials(
-    current_user: Annotated[User, Depends(get_current_active_user)],
-) -> AccountingCredentialsResponse:
-    """Get current user's accounting service credentials.
-
-    Returns the accounting service URL, user's email, and accounting password.
-    This endpoint is protected and only returns credentials for the authenticated user.
-    """
-    decrypted_password: str | None = None
-    if current_user.accounting_password_encrypted:
-        try:
-            decrypted_password = decrypt_field(
-                current_user.accounting_password_encrypted
-            )
-        except Exception:
-            logger.warning(
-                "Failed to decrypt accounting password for user %s",
-                current_user.id,
-            )
-    return AccountingCredentialsResponse(
-        url=current_user.accounting_service_url,
-        email=current_user.email,
-        password=decrypted_password,
-    )
 
 
 @router.get("/me/tunnel-credentials", response_model=TunnelCredentialsResponse)

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/coder/websocket"
 	"github.com/openmined/syfthub/sdk/golang/agenttypes"
-	"nhooyr.io/websocket"
 )
 
 // AgentEvent is the interface for all agent events.

@@ -4,11 +4,11 @@ import type { SettingsTab } from '@/stores/settings-modal-store';
 
 import { AnimatePresence, motion } from 'framer-motion';
 import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
-import CreditCard from 'lucide-react/dist/esm/icons/credit-card';
 import Key from 'lucide-react/dist/esm/icons/key';
 import Lock from 'lucide-react/dist/esm/icons/lock';
 import Server from 'lucide-react/dist/esm/icons/server';
 import User from 'lucide-react/dist/esm/icons/user';
+import WalletIcon from 'lucide-react/dist/esm/icons/wallet';
 import X from 'lucide-react/dist/esm/icons/x';
 import { Dialog } from 'radix-ui';
 
@@ -40,8 +40,8 @@ const TABS: TabItem[] = [
   },
   {
     id: 'payment',
-    label: 'Payment',
-    icon: <CreditCard className='h-4 w-4' aria-hidden='true' />
+    label: 'Wallet',
+    icon: <WalletIcon className='h-4 w-4' aria-hidden='true' />
   },
   {
     id: 'aggregator',

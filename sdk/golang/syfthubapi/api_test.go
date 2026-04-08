@@ -813,7 +813,6 @@ func TestGenerateInstanceID(t *testing.T) {
 
 // mockContainerRuntime implements ContainerRuntime for testing.
 type mockContainerRuntime struct {
-	listResults map[string][]string
 	stopCalls   []string
 	removeCalls []string
 }

@@ -2,7 +2,7 @@
 
 # Version from git tag or default
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-LDFLAGS := -ldflags "-X github.com/OpenMined/syfthub/cli-go/internal/version.Version=$(VERSION)"
+LDFLAGS := -ldflags "-X github.com/OpenMined/syfthub/cli/internal/version.Version=$(VERSION)"
 
 # Binary name
 BINARY := syft
@@ -19,7 +19,7 @@ GOMOD := $(GOCMD) mod
 GOVET := $(GOCMD) vet
 
 # Platforms for cross-compilation
-PLATFORMS := linux/amd64 linux/arm64 darwin/arm64 windows/amd64
+PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
 
 .PHONY: all build clean test lint install deps help
 

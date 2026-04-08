@@ -68,6 +68,8 @@ class GenerationService:
         endpoint_tokens: dict[str, str] | None = None,
         transaction_tokens: dict[str, str] | None = None,
         peer_channel: str | None = None,
+        user_token: str | None = None,
+        syfthub_url: str | None = None,
     ) -> GenerationResult:
         """
         Generate a response from a SyftAI-Space model endpoint.
@@ -80,8 +82,10 @@ class GenerationService:
             max_tokens: Maximum tokens to generate
             temperature: Temperature for generation
             endpoint_tokens: Mapping of owner username to satellite token for auth
-            transaction_tokens: Mapping of owner username to transaction token for billing
+            transaction_tokens: Mapping of owner username to transaction token for billing (deprecated)
             peer_channel: Peer channel for NATS reply (required for tunneling endpoints)
+            user_token: User's Hub JWT for MPP 402 payment flow
+            syfthub_url: SyftHub base URL for MPP wallet pay callback
 
         Returns:
             GenerationResult with response and metadata
@@ -134,7 +138,8 @@ class GenerationService:
                 temperature=temperature,
                 tenant_name=model_endpoint.tenant_name,
                 authorization_token=self._get_token_for_endpoint(model_endpoint, endpoint_tokens),
-                transaction_token=self._get_token_for_endpoint(model_endpoint, transaction_tokens),
+                user_token=user_token,
+                syfthub_url=syfthub_url,
             )
             logger.info(f"Generation complete: latency={result.latency_ms}ms")
             return result
@@ -151,6 +156,8 @@ class GenerationService:
         temperature: float = 0.7,
         endpoint_tokens: dict[str, str] | None = None,
         transaction_tokens: dict[str, str] | None = None,
+        user_token: str | None = None,
+        syfthub_url: str | None = None,
     ) -> AsyncGenerator[str, None]:
         """
         Generate a streaming response from a SyftAI-Space model endpoint.
@@ -163,7 +170,9 @@ class GenerationService:
             max_tokens: Maximum tokens to generate
             temperature: Temperature for generation
             endpoint_tokens: Mapping of owner username to satellite token for auth
-            transaction_tokens: Mapping of owner username to transaction token for billing
+            transaction_tokens: Mapping of owner username to transaction token for billing (deprecated)
+            user_token: User's Hub JWT for MPP 402 payment flow
+            syfthub_url: SyftHub base URL for MPP wallet pay callback
 
         Yields:
             Response text chunks as they arrive
@@ -182,7 +191,8 @@ class GenerationService:
                 temperature=temperature,
                 tenant_name=model_endpoint.tenant_name,
                 authorization_token=self._get_token_for_endpoint(model_endpoint, endpoint_tokens),
-                transaction_token=self._get_token_for_endpoint(model_endpoint, transaction_tokens),
+                user_token=user_token,
+                syfthub_url=syfthub_url,
             ):
                 if chunk:
                     yield chunk

@@ -49,24 +49,12 @@ export type {
 // Endpoint helpers
 export { getEndpointOwnerType, getEndpointPublicPath, getSearchResultPath } from './endpoint.js';
 
-// Accounting types
-export {
-  TransactionStatus,
-  CreatorType,
-  parseTransaction,
-  isTransactionPending,
-  isTransactionCompleted,
-  isTransactionCancelled,
-} from './accounting.js';
-
+// Accounting / Wallet types
 export type {
-  AccountingUser,
-  Transaction,
-  CreateTransactionInput,
-  CreateDelegatedTransactionInput,
-  UpdatePasswordInput,
-  TransactionResponse,
-  TransactionTokenResponse,
+  WalletInfo,
+  WalletBalance,
+  WalletTransaction,
+  TransactionTokensResponse,
 } from './accounting.js';
 
 // Chat types
