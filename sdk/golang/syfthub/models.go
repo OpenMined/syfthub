@@ -453,10 +453,11 @@ type AuthConfig struct {
 
 // RegisterRequest represents the input for user registration.
 type RegisterRequest struct {
-	Username string `json:"username"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	FullName string `json:"full_name"`
+	Username           string  `json:"username"`
+	Email              string  `json:"email"`
+	Password           string  `json:"password"`
+	FullName           string  `json:"full_name"`
+	AccountingPassword *string `json:"accounting_password,omitempty"`
 }
 
 // VerifyOTPRequest represents the input for verifying a registration OTP.

@@ -264,10 +264,16 @@ func writeRequestLog(logsDir string, entry *syfthubapi.RequestLog, logger *slog.
 		logger.Warn("failed to open log file", "path", filename, "error", err)
 		return
 	}
-	defer f.Close()
 
-	f.Write(data)
-	f.Write([]byte("\n"))
+	if _, err := f.Write(data); err != nil {
+		logger.Warn("failed to write log entry", "path", filename, "error", err)
+	} else if _, err := f.Write([]byte("\n")); err != nil {
+		logger.Warn("failed to write log newline", "path", filename, "error", err)
+	}
+
+	if err := f.Close(); err != nil {
+		logger.Warn("failed to close log file", "path", filename, "error", err)
+	}
 }
 
 // slogAdapter adapts slog.Logger to the syfthubapi Logger interface.
