@@ -1,0 +1,43 @@
+# Policy configuration for simple-search data source endpoint
+version: "1.0"
+
+# Store configuration for stateful policies
+store:
+  type: sqlite
+  path: .policy_store.db
+
+policies:
+  # Access control with document restrictions
+  - name: research_group
+    type: access_group
+    config:
+      owner: data-admin
+      users:
+        - researcher
+        - analyst
+        - admin
+        - test-user
+      documents:
+        - doc-public-001
+        - doc-public-002
+        - doc-research-001
+
+  # Rate limiting - stricter for data source (expensive queries)
+  - name: search_rate_limit
+    type: rate_limit
+    config:
+      max_requests: 5
+      window_seconds: 60
+
+  # Filter out SQL injection and path traversal attempts
+  - name: query_sanitizer
+    type: prompt_filter
+    config:
+      patterns:
+        - "(?i)(DROP|DELETE|INSERT|UPDATE)\\s+.*(TABLE|FROM|INTO)"
+        - "(?i)SELECT\\s+.*FROM"
+        - "\\.\\./|\\.\\.\\\\|%2e%2e"
+        - "(?i)\\bunion\\s+select\\b"
+      input_path: query
+      check_input: true
+      check_output: false
