@@ -211,6 +211,6 @@ components/marketplace/marketplace
 .gitnexus
 
 # Root-level Node (dev tooling, not part of the project)
-node_modules/
-package-lock.json
-package.json
+/node_modules/
+/package-lock.json
+/package.json
