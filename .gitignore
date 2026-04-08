@@ -6,9 +6,14 @@ __pycache__/
 # C extensions
 *.so
 
-# LLM stuff
+# LLM / AI tooling
 .interface-design/
 CLAUDE.md
+.claude/
+.serena/
+.gitnexus/
+.playwright-mcp/
+.worktrees/
 
 # Distribution / packaging
 .Python
@@ -203,4 +208,8 @@ frontend/tsconfig.tsbuildinfo
 
 # Marketplace
 components/marketplace/marketplace
-.gitnexus
+
+# Root-level Node (dev tooling, not part of the project)
+node_modules/
+package-lock.json
+package.json
