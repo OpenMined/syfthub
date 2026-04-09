@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -16,7 +17,7 @@ CREATE TABLE IF NOT EXISTS packages (
     slug        TEXT NOT NULL UNIQUE,
     name        TEXT NOT NULL,
     description TEXT NOT NULL,
-    type        TEXT NOT NULL CHECK (type IN ('model', 'data_source')),
+    type        TEXT NOT NULL CHECK (type IN ('model', 'data_source', 'agent')),
     author      TEXT NOT NULL,
     version     TEXT NOT NULL,
     tags_json   TEXT NOT NULL DEFAULT '[]',
@@ -44,7 +45,59 @@ func NewStore(dbPath string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
+	if err := migrateDB(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate database: %w", err)
+	}
 	return &Store{db: db}, nil
+}
+
+// migrateDB applies incremental schema migrations to an existing database.
+// SQLite does not support ALTER TABLE ... MODIFY CONSTRAINT, so to widen the
+// type CHECK we recreate the table preserving all existing rows.
+func migrateDB(db *sql.DB) error {
+	// Check whether the packages table already allows 'agent'. We do this by
+	// inspecting the CREATE TABLE statement stored in sqlite_master.
+	var ddl string
+	row := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='packages'`)
+	if err := row.Scan(&ddl); err != nil {
+		return nil // Table doesn't exist yet; nothing to migrate.
+	}
+
+	// If the DDL already includes 'agent' in the CHECK constraint, we're done.
+	if containsAgentCheck(ddl) {
+		return nil
+	}
+
+	// Recreate the table with the updated CHECK constraint, preserving data.
+	// Each statement must be a separate Exec call — the Go SQLite driver only
+	// executes the first statement in a multi-statement string.
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin migration: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	if _, err := tx.Exec(`ALTER TABLE packages RENAME TO packages_old`); err != nil {
+		return fmt.Errorf("rename table: %w", err)
+	}
+	if _, err := tx.Exec(schema); err != nil {
+		return fmt.Errorf("create new table: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT INTO packages (id, slug, name, description, type, author, version, tags_json, config_json, zip_data, zip_sha256, zip_size, created_at, updated_at)
+		SELECT id, slug, name, description, type, author, version, tags_json, config_json, zip_data, zip_sha256, zip_size, created_at, updated_at FROM packages_old`); err != nil {
+		return fmt.Errorf("copy data: %w", err)
+	}
+	if _, err := tx.Exec(`DROP TABLE packages_old`); err != nil {
+		return fmt.Errorf("drop old table: %w", err)
+	}
+	return tx.Commit()
+}
+
+// containsAgentCheck reports whether a CREATE TABLE DDL string already
+// contains 'agent' as a valid type in the CHECK constraint.
+func containsAgentCheck(ddl string) bool {
+	return strings.Contains(ddl, "'agent'") || strings.Contains(ddl, `"agent"`)
 }
 
 // Close closes the database connection.
@@ -293,18 +346,5 @@ func (s *Store) Count(ctx context.Context) (int, error) {
 
 // isUniqueViolation checks if the error is a SQLite UNIQUE constraint violation.
 func isUniqueViolation(err error) bool {
-	return err != nil && (contains(err.Error(), "UNIQUE constraint failed") || contains(err.Error(), "unique constraint"))
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && searchString(s, substr)
-}
-
-func searchString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return err != nil && (strings.Contains(err.Error(), "UNIQUE constraint failed") || strings.Contains(err.Error(), "unique constraint"))
 }

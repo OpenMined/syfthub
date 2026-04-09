@@ -8,10 +8,11 @@ type PackageType string
 const (
 	PackageTypeModel      PackageType = "model"
 	PackageTypeDataSource PackageType = "data_source"
+	PackageTypeAgent      PackageType = "agent"
 )
 
 func (t PackageType) Valid() bool {
-	return t == PackageTypeModel || t == PackageTypeDataSource
+	return t == PackageTypeModel || t == PackageTypeDataSource || t == PackageTypeAgent
 }
 
 // PackageConfigField describes a configuration field for package installation.

@@ -34,7 +34,7 @@ func ValidateCreateRequest(req *CreatePackageRequest) error {
 	}
 
 	if !req.Type.Valid() {
-		return &ValidationError{Field: "type", Message: fmt.Sprintf("must be %q or %q", PackageTypeModel, PackageTypeDataSource)}
+		return &ValidationError{Field: "type", Message: fmt.Sprintf("must be %q, %q, or %q", PackageTypeModel, PackageTypeDataSource, PackageTypeAgent)}
 	}
 
 	if req.Author == "" {
@@ -81,7 +81,7 @@ func ValidateUpdateRequest(req *UpdatePackageRequest) error {
 	}
 
 	if req.Type != nil && !req.Type.Valid() {
-		return &ValidationError{Field: "type", Message: fmt.Sprintf("must be %q or %q", PackageTypeModel, PackageTypeDataSource)}
+		return &ValidationError{Field: "type", Message: fmt.Sprintf("must be %q, %q, or %q", PackageTypeModel, PackageTypeDataSource, PackageTypeAgent)}
 	}
 
 	if req.Author != nil && *req.Author == "" {
