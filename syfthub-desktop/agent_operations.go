@@ -106,7 +106,7 @@ func (a *App) StartAgentSession(slug string, prompt string) (string, error) {
 	a.agentMu.Unlock()
 
 	sessionID := uuid.New().String()
-	userCtx := &syfthubapi.UserContext{Username: "local"}
+	userCtx := a.currentUserContext()
 
 	logInfo := agentSessionLog{
 		slug:      slug,
