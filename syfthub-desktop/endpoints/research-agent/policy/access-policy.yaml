@@ -1,0 +1,7 @@
+# Access Group Policy
+# Controls access based on user group membership
+type: AccessGroupPolicy
+name: Access policy
+config:
+    users:
+        - admin

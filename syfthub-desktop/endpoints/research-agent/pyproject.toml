@@ -1,0 +1,4 @@
+[project]
+name = "research-agent"
+version = "3.0.0"
+dependencies = []
