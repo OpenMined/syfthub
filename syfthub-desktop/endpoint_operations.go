@@ -82,6 +82,9 @@ func fromNodeopsDeps(ds []nodeops.Dependency) []Dependency {
 
 // GetEndpointDetail returns full details for an endpoint.
 func (a *App) GetEndpointDetail(slug string) (*EndpointDetail, error) {
+	if err := validateSlug(slug); err != nil {
+		return nil, err
+	}
 	runtime.LogDebug(a.ctx, fmt.Sprintf("GetEndpointDetail called for slug: %s", slug))
 
 	config, err := a.getConfig()
@@ -198,6 +201,9 @@ func (a *App) GetEndpointDetail(slug string) (*EndpointDetail, error) {
 
 // GetRunnerCode returns the runner.py content for an endpoint.
 func (a *App) GetRunnerCode(slug string) (string, error) {
+	if err := validateSlug(slug); err != nil {
+		return "", err
+	}
 	config, err := a.getConfig()
 	if err != nil {
 		return "", err
@@ -214,6 +220,9 @@ func (a *App) GetRunnerCode(slug string) (string, error) {
 
 // SaveRunnerCode saves the runner.py content for an endpoint.
 func (a *App) SaveRunnerCode(slug, code string) error {
+	if err := validateSlug(slug); err != nil {
+		return err
+	}
 	config, err := a.getConfig()
 	if err != nil {
 		return err
@@ -230,6 +239,9 @@ func (a *App) SaveRunnerCode(slug, code string) error {
 
 // GetReadme returns the README.md content for an endpoint.
 func (a *App) GetReadme(slug string) (string, error) {
+	if err := validateSlug(slug); err != nil {
+		return "", err
+	}
 	config, err := a.getConfig()
 	if err != nil {
 		return "", err
@@ -249,6 +261,9 @@ func (a *App) GetReadme(slug string) (string, error) {
 
 // SaveReadme saves the README.md content for an endpoint.
 func (a *App) SaveReadme(slug, content string) error {
+	if err := validateSlug(slug); err != nil {
+		return err
+	}
 	config, err := a.getConfig()
 	if err != nil {
 		return err
@@ -265,6 +280,9 @@ func (a *App) SaveReadme(slug, content string) error {
 
 // GetEnvironment returns environment variables for an endpoint.
 func (a *App) GetEnvironment(slug string) ([]EnvVar, error) {
+	if err := validateSlug(slug); err != nil {
+		return nil, err
+	}
 	config, err := a.getConfig()
 	if err != nil {
 		return nil, err
@@ -285,6 +303,9 @@ func (a *App) readEnvFile(path string) ([]EnvVar, error) {
 
 // SetEnvironment adds or updates an environment variable.
 func (a *App) SetEnvironment(slug, key, value string) error {
+	if err := validateSlug(slug); err != nil {
+		return err
+	}
 	config, err := a.getConfig()
 	if err != nil {
 		return err
@@ -317,6 +338,9 @@ func (a *App) SetEnvironment(slug, key, value string) error {
 
 // DeleteEnvironment removes an environment variable.
 func (a *App) DeleteEnvironment(slug, key string) error {
+	if err := validateSlug(slug); err != nil {
+		return err
+	}
 	config, err := a.getConfig()
 	if err != nil {
 		return err
@@ -349,6 +373,9 @@ func (a *App) writeEnvFile(path string, vars []EnvVar) error {
 
 // GetDependencies returns Python dependencies for an endpoint.
 func (a *App) GetDependencies(slug string) ([]Dependency, error) {
+	if err := validateSlug(slug); err != nil {
+		return nil, err
+	}
 	config, err := a.getConfig()
 	if err != nil {
 		return nil, err
@@ -369,6 +396,9 @@ func (a *App) readDependencies(path string) ([]Dependency, error) {
 
 // AddDependency adds a dependency to the endpoint's pyproject.toml.
 func (a *App) AddDependency(slug, pkg, version string) error {
+	if err := validateSlug(slug); err != nil {
+		return err
+	}
 	config, err := a.getConfig()
 	if err != nil {
 		return err
@@ -492,6 +522,9 @@ func (a *App) AddDependency(slug, pkg, version string) error {
 
 // DeleteDependency removes a dependency from the endpoint's pyproject.toml.
 func (a *App) DeleteDependency(slug, pkg string) error {
+	if err := validateSlug(slug); err != nil {
+		return err
+	}
 	config, err := a.getConfig()
 	if err != nil {
 		return err
@@ -575,6 +608,9 @@ func (a *App) DeleteDependency(slug, pkg string) error {
 
 // UpdateEndpointOverview updates the endpoint overview fields in README.md frontmatter.
 func (a *App) UpdateEndpointOverview(slug string, name, description, endpointType, version string) error {
+	if err := validateSlug(slug); err != nil {
+		return err
+	}
 	config, err := a.getConfig()
 	if err != nil {
 		return err
@@ -601,6 +637,9 @@ func (a *App) UpdateEndpointOverview(slug string, name, description, endpointTyp
 // ToggleEndpointEnabled toggles the enabled status of an endpoint.
 // This uses a fast path that updates the registry directly without recreating executors.
 func (a *App) ToggleEndpointEnabled(slug string) (bool, error) {
+	if err := validateSlug(slug); err != nil {
+		return false, err
+	}
 	config, err := a.getConfig()
 	if err != nil {
 		return false, err
@@ -680,6 +719,9 @@ func (a *App) OpenEndpointsFolder() error {
 
 // OpenEndpointFolder opens a specific endpoint directory in the file explorer.
 func (a *App) OpenEndpointFolder(slug string) error {
+	if err := validateSlug(slug); err != nil {
+		return err
+	}
 	config, err := a.getConfig()
 	if err != nil {
 		return err
@@ -721,6 +763,9 @@ type NewPolicyRequest struct {
 
 // ListPolicyFiles returns all policy files in the endpoint's policy/ directory.
 func (a *App) ListPolicyFiles(slug string) ([]PolicyFileInfo, error) {
+	if err := validateSlug(slug); err != nil {
+		return nil, err
+	}
 	config, err := a.getConfig()
 	if err != nil {
 		return nil, err
@@ -766,6 +811,18 @@ func (a *App) ListPolicyFiles(slug string) ([]PolicyFileInfo, error) {
 	return policies, nil
 }
 
+// validateSlug checks that a slug is non-empty and doesn't contain
+// path-traversal characters that could escape the endpoints directory.
+func validateSlug(slug string) error {
+	if slug == "" {
+		return fmt.Errorf("endpoint slug is required")
+	}
+	if strings.Contains(slug, "..") || strings.Contains(slug, "/") || strings.Contains(slug, "\\") {
+		return fmt.Errorf("invalid endpoint slug")
+	}
+	return nil
+}
+
 // validateFilename checks that a filename is non-empty and doesn't contain
 // path-traversal characters that could escape the target directory.
 func validateFilename(filename string) error {
@@ -780,6 +837,9 @@ func validateFilename(filename string) error {
 
 // GetPolicyFileYaml returns the raw YAML content of a single policy file.
 func (a *App) GetPolicyFileYaml(slug, filename string) (string, error) {
+	if err := validateSlug(slug); err != nil {
+		return "", err
+	}
 	config, err := a.getConfig()
 	if err != nil {
 		return "", err
@@ -803,6 +863,9 @@ func (a *App) GetPolicyFileYaml(slug, filename string) (string, error) {
 
 // SavePolicyFileYaml saves raw YAML content to a policy file.
 func (a *App) SavePolicyFileYaml(slug, filename, content string) error {
+	if err := validateSlug(slug); err != nil {
+		return err
+	}
 	config, err := a.getConfig()
 	if err != nil {
 		return err
@@ -835,6 +898,9 @@ func (a *App) SavePolicyFileYaml(slug, filename, content string) error {
 
 // DeletePolicyFile removes a policy file from the endpoint's policy/ directory.
 func (a *App) DeletePolicyFile(slug, filename string) error {
+	if err := validateSlug(slug); err != nil {
+		return err
+	}
 	config, err := a.getConfig()
 	if err != nil {
 		return err
@@ -1036,6 +1102,9 @@ func generatePolicyYAML(req NewPolicyRequest) string {
 
 // CreatePolicyFile creates a new policy file with a template based on the request.
 func (a *App) CreatePolicyFile(slug string, req NewPolicyRequest) error {
+	if err := validateSlug(slug); err != nil {
+		return err
+	}
 	config, err := a.getConfig()
 	if err != nil {
 		return err
@@ -1113,24 +1182,32 @@ func (a *App) CheckEndpointExists(name string) (string, bool) {
 
 // DeleteEndpoint deletes an endpoint and all its associated files.
 // This includes the endpoint folder, virtual environments, and all configuration files.
+// After removing from disk, the endpoint is immediately purged from the in-memory
+// provider, registry, and frontend so no "ghost" can reappear.
 func (a *App) DeleteEndpoint(slug string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
+	a.mu.RLock()
 	if a.config == nil {
+		a.mu.RUnlock()
 		return fmt.Errorf("app not configured")
 	}
+	endpointsPath := a.config.EndpointsPath
+	core := a.core
+	a.mu.RUnlock()
 
-	mgr := nodeops.NewManager(a.config.EndpointsPath)
+	mgr := nodeops.NewManager(endpointsPath)
 	if err := mgr.DeleteEndpoint(slug); err != nil {
 		return err
 	}
 
 	runtime.LogInfo(a.ctx, fmt.Sprintf("Deleted endpoint: %s", slug))
-	// Don't emit app:endpoints-changed here — the file watcher will detect
-	// the deletion and emit the correct endpoint list after reloading.
-	// Emitting nil here caused a race where the frontend's optimistic delete
-	// was overwritten before the file watcher could confirm it.
+
+	// Synchronously remove from provider (p.endpoints + executor) and registry
+	// so the endpoint vanishes from GetEndpoints() right now — no waiting for
+	// the debounced file watcher.
+	if core != nil {
+		core.RemoveEndpoint(slug)
+	}
+	a.notifyEndpointsChanged()
 	return nil
 }
 

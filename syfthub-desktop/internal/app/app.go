@@ -556,6 +556,19 @@ func (a *App) SyncEndpointsAsync() {
 	a.api.SyncEndpointsAsync()
 }
 
+// RemoveEndpoint synchronously removes an endpoint from the provider (in-memory
+// list + executor) and the registry so it vanishes from GetEndpoints() immediately.
+// Call this after the filesystem directory has been deleted; the file watcher's
+// later event becomes a harmless no-op.
+func (a *App) RemoveEndpoint(slug string) {
+	if a.provider != nil {
+		a.provider.RemoveEndpoint(slug)
+	}
+	if a.api != nil {
+		a.api.Registry().Remove(slug)
+	}
+}
+
 // API returns the underlying SyftAPI instance.
 func (a *App) API() *syfthubapi.SyftAPI {
 	return a.api
