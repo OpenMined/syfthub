@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -568,6 +569,33 @@ func (p *Provider) handleReload(affectedDirs []string) {
 		p.mu.Unlock()
 	}
 
+	// Reconcile p.endpoints against the filesystem — the single source of truth.
+	// After selective reload, some slugs may have been removed from disk but
+	// not from the in-memory slice (e.g. removeEndpointLocked only cleans
+	// executors). A cheap ReadDir pins the list to reality.
+	entries, readErr := os.ReadDir(p.basePath)
+	if readErr != nil {
+		p.logger.Warn("reconcile: failed to read endpoints directory", "path", p.basePath, "error", readErr)
+	} else {
+		diskSlugs := make(map[string]struct{}, len(entries))
+		for _, e := range entries {
+			if e.IsDir() && len(e.Name()) > 0 && e.Name()[0] != '.' {
+				diskSlugs[e.Name()] = struct{}{}
+			}
+		}
+		p.mu.Lock()
+		filtered := make([]*syfthubapi.Endpoint, 0, len(p.endpoints))
+		for _, ep := range p.endpoints {
+			if _, ok := diskSlugs[ep.Slug]; ok {
+				filtered = append(filtered, ep)
+			} else {
+				p.logger.Info("removing stale endpoint not found on disk", "slug", ep.Slug)
+			}
+		}
+		p.endpoints = filtered
+		p.mu.Unlock()
+	}
+
 	p.mu.RLock()
 	endpoints := make([]*syfthubapi.Endpoint, len(p.endpoints))
 	copy(endpoints, p.endpoints)
@@ -608,6 +636,23 @@ func (p *Provider) removeEndpointLocked(slug string) {
 	// Keep p.noopHandlerPaths entry intact — see comment above.
 }
 
+// RemoveEndpoint removes a single endpoint by slug from both the executor map
+// and the in-memory endpoint list. Use this for synchronous deletion so the
+// endpoint disappears from Endpoints() immediately, without waiting for the
+// file watcher debounce.
+func (p *Provider) RemoveEndpoint(slug string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.removeEndpointLocked(slug)
+	filtered := make([]*syfthubapi.Endpoint, 0, len(p.endpoints))
+	for _, ep := range p.endpoints {
+		if ep.Slug != slug {
+			filtered = append(filtered, ep)
+		}
+	}
+	p.endpoints = filtered
+}
+
 // Endpoints returns the currently loaded endpoints.
 func (p *Provider) Endpoints() []*syfthubapi.Endpoint {
 	p.mu.RLock()
@@ -640,13 +685,43 @@ func (p *Provider) createContainerEndpoint(ctx context.Context, loaded *LoadedEn
 		"policy_count", len(loaded.PolicyConfigs),
 	)
 
+	// Resolve per-endpoint image: frontmatter container.image > Dockerfile > global default.
+	image, err := containermode.ResolveEndpointImage(
+		ctx,
+		p.containerRuntime,
+		loaded.Config.Slug,
+		loaded.Dir,
+		loaded.Config.Container.Image,
+		loaded.HasDockerfile,
+		p.containerConfig.Image,
+		p.logger,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve container image for %s: %w", loaded.Config.Slug, err)
+	}
+
 	spec := containermode.BuildEndpointSpec(
 		loaded.Config.Slug,
 		loaded.Dir,
 		*p.containerConfig,
 		loaded.EnvVars,
 		p.instanceID,
+		image,
 	)
+
+	// Append per-endpoint host bind mounts declared in README.md frontmatter.
+	for _, m := range loaded.Config.Container.Mounts {
+		source, err := expandMountSource(m.Source)
+		if err != nil {
+			return nil, fmt.Errorf("invalid mount for %s: %w", loaded.Config.Slug, err)
+		}
+		spec.Mounts = append(spec.Mounts, containermode.Mount{
+			Type:     "bind",
+			Source:   source,
+			Target:   m.Target,
+			ReadOnly: m.ReadOnly,
+		})
+	}
 
 	executor, err := containermode.NewContainerExecutor(ctx, &containermode.ContainerExecutorConfig{
 		Runtime:       p.containerRuntime,
@@ -708,4 +783,20 @@ func (p *Provider) createContainerEndpoint(ctx context.Context, loaded *LoadedEn
 	)
 
 	return endpoint, nil
+}
+
+// expandMountSource expands ~ and $VAR references in a mount source path.
+// Returns an error if expansion produces an empty or relative path.
+func expandMountSource(source string) (string, error) {
+	if strings.HasPrefix(source, "~/") || source == "~" {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			source = home + source[1:]
+		}
+	}
+	expanded := os.ExpandEnv(source)
+	if expanded == "" {
+		return "", fmt.Errorf("mount source %q expanded to empty string", source)
+	}
+	return expanded, nil
 }

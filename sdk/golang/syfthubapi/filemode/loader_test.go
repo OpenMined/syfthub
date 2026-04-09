@@ -178,6 +178,104 @@ type: model
 		}
 	})
 
+	t.Run("detects Dockerfile", func(t *testing.T) {
+		endpointDir := filepath.Join(tmpDir, "dockerfile-ep")
+		os.MkdirAll(endpointDir, 0755)
+
+		readme := `---
+name: Docker Endpoint
+type: model
+---
+`
+		os.WriteFile(filepath.Join(endpointDir, "README.md"), []byte(readme), 0644)
+		os.WriteFile(filepath.Join(endpointDir, "runner.py"), []byte("def handler(m, c): return 'ok'"), 0644)
+		os.WriteFile(filepath.Join(endpointDir, "Dockerfile"), []byte("FROM python:3.11-slim\n"), 0644)
+
+		loader := NewLoader(tmpDir, nil)
+		endpoint, err := loader.LoadEndpoint(endpointDir)
+		if err != nil {
+			t.Fatalf("error: %v", err)
+		}
+		if !endpoint.HasDockerfile {
+			t.Error("HasDockerfile should be true")
+		}
+	})
+
+	t.Run("no Dockerfile", func(t *testing.T) {
+		endpointDir := filepath.Join(tmpDir, "no-dockerfile-ep")
+		os.MkdirAll(endpointDir, 0755)
+
+		readme := `---
+name: Plain Endpoint
+type: model
+---
+`
+		os.WriteFile(filepath.Join(endpointDir, "README.md"), []byte(readme), 0644)
+		os.WriteFile(filepath.Join(endpointDir, "runner.py"), []byte("def handler(m, c): return 'ok'"), 0644)
+
+		loader := NewLoader(tmpDir, nil)
+		endpoint, err := loader.LoadEndpoint(endpointDir)
+		if err != nil {
+			t.Fatalf("error: %v", err)
+		}
+		if endpoint.HasDockerfile {
+			t.Error("HasDockerfile should be false")
+		}
+	})
+
+	t.Run("container image from frontmatter", func(t *testing.T) {
+		endpointDir := filepath.Join(tmpDir, "custom-image-ep")
+		os.MkdirAll(endpointDir, 0755)
+
+		readme := `---
+name: Custom Image Endpoint
+type: model
+container:
+  image: myorg/custom-runner:v2
+---
+`
+		os.WriteFile(filepath.Join(endpointDir, "README.md"), []byte(readme), 0644)
+		os.WriteFile(filepath.Join(endpointDir, "runner.py"), []byte("def handler(m, c): return 'ok'"), 0644)
+
+		loader := NewLoader(tmpDir, nil)
+		endpoint, err := loader.LoadEndpoint(endpointDir)
+		if err != nil {
+			t.Fatalf("error: %v", err)
+		}
+		if endpoint.Config.Container.Image != "myorg/custom-runner:v2" {
+			t.Errorf("Container.Image = %q, want %q", endpoint.Config.Container.Image, "myorg/custom-runner:v2")
+		}
+	})
+
+	t.Run("both container image and Dockerfile", func(t *testing.T) {
+		endpointDir := filepath.Join(tmpDir, "both-sources-ep")
+		os.MkdirAll(endpointDir, 0755)
+
+		readme := `---
+name: Both Sources
+type: model
+container:
+  image: myorg/preferred:v1
+---
+`
+		os.WriteFile(filepath.Join(endpointDir, "README.md"), []byte(readme), 0644)
+		os.WriteFile(filepath.Join(endpointDir, "runner.py"), []byte("def handler(m, c): return 'ok'"), 0644)
+		os.WriteFile(filepath.Join(endpointDir, "Dockerfile"), []byte("FROM python:3.11-slim\n"), 0644)
+
+		loader := NewLoader(tmpDir, nil)
+		endpoint, err := loader.LoadEndpoint(endpointDir)
+		if err != nil {
+			t.Fatalf("error: %v", err)
+		}
+		// Both should be detected
+		if !endpoint.HasDockerfile {
+			t.Error("HasDockerfile should be true")
+		}
+		if endpoint.Config.Container.Image != "myorg/preferred:v1" {
+			t.Errorf("Container.Image = %q, want %q", endpoint.Config.Container.Image, "myorg/preferred:v1")
+		}
+	})
+
 	t.Run("explicit enabled false", func(t *testing.T) {
 		endpointDir := filepath.Join(tmpDir, "disabled-ep")
 		os.MkdirAll(endpointDir, 0755)

@@ -268,13 +268,13 @@ func (e *ContainerExecutor) BaseURL() string {
 }
 
 // BuildEndpointSpec creates a hardened ContainerSpec for running an endpoint.
-// All container resources (image, CPU, memory, network, GPU) come from the global
-// ContainerConfig. Container mode is all-or-nothing: when enabled, every endpoint
-// runs in a container with the same resource profile.
-func BuildEndpointSpec(slug, dir string, globalCfg syfthubapi.ContainerConfig, envVars []string, instanceID string) *ContainerSpec {
+// Resource limits (CPU, memory, network, GPU) come from the global ContainerConfig.
+// The image parameter is the resolved image name — either a per-endpoint custom
+// image (from ResolveEndpointImage) or the global default.
+func BuildEndpointSpec(slug, dir string, globalCfg syfthubapi.ContainerConfig, envVars []string, instanceID string, image string) *ContainerSpec {
 	spec := &ContainerSpec{
 		Name:  fmt.Sprintf("syfthub-%s-%s", slug, instanceID),
-		Image: globalCfg.Image,
+		Image: image,
 		User:  "1000:1000",
 
 		ReadOnlyFS:   true,

@@ -16,14 +16,15 @@ import (
 
 // EndpointConfig represents the configuration from README.md frontmatter.
 type EndpointConfig struct {
-	Slug        string        `yaml:"slug"`
-	Type        string        `yaml:"type"` // "model", "data_source", or "agent"
-	Name        string        `yaml:"name"`
-	Description string        `yaml:"description"`
-	Enabled     *bool         `yaml:"enabled"` // Pointer to detect if set
-	Version     string        `yaml:"version"`
-	Env         EnvConfig     `yaml:"env"`
-	Runtime     RuntimeConfig `yaml:"runtime"`
+	Slug        string                  `yaml:"slug"`
+	Type        string                  `yaml:"type"` // "model", "data_source", or "agent"
+	Name        string                  `yaml:"name"`
+	Description string                  `yaml:"description"`
+	Enabled     *bool                   `yaml:"enabled"` // Pointer to detect if set
+	Version     string                  `yaml:"version"`
+	Env         EnvConfig               `yaml:"env"`
+	Runtime     RuntimeConfig           `yaml:"runtime"`
+	Container   EndpointContainerConfig `yaml:"container"`
 }
 
 // EnvConfig specifies environment variable requirements.
@@ -40,6 +41,22 @@ type RuntimeConfig struct {
 	Extras  []string `yaml:"extras"`  // pip extras groups
 }
 
+// EndpointContainerConfig holds per-endpoint container overrides.
+// When specified in the README.md frontmatter under "container:", these
+// values override the global ContainerConfig for this endpoint only.
+type EndpointContainerConfig struct {
+	Image  string           `yaml:"image"`  // Registry image reference (e.g., "myorg/custom-runner:v2")
+	Mounts []ContainerMount `yaml:"mounts"` // Extra bind mounts from host into the container
+}
+
+// ContainerMount declares a host path to bind-mount into the container.
+// Source supports ~ expansion and $VAR substitution.
+type ContainerMount struct {
+	Source   string `yaml:"source"`    // Host path (e.g., "~/.claude/.credentials.json")
+	Target   string `yaml:"target"`    // Container path (e.g., "/home/runner/.claude/.credentials.json")
+	ReadOnly bool   `yaml:"read_only"` // Mount read-only (default: false)
+}
+
 // LoadedEndpoint represents a fully loaded endpoint from the file system.
 type LoadedEndpoint struct {
 	Config        *EndpointConfig
@@ -49,6 +66,7 @@ type LoadedEndpoint struct {
 	PolicyConfigs []syfthubapi.PolicyConfig
 	StoreConfig   *syfthubapi.StoreConfig
 	ReadmeBody    string // README markdown content (after frontmatter)
+	HasDockerfile bool   // true if Dockerfile exists in endpoint dir
 }
 
 // Loader loads endpoints from the file system.
@@ -202,6 +220,18 @@ func (l *Loader) LoadEndpoint(dir string) (*LoadedEndpoint, error) {
 		l.logger.Warn("failed to load policies", "dir", dir, "error", err)
 	}
 
+	// Detect Dockerfile in endpoint directory for custom container image builds.
+	hasDockerfile := false
+	if _, err := os.Stat(filepath.Join(dir, "Dockerfile")); err == nil {
+		hasDockerfile = true
+	}
+	if config.Container.Image != "" && hasDockerfile {
+		l.logger.Warn("endpoint has both container.image and Dockerfile; using frontmatter image",
+			"slug", config.Slug,
+			"image", config.Container.Image,
+		)
+	}
+
 	return &LoadedEndpoint{
 		Config:        config,
 		Dir:           dir,
@@ -210,6 +240,7 @@ func (l *Loader) LoadEndpoint(dir string) (*LoadedEndpoint, error) {
 		PolicyConfigs: policyConfigs,
 		StoreConfig:   storeConfig,
 		ReadmeBody:    readmeBody,
+		HasDockerfile: hasDockerfile,
 	}, nil
 }
 

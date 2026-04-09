@@ -19,7 +19,7 @@ func TestBuildEndpointSpec_Defaults(t *testing.T) {
 		Network:  "bridge",
 	}
 
-	spec := BuildEndpointSpec("my-model", "/path/to/endpoint", cfg, []string{"KEY=value"}, "abc12345")
+	spec := BuildEndpointSpec("my-model", "/path/to/endpoint", cfg, []string{"KEY=value"}, "abc12345", cfg.Image)
 
 	if spec.Name != "syfthub-my-model-abc12345" {
 		t.Errorf("unexpected name: %s", spec.Name)
@@ -116,7 +116,7 @@ func TestBuildEndpointSpec_Labels(t *testing.T) {
 		Network:  "bridge",
 	}
 
-	spec := BuildEndpointSpec("test-endpoint", "/tmp/ep", cfg, nil, "instance-42")
+	spec := BuildEndpointSpec("test-endpoint", "/tmp/ep", cfg, nil, "instance-42", cfg.Image)
 
 	expectedLabels := map[string]string{
 		"syfthub.managed":  "true",
@@ -144,7 +144,7 @@ func TestBuildEndpointSpec_Security(t *testing.T) {
 		Network:  "none",
 	}
 
-	spec := BuildEndpointSpec("secure-ep", "/tmp/ep", cfg, nil, "sec-id")
+	spec := BuildEndpointSpec("secure-ep", "/tmp/ep", cfg, nil, "sec-id", cfg.Image)
 
 	if spec.User != "1000:1000" {
 		t.Errorf("User = %q, want %q", spec.User, "1000:1000")
@@ -168,7 +168,7 @@ func TestBuildEndpointSpec_MountPaths(t *testing.T) {
 		Network:  "bridge",
 	}
 
-	spec := BuildEndpointSpec("my-ds", "/home/user/endpoints/my-ds", cfg, nil, "mount-id")
+	spec := BuildEndpointSpec("my-ds", "/home/user/endpoints/my-ds", cfg, nil, "mount-id", cfg.Image)
 
 	if len(spec.Mounts) != 3 {
 		t.Fatalf("expected 3 mounts, got %d", len(spec.Mounts))
@@ -217,7 +217,7 @@ func TestBuildEndpointSpec_EnvVars(t *testing.T) {
 	}
 
 	envVars := []string{"API_KEY=test123", "LOG_LEVEL=DEBUG", "ENDPOINT_SLUG=my-model"}
-	spec := BuildEndpointSpec("my-model", "/tmp/ep", cfg, envVars, "env-id")
+	spec := BuildEndpointSpec("my-model", "/tmp/ep", cfg, envVars, "env-id", cfg.Image)
 
 	if len(spec.Env) != 3 {
 		t.Fatalf("expected 3 env vars, got %d", len(spec.Env))
@@ -238,7 +238,7 @@ func TestBuildEndpointSpec_NilEnvVars(t *testing.T) {
 		Network:  "bridge",
 	}
 
-	spec := BuildEndpointSpec("my-model", "/tmp/ep", cfg, nil, "nil-env-id")
+	spec := BuildEndpointSpec("my-model", "/tmp/ep", cfg, nil, "nil-env-id", cfg.Image)
 
 	if spec.Env != nil {
 		t.Errorf("expected nil Env, got %v", spec.Env)
@@ -253,7 +253,7 @@ func TestBuildEndpointSpec_PortMapping(t *testing.T) {
 		Network:  "bridge",
 	}
 
-	spec := BuildEndpointSpec("port-test", "/tmp/ep", cfg, nil, "port-id")
+	spec := BuildEndpointSpec("port-test", "/tmp/ep", cfg, nil, "port-id", cfg.Image)
 
 	if len(spec.Ports) != 1 {
 		t.Fatalf("expected 1 port mapping, got %d", len(spec.Ports))
@@ -275,7 +275,7 @@ func TestBuildEndpointSpec_GPUFromGlobalConfig(t *testing.T) {
 		GPU:      "device=0",
 	}
 
-	spec := BuildEndpointSpec("gpu-global", "/tmp/ep", cfg, nil, "gpu-id")
+	spec := BuildEndpointSpec("gpu-global", "/tmp/ep", cfg, nil, "gpu-id", cfg.Image)
 
 	if spec.GPU != "device=0" {
 		t.Errorf("GPU = %q, should use global config", spec.GPU)
@@ -290,7 +290,7 @@ func TestBuildEndpointSpec_Tmpfs(t *testing.T) {
 		Network:  "bridge",
 	}
 
-	spec := BuildEndpointSpec("tmpfs-test", "/tmp/ep", cfg, nil, "tmp-id")
+	spec := BuildEndpointSpec("tmpfs-test", "/tmp/ep", cfg, nil, "tmp-id", cfg.Image)
 
 	if len(spec.Tmpfs) != 1 || spec.Tmpfs[0] != "/tmp" {
 		t.Errorf("Tmpfs = %v, want [/tmp]", spec.Tmpfs)
@@ -316,10 +316,33 @@ func TestBuildEndpointSpec_ContainerName(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		spec := BuildEndpointSpec(tt.slug, "/tmp/ep", cfg, nil, tt.instanceID)
+		spec := BuildEndpointSpec(tt.slug, "/tmp/ep", cfg, nil, tt.instanceID, cfg.Image)
 		if spec.Name != tt.wantName {
 			t.Errorf("slug=%q, instanceID=%q: Name = %q, want %q", tt.slug, tt.instanceID, spec.Name, tt.wantName)
 		}
+	}
+}
+
+func TestBuildEndpointSpec_CustomImage(t *testing.T) {
+	cfg := syfthubapi.ContainerConfig{
+		Image:    "syfthub/endpoint-runner:latest",
+		CPUs:     1.0,
+		MemoryMB: 512,
+		Network:  "bridge",
+	}
+
+	customImage := "myorg/custom-runner:v2"
+	spec := BuildEndpointSpec("custom-ep", "/tmp/ep", cfg, nil, "test-id", customImage)
+
+	if spec.Image != customImage {
+		t.Errorf("Image = %q, want %q", spec.Image, customImage)
+	}
+	// Verify other fields still come from global config
+	if spec.CPUs != 1.0 {
+		t.Errorf("CPUs = %f, want 1.0", spec.CPUs)
+	}
+	if spec.MemoryMB != 512 {
+		t.Errorf("MemoryMB = %d, want 512", spec.MemoryMB)
 	}
 }
 
