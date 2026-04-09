@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	neturl "net/url"
 	"path/filepath"
 	"strings"
 
@@ -47,8 +48,10 @@ func (a *App) GetLibraryPackages() ([]LibraryPackage, error) {
 	return pkgs, nil
 }
 
-// InstallLibraryPackage downloads a package zip and extracts it to the endpoints directory.
-func (a *App) InstallLibraryPackage(slug string, downloadURL string) error {
+// InstallLibraryPackage downloads a package zip, extracts it to the endpoints directory,
+// and writes any user-supplied config values to the endpoint's .env file.
+// configValues maps env var keys to user-provided values (empty values are skipped).
+func (a *App) InstallLibraryPackage(slug string, downloadURL string, configValues map[string]string) error {
 	config, err := a.getConfig()
 	if err != nil {
 		return err
@@ -57,6 +60,20 @@ func (a *App) InstallLibraryPackage(slug string, downloadURL string) error {
 	url := a.getLibraryURL()
 	if url == "" {
 		return fmt.Errorf("library unavailable: no SyftHub URL configured")
+	}
+
+	// Validate that downloadURL points to the same origin as the library
+	// to prevent SSRF via attacker-controlled URLs from the frontend.
+	parsedLibrary, err := neturl.Parse(url)
+	if err != nil {
+		return fmt.Errorf("invalid library URL: %w", err)
+	}
+	parsedDownload, err := neturl.Parse(downloadURL)
+	if err != nil {
+		return fmt.Errorf("invalid download URL: %w", err)
+	}
+	if parsedDownload.Scheme != parsedLibrary.Scheme || parsedDownload.Host != parsedLibrary.Host {
+		return fmt.Errorf("download URL origin does not match library origin")
 	}
 
 	runtime.LogInfo(a.ctx, fmt.Sprintf("Downloading library package: %s", slug))
@@ -69,6 +86,15 @@ func (a *App) InstallLibraryPackage(slug string, downloadURL string) error {
 	}
 
 	runtime.LogInfo(a.ctx, fmt.Sprintf("Installed library package: %s", slug))
+
+	// Merge user-supplied config values into the endpoint's .env file,
+	// preserving any defaults the package zip already shipped.
+	if len(configValues) > 0 {
+		endpointEnvPath := filepath.Join(config.EndpointsPath, slug, ".env")
+		if err := nodeops.MergeEnvFile(endpointEnvPath, configValues, true); err != nil {
+			runtime.LogWarning(a.ctx, fmt.Sprintf("Failed to write .env for %s: %v", slug, err))
+		}
+	}
 
 	// If the installed package has setup.yaml, auto-run the setup flow.
 	// This mirrors what the CLI does inline after install.
@@ -95,14 +121,22 @@ func (a *App) InstallLibraryPackage(slug string, downloadURL string) error {
 	return nil
 }
 
+// Compile-time check: PackageConfigField must stay in sync with nodeops.PackageConfigField.
+// If a field is added/removed/reordered in nodeops, this line will fail to compile.
+var _ = func() { _ = PackageConfigField(nodeops.PackageConfigField{}) }
+
 // fromNodeopsLibraryPackages converts nodeops marketplace packages to desktop types.
 func fromNodeopsLibraryPackages(nPkgs []nodeops.MarketplacePackage) []LibraryPackage {
 	out := make([]LibraryPackage, len(nPkgs))
 	for i, p := range nPkgs {
+		cfg := make([]PackageConfigField, len(p.Config))
+		for j, f := range p.Config {
+			cfg[j] = PackageConfigField(f)
+		}
 		out[i] = LibraryPackage{
 			Slug: p.Slug, Name: p.Name, Description: p.Description,
 			Type: p.Type, Author: p.Author, Version: p.Version,
-			DownloadURL: p.DownloadURL, Tags: p.Tags,
+			DownloadURL: p.DownloadURL, Tags: p.Tags, Config: cfg,
 		}
 	}
 	return out

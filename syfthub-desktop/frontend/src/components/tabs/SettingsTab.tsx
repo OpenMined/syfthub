@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { OctagonAlert, TriangleAlert } from 'lucide-react';
-import { useAppStore, type EnvVar } from '../../stores/appStore';
+import { useAppStore, MULTILINE_ENV_KEYS, type EnvVar } from '../../stores/appStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import {
   Select,
@@ -275,27 +276,48 @@ function EnvironmentSection() {
       {/* Existing variables */}
       {envVars.length > 0 ? (
         <div className="space-y-2">
-          {envVars.map((env: EnvVar) => (
-            <div
-              key={env.key}
-              className="flex items-center gap-3 px-3 py-2 rounded-lg bg-card/50 border border-border/50"
-            >
-              <span className="font-mono text-sm text-foreground min-w-[120px] truncate">
-                {env.key}
-              </span>
-              <span className="text-muted-foreground">=</span>
-              <span className="flex-1 font-mono text-sm text-muted-foreground truncate">
-                {env.value || '(empty)'}
-              </span>
-              <button
-                onClick={() => handleDelete(env.key)}
-                disabled={isSaving}
-                className="p-1.5 text-muted-foreground hover:text-destructive transition-colors rounded hover:bg-secondary/50"
+          {envVars.map((env: EnvVar) =>
+            MULTILINE_ENV_KEYS.has(env.key) ? (
+              <div
+                key={env.key}
+                className="px-3 py-2 rounded-lg bg-card/50 border border-border/50 space-y-1.5"
               >
-                <TrashIcon className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-sm text-foreground">{env.key}</span>
+                  <button
+                    onClick={() => handleDelete(env.key)}
+                    disabled={isSaving}
+                    className="p-1.5 text-muted-foreground hover:text-destructive transition-colors rounded hover:bg-secondary/50"
+                  >
+                    <TrashIcon className="w-4 h-4" />
+                  </button>
+                </div>
+                <pre className="font-mono text-xs text-muted-foreground whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
+                  {env.value || '(empty)'}
+                </pre>
+              </div>
+            ) : (
+              <div
+                key={env.key}
+                className="flex items-center gap-3 px-3 py-2 rounded-lg bg-card/50 border border-border/50"
+              >
+                <span className="font-mono text-sm text-foreground min-w-[120px] truncate">
+                  {env.key}
+                </span>
+                <span className="text-muted-foreground">=</span>
+                <span className="flex-1 font-mono text-sm text-muted-foreground truncate">
+                  {env.value || '(empty)'}
+                </span>
+                <button
+                  onClick={() => handleDelete(env.key)}
+                  disabled={isSaving}
+                  className="p-1.5 text-muted-foreground hover:text-destructive transition-colors rounded hover:bg-secondary/50"
+                >
+                  <TrashIcon className="w-4 h-4" />
+                </button>
+              </div>
+            )
+          )}
         </div>
       ) : (
         <div className="py-8 text-center">
@@ -307,29 +329,59 @@ function EnvironmentSection() {
       {/* Add new variable */}
       <div className="pt-4 border-t border-border/30">
         <p className="text-xs text-muted-foreground mb-3">Add new variable</p>
-        <div className="flex items-center gap-2">
-          <Input
-            value={newKey}
-            onChange={(e) => setNewKey(e.target.value)}
-            placeholder="KEY"
-            className="flex-1 h-9 font-mono"
-          />
-          <span className="text-muted-foreground">=</span>
-          <Input
-            value={newValue}
-            onChange={(e) => setNewValue(e.target.value)}
-            placeholder="value"
-            className="flex-1 h-9 font-mono"
-          />
-          <Button
-            size="sm"
-            onClick={handleAdd}
-            disabled={isSaving || !newKey.trim()}
-            className="h-9 px-3"
-          >
-            <PlusIcon className="w-4 h-4" />
-          </Button>
-        </div>
+        {MULTILINE_ENV_KEYS.has(newKey) ? (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Input
+                value={newKey}
+                onChange={(e) => setNewKey(e.target.value)}
+                placeholder="KEY"
+                className="w-48 h-9 font-mono"
+              />
+              <span className="text-muted-foreground">=</span>
+            </div>
+            <div className="flex gap-2 items-end">
+              <Textarea
+                value={newValue}
+                onChange={(e) => setNewValue(e.target.value)}
+                placeholder="Enter system prompt instructions..."
+                className="flex-1 font-mono text-sm resize-y min-h-[80px]"
+              />
+              <Button
+                size="sm"
+                onClick={handleAdd}
+                disabled={isSaving || !newKey.trim()}
+                className="h-9 px-3"
+              >
+                <PlusIcon className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Input
+              value={newKey}
+              onChange={(e) => setNewKey(e.target.value)}
+              placeholder="KEY"
+              className="flex-1 h-9 font-mono"
+            />
+            <span className="text-muted-foreground">=</span>
+            <Input
+              value={newValue}
+              onChange={(e) => setNewValue(e.target.value)}
+              placeholder="value"
+              className="flex-1 h-9 font-mono"
+            />
+            <Button
+              size="sm"
+              onClick={handleAdd}
+              disabled={isSaving || !newKey.trim()}
+              className="h-9 px-3"
+            >
+              <PlusIcon className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

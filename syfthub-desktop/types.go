@@ -234,14 +234,26 @@ type LogStats struct {
 // Library Types
 // ============================================================================
 
+// PackageConfigField describes a user-facing configuration field for a library package.
+// Mirrors nodeops.PackageConfigField — kept as a separate type for Wails binding generation.
+type PackageConfigField struct {
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required"`
+	Secret      bool   `json:"secret"`
+	Default     string `json:"default,omitempty"`
+}
+
 // LibraryPackage represents an installable endpoint package from the library.
 type LibraryPackage struct {
-	Slug        string   `json:"slug"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Type        string   `json:"type"`
-	Author      string   `json:"author,omitempty"`
-	Version     string   `json:"version"`
-	DownloadURL string   `json:"downloadUrl"`
-	Tags        []string `json:"tags,omitempty"`
+	Slug        string               `json:"slug"`
+	Name        string               `json:"name"`
+	Description string               `json:"description"`
+	Type        string               `json:"type"`
+	Author      string               `json:"author,omitempty"`
+	Version     string               `json:"version"`
+	DownloadURL string               `json:"downloadUrl"`
+	Tags        []string             `json:"tags,omitempty"`
+	Config      []PackageConfigField `json:"config,omitempty"`
 }

@@ -9,9 +9,11 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 // TODO(AGENT_ONLY): Badge import hidden — type badge commented out.
 // To restore, uncomment: import { Badge } from '@/components/ui/badge';
-import { useAppStore, type LibraryPackage } from '@/stores/appStore';
+import { useAppStore, MULTILINE_ENV_KEYS, type LibraryPackage } from '@/stores/appStore';
 // TODO(AGENT_ONLY): typeLabels import hidden. To restore, add typeLabels back:
 // import { typeLabels, extractErrorMessage } from '@/lib/utils';
 import { extractErrorMessage } from '@/lib/utils';
@@ -107,6 +109,7 @@ export function LibraryView() {
 
   const [selectedPackage, setSelectedPackage] = useState<LibraryPackage | null>(null);
   const [installError, setInstallError] = useState<string | null>(null);
+  const [configValues, setConfigValues] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
@@ -129,6 +132,12 @@ export function LibraryView() {
   const handleOpenInstall = (pkg: LibraryPackage) => {
     setSelectedPackage(pkg);
     setInstallError(null);
+    // Pre-fill defaults
+    const defaults: Record<string, string> = {};
+    for (const field of pkg.config ?? []) {
+      if (field.default) defaults[field.key] = field.default;
+    }
+    setConfigValues(defaults);
   };
 
   const handleInstall = async () => {
@@ -136,7 +145,7 @@ export function LibraryView() {
 
     setInstallError(null);
     try {
-      await installLibraryPackage(selectedPackage.slug, selectedPackage.downloadUrl);
+      await installLibraryPackage(selectedPackage.slug, selectedPackage.downloadUrl, configValues);
       setSelectedPackage(null);
     } catch (err) {
       setInstallError(extractErrorMessage(err, String(err)));
@@ -215,7 +224,7 @@ export function LibraryView() {
       )}
 
       {/* Install Dialog */}
-      <Dialog open={!!selectedPackage} onOpenChange={(open) => !open && setSelectedPackage(null)}>
+      <Dialog open={!!selectedPackage} onOpenChange={(open) => { if (!open) { setSelectedPackage(null); setConfigValues({}); } }}>
         <DialogContent className="sm:max-w-[400px]">
           {selectedPackage && (
             <>
@@ -225,6 +234,44 @@ export function LibraryView() {
                   This will download and install the package. Setup will run automatically after installation.
                 </DialogDescription>
               </DialogHeader>
+
+              {selectedPackage.config && selectedPackage.config.length > 0 && (
+                <div className="flex flex-col gap-3 py-1">
+                  {selectedPackage.config.map((field) => (
+                    <div key={field.key} className="flex flex-col gap-1">
+                      <Label htmlFor={`cfg-${field.key}`} className="text-xs font-medium">
+                        {field.label}
+                        {field.required && <span className="text-destructive ml-0.5">*</span>}
+                      </Label>
+                      {MULTILINE_ENV_KEYS.has(field.key) ? (
+                        <Textarea
+                          id={`cfg-${field.key}`}
+                          placeholder={field.description || field.default || ''}
+                          value={configValues[field.key] ?? ''}
+                          onChange={(e) =>
+                            setConfigValues((prev) => ({ ...prev, [field.key]: e.target.value }))
+                          }
+                          className="text-xs min-h-[80px] resize-y"
+                        />
+                      ) : (
+                        <Input
+                          id={`cfg-${field.key}`}
+                          type={field.secret ? 'password' : 'text'}
+                          placeholder={field.description || field.default || ''}
+                          value={configValues[field.key] ?? ''}
+                          onChange={(e) =>
+                            setConfigValues((prev) => ({ ...prev, [field.key]: e.target.value }))
+                          }
+                          className="h-7 text-xs"
+                        />
+                      )}
+                      {field.description && !MULTILINE_ENV_KEYS.has(field.key) && (
+                        <p className="text-[10px] text-muted-foreground">{field.description}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <ErrorBanner message={installError} className="p-2.5 rounded-md text-xs" />
 

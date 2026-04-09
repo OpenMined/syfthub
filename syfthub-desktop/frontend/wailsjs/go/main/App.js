@@ -130,8 +130,8 @@ export function HasSettings() {
   return window['go']['main']['App']['HasSettings']();
 }
 
-export function InstallLibraryPackage(arg1, arg2) {
-  return window['go']['main']['App']['InstallLibraryPackage'](arg1, arg2);
+export function InstallLibraryPackage(arg1, arg2, arg3) {
+  return window['go']['main']['App']['InstallLibraryPackage'](arg1, arg2, arg3);
 }
 
 export function ListPolicyFiles(arg1) {

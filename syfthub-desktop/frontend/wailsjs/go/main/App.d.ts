@@ -66,7 +66,7 @@ export function GetVersion():Promise<string>;
 
 export function HasSettings():Promise<boolean>;
 
-export function InstallLibraryPackage(arg1:string,arg2:string):Promise<void>;
+export function InstallLibraryPackage(arg1:string,arg2:string,arg3:Record<string, string>):Promise<void>;
 
 export function ListPolicyFiles(arg1:string):Promise<Array<main.PolicyFileInfo>>;
 

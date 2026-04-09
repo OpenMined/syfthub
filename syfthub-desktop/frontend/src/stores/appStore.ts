@@ -53,6 +53,9 @@ export type SetupStepInfo = main.SetupStepInfo;
 // TS-only UI label set by the setupflow:complete listener. Not a Go wire value.
 export const SETUP_COMPLETE_STATUS = 'Setup complete' as const;
 
+// Re-export for backwards compatibility — canonical definition is in @/lib/utils.
+export { MULTILINE_ENV_KEYS } from '@/lib/utils';
+
 // Wire values for transient endpoint lifecycle states (must match Go RuntimeState* constants in types.go).
 export const RuntimeState = {
   Installing: 'installing',
@@ -143,13 +146,10 @@ interface AppState {
   // Create endpoint state
   isCreateDialogOpen: boolean;
   isCreatingEndpoint: boolean;
-  lastOptimisticAddTime: number | null;
 
   // Delete endpoint state
   isDeleteDialogOpen: boolean;
   isDeletingEndpoint: boolean;
-  lastOptimisticDeleteTime: number | null;
-  recentlyDeletedSlugs: string[];
 
   // Chat state
   chatSelectedModel: EndpointInfo | null;
@@ -232,7 +232,7 @@ interface AppState {
 
   // Actions - Library
   fetchLibraryPackages: () => Promise<void>;
-  installLibraryPackage: (slug: string, downloadUrl: string) => Promise<void>;
+  installLibraryPackage: (slug: string, downloadUrl: string, configValues?: Record<string, string>) => Promise<void>;
   uninstallLibraryPackage: (slug: string) => Promise<void>;
 
   // Actions - Setup flow
@@ -252,7 +252,18 @@ const initialStatus: StatusInfo = {
 };
 
 let logStatsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-const DELETE_GRACE_MS = 3000;
+
+/** Build the state patch that removes `slug` from endpoint-related selections. */
+function removedSlugPatch(
+  state: Pick<AppState, 'endpoints' | 'chatSelectedModel' | 'chatSelectedSources'>,
+  slug: string,
+): Pick<AppState, 'endpoints' | 'chatSelectedModel' | 'chatSelectedSources'> {
+  return {
+    endpoints: state.endpoints.filter(ep => ep.slug !== slug),
+    chatSelectedModel: state.chatSelectedModel?.slug === slug ? null : state.chatSelectedModel,
+    chatSelectedSources: state.chatSelectedSources.filter(ep => ep.slug !== slug),
+  };
+}
 
 export const useAppStore = create<AppState>((set, get) => ({
   // Initial state
@@ -287,13 +298,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Create endpoint initial state
   isCreateDialogOpen: false,
   isCreatingEndpoint: false,
-  lastOptimisticAddTime: null,
 
   // Delete endpoint initial state
   isDeleteDialogOpen: false,
   isDeletingEndpoint: false,
-  lastOptimisticDeleteTime: null,
-  recentlyDeletedSlugs: [],
 
   // Chat initial state
   chatSelectedModel: null,
@@ -386,33 +394,26 @@ export const useAppStore = create<AppState>((set, get) => ({
       );
 
       {
-        // Listen for file watcher events (auto-refresh when files change)
+        // The file watcher is the ground truth. When it fires, the emitted list
+        // is exactly what exists on disk — replace state unconditionally.
         EventsOn('app:endpoints-changed', (incomingEndpoints: EndpointInfo[]) => {
           // TODO(AGENT_ONLY): Filter incoming endpoints to agent-only.
-          // To restore all types, remove the agentOnly filter below and use incomingEndpoints directly.
-          let agentOnly = (incomingEndpoints || []).filter((ep: EndpointInfo) => ep.type === 'agent');
-          const { endpoints: currentEndpoints, lastOptimisticAddTime, lastOptimisticDeleteTime, recentlyDeletedSlugs } = get();
+          // To restore all types, remove the agentOnly filter and use incomingEndpoints directly.
+          const agentOnly = (incomingEndpoints || []).filter((ep: EndpointInfo) => ep.type === 'agent');
 
-          // During delete grace period, filter out recently deleted endpoints
-          // so the file watcher doesn't re-add them before the provider reloads
-          const inDeleteGracePeriod = lastOptimisticDeleteTime && (Date.now() - lastOptimisticDeleteTime) < DELETE_GRACE_MS;
-          if (inDeleteGracePeriod && recentlyDeletedSlugs.length > 0) {
-            agentOnly = agentOnly.filter(ep => !recentlyDeletedSlugs.includes(ep.slug));
-          }
+          // Skip no-op updates so Zustand doesn't re-render when the list hasn't changed.
+          // Compare JSON fingerprints (not just slugs) so metadata-only changes are picked up.
+          const currentKey = JSON.stringify(get().endpoints);
+          const incomingKey = JSON.stringify(agentOnly);
+          if (currentKey === incomingKey) return;
 
-          // During add grace period, reject any update that would reduce our endpoint count
-          // This protects against file watcher intermediate states during endpoint creation
-          const inAddGracePeriod = lastOptimisticAddTime && (Date.now() - lastOptimisticAddTime) < DELETE_GRACE_MS;
-          if (inAddGracePeriod) {
-            if (!agentOnly || agentOnly.length < currentEndpoints.length) {
-              return; // Reject - would lose endpoints
-            }
-            // Accept but keep grace period active (don't clear lastOptimisticAddTime)
-            set({ endpoints: agentOnly });
-            return;
-          }
-
-          set({ endpoints: agentOnly });
+          const slugSet = new Set(agentOnly.map(ep => ep.slug));
+          const { chatSelectedModel, chatSelectedSources } = get();
+          set({
+            endpoints: agentOnly,
+            chatSelectedModel: chatSelectedModel && slugSet.has(chatSelectedModel.slug) ? chatSelectedModel : null,
+            chatSelectedSources: chatSelectedSources.filter(ep => slugSet.has(ep.slug)),
+          });
         });
 
         // Listen for setup flow events
@@ -902,8 +903,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   createEndpoint: async (request) => {
     try {
-      // Start grace period BEFORE backend call - file watcher may fire during CreateEndpoint
-      set({ isCreatingEndpoint: true, error: null, lastOptimisticAddTime: Date.now() });
+      set({ isCreatingEndpoint: true, error: null });
 
       // Create the endpoint request object
       const req = main.CreateEndpointRequest.createFrom({
@@ -982,38 +982,35 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteEndpoint: async () => {
-    const { selectedEndpointSlug, endpoints } = get();
-    if (!selectedEndpointSlug) {
+    const state = get();
+    if (!state.selectedEndpointSlug) {
       set({ error: 'No endpoint selected' });
       return;
     }
 
-    const slugToDelete = selectedEndpointSlug;
+    const slugToDelete = state.selectedEndpointSlug;
+    const patch = removedSlugPatch(state, slugToDelete);
+
+    // Optimistic remove: update UI immediately so the endpoint disappears at once.
+    // The file watcher will confirm the removal when it fires.
+    set({
+      isDeletingEndpoint: true,
+      isDeleteDialogOpen: false,
+      error: null,
+      ...patch,
+    });
 
     try {
-      set({
-        isDeletingEndpoint: true,
-        error: null,
-        lastOptimisticDeleteTime: Date.now(),
-        recentlyDeletedSlugs: [...get().recentlyDeletedSlugs, slugToDelete],
-      });
-      setTimeout(() => {
-        set(s => ({ recentlyDeletedSlugs: s.recentlyDeletedSlugs.filter(s => s !== slugToDelete) }));
-      }, DELETE_GRACE_MS);
-
-      // Call backend to delete endpoint
       await DeleteEndpoint(slugToDelete);
-
-      // Optimistic UI: Remove endpoint from state immediately
-      const remainingEndpoints = endpoints.filter(ep => ep.slug !== slugToDelete);
-      set({ endpoints: remainingEndpoints });
-
-      // Close dialog
-      set({ isDeleteDialogOpen: false });
-
-      await get().selectEndpoint(remainingEndpoints.length > 0 ? remainingEndpoints[0].slug : null);
+      await get().selectEndpoint(patch.endpoints.length > 0 ? patch.endpoints[0].slug : null);
     } catch (err) {
-      set({ error: `Failed to delete endpoint: ${err}` });
+      // Rollback: restore the original list so the endpoint reappears in the UI.
+      set({
+        error: `Failed to delete endpoint: ${err}`,
+        endpoints: state.endpoints,
+        chatSelectedModel: state.chatSelectedModel,
+        chatSelectedSources: state.chatSelectedSources,
+      });
       throw err;
     } finally {
       set({ isDeletingEndpoint: false });
@@ -1033,14 +1030,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  installLibraryPackage: async (slug: string, downloadUrl: string) => {
+  installLibraryPackage: async (slug: string, downloadUrl: string, configValues?: Record<string, string>) => {
     try {
       set({ installingPackageSlug: slug });
       // The backend auto-triggers RunEndpointSetup if setup.yaml exists.
       // Setup flow state is managed entirely by event listeners (setupflow:*),
       // not set here, to avoid a race where this code overwrites prompt data
       // that the goroutine has already emitted.
-      await InstallLibraryPackage(slug, downloadUrl);
+      await InstallLibraryPackage(slug, downloadUrl, configValues ?? {});
       await get().fetchEndpoints();
     } catch (err) {
       set({ error: `Failed to install package: ${err}` });
@@ -1051,26 +1048,26 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   uninstallLibraryPackage: async (slug: string) => {
+    const state = get();
+    const patch = removedSlugPatch(state, slug);
+
+    // Optimistic remove: update UI immediately so the endpoint disappears at once.
+    // The file watcher will confirm the removal when it fires.
+    set({ installingPackageSlug: slug, ...patch });
+
     try {
-      set({
-        installingPackageSlug: slug,
-        lastOptimisticDeleteTime: Date.now(),
-        recentlyDeletedSlugs: [...get().recentlyDeletedSlugs, slug],
-      });
-      setTimeout(() => {
-        set(s => ({ recentlyDeletedSlugs: s.recentlyDeletedSlugs.filter(s => s !== slug) }));
-      }, DELETE_GRACE_MS);
       await DeleteEndpoint(slug);
-
-      // Optimistic UI: remove from endpoints immediately (mirrors deleteEndpoint)
-      const remainingEndpoints = get().endpoints.filter(ep => ep.slug !== slug);
-      set({ endpoints: remainingEndpoints });
-
       if (get().selectedEndpointSlug === slug) {
-        await get().selectEndpoint(remainingEndpoints.length > 0 ? remainingEndpoints[0].slug : null);
+        await get().selectEndpoint(patch.endpoints.length > 0 ? patch.endpoints[0].slug : null);
       }
     } catch (err) {
-      set({ error: `Failed to uninstall package: ${err}` });
+      // Rollback: restore the original list so the endpoint reappears in the UI.
+      set({
+        error: `Failed to uninstall package: ${err}`,
+        endpoints: state.endpoints,
+        chatSelectedModel: state.chatSelectedModel,
+        chatSelectedSources: state.chatSelectedSources,
+      });
     } finally {
       set({ installingPackageSlug: null });
     }

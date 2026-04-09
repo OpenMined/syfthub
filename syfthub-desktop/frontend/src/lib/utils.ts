@@ -31,6 +31,9 @@ export function isValidUrl(url: string): boolean {
   }
 }
 
+/** Env var keys that need multiline (textarea) rendering in forms. */
+export const MULTILINE_ENV_KEYS = new Set(['SYSTEM_PROMPT']);
+
 /** Extract a human-readable message from an unknown caught error. */
 export function extractErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
