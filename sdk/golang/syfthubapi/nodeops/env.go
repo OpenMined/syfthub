@@ -31,6 +31,10 @@ func ReadEnvFile(path string) ([]EnvVar, error) {
 			key := strings.TrimSpace(parts[0])
 			value := strings.TrimSpace(parts[1])
 			value = strings.Trim(value, "\"'")
+			// Reverse the escaping from WriteEnvFile: \\n → sentinel, \n → real newline, sentinel → \n.
+			value = strings.ReplaceAll(value, `\\n`, "\x00ESCAPED_NEWLINE\x00")
+			value = strings.ReplaceAll(value, `\n`, "\n")
+			value = strings.ReplaceAll(value, "\x00ESCAPED_NEWLINE\x00", `\n`)
 			vars = append(vars, EnvVar{Key: key, Value: value})
 		}
 	}
@@ -42,8 +46,10 @@ func ReadEnvFile(path string) ([]EnvVar, error) {
 func WriteEnvFile(path string, vars []EnvVar) error {
 	var lines []string
 	for _, v := range vars {
-		value := v.Value
-		if strings.ContainsAny(value, " \t\n\"'") {
+		// Escape literal \n first so it survives the round-trip, then escape real newlines.
+		value := strings.ReplaceAll(v.Value, `\n`, `\\n`)
+		value = strings.ReplaceAll(value, "\n", `\n`)
+		if strings.ContainsAny(value, " \t\"'") {
 			value = fmt.Sprintf("\"%s\"", strings.ReplaceAll(value, "\"", "\\\""))
 		}
 		lines = append(lines, fmt.Sprintf("%s=%s", v.Key, value))
@@ -55,4 +61,32 @@ func WriteEnvFile(path string, vars []EnvVar) error {
 	}
 
 	return os.WriteFile(path, []byte(content), 0600)
+}
+
+// MergeEnvFile reads the .env at path, applies updates (add or replace keys),
+// and writes it back. Preserves ordering of existing keys; new keys are appended.
+// If skipEmpty is true, update entries with empty values are ignored.
+func MergeEnvFile(path string, updates map[string]string, skipEmpty bool) error {
+	existing, err := ReadEnvFile(path)
+	if err != nil {
+		return fmt.Errorf("read .env: %w", err)
+	}
+
+	updated := make(map[string]bool, len(updates))
+	var result []EnvVar
+	for _, ev := range existing {
+		if newVal, ok := updates[ev.Key]; ok && (!skipEmpty || newVal != "") {
+			result = append(result, EnvVar{Key: ev.Key, Value: newVal})
+			updated[ev.Key] = true
+		} else {
+			result = append(result, ev)
+		}
+	}
+	for key, val := range updates {
+		if !updated[key] && (!skipEmpty || val != "") {
+			result = append(result, EnvVar{Key: key, Value: val})
+		}
+	}
+
+	return WriteEnvFile(path, result)
 }

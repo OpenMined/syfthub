@@ -81,16 +81,28 @@ type EndpointDetail struct {
 	SetupSpec       *SetupSpec   `json:"setupSpec,omitempty"`
 }
 
+// PackageConfigField describes a configuration field for a marketplace package.
+// Fields marked Secret should be rendered as password inputs in the UI.
+type PackageConfigField struct {
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
+	Required    bool   `json:"required"`
+	Secret      bool   `json:"secret"`
+	Default     string `json:"default,omitempty"`
+}
+
 // MarketplacePackage represents an installable endpoint package from the marketplace.
 type MarketplacePackage struct {
-	Slug        string   `json:"slug"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Type        string   `json:"type"`
-	Author      string   `json:"author,omitempty"`
-	Version     string   `json:"version"`
-	DownloadURL string   `json:"downloadUrl"`
-	Tags        []string `json:"tags,omitempty"`
+	Slug        string               `json:"slug"`
+	Name        string               `json:"name"`
+	Description string               `json:"description"`
+	Type        string               `json:"type"`
+	Author      string               `json:"author,omitempty"`
+	Version     string               `json:"version"`
+	DownloadURL string               `json:"downloadUrl"`
+	Tags        []string             `json:"tags,omitempty"`
+	Config      []PackageConfigField `json:"config,omitempty"`
 }
 
 // MarketplaceManifest is the top-level structure of the marketplace JSON file.
