@@ -1350,35 +1350,47 @@ def test_complex_policy_configurations(client: TestClient, user1_token: str) -> 
 
 
 # ---------------------------------------------------------------------------
-# bundle_subscription policy tests
+# xendit policy tests
 # ---------------------------------------------------------------------------
 
+_XENDIT_POLICY = {
+    "type": "xendit",
+    "version": "1.0",
+    "enabled": True,
+    "description": "Legal doc search bundle",
+    "config": {
+        "bundle_tiers": [
+            {"name": "Starter", "units": 100, "unit_type": "requests", "price": 50000},
+            {"name": "Pro", "units": 1000, "unit_type": "requests", "price": 400000},
+        ],
+        "currency": "IDR",
+        "country": "ID",
+        "applied_to": ["*"],
+        "payment_url": "https://my-server.example.com/api/v1/payments/gateway/xendit/invoices",
+        "bundle_usage_url": "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint",
+    },
+}
 
-def test_create_endpoint_with_bundle_subscription_policy(
+_XENDIT_POLICY_MINIMAL = {
+    "type": "xendit",
+    "config": {
+        "payment_url": "https://my-server.example.com/api/v1/payments/gateway/xendit/invoices",
+        "bundle_usage_url": "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint",
+    },
+}
+
+
+def test_create_endpoint_with_xendit_policy(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test that bundle_subscription policy config fields round-trip correctly."""
+    """Test that xendit policy config fields round-trip correctly."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     endpoint_data = {
-        "name": "Bundle Subscription Endpoint",
+        "name": "Xendit Bundle Endpoint",
         "type": "model",
         "visibility": "public",
-        "policies": [
-            {
-                "type": "bundle_subscription",
-                "version": "1.0",
-                "enabled": True,
-                "description": "Monthly pro plan",
-                "config": {
-                    "invoice_url": "https://billing.example.com/checkout",
-                    "plan_name": "Pro",
-                    "price": 29.99,
-                    "currency": "USD",
-                    "billing_cycle": "monthly",
-                },
-            }
-        ],
+        "policies": [_XENDIT_POLICY],
     }
 
     response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
@@ -1387,34 +1399,41 @@ def test_create_endpoint_with_bundle_subscription_policy(
     data = response.json()
     assert len(data["policies"]) == 1
     policy = data["policies"][0]
-    assert policy["type"] == "bundle_subscription"
+    assert policy["type"] == "xendit"
     assert policy["version"] == "1.0"
     assert policy["enabled"] is True
-    assert policy["description"] == "Monthly pro plan"
-    assert policy["config"]["invoice_url"] == "https://billing.example.com/checkout"
-    assert policy["config"]["plan_name"] == "Pro"
-    assert policy["config"]["price"] == 29.99
-    assert policy["config"]["currency"] == "USD"
-    assert policy["config"]["billing_cycle"] == "monthly"
+    assert policy["description"] == "Legal doc search bundle"
+    assert policy["config"]["currency"] == "IDR"
+    assert policy["config"]["country"] == "ID"
+    assert policy["config"]["applied_to"] == ["*"]
+    assert (
+        policy["config"]["payment_url"]
+        == "https://my-server.example.com/api/v1/payments/gateway/xendit/invoices"
+    )
+    assert (
+        policy["config"]["bundle_usage_url"]
+        == "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint"
+    )
+    tiers = policy["config"]["bundle_tiers"]
+    assert len(tiers) == 2
+    assert tiers[0]["name"] == "Starter"
+    assert tiers[0]["units"] == 100
+    assert tiers[1]["name"] == "Pro"
+    assert tiers[1]["price"] == 400000
 
 
-def test_bundle_subscription_policy_auto_injects_subscription_tag_on_create(
+def test_xendit_policy_auto_injects_subscription_tag_on_create(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test that creating an endpoint with bundle_subscription policy auto-injects 'subscription' tag."""
+    """Test that creating an endpoint with xendit policy auto-injects 'subscription' tag."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     endpoint_data = {
-        "name": "Tagged Subscription Endpoint",
+        "name": "Tagged Xendit Endpoint",
         "type": "model",
         "visibility": "public",
         "tags": ["ml", "nlp"],
-        "policies": [
-            {
-                "type": "bundle_subscription",
-                "config": {"plan_name": "Basic", "price": 9.99, "currency": "USD"},
-            }
-        ],
+        "policies": [_XENDIT_POLICY_MINIMAL],
     }
 
     response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
@@ -1426,15 +1445,15 @@ def test_bundle_subscription_policy_auto_injects_subscription_tag_on_create(
     assert "nlp" in data["tags"]
 
 
-def test_bundle_subscription_policy_auto_injects_subscription_tag_on_update(
+def test_xendit_policy_auto_injects_subscription_tag_on_update(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test that updating an endpoint to add bundle_subscription policy injects 'subscription' tag."""
+    """Test that updating an endpoint to add xendit policy injects 'subscription' tag."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create endpoint without bundle_subscription policy
+    # Create endpoint without xendit policy
     create_data = {
-        "name": "Updatable Subscription Endpoint",
+        "name": "Updatable Xendit Endpoint",
         "type": "model",
         "visibility": "public",
         "tags": ["api"],
@@ -1444,15 +1463,8 @@ def test_bundle_subscription_policy_auto_injects_subscription_tag_on_update(
     endpoint_id = response.json()["id"]
     assert "subscription" not in response.json()["tags"]
 
-    # Update to add bundle_subscription policy
-    update_data = {
-        "policies": [
-            {
-                "type": "bundle_subscription",
-                "config": {"plan_name": "Enterprise", "price": 99.0, "currency": "USD"},
-            }
-        ]
-    }
+    # Update to add xendit policy
+    update_data = {"policies": [_XENDIT_POLICY_MINIMAL]}
     response = client.patch(
         f"/api/v1/endpoints/{endpoint_id}", json=update_data, headers=headers
     )
@@ -1460,7 +1472,7 @@ def test_bundle_subscription_policy_auto_injects_subscription_tag_on_update(
     assert "subscription" in response.json()["tags"]
 
 
-def test_bundle_subscription_auto_tag_skips_when_tag_limit_reached(
+def test_xendit_auto_tag_skips_when_tag_limit_reached(
     client: TestClient, user1_token: str
 ) -> None:
     """Test that auto-tag injection is silently skipped when endpoint already has 10 tags."""
@@ -1468,16 +1480,11 @@ def test_bundle_subscription_auto_tag_skips_when_tag_limit_reached(
 
     ten_tags = [f"tag{i}" for i in range(10)]
     endpoint_data = {
-        "name": "Full Tags Subscription Endpoint",
+        "name": "Full Tags Xendit Endpoint",
         "type": "model",
         "visibility": "public",
         "tags": ten_tags,
-        "policies": [
-            {
-                "type": "bundle_subscription",
-                "config": {"plan_name": "Starter", "price": 4.99, "currency": "USD"},
-            }
-        ],
+        "policies": [_XENDIT_POLICY_MINIMAL],
     }
 
     response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
@@ -1488,23 +1495,16 @@ def test_bundle_subscription_auto_tag_skips_when_tag_limit_reached(
     assert "subscription" not in data["tags"]
 
 
-def test_bundle_subscription_auto_tag_is_idempotent(
-    client: TestClient, user1_token: str
-) -> None:
+def test_xendit_auto_tag_is_idempotent(client: TestClient, user1_token: str) -> None:
     """Test that 'subscription' tag is not duplicated if already present."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     endpoint_data = {
-        "name": "Idempotent Subscription Endpoint",
+        "name": "Idempotent Xendit Endpoint",
         "type": "model",
         "visibility": "public",
         "tags": ["subscription", "ai"],
-        "policies": [
-            {
-                "type": "bundle_subscription",
-                "config": {"plan_name": "Pro", "price": 19.99, "currency": "USD"},
-            }
-        ],
+        "policies": [_XENDIT_POLICY_MINIMAL],
     }
 
     response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
@@ -2222,157 +2222,114 @@ def test_sync_endpoints_stars_reset(client: TestClient, user1_token: str) -> Non
     assert data["endpoints"][0]["stars_count"] == 0
 
 
-# ---- Bundle Subscription Policy Tests ----
+# ---- Xendit Policy Tests ----
 
 
-def test_create_endpoint_with_bundle_subscription_policy_auto_tags(
+def test_create_endpoint_with_xendit_policy_auto_tags(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test creating an endpoint with a bundle_subscription policy persists config and auto-tags."""
+    """Test creating an endpoint with a xendit policy persists config and auto-tags."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    endpoint_data = {
-        "name": "Subscription Endpoint",
-        "type": "model",
-        "visibility": "public",
-        "policies": [
-            {
-                "type": "bundle_subscription",
-                "version": "1.0",
-                "enabled": True,
-                "description": "Monthly subscription plan",
-                "config": {
-                    "invoice_url": "https://buy.stripe.com/test_abc123",
-                    "plan_name": "Pro Plan",
-                    "price": 29.00,
-                    "currency": "USD",
-                    "billing_cycle": "monthly",
-                },
-            }
-        ],
-    }
-
-    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    response = client.post(
+        "/api/v1/endpoints",
+        json={
+            "name": "Xendit Subscription Endpoint",
+            "type": "model",
+            "visibility": "public",
+            "policies": [_XENDIT_POLICY],
+        },
+        headers=headers,
+    )
     assert response.status_code == 201
 
     data = response.json()
     assert len(data["policies"]) == 1
 
     policy = data["policies"][0]
-    assert policy["type"] == "bundle_subscription"
-    assert policy["config"]["invoice_url"] == "https://buy.stripe.com/test_abc123"
-    assert policy["config"]["plan_name"] == "Pro Plan"
-    assert policy["config"]["price"] == 29.00
-    assert policy["config"]["currency"] == "USD"
-    assert policy["config"]["billing_cycle"] == "monthly"
+    assert policy["type"] == "xendit"
+    assert (
+        policy["config"]["payment_url"]
+        == "https://my-server.example.com/api/v1/payments/gateway/xendit/invoices"
+    )
+    assert (
+        policy["config"]["bundle_usage_url"]
+        == "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint"
+    )
+    assert policy["config"]["currency"] == "IDR"
+    assert len(policy["config"]["bundle_tiers"]) == 2
 
     # Auto-tag injection
     assert "subscription" in data["tags"]
 
 
-def test_create_endpoint_bundle_subscription_no_duplicate_tag(
+def test_create_endpoint_xendit_no_duplicate_tag(
     client: TestClient, user1_token: str
 ) -> None:
     """Test that auto-tag injection does not duplicate 'subscription' if already present."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    endpoint_data = {
-        "name": "Already Tagged Endpoint",
-        "type": "model",
-        "visibility": "public",
-        "tags": ["subscription", "ml"],
-        "policies": [
-            {
-                "type": "bundle_subscription",
-                "version": "1.0",
-                "enabled": True,
-                "config": {
-                    "invoice_url": "https://example.com/pay",
-                    "plan_name": "Basic",
-                    "price": 9.99,
-                    "currency": "USD",
-                    "billing_cycle": "monthly",
-                },
-            }
-        ],
-    }
-
-    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    response = client.post(
+        "/api/v1/endpoints",
+        json={
+            "name": "Already Tagged Xendit Endpoint",
+            "type": "model",
+            "visibility": "public",
+            "tags": ["subscription", "ml"],
+            "policies": [_XENDIT_POLICY_MINIMAL],
+        },
+        headers=headers,
+    )
     assert response.status_code == 201
 
     data = response.json()
-    tag_count = data["tags"].count("subscription")
-    assert tag_count == 1
+    assert data["tags"].count("subscription") == 1
 
 
-def test_update_endpoint_with_bundle_subscription_auto_tags(
+def test_update_endpoint_with_xendit_auto_tags(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test that updating an endpoint to add bundle_subscription policy injects subscription tag."""
+    """Test that updating an endpoint to add xendit policy injects subscription tag."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     # Create endpoint without policies
-    create_data = {
-        "name": "Upgradeable Endpoint",
-        "type": "model",
-        "visibility": "public",
-    }
-    response = client.post("/api/v1/endpoints", json=create_data, headers=headers)
+    response = client.post(
+        "/api/v1/endpoints",
+        json={
+            "name": "Upgradeable Xendit Endpoint",
+            "type": "model",
+            "visibility": "public",
+        },
+        headers=headers,
+    )
     assert response.status_code == 201
     endpoint_id = response.json()["id"]
     assert "subscription" not in response.json()["tags"]
 
-    # Update with bundle_subscription policy
-    update_data = {
-        "policies": [
-            {
-                "type": "bundle_subscription",
-                "version": "1.0",
-                "enabled": True,
-                "config": {
-                    "invoice_url": "https://example.com/subscribe",
-                    "plan_name": "Enterprise",
-                    "price": 99.00,
-                    "currency": "USD",
-                    "billing_cycle": "yearly",
-                },
-            }
-        ],
-    }
+    # Update with xendit policy
     response = client.patch(
-        f"/api/v1/endpoints/{endpoint_id}", json=update_data, headers=headers
+        f"/api/v1/endpoints/{endpoint_id}",
+        json={"policies": [_XENDIT_POLICY_MINIMAL]},
+        headers=headers,
     )
     assert response.status_code == 200
     assert "subscription" in response.json()["tags"]
 
 
-def test_sync_endpoint_with_bundle_subscription_auto_tags(
+def test_sync_endpoint_with_xendit_auto_tags(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test that sync with bundle_subscription policy injects subscription tag."""
+    """Test that sync with xendit policy injects subscription tag."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     sync_data = {
         "endpoints": [
             {
-                "name": "Synced Subscription Endpoint",
+                "name": "Synced Xendit Endpoint",
                 "type": "model",
                 "visibility": "public",
                 "tags": ["ai"],
-                "policies": [
-                    {
-                        "type": "bundle_subscription",
-                        "version": "1.0",
-                        "enabled": True,
-                        "config": {
-                            "invoice_url": "https://example.com/pay",
-                            "plan_name": "Starter",
-                            "price": 5.00,
-                            "currency": "USD",
-                            "billing_cycle": "one_time",
-                        },
-                    }
-                ],
+                "policies": [_XENDIT_POLICY],
             }
         ]
     }
@@ -2383,45 +2340,36 @@ def test_sync_endpoint_with_bundle_subscription_auto_tags(
     endpoint = response.json()["endpoints"][0]
     assert "ai" in endpoint["tags"]
     assert "subscription" in endpoint["tags"]
-    assert endpoint["policies"][0]["type"] == "bundle_subscription"
-    assert endpoint["policies"][0]["config"]["plan_name"] == "Starter"
+    assert endpoint["policies"][0]["type"] == "xendit"
+    assert endpoint["policies"][0]["config"]["bundle_tiers"][0]["name"] == "Starter"
 
 
-def test_remove_bundle_subscription_does_not_remove_tag(
+def test_remove_xendit_policy_does_not_remove_tag(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test that removing bundle_subscription policies does NOT auto-remove 'subscription' tag."""
+    """Test that removing xendit policies does NOT auto-remove 'subscription' tag."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
-    # Create with bundle_subscription
-    create_data = {
-        "name": "Tag Persistence Endpoint",
-        "type": "model",
-        "visibility": "public",
-        "policies": [
-            {
-                "type": "bundle_subscription",
-                "version": "1.0",
-                "enabled": True,
-                "config": {
-                    "invoice_url": "https://example.com/pay",
-                    "plan_name": "Pro",
-                    "price": 29.00,
-                    "currency": "USD",
-                    "billing_cycle": "monthly",
-                },
-            }
-        ],
-    }
-    response = client.post("/api/v1/endpoints", json=create_data, headers=headers)
+    # Create with xendit policy
+    response = client.post(
+        "/api/v1/endpoints",
+        json={
+            "name": "Tag Persistence Xendit Endpoint",
+            "type": "model",
+            "visibility": "public",
+            "policies": [_XENDIT_POLICY_MINIMAL],
+        },
+        headers=headers,
+    )
     assert response.status_code == 201
     endpoint_id = response.json()["id"]
     assert "subscription" in response.json()["tags"]
 
     # Remove all policies
-    update_data = {"policies": []}
     response = client.patch(
-        f"/api/v1/endpoints/{endpoint_id}", json=update_data, headers=headers
+        f"/api/v1/endpoints/{endpoint_id}",
+        json={"policies": []},
+        headers=headers,
     )
     assert response.status_code == 200
     # Tag should still be present (not auto-removed)
