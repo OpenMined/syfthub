@@ -179,13 +179,13 @@ class EndpointService(BaseService):
 
     @staticmethod
     def _inject_subscription_tag(tags: list[str], policies: list[Policy]) -> list[str]:
-        """Inject 'subscription' tag if a bundle_subscription policy is present.
+        """Inject 'subscription' tag if a xendit policy is present.
 
         Silently skips if the tags list already has 10 or more entries and
         'subscription' is not present (preserves the 10-tag soft limit for
         user-supplied tags without rejecting the request).
         """
-        has_bundle_sub = any(p.type.lower() == "bundle_subscription" for p in policies)
+        has_bundle_sub = any(p.type.lower() == "xendit" for p in policies)
         if has_bundle_sub and "subscription" not in tags:
             if len(tags) >= 10:
                 return tags
@@ -241,7 +241,7 @@ class EndpointService(BaseService):
                     detail="slug already exists - already taken",
                 )
 
-        # Auto-inject 'subscription' tag when a bundle_subscription policy is present
+        # Auto-inject 'subscription' tag when a xendit policy is present
         final_tags = self._inject_subscription_tag(
             endpoint_data.tags, endpoint_data.policies
         )
@@ -383,7 +383,7 @@ class EndpointService(BaseService):
                 valid_contributors.append(current_user.id)
             endpoint_data.contributors = valid_contributors
 
-        # Auto-inject 'subscription' tag when a bundle_subscription policy is present
+        # Auto-inject 'subscription' tag when a xendit policy is present
         if endpoint_data.policies is not None:
             effective_tags = (
                 endpoint_data.tags

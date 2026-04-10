@@ -16,9 +16,9 @@ import Zap from 'lucide-react/dist/esm/icons/zap';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
-import { BundleSubscriptionPolicyContent } from './bundle-subscription-policy-content';
 import { GenericPolicyContent } from './generic-policy-content';
 import { formatConfigKey, TransactionPolicyContent } from './transaction-policy-content';
+import { XenditPolicyContent } from './xendit-policy-content';
 
 // Policy type configuration for styling and icons
 const POLICY_TYPE_CONFIG: Record<
@@ -41,13 +41,13 @@ const POLICY_TYPE_CONFIG: Record<
     borderColor: 'border-emerald-200 dark:border-emerald-800',
     description: 'Pay-per-use pricing for this endpoint'
   },
-  bundle_subscription: {
+  xendit: {
     icon: CreditCard,
-    label: 'Bundle Subscription',
+    label: 'Xendit Bundle',
     color: 'text-violet-600 dark:text-violet-400',
     bgColor: 'bg-violet-50 dark:bg-violet-950/30',
     borderColor: 'border-violet-200 dark:border-violet-800',
-    description: 'Subscription required to access this endpoint'
+    description: 'Bundle subscription required to access this endpoint'
   },
   // Access control policies
   public: {
@@ -130,13 +130,13 @@ export interface PolicyItemProperties {
 function renderPolicyContent(
   policy: Policy,
   isTransaction: boolean,
-  isBundleSubscription: boolean
+  isXendit: boolean
 ): React.ReactElement {
   if (isTransaction) {
     return <TransactionPolicyContent config={policy.config} />;
   }
-  if (isBundleSubscription) {
-    return <BundleSubscriptionPolicyContent config={policy.config} enabled={policy.enabled} />;
+  if (isXendit) {
+    return <XenditPolicyContent config={policy.config} enabled={policy.enabled} />;
   }
   return <GenericPolicyContent config={policy.config} />;
 }
@@ -147,7 +147,7 @@ export const PolicyItem = memo(function PolicyItem({ policy }: Readonly<PolicyIt
   const Icon = config.icon;
   const policyTypeLower = policy.type.toLowerCase();
   const isTransaction = policyTypeLower === 'transaction';
-  const isBundleSubscription = policyTypeLower === 'bundle_subscription';
+  const isXendit = policyTypeLower === 'xendit';
 
   // For unknown policy types, use the type as the label
   const displayLabel = POLICY_TYPE_CONFIG[policy.type.toLowerCase()]
@@ -198,7 +198,7 @@ export const PolicyItem = memo(function PolicyItem({ policy }: Readonly<PolicyIt
 
           {/* Policy-specific content */}
           {Object.keys(policy.config).length > 0 &&
-            renderPolicyContent(policy, isTransaction, isBundleSubscription)}
+            renderPolicyContent(policy, isTransaction, isXendit)}
 
           {policy.version ? (
             <p className='text-muted-foreground mt-2 text-[10px]'>Version {policy.version}</p>
