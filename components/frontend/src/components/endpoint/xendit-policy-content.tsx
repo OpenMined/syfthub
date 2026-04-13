@@ -68,7 +68,7 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
     : [];
   const currency = typeof config.currency === 'string' ? config.currency : 'IDR';
   const paymentUrl = isValidUrl(config.payment_url) ? config.payment_url : null;
-  const bundleUsageUrl = isValidUrl(config.bundle_usage_url) ? config.bundle_usage_url : null;
+  const bundleUsageUrl = isValidUrl(config.credits_url) ? config.credits_url : null;
 
   const [status, setStatus] = useState<SubscriptionState>({ state: 'loading' });
 

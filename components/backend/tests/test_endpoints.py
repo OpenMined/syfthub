@@ -1367,7 +1367,7 @@ _XENDIT_POLICY = {
         "country": "ID",
         "applied_to": ["*"],
         "payment_url": "https://my-server.example.com/api/v1/payments/gateway/xendit/invoices",
-        "bundle_usage_url": "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint",
+        "credits_url": "https://my-server.example.com/api/v1/payments/gateway/bundle-usage/test-endpoint",
     },
 }
 
@@ -1375,7 +1375,7 @@ _XENDIT_POLICY_MINIMAL = {
     "type": "xendit",
     "config": {
         "payment_url": "https://my-server.example.com/api/v1/payments/gateway/xendit/invoices",
-        "bundle_usage_url": "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint",
+        "credits_url": "https://my-server.example.com/api/v1/payments/gateway/bundle-usage/test-endpoint",
     },
 }
 
@@ -1411,8 +1411,8 @@ def test_create_endpoint_with_xendit_policy(
         == "https://my-server.example.com/api/v1/payments/gateway/xendit/invoices"
     )
     assert (
-        policy["config"]["bundle_usage_url"]
-        == "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint"
+        policy["config"]["credits_url"]
+        == "https://my-server.example.com/api/v1/payments/gateway/bundle-usage/test-endpoint"
     )
     tiers = policy["config"]["bundle_tiers"]
     assert len(tiers) == 2
@@ -2253,8 +2253,8 @@ def test_create_endpoint_with_xendit_policy_auto_tags(
         == "https://my-server.example.com/api/v1/payments/gateway/xendit/invoices"
     )
     assert (
-        policy["config"]["bundle_usage_url"]
-        == "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint"
+        policy["config"]["credits_url"]
+        == "https://my-server.example.com/api/v1/payments/gateway/bundle-usage/test-endpoint"
     )
     assert policy["config"]["currency"] == "IDR"
     assert len(policy["config"]["bundle_tiers"]) == 2
