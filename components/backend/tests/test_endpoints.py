@@ -1379,6 +1379,26 @@ _XENDIT_POLICY_MINIMAL = {
     },
 }
 
+# Syft Space PR format: bundles as money amounts + price_per_request instead of bundle_tiers
+_XENDIT_POLICY_V2 = {
+    "type": "xendit",
+    "version": "1.0",
+    "enabled": True,
+    "description": "Legal doc search bundle (v2 money-bundle format)",
+    "config": {
+        "price_per_request": 500.0,
+        "currency": "IDR",
+        "country": "ID",
+        "applied_to": ["*"],
+        "bundles": [
+            {"name": "Starter", "amount": 10000},
+            {"name": "Pro", "amount": 100000},
+        ],
+        "payment_url": "https://my-server.example.com/api/v1/payments/gateway/xendit/invoices",
+        "credits_url": "https://my-server.example.com/api/v1/payments/gateway/bundle-usage/test-endpoint",
+    },
+}
+
 
 def test_create_endpoint_with_xendit_policy(
     client: TestClient, user1_token: str
@@ -1512,6 +1532,44 @@ def test_xendit_auto_tag_is_idempotent(client: TestClient, user1_token: str) -> 
 
     data = response.json()
     assert data["tags"].count("subscription") == 1
+
+
+def test_create_endpoint_with_xendit_policy_v2(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test that v2 xendit policy config (bundles + price_per_request) round-trips correctly."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    endpoint_data = {
+        "name": "Xendit v2 Bundle Endpoint",
+        "type": "model",
+        "visibility": "public",
+        "policies": [_XENDIT_POLICY_V2],
+    }
+
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    assert response.status_code == 201
+
+    data = response.json()
+    assert len(data["policies"]) == 1
+    policy = data["policies"][0]
+    assert policy["type"] == "xendit"
+    assert policy["version"] == "1.0"
+    assert policy["config"]["price_per_request"] == 500.0
+    assert policy["config"]["currency"] == "IDR"
+    assert policy["config"]["country"] == "ID"
+    bundles = policy["config"]["bundles"]
+    assert len(bundles) == 2
+    assert bundles[0]["name"] == "Starter"
+    assert bundles[0]["amount"] == 10000
+    assert bundles[1]["name"] == "Pro"
+    assert bundles[1]["amount"] == 100000
+    assert (
+        policy["config"]["credits_url"]
+        == "https://my-server.example.com/api/v1/payments/gateway/bundle-usage/test-endpoint"
+    )
+    # Auto-tag injection should still fire for v2 format
+    assert "subscription" in data["tags"]
 
 
 def test_create_endpoint_with_connections(client: TestClient, user1_token: str) -> None:

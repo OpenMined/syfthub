@@ -15,6 +15,12 @@ interface BundleTier {
   price: number;
 }
 
+// Syft Space PR sends bundles as {name, amount} + price_per_request instead of bundle_tiers
+interface MoneyBundle {
+  name: string;
+  amount: number;
+}
+
 type SubscriptionState =
   | { state: 'loading' }
   | { state: 'subscribed'; remaining: number | null }
@@ -63,12 +69,25 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
   config,
   enabled
 }: Readonly<XenditPolicyContentProperties>) {
-  const bundleTiers = Array.isArray(config.bundle_tiers)
-    ? (config.bundle_tiers as BundleTier[])
-    : [];
   const currency = typeof config.currency === 'string' ? config.currency : 'IDR';
   const paymentUrl = isValidUrl(config.payment_url) ? config.payment_url : null;
   const bundleUsageUrl = isValidUrl(config.credits_url) ? config.credits_url : null;
+
+  // Normalise bundle data: support both legacy bundle_tiers ({name, units, unit_type, price})
+  // and the Syft Space PR format ({bundles: [{name, amount}]} + price_per_request).
+  const pricePerRequest =
+    typeof config.price_per_request === 'number' ? config.price_per_request : null;
+  const bundleTiers: BundleTier[] = Array.isArray(config.bundle_tiers)
+    ? (config.bundle_tiers as BundleTier[])
+    : Array.isArray(config.bundles)
+      ? (config.bundles as MoneyBundle[]).map((b) => ({
+          name: b.name,
+          units:
+            pricePerRequest && pricePerRequest > 0 ? Math.floor(b.amount / pricePerRequest) : 0,
+          unit_type: 'requests',
+          price: b.amount
+        }))
+      : [];
 
   const [status, setStatus] = useState<SubscriptionState>({ state: 'loading' });
 

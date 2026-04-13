@@ -246,12 +246,20 @@ class EndpointService(BaseService):
             endpoint_data.tags, endpoint_data.policies
         )
 
+        # Force private visibility for archived endpoints so they vanish from public listings
+        effective_visibility = (
+            EndpointVisibility.PRIVATE
+            if endpoint_data.archived
+            else endpoint_data.visibility
+        )
+
         # Create a validated endpoint creation object that includes server-managed fields
         validated_data = EndpointCreate(
             name=endpoint_data.name,
             description=endpoint_data.description,
             type=endpoint_data.type,
-            visibility=endpoint_data.visibility,
+            visibility=effective_visibility,
+            archived=endpoint_data.archived,
             version=endpoint_data.version,
             readme=endpoint_data.readme,
             tags=final_tags,
@@ -395,6 +403,10 @@ class EndpointService(BaseService):
             )
             if new_tags != effective_tags:
                 endpoint_data.tags = new_tags
+
+        # Force private visibility when archiving
+        if endpoint_data.archived:
+            endpoint_data.visibility = EndpointVisibility.PRIVATE
 
         updated_endpoint = self.endpoint_repository.update_endpoint(
             endpoint.id, endpoint_data
