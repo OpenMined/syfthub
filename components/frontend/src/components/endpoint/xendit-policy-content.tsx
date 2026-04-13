@@ -8,14 +8,6 @@ import { Badge } from '@/components/ui/badge';
 import { syftClient } from '@/lib/sdk-client';
 import { cn } from '@/lib/utils';
 
-interface BundleTier {
-  name: string;
-  units: number;
-  unit_type: string;
-  price: number;
-}
-
-// Syft Space PR sends bundles as {name, amount} + price_per_request instead of bundle_tiers
 interface MoneyBundle {
   name: string;
   amount: number;
@@ -44,16 +36,7 @@ async function fetchSubscriptionStatus(
     const data: unknown = await response.json();
     if (typeof data !== 'object' || data === null) return { remaining: null };
     const d = data as Record<string, unknown>;
-    const remaining =
-      typeof d.remaining === 'number'
-        ? d.remaining
-        : typeof d.credits === 'number'
-          ? d.credits
-          : typeof d.units === 'number'
-            ? d.units
-            : typeof d.balance === 'number'
-              ? d.balance
-              : null;
+    const remaining = typeof d.remaining_balance === 'number' ? d.remaining_balance : null;
     return { remaining };
   } catch {
     return null;
@@ -72,22 +55,9 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
   const currency = typeof config.currency === 'string' ? config.currency : 'IDR';
   const paymentUrl = isValidUrl(config.payment_url) ? config.payment_url : null;
   const bundleUsageUrl = isValidUrl(config.credits_url) ? config.credits_url : null;
-
-  // Normalise bundle data: support both legacy bundle_tiers ({name, units, unit_type, price})
-  // and the Syft Space PR format ({bundles: [{name, amount}]} + price_per_request).
-  const pricePerRequest =
-    typeof config.price_per_request === 'number' ? config.price_per_request : null;
-  const bundleTiers: BundleTier[] = Array.isArray(config.bundle_tiers)
-    ? (config.bundle_tiers as BundleTier[])
-    : Array.isArray(config.bundles)
-      ? (config.bundles as MoneyBundle[]).map((b) => ({
-          name: b.name,
-          units:
-            pricePerRequest && pricePerRequest > 0 ? Math.floor(b.amount / pricePerRequest) : 0,
-          unit_type: 'requests',
-          price: b.amount
-        }))
-      : [];
+  const bundles: MoneyBundle[] = Array.isArray(config.bundles)
+    ? (config.bundles as MoneyBundle[])
+    : [];
 
   const [status, setStatus] = useState<SubscriptionState>({ state: 'loading' });
 
@@ -136,15 +106,15 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
             Active subscription
             {status.remaining === null
               ? ''
-              : ` · ${status.remaining.toLocaleString()} requests remaining`}
+              : ` · ${currency} ${status.remaining.toLocaleString()} remaining`}
           </span>
         </div>
       )}
 
-      {/* Tier table + CTA — only when not subscribed */}
+      {/* Bundle table + CTA — only when not subscribed */}
       {status.state === 'not_subscribed' && (
         <>
-          {bundleTiers.length > 0 && (
+          {bundles.length > 0 && (
             <div className='bg-card/60 rounded-md border border-violet-200 dark:border-violet-800'>
               <div className='border-b border-violet-100 px-3 py-1.5 dark:border-violet-800'>
                 <span className='text-[10px] font-semibold tracking-wide text-violet-700 uppercase dark:text-violet-400'>
@@ -152,16 +122,11 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
                 </span>
               </div>
               <div className='divide-y divide-violet-100 dark:divide-violet-800'>
-                {bundleTiers.map((tier) => (
-                  <div key={tier.name} className='flex items-center justify-between px-3 py-1.5'>
-                    <div className='flex flex-col'>
-                      <span className='text-foreground text-xs font-medium'>{tier.name}</span>
-                      <span className='text-muted-foreground text-[10px]'>
-                        {tier.units.toLocaleString()} {tier.unit_type}
-                      </span>
-                    </div>
+                {bundles.map((bundle) => (
+                  <div key={bundle.name} className='flex items-center justify-between px-3 py-1.5'>
+                    <span className='text-foreground text-xs font-medium'>{bundle.name}</span>
                     <span className='text-foreground font-mono text-xs font-medium'>
-                      {currency} {tier.price.toLocaleString()}
+                      {currency} {bundle.amount.toLocaleString()}
                     </span>
                   </div>
                 ))}
