@@ -11,15 +11,15 @@ When a Syft Space endpoint is published to SyftHub, `publish_handler._build_publ
 
 ---
 
-## Issue 1 — CRITICAL: `wallet_type` top-level field breaks SyftHub's `Policy` schema
+## Issue 1 — CRITICAL: `wallet_type` top-level field breaks SyftHub's `Policy` schema ⚠️ Not fixed
 
-**Location:** `publish_handler.py:467`
+**Location:** Syft Space `publish_handler.py:467`
 
 ```python
 policy_data["wallet_type"] = wtype   # ← top-level, not inside "config"
 ```
 
-SyftHub's `Policy` Pydantic model has `extra="forbid"` (`schemas/endpoint.py:79`):
+SyftHub's `Policy` Pydantic model has `extra="forbid"` (`schemas/endpoint.py`):
 
 ```python
 class Policy(BaseModel):
@@ -32,137 +32,114 @@ class Policy(BaseModel):
     model_config = ConfigDict(extra="forbid")   # rejects unknown fields
 ```
 
-Sending `wallet_type` as a top-level key causes a **Pydantic validation error** on SyftHub's endpoint sync/create routes. Any Xendit or MPP endpoint publish will fail.
+Sending `wallet_type` as a top-level key causes a **Pydantic validation error** on SyftHub's endpoint sync/create routes. Any endpoint with a Xendit or MPP policy will fail to publish.
 
-**Fix (in Syft Space `publish_handler.py`):** Move `wallet_type` inside `config`:
-```python
-policy_data["config"]["wallet_type"] = wtype
-```
+**Required fix (in Syft Space `publish_handler.py`):** Remove the `wallet_type` line entirely — SyftHub has no use for it.
 
 ---
 
-## Issue 2 — CRITICAL: Wrong config key for the bundle-usage URL ✅ Fixed here
+## Issue 2 — CRITICAL: Wrong config key for the credits URL ✅ Fixed
 
-**Location (Syft Space):** `publish_handler.py:473`
-
-```python
-policy_data["config"]["credits_url"] = (
-    f"{base}/api/v1/payments/gateway/bundle-usage/{endpoint.slug}"
-)
-```
-
-**Location (SyftHub, before fix):** `xendit-policy-content.tsx:71`
+**Location (SyftHub frontend, before fix):** `xendit-policy-content.tsx`
 
 ```tsx
+// Before
 const bundleUsageUrl = isValidUrl(config.bundle_usage_url) ? config.bundle_usage_url : null;
+
+// After
+const bundleUsageUrl = isValidUrl(config.credits_url) ? config.credits_url : null;
 ```
 
-The Syft Space publish handler sends `credits_url` but the SyftHub frontend was reading `bundle_usage_url`. Because the key didn't match, `bundleUsageUrl` was always `null` → the component permanently showed "not subscribed" even after purchase.
+The Syft Space publish handler injects `credits_url` into the policy config, but the SyftHub frontend was reading `bundle_usage_url`. The key never matched so `bundleUsageUrl` was always `null` — the component permanently showed "not subscribed" even after a valid purchase.
 
-**Fix applied:** `xendit-policy-content.tsx` updated to read `config.credits_url`.
+**Fix applied:** `xendit-policy-content.tsx` updated to read `config.credits_url`. Committed to `feat/credits-url-fix`.
 
 ---
 
-## Issue 3 — CRITICAL: Wrong URL path for bundle-usage endpoint ✅ Fixed here
+## Issue 3 — CRITICAL: `credits_url` path consistency ✅ Not an issue
 
-**Location (Syft Space `publish_handler.py`, before fix):**
-```
-/api/v1/payments/gateway/bundles/{slug}
+**Original claim:** The publish handler used `/bundles/{slug}` but the actual route was `/bundle-usage/{slug}`.
+
+**Correction:** This was a documentation error. The actual route in the Space PR is:
+
+```python
+# payments/gateway/routes.py:62
+@router.get("/bundles/{endpoint_slug}", response_model=BundleUsageResponse)
 ```
 
-**Actual route defined in the PR (`payments/gateway/routes.py`):**
-```
-GET /payments/gateway/bundle-usage/{endpoint_slug}
+And the publish handler correctly injects:
+
+```python
+# publish_handler.py:474
+f"{base}/api/v1/payments/gateway/bundles/{endpoint.slug}"
 ```
 
-The old path 404s. Even if the key name mismatch were fixed, calls to check remaining balance would fail.
-
-**Fix applied:** SyftHub test fixtures updated to use `/bundle-usage/{slug}` and `credits_url` key throughout `test_endpoints.py`.
+Both are `/bundles/{slug}` — they were always consistent. The SyftHub test fixtures were aligned to use `/bundles/test-endpoint` to match.
 
 ---
 
-## Issue 4 — MAJOR: `bundles` vs `bundle_tiers` — field name and shape mismatch
+## Issue 4 — MAJOR: `bundles` vs `bundle_tiers` — field name and shape mismatch ✅ Fixed
 
-**Location (Syft Space):** `publish_handler.py:460` sends `policy.configuration` verbatim.
-
-`XenditPolicyConfig` produces:
+**Syft Space sends** (from `XenditPolicyConfig`):
 ```json
 {
-  "price_per_request": 100.0,
+  "price_per_request": 500.0,
   "currency": "IDR",
   "bundles": [{ "name": "Starter", "amount": 10000 }]
 }
 ```
 
-SyftHub's `xendit-policy-content.tsx` reads `config.bundle_tiers` and expects:
-```ts
-interface BundleTier {
-  name: string
-  units: number       // request count
-  unit_type: string   // "requests"
-  price: number       // IDR amount
-}
-```
+**SyftHub frontend was reading** `config.bundle_tiers` with shape `{name, units, unit_type, price}`.
 
-| What PR sends | What SyftHub frontend expects |
-|---|---|
-| `config.bundles` | `config.bundle_tiers` |
-| `bundles[n].amount` | `bundle_tiers[n].price` |
-| *(missing)* | `bundle_tiers[n].units` (derived: `amount / price_per_request`) |
-| *(missing)* | `bundle_tiers[n].unit_type` ("requests") |
+Because the field names didn't match, the Available Plans table always rendered empty.
 
-`units` can be derived: `Math.floor(bundle.amount / price_per_request)`.
-
-**Fix (in Syft Space `publish_handler.py`):** Transform `bundles` → `bundle_tiers` before sending to SyftHub:
-```python
-raw_config = dict(policy.configuration)
-price_per_req = raw_config.get("price_per_request", 1)
-raw_bundles = raw_config.pop("bundles", None) or []
-raw_config["bundle_tiers"] = [
-    {
-        "name": b["name"],
-        "units": int(b["amount"] / price_per_req) if price_per_req else 0,
-        "unit_type": "requests",
-        "price": b["amount"],
-    }
-    for b in raw_bundles
-]
-policy_data["config"] = raw_config
-```
+**Fix applied:** `xendit-policy-content.tsx` rewritten to consume `config.bundles` as `MoneyBundle[]` directly (no transformation). The `BundleTier` interface, the conditional normalization block, and the `pricePerRequest` fallback logic were all removed. Committed to `feat/credits-url-fix`.
 
 ---
 
-## Issue 5 — MAJOR: `mpp_accounting` policy type unknown to SyftHub frontend
+## Issue 5 — MAJOR: `mpp_accounting` policy type unknown to SyftHub frontend ✅ Fixed
 
-When a Syft Space endpoint with MPP pricing is published, the policy type sent is `"mpp_accounting"`. SyftHub's `policy-item.tsx` only maps these types to styled components:
+**Location (SyftHub, before fix):** `policy-item.tsx`
 
+`POLICY_TYPE_CONFIG` had no entry for `"mpp_accounting"` → the policy card rendered as a generic unstyled fallback with no label, icon, or description.
+
+**Fix applied:** Added `mpp_accounting` entry to `POLICY_TYPE_CONFIG`:
+
+```tsx
+mpp_accounting: {
+  icon: Coins,
+  label: 'MPP Micro-payment',
+  color: 'text-emerald-600 dark:text-emerald-400',
+  bgColor: 'bg-emerald-50 dark:bg-emerald-950/30',
+  borderColor: 'border-emerald-200 dark:border-emerald-800',
+  description: 'Pay-per-request micro-payment via MPP blockchain'
+},
 ```
-transaction, xendit, public, private, authenticated, internal, rate_limit, quota, geographic
-```
 
-`mpp_accounting` has no entry in `POLICY_TYPE_CONFIG` → renders as a generic unknown policy, no pricing display.
-
-**Fix options:**
-- Add `mpp_accounting` as a new entry in SyftHub's `POLICY_TYPE_CONFIG` pointing to `TransactionPolicyContent` (or a new MPP-specific component)
-- OR publish it under type name `"transaction"` from Syft Space (conflates semantics, not recommended)
+Committed to `feat/credits-url-fix`.
 
 ---
 
-## Issue 6 — MINOR: Archived endpoints not reflected in SyftHub
+## Issue 6 — MINOR: Archived endpoints not reflected in SyftHub ✅ Fixed
 
-The PR adds `archived: bool` to the `Endpoint` entity with `POST /endpoints/{slug}/archive`. SyftHub has no concept of `archived`. When an endpoint is archived on Syft Space, new purchases should be blocked and it should not be prominently displayed as active on the marketplace. Currently, the sync flow still pushes it as `"visibility": "public"`.
+The Space PR adds `archived: bool` to the `Endpoint` entity with `POST /endpoints/{slug}/archive` and `POST /endpoints/{slug}/unarchive`. SyftHub had no `archived` concept — archived endpoints would continue appearing as active on the marketplace.
 
-**Fix (in Syft Space `publish_handler.py`):** When `endpoint.archived == True`, either delete the endpoint from SyftHub or set `visibility: "private"` in the sync payload.
+**Fix applied** (all committed to `feat/credits-url-fix`):
+
+- **`models/endpoint.py`** — added `archived: Mapped[bool]` column + `idx_endpoints_archived` index
+- **`schemas/endpoint.py`** — added `archived` to `EndpointBase`, `EndpointUpdate`, `Endpoint`, `EndpointResponse`, `EndpointPublicResponse`
+- **`services/endpoint_service.py`** — forces `visibility = PRIVATE` when `archived=True` on create and update
+- **`alembic/versions/20260413_000000_add_archived_to_endpoints.py`** — migration `009_add_archived` (down_revision: `008_encrypt_accounting_pw`)
 
 ---
 
 ## Summary Table
 
-| # | Severity | Fix location | Description |
+| # | Severity | Status | Description |
 |---|---|---|---|
-| 1 | **CRITICAL** | Syft Space `publish_handler.py` | `wallet_type` sent at top-level, `extra="forbid"` causes sync to fail |
-| 2 | **CRITICAL** | **SyftHub** `xendit-policy-content.tsx` ✅ | Key mismatch: `credits_url` vs `bundle_usage_url` — balance check always fails |
-| 3 | **CRITICAL** | **SyftHub** `test_endpoints.py` ✅ | URL path `/bundles/{slug}` → `/bundle-usage/{slug}` |
-| 4 | **MAJOR** | Syft Space `publish_handler.py` | `bundles[{name,amount}]` not transformed to `bundle_tiers[{name,units,unit_type,price}]` |
-| 5 | **MAJOR** | SyftHub `policy-item.tsx` | `mpp_accounting` type unknown — renders as generic policy |
-| 6 | **MINOR** | Syft Space `publish_handler.py` | Archived state not communicated to SyftHub |
+| 1 | **CRITICAL** | ⚠️ **Not fixed** — requires change in Syft Space `publish_handler.py` | `wallet_type` at top-level fails SyftHub's `extra="forbid"` on every publish |
+| 2 | **CRITICAL** | ✅ Fixed in `xendit-policy-content.tsx` | Key mismatch: frontend was reading `bundle_usage_url`, Space PR sends `credits_url` |
+| 3 | **CRITICAL** | ✅ Not an issue — documentation error | Path is `/bundles/{slug}` in both publish handler and actual route |
+| 4 | **MAJOR** | ✅ Fixed in `xendit-policy-content.tsx` | Frontend now reads `bundles[{name,amount}]` directly; `bundle_tiers` logic removed |
+| 5 | **MAJOR** | ✅ Fixed in `policy-item.tsx` | `mpp_accounting` type added to `POLICY_TYPE_CONFIG` |
+| 6 | **MINOR** | ✅ Fixed — model + schema + service + migration | `archived` field propagated through SyftHub's data layer |
