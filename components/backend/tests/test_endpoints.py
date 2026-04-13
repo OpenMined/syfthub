@@ -1368,7 +1368,7 @@ _XENDIT_POLICY = {
             {"name": "Pro", "amount": 100000},
         ],
         "payment_url": "https://my-server.example.com/api/v1/payments/gateway/xendit/invoices",
-        "credits_url": "https://my-server.example.com/api/v1/payments/gateway/bundle-usage/test-endpoint",
+        "credits_url": "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint",
     },
 }
 
@@ -1376,7 +1376,7 @@ _XENDIT_POLICY_MINIMAL = {
     "type": "xendit",
     "config": {
         "payment_url": "https://my-server.example.com/api/v1/payments/gateway/xendit/invoices",
-        "credits_url": "https://my-server.example.com/api/v1/payments/gateway/bundle-usage/test-endpoint",
+        "credits_url": "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint",
     },
 }
 
@@ -1505,7 +1505,7 @@ def test_create_endpoint_with_xendit_policy(
     assert bundles[1]["amount"] == 100000
     assert (
         policy["config"]["credits_url"]
-        == "https://my-server.example.com/api/v1/payments/gateway/bundle-usage/test-endpoint"
+        == "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint"
     )
     assert "subscription" in data["tags"]
 
@@ -2250,7 +2250,7 @@ def test_create_endpoint_with_xendit_policy_auto_tags(
     )
     assert (
         policy["config"]["credits_url"]
-        == "https://my-server.example.com/api/v1/payments/gateway/bundle-usage/test-endpoint"
+        == "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint"
     )
     assert policy["config"]["currency"] == "IDR"
     assert len(policy["config"]["bundles"]) == 2
