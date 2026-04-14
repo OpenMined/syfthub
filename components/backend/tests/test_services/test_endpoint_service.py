@@ -74,6 +74,7 @@ def sample_endpoint():
         policies=[],
         connect=[],
         is_active=True,
+        archived=False,
         contributors=[],
         user_id=1,
         organization_id=None,
