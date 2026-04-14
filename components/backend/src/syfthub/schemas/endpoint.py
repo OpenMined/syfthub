@@ -196,6 +196,10 @@ class EndpointBase(BaseModel):
     visibility: EndpointVisibility = Field(
         default=EndpointVisibility.PUBLIC, description="Who can access this endpoint"
     )
+    archived: bool = Field(
+        default=False,
+        description="Whether this endpoint is archived (no new purchases, kept accessible to existing users)",
+    )
     # REMOVED is_active - server-managed field
     # REMOVED contributors - will be validated separately
     version: str = Field(
@@ -288,6 +292,9 @@ class EndpointUpdate(BaseModel):
     visibility: Optional[EndpointVisibility] = Field(
         None, description="Who can access this endpoint"
     )
+    archived: Optional[bool] = Field(
+        None, description="Archive or restore the endpoint"
+    )
     # REMOVED is_active - only admin can change this
     contributors: Optional[List[int]] = Field(
         None, description="List of contributor user IDs (will be validated)"
@@ -365,6 +372,7 @@ class Endpoint(BaseModel):
         ..., min_length=3, max_length=63, description="URL-safe identifier"
     )
     is_active: bool = Field(..., description="Whether the endpoint is active")
+    archived: bool = Field(..., description="Whether the endpoint is archived")
     contributors: List[int] = Field(..., description="List of contributor user IDs")
     stars_count: int = Field(
         ..., description="Number of stars this endpoint has received"
@@ -406,6 +414,7 @@ class EndpointResponse(BaseModel):
         ..., description="Who can access this endpoint"
     )
     is_active: bool = Field(..., description="Whether the endpoint is active")
+    archived: bool = Field(..., description="Whether the endpoint is archived")
     contributors: List[int] = Field(..., description="List of contributor user IDs")
     version: str = Field(..., description="Semantic version of the endpoint")
     readme: str = Field(..., description="Markdown content for the README")
@@ -471,6 +480,9 @@ class EndpointPublicResponse(BaseModel):
     )
     health_checked_at: Optional[datetime] = Field(
         None, description="When the client last checked this endpoint's health"
+    )
+    archived: bool = Field(
+        default=False, description="Whether the endpoint is archived"
     )
 
     # Note: Excludes user_id, id, visibility, is_active, contributors, health_ttl_seconds for security/privacy
