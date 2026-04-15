@@ -78,7 +78,7 @@ pyjwt==2.12.0
     # via syfthub (pyproject.toml)
 python-dotenv==1.2.1
     # via pydantic-settings
-python-multipart==0.0.22
+python-multipart==0.0.26
     # via syfthub (pyproject.toml)
 sniffio==1.3.1
     # via anyio
