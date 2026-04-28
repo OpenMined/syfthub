@@ -5,11 +5,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 import syfthub.core.redis_client as redis_module
-from syfthub.core.redis_client import (
-    check_redis_health,
-    close_redis_client,
-    get_redis_client,
-)
 
 
 @pytest.fixture(autouse=True)
@@ -31,7 +26,7 @@ class TestGetRedisClient:
                 mock_settings.redis_url = "redis://localhost:6379"
                 mock_get_settings.return_value = mock_settings
 
-                result = await get_redis_client()
+                result = await redis_module.get_redis_client()
 
                 assert result is mock_client
                 mock_redis_cls.from_url.assert_called_once_with(
@@ -45,7 +40,7 @@ class TestGetRedisClient:
         redis_module._redis_client = mock_client
 
         with patch("syfthub.core.redis_client.Redis") as mock_redis_cls:
-            result = await get_redis_client()
+            result = await redis_module.get_redis_client()
             assert result is mock_client
             mock_redis_cls.from_url.assert_not_called()
 
@@ -56,7 +51,7 @@ class TestCloseRedisClient:
         mock_client = AsyncMock()
         redis_module._redis_client = mock_client
 
-        await close_redis_client()
+        await redis_module.close_redis_client()
 
         mock_client.close.assert_called_once()
         assert redis_module._redis_client is None
@@ -64,7 +59,7 @@ class TestCloseRedisClient:
     @pytest.mark.asyncio
     async def test_noop_when_client_is_none(self):
         redis_module._redis_client = None
-        await close_redis_client()
+        await redis_module.close_redis_client()
         assert redis_module._redis_client is None
 
 
@@ -78,7 +73,7 @@ class TestCheckRedisHealth:
             "syfthub.core.redis_client.get_redis_client",
             new=AsyncMock(return_value=mock_client),
         ):
-            result = await check_redis_health()
+            result = await redis_module.check_redis_health()
             assert result is True
 
     @pytest.mark.asyncio
@@ -90,7 +85,7 @@ class TestCheckRedisHealth:
             "syfthub.core.redis_client.get_redis_client",
             new=AsyncMock(return_value=mock_client),
         ):
-            result = await check_redis_health()
+            result = await redis_module.check_redis_health()
             assert result is False
 
     @pytest.mark.asyncio
@@ -99,5 +94,5 @@ class TestCheckRedisHealth:
             raise Exception("cannot connect")
 
         with patch("syfthub.core.redis_client.get_redis_client", new=raise_error):
-            result = await check_redis_health()
+            result = await redis_module.check_redis_health()
             assert result is False
