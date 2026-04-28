@@ -20,7 +20,7 @@ type HTTPDoer interface {
 
 // authStrategy applies authentication credentials to an outgoing request.
 // Implementations: bearerAuth (Hub JWT/API tokens, refreshable), basicAuth
-// (accounting service), noAuth (anonymous).
+// (accounting service).
 type authStrategy interface {
 	apply(req *http.Request)
 	// canRefresh reports whether a 401 response should trigger a token refresh
@@ -50,12 +50,6 @@ type basicAuth struct {
 
 func (b *basicAuth) apply(req *http.Request) { req.SetBasicAuth(b.username, b.password) }
 func (b *basicAuth) canRefresh() bool        { return false }
-
-// noAuth is a no-op strategy for requests that should not be authenticated.
-type noAuth struct{}
-
-func (noAuth) apply(*http.Request) {}
-func (noAuth) canRefresh() bool    { return false }
 
 // httpClient is the internal HTTP client with automatic token management.
 type httpClient struct {
