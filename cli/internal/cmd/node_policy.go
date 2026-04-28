@@ -59,16 +59,11 @@ func runNodePolicyAdd(cmd *cobra.Command, args []string) error {
 	cfg := nodeconfig.Load()
 
 	// Parse config key=value pairs
-	configMap := make(map[string]interface{})
+	configMap := make(map[string]any)
 	for _, kv := range nodePolicyAddConfig {
 		parts := strings.SplitN(kv, "=", 2)
 		if len(parts) != 2 {
-			msg := fmt.Sprintf("Invalid config format: %q (expected key=value)", kv)
-			if nodePolicyAddJSON {
-				output.JSON(map[string]interface{}{"status": "error", "message": msg})
-			} else {
-				output.Error(msg)
-			}
+			output.ReplyErrorSoft(nodePolicyAddJSON, "Invalid config format: %q (expected key=value)", kv)
 			return nil
 		}
 		configMap[parts[0]] = parts[1]
@@ -82,17 +77,13 @@ func runNodePolicyAdd(cmd *cobra.Command, args []string) error {
 
 	policiesPath := filepath.Join(cfg.EndpointsPath, slug, "policies.yaml")
 	if err := nodeops.SavePolicy(policiesPath, policy); err != nil {
-		if nodePolicyAddJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": err.Error()})
-		} else {
-			output.Error("%v", err)
-		}
+		output.ReplyErrorSoft(nodePolicyAddJSON, "%v", err)
 		return nil
 	}
 
 	if nodePolicyAddJSON {
-		output.JSON(map[string]interface{}{
-			"status": "success",
+		output.JSON(map[string]any{
+			"status": output.StatusSuccess,
 			"slug":   slug,
 			"policy": nodePolicyAddName,
 		})
@@ -125,16 +116,12 @@ func runNodePolicyList(cmd *cobra.Command, args []string) error {
 	policiesPath := filepath.Join(cfg.EndpointsPath, slug, "policies.yaml")
 	policies, err := nodeops.GetPolicies(policiesPath)
 	if err != nil {
-		if nodePolicyListJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": err.Error()})
-		} else {
-			output.Error("%v", err)
-		}
+		output.ReplyErrorSoft(nodePolicyListJSON, "%v", err)
 		return nil
 	}
 
 	if nodePolicyListJSON {
-		output.JSON(map[string]interface{}{"status": "success", "slug": slug, "policies": policies})
+		output.JSON(map[string]any{"status": output.StatusSuccess, "slug": slug, "policies": policies})
 		return nil
 	}
 
@@ -199,16 +186,12 @@ func runNodePolicyRemove(cmd *cobra.Command, args []string) error {
 
 	policiesPath := filepath.Join(cfg.EndpointsPath, slug, "policies.yaml")
 	if err := nodeops.DeletePolicy(policiesPath, nodePolicyRemoveName); err != nil {
-		if nodePolicyRemoveJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": err.Error()})
-		} else {
-			output.Error("%v", err)
-		}
+		output.ReplyErrorSoft(nodePolicyRemoveJSON, "%v", err)
 		return nil
 	}
 
 	if nodePolicyRemoveJSON {
-		output.JSON(map[string]interface{}{"status": "success", "slug": slug, "policy": nodePolicyRemoveName})
+		output.JSON(map[string]any{"status": output.StatusSuccess, "slug": slug, "policy": nodePolicyRemoveName})
 	} else {
 		output.Success("Removed policy '%s' from endpoint '%s'.", nodePolicyRemoveName, slug)
 	}

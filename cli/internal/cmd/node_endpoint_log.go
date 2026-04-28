@@ -23,6 +23,35 @@ var (
 	nodeEndpointLogJSON   bool
 )
 
+// jsonlBuf is a reusable 1 MiB scratch buffer for the tail-follow hot path in
+// followEndpointLogs. Safe because followEndpointLogs is single-goroutine.
+// Concurrent callers (e.g. readLogFile) must allocate their own buffer.
+var jsonlBuf [1 << 20]byte
+
+// scanJSONL calls fn for each decoded log entry in r. Lines that fail to
+// unmarshal are skipped silently (matches prior behavior). Raw line bytes are
+// passed to fn alongside the parsed entry so callers can emit raw JSON mode
+// without re-marshaling. If buf is non-nil, it is installed as the scanner's
+// buffer (with max size len(buf)); otherwise the default bufio buffer is used.
+func scanJSONL(r io.Reader, buf []byte, fn func(line []byte, entry *logEntry)) error {
+	scanner := bufio.NewScanner(r)
+	if buf != nil {
+		scanner.Buffer(buf, len(buf))
+	}
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var entry logEntry
+		if json.Unmarshal(line, &entry) != nil {
+			continue
+		}
+		fn(line, &entry)
+	}
+	return scanner.Err()
+}
+
 var nodeEndpointLogCmd = &cobra.Command{
 	Use:   "log <slug>",
 	Short: "View request logs for an endpoint",
@@ -79,8 +108,8 @@ func runNodeEndpointLog(cmd *cobra.Command, args []string) error {
 
 	if _, err := os.Stat(logDir); os.IsNotExist(err) {
 		if nodeEndpointLogJSON {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
+			output.JSON(map[string]any{
+				"status":  output.StatusError,
 				"message": fmt.Sprintf("No logs found for endpoint '%s'", slug),
 			})
 		} else {
@@ -106,9 +135,9 @@ func showRecentLogs(logDir, slug string) error {
 
 	if len(files) == 0 {
 		if nodeEndpointLogJSON {
-			output.JSON(map[string]interface{}{
-				"status": "success",
-				"logs":   []interface{}{},
+			output.JSON(map[string]any{
+				"status": output.StatusSuccess,
+				"logs":   []any{},
 				"total":  0,
 			})
 		} else {
@@ -141,8 +170,8 @@ func showRecentLogs(logDir, slug string) error {
 	}
 
 	if nodeEndpointLogJSON {
-		output.JSON(map[string]interface{}{
-			"status": "success",
+		output.JSON(map[string]any{
+			"status": output.StatusSuccess,
 			"logs":   entries,
 			"total":  len(entries),
 		})
@@ -166,76 +195,63 @@ func showRecentLogs(logDir, slug string) error {
 func followEndpointLogs(logDir, slug string) error {
 	fmt.Printf("Following logs for '%s' (Ctrl+C to stop)...\n\n", slug)
 
-	// Start by showing the last few entries
+	emit := func(line []byte, entry *logEntry) {
+		if nodeEndpointLogJSON {
+			fmt.Println(string(line))
+		} else {
+			printLogEntry(entry)
+		}
+	}
+
 	today := time.Now().Format("2006-01-02")
 	todayFile := filepath.Join(logDir, today+".jsonl")
 
-	var offset int64
-
-	// Print existing entries from today's file
-	if f, err := os.Open(todayFile); err == nil {
-		scanner := bufio.NewScanner(f)
-		buf := make([]byte, 1024*1024)
-		scanner.Buffer(buf, 1024*1024)
-		for scanner.Scan() {
-			line := scanner.Bytes()
-			if len(line) == 0 {
-				continue
-			}
-			var entry logEntry
-			if err := json.Unmarshal(line, &entry); err == nil {
-				if nodeEndpointLogJSON {
-					fmt.Println(string(line))
-				} else {
-					printLogEntry(&entry)
-				}
-			}
-		}
-		offset, _ = f.Seek(0, io.SeekCurrent)
-		f.Close()
+	// Open the current date's file once and hold the handle across polls.
+	var f *os.File
+	if openF, err := os.Open(todayFile); err == nil {
+		f = openF
+		// Initial catch-up: scan from the start to EOF.
+		_ = scanJSONL(f, jsonlBuf[:], emit)
 	}
+	// Ensure we close on exit paths (loop is infinite today, but future-proof).
+	defer func() {
+		if f != nil {
+			f.Close()
+		}
+	}()
 
-	// Poll for new entries
+	// Poll for new entries.
 	for {
 		time.Sleep(500 * time.Millisecond)
 
-		// Check if the date rolled over
+		// Handle date rollover: close the old handle, open the new file.
 		currentDate := time.Now().Format("2006-01-02")
-		currentFile := filepath.Join(logDir, currentDate+".jsonl")
 		if currentDate != today {
 			today = currentDate
-			offset = 0
+			if f != nil {
+				f.Close()
+				f = nil
+			}
 		}
 
-		f, err := os.Open(currentFile)
-		if err != nil {
-			continue
-		}
-
-		if offset > 0 {
-			f.Seek(offset, io.SeekStart)
-		}
-
-		scanner := bufio.NewScanner(f)
-		buf := make([]byte, 1024*1024)
-		scanner.Buffer(buf, 1024*1024)
-		for scanner.Scan() {
-			line := scanner.Bytes()
-			if len(line) == 0 {
+		// If we don't currently have an open handle, try to open the current
+		// date's file. Skip this tick if it's not yet created.
+		if f == nil {
+			currentFile := filepath.Join(logDir, today+".jsonl")
+			openF, err := os.Open(currentFile)
+			if err != nil {
 				continue
 			}
-			var entry logEntry
-			if err := json.Unmarshal(line, &entry); err == nil {
-				if nodeEndpointLogJSON {
-					fmt.Println(string(line))
-				} else {
-					printLogEntry(&entry)
-				}
-			}
+			f = openF
 		}
 
-		offset, _ = f.Seek(0, io.SeekCurrent)
-		f.Close()
+		// Scan new bytes from current offset to EOF, leaving the handle open.
+		if err := scanJSONL(f, jsonlBuf[:], emit); err != nil {
+			// On read error, drop the handle and reopen next tick.
+			f.Close()
+			f = nil
+			continue
+		}
 	}
 }
 
@@ -333,20 +349,9 @@ func readLogFile(path string) ([]logEntry, error) {
 	defer f.Close()
 
 	var entries []logEntry
-	scanner := bufio.NewScanner(f)
-	buf := make([]byte, 1024*1024)
-	scanner.Buffer(buf, 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-		var entry logEntry
-		if err := json.Unmarshal(line, &entry); err == nil {
-			entries = append(entries, entry)
-		}
-	}
-
-	return entries, scanner.Err()
+	buf := make([]byte, 1<<20)
+	err = scanJSONL(f, buf, func(_ []byte, entry *logEntry) {
+		entries = append(entries, *entry)
+	})
+	return entries, err
 }

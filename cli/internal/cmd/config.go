@@ -83,8 +83,8 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 
 	if _, ok := allowedKeys[key]; !ok {
 		if configSetJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":       "error",
+			output.JSON(map[string]any{
+				"status":       output.StatusError,
 				"message":      fmt.Sprintf("Unknown key '%s'", key),
 				"allowed_keys": getAllowedKeys(),
 			})
@@ -103,8 +103,8 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 		timeout, err := strconv.ParseFloat(value, 64)
 		if err != nil {
 			if configSetJSONOutput {
-				output.JSON(map[string]interface{}{
-					"status":  "error",
+				output.JSON(map[string]any{
+					"status":  output.StatusError,
 					"message": fmt.Sprintf("Invalid timeout value: %s", value),
 				})
 			} else {
@@ -139,26 +139,13 @@ func runConfigSet(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := cfg.Save(); err != nil {
-		if configSetJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": err.Error(),
-			})
-		} else {
-			output.Error("Failed to save config: %v", err)
-		}
-		return err
+		return output.ReplyError(configSetJSONOutput, "Failed to save config: %v", err)
 	}
 
-	if configSetJSONOutput {
-		output.JSON(map[string]interface{}{
-			"status": "success",
-			"key":    key,
-			"value":  typedValue,
-		})
-	} else {
-		output.Success("Set %s = %v", key, typedValue)
-	}
+	output.ReplySuccess(configSetJSONOutput, map[string]any{
+		"key":   key,
+		"value": typedValue,
+	}, "Set %s = %v", key, typedValue)
 
 	return nil
 }
@@ -179,7 +166,7 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 			accountingServices[alias] = map[string]string{"url": acc.URL}
 		}
 
-		data := map[string]interface{}{
+		data := map[string]any{
 			"api_token":           cfg.APIToken,
 			"aggregators":         aggregators,
 			"accounting_services": accountingServices,
@@ -189,8 +176,8 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 			"hub_url":             cfg.HubURL,
 		}
 
-		output.JSON(map[string]interface{}{
-			"status": "success",
+		output.JSON(map[string]any{
+			"status": output.StatusSuccess,
 			"config": data,
 		})
 	} else {
@@ -252,8 +239,8 @@ func runConfigShow(cmd *cobra.Command, args []string) error {
 
 func runConfigPath(cmd *cobra.Command, args []string) error {
 	if configPathJSONOutput {
-		output.JSON(map[string]interface{}{
-			"status": "success",
+		output.JSON(map[string]any{
+			"status": output.StatusSuccess,
 			"path":   config.ConfigFile,
 		})
 	} else {

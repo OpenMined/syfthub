@@ -707,21 +707,23 @@ func TestBuildRequestBody(t *testing.T) {
 	transactionTokens := map[string]string{"bob": "tx_bob"}
 	messages := []Message{{Role: "user", Content: "Hello"}}
 
-	body := chat.buildRequestBody(
-		"Test prompt",
-		modelRef,
-		dsRefs,
-		endpointTokens,
-		transactionTokens,
-		10,
-		2048,
-		0.8,
-		0.7,
-		true,
-		messages,
-		"peer_token",
-		"peer_channel",
-	)
+	req := &ChatCompleteRequest{
+		Prompt:   "Test prompt",
+		Messages: messages,
+	}
+	defaults := resolvedDefaults{
+		topK:                10,
+		maxTokens:           2048,
+		temperature:         0.8,
+		similarityThreshold: 0.7,
+	}
+	tokens := chatTokens{
+		endpoint:    endpointTokens,
+		transaction: transactionTokens,
+		peerToken:   "peer_token",
+		peerChannel: "peer_channel",
+	}
+	body := chat.buildRequestBody(req, modelRef, dsRefs, defaults, tokens, true)
 
 	if body["prompt"] != "Test prompt" {
 		t.Errorf("prompt = %v", body["prompt"])

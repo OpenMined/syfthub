@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/OpenMined/syfthub/cli/internal/clientutil"
 	"github.com/OpenMined/syfthub/cli/internal/config"
 	"github.com/openmined/syfthub/sdk/golang/syfthub"
 )
@@ -65,14 +66,7 @@ func getCachedEndpoints() []CachedEndpoint {
 func fetchAndCacheEndpoints() []CachedEndpoint {
 	cfg := config.Load()
 
-	opts := []syfthub.Option{
-		syfthub.WithBaseURL(cfg.HubURL),
-		syfthub.WithTimeout(10 * time.Second),
-	}
-	if cfg.HasAPIToken() {
-		opts = append(opts, syfthub.WithAPIToken(cfg.APIToken))
-	}
-	client, err := syfthub.NewClient(opts...)
+	client, err := clientutil.NewClient(cfg, "", 10*time.Second)
 	if err != nil {
 		return nil
 	}

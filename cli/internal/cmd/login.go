@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/OpenMined/syfthub/cli/internal/clientutil"
 	"github.com/OpenMined/syfthub/cli/internal/config"
 	"github.com/OpenMined/syfthub/cli/internal/output"
 	"github.com/openmined/syfthub/sdk/golang/syfthub"
@@ -65,7 +65,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	if token == "" {
 		msg := "API token is required"
 		if loginJSONOutput {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
+			output.JSON(map[string]any{"status": output.StatusError, "message": msg})
 		} else {
 			output.Error(msg)
 		}
@@ -73,18 +73,9 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	}
 
 	// Validate the token by calling /auth/me
-	client, err := syfthub.NewClient(
-		syfthub.WithBaseURL(cfg.HubURL),
-		syfthub.WithAPIToken(token),
-		syfthub.WithTimeout(time.Duration(cfg.Timeout)*time.Second),
-	)
+	client, err := clientutil.NewClient(cfg, "", 0, syfthub.WithAPIToken(token))
 	if err != nil {
-		if loginJSONOutput {
-			output.JSON(map[string]interface{}{"status": "error", "message": err.Error()})
-		} else {
-			output.Error("Failed to create client: %v", err)
-		}
-		return err
+		return output.ReplyError(loginJSONOutput, "Failed to create client: %v", err)
 	}
 	defer client.Close()
 
@@ -92,7 +83,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	user, err := client.Me(ctx)
 	if err != nil {
 		if loginJSONOutput {
-			output.JSON(map[string]interface{}{"status": "error", "message": "Invalid API token"})
+			output.JSON(map[string]any{"status": output.StatusError, "message": "Invalid API token"})
 		} else {
 			output.Error("Invalid API token: %v", err)
 		}
@@ -102,23 +93,13 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	// Store token in config
 	cfg.SetAPIToken(token)
 	if err := cfg.Save(); err != nil {
-		if loginJSONOutput {
-			output.JSON(map[string]interface{}{"status": "error", "message": err.Error()})
-		} else {
-			output.Error("Failed to save token: %v", err)
-		}
-		return err
+		return output.ReplyError(loginJSONOutput, "Failed to save token: %v", err)
 	}
 
-	if loginJSONOutput {
-		output.JSON(map[string]interface{}{
-			"status":   "success",
-			"username": user.Username,
-			"email":    user.Email,
-		})
-	} else {
-		output.Success("Logged in as %s", user.Username)
-	}
+	output.ReplySuccess(loginJSONOutput, map[string]any{
+		"username": user.Username,
+		"email":    user.Email,
+	}, "Logged in as %s", user.Username)
 
 	return nil
 }

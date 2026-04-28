@@ -83,23 +83,42 @@ type chatPrepared struct {
 	aggregatorURL string
 }
 
+// resolvedDefaults holds zero-value defaults resolved as locals so prepareRequest
+// never mutates the caller's *ChatCompleteRequest.
+type resolvedDefaults struct {
+	topK                int
+	maxTokens           int
+	temperature         float64
+	similarityThreshold float64
+}
+
+func resolveDefaults(req *ChatCompleteRequest) resolvedDefaults {
+	r := resolvedDefaults{
+		topK:                req.TopK,
+		maxTokens:           req.MaxTokens,
+		temperature:         req.Temperature,
+		similarityThreshold: req.SimilarityThreshold,
+	}
+	if r.topK == 0 {
+		r.topK = 5
+	}
+	if r.maxTokens == 0 {
+		r.maxTokens = 1024
+	}
+	if r.temperature == 0 {
+		r.temperature = 0.7
+	}
+	if r.similarityThreshold == 0 {
+		r.similarityThreshold = 0.5
+	}
+	return r
+}
+
 // prepareRequest resolves endpoints, fetches tokens, and builds the aggregator request body.
 // It is called by both Complete (stream=false) and streamInternal (stream=true) to eliminate
 // the ~73 lines of setup code that would otherwise be duplicated.
 func (c *ChatResource) prepareRequest(ctx context.Context, req *ChatCompleteRequest, stream bool) (*chatPrepared, error) {
-	// Apply defaults
-	if req.TopK == 0 {
-		req.TopK = 5
-	}
-	if req.MaxTokens == 0 {
-		req.MaxTokens = 1024
-	}
-	if req.Temperature == 0 {
-		req.Temperature = 0.7
-	}
-	if req.SimilarityThreshold == 0 {
-		req.SimilarityThreshold = 0.5
-	}
+	defaults := resolveDefaults(req)
 
 	// Resolve aggregator URL
 	aggregatorURL := c.aggregatorURL
@@ -147,7 +166,10 @@ func (c *ChatResource) prepareRequest(ctx context.Context, req *ChatCompleteRequ
 	}
 
 	// Auto-fetch peer token if tunneling endpoints detected
-	var peerToken, peerChannel string
+	tokens := chatTokens{
+		endpoint:    endpointTokens,
+		transaction: transactionTokens.Tokens,
+	}
 	tunnelingUsernames := c.collectTunnelingUsernames(modelRef, dsRefs)
 	if len(tunnelingUsernames) > 0 {
 		var peerResponse *PeerTokenResponse
@@ -157,26 +179,12 @@ func (c *ChatResource) prepareRequest(ctx context.Context, req *ChatCompleteRequ
 			peerResponse, err = c.auth.GetPeerToken(ctx, tunnelingUsernames)
 		}
 		if err == nil {
-			peerToken = peerResponse.PeerToken
-			peerChannel = peerResponse.PeerChannel
+			tokens.peerToken = peerResponse.PeerToken
+			tokens.peerChannel = peerResponse.PeerChannel
 		}
 	}
 
-	requestBody := c.buildRequestBody(
-		req.Prompt,
-		modelRef,
-		dsRefs,
-		endpointTokens,
-		transactionTokens.Tokens,
-		req.TopK,
-		req.MaxTokens,
-		req.Temperature,
-		req.SimilarityThreshold,
-		stream,
-		req.Messages,
-		peerToken,
-		peerChannel,
-	)
+	requestBody := c.buildRequestBody(req, modelRef, dsRefs, defaults, tokens, stream)
 
 	return &chatPrepared{requestBody: requestBody, aggregatorURL: aggregatorURL}, nil
 }
@@ -517,24 +525,26 @@ func (c *ChatResource) collectTunnelingUsernames(modelRef *EndpointRef, dsRefs [
 	return usernames
 }
 
-// buildRequestBody builds the request body for the aggregator.
+// chatTokens bundles the token maps + peer info passed to buildRequestBody.
+type chatTokens struct {
+	endpoint    map[string]string
+	transaction map[string]string
+	peerToken   string
+	peerChannel string
+}
+
+// buildRequestBody serializes the aggregator request body. It is a pure serializer —
+// defaults are resolved upstream in resolveDefaults, and the caller's *req is never mutated.
 func (c *ChatResource) buildRequestBody(
-	prompt string,
+	req *ChatCompleteRequest,
 	modelRef *EndpointRef,
 	dsRefs []EndpointRef,
-	endpointTokens map[string]string,
-	transactionTokens map[string]string,
-	topK int,
-	maxTokens int,
-	temperature float64,
-	similarityThreshold float64,
+	defaults resolvedDefaults,
+	tokens chatTokens,
 	stream bool,
-	messages []Message,
-	peerToken string,
-	peerChannel string,
 ) map[string]interface{} {
 	body := map[string]interface{}{
-		"prompt": prompt,
+		"prompt": req.Prompt,
 		"model": map[string]interface{}{
 			"url":            modelRef.URL,
 			"slug":           modelRef.Slug,
@@ -543,12 +553,12 @@ func (c *ChatResource) buildRequestBody(
 			"owner_username": modelRef.OwnerUsername,
 		},
 		"data_sources":         make([]map[string]interface{}, 0, len(dsRefs)),
-		"endpoint_tokens":      endpointTokens,
-		"transaction_tokens":   transactionTokens,
-		"top_k":                topK,
-		"max_tokens":           maxTokens,
-		"temperature":          temperature,
-		"similarity_threshold": similarityThreshold,
+		"endpoint_tokens":      tokens.endpoint,
+		"transaction_tokens":   tokens.transaction,
+		"top_k":                defaults.topK,
+		"max_tokens":           defaults.maxTokens,
+		"temperature":          defaults.temperature,
+		"similarity_threshold": defaults.similarityThreshold,
 		"stream":               stream,
 	}
 
@@ -562,15 +572,15 @@ func (c *ChatResource) buildRequestBody(
 		})
 	}
 
-	if len(messages) > 0 {
-		body["messages"] = messages
+	if len(req.Messages) > 0 {
+		body["messages"] = req.Messages
 	}
 
-	if peerToken != "" {
-		body["peer_token"] = peerToken
+	if tokens.peerToken != "" {
+		body["peer_token"] = tokens.peerToken
 	}
-	if peerChannel != "" {
-		body["peer_channel"] = peerChannel
+	if tokens.peerChannel != "" {
+		body["peer_channel"] = tokens.peerChannel
 	}
 
 	return body

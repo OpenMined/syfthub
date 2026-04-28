@@ -7,6 +7,7 @@ import {
   InvalidAccountingPasswordError,
   NetworkError,
   NotFoundError,
+  SyftHubError,
   UserAlreadyExistsError,
   ValidationError,
 } from './errors.js';
@@ -471,6 +472,3 @@ export class HTTPClient {
     await this.refreshPromise;
   }
 }
-
-// Import SyftHubError for type checking
-import { SyftHubError } from './errors.js';

@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -54,143 +52,48 @@ import (
 //	// Confirm the transaction
 //	tx, err = accounting.ConfirmTransaction(ctx, tx.ID)
 type AccountingResource struct {
-	url      string
-	email    string
-	password string
-	timeout  time.Duration
-	client   *http.Client
+	http    *httpClient
+	timeout time.Duration
 }
 
-// newAccountingResource creates a new AccountingResource.
+// newAccountingResource creates a new AccountingResource backed by the unified
+// httpClient with a basicAuth strategy.
 func newAccountingResource(accountingURL, email, password string, timeout time.Duration) *AccountingResource {
 	return &AccountingResource{
-		url:      strings.TrimSuffix(accountingURL, "/"),
-		email:    email,
-		password: password,
-		timeout:  timeout,
-		client: &http.Client{
-			Timeout: timeout,
-		},
+		http:    newBasicAuthClient(accountingURL, timeout, email, password),
+		timeout: timeout,
 	}
 }
 
-// request makes an authenticated request to the accounting service.
-func (a *AccountingResource) request(ctx context.Context, method, path string, body interface{}, result interface{}) error {
-	var reqBody io.Reader
-	if body != nil {
-		jsonBody, err := json.Marshal(body)
-		if err != nil {
-			return err
-		}
-		reqBody = strings.NewReader(string(jsonBody))
+// do makes a request through the accounting httpClient. When applyAuth is nil,
+// the client's default basic-auth strategy is used; supply a closure to override
+// (e.g. for delegated transactions that authenticate with a Bearer token).
+func (a *AccountingResource) do(ctx context.Context, method, path string, body, result interface{}, applyAuth func(*http.Request)) error {
+	var opts []RequestOption
+	if applyAuth != nil {
+		opts = append(opts, withAuthFunc(applyAuth))
 	}
-
-	req, err := http.NewRequestWithContext(ctx, method, a.url+path, reqBody)
+	respBody, err := a.http.Request(ctx, method, path, body, opts...)
 	if err != nil {
 		return err
 	}
-
-	req.SetBasicAuth(a.email, a.password)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return newAPIError(0, fmt.Sprintf("Accounting request failed: %v", err))
+	if result != nil && len(respBody) > 0 {
+		return json.Unmarshal(respBody, result)
 	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return newAPIError(resp.StatusCode, fmt.Sprintf("Failed to read response: %v", err))
-	}
-
-	if resp.StatusCode >= 400 {
-		return a.handleErrorResponse(resp.StatusCode, respBody)
-	}
-
-	if result != nil && resp.StatusCode != 204 && len(respBody) > 0 {
-		if err := json.Unmarshal(respBody, result); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
-// requestWithToken makes a request using Bearer token auth (for delegated transactions).
-func (a *AccountingResource) requestWithToken(ctx context.Context, method, path, token string, body interface{}, result interface{}) error {
-	var reqBody io.Reader
-	if body != nil {
-		jsonBody, err := json.Marshal(body)
-		if err != nil {
-			return err
-		}
-		reqBody = strings.NewReader(string(jsonBody))
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, a.url+path, reqBody)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return newAPIError(0, fmt.Sprintf("Accounting request failed: %v", err))
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return newAPIError(resp.StatusCode, fmt.Sprintf("Failed to read response: %v", err))
-	}
-
-	if resp.StatusCode >= 400 {
-		return a.handleErrorResponse(resp.StatusCode, respBody)
-	}
-
-	if result != nil && resp.StatusCode != 204 && len(respBody) > 0 {
-		if err := json.Unmarshal(respBody, result); err != nil {
-			return err
-		}
-	}
-
-	return nil
+// request makes a request with the default basic-auth strategy.
+func (a *AccountingResource) request(ctx context.Context, method, path string, body, result interface{}) error {
+	return a.do(ctx, method, path, body, result, nil)
 }
 
-// handleErrorResponse handles HTTP error responses from accounting service.
-func (a *AccountingResource) handleErrorResponse(statusCode int, body []byte) error {
-	var detail string
-	var errorBody map[string]interface{}
-	if err := json.Unmarshal(body, &errorBody); err == nil {
-		if d, ok := errorBody["detail"].(string); ok {
-			detail = d
-		} else if m, ok := errorBody["message"].(string); ok {
-			detail = m
-		} else {
-			detail = string(body)
-		}
-	} else {
-		detail = string(body)
-		if detail == "" {
-			detail = fmt.Sprintf("HTTP %d", statusCode)
-		}
-	}
-
-	switch statusCode {
-	case 401:
-		return newAuthenticationError(fmt.Sprintf("Authentication failed: %s", detail))
-	case 403:
-		return newAuthorizationError(fmt.Sprintf("Permission denied: %s", detail))
-	case 404:
-		return newNotFoundError(fmt.Sprintf("Not found: %s", detail))
-	case 422:
-		return newValidationError(fmt.Sprintf("Validation error: %s", detail), nil)
-	default:
-		return newAPIError(statusCode, fmt.Sprintf("Accounting API error: %s", detail))
-	}
+// requestWithToken makes a request authenticated with a Bearer token (used for
+// delegated transactions). It shares the httpClient connection pool.
+func (a *AccountingResource) requestWithToken(ctx context.Context, method, path, token string, body, result interface{}) error {
+	return a.do(ctx, method, path, body, result, func(r *http.Request) {
+		r.Header.Set("Authorization", "Bearer "+token)
+	})
 }
 
 // =========================================================================
@@ -446,7 +349,7 @@ func (a *AccountingResource) CreateDelegatedTransaction(ctx context.Context, req
 
 // Close closes the HTTP client and releases resources.
 func (a *AccountingResource) Close() {
-	if a.client != nil {
-		a.client.CloseIdleConnections()
+	if a.http != nil {
+		a.http.Close()
 	}
 }
