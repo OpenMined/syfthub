@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="components/frontend/public/favicon/openmined-icon.svg" alt="OpenMined" width="120" />
+
 # SyftHub
 
 **The home for AI/ML endpoints.**
