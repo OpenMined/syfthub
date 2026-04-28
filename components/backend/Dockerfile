@@ -34,7 +34,6 @@ FROM base AS dependencies
 
 # Copy dependency files
 COPY --chown=syfthub:syfthub pyproject.toml ./
-COPY --chown=syfthub:syfthub README.md ./
 
 # Create src structure for package installation
 RUN mkdir -p src/syfthub && \
@@ -70,7 +69,6 @@ COPY --chown=syfthub:syfthub src src
 COPY --chown=syfthub:syfthub tests tests
 COPY --chown=syfthub:syfthub requirements.txt .
 COPY --chown=syfthub:syfthub uv.lock .
-COPY --chown=syfthub:syfthub README.md .
 COPY --chown=syfthub:syfthub alembic.ini .
 COPY --chown=syfthub:syfthub alembic alembic
 
@@ -105,7 +103,6 @@ COPY --chown=syfthub:syfthub src src
 COPY --chown=syfthub:syfthub tests tests
 COPY --chown=syfthub:syfthub requirements.txt .
 COPY --chown=syfthub:syfthub uv.lock .
-COPY --chown=syfthub:syfthub README.md .
 COPY --chown=syfthub:syfthub alembic.ini .
 COPY --chown=syfthub:syfthub alembic alembic
 
