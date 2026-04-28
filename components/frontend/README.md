@@ -1,83 +1,33 @@
-# SyftHub UI
+# SyftHub Frontend
 
-Modern React application built with Vite, TypeScript, Tailwind CSS, and shadcn/ui components.
+The web app for SyftHub — built with React 19, TypeScript, Vite, and Tailwind.
 
-## Tech Stack
+For project-level docs, see the [repository README](../../README.md) and [`docs/`](../../docs/index.md).
 
-- **React 19** - Latest React with modern features
-- **TypeScript** - Type-safe development
-- **Vite 7** - Lightning-fast development server and build tool
-- **Tailwind CSS 4** - Utility-first CSS framework
-- **shadcn/ui** - Beautiful, accessible React components
-- **React Router v7** - Client-side routing
-- **ESLint 9 & Prettier** - Code quality and formatting
-- **SWC** - Speedy Web Compiler for faster builds
+## Running locally
 
-## Getting Started
+From the repo root, `make dev` starts the frontend at <http://localhost:8080> alongside the rest of the stack.
 
-### Prerequisites
-
-- Node.js 18+
-- npm
-
-### Installation
+To work on just the frontend:
 
 ```bash
-# Install dependencies
+cd components/frontend
 npm install
-
-# Start development server
 npm run dev
-
-# Build for production
-npm run build
-
-# Preview production build
-npm run preview
 ```
 
-## Available Scripts
+The dev server runs on <http://localhost:3000> and proxies API calls to the backend.
 
-- `npm run dev` - Start development server on port 3000
-- `npm run build` - Build for production
-- `npm run preview` - Preview production build
-- `npm run typecheck` - Check TypeScript types
-- `npm run lint` - Run ESLint
-- `npm run lint:fix` - Fix ESLint errors
-- `npm run format` - Format code with Prettier
-- `npm run test` - Run tests with Playwright
-- `npm run test:ui` - Run tests with Playwright UI
+## Common scripts
 
-## Project Structure
-
-```
-syfthub-ui/
-├── src/
-│   ├── components/     # React components
-│   │   ├── ui/         # shadcn/ui components
-│   │   └── ...         # Custom components
-│   ├── lib/            # Utility functions
-│   ├── styles/         # Global styles
-│   ├── assets/         # Static assets
-│   ├── app.tsx         # Main app component
-│   └── main.tsx        # Application entry point
-├── public/             # Public assets
-├── __tests__/          # Test files
-└── ...config files
+```bash
+npm run dev        # dev server
+npm run build      # production build
+npm run lint       # eslint
+npm run typecheck  # typescript
+npm test           # playwright e2e
 ```
 
-## Features
+## Learn more
 
-- ⚡ Fast development with Vite and SWC
-- 🎨 Modern UI with shadcn/ui components
-- 🎯 Type-safe with TypeScript
-- 🎨 Styled with Tailwind CSS 4
-- 📦 Optimized production builds
-- 🧪 Testing with Playwright
-- 🔧 Pre-configured ESLint and Prettier
-- 🪝 Git hooks with Husky
-- 🌙 Dark mode support
-
-## License
-
-MIT
+- [Frontend architecture](../../docs/architecture/components/frontend.md)

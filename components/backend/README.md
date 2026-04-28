@@ -1,132 +1,40 @@
-# Syfthub
+# SyftHub Backend
 
-A modern Python project managed with uv.
+The FastAPI service that powers SyftHub — user accounts, organizations, the endpoint registry, and the federated identity provider.
 
-[![CI](https://github.com/IonesioJunior/syfthub/actions/workflows/ci.yml/badge.svg)](https://github.com/IonesioJunior/syfthub/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/downloads/)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![uv](https://img.shields.io/badge/uv-package%20manager-orange)](https://github.com/astral-sh/uv)
+For project-level docs, start at the [repository README](../../README.md) and [`docs/`](../../docs/index.md).
 
-## Features
+## Running locally
 
-- Modern Python packaging with [uv](https://github.com/astral-sh/uv)
-- Src-layout for better package isolation
-- Testing with pytest and coverage reporting
-- Code formatting and linting with [Ruff](https://github.com/astral-sh/ruff)
-- Static type checking with mypy
-- Pre-commit hooks for code quality
-- GitHub Actions CI/CD pipeline
-- Comprehensive configuration in pyproject.toml
+The easiest way is from the repo root:
 
-## Installation
-
-### Prerequisites
-
-- Python 3.9 or higher
-- [uv](https://github.com/astral-sh/uv) package manager
-
-Install uv:
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+make dev
 ```
 
-Or on Windows:
-```powershell
-powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+To work on just the backend:
+
+```bash
+cd components/backend
+uv sync --all-extras --dev
+uv run uvicorn syfthub.main:app --reload --port 8000
 ```
 
-### Development Setup
+API docs are served at <http://localhost:8000/docs>.
 
-1. Clone the repository:
+## Tests & checks
+
 ```bash
-git clone https://github.com/IonesioJunior/syfthub.git
-cd syfthub
-```
-
-2. Install dependencies with uv:
-```bash
-uv sync --dev
-```
-
-3. Install pre-commit hooks:
-```bash
-uv run pre-commit install
-```
-
-## Usage
-
-Run the main module:
-```bash
-uv run python -m syfthub.main
-```
-
-## Development
-
-### Running Tests
-
-Run tests with coverage:
-```bash
-uv run pytest
-```
-
-Run tests for specific Python version:
-```bash
-uv run --python 3.11 pytest
-```
-
-### Code Quality
-
-Format code:
-```bash
+uv run pytest                 # tests
+uv run ruff check src/ tests/ # lint
 uv run ruff format src/ tests/
+uv run mypy src/              # types
 ```
 
-Lint code:
-```bash
-uv run ruff check src/ tests/
-```
+Or run everything from the repo root with `make test` / `make check`.
 
-Type checking:
-```bash
-uv run mypy src/
-```
+## Learn more
 
-Run all pre-commit hooks:
-```bash
-uv run pre-commit run --all-files
-```
-
-### Building
-
-Build the package:
-```bash
-uv build
-```
-
-## Project Structure
-
-```
-syfthub/
-+-- src/
-|   +-- syfthub/          # Main package
-|       +-- __init__.py
-|       +-- main.py
-|       +-- py.typed      # PEP 561 marker
-+-- tests/                # Test suite
-|   +-- __init__.py
-|   +-- conftest.py      # Pytest fixtures
-|   +-- test_*.py        # Test files
-+-- .github/
-|   +-- workflows/       # GitHub Actions
-+-- pyproject.toml       # Project configuration
-+-- uv.lock             # Locked dependencies
-+-- README.md
-```
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-## License
-
-MIT License - see LICENSE file for details.
+- [Backend architecture](../../docs/architecture/components/backend.md)
+- [Backend API reference](../../docs/api/backend.md)
+- [Authentication explained](../../docs/explanation/authentication.md)
