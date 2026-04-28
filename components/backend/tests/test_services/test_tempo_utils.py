@@ -249,9 +249,6 @@ class TestSyncGetTransactions:
         mock_w3.eth.block_number = 1000
         mock_contract = MagicMock()
 
-        def side_effect_raiser(*args, **kwargs):
-            raise Exception("RPC error")
-
         # Raise on first call (incoming), return [] on second (outgoing)
         mock_contract.events.Transfer.get_logs.side_effect = [
             Exception("RPC error incoming"),
