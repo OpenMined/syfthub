@@ -13,19 +13,23 @@ import (
 func TestNewAccountingResource(t *testing.T) {
 	ar := newAccountingResource("https://accounting.example.com/", "user@example.com", "password123", 30*time.Second)
 
-	if ar.url != "https://accounting.example.com" {
-		t.Errorf("url = %q, trailing slash should be trimmed", ar.url)
+	if ar.http.baseURL != "https://accounting.example.com" {
+		t.Errorf("baseURL = %q, trailing slash should be trimmed", ar.http.baseURL)
 	}
-	if ar.email != "user@example.com" {
-		t.Errorf("email = %q", ar.email)
+	auth, ok := ar.http.auth.(*basicAuth)
+	if !ok {
+		t.Fatalf("auth strategy = %T, want *basicAuth", ar.http.auth)
 	}
-	if ar.password != "password123" {
-		t.Errorf("password = %q", ar.password)
+	if auth.username != "user@example.com" {
+		t.Errorf("username = %q", auth.username)
+	}
+	if auth.password != "password123" {
+		t.Errorf("password = %q", auth.password)
 	}
 	if ar.timeout != 30*time.Second {
 		t.Errorf("timeout = %v", ar.timeout)
 	}
-	if ar.client == nil {
+	if ar.http.client == nil {
 		t.Error("client should be initialized")
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 var configMutex sync.Mutex
@@ -211,6 +212,15 @@ func (c *NodeConfig) Configured() bool {
 
 func (c *NodeConfig) HasAPIToken() bool {
 	return c.APIToken != ""
+}
+
+// TimeoutDuration returns the configured request timeout as a time.Duration.
+// Returns 0 if Timeout is not positive.
+func (c *NodeConfig) TimeoutDuration() time.Duration {
+	if c.Timeout <= 0 {
+		return 0
+	}
+	return time.Duration(c.Timeout * float64(time.Second))
 }
 
 func (c *NodeConfig) SetAPIToken(token string) {

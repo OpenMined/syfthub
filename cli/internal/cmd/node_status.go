@@ -69,8 +69,8 @@ func runNodeStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	if nodeStatusJSON {
-		data := map[string]interface{}{
-			"status":           "success",
+		data := map[string]any{
+			"status":           output.StatusSuccess,
 			"running":          running,
 			"server_reachable": serverReachable,
 			"configured":       cfg.Configured(),

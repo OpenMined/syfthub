@@ -150,14 +150,19 @@ class AccountingResource:
         *,
         json: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
+        token: str | None = None,
     ) -> dict[str, Any] | list[Any]:
-        """Make an authenticated request to the accounting service.
+        """Make a request to the accounting service.
+
+        When `token` is provided, a per-request Bearer header overrides the
+        client's Basic auth for that call (used for delegated transactions).
 
         Args:
             method: HTTP method (GET, POST, PUT, DELETE, etc.)
             path: API path (e.g., "/user", "/transactions")
             json: JSON body for POST/PUT requests
             params: Query parameters
+            token: Optional Bearer token overriding Basic auth for this call
 
         Returns:
             Parsed JSON response
@@ -168,56 +173,18 @@ class AccountingResource:
             APIError: On other errors
         """
         client = self._get_client()
+        headers = {"Authorization": f"Bearer {token}"} if token else None
 
         try:
-            response = client.request(method, path, json=json, params=params)
+            response = client.request(
+                method, path, json=json, params=params, headers=headers
+            )
             _handle_response_error(response)
 
             if response.status_code == 204:
                 return {}
 
             return response.json()  # type: ignore[no-any-return]
-
-        except httpx.RequestError as e:
-            raise APIError(f"Accounting request failed: {e}") from e
-
-    def _request_with_token(
-        self,
-        method: str,
-        path: str,
-        token: str,
-        *,
-        json: dict[str, Any] | None = None,
-    ) -> dict[str, Any] | list[Any]:
-        """Make a request using Bearer token auth (for delegated transactions).
-
-        Args:
-            method: HTTP method
-            path: API path
-            token: Bearer token for authentication
-            json: JSON body
-
-        Returns:
-            Parsed JSON response
-        """
-        try:
-            # Create a separate client without Basic auth
-            with httpx.Client(
-                base_url=self._url,
-                timeout=self._timeout,
-            ) as client:
-                response = client.request(
-                    method,
-                    path,
-                    json=json,
-                    headers={"Authorization": f"Bearer {token}"},
-                )
-                _handle_response_error(response)
-
-                if response.status_code == 204:
-                    return {}
-
-                return response.json()  # type: ignore[no-any-return]
 
         except httpx.RequestError as e:
             raise APIError(f"Accounting request failed: {e}") from e
@@ -554,14 +521,14 @@ class AccountingResource:
         if amount <= 0:
             raise ValidationError("Amount must be greater than 0")
 
-        response = self._request_with_token(
+        response = self._request(
             "POST",
             "/transactions",
-            token,
             json={
                 "senderEmail": sender_email,
                 "amount": amount,
             },
+            token=token,
         )
         data = response if isinstance(response, dict) else {}
         return Transaction.model_validate(data)

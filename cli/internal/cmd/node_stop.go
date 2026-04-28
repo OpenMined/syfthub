@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 	"syscall"
 	"time"
@@ -29,24 +28,14 @@ func init() {
 func runNodeStop(cmd *cobra.Command, args []string) error {
 	pid, err := nodeconfig.ReadPID()
 	if err != nil {
-		msg := "No running node found."
-		if nodeStopJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
-		} else {
-			output.Error(msg)
-		}
+		output.ReplyErrorSoft(nodeStopJSON, "No running node found.")
 		return nil
 	}
 
 	proc, err := os.FindProcess(pid)
 	if err != nil {
 		nodeconfig.RemovePID()
-		msg := fmt.Sprintf("Process %d not found.", pid)
-		if nodeStopJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
-		} else {
-			output.Error(msg)
-		}
+		output.ReplyErrorSoft(nodeStopJSON, "Process %d not found.", pid)
 		return nil
 	}
 
@@ -55,7 +44,7 @@ func runNodeStop(cmd *cobra.Command, args []string) error {
 		nodeconfig.RemovePID()
 		msg := "Node is not running (stale PID file removed)."
 		if nodeStopJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
+			output.JSON(map[string]any{"status": output.StatusError, "message": msg})
 		} else {
 			output.Warning(msg)
 		}
@@ -64,13 +53,7 @@ func runNodeStop(cmd *cobra.Command, args []string) error {
 
 	// Send SIGTERM
 	if err := proc.Signal(syscall.SIGTERM); err != nil {
-		msg := fmt.Sprintf("Failed to stop node: %v", err)
-		if nodeStopJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
-		} else {
-			output.Error(msg)
-		}
-		return err
+		return output.ReplyError(nodeStopJSON, "Failed to stop node: %v", err)
 	}
 
 	// Wait for process to exit (up to 5 seconds)
@@ -87,13 +70,13 @@ func runNodeStop(cmd *cobra.Command, args []string) error {
 
 	if stopped {
 		if nodeStopJSON {
-			output.JSON(map[string]interface{}{"status": "success", "message": "Node stopped.", "pid": pid})
+			output.JSON(map[string]any{"status": output.StatusSuccess, "message": "Node stopped.", "pid": pid})
 		} else {
 			output.Success("Node stopped (PID %d).", pid)
 		}
 	} else {
 		if nodeStopJSON {
-			output.JSON(map[string]interface{}{"status": "warning", "message": "SIGTERM sent but process may still be running.", "pid": pid})
+			output.JSON(map[string]any{"status": "warning", "message": "SIGTERM sent but process may still be running.", "pid": pid})
 		} else {
 			output.Warning("SIGTERM sent to PID %d but process may still be running.", pid)
 		}
