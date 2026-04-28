@@ -2,7 +2,6 @@
 name = "syfthub"
 version = "0.1.0"
 description = "A Python project managed with uv"
-readme = "README.md"
 authors = [
     { name = "Ionesio Junior", email = "ionesiojr@gmail.com" }
 ]
