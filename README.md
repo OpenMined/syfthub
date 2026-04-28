@@ -70,7 +70,7 @@ for await (const endpoint of client.hub.browse()) {
 }
 ```
 
-See the [SDK guides](sdk/README.md) for the full reference.
+See the [SDK guides](docs/guides/python-sdk.md) for the full reference.
 
 ## Documentation
 
