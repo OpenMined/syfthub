@@ -8,10 +8,10 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/OpenMined/syfthub/cli/internal/clientutil"
 	"github.com/OpenMined/syfthub/cli/internal/config"
 	"github.com/OpenMined/syfthub/cli/internal/output"
 	"github.com/openmined/syfthub/sdk/golang/syfthub"
@@ -115,20 +115,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 
 	cfg := config.Load()
 
-	aggregatorURL := cfg.GetAggregatorURL(agentAggregator)
-
-	opts := []syfthub.Option{
-		syfthub.WithBaseURL(cfg.HubURL),
-		syfthub.WithTimeout(time.Duration(cfg.Timeout) * time.Second),
-	}
-	if aggregatorURL != "" {
-		opts = append(opts, syfthub.WithAggregatorURL(aggregatorURL))
-	}
-	if cfg.HasAPIToken() {
-		opts = append(opts, syfthub.WithAPIToken(cfg.APIToken))
-	}
-
-	client, err := syfthub.NewClient(opts...)
+	client, err := clientutil.NewClient(cfg, agentAggregator, 0)
 	if err != nil {
 		output.Error("Failed to create client: %v", err)
 		return err

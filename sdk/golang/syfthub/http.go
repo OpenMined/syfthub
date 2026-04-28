@@ -18,37 +18,89 @@ type HTTPDoer interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
+// authStrategy applies authentication credentials to an outgoing request.
+// Implementations: bearerAuth (Hub JWT/API tokens, refreshable), basicAuth
+// (accounting service).
+type authStrategy interface {
+	apply(req *http.Request)
+	// canRefresh reports whether a 401 response should trigger a token refresh
+	// and retry. Only bearer auth supports refresh today.
+	canRefresh() bool
+}
+
+// bearerAuth sends "Authorization: Bearer <token>" where the token is resolved
+// lazily via tokenProvider so tokens can rotate without reconstructing the
+// strategy.
+type bearerAuth struct {
+	tokenProvider func() string
+}
+
+func (b *bearerAuth) apply(req *http.Request) {
+	if t := b.tokenProvider(); t != "" {
+		req.Header.Set("Authorization", "Bearer "+t)
+	}
+}
+func (b *bearerAuth) canRefresh() bool { return true }
+
+// basicAuth sends HTTP Basic auth. Used by the accounting service.
+type basicAuth struct {
+	username string
+	password string
+}
+
+func (b *basicAuth) apply(req *http.Request) { req.SetBasicAuth(b.username, b.password) }
+func (b *basicAuth) canRefresh() bool        { return false }
+
 // httpClient is the internal HTTP client with automatic token management.
 type httpClient struct {
 	baseURL string
 	timeout time.Duration
 	client  HTTPDoer
+	auth    authStrategy
 
-	// Token storage (protected by mutex)
+	// Token storage for bearerAuth (protected by mutex).
 	mu           sync.RWMutex
 	accessToken  string
 	refreshToken string
 	apiToken     string
 }
 
-// newHTTPClient creates a new HTTP client.
+// newHTTPClient creates a new HTTP client with bearer-token auth.
 func newHTTPClient(baseURL string, timeout time.Duration) *httpClient {
-	return &httpClient{
+	h := &httpClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		timeout: timeout,
 		client: &http.Client{
 			Timeout: timeout,
 		},
 	}
+	h.auth = &bearerAuth{tokenProvider: h.getBearerToken}
+	return h
+}
+
+// newBasicAuthClient creates an HTTP client that authenticates with HTTP Basic auth.
+// Used by the accounting service which does not participate in JWT refresh.
+func newBasicAuthClient(baseURL string, timeout time.Duration, username, password string) *httpClient {
+	h := &httpClient{
+		baseURL: strings.TrimRight(baseURL, "/"),
+		timeout: timeout,
+		client: &http.Client{
+			Timeout: timeout,
+		},
+	}
+	h.auth = &basicAuth{username: username, password: password}
+	return h
 }
 
 // newHTTPClientWithDoer creates a new HTTP client with a custom HTTPDoer (for testing).
 func newHTTPClientWithDoer(baseURL string, timeout time.Duration, doer HTTPDoer) *httpClient {
-	return &httpClient{
+	h := &httpClient{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		timeout: timeout,
 		client:  doer,
 	}
+	h.auth = &bearerAuth{tokenProvider: h.getBearerToken}
+	return h
 }
 
 // Close closes the HTTP client.
@@ -128,6 +180,7 @@ type requestOptions struct {
 	retryOn401  bool
 	formData    url.Values
 	query       url.Values
+	authFunc    func(*http.Request) // overrides client's auth strategy when non-nil
 }
 
 // RequestOption is a function that modifies request options.
@@ -158,6 +211,13 @@ func WithFormData(data url.Values) RequestOption {
 func WithQuery(params url.Values) RequestOption {
 	return func(o *requestOptions) {
 		o.query = params
+	}
+}
+
+// withAuthFunc overrides the client's default auth strategy for a single call.
+func withAuthFunc(fn func(*http.Request)) RequestOption {
+	return func(o *requestOptions) {
+		o.authFunc = fn
 	}
 }
 
@@ -206,10 +266,10 @@ func (h *httpClient) Request(ctx context.Context, method, path string, body inte
 	}
 	req.Header.Set("Accept", "application/json")
 
-	if options.includeAuth {
-		if token := h.getBearerToken(); token != "" {
-			req.Header.Set("Authorization", "Bearer "+token)
-		}
+	if options.authFunc != nil {
+		options.authFunc(req)
+	} else if options.includeAuth {
+		h.auth.apply(req)
 	}
 
 	// Make request
@@ -225,8 +285,8 @@ func (h *httpClient) Request(ctx context.Context, method, path string, body inte
 		return nil, newNetworkError(fmt.Errorf("failed to read response body: %w", err))
 	}
 
-	// Handle 401 with token refresh
-	if resp.StatusCode == 401 && options.retryOn401 && options.includeAuth && h.attemptRefresh(ctx) {
+	// Handle 401 with token refresh (bearer auth only).
+	if resp.StatusCode == 401 && options.retryOn401 && options.includeAuth && h.auth.canRefresh() && h.attemptRefresh(ctx) {
 		// Retry with new token
 		return h.Request(ctx, method, path, body, append(opts, WithNoRetry())...)
 	}
@@ -476,9 +536,7 @@ func (h *httpClient) StreamRequest(ctx context.Context, method, path string, bod
 	req.Header.Set("Accept", "text/event-stream")
 
 	if options.includeAuth {
-		if token := h.getBearerToken(); token != "" {
-			req.Header.Set("Authorization", "Bearer "+token)
-		}
+		h.auth.apply(req)
 	}
 
 	// Make request
@@ -495,118 +553,4 @@ func (h *httpClient) StreamRequest(ctx context.Context, method, path string, bod
 	}
 
 	return resp, nil
-}
-
-// basicAuthHTTPClient wraps httpClient with Basic authentication for accounting service.
-type basicAuthHTTPClient struct {
-	*httpClient
-	username string
-	password string
-}
-
-// newBasicAuthHTTPClient creates a new HTTP client with Basic authentication.
-func newBasicAuthHTTPClient(baseURL string, timeout time.Duration, username, password string) *basicAuthHTTPClient {
-	return &basicAuthHTTPClient{
-		httpClient: newHTTPClient(baseURL, timeout),
-		username:   username,
-		password:   password,
-	}
-}
-
-// Request makes an HTTP request with Basic authentication.
-func (h *basicAuthHTTPClient) Request(ctx context.Context, method, path string, body interface{}, opts ...RequestOption) ([]byte, error) {
-	// Apply default options
-	options := &requestOptions{
-		includeAuth: true,
-		retryOn401:  false, // No token refresh for Basic auth
-	}
-	for _, opt := range opts {
-		opt(options)
-	}
-
-	// Build URL
-	reqURL := h.baseURL + path
-	if options.query != nil {
-		reqURL += "?" + options.query.Encode()
-	}
-
-	// Build request body
-	var bodyReader io.Reader
-	if body != nil {
-		bodyBytes, err := json.Marshal(body)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal request body: %w", err)
-		}
-		bodyReader = bytes.NewReader(bodyBytes)
-	}
-
-	// Create request
-	req, err := http.NewRequestWithContext(ctx, method, reqURL, bodyReader)
-	if err != nil {
-		return nil, newNetworkError(fmt.Errorf("failed to create request: %w", err))
-	}
-
-	// Set headers
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
-
-	if options.includeAuth {
-		req.SetBasicAuth(h.username, h.password)
-	}
-
-	// Make request
-	resp, err := h.client.Do(req)
-	if err != nil {
-		return nil, newNetworkError(err)
-	}
-	defer resp.Body.Close()
-
-	// Read response body
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, newNetworkError(fmt.Errorf("failed to read response body: %w", err))
-	}
-
-	// Handle errors
-	if resp.StatusCode >= 400 {
-		return nil, h.handleError(resp.StatusCode, respBody)
-	}
-
-	return respBody, nil
-}
-
-// Get makes a GET request with Basic authentication.
-func (h *basicAuthHTTPClient) Get(ctx context.Context, path string, result interface{}, opts ...RequestOption) error {
-	body, err := h.Request(ctx, "GET", path, nil, opts...)
-	if err != nil {
-		return err
-	}
-	if result != nil {
-		return json.Unmarshal(body, result)
-	}
-	return nil
-}
-
-// Post makes a POST request with Basic authentication.
-func (h *basicAuthHTTPClient) Post(ctx context.Context, path string, body, result interface{}, opts ...RequestOption) error {
-	respBody, err := h.Request(ctx, "POST", path, body, opts...)
-	if err != nil {
-		return err
-	}
-	if result != nil {
-		return json.Unmarshal(respBody, result)
-	}
-	return nil
-}
-
-// Patch makes a PATCH request with Basic authentication.
-func (h *basicAuthHTTPClient) Patch(ctx context.Context, path string, body, result interface{}, opts ...RequestOption) error {
-	respBody, err := h.Request(ctx, "PATCH", path, body, opts...)
-	if err != nil {
-		return err
-	}
-	if result != nil {
-		return json.Unmarshal(respBody, result)
-	}
-	return nil
 }

@@ -341,6 +341,10 @@ class SyftHubClient:
         self._http.close()
         if self._accounting is not None:
             self._accounting.close()
+        if self._chat is not None:
+            self._chat.close()
+        if self._syftai is not None:
+            self._syftai.close()
 
     def __enter__(self) -> Self:
         """Enter context manager."""

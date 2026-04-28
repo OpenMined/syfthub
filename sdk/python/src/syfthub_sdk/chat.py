@@ -242,6 +242,10 @@ class ChatResource:
         # Separate client for aggregator with longer timeout (LLM can be slow)
         self._agg_client = httpx.Client(timeout=120.0)
 
+    def close(self) -> None:
+        """Close the aggregator HTTP client."""
+        self._agg_client.close()
+
     @staticmethod
     def _type_matches(actual_type: str, expected_type: str) -> bool:
         """Check if an endpoint type matches the expected type.

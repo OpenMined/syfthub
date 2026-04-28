@@ -2,7 +2,6 @@
 name = "syfthub-aggregator"
 version = "0.1.0"
 description = "RAG orchestration service for SyftHub - aggregates context from data sources and generates responses via model endpoints"
-readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.11"
 authors = [{ name = "SyftHub Team" }]
@@ -48,7 +47,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.3.0",
+    "pytest>=9.0.3",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",
     "pytest-xdist>=3.5.0",

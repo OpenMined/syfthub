@@ -33,6 +33,14 @@ const POLICY_TYPE_CONFIG: Record<
   }
 > = {
   // Transaction/Pricing policies
+  mpp_accounting: {
+    icon: Coins,
+    label: 'MPP Micro-payment',
+    color: 'text-emerald-600 dark:text-emerald-400',
+    bgColor: 'bg-emerald-50 dark:bg-emerald-950/30',
+    borderColor: 'border-emerald-200 dark:border-emerald-800',
+    description: 'Pay-per-request micro-payment via MPP blockchain'
+  },
   transaction: {
     icon: Coins,
     label: 'Transaction Policy',

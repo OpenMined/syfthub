@@ -3,6 +3,7 @@ package output
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -84,6 +85,51 @@ var (
 func Error(format string, args ...interface{}) {
 	Red.Fprint(os.Stderr, "Error: ")
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
+}
+
+// Status constants for JSON envelopes used by the CLI.
+const (
+	StatusSuccess = "success"
+	StatusError   = "error"
+)
+
+// ReplyError emits a JSON error envelope when jsonMode is true; otherwise
+// prints the formatted message via Error. Returns an error carrying the
+// formatted message, suitable as a Cobra RunE return value.
+func ReplyError(jsonMode bool, format string, args ...any) error {
+	msg := fmt.Sprintf(format, args...)
+	if jsonMode {
+		JSON(map[string]any{"status": StatusError, "message": msg})
+	} else {
+		Error("%s", msg)
+	}
+	return errors.New(msg)
+}
+
+// ReplyErrorSoft is ReplyError without a return value. Use it at sites that
+// print the error but return nil to avoid double-printing (e.g. user-input
+// validation paths).
+func ReplyErrorSoft(jsonMode bool, format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	if jsonMode {
+		JSON(map[string]any{"status": StatusError, "message": msg})
+	} else {
+		Error("%s", msg)
+	}
+}
+
+// ReplySuccess emits a JSON success envelope merged with the given fields
+// when jsonMode is true; otherwise prints the text message via Success.
+func ReplySuccess(jsonMode bool, fields map[string]any, textFormat string, args ...any) {
+	if jsonMode {
+		out := map[string]any{"status": StatusSuccess}
+		for k, v := range fields {
+			out[k] = v
+		}
+		JSON(out)
+	} else {
+		Success(textFormat, args...)
+	}
 }
 
 // Success prints a success message.
@@ -327,24 +373,6 @@ func PrintOwnersGrid(owners []OwnerInfo) {
 			display = name + " " + Dim.Sprint("("+strings.Join(counts, ",")+")")
 		} else {
 			display = name
-		}
-
-		// Calculate visual width
-		width := len(owner.Username) + 1 // +1 for the slash
-		if len(counts) > 0 {
-			// Add space + parens + counts
-			countWidth := 3 // " ()"
-			for i, c := range counts {
-				if i > 0 {
-					countWidth++ // comma
-				}
-				// Count digits + letter
-				countWidth += len(fmt.Sprintf("%d", owner.ModelCount)) + 1
-				_ = c
-			}
-			// Simplified: just measure the actual count string
-			countStr := strings.Join(counts, ",")
-			width += 3 + len(countStr) // " (" + counts + ")"
 		}
 
 		items = append(items, gridItem{

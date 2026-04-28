@@ -1359,15 +1359,16 @@ _XENDIT_POLICY = {
     "enabled": True,
     "description": "Legal doc search bundle",
     "config": {
-        "bundle_tiers": [
-            {"name": "Starter", "units": 100, "unit_type": "requests", "price": 50000},
-            {"name": "Pro", "units": 1000, "unit_type": "requests", "price": 400000},
-        ],
+        "price_per_request": 500.0,
         "currency": "IDR",
         "country": "ID",
         "applied_to": ["*"],
+        "bundles": [
+            {"name": "Starter", "amount": 10000},
+            {"name": "Pro", "amount": 100000},
+        ],
         "payment_url": "https://my-server.example.com/api/v1/payments/gateway/xendit/invoices",
-        "bundle_usage_url": "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint",
+        "credits_url": "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint",
     },
 }
 
@@ -1375,51 +1376,9 @@ _XENDIT_POLICY_MINIMAL = {
     "type": "xendit",
     "config": {
         "payment_url": "https://my-server.example.com/api/v1/payments/gateway/xendit/invoices",
-        "bundle_usage_url": "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint",
+        "credits_url": "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint",
     },
 }
-
-
-def test_create_endpoint_with_xendit_policy(
-    client: TestClient, user1_token: str
-) -> None:
-    """Test that xendit policy config fields round-trip correctly."""
-    headers = {"Authorization": f"Bearer {user1_token}"}
-
-    endpoint_data = {
-        "name": "Xendit Bundle Endpoint",
-        "type": "model",
-        "visibility": "public",
-        "policies": [_XENDIT_POLICY],
-    }
-
-    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
-    assert response.status_code == 201
-
-    data = response.json()
-    assert len(data["policies"]) == 1
-    policy = data["policies"][0]
-    assert policy["type"] == "xendit"
-    assert policy["version"] == "1.0"
-    assert policy["enabled"] is True
-    assert policy["description"] == "Legal doc search bundle"
-    assert policy["config"]["currency"] == "IDR"
-    assert policy["config"]["country"] == "ID"
-    assert policy["config"]["applied_to"] == ["*"]
-    assert (
-        policy["config"]["payment_url"]
-        == "https://my-server.example.com/api/v1/payments/gateway/xendit/invoices"
-    )
-    assert (
-        policy["config"]["bundle_usage_url"]
-        == "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint"
-    )
-    tiers = policy["config"]["bundle_tiers"]
-    assert len(tiers) == 2
-    assert tiers[0]["name"] == "Starter"
-    assert tiers[0]["units"] == 100
-    assert tiers[1]["name"] == "Pro"
-    assert tiers[1]["price"] == 400000
 
 
 def test_xendit_policy_auto_injects_subscription_tag_on_create(
@@ -1512,6 +1471,43 @@ def test_xendit_auto_tag_is_idempotent(client: TestClient, user1_token: str) -> 
 
     data = response.json()
     assert data["tags"].count("subscription") == 1
+
+
+def test_create_endpoint_with_xendit_policy(
+    client: TestClient, user1_token: str
+) -> None:
+    """Test that xendit policy config fields (bundles + price_per_request) round-trip correctly."""
+    headers = {"Authorization": f"Bearer {user1_token}"}
+
+    endpoint_data = {
+        "name": "Xendit Bundle Endpoint",
+        "type": "model",
+        "visibility": "public",
+        "policies": [_XENDIT_POLICY],
+    }
+
+    response = client.post("/api/v1/endpoints", json=endpoint_data, headers=headers)
+    assert response.status_code == 201
+
+    data = response.json()
+    assert len(data["policies"]) == 1
+    policy = data["policies"][0]
+    assert policy["type"] == "xendit"
+    assert policy["version"] == "1.0"
+    assert policy["config"]["price_per_request"] == 500.0
+    assert policy["config"]["currency"] == "IDR"
+    assert policy["config"]["country"] == "ID"
+    bundles = policy["config"]["bundles"]
+    assert len(bundles) == 2
+    assert bundles[0]["name"] == "Starter"
+    assert bundles[0]["amount"] == 10000
+    assert bundles[1]["name"] == "Pro"
+    assert bundles[1]["amount"] == 100000
+    assert (
+        policy["config"]["credits_url"]
+        == "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint"
+    )
+    assert "subscription" in data["tags"]
 
 
 def test_create_endpoint_with_connections(client: TestClient, user1_token: str) -> None:
@@ -2253,11 +2249,11 @@ def test_create_endpoint_with_xendit_policy_auto_tags(
         == "https://my-server.example.com/api/v1/payments/gateway/xendit/invoices"
     )
     assert (
-        policy["config"]["bundle_usage_url"]
+        policy["config"]["credits_url"]
         == "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint"
     )
     assert policy["config"]["currency"] == "IDR"
-    assert len(policy["config"]["bundle_tiers"]) == 2
+    assert len(policy["config"]["bundles"]) == 2
 
     # Auto-tag injection
     assert "subscription" in data["tags"]
@@ -2341,7 +2337,7 @@ def test_sync_endpoint_with_xendit_auto_tags(
     assert "ai" in endpoint["tags"]
     assert "subscription" in endpoint["tags"]
     assert endpoint["policies"][0]["type"] == "xendit"
-    assert endpoint["policies"][0]["config"]["bundle_tiers"][0]["name"] == "Starter"
+    assert endpoint["policies"][0]["config"]["bundles"][0]["name"] == "Starter"
 
 
 def test_remove_xendit_policy_does_not_remove_tag(
