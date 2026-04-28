@@ -6,16 +6,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 import syfthub.services.tempo_utils as tempo_module
-from syfthub.services.tempo_utils import (
-    PATH_USD_DECIMALS,
-    TEMPO_MAINNET_RPC_URL,
-    TEMPO_TESTNET_RPC_URL,
-    _get_rpc_url,
-    _get_w3,
-    _timestamp_to_iso,
-    get_wallet_balance,
-    get_wallet_transactions,
-)
 
 
 @pytest.fixture(autouse=True)
@@ -38,14 +28,14 @@ class TestGetRpcUrl:
     def test_mainnet_when_testnet_false(self):
         with patch("syfthub.services.tempo_utils.settings") as mock_settings:
             mock_settings.tempo_testnet = False
-            url = _get_rpc_url()
-            assert url == TEMPO_MAINNET_RPC_URL
+            url = tempo_module._get_rpc_url()
+            assert url == tempo_module.TEMPO_MAINNET_RPC_URL
 
     def test_testnet_when_testnet_true(self):
         with patch("syfthub.services.tempo_utils.settings") as mock_settings:
             mock_settings.tempo_testnet = True
-            url = _get_rpc_url()
-            assert url == TEMPO_TESTNET_RPC_URL
+            url = tempo_module._get_rpc_url()
+            assert url == tempo_module.TEMPO_TESTNET_RPC_URL
 
 
 class TestGetW3:
@@ -57,7 +47,7 @@ class TestGetW3:
             with patch("syfthub.services.tempo_utils.Web3") as mock_web3_cls:
                 mock_web3_cls.HTTPProvider.return_value = mock_provider
                 mock_web3_cls.return_value = mock_w3
-                result = _get_w3()
+                result = tempo_module._get_w3()
                 assert result is mock_w3
                 mock_web3_cls.assert_called_once_with(mock_provider)
 
@@ -76,12 +66,12 @@ class TestGetW3:
         mock_w3_old = MagicMock()
         mock_w3_new = MagicMock()
         tempo_module._w3_instance = mock_w3_old
-        tempo_module._w3_rpc_url = TEMPO_MAINNET_RPC_URL
+        tempo_module._w3_rpc_url = tempo_module.TEMPO_MAINNET_RPC_URL
         with patch("syfthub.services.tempo_utils.settings") as mock_settings:
             mock_settings.tempo_testnet = True  # switches to testnet URL
             with patch("syfthub.services.tempo_utils.Web3") as mock_web3_cls:
                 mock_web3_cls.return_value = mock_w3_new
-                result = _get_w3()
+                result = tempo_module._get_w3()
                 assert result is mock_w3_new
 
 
