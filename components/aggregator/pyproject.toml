@@ -127,4 +127,6 @@ ignore_missing_imports = true
 # fastembed uses only basic Pillow image I/O; the major-version cap is overly conservative.
 override-dependencies = [
     "pillow>=12.1.1",
+    "mako>=1.3.11",  # CVE-2025-68735: path traversal via double-slash URI in TemplateLookup (transitive via alembic)
+    "Pygments>=2.20.0",  # CVE-2025-68139: ReDoS via inefficient regex for GUID matching (transitive via pytest)
 ]

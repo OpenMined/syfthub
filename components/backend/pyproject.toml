@@ -259,4 +259,6 @@ dev = [
 override-dependencies = [
     # Security overrides - force minimum secure versions even when transitive deps pin older versions
     "pyasn1>=0.6.3",  # CVE-2026-30922: DoS via unbounded recursion (transitive via google-auth)
+    "mako>=1.3.11",  # CVE-2025-68735: path traversal via double-slash URI in TemplateLookup (transitive via alembic)
+    "Pygments>=2.20.0",  # CVE-2025-68139: ReDoS via inefficient regex for GUID matching (transitive via pytest)
 ]
