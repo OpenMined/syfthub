@@ -54,11 +54,11 @@ class TestGetW3:
     def test_returns_cached_instance_same_url(self):
         mock_w3 = MagicMock()
         tempo_module._w3_instance = mock_w3
-        tempo_module._w3_rpc_url = TEMPO_MAINNET_RPC_URL
+        tempo_module._w3_rpc_url = tempo_module.TEMPO_MAINNET_RPC_URL
         with patch("syfthub.services.tempo_utils.settings") as mock_settings:
             mock_settings.tempo_testnet = False
             with patch("syfthub.services.tempo_utils.Web3") as mock_web3_cls:
-                result = _get_w3()
+                result = tempo_module._get_w3()
                 assert result is mock_w3
                 mock_web3_cls.assert_not_called()
 
@@ -138,7 +138,7 @@ class TestSyncGetBalance:
         ):
             mock_web3_cls.to_checksum_address.return_value = "0xADDR"
             result = tempo_module._sync_get_balance("0xabc")
-            expected = 1_500_000 / (10**PATH_USD_DECIMALS)
+            expected = 1_500_000 / (10**tempo_module.PATH_USD_DECIMALS)
             assert result == pytest.approx(expected)
 
     def test_zero_balance(self):
@@ -296,7 +296,7 @@ class TestGetWalletBalance:
             patch("syfthub.services.tempo_utils._sync_get_balance", return_value=1.5),
             patch("asyncio.to_thread", new=AsyncMock(return_value=1.5)),
         ):
-            result = await get_wallet_balance("0xabc")
+            result = await tempo_module.get_wallet_balance("0xabc")
             assert result == 1.5
 
     @pytest.mark.asyncio
@@ -305,7 +305,7 @@ class TestGetWalletBalance:
             raise Exception("blockchain error")
 
         with patch("asyncio.to_thread", new=raiser):
-            result = await get_wallet_balance("0xabc")
+            result = await tempo_module.get_wallet_balance("0xabc")
             assert result == 0.0
 
 
@@ -314,7 +314,7 @@ class TestGetWalletTransactions:
     async def test_returns_transactions_on_success(self):
         mock_txs = [{"id": "0xhash", "amount": 1.0}]
         with patch("asyncio.to_thread", new=AsyncMock(return_value=mock_txs)):
-            result = await get_wallet_transactions("0xabc")
+            result = await tempo_module.get_wallet_transactions("0xabc")
             assert result == mock_txs
 
     @pytest.mark.asyncio
@@ -323,23 +323,23 @@ class TestGetWalletTransactions:
             raise Exception("blockchain error")
 
         with patch("asyncio.to_thread", new=raiser):
-            result = await get_wallet_transactions("0xabc")
+            result = await tempo_module.get_wallet_transactions("0xabc")
             assert result == []
 
 
 class TestTimestampToIso:
     def test_converts_unix_timestamp(self):
         ts = 1700000000
-        result = _timestamp_to_iso(ts)
+        result = tempo_module._timestamp_to_iso(ts)
         expected = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
         assert result == expected
 
     def test_zero_timestamp(self):
-        result = _timestamp_to_iso(0)
+        result = tempo_module._timestamp_to_iso(0)
         assert "1970-01-01" in result
 
     def test_output_is_iso_format(self):
-        result = _timestamp_to_iso(1700000000)
+        result = tempo_module._timestamp_to_iso(1700000000)
         # Should be parseable as ISO 8601
         dt = datetime.fromisoformat(result)
         assert dt.tzinfo is not None
