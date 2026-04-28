@@ -70,8 +70,9 @@ jobs:
           uv sync --all-extras --dev
 
       - name: Run tests with coverage (parallel execution)
-        run: uv run pytest --cov-fail-under=0
+        run: uv run pytest
         # Tests run in parallel using pytest-xdist (-n auto configured in pyproject.toml)
+        # Coverage threshold (80%) is enforced via --cov-fail-under in pyproject.toml
 
       - name: Upload coverage reports
         if: matrix.python-version == '3.12'
