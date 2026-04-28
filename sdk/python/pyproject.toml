@@ -76,3 +76,8 @@ markers = [
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
+
+[tool.uv]
+override-dependencies = [
+    "Pygments>=2.20.0",  # CVE-2025-68139: ReDoS via inefficient regex for GUID matching (transitive via pytest)
+]
