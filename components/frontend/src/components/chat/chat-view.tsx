@@ -523,7 +523,16 @@ export function ChatView({
                         setSelectedModel(null);
                       }
                     }
-                    const next = gateState.pending.filter((p) => p.walletKey !== removed.walletKey);
+                    // Each row is uniquely identified by (walletKey, endpoint).
+                    // Multiple rows can share a walletKey when sibling endpoints
+                    // come from the same publisher wallet, so filtering by
+                    // walletKey alone would drop every sibling row at once.
+                    const removedPath = removed.endpoints[0]?.path ?? '';
+                    const next = gateState.pending.filter(
+                      (p) =>
+                        p.walletKey !== removed.walletKey ||
+                        (p.endpoints[0]?.path ?? '') !== removedPath
+                    );
                     // Removing the model invalidates the queued send —
                     // no model left to chat with. Behave like Cancel.
                     if (removedModel) {
