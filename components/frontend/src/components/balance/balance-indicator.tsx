@@ -4,56 +4,38 @@ import { AnimatePresence, motion } from 'framer-motion';
 import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
 import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
 import Coins from 'lucide-react/dist/esm/icons/coins';
-import ExternalLink from 'lucide-react/dist/esm/icons/external-link';
 import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
-import RefreshCw from 'lucide-react/dist/esm/icons/refresh-cw';
-import Settings from 'lucide-react/dist/esm/icons/settings';
 
 import { OnboardingCallout } from '@/components/onboarding';
 import { useWalletContext } from '@/context/wallet-context';
-import { useWalletBalance, useWalletTransactions } from '@/hooks/use-wallet-api';
+import { useWalletBalance } from '@/hooks/use-wallet-api';
 import { cn } from '@/lib/utils';
 import { useSettingsModalStore } from '@/stores/settings-modal-store';
 
 import {
-  BalanceDisplay,
-  formatBalance,
+  formatBalanceCompact,
   getBalanceStatus,
-  getDisplayText,
   statusColors,
   statusRingColors
 } from './balance-display';
-import { TransactionList } from './transaction-list';
+import { CreditsPanel } from './credits-panel';
 
 /**
- * BalanceIndicator - Displays user's credits balance in a compact pill.
+ * BalanceIndicator — top-bar pill that opens the unified Credits Panel.
  *
- * Features:
- * - Shows balance with status indicator (green/yellow/red)
- * - Click to expand dropdown with details
- * - Shows recent transactions
- * - Links to wallet settings
+ * The pill itself stays focused on the MPP wallet balance (the universal
+ * SyftHub wallet); endpoint subscriptions live inside the dropdown so the
+ * nav stays visually quiet.
  */
 export function BalanceIndicator() {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownReference = useRef<HTMLDivElement>(null);
   const buttonReference = useRef<HTMLButtonElement>(null);
 
-  const { isConfigured, isLoading: isLoadingWallet, wallet } = useWalletContext();
-  const {
-    balance: walletBalance,
-    isLoading: isLoadingBalance,
-    error,
-    refetch
-  } = useWalletBalance();
-  const {
-    transactions,
-    isLoading: isLoadingTransactions,
-    refetch: refetchTransactions
-  } = useWalletTransactions({ autoFetch: isConfigured });
+  const { isConfigured, isLoading: isLoadingWallet } = useWalletContext();
+  const { balance: walletBalance, isLoading: isLoadingBalance, error } = useWalletBalance();
   const { openSettings } = useSettingsModalStore();
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -74,14 +56,10 @@ export function BalanceIndicator() {
     }
   }, [isOpen]);
 
-  // Close on escape key
   useEffect(() => {
     function handleEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setIsOpen(false);
-      }
+      if (event.key === 'Escape') setIsOpen(false);
     }
-
     if (isOpen) {
       document.addEventListener('keydown', handleEscape);
       return () => {
@@ -90,58 +68,68 @@ export function BalanceIndicator() {
     }
   }, [isOpen]);
 
-  const handleRefresh = useCallback(async () => {
-    await Promise.all([refetch(), refetchTransactions()]);
-  }, [refetch, refetchTransactions]);
+  const closePanel = useCallback(() => {
+    setIsOpen(false);
+  }, []);
 
-  const handleOpenSettings = useCallback(() => {
+  const handleOpenWalletSettings = useCallback(() => {
     setIsOpen(false);
     openSettings('payment');
+  }, [openSettings]);
+
+  const handleOpenSubscriptionsSettings = useCallback(() => {
+    setIsOpen(false);
+    openSettings('subscriptions');
   }, [openSettings]);
 
   const toggleOpen = useCallback(() => {
     setIsOpen((previous) => !previous);
   }, []);
 
-  // Don't show if not authenticated or wallet info is loading
-  if (isLoadingWallet) {
-    return null;
-  }
+  if (isLoadingWallet) return null;
 
-  // Show setup prompt if not configured
   if (!isConfigured) {
     return (
-      <button
-        onClick={handleOpenSettings}
-        className={cn(
-          'font-inter flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-colors',
-          'border-amber-200 bg-amber-50 text-amber-700',
-          'hover:border-amber-300 hover:bg-amber-100'
-        )}
-      >
-        <Coins className='h-3.5 w-3.5' aria-hidden='true' />
-        <span>Set up wallet</span>
-      </button>
+      <OnboardingCallout step='balance' position='bottom'>
+        <div className='relative'>
+          <button
+            ref={buttonReference}
+            onClick={toggleOpen}
+            className={cn(
+              'font-inter flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-colors',
+              'border-amber-200 bg-amber-50 text-amber-700',
+              'hover:border-amber-300 hover:bg-amber-100'
+            )}
+            aria-expanded={isOpen}
+            aria-haspopup='true'
+          >
+            <Coins className='h-3.5 w-3.5' aria-hidden='true' />
+            <span>Set up wallet</span>
+            <ChevronDown className={cn('h-3 w-3 transition-transform', isOpen && 'rotate-180')} />
+          </button>
+          <Dropdown
+            isOpen={isOpen}
+            dropdownReference={dropdownReference}
+            onClose={closePanel}
+            onOpenWalletSettings={handleOpenWalletSettings}
+            onOpenSubscriptionsSettings={handleOpenSubscriptionsSettings}
+          />
+        </div>
+      </OnboardingCallout>
     );
   }
 
-  const isLoading = isLoadingBalance || isLoadingWallet;
+  const isLoading = isLoadingBalance;
   const balance = walletBalance?.balance ?? 0;
   const status = getBalanceStatus(balance);
 
-  // Get recent transactions (last 3)
-  const recentTransactions = transactions.slice(0, 3);
-
-  // Render status icon based on loading/error/success state
   const renderStatusIcon = () => {
     if (isLoading) {
       return <Loader2 className='text-muted-foreground h-3.5 w-3.5 animate-spin' />;
     }
-
     if (error) {
       return <AlertCircle className='h-3.5 w-3.5 text-red-500' />;
     }
-
     return (
       <div className='relative'>
         <div
@@ -161,25 +149,22 @@ export function BalanceIndicator() {
   return (
     <OnboardingCallout step='balance' position='bottom'>
       <div className='relative'>
-        {/* Balance Pill Button */}
         <button
           ref={buttonReference}
           onClick={toggleOpen}
-          disabled={isLoading}
           className={cn(
             'font-inter flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors transition-shadow',
             'border-border bg-muted',
             'hover:border-input hover:shadow-sm',
-            'focus:ring-ring/20 focus:ring-2 focus:outline-none',
-            'disabled:cursor-not-allowed disabled:opacity-50'
+            'focus:ring-ring/20 focus:ring-2 focus:outline-none'
           )}
-          aria-label={`Account balance: ${formatBalance(balance)} credits`}
+          aria-label={`Account balance: ${formatBalanceCompact(balance)}`}
           aria-expanded={isOpen}
           aria-haspopup='true'
         >
           {renderStatusIcon()}
           <span className='text-foreground font-medium tabular-nums'>
-            {getDisplayText(isLoading, error, balance)}
+            {error ? 'Error' : formatBalanceCompact(balance)}
           </span>
           <ChevronDown
             className={cn(
@@ -189,94 +174,55 @@ export function BalanceIndicator() {
           />
         </button>
 
-        {/* Dropdown */}
-        <AnimatePresence>
-          {isOpen ? (
-            <motion.div
-              ref={dropdownReference}
-              initial={{ opacity: 0, y: -8, scale: 0.96 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -8, scale: 0.96 }}
-              transition={{ duration: 0.15, ease: 'easeOut' }}
-              className={cn(
-                'absolute top-full right-0 z-50 mt-2 w-72',
-                'bg-card border-border rounded-xl border shadow-lg'
-              )}
-            >
-              {/* Header */}
-              <div className='border-border border-b px-4 py-3'>
-                <div className='flex items-center justify-between'>
-                  <span className='font-inter text-muted-foreground text-xs font-medium tracking-wide uppercase'>
-                    Available Credits
-                  </span>
-                  <button
-                    onClick={() => void handleRefresh()}
-                    disabled={isLoading}
-                    className={cn(
-                      'text-muted-foreground rounded-md p-1 transition-colors',
-                      'hover:bg-muted hover:text-foreground',
-                      'disabled:cursor-not-allowed disabled:opacity-50'
-                    )}
-                    aria-label='Refresh balance'
-                  >
-                    <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
-                  </button>
-                </div>
-
-                <BalanceDisplay
-                  isLoading={isLoading}
-                  error={error}
-                  balance={balance}
-                  status={status}
-                />
-              </div>
-
-              {/* Recent Transactions */}
-              <div className='px-4 py-3'>
-                <div className='mb-2 flex items-center justify-between'>
-                  <span className='font-inter text-muted-foreground text-xs font-medium'>
-                    Recent Activity
-                  </span>
-                </div>
-
-                <TransactionList
-                  isLoading={isLoadingTransactions}
-                  transactions={recentTransactions}
-                  walletAddress={wallet?.address ?? ''}
-                />
-              </div>
-
-              {/* Footer Actions */}
-              <div className='border-border border-t px-4 py-3'>
-                <div className='flex gap-2'>
-                  <button
-                    onClick={handleOpenSettings}
-                    className={cn(
-                      'font-inter flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors',
-                      'bg-muted text-foreground',
-                      'hover:bg-border'
-                    )}
-                  >
-                    <Settings className='h-3.5 w-3.5' />
-                    Settings
-                  </button>
-                  <button
-                    onClick={handleOpenSettings}
-                    className={cn(
-                      'font-inter flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors',
-                      'bg-primary text-white',
-                      'hover:bg-primary/90'
-                    )}
-                  >
-                    <ExternalLink className='h-3.5 w-3.5' />
-                    View All
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
+        <Dropdown
+          isOpen={isOpen}
+          dropdownReference={dropdownReference}
+          onClose={closePanel}
+          onOpenWalletSettings={handleOpenWalletSettings}
+          onOpenSubscriptionsSettings={handleOpenSubscriptionsSettings}
+        />
       </div>
     </OnboardingCallout>
+  );
+}
+
+interface DropdownProperties {
+  isOpen: boolean;
+  dropdownReference: React.RefObject<HTMLDivElement | null>;
+  onClose: () => void;
+  onOpenWalletSettings: () => void;
+  onOpenSubscriptionsSettings: () => void;
+}
+
+function Dropdown({
+  isOpen,
+  dropdownReference,
+  onClose,
+  onOpenWalletSettings,
+  onOpenSubscriptionsSettings
+}: Readonly<DropdownProperties>) {
+  return (
+    <AnimatePresence>
+      {isOpen ? (
+        <motion.div
+          ref={dropdownReference}
+          initial={{ opacity: 0, y: -8, scale: 0.96 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -8, scale: 0.96 }}
+          transition={{ duration: 0.15, ease: 'easeOut' }}
+          className={cn(
+            'absolute top-full right-0 z-50 mt-2 w-[360px]',
+            'bg-card border-border rounded-xl border shadow-lg'
+          )}
+        >
+          <CreditsPanel
+            enabled={isOpen}
+            onClose={onClose}
+            onOpenWalletSettings={onOpenWalletSettings}
+            onOpenSubscriptionsSettings={onOpenSubscriptionsSettings}
+          />
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
   );
 }
