@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { ChatHistoryMessage, WorkflowResult } from '@/hooks/use-chat-workflow';
+import type { PendingSubscription } from '@/hooks/use-xendit-precheck';
 import type { SearchableChatSource } from '@/lib/search-service';
 import type { ChatSource } from '@/lib/types';
 import type { SourcesData } from './sources-section';
@@ -29,11 +30,13 @@ import { useChatWorkflow } from '@/hooks/use-chat-workflow';
 import { useDataSources } from '@/hooks/use-data-sources';
 import { useModels } from '@/hooks/use-models';
 import { useSuggestedSources } from '@/hooks/use-suggested-sources';
+import { useXenditPrecheck } from '@/hooks/use-xendit-precheck';
 import { useContextSelectionStore } from '@/stores/context-selection-store';
 import { useOnboardingStore } from '@/stores/onboarding-store';
 
 import { AddSourcesModal } from './add-sources-modal';
 import { MarkdownMessage } from './markdown-message';
+import { PaymentGate } from './payment-gate';
 import { SearchInput } from './search-input';
 import { SourcesSection } from './sources-section';
 import { StatusIndicator } from './status-indicator';
@@ -111,10 +114,8 @@ export function ChatView({
     [selectedSources]
   );
 
-  // Pre-generated ID for the user message seeded by the initialQuery useState initializer.
-  // Must be declared before the messages useState so the lazy initializer can use the same ID.
-  // This ID is later assigned to pendingMessageIdReference in the auto-trigger useEffect so that
-  // onComplete can detect the pre-existing message and skip adding a duplicate.
+  // Stable ID shared with the seeded initial-query message and the auto-trigger
+  // effect, so onComplete recognises the pre-existing bubble and won't duplicate.
   const initialQueryMessageIdReference = useRef<string | null>(
     initialQuery && !initialResult ? crypto.randomUUID() : null
   );
@@ -212,28 +213,9 @@ export function ChatView({
     }
   });
 
-  // Auto-trigger workflow for initial query (when navigated from home page)
-  useEffect(() => {
-    // Only trigger if:
-    // 1. We have an initial query
-    // 2. No initial result (not already processed)
-    // 3. Workflow is idle
-    // 4. Model is selected
-    // 5. Sources have loaded
-    if (
-      initialQuery &&
-      !initialResult &&
-      workflow.phase === 'idle' &&
-      selectedModel &&
-      !isLoadingDataSources
-    ) {
-      // Set pendingMessageIdReference to the pre-seeded user message ID so that onComplete
-      // treats it as an optimistic message and does not add a duplicate.
-      pendingMessageIdReference.current = initialQueryMessageIdReference.current;
-      void workflow.submitQuery(initialQuery);
-    }
-    // Only run once when dependencies are ready, not on every change
-  }, [initialQuery, initialResult, selectedModel, isLoadingDataSources]);
+  // One-shot latch so the home-page initial query doesn't refire after the
+  // gate modal opens (workflow stays in 'idle' until submitQuery actually runs).
+  const autoTriggeredReference = useRef(false);
 
   // Determine if workflow is in a blocking state
   const isWorkflowActive =
@@ -262,32 +244,22 @@ export function ChatView({
     [contextStore]
   );
 
-  // Handle query submission
-  const handleSubmit = useCallback(
-    (query: string) => {
-      // Build conversation history from existing messages (prior turns only)
-      const history: ChatHistoryMessage[] = messages
-        .filter((m): m is Message & { content: string } => !!m.content)
-        .map((m) => ({ role: m.role, content: m.content }));
+  // Gate state holds the pending wallets and the ID of the user-bubble
+  // shown above the gate (so Cancel can pop it). What to run on confirm is
+  // stashed in proceedReference (function-in-state would clash with setState).
+  const [gateState, setGateState] = useState<
+    { open: false } | { open: true; pending: PendingSubscription[]; messageId: string | null }
+  >({ open: false });
+  const proceedReference = useRef<(() => void) | null>(null);
 
-      // Optimistically add user message immediately so it appears before the AI responds
-      const messageId = crypto.randomUUID();
-      pendingMessageIdReference.current = messageId;
-      lastQueryReference.current = query;
-      setMessages((previous) => [
-        ...previous,
-        {
-          id: messageId,
-          role: 'user' as const,
-          content: query,
-          type: 'text' as const
-        }
-      ]);
+  const xenditPrecheck = useXenditPrecheck({
+    model: selectedModel,
+    dataSources: contextStore.getSourcesArray()
+  });
 
-      // Clear suggestions on submit
-      clearSuggestions();
-      setInputText('');
-
+  // Submit the workflow query (without re-adding a user bubble).
+  const submitWorkflow = useCallback(
+    (query: string, history: ChatHistoryMessage[]) => {
       const preSelectedSources = contextStore.getSourcesArray();
       if (preSelectedSources.length > 0) {
         const sourceIds = new Set(preSelectedSources.map((s) => s.id));
@@ -296,8 +268,88 @@ export function ChatView({
         void workflow.submitQuery(query, undefined, history);
       }
     },
-    [workflow, contextStore, messages, clearSuggestions]
+    [workflow, contextStore]
   );
+
+  // Run the Xendit precheck, then either open the inline gate or invoke
+  // `proceed`. The user bubble is added eagerly by the caller so it shows
+  // above the gate while it's open — `messageId` lets Cancel pop it.
+  // A flaky precheck must not block the user — on any error we proceed and
+  // let the server-side policy enforcement be the safety net.
+  const runPrecheckThenProceed = useCallback(
+    (proceed: () => void, messageId: string | null) => {
+      void (async () => {
+        let pending: PendingSubscription[] = [];
+        try {
+          pending = await xenditPrecheck.runPrecheck();
+        } catch {
+          /* swallow — fall through to proceed */
+        }
+        if (pending.length > 0) {
+          proceedReference.current = proceed;
+          setGateState({ open: true, pending, messageId });
+          return;
+        }
+        proceed();
+      })();
+    },
+    [xenditPrecheck]
+  );
+
+  // Handle query submission from the chat input.
+  const handleSubmit = useCallback(
+    (query: string) => {
+      const history: ChatHistoryMessage[] = messages
+        .filter((m): m is Message & { content: string } => !!m.content)
+        .map((m) => ({ role: m.role, content: m.content }));
+
+      // Add user bubble immediately so it shows above the gate (if precheck
+      // blocks) and matches the optimistic-send pattern.
+      const messageId = crypto.randomUUID();
+      pendingMessageIdReference.current = messageId;
+      lastQueryReference.current = query;
+      setMessages((previous) => [
+        ...previous,
+        { id: messageId, role: 'user' as const, content: query, type: 'text' as const }
+      ]);
+      clearSuggestions();
+      setInputText('');
+
+      runPrecheckThenProceed(() => {
+        submitWorkflow(query, history);
+      }, messageId);
+    },
+    [messages, runPrecheckThenProceed, submitWorkflow, clearSuggestions]
+  );
+
+  // Auto-trigger workflow for the initial query (navigated from home page).
+  // The user bubble is already in `messages` from the useState initializer
+  // (id = initialQueryMessageIdReference.current).
+  useEffect(() => {
+    if (
+      autoTriggeredReference.current ||
+      !initialQuery ||
+      initialResult ||
+      workflow.phase !== 'idle' ||
+      !selectedModel ||
+      isLoadingDataSources
+    ) {
+      return;
+    }
+    autoTriggeredReference.current = true;
+    pendingMessageIdReference.current = initialQueryMessageIdReference.current;
+    lastQueryReference.current = initialQuery;
+    runPrecheckThenProceed(() => {
+      void workflow.submitQuery(initialQuery);
+    }, initialQueryMessageIdReference.current);
+  }, [
+    initialQuery,
+    initialResult,
+    selectedModel,
+    isLoadingDataSources,
+    runPrecheckThenProceed,
+    workflow
+  ]);
 
   // Handle modal confirm
   const handleSourceModalConfirm = useCallback(
@@ -436,6 +488,66 @@ export function ChatView({
                     </div>
                   </Message>
                 )
+              )}
+
+              {/* Payment gate — appears below the user bubble when one or
+                  more selected endpoints carry an unfunded Xendit policy. */}
+              {gateState.open && (
+                <PaymentGate
+                  pending={gateState.pending}
+                  onCancel={() => {
+                    // Pop the user bubble that triggered this gate.
+                    const droppedId = gateState.messageId;
+                    if (droppedId) {
+                      setMessages((previous) => previous.filter((m) => m.id !== droppedId));
+                    }
+                    pendingMessageIdReference.current = null;
+                    proceedReference.current = null;
+                    setGateState({ open: false });
+                  }}
+                  onConfirmSend={() => {
+                    setGateState({ open: false });
+                    const proceed = proceedReference.current;
+                    proceedReference.current = null;
+                    proceed?.();
+                  }}
+                  onRemovePending={(removed) => {
+                    // Drop those endpoints from the chat selection. Data
+                    // sources are removed by ID; if the row covers the
+                    // active model, clear the model too.
+                    const removedModel = removed.endpoints.some((ep) => ep.role === 'model');
+                    for (const ep of removed.endpoints) {
+                      if (ep.role === 'data_source') {
+                        contextStore.removeSource(ep.id);
+                      } else if (ep.id === selectedModel?.id) {
+                        setSelectedModel(null);
+                      }
+                    }
+                    const next = gateState.pending.filter((p) => p.walletKey !== removed.walletKey);
+                    // Removing the model invalidates the queued send —
+                    // no model left to chat with. Behave like Cancel.
+                    if (removedModel) {
+                      const droppedId = gateState.messageId;
+                      if (droppedId) {
+                        setMessages((previous) => previous.filter((m) => m.id !== droppedId));
+                      }
+                      pendingMessageIdReference.current = null;
+                      proceedReference.current = null;
+                      setGateState({ open: false });
+                      return;
+                    }
+                    if (next.length === 0) {
+                      // Last data-source blocker removed — fire the
+                      // queued send (model is still selected).
+                      const proceed = proceedReference.current;
+                      proceedReference.current = null;
+                      proceed?.();
+                      setGateState({ open: false });
+                      return;
+                    }
+                    setGateState({ open: true, pending: next, messageId: gateState.messageId });
+                  }}
+                />
               )}
 
               {/* Workflow UI - Processing Status & Streaming */}
