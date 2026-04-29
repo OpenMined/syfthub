@@ -13,9 +13,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from syfthub.auth.db_dependencies import get_current_active_user
 from syfthub.core.config import settings
-from syfthub.database.dependencies import get_user_repository
+from syfthub.database.dependencies import (
+    get_user_repository,
+    get_user_xendit_subscription_repository,
+)
 from syfthub.observability.logger import get_logger
 from syfthub.repositories.user import UserRepository
+from syfthub.repositories.xendit_subscription import UserXenditSubscriptionRepository
 from syfthub.schemas.user import (
     CreateWalletResponse,
     ImportWalletRequest,
@@ -25,6 +29,9 @@ from syfthub.schemas.user import (
     WalletBalanceResponse,
     WalletResponse,
     WalletTransaction,
+    XenditSubscriptionListResponse,
+    XenditSubscriptionResponse,
+    XenditSubscriptionUpsertRequest,
 )
 
 logger = get_logger(__name__)
@@ -327,3 +334,85 @@ async def pay(
                     "message": f"Failed to create payment credential: {e}",
                 },
             ) from e
+
+
+# =============================================================================
+# Xendit Subscription Endpoints (publisher-side wallets)
+# =============================================================================
+
+
+@router.get("/subscriptions", response_model=XenditSubscriptionListResponse)
+async def list_xendit_subscriptions(
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    repo: Annotated[
+        UserXenditSubscriptionRepository,
+        Depends(get_user_xendit_subscription_repository),
+    ],
+) -> XenditSubscriptionListResponse:
+    """List every publisher wallet the current user has funded."""
+    rows = repo.list_for_user(current_user.id)
+    return XenditSubscriptionListResponse(
+        subscriptions=[XenditSubscriptionResponse.model_validate(r) for r in rows]
+    )
+
+
+@router.post(
+    "/subscriptions",
+    response_model=XenditSubscriptionResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def upsert_xendit_subscription(
+    request: XenditSubscriptionUpsertRequest,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    repo: Annotated[
+        UserXenditSubscriptionRepository,
+        Depends(get_user_xendit_subscription_repository),
+    ],
+) -> XenditSubscriptionResponse:
+    """Register (or refresh) a publisher wallet for the current user.
+
+    Idempotent on (user_id, credits_url). Called by the frontend whenever a
+    Xendit balance transitions from inactive to active.
+    """
+    row = repo.upsert(
+        user_id=current_user.id,
+        credits_url=request.credits_url,
+        payment_url=request.payment_url,
+        endpoint_owner=request.endpoint_owner,
+        endpoint_slug=request.endpoint_slug,
+        currency=request.currency,
+        last_known_balance=request.last_known_balance,
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to record xendit subscription",
+        )
+    logger.info(
+        "wallet.xendit_subscription_upserted",
+        user_id=current_user.id,
+        subscription_id=row.id,
+        endpoint_owner=row.endpoint_owner,
+    )
+    return XenditSubscriptionResponse.model_validate(row)
+
+
+@router.delete(
+    "/subscriptions/{subscription_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_xendit_subscription(
+    subscription_id: int,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    repo: Annotated[
+        UserXenditSubscriptionRepository,
+        Depends(get_user_xendit_subscription_repository),
+    ],
+) -> None:
+    """Forget a publisher wallet (no refund — just removes from the panel)."""
+    deleted = repo.delete_for_user(current_user.id, subscription_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Subscription not found",
+        )
