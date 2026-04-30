@@ -523,6 +523,29 @@ class Orchestrator:
 
         retrieval_time_ms = int((time.perf_counter() - retrieval_start) * 1000)
 
+        # Hard fail when an explicitly-selected data source refused us. The
+        # user picked these endpoints; degrading silently to model-only would
+        # answer with the wrong context and (worse) charge them for it. Other
+        # statuses (timeout, generic error) keep the existing partial-failure
+        # tolerance — only access_denied (HTTP 403) aborts.
+        denied = [r for r in retrieval_results if r.status == "access_denied"]
+        if denied:
+            paths = ", ".join(r.endpoint_path for r in denied)
+            details = "; ".join(
+                f"{r.endpoint_path}: {r.error_message or 'access denied'}" for r in denied
+            )
+            yield self._sse_event(
+                "error",
+                {
+                    "message": (
+                        f"Data source access denied for: {paths}. "
+                        "Remove these sources or resolve the publisher's policy. "
+                        f"Details — {details}"
+                    )
+                },
+            )
+            return
+
         # Aggregate documents (raw sort as baseline / fallback)
         all_documents = []
         for r in retrieval_results:

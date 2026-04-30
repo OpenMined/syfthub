@@ -133,24 +133,39 @@ function getPolicyConfig(type: string) {
 
 export interface PolicyItemProperties {
   policy: Policy;
+  endpointSlug?: string;
+  endpointOwner?: string;
 }
 
 function renderPolicyContent(
   policy: Policy,
   isTransaction: boolean,
-  isXendit: boolean
+  isXendit: boolean,
+  endpointSlug?: string,
+  endpointOwner?: string
 ): React.ReactElement {
   if (isTransaction) {
     return <TransactionPolicyContent config={policy.config} />;
   }
   if (isXendit) {
-    return <XenditPolicyContent config={policy.config} enabled={policy.enabled} />;
+    return (
+      <XenditPolicyContent
+        config={policy.config}
+        enabled={policy.enabled}
+        endpointSlug={endpointSlug}
+        endpointOwner={endpointOwner}
+      />
+    );
   }
   return <GenericPolicyContent config={policy.config} />;
 }
 
 // Single policy item component - memoized to prevent unnecessary re-renders
-export const PolicyItem = memo(function PolicyItem({ policy }: Readonly<PolicyItemProperties>) {
+export const PolicyItem = memo(function PolicyItem({
+  policy,
+  endpointSlug,
+  endpointOwner
+}: Readonly<PolicyItemProperties>) {
   const config = getPolicyConfig(policy.type);
   const Icon = config.icon;
   const policyTypeLower = policy.type.toLowerCase();
@@ -161,6 +176,11 @@ export const PolicyItem = memo(function PolicyItem({ policy }: Readonly<PolicyIt
   const displayLabel = POLICY_TYPE_CONFIG[policy.type.toLowerCase()]
     ? config.label
     : formatConfigKey(policy.type);
+
+  // Avoid printing the description when it just repeats the visible label
+  // (e.g. publisher set policy.name = type label).
+  const rawDescription = policy.description || config.description;
+  const description = rawDescription && rawDescription !== displayLabel ? rawDescription : null;
 
   return (
     <div
@@ -200,13 +220,11 @@ export const PolicyItem = memo(function PolicyItem({ policy }: Readonly<PolicyIt
               {policy.enabled ? 'Active' : 'Disabled'}
             </Badge>
           </div>
-          <p className='text-muted-foreground mt-1 text-xs'>
-            {policy.description || config.description}
-          </p>
+          {description && <p className='text-muted-foreground mt-1 text-xs'>{description}</p>}
 
           {/* Policy-specific content */}
           {Object.keys(policy.config).length > 0 &&
-            renderPolicyContent(policy, isTransaction, isXendit)}
+            renderPolicyContent(policy, isTransaction, isXendit, endpointSlug, endpointOwner)}
 
           {policy.version ? (
             <p className='text-muted-foreground mt-2 text-[10px]'>Version {policy.version}</p>
