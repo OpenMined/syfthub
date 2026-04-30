@@ -20,7 +20,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { WalletBalance, WalletInfo, WalletTransaction } from '@/lib/types';
+import type { WalletBalance, WalletInfo, WalletTransaction, XenditSubscription } from '@/lib/types';
 
 import { useWalletContext } from '@/context/wallet-context';
 import { syftClient } from '@/lib/sdk-client';
@@ -229,6 +229,25 @@ export class WalletAPIClient {
     return this.request<{ address: string }>('POST', '/import', {
       body: { private_key: privateKey }
     });
+  }
+
+  async listXenditSubscriptions(): Promise<{ subscriptions: XenditSubscription[] }> {
+    return this.request<{ subscriptions: XenditSubscription[] }>('GET', '/subscriptions');
+  }
+
+  async upsertXenditSubscription(payload: {
+    credits_url: string;
+    payment_url: string;
+    endpoint_owner: string;
+    endpoint_slug?: string | null;
+    currency: string;
+    last_known_balance?: number | null;
+  }): Promise<XenditSubscription> {
+    return this.request<XenditSubscription>('POST', '/subscriptions', { body: payload });
+  }
+
+  async deleteXenditSubscription(id: number): Promise<void> {
+    await this.request<unknown>('DELETE', `/subscriptions/${String(id)}`);
   }
 }
 

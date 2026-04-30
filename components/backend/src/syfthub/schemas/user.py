@@ -484,3 +484,48 @@ class WalletBalanceResponse(BaseModel):
     currency: str = "USD"
     recent_transactions: list[WalletTransaction] = []
     wallet_configured: bool = False
+
+
+# =============================================================================
+# Xendit Subscription Schemas (publisher-side wallets)
+# =============================================================================
+
+
+class XenditSubscriptionUpsertRequest(BaseModel):
+    """Request schema to register / refresh a publisher wallet subscription.
+
+    Called by the frontend when a successful Xendit payment is detected
+    (balance transitions from inactive to active). Idempotent on
+    (user_id, credits_url) — repeat calls only update freshness fields.
+    """
+
+    credits_url: str = Field(..., min_length=1, max_length=2000)
+    payment_url: str = Field(..., min_length=1, max_length=2000)
+    endpoint_owner: str = Field(..., min_length=1, max_length=50)
+    endpoint_slug: Optional[str] = Field(default=None, max_length=255)
+    currency: str = Field(default="IDR", min_length=1, max_length=8)
+    last_known_balance: Optional[float] = Field(default=None, ge=0)
+
+
+class XenditSubscriptionResponse(BaseModel):
+    """Response schema for a single subscription row."""
+
+    id: int
+    credits_url: str
+    payment_url: str
+    currency: str
+    endpoint_owner: str
+    endpoint_slug: Optional[str] = None
+    last_known_balance: Optional[float] = None
+    last_checked_at: Optional[datetime] = None
+    first_funded_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class XenditSubscriptionListResponse(BaseModel):
+    """Response schema for listing a user's subscriptions."""
+
+    subscriptions: list[XenditSubscriptionResponse] = []

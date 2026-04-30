@@ -390,3 +390,23 @@ export interface WalletTransaction {
   app_name?: string;
   app_ep_path?: string;
 }
+
+/**
+ * A publisher-side Xendit subscription stored on the user account.
+ * One row per distinct credits_url. Identifies a wallet on a publisher's
+ * syft_space that the user has funded; balance is fetched live from the
+ * publisher with a satellite token, last_known_balance is just for fast paint.
+ */
+export interface XenditSubscription {
+  id: number;
+  credits_url: string;
+  payment_url: string;
+  currency: string;
+  endpoint_owner: string;
+  endpoint_slug: string | null;
+  last_known_balance: number | null;
+  last_checked_at: string | null;
+  first_funded_at: string | null;
+  created_at: string;
+  updated_at: string;
+}

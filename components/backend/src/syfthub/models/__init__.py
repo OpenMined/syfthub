@@ -7,6 +7,7 @@ from syfthub.models.organization import OrganizationMemberModel, OrganizationMod
 from syfthub.models.otp import OTPCodeModel
 from syfthub.models.user import UserModel
 from syfthub.models.user_aggregator import UserAggregatorModel
+from syfthub.models.xendit_subscription import UserXenditSubscriptionModel
 from syfthub.observability.models import ErrorLogModel
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "TimestampMixin",
     "UserAggregatorModel",
     "UserModel",
+    "UserXenditSubscriptionModel",
 ]

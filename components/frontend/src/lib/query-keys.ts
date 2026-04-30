@@ -34,5 +34,8 @@ export const walletKeys = {
   all: ['wallet'] as const,
   info: () => [...walletKeys.all, 'info'] as const,
   balance: () => [...walletKeys.all, 'balance'] as const,
-  transactions: () => [...walletKeys.all, 'transactions'] as const
+  transactions: () => [...walletKeys.all, 'transactions'] as const,
+  subscriptions: () => [...walletKeys.all, 'subscriptions'] as const,
+  subscriptionBalance: (creditsUrl: string) =>
+    [...walletKeys.all, 'subscriptions', 'balance', creditsUrl] as const
 };

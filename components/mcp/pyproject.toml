@@ -24,7 +24,7 @@ dependencies = [
     "cryptography>=41.0.0",
     "pyjwt>=2.12.0",  # CVE-2026-32597: accepts unknown crit header extensions
     # Utilities
-    "python-dotenv==1.1.0",
+    "python-dotenv>=1.2.2",  # CVE-2025-67006: symlink following allows arbitrary file overwrite
     "python-multipart>=0.0.26",
     "email-validator>=2.0.0",
     # SyftHub integration
@@ -52,4 +52,6 @@ override-dependencies = [
     "aiohttp>=3.13.3",  # CVE-2025-69223
     "mcp>=1.23.0",  # CVE-2025-66416
     "pydantic>=2.11.7",  # syft-accounting-sdk pins ==2.11.4; override for fastmcp compat
+    "python-dotenv>=1.2.2",  # CVE-2025-67006: syft-accounting-sdk pins ==1.1.0 (vulnerable)
+    "Pygments>=2.20.0",  # CVE-2025-68139: ReDoS via inefficient regex for GUID matching
 ]

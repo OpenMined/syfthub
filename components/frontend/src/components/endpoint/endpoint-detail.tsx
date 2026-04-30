@@ -388,7 +388,11 @@ export const EndpointDetail = memo(function EndpointDetail({
             ) : null}
 
             {/* Access Policies Card */}
-            <AccessPoliciesCard policies={endpoint.policies} />
+            <AccessPoliciesCard
+              policies={endpoint.policies}
+              endpointSlug={endpoint.full_path ?? endpoint.slug}
+              endpointOwner={endpoint.owner_username}
+            />
           </aside>
         </div>
       </div>

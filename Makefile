@@ -1,4 +1,4 @@
-.PHONY: help setup dev stop test test-integration check logs
+.PHONY: help setup dev stop test test-integration check logs sdk-build
 
 # =============================================================================
 # SyftHub Development Commands
@@ -42,7 +42,14 @@ setup:  ## Install dev dependencies (pre-commit, etc.)
 	@echo '  source .venv/bin/activate'
 	@echo ''
 
-dev:  ## Start development environment
+sdk-build:  ## Build the TypeScript SDK (required for frontend dev: bind-mount overlays the container build)
+	@if [ ! -f sdk/typescript/dist/index.js ]; then \
+		echo 'Building TypeScript SDK...'; \
+		npm --prefix sdk/typescript install --silent; \
+		npm --prefix sdk/typescript run build; \
+	fi
+
+dev: sdk-build  ## Start development environment
 	@docker compose -f deploy/docker-compose.dev.yml up -d --build
 	@echo ''
 	@echo '══════════════════════════════════════════'
@@ -74,12 +81,10 @@ test:  ## Run all tests (parallel execution using all CPU cores)
 	@cd components/aggregator && uv sync --extra dev && uv run pytest
 	@echo ''
 	@echo 'CLI Go tests...'
-	@cd cli && go test ./internal/nodeconfig/... ./internal/cmd/... ./internal/connectors/...
-	@echo ''
-	@echo 'Desktop app Go tests...'
-	@cd syfthub-desktop && go test ./...
+	@cd cli && go test ./...
 	@echo ''
 	@echo 'Go SDK tests...'
+	@cd sdk/golang/syfthub && go test ./...
 	@cd sdk/golang/syfthubapi && go test ./...
 	@echo ''
 	@echo 'Python SDK unit tests...'
