@@ -47,7 +47,7 @@ const TABS: TabItem[] = [
   },
   {
     id: 'subscriptions',
-    label: 'Subscriptions',
+    label: 'Top up credits',
     icon: <CreditCard className='h-4 w-4' aria-hidden='true' />
   },
   {
