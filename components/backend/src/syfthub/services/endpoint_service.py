@@ -51,6 +51,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _viewer_email(user: Optional[User]) -> Optional[str]:
+    return user.email if user else None
+
+
 class EndpointService(BaseService):
     """Endpoint service for handling endpoint operations."""
 
@@ -387,7 +391,7 @@ class EndpointService(BaseService):
             limit,
             endpoint_type,
             search,
-            viewer_email=current_user.email if current_user else None,
+            viewer_email=_viewer_email(current_user),
         )
 
     def _apply_endpoint_update(
@@ -570,7 +574,7 @@ class EndpointService(BaseService):
             owner_slug=owner_slug,
             skip=skip,
             limit=limit,
-            viewer_email=current_user.email if current_user else None,
+            viewer_email=_viewer_email(current_user),
         )
 
     def get_public_endpoint_by_path(
@@ -584,8 +588,7 @@ class EndpointService(BaseService):
         Args:
             owner_username: The username of the endpoint owner
             slug: The endpoint slug
-            current_user: Optional authenticated viewer; their email is used to
-                personalize policies whose `applied_to` targets specific users.
+            current_user: Optional authenticated viewer for policy personalization
 
         Returns:
             EndpointPublicResponse
@@ -596,7 +599,7 @@ class EndpointService(BaseService):
         endpoint = self.endpoint_repository.get_public_endpoint_by_owner_and_slug(
             owner_username,
             slug,
-            viewer_email=current_user.email if current_user else None,
+            viewer_email=_viewer_email(current_user),
         )
         if endpoint is None:
             raise HTTPException(
@@ -619,7 +622,7 @@ class EndpointService(BaseService):
             limit,
             min_stars,
             endpoint_type,
-            viewer_email=current_user.email if current_user else None,
+            viewer_email=_viewer_email(current_user),
         )
 
     def list_guest_accessible_endpoints(
@@ -650,7 +653,7 @@ class EndpointService(BaseService):
             skip=skip,
             limit=limit,
             endpoint_type=endpoint_type,
-            viewer_email=current_user.email if current_user else None,
+            viewer_email=_viewer_email(current_user),
         )
 
     def list_public_endpoints_grouped(
@@ -672,7 +675,7 @@ class EndpointService(BaseService):
         """
         return self.endpoint_repository.get_public_endpoints_grouped(
             max_per_owner=max_per_owner,
-            viewer_email=current_user.email if current_user else None,
+            viewer_email=_viewer_email(current_user),
         )
 
     def list_public_endpoint_owners(
@@ -857,7 +860,7 @@ class EndpointService(BaseService):
         # Fetch endpoints from database (preserves ranking order)
         endpoints = self.endpoint_repository.get_public_endpoints_by_ids(
             endpoint_ids,
-            viewer_email=current_user.email if current_user else None,
+            viewer_email=_viewer_email(current_user),
         )
 
         # Filter by type if specified (inclusive: model_data_source matches both)

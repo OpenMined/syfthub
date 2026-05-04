@@ -27,21 +27,13 @@ import Database from 'lucide-react/dist/esm/icons/database';
 import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
 
 import { formatRelativeTime } from './date-utils';
-import { syftClient } from './sdk-client';
+import { getStoredAccessToken, syftClient } from './sdk-client';
 
-/**
- * Build a HeadersInit with a Bearer Authorization header when an access
- * token is present in localStorage. Public endpoints accept the token
- * optionally and use it to personalize per-viewer policy filtering
- * (config.applied_to). Anonymous viewers receive only wildcard policies.
- */
+// Public endpoints optionally accept a bearer token to personalize policy
+// filtering (config.applied_to). Without it, only wildcard policies are returned.
 function buildAuthHeaders(): Record<string, string> {
-  try {
-    const token = globalThis.localStorage.getItem('syft_access_token');
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  } catch {
-    return {};
-  }
+  const token = getStoredAccessToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 // ============================================================================

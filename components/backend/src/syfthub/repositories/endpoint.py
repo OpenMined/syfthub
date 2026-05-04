@@ -77,11 +77,6 @@ class EndpointRepository(BaseRepository[EndpointModel]):
 
         Accepts any object with the EndpointModel attribute names (ORM instance
         or SQLAlchemy Row) so it works for both regular and window-function queries.
-
-        `viewer_email` is used to apply the per-viewer policy `applied_to`
-        filter — anonymous callers (None) only see wildcard policies; authenticated
-        callers see policies targeted at them (with targeted policies overriding
-        the wildcard fallback for that viewer).
         """
         transformed_connect = transform_connection_urls(domain, row.connect or [])
         visible_policies = filter_visible_policies(row.policies or [], viewer_email)
