@@ -379,10 +379,15 @@ class EndpointService(BaseService):
         limit: int = 10,
         endpoint_type: Optional[EndpointType] = None,
         search: Optional[str] = None,
+        current_user: Optional[User] = None,
     ) -> List[EndpointPublicResponse]:
         """Get public endpoints with optional search filtering."""
         return self.endpoint_repository.get_public_endpoints(
-            skip, limit, endpoint_type, search
+            skip,
+            limit,
+            endpoint_type,
+            search,
+            viewer_email=current_user.email if current_user else None,
         )
 
     def _apply_endpoint_update(
@@ -533,10 +538,15 @@ class EndpointService(BaseService):
         limit: int = 10,
         endpoint_type: Optional[EndpointType] = None,
         search: Optional[str] = None,
+        current_user: Optional[User] = None,
     ) -> List[EndpointPublicResponse]:
         """List public endpoints - router-compatible wrapper."""
         return self.get_public_endpoints(
-            skip=skip, limit=limit, endpoint_type=endpoint_type, search=search
+            skip=skip,
+            limit=limit,
+            endpoint_type=endpoint_type,
+            search=search,
+            current_user=current_user,
         )
 
     def list_public_endpoints_by_owner(
@@ -544,6 +554,7 @@ class EndpointService(BaseService):
         owner_slug: str,
         skip: int = 0,
         limit: int = 100,
+        current_user: Optional[User] = None,
     ) -> List[EndpointPublicResponse]:
         """List public endpoints for a specific owner.
 
@@ -556,17 +567,25 @@ class EndpointService(BaseService):
             List of EndpointPublicResponse objects for the owner.
         """
         return self.endpoint_repository.get_public_endpoints_by_owner(
-            owner_slug=owner_slug, skip=skip, limit=limit
+            owner_slug=owner_slug,
+            skip=skip,
+            limit=limit,
+            viewer_email=current_user.email if current_user else None,
         )
 
     def get_public_endpoint_by_path(
-        self, owner_username: str, slug: str
+        self,
+        owner_username: str,
+        slug: str,
+        current_user: Optional[User] = None,
     ) -> EndpointPublicResponse:
         """Get a single public endpoint by owner username and slug.
 
         Args:
             owner_username: The username of the endpoint owner
             slug: The endpoint slug
+            current_user: Optional authenticated viewer; their email is used to
+                personalize policies whose `applied_to` targets specific users.
 
         Returns:
             EndpointPublicResponse
@@ -575,7 +594,9 @@ class EndpointService(BaseService):
             HTTPException: 404 if endpoint is not found
         """
         endpoint = self.endpoint_repository.get_public_endpoint_by_owner_and_slug(
-            owner_username, slug
+            owner_username,
+            slug,
+            viewer_email=current_user.email if current_user else None,
         )
         if endpoint is None:
             raise HTTPException(
@@ -590,10 +611,15 @@ class EndpointService(BaseService):
         limit: int = 10,
         min_stars: Optional[int] = None,
         endpoint_type: Optional[EndpointType] = None,
+        current_user: Optional[User] = None,
     ) -> List[EndpointPublicResponse]:
         """List trending public endpoints sorted by stars count with optional min_stars filter."""
         return self.endpoint_repository.get_trending_endpoints(
-            skip, limit, min_stars, endpoint_type
+            skip,
+            limit,
+            min_stars,
+            endpoint_type,
+            viewer_email=current_user.email if current_user else None,
         )
 
     def list_guest_accessible_endpoints(
@@ -601,6 +627,7 @@ class EndpointService(BaseService):
         skip: int = 0,
         limit: int = 10,
         endpoint_type: Optional[EndpointType] = None,
+        current_user: Optional[User] = None,
     ) -> List[EndpointPublicResponse]:
         """List endpoints accessible to guest (unauthenticated) users.
 
@@ -620,12 +647,16 @@ class EndpointService(BaseService):
             List of EndpointPublicResponse objects for guest-accessible endpoints
         """
         return self.endpoint_repository.get_guest_accessible_endpoints(
-            skip=skip, limit=limit, endpoint_type=endpoint_type
+            skip=skip,
+            limit=limit,
+            endpoint_type=endpoint_type,
+            viewer_email=current_user.email if current_user else None,
         )
 
     def list_public_endpoints_grouped(
         self,
         max_per_owner: int = 15,
+        current_user: Optional[User] = None,
     ) -> GroupedEndpointsResponse:
         """List public endpoints grouped by owner with a limit per owner.
 
@@ -640,7 +671,8 @@ class EndpointService(BaseService):
             GroupedEndpointsResponse with groups ordered by total endpoint count (descending)
         """
         return self.endpoint_repository.get_public_endpoints_grouped(
-            max_per_owner=max_per_owner
+            max_per_owner=max_per_owner,
+            viewer_email=current_user.email if current_user else None,
         )
 
     def list_public_endpoint_owners(
@@ -796,6 +828,7 @@ class EndpointService(BaseService):
         query: str,
         top_k: int = 10,
         endpoint_type: Optional[EndpointType] = None,
+        current_user: Optional[User] = None,
     ) -> EndpointSearchResponse:
         """Search endpoints using semantic search (RAG).
 
@@ -822,7 +855,10 @@ class EndpointService(BaseService):
         endpoint_ids = list(score_map.keys())
 
         # Fetch endpoints from database (preserves ranking order)
-        endpoints = self.endpoint_repository.get_public_endpoints_by_ids(endpoint_ids)
+        endpoints = self.endpoint_repository.get_public_endpoints_by_ids(
+            endpoint_ids,
+            viewer_email=current_user.email if current_user else None,
+        )
 
         # Filter by type if specified (inclusive: model_data_source matches both)
         if endpoint_type:

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, status
 
 from syfthub.auth.db_dependencies import (
     get_current_active_user,
+    get_optional_current_user,
     require_admin,
 )
 from syfthub.database.dependencies import (
@@ -77,6 +78,7 @@ async def list_my_endpoints(
 @router.get("/public", response_model=list[EndpointPublicResponse])
 async def list_public_endpoints(
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
     endpoint_type: Optional[EndpointType] = Query(
@@ -91,7 +93,11 @@ async def list_public_endpoints(
 ) -> list[EndpointPublicResponse]:
     """List all public endpoints with optional search filtering."""
     return endpoint_service.list_public_endpoints(
-        skip=skip, limit=limit, endpoint_type=endpoint_type, search=search
+        skip=skip,
+        limit=limit,
+        endpoint_type=endpoint_type,
+        search=search,
+        current_user=current_user,
     )
 
 
@@ -124,6 +130,7 @@ Returns a list of groups, where each group contains:
 )
 async def list_public_endpoints_grouped(
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
     max_per_owner: int = Query(
         15, ge=1, le=50, description="Maximum endpoints to return per owner"
     ),
@@ -133,7 +140,9 @@ async def list_public_endpoints_grouped(
     This provides a balanced view across multiple owners rather than having
     a single owner dominate the listing.
     """
-    return endpoint_service.list_public_endpoints_grouped(max_per_owner=max_per_owner)
+    return endpoint_service.list_public_endpoints_grouped(
+        max_per_owner=max_per_owner, current_user=current_user
+    )
 
 
 @router.get(
@@ -210,6 +219,7 @@ Returns a list of EndpointPublicResponse objects containing:
 async def list_public_endpoints_by_owner(
     owner_slug: str,
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
     skip: int = Query(0, ge=0, description="Number of endpoints to skip"),
     limit: int = Query(100, ge=1, le=500, description="Maximum endpoints to return"),
 ) -> list[EndpointPublicResponse]:
@@ -218,7 +228,7 @@ async def list_public_endpoints_by_owner(
     Returns all public, active endpoints belonging to the given user or organization.
     """
     return endpoint_service.list_public_endpoints_by_owner(
-        owner_slug=owner_slug, skip=skip, limit=limit
+        owner_slug=owner_slug, skip=skip, limit=limit, current_user=current_user
     )
 
 
@@ -240,14 +250,18 @@ async def get_public_endpoint_by_path(
     owner_username: str,
     slug: str,
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
 ) -> EndpointPublicResponse:
     """Get a single public endpoint by owner username and slug."""
-    return endpoint_service.get_public_endpoint_by_path(owner_username, slug)
+    return endpoint_service.get_public_endpoint_by_path(
+        owner_username, slug, current_user=current_user
+    )
 
 
 @router.get("/trending", response_model=list[EndpointPublicResponse])
 async def list_trending_endpoints(
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
     min_stars: Optional[int] = Query(None, ge=0),
@@ -257,7 +271,11 @@ async def list_trending_endpoints(
 ) -> list[EndpointPublicResponse]:
     """List trending public endpoints."""
     return endpoint_service.list_trending_endpoints(
-        skip=skip, limit=limit, min_stars=min_stars, endpoint_type=endpoint_type
+        skip=skip,
+        limit=limit,
+        min_stars=min_stars,
+        endpoint_type=endpoint_type,
+        current_user=current_user,
     )
 
 
@@ -289,6 +307,7 @@ endpoints they can actually use without additional authorization.
 )
 async def list_guest_accessible_endpoints(
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
     endpoint_type: Optional[EndpointType] = Query(
@@ -301,7 +320,10 @@ async def list_guest_accessible_endpoints(
     This ensures guests can only discover and use truly free endpoints.
     """
     return endpoint_service.list_guest_accessible_endpoints(
-        skip=skip, limit=limit, endpoint_type=endpoint_type
+        skip=skip,
+        limit=limit,
+        endpoint_type=endpoint_type,
+        current_user=current_user,
     )
 
 
@@ -331,12 +353,14 @@ relevance.
 async def search_endpoints(
     search_request: EndpointSearchRequest,
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
 ) -> EndpointSearchResponse:
     """Search endpoints using semantic search (RAG)."""
     return endpoint_service.search_endpoints(
         query=search_request.query,
         top_k=search_request.top_k,
         endpoint_type=search_request.type,
+        current_user=current_user,
     )
 
 
