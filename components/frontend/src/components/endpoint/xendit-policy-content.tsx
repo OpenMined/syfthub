@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import {
   createInvoice,
   fetchBalance,
+  fetchPendingInvoice,
   getSatelliteToken,
   openCheckoutWindow,
   parseXenditConfig,
@@ -45,7 +46,7 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
   // Re-parse only when config identity changes — otherwise the bundles array
   // would get a fresh reference each render and re-fire the validation effect.
   const parsed = useMemo(() => parseXenditConfig(config), [config]);
-  const { bundles, currency, paymentUrl, creditsUrl } = parsed;
+  const { bundles, currency, paymentUrl, creditsUrl, invoicesUrl, pricePerRequest } = parsed;
 
   const [subscription, setSubscription] = useState<SubscriptionState>({ state: 'loading' });
   const [purchase, setPurchase] = useState<PurchaseState>({ state: 'idle' });
@@ -68,10 +69,11 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
   }, [bundles, selectedBundleName]);
 
   // Shared balance check. `silent=true` skips the loading transition for
-  // background polling. Updates state only when something actually changed,
-  // so unchanged poll ticks don't trigger re-renders downstream.
+  // background polling. `checkPending=true` (used on initial mount) also
+  // queries the gateway for an in-flight pending invoice so the user lands
+  // back on "awaiting payment" after closing the checkout popup.
   const checkBalance = useCallback(
-    async (options: { silent?: boolean; signal?: AbortSignal } = {}) => {
+    async (options: { silent?: boolean; signal?: AbortSignal; checkPending?: boolean } = {}) => {
       const tokens = syftClient.getTokens();
       if (!tokens || !creditsUrl || !endpointOwner) {
         setSubscription((previous) =>
@@ -88,13 +90,25 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
         );
         return;
       }
-      const balance = await fetchBalance(creditsUrl, satelliteToken, options.signal);
+      const [balance, pending] = await Promise.all([
+        fetchBalance(creditsUrl, satelliteToken, options.signal),
+        options.checkPending && invoicesUrl
+          ? fetchPendingInvoice(invoicesUrl, satelliteToken, options.signal)
+          : Promise.resolve(null)
+      ]);
       if (options.signal?.aborted) return;
       if (balance === null || balance <= 0) {
         if (!options.silent) {
           setSubscription((previous) =>
             previous.state === 'inactive' ? previous : { state: 'inactive' }
           );
+        }
+        if (pending) {
+          setPurchase({
+            state: 'awaiting_payment',
+            bundleName: pending.bundleName,
+            checkoutUrl: pending.checkoutUrl
+          });
         }
         return;
       }
@@ -119,16 +133,17 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
         });
       }
     },
-    [creditsUrl, endpointOwner, paymentUrl, endpointSlug, currency, registerOnFunding]
+    [creditsUrl, invoicesUrl, endpointOwner, paymentUrl, endpointSlug, currency, registerOnFunding]
   );
 
   const refreshBalance = useCallback(() => checkBalance(), [checkBalance]);
 
-  // Initial balance load. The same `checkBalance` powers refresh and polling,
-  // and aborts cleanly on unmount.
+  // Initial balance load — also probes for an in-flight pending invoice so a
+  // user returning to the page after closing the checkout popup picks the
+  // flow back up from `awaiting_payment` instead of seeing the Buy button.
   useEffect(() => {
     const controller = new AbortController();
-    void checkBalance({ signal: controller.signal });
+    void checkBalance({ signal: controller.signal, checkPending: true });
     return () => {
       controller.abort();
     };
@@ -214,43 +229,42 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
         </div>
       )}
 
-      {subscription.state === 'inactive' &&
-        purchase.state !== 'awaiting_payment' &&
-        bundles.length > 0 && (
-          <div className='space-y-1.5'>
-            <BundlePicker
-              bundles={bundles}
-              currency={currency}
-              value={selectedBundleName}
-              onChange={setSelectedBundleName}
-              disabled={isCreatingAny}
-            />
-            <button
-              type='button'
-              disabled={!canPurchase || isCreatingAny}
-              onClick={() => void handleSubscribe(selectedBundleName)}
-              className={cn(
-                'group inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-colors',
-                'border border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-700 dark:bg-violet-950/30 dark:text-violet-300',
-                !canPurchase || isCreatingAny
-                  ? 'cursor-not-allowed opacity-50'
-                  : 'cursor-pointer hover:bg-violet-100 dark:hover:bg-violet-900/40'
-              )}
-            >
-              {isCreatingAny ? (
-                <>
-                  <Loader2 className='h-3 w-3 animate-spin' />
-                  Opening checkout…
-                </>
-              ) : (
-                <>
-                  Buy
-                  <ArrowRight className='h-3 w-3 transition-transform group-hover:translate-x-0.5' />
-                </>
-              )}
-            </button>
-          </div>
-        )}
+      {subscription.state !== 'loading' && bundles.length > 0 && (
+        <div className='space-y-1.5'>
+          <BundlePicker
+            bundles={bundles}
+            currency={currency}
+            value={selectedBundleName}
+            onChange={setSelectedBundleName}
+            disabled={isCreatingAny}
+            pricePerRequest={pricePerRequest}
+          />
+          <button
+            type='button'
+            disabled={!canPurchase || isCreatingAny}
+            onClick={() => void handleSubscribe(selectedBundleName)}
+            className={cn(
+              'group inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-colors',
+              'border border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-700 dark:bg-violet-950/30 dark:text-violet-300',
+              !canPurchase || isCreatingAny
+                ? 'cursor-not-allowed opacity-50'
+                : 'cursor-pointer hover:bg-violet-100 dark:hover:bg-violet-900/40'
+            )}
+          >
+            {isCreatingAny ? (
+              <>
+                <Loader2 className='h-3 w-3 animate-spin' />
+                Opening checkout…
+              </>
+            ) : (
+              <>
+                Buy
+                <ArrowRight className='h-3 w-3 transition-transform group-hover:translate-x-0.5' />
+              </>
+            )}
+          </button>
+        </div>
+      )}
 
       {purchase.state === 'error' && (
         <div className='rounded-md border border-red-200 bg-red-50/70 px-2.5 py-1.5 text-[11px] text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-300'>

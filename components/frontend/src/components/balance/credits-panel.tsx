@@ -59,8 +59,8 @@ export function CreditsPanel({
         <SectionHeader
           label={
             subscriptions.length > 0
-              ? `Endpoint subscriptions · ${String(subscriptions.length)}`
-              : 'Endpoint subscriptions'
+              ? `Endpoint credits · ${String(subscriptions.length)}`
+              : 'Endpoint credits'
           }
           onRefresh={() => void subscriptionsQuery.refetch()}
           isRefreshing={subscriptionsQuery.isFetching}
@@ -261,9 +261,7 @@ function SubscriptionRow({
 
   const liveBalance = balance ?? subscription.last_known_balance ?? 0;
   const status = balanceStatus(liveBalance, 0);
-  const label = subscription.endpoint_slug
-    ? `${subscription.endpoint_owner}/${subscription.endpoint_slug}`
-    : subscription.endpoint_owner;
+  const label = subscription.endpoint_owner;
   const targetPath = subscription.endpoint_slug
     ? `/${subscription.endpoint_owner}/${subscription.endpoint_slug}`
     : `/${subscription.endpoint_owner}`;
