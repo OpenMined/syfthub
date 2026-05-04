@@ -79,36 +79,55 @@ def filter_visible_policies(
 ) -> List[Any]:
     """Filter policies by their `config.applied_to` audience list.
 
-    Rules:
-    - Missing/empty `applied_to` is treated as `["*"]` (visible to everyone).
-    - `"*"` in `applied_to` is visible to everyone (including anonymous).
-    - Otherwise visible only when `viewer_email` (case-insensitive) is listed.
-    - When `viewer_email` is None, only wildcard policies are visible.
+    Specific targeting overrides the wildcard: if any policy explicitly
+    names the viewer's email, only those targeted policies are returned
+    (the wildcard fallback is suppressed for that viewer). Otherwise
+    the viewer falls back to wildcard / unset-`applied_to` policies.
+
+    `applied_to` semantics per policy:
+    - Missing/empty `applied_to` is treated as `["*"]` (wildcard fallback).
+    - `"*"` in `applied_to` makes the policy a wildcard fallback.
+    - Otherwise the policy is "targeted" and applies only to listed emails
+      (case-insensitive).
+    - An anonymous viewer (`viewer_email=None`) only ever sees wildcards.
 
     Accepts policies as Pydantic Policy instances or plain dicts.
     """
     normalized_viewer = viewer_email.strip().lower() if viewer_email else None
 
-    def _is_visible(policy: Any) -> bool:
+    def _applied_to(policy: Any) -> Optional[List[Any]]:
         if isinstance(policy, BaseModel):
             config = getattr(policy, "config", None) or {}
+        elif isinstance(policy, dict):
+            config = policy.get("config") or {}
         else:
-            config = policy.get("config") or {} if isinstance(policy, dict) else {}
-
+            config = {}
         applied_to = config.get("applied_to") if isinstance(config, dict) else None
-        if not applied_to:
-            return True
+        return applied_to if applied_to else None
 
+    def _is_wildcard(policy: Any) -> bool:
+        applied_to = _applied_to(policy)
+        if applied_to is None:
+            return True
+        return any(isinstance(e, str) and e.strip() == "*" for e in applied_to)
+
+    def _targets_viewer(policy: Any) -> bool:
+        if not normalized_viewer:
+            return False
+        applied_to = _applied_to(policy)
+        if applied_to is None:
+            return False
         for entry in applied_to:
             if not isinstance(entry, str):
                 continue
-            if entry.strip() == "*":
-                return True
-            if normalized_viewer and entry.strip().lower() == normalized_viewer:
+            if entry.strip().lower() == normalized_viewer:
                 return True
         return False
 
-    return [p for p in policies if _is_visible(p)]
+    targeted = [p for p in policies if _targets_viewer(p)]
+    if targeted:
+        return targeted
+    return [p for p in policies if _is_wildcard(p)]
 
 
 class Connection(BaseModel):
