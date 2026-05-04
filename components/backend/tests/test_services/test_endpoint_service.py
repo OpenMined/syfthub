@@ -1235,7 +1235,10 @@ class TestEndpointServiceGuestAccessible:
             )
 
             mock_method.assert_called_once_with(
-                skip=0, limit=10, endpoint_type=EndpointType.MODEL
+                skip=0,
+                limit=10,
+                endpoint_type=EndpointType.MODEL,
+                viewer_email=None,
             )
             assert len(result) == 1
             assert result[0].type == EndpointType.MODEL
@@ -1249,7 +1252,9 @@ class TestEndpointServiceGuestAccessible:
         ) as mock_method:
             endpoint_service.list_guest_accessible_endpoints(skip=10, limit=20)
 
-            mock_method.assert_called_once_with(skip=10, limit=20, endpoint_type=None)
+            mock_method.assert_called_once_with(
+                skip=10, limit=20, endpoint_type=None, viewer_email=None
+            )
 
 
 class TestEndpointHealthSchemas:

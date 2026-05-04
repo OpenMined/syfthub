@@ -152,6 +152,17 @@ export function hasPersistedTokens(): boolean {
   }
 }
 
+/**
+ * Read the persisted access token from localStorage, or null if absent.
+ */
+export function getStoredAccessToken(): string | null {
+  try {
+    return localStorage.getItem(ACCESS_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
 // Re-export commonly used SDK types for convenience
 export type { AuthTokens } from '@syfthub/sdk';
 export {
