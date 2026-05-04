@@ -55,11 +55,11 @@ const POLICY_TYPE_CONFIG: Record<
   },
   xendit: {
     icon: CreditCard,
-    label: 'Pay-in-advance via Xendit',
+    label: 'Prepaid credits',
     color: 'text-violet-600 dark:text-violet-400',
     bgColor: 'bg-violet-50 dark:bg-violet-950/30',
     borderColor: 'border-violet-200 dark:border-violet-800',
-    description: 'Top up credits in advance to use this endpoint'
+    description: 'Top up credits to use this endpoint.'
   },
   // Access control policies
   public: {
@@ -195,6 +195,85 @@ export const PolicyItem = memo(function PolicyItem({
       ? xenditParsed.pricePerRequest
       : null;
 
+  if (isXendit) {
+    return (
+      <div
+        className={cn(
+          'group bg-card relative rounded-lg border transition-colors transition-shadow duration-200',
+          'border-border',
+          policy.enabled ? 'hover:shadow-md hover:shadow-black/5' : 'opacity-60 grayscale-[30%]'
+        )}
+      >
+        <div className='p-4'>
+          <div className='flex items-start gap-3'>
+            <div
+              className={cn(
+                'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
+                config.bgColor,
+                'ring-1 ring-inset',
+                config.borderColor
+              )}
+            >
+              <Icon className={cn('h-4.5 w-4.5', config.color)} />
+            </div>
+
+            <div className='min-w-0 flex-1'>
+              <div className='flex items-start justify-between gap-2'>
+                <div className='min-w-0'>
+                  <h3 className='text-foreground text-sm leading-tight font-semibold'>
+                    {displayLabel}
+                  </h3>
+                  <p className='text-muted-foreground mt-0.5 text-[11px]'>via Xendit</p>
+                </div>
+                {policy.version ? (
+                  <span className='text-muted-foreground bg-muted/60 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums'>
+                    v{policy.version}
+                  </span>
+                ) : null}
+              </div>
+
+              <div className='mt-1.5 flex items-center gap-1.5'>
+                <span
+                  aria-hidden='true'
+                  className={cn(
+                    'inline-block h-1.5 w-1.5 rounded-full',
+                    policy.enabled ? 'bg-emerald-500' : 'bg-muted-foreground/40'
+                  )}
+                />
+                <span
+                  className={cn(
+                    'text-[11px] font-medium',
+                    policy.enabled
+                      ? 'text-emerald-700 dark:text-emerald-400'
+                      : 'text-muted-foreground'
+                  )}
+                >
+                  {policy.enabled ? 'Active' : 'Disabled'}
+                </span>
+              </div>
+
+              {description && (
+                <p className='text-muted-foreground mt-2 text-xs leading-relaxed'>{description}</p>
+              )}
+              {xenditParsed && xenditPricePerRequest !== null && (
+                <p className='text-muted-foreground mt-0.5 text-[11px] tabular-nums'>
+                  {xenditParsed.currency} {xenditPricePerRequest.toLocaleString()} per request
+                </p>
+              )}
+
+              {Object.keys(policy.config).length > 0 &&
+                renderPolicyContent(policy, isTransaction, isXendit, endpointSlug, endpointOwner)}
+            </div>
+          </div>
+        </div>
+
+        <div className='border-border/60 border-t'>
+          <XenditHowItWorks />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -233,30 +312,17 @@ export const PolicyItem = memo(function PolicyItem({
               {policy.enabled ? 'Active' : 'Disabled'}
             </Badge>
           </div>
-          {description && (
-            <p className='text-muted-foreground mt-1 text-xs'>
-              {description}
-              {xenditParsed && xenditPricePerRequest !== null && (
-                <>
-                  {' '}
-                  <span className='font-semibold text-violet-700 tabular-nums dark:text-violet-300'>
-                    ({xenditParsed.currency} {xenditPricePerRequest.toLocaleString()} / request)
-                  </span>
-                </>
-              )}
-            </p>
-          )}
+          {description && <p className='text-muted-foreground mt-1 text-xs'>{description}</p>}
 
           {/* Policy-specific content */}
           {Object.keys(policy.config).length > 0 &&
             renderPolicyContent(policy, isTransaction, isXendit, endpointSlug, endpointOwner)}
 
-          <div className='mt-2 flex items-center gap-2'>
-            {policy.version ? (
+          {policy.version ? (
+            <div className='mt-2'>
               <p className='text-muted-foreground text-[10px]'>Version {policy.version}</p>
-            ) : null}
-            {isXendit && <XenditHowItWorks />}
-          </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -266,19 +332,25 @@ export const PolicyItem = memo(function PolicyItem({
 function XenditHowItWorks() {
   const [open, setOpen] = useState(false);
   return (
-    <Collapsible open={open} onOpenChange={setOpen} className='text-[10px]'>
+    <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger
         className={cn(
-          'text-muted-foreground hover:text-foreground inline-flex cursor-pointer items-center gap-1',
+          'text-muted-foreground hover:text-foreground hover:bg-muted/40 flex w-full cursor-pointer items-center justify-between gap-2 rounded-b-lg px-4 py-2.5',
+          'focus-visible:bg-muted/40 focus-visible:text-foreground focus-visible:outline-none',
           'transition-colors select-none'
         )}
       >
-        <Info className='h-3 w-3' />
-        <span>How does this work?</span>
-        <ChevronDown className={cn('h-3 w-3 transition-transform', open && 'rotate-180')} />
+        <span className='inline-flex items-center gap-1.5 text-[11px] font-medium'>
+          <Info className='h-3 w-3' aria-hidden='true' />
+          How does this work?
+        </span>
+        <ChevronDown
+          className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-180')}
+          aria-hidden='true'
+        />
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <p className='text-muted-foreground mt-1.5 max-w-prose text-[11px] leading-relaxed'>
+        <p className='text-muted-foreground border-border/60 max-w-prose border-t px-4 py-3 text-[11px] leading-relaxed'>
           Purchase credits upfront with a data owner. Your balance is shared across all of their
           endpoints. Top up anytime — credits are deducted per request until your balance runs out.
         </p>

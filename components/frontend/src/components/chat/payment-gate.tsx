@@ -64,7 +64,7 @@ function renderStatusLine(pending: PendingSubscription, isActive: boolean, liveB
     );
   }
   if (pending.pricePerRequest === null) {
-    return <>Pay-in-advance required</>;
+    return <>Prepaid credits required</>;
   }
   return (
     <span className='tabular-nums'>
