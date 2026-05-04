@@ -35,6 +35,7 @@ from syfthub.schemas.endpoint import (
     Policy,
     SyncEndpointsResponse,
     SyncValidationError,
+    filter_visible_policies,
     generate_slug_from_name,
     get_matching_types,
 )
@@ -74,7 +75,10 @@ class EndpointService(BaseService):
         return None
 
     def _to_response_with_urls(
-        self, endpoint: Endpoint, owner_domain: Optional[str] = None
+        self,
+        endpoint: Endpoint,
+        owner_domain: Optional[str] = None,
+        current_user: Optional[User] = None,
     ) -> EndpointResponse:
         """Convert Endpoint to EndpointResponse with transformed URLs.
 
@@ -82,6 +86,8 @@ class EndpointService(BaseService):
             endpoint: The endpoint model to convert.
             owner_domain: Pre-fetched owner domain. When provided, skips the
                 per-endpoint DB lookup (use in listing methods to avoid N+1).
+            current_user: The authenticated viewer. Used to filter policies
+                whose `config.applied_to` does not include the viewer.
         """
         domain = (
             owner_domain
@@ -95,9 +101,13 @@ class EndpointService(BaseService):
             [c.model_dump() for c in endpoint.connect] if endpoint.connect else [],
         )
 
-        # Create response with transformed connections
+        viewer_email = current_user.email if current_user else None
+
         endpoint_dict = endpoint.model_dump()
         endpoint_dict["connect"] = transformed_connect
+        endpoint_dict["policies"] = filter_visible_policies(
+            endpoint_dict.get("policies") or [], viewer_email
+        )
         return EndpointResponse.model_validate(endpoint_dict)
 
     def _is_slug_available(
@@ -283,7 +293,7 @@ class EndpointService(BaseService):
         if endpoint.visibility == EndpointVisibility.PUBLIC:
             self._ingest_to_rag(endpoint.id)
 
-        return self._to_response_with_urls(endpoint)
+        return self._to_response_with_urls(endpoint, current_user=current_user)
 
     def get_endpoint_by_user_and_slug(
         self, user_id: int, slug: str
@@ -324,7 +334,11 @@ class EndpointService(BaseService):
         for endpoint in endpoints:
             if self._can_access_endpoint(endpoint, current_user, "user"):
                 accessible_endpoints.append(
-                    self._to_response_with_urls(endpoint, owner_domain=user_domain)
+                    self._to_response_with_urls(
+                        endpoint,
+                        owner_domain=user_domain,
+                        current_user=current_user,
+                    )
                 )
 
         return accessible_endpoints
@@ -350,7 +364,11 @@ class EndpointService(BaseService):
         for endpoint in endpoints:
             if self._can_access_endpoint(endpoint, current_user, "organization"):
                 accessible_endpoints.append(
-                    self._to_response_with_urls(endpoint, owner_domain=org_domain)
+                    self._to_response_with_urls(
+                        endpoint,
+                        owner_domain=org_domain,
+                        current_user=current_user,
+                    )
                 )
 
         return accessible_endpoints
@@ -418,7 +436,7 @@ class EndpointService(BaseService):
             endpoint.id, old_visibility, new_visibility
         )
 
-        return self._to_response_with_urls(updated_endpoint)
+        return self._to_response_with_urls(updated_endpoint, current_user=current_user)
 
     def update_endpoint(
         self, endpoint_id: int, endpoint_data: EndpointUpdate, current_user: User
@@ -488,7 +506,7 @@ class EndpointService(BaseService):
                 detail="Failed to update endpoint",
             )
 
-        return self._to_response_with_urls(updated_endpoint)
+        return self._to_response_with_urls(updated_endpoint, current_user=current_user)
 
     # Router-compatible methods
     def list_user_endpoints(
@@ -867,7 +885,7 @@ class EndpointService(BaseService):
                 detail="Endpoint not found",
             )
 
-        return self._to_response_with_urls(endpoint)
+        return self._to_response_with_urls(endpoint, current_user=current_user)
 
     def delete_endpoint(self, endpoint_id: int, current_user: User) -> bool:
         """Delete endpoint."""
@@ -1273,7 +1291,9 @@ class EndpointService(BaseService):
             user = self.user_repository.get_by_id(current_user.id)
             user_domain = user.domain if user else None
             response_endpoints = [
-                self._to_response_with_urls(ep, owner_domain=user_domain)
+                self._to_response_with_urls(
+                    ep, owner_domain=user_domain, current_user=current_user
+                )
                 for ep in created_endpoints
             ]
 
