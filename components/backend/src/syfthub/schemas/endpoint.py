@@ -105,29 +105,29 @@ def filter_visible_policies(
         applied_to = config.get("applied_to") if isinstance(config, dict) else None
         return applied_to if applied_to else None
 
-    def _is_wildcard(policy: Any) -> bool:
+    wildcards: List[Any] = []
+    targeted: List[Any] = []
+    for policy in policies:
         applied_to = _applied_to(policy)
         if applied_to is None:
-            return True
-        return any(isinstance(e, str) and e.strip() == "*" for e in applied_to)
-
-    def _targets_viewer(policy: Any) -> bool:
-        if not normalized_viewer:
-            return False
-        applied_to = _applied_to(policy)
-        if applied_to is None:
-            return False
+            wildcards.append(policy)
+            continue
+        is_wildcard = False
+        is_targeted = False
         for entry in applied_to:
             if not isinstance(entry, str):
                 continue
-            if entry.strip().lower() == normalized_viewer:
-                return True
-        return False
+            normalized_entry = entry.strip().lower()
+            if normalized_entry == "*":
+                is_wildcard = True
+            elif normalized_viewer and normalized_entry == normalized_viewer:
+                is_targeted = True
+        if is_targeted:
+            targeted.append(policy)
+        elif is_wildcard:
+            wildcards.append(policy)
 
-    targeted = [p for p in policies if _targets_viewer(p)]
-    if targeted:
-        return targeted
-    return [p for p in policies if _is_wildcard(p)]
+    return targeted or wildcards
 
 
 class Connection(BaseModel):

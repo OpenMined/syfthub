@@ -27,7 +27,14 @@ import Database from 'lucide-react/dist/esm/icons/database';
 import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
 
 import { formatRelativeTime } from './date-utils';
-import { syftClient } from './sdk-client';
+import { getStoredAccessToken, syftClient } from './sdk-client';
+
+// Public endpoints optionally accept a bearer token to personalize policy
+// filtering (config.applied_to). Without it, only wildcard policies are returned.
+function buildAuthHeaders(): Record<string, string> {
+  const token = getStoredAccessToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 // ============================================================================
 // Type Matching Helpers
@@ -381,7 +388,9 @@ export async function getPublicEndpointsPaginated(
       queryParams.append('search', search.trim());
     }
 
-    const response = await fetch(`/api/v1/endpoints/public?${queryParams.toString()}`);
+    const response = await fetch(`/api/v1/endpoints/public?${queryParams.toString()}`, {
+      headers: buildAuthHeaders()
+    });
 
     if (!response.ok) {
       throw new Error(`Failed to fetch endpoints: ${response.statusText}`);
@@ -423,7 +432,8 @@ export async function getPublicEndpointByPath(path: string): Promise<ChatSource 
 
   try {
     const response = await fetch(
-      `/api/v1/endpoints/public/${encodeURIComponent(owner)}/${encodeURIComponent(slug)}`
+      `/api/v1/endpoints/public/${encodeURIComponent(owner)}/${encodeURIComponent(slug)}`,
+      { headers: buildAuthHeaders() }
     );
 
     if (!response.ok) {
@@ -495,7 +505,8 @@ export async function getPublicEndpointOwners(): Promise<OwnerInfo[]> {
 export async function getPublicEndpointsByOwner(owner: string): Promise<ChatSource[]> {
   try {
     const response = await fetch(
-      `/api/v1/endpoints/public/by-owner/${encodeURIComponent(owner)}?limit=500`
+      `/api/v1/endpoints/public/by-owner/${encodeURIComponent(owner)}?limit=500`,
+      { headers: buildAuthHeaders() }
     );
 
     if (!response.ok) {
@@ -546,7 +557,9 @@ export async function getGroupedPublicEndpoints(
       max_per_owner: String(maxPerOwner)
     });
 
-    const response = await fetch(`/api/v1/endpoints/public/grouped?${queryParams.toString()}`);
+    const response = await fetch(`/api/v1/endpoints/public/grouped?${queryParams.toString()}`, {
+      headers: buildAuthHeaders()
+    });
 
     if (!response.ok) {
       throw new Error(`Failed to fetch grouped endpoints: ${response.statusText}`);
