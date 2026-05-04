@@ -74,6 +74,43 @@ class Policy(BaseModel):
     )
 
 
+def filter_visible_policies(
+    policies: List[Any], viewer_email: Optional[str]
+) -> List[Any]:
+    """Filter policies by their `config.applied_to` audience list.
+
+    Rules:
+    - Missing/empty `applied_to` is treated as `["*"]` (visible to everyone).
+    - `"*"` in `applied_to` is visible to everyone (including anonymous).
+    - Otherwise visible only when `viewer_email` (case-insensitive) is listed.
+    - When `viewer_email` is None, only wildcard policies are visible.
+
+    Accepts policies as Pydantic Policy instances or plain dicts.
+    """
+    normalized_viewer = viewer_email.strip().lower() if viewer_email else None
+
+    def _is_visible(policy: Any) -> bool:
+        if isinstance(policy, BaseModel):
+            config = getattr(policy, "config", None) or {}
+        else:
+            config = policy.get("config") or {} if isinstance(policy, dict) else {}
+
+        applied_to = config.get("applied_to") if isinstance(config, dict) else None
+        if not applied_to:
+            return True
+
+        for entry in applied_to:
+            if not isinstance(entry, str):
+                continue
+            if entry.strip() == "*":
+                return True
+            if normalized_viewer and entry.strip().lower() == normalized_viewer:
+                return True
+        return False
+
+    return [p for p in policies if _is_visible(p)]
+
+
 class Connection(BaseModel):
     """Connection configuration for endpoints.
 
