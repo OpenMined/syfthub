@@ -32,7 +32,7 @@ export function SubscriptionsSettingsTab() {
   return (
     <div className='space-y-4'>
       <div>
-        <h2 className='text-foreground text-lg font-semibold'>Endpoint subscriptions</h2>
+        <h2 className='text-foreground text-lg font-semibold'>Top up credits</h2>
         <p className='text-muted-foreground mt-1 text-sm'>
           Publisher-side wallets you've funded via Xendit. Balances are fetched live from each
           publisher.
@@ -105,9 +105,7 @@ function SubscriptionCard({ subscription }: Readonly<{ subscription: XenditSubsc
   });
 
   const liveBalance = balance ?? subscription.last_known_balance ?? 0;
-  const label = subscription.endpoint_slug
-    ? `${subscription.endpoint_owner}/${subscription.endpoint_slug}`
-    : subscription.endpoint_owner;
+  const label = subscription.endpoint_owner;
   const targetPath = subscription.endpoint_slug
     ? `/${subscription.endpoint_owner}/${subscription.endpoint_slug}`
     : `/${subscription.endpoint_owner}`;
