@@ -25,7 +25,7 @@ vi.mock('@/stores/settings-modal-store', () => ({
   useSettingsModalStore: () => ({ openSettings: mockOpenSettings })
 }));
 
-// Mock wallet balance hook
+// CreditsPanel internally uses useWalletBalance for the MPP wallet row.
 const { mockUseWalletBalance } = vi.hoisted(() => ({
   mockUseWalletBalance: vi.fn()
 }));
@@ -115,81 +115,42 @@ describe('BalanceIndicator', () => {
     expect(container.innerHTML).toBe('');
   });
 
-  it('shows "Set up wallet" pill when not configured', () => {
-    mockUseWalletContext.mockReturnValue({
-      isConfigured: false,
-      isLoading: false
-    });
-
+  it('renders an icon-only wallet trigger', () => {
     renderIndicator();
-    expect(screen.getByText('Set up wallet')).toBeInTheDocument();
+    const button = screen.getByRole('button', { name: /wallet/i });
+    expect(button).toBeInTheDocument();
+    // No balance text on the trigger itself.
+    expect(screen.queryByText('500.00')).not.toBeInTheDocument();
   });
 
-  it('opens dropdown when "Set up wallet" pill is clicked', async () => {
-    mockUseWalletContext.mockReturnValue({
-      isConfigured: false,
-      isLoading: false
-    });
-
+  it('opens the credits panel when the wallet button is clicked', async () => {
     const user = userEvent.setup();
     renderIndicator();
 
-    await user.click(screen.getByText('Set up wallet'));
-    // Pill toggles dropdown; the actual settings link lives inside the panel.
-    expect(screen.getByText('Wallet settings')).toBeInTheDocument();
-  });
-
-  it('shows compact balance for healthy balance', () => {
-    renderIndicator();
-    expect(screen.getByText('500.00')).toBeInTheDocument();
-  });
-
-  it('shows balance with K suffix for large numbers', () => {
-    mockUseWalletBalance.mockReturnValue({
-      balance: {
-        balance: 15_000,
-        currency: 'credits',
-        recent_transactions: [],
-        wallet_configured: true
-      },
-      isLoading: false,
-      error: null,
-      refetch: mockRefetch
-    });
-
-    renderIndicator();
-    expect(screen.getByText('15.0K')).toBeInTheDocument();
-  });
-
-  it('shows "Error" text on the pill when there is an error', () => {
-    mockUseWalletBalance.mockReturnValue({
-      balance: null,
-      isLoading: false,
-      error: 'Network error',
-      refetch: mockRefetch
-    });
-
-    renderIndicator();
-    expect(screen.getByText('Error')).toBeInTheDocument();
-  });
-
-  it('opens dropdown on click and renders the credits panel', async () => {
-    const user = userEvent.setup();
-    renderIndicator();
-
-    await user.click(screen.getByRole('button', { name: /account balance/i }));
+    await user.click(screen.getByRole('button', { name: /wallet/i }));
 
     expect(screen.getByText('Tempo · pathUSD')).toBeInTheDocument();
-    // "Endpoint subscriptions" appears both as a section header and inside
-    // the empty-state copy, so just confirm at least one rendered.
-    expect(screen.getAllByText(/Endpoint subscriptions/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Endpoint credits/i).length).toBeGreaterThan(0);
+  });
+
+  it('opens the credits panel when not configured (set-up flow lives inside)', async () => {
+    mockUseWalletContext.mockReturnValue({
+      isConfigured: false,
+      isLoading: false
+    });
+
+    const user = userEvent.setup();
+    renderIndicator();
+
+    await user.click(screen.getByRole('button', { name: /wallet/i }));
+    expect(screen.getByText('Wallet settings')).toBeInTheDocument();
   });
 
   it('shows empty subscriptions message when no Xendit wallets are funded', async () => {
     const user = userEvent.setup();
     renderIndicator();
 
-    await user.click(screen.getByRole('button', { name: /account balance/i }));
+    await user.click(screen.getByRole('button', { name: /wallet/i }));
 
     expect(screen.getByText(/No endpoint subscriptions yet/i)).toBeInTheDocument();
   });
@@ -198,7 +159,7 @@ describe('BalanceIndicator', () => {
     const user = userEvent.setup();
     renderIndicator();
 
-    await user.click(screen.getByRole('button', { name: /account balance/i }));
+    await user.click(screen.getByRole('button', { name: /wallet/i }));
     await user.click(screen.getByText('Wallet settings'));
 
     expect(mockOpenSettings).toHaveBeenCalledWith('payment');
@@ -208,7 +169,7 @@ describe('BalanceIndicator', () => {
     const user = userEvent.setup();
     renderIndicator();
 
-    await user.click(screen.getByRole('button', { name: /account balance/i }));
+    await user.click(screen.getByRole('button', { name: /wallet/i }));
     await user.click(screen.getByText('Manage all'));
 
     expect(mockOpenSettings).toHaveBeenCalledWith('subscriptions');
@@ -218,7 +179,7 @@ describe('BalanceIndicator', () => {
     const user = userEvent.setup();
     renderIndicator();
 
-    await user.click(screen.getByRole('button', { name: /account balance/i }));
+    await user.click(screen.getByRole('button', { name: /wallet/i }));
     expect(screen.getByText('Tempo · pathUSD')).toBeInTheDocument();
 
     await user.keyboard('{Escape}');
@@ -228,7 +189,7 @@ describe('BalanceIndicator', () => {
   it('closes dropdown on click outside', async () => {
     renderIndicator();
 
-    fireEvent.click(screen.getByRole('button', { name: /account balance/i }));
+    fireEvent.click(screen.getByRole('button', { name: /wallet/i }));
     expect(screen.getByText('Tempo · pathUSD')).toBeInTheDocument();
 
     fireEvent.mouseDown(document.body);
