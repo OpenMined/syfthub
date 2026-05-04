@@ -1,31 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
-import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
-import Coins from 'lucide-react/dist/esm/icons/coins';
-import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
+import Wallet from 'lucide-react/dist/esm/icons/wallet';
 
 import { OnboardingCallout } from '@/components/onboarding';
 import { useWalletContext } from '@/context/wallet-context';
-import { useWalletBalance } from '@/hooks/use-wallet-api';
 import { cn } from '@/lib/utils';
 import { useSettingsModalStore } from '@/stores/settings-modal-store';
 
-import {
-  formatBalanceCompact,
-  getBalanceStatus,
-  statusColors,
-  statusRingColors
-} from './balance-display';
 import { CreditsPanel } from './credits-panel';
 
 /**
- * BalanceIndicator — top-bar pill that opens the unified Credits Panel.
+ * BalanceIndicator — top-bar wallet icon that opens the unified Credits Panel.
  *
- * The pill itself stays focused on the MPP wallet balance (the universal
- * SyftHub wallet); endpoint subscriptions live inside the dropdown so the
- * nav stays visually quiet.
+ * The trigger is intentionally minimal (icon only). Showing a single number
+ * here was confusing for users who had just paid but whose balance was still
+ * settling — the per-wallet detail belongs inside the dropdown panel.
  */
 export function BalanceIndicator() {
   const [isOpen, setIsOpen] = useState(false);
@@ -33,7 +23,6 @@ export function BalanceIndicator() {
   const buttonReference = useRef<HTMLButtonElement>(null);
 
   const { isConfigured, isLoading: isLoadingWallet } = useWalletContext();
-  const { balance: walletBalance, isLoading: isLoadingBalance, error } = useWalletBalance();
   const { openSettings } = useSettingsModalStore();
 
   useEffect(() => {
@@ -88,90 +77,30 @@ export function BalanceIndicator() {
 
   if (isLoadingWallet) return null;
 
-  if (!isConfigured) {
-    return (
-      <OnboardingCallout step='balance' position='bottom'>
-        <div className='relative'>
-          <button
-            ref={buttonReference}
-            onClick={toggleOpen}
-            className={cn(
-              'font-inter flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs transition-colors',
-              'border-amber-200 bg-amber-50 text-amber-700',
-              'hover:border-amber-300 hover:bg-amber-100'
-            )}
-            aria-expanded={isOpen}
-            aria-haspopup='true'
-          >
-            <Coins className='h-3.5 w-3.5' aria-hidden='true' />
-            <span>Set up wallet</span>
-            <ChevronDown className={cn('h-3 w-3 transition-transform', isOpen && 'rotate-180')} />
-          </button>
-          <Dropdown
-            isOpen={isOpen}
-            dropdownReference={dropdownReference}
-            onClose={closePanel}
-            onOpenWalletSettings={handleOpenWalletSettings}
-            onOpenSubscriptionsSettings={handleOpenSubscriptionsSettings}
-          />
-        </div>
-      </OnboardingCallout>
-    );
-  }
-
-  const isLoading = isLoadingBalance;
-  const balance = walletBalance?.balance ?? 0;
-  const status = getBalanceStatus(balance);
-
-  const renderStatusIcon = () => {
-    if (isLoading) {
-      return <Loader2 className='text-muted-foreground h-3.5 w-3.5 animate-spin' />;
-    }
-    if (error) {
-      return <AlertCircle className='h-3.5 w-3.5 text-red-500' />;
-    }
-    return (
-      <div className='relative'>
-        <div
-          className={cn(
-            'h-2 w-2 rounded-full',
-            statusColors[status],
-            status === 'empty' && 'animate-pulse'
-          )}
-        />
-        <div
-          className={cn('absolute inset-0 h-2 w-2 rounded-full ring-2', statusRingColors[status])}
-        />
-      </div>
-    );
-  };
-
   return (
     <OnboardingCallout step='balance' position='bottom'>
       <div className='relative'>
         <button
           ref={buttonReference}
+          type='button'
           onClick={toggleOpen}
           className={cn(
-            'font-inter flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors transition-shadow',
-            'border-border bg-muted',
-            'hover:border-input hover:shadow-sm',
+            'relative inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-colors transition-shadow',
+            'border-border bg-muted text-muted-foreground',
+            'hover:border-input hover:text-foreground hover:shadow-sm',
             'focus:ring-ring/20 focus:ring-2 focus:outline-none'
           )}
-          aria-label={`Account balance: ${formatBalanceCompact(balance)}`}
+          aria-label='Wallet'
           aria-expanded={isOpen}
           aria-haspopup='true'
         >
-          {renderStatusIcon()}
-          <span className='text-foreground font-medium tabular-nums'>
-            {error ? 'Error' : formatBalanceCompact(balance)}
-          </span>
-          <ChevronDown
-            className={cn(
-              'text-muted-foreground h-3 w-3 transition-transform',
-              isOpen && 'rotate-180'
-            )}
-          />
+          <Wallet className='h-4 w-4' aria-hidden='true' />
+          {!isConfigured && (
+            <span
+              aria-hidden='true'
+              className='ring-background absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-amber-500 ring-2'
+            />
+          )}
         </button>
 
         <Dropdown
