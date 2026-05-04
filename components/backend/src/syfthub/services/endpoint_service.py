@@ -178,18 +178,18 @@ class EndpointService(BaseService):
         return [uid for uid in unique_ids if uid in active_ids]
 
     @staticmethod
-    def _inject_subscription_tag(tags: list[str], policies: list[Policy]) -> list[str]:
-        """Inject 'subscription' tag if a xendit policy is present.
+    def _inject_prepaid_tag(tags: list[str], policies: list[Policy]) -> list[str]:
+        """Inject 'prepaid' tag if a xendit policy is present.
 
         Silently skips if the tags list already has 10 or more entries and
-        'subscription' is not present (preserves the 10-tag soft limit for
+        'prepaid' is not present (preserves the 10-tag soft limit for
         user-supplied tags without rejecting the request).
         """
-        has_bundle_sub = any(p.type.lower() == "xendit" for p in policies)
-        if has_bundle_sub and "subscription" not in tags:
+        has_xendit_policy = any(p.type.lower() == "xendit" for p in policies)
+        if has_xendit_policy and "prepaid" not in tags:
             if len(tags) >= 10:
                 return tags
-            return [*tags, "subscription"]
+            return [*tags, "prepaid"]
         return tags
 
     def create_endpoint(
@@ -241,8 +241,7 @@ class EndpointService(BaseService):
                     detail="slug already exists - already taken",
                 )
 
-        # Auto-inject 'subscription' tag when a xendit policy is present
-        final_tags = self._inject_subscription_tag(
+        final_tags = self._inject_prepaid_tag(
             endpoint_data.tags, endpoint_data.policies
         )
 
@@ -391,16 +390,13 @@ class EndpointService(BaseService):
                 valid_contributors.append(current_user.id)
             endpoint_data.contributors = valid_contributors
 
-        # Auto-inject 'subscription' tag when a xendit policy is present
         if endpoint_data.policies is not None:
             effective_tags = (
                 endpoint_data.tags
                 if endpoint_data.tags is not None
                 else (endpoint.tags or [])
             )
-            new_tags = self._inject_subscription_tag(
-                effective_tags, endpoint_data.policies
-            )
+            new_tags = self._inject_prepaid_tag(effective_tags, endpoint_data.policies)
             if new_tags != effective_tags:
                 endpoint_data.tags = new_tags
 
@@ -1156,7 +1152,7 @@ class EndpointService(BaseService):
                 valid_contributors.append(current_user.id)
 
             # Prepare the validated endpoint data
-            final_tags = self._inject_subscription_tag(
+            final_tags = self._inject_prepaid_tag(
                 endpoint_data.tags or [], endpoint_data.policies
             )
             validated_endpoint = {

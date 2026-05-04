@@ -12,6 +12,7 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { formatRequestEstimate } from '@/lib/xendit-client';
 
 export interface BundlePickerProperties {
   bundles: MoneyBundle[];
@@ -20,6 +21,19 @@ export interface BundlePickerProperties {
   onChange: (name: string) => void;
   disabled?: boolean;
   triggerClassName?: string;
+  /** When set (>0), each option shows an estimated request count. */
+  pricePerRequest?: number | null;
+}
+
+function RequestEstimate({
+  amount,
+  pricePerRequest
+}: Readonly<{ amount: number; pricePerRequest: number }>) {
+  return (
+    <span className='text-[10px] font-normal opacity-70'>
+      ({formatRequestEstimate(amount, pricePerRequest)})
+    </span>
+  );
 }
 
 export function BundlePicker({
@@ -28,10 +42,13 @@ export function BundlePicker({
   value,
   onChange,
   disabled,
-  triggerClassName
+  triggerClassName,
+  pricePerRequest
 }: Readonly<BundlePickerProperties>) {
   const selected = bundles.find((b) => b.name === value) ?? bundles[0];
   if (!selected) return null;
+
+  const showRequestEstimate = typeof pricePerRequest === 'number' && pricePerRequest > 0;
 
   return (
     <Select value={value} onValueChange={onChange} disabled={disabled}>
@@ -46,10 +63,13 @@ export function BundlePicker({
         )}
       >
         <SelectValue>
-          <span className='flex w-full items-center pr-1'>
+          <span className='flex w-full items-center gap-1.5 pr-1'>
             <span className='font-medium tabular-nums'>
               {currency} {selected.amount.toLocaleString()}
             </span>
+            {showRequestEstimate && (
+              <RequestEstimate amount={selected.amount} pricePerRequest={pricePerRequest} />
+            )}
           </span>
         </SelectValue>
       </SelectTrigger>
@@ -68,8 +88,13 @@ export function BundlePicker({
               'dark:text-violet-200 dark:focus:bg-violet-900/50 dark:focus:text-violet-100'
             )}
           >
-            <span className='font-medium tabular-nums'>
-              {currency} {bundle.amount.toLocaleString()}
+            <span className='flex items-center gap-1.5'>
+              <span className='font-medium tabular-nums'>
+                {currency} {bundle.amount.toLocaleString()}
+              </span>
+              {showRequestEstimate && (
+                <RequestEstimate amount={bundle.amount} pricePerRequest={pricePerRequest} />
+              )}
             </span>
           </SelectItem>
         ))}

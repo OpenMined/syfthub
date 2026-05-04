@@ -25,6 +25,7 @@ export interface MoneyBundle {
 export interface ParsedXenditConfig {
   paymentUrl: string | null;
   creditsUrl: string | null;
+  invoicesUrl: string | null;
   bundles: MoneyBundle[];
   currency: string;
   pricePerRequest: number | null;
@@ -61,6 +62,7 @@ function pickConfigValue<T>(
 export function parseXenditConfig(config: Record<string, unknown>): ParsedXenditConfig {
   const paymentUrl = pickConfigValue(config, 'payment_url', 'paymentUrl', isValidUrl);
   const creditsUrl = pickConfigValue(config, 'credits_url', 'creditsUrl', isValidUrl);
+  const invoicesUrl = pickConfigValue(config, 'invoices_url', 'invoicesUrl', isValidUrl);
   const currency = pickConfigValue(config, 'currency', 'currency', isStringValue) ?? 'IDR';
   const country = pickConfigValue(config, 'country', 'country', isStringValue);
   const pricePerRequest = pickConfigValue(
@@ -77,7 +79,12 @@ export function parseXenditConfig(config: Record<string, unknown>): ParsedXendit
       typeof (b as Record<string, unknown>).name === 'string' &&
       typeof (b as Record<string, unknown>).amount === 'number'
   );
-  return { paymentUrl, creditsUrl, bundles, currency, pricePerRequest, country };
+  return { paymentUrl, creditsUrl, invoicesUrl, bundles, currency, pricePerRequest, country };
+}
+
+export function formatRequestEstimate(amount: number, pricePerRequest: number): string {
+  const requests = Math.floor(amount / pricePerRequest);
+  return `~${requests.toLocaleString()} requests`;
 }
 
 export function openCheckoutWindow(url: string): void {
@@ -113,6 +120,46 @@ export async function fetchBalance(
     if (typeof data !== 'object' || data === null) return null;
     const balance = (data as Record<string, unknown>).balance;
     return typeof balance === 'number' ? balance : 0;
+  } catch {
+    return null;
+  }
+}
+
+export interface PendingInvoice {
+  checkoutUrl: string;
+  bundleName: string;
+}
+
+/**
+ * Look up the caller's most recent pending invoice on a publisher wallet.
+ *
+ * Returns the latest pending invoice (newest first per gateway contract) so
+ * that the policy card can resume an in-flight checkout when the user
+ * revisits the page after closing the popup. Returns null when there is no
+ * pending invoice, the gateway response is malformed, or any error occurs.
+ */
+export async function fetchPendingInvoice(
+  invoicesUrl: string,
+  satelliteToken: string,
+  signal?: AbortSignal
+): Promise<PendingInvoice | null> {
+  try {
+    const url = new URL(invoicesUrl);
+    url.searchParams.set('status', 'pending');
+    const response = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${satelliteToken}` },
+      signal
+    });
+    if (!response.ok) return null;
+    const data: unknown = await response.json();
+    if (!Array.isArray(data) || data.length === 0) return null;
+    const first = data[0];
+    if (typeof first !== 'object' || first === null) return null;
+    const record = first as Record<string, unknown>;
+    const checkoutUrl = record.checkout_url ?? record.checkoutUrl;
+    const bundleName = record.bundle_name ?? record.bundleName;
+    if (typeof checkoutUrl !== 'string' || typeof bundleName !== 'string') return null;
+    return { checkoutUrl, bundleName };
   } catch {
     return null;
   }

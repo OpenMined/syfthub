@@ -1,11 +1,13 @@
-import React, { memo } from 'react';
+import React, { memo, useMemo, useState } from 'react';
 
 import type { Policy } from '@/lib/types';
 
+import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
 import Coins from 'lucide-react/dist/esm/icons/coins';
 import CreditCard from 'lucide-react/dist/esm/icons/credit-card';
 import Gauge from 'lucide-react/dist/esm/icons/gauge';
 import Globe from 'lucide-react/dist/esm/icons/globe';
+import Info from 'lucide-react/dist/esm/icons/info';
 import Key from 'lucide-react/dist/esm/icons/key';
 import Lock from 'lucide-react/dist/esm/icons/lock';
 import MapPin from 'lucide-react/dist/esm/icons/map-pin';
@@ -14,7 +16,9 @@ import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check';
 import Zap from 'lucide-react/dist/esm/icons/zap';
 
 import { Badge } from '@/components/ui/badge';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
+import { parseXenditConfig } from '@/lib/xendit-client';
 
 import { GenericPolicyContent } from './generic-policy-content';
 import { formatConfigKey, TransactionPolicyContent } from './transaction-policy-content';
@@ -51,11 +55,11 @@ const POLICY_TYPE_CONFIG: Record<
   },
   xendit: {
     icon: CreditCard,
-    label: 'Xendit Bundle',
+    label: 'Pay-in-advance via Xendit',
     color: 'text-violet-600 dark:text-violet-400',
     bgColor: 'bg-violet-50 dark:bg-violet-950/30',
     borderColor: 'border-violet-200 dark:border-violet-800',
-    description: 'Bundle subscription required to access this endpoint'
+    description: 'Top up credits in advance to use this endpoint'
   },
   // Access control policies
   public: {
@@ -182,6 +186,15 @@ export const PolicyItem = memo(function PolicyItem({
   const rawDescription = policy.description || config.description;
   const description = rawDescription && rawDescription !== displayLabel ? rawDescription : null;
 
+  const xenditParsed = useMemo(
+    () => (isXendit ? parseXenditConfig(policy.config) : null),
+    [isXendit, policy.config]
+  );
+  const xenditPricePerRequest =
+    xenditParsed && xenditParsed.pricePerRequest !== null && xenditParsed.pricePerRequest > 0
+      ? xenditParsed.pricePerRequest
+      : null;
+
   return (
     <div
       className={cn(
@@ -220,17 +233,56 @@ export const PolicyItem = memo(function PolicyItem({
               {policy.enabled ? 'Active' : 'Disabled'}
             </Badge>
           </div>
-          {description && <p className='text-muted-foreground mt-1 text-xs'>{description}</p>}
+          {description && (
+            <p className='text-muted-foreground mt-1 text-xs'>
+              {description}
+              {xenditParsed && xenditPricePerRequest !== null && (
+                <>
+                  {' '}
+                  <span className='font-semibold text-violet-700 tabular-nums dark:text-violet-300'>
+                    ({xenditParsed.currency} {xenditPricePerRequest.toLocaleString()} / request)
+                  </span>
+                </>
+              )}
+            </p>
+          )}
 
           {/* Policy-specific content */}
           {Object.keys(policy.config).length > 0 &&
             renderPolicyContent(policy, isTransaction, isXendit, endpointSlug, endpointOwner)}
 
-          {policy.version ? (
-            <p className='text-muted-foreground mt-2 text-[10px]'>Version {policy.version}</p>
-          ) : null}
+          <div className='mt-2 flex items-center gap-2'>
+            {policy.version ? (
+              <p className='text-muted-foreground text-[10px]'>Version {policy.version}</p>
+            ) : null}
+            {isXendit && <XenditHowItWorks />}
+          </div>
         </div>
       </div>
     </div>
   );
 });
+
+function XenditHowItWorks() {
+  const [open, setOpen] = useState(false);
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className='text-[10px]'>
+      <CollapsibleTrigger
+        className={cn(
+          'text-muted-foreground hover:text-foreground inline-flex cursor-pointer items-center gap-1',
+          'transition-colors select-none'
+        )}
+      >
+        <Info className='h-3 w-3' />
+        <span>How does this work?</span>
+        <ChevronDown className={cn('h-3 w-3 transition-transform', open && 'rotate-180')} />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <p className='text-muted-foreground mt-1.5 max-w-prose text-[11px] leading-relaxed'>
+          Purchase credits upfront with a data owner. Your balance is shared across all of their
+          endpoints. Top up anytime — credits are deducted per request until your balance runs out.
+        </p>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
