@@ -2,11 +2,15 @@
  * useXenditPrecheck
  *
  * Pre-flight subscription check run before a chat message is sent.
- * Inspects the model + selected data sources for Xendit-policy gates,
+ * Inspects the model + selected data sources for paid-policy gates,
  * dedupes by credits_url (one wallet may back multiple endpoints), and
  * fetches each balance via a satellite token. Returns the rows that
  * still need a paid subscription so the chat view can open the gate
  * modal — or an empty array when the user is clear to send.
+ *
+ * Also surfaces `mpp`-typed policies as always-pending rows: payment
+ * for those endpoints isn't implemented yet, so the gate informs the
+ * user and forces them to remove the endpoint to send.
  */
 import { useCallback } from 'react';
 
@@ -29,17 +33,23 @@ export interface EndpointReference {
   role: EndpointRole;
 }
 
+export type PolicyKind = 'xendit' | 'mpp';
+
 export interface PendingSubscription {
-  /** Stable identity (the credits_url, which uniquely names a wallet). */
+  /** Which policy type this row represents. Drives the gate UI branch. */
+  policyType: PolicyKind;
+  /** Stable identity. credits_url for xendit; synthetic for mpp. */
   walletKey: string;
   /** All endpoints covered by this single wallet subscription. */
   endpoints: EndpointReference[];
+  /** Empty string for mpp (no payment endpoint yet). */
   paymentUrl: string;
+  /** Empty string for mpp (no balance endpoint yet). */
   creditsUrl: string;
   bundles: MoneyBundle[];
   currency: string;
   pricePerRequest: number | null;
-  /** Last balance reading (0 when unsubscribed). */
+  /** Last balance reading (0 when unsubscribed; always 0 for mpp). */
   balance: number;
 }
 
@@ -78,27 +88,54 @@ function endpointReferenceFor(source: ChatSource, role: EndpointRole): EndpointR
 }
 
 interface XenditCandidate {
+  kind: 'xendit';
   endpoint: EndpointReference;
   policy: ResolvedXenditPolicy;
 }
 
-function candidatesFromSource(source: ChatSource, role: EndpointRole): XenditCandidate[] {
+interface MppCandidate {
+  kind: 'mpp';
+  endpoint: EndpointReference;
+  currency: string;
+  pricePerRequest: number | null;
+}
+
+type Candidate = XenditCandidate | MppCandidate;
+
+function resolveMppPolicy(
+  policy: Policy
+): { currency: string; pricePerRequest: number | null } | null {
+  if (!policy.enabled) return null;
+  if (policy.type.toLowerCase() !== 'mpp') return null;
+  const config = policy.config;
+  const rawPrice = config.price ?? config.price_per_request ?? config.pricePerRequest;
+  const pricePerRequest = typeof rawPrice === 'number' ? rawPrice : null;
+  const rawCurrency = config.currency;
+  const currency = typeof rawCurrency === 'string' && rawCurrency ? rawCurrency : 'USD';
+  return { currency, pricePerRequest };
+}
+
+function candidatesFromSource(source: ChatSource, role: EndpointRole): Candidate[] {
   if (!source.policies) return [];
   const ref = endpointReferenceFor(source, role);
   if (!ref) return [];
-  const out: XenditCandidate[] = [];
+  const out: Candidate[] = [];
   for (const policy of source.policies) {
-    const resolved = resolveXenditPolicy(policy);
-    if (resolved) out.push({ endpoint: ref, policy: resolved });
+    const xendit = resolveXenditPolicy(policy);
+    if (xendit) {
+      out.push({ kind: 'xendit', endpoint: ref, policy: xendit });
+      continue;
+    }
+    const mpp = resolveMppPolicy(policy);
+    if (mpp) {
+      out.push({ kind: 'mpp', endpoint: ref, ...mpp });
+    }
   }
   return out;
 }
 
-function collectXenditCandidates(
-  model: ChatSource | null,
-  dataSources: ChatSource[]
-): XenditCandidate[] {
-  const out: XenditCandidate[] = [];
+function collectCandidates(model: ChatSource | null, dataSources: ChatSource[]): Candidate[] {
+  const out: Candidate[] = [];
   if (model) out.push(...candidatesFromSource(model, 'model'));
   for (const ds of dataSources) out.push(...candidatesFromSource(ds, 'data_source'));
   return out;
@@ -124,13 +161,17 @@ export function useXenditPrecheck(options: UseXenditPrecheckOptions): UseXenditP
 
   const runPrecheck = useCallback(
     async (signal?: AbortSignal): Promise<PendingSubscription[]> => {
-      const candidates = collectXenditCandidates(model, dataSources);
+      const candidates = collectCandidates(model, dataSources);
       if (candidates.length === 0) return [];
       if (!syftClient.getTokens()) return [];
 
-      // One satellite token per distinct owner — multiple wallets owned by
-      // the same publisher reuse the token.
-      const owners = [...new Set(candidates.map((c) => c.endpoint.owner))];
+      const xenditCandidates = candidates.filter((c): c is XenditCandidate => c.kind === 'xendit');
+      const mppCandidates = candidates.filter((c): c is MppCandidate => c.kind === 'mpp');
+
+      // One satellite token per distinct xendit owner — multiple wallets
+      // owned by the same publisher reuse the token. mpp rows skip this
+      // because they have no balance endpoint to authenticate against.
+      const owners = [...new Set(xenditCandidates.map((c) => c.endpoint.owner))];
       const tokenByOwner = new Map<string, string>();
       await Promise.all(
         owners.map(async (owner) => {
@@ -143,11 +184,11 @@ export function useXenditPrecheck(options: UseXenditPrecheckOptions): UseXenditP
       // share a wallet — paying once funds them all — but the gate UI lists
       // each endpoint separately, so we need to know each row's status
       // without re-hitting the same credits_url.
-      const distinctCreditsUrls = [...new Set(candidates.map((c) => c.policy.creditsUrl))];
+      const distinctCreditsUrls = [...new Set(xenditCandidates.map((c) => c.policy.creditsUrl))];
       const balanceByCreditsUrl = new Map<string, number | null>();
       await Promise.all(
         distinctCreditsUrls.map(async (creditsUrl) => {
-          const sample = candidates.find((c) => c.policy.creditsUrl === creditsUrl);
+          const sample = xenditCandidates.find((c) => c.policy.creditsUrl === creditsUrl);
           if (!sample) return;
           const token = tokenByOwner.get(sample.endpoint.owner);
           if (!token) return;
@@ -156,17 +197,18 @@ export function useXenditPrecheck(options: UseXenditPrecheckOptions): UseXenditP
         })
       );
 
-      // One PendingSubscription per endpoint. Rows that share a wallet keep
-      // the same `walletKey` (= credits_url) so the gate's polling loop and
-      // auto-registration can dedupe by wallet, and a single payment flips
-      // every sibling row to active at once.
+      // One PendingSubscription per endpoint. xendit rows that share a
+      // wallet keep the same `walletKey` (= credits_url) so the gate's
+      // polling loop and auto-registration can dedupe by wallet, and a
+      // single payment flips every sibling row to active at once.
       const out: PendingSubscription[] = [];
-      for (const c of candidates) {
+      for (const c of xenditCandidates) {
         const balance = balanceByCreditsUrl.get(c.policy.creditsUrl);
         if (balance === null || balance === undefined) continue;
         const threshold = c.policy.pricePerRequest ?? 1;
         if (balance >= threshold) continue;
         out.push({
+          policyType: 'xendit',
           walletKey: c.policy.creditsUrl,
           endpoints: [c.endpoint],
           paymentUrl: c.policy.paymentUrl,
@@ -175,6 +217,22 @@ export function useXenditPrecheck(options: UseXenditPrecheckOptions): UseXenditP
           currency: c.policy.currency,
           pricePerRequest: c.policy.pricePerRequest,
           balance
+        });
+      }
+      // mpp rows are always pending — no payment flow exists yet, so we
+      // surface them in the gate purely to inform the user and force a
+      // remove-or-cancel decision. walletKey is synthetic (per-endpoint).
+      for (const c of mppCandidates) {
+        out.push({
+          policyType: 'mpp',
+          walletKey: `mpp::${c.endpoint.owner}/${c.endpoint.slug}`,
+          endpoints: [c.endpoint],
+          paymentUrl: '',
+          creditsUrl: '',
+          bundles: [],
+          currency: c.currency,
+          pricePerRequest: c.pricePerRequest,
+          balance: 0
         });
       }
       return out;

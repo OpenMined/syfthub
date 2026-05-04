@@ -2,9 +2,14 @@
  * PaymentGate
  *
  * Inline gate rendered in the chat history (right after the user's bubble)
- * when one or more selected endpoints carry an unfunded Xendit policy.
- * Each row drives its own buy flow (popup checkout window); the parent polls
- * credits_url to detect when each wallet flips active and unlocks Send.
+ * when one or more selected endpoints carry an unfunded paid policy.
+ *
+ * Two row variants:
+ *   - xendit: drives its own buy flow (popup checkout window); the parent
+ *     polls credits_url to detect when each wallet flips active and unlocks
+ *     Send.
+ *   - mpp: payment is not implemented yet — shows a "supported in a future
+ *     release" notice and forces the user to remove the endpoint to send.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -32,6 +37,7 @@ import {
 function distinctOwners(pending: PendingSubscription[]): string[] {
   const owners = new Set<string>();
   for (const p of pending) {
+    if (p.policyType !== 'xendit') continue;
     for (const e of p.endpoints) owners.add(e.owner);
   }
   return [...owners];
@@ -70,6 +76,65 @@ function renderStatusLine(pending: PendingSubscription, isActive: boolean, liveB
     <span className='tabular-nums'>
       {pending.currency} {pending.pricePerRequest.toLocaleString()} per request
     </span>
+  );
+}
+
+interface MppRowProperties {
+  pending: PendingSubscription;
+  onRemove: () => void;
+}
+
+function MppPaymentGateRow({ pending, onRemove }: Readonly<MppRowProperties>) {
+  const primaryEndpoint = pending.endpoints[0];
+  const roleLabel = primaryEndpoint?.role === 'model' ? 'Model' : 'Data source';
+
+  return (
+    <div className='dark:bg-card rounded-md border border-amber-200/60 bg-white px-3 py-2.5 dark:border-amber-900/40'>
+      <div className='flex flex-wrap items-center justify-between gap-x-3 gap-y-2'>
+        <div className='flex min-w-0 flex-1 items-center gap-2.5'>
+          <div className='flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-amber-200 bg-amber-50 text-amber-600 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-400'>
+            <CreditCard className='h-3.5 w-3.5' />
+          </div>
+          <div className='min-w-0'>
+            <div className='flex items-center gap-1.5'>
+              <span className='text-foreground truncate text-sm font-medium'>
+                {primaryEndpoint?.path ?? 'Unknown endpoint'}
+              </span>
+              <span className='text-muted-foreground text-[11px]'>· {roleLabel}</span>
+            </div>
+            <div className='text-muted-foreground mt-0.5 text-[11px]'>
+              {pending.pricePerRequest === null ? (
+                <>MPP credits required</>
+              ) : (
+                <span className='tabular-nums'>
+                  {pending.currency} {pending.pricePerRequest.toLocaleString()} per request (MPP)
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className='flex shrink-0 items-center gap-1.5'>
+          <button
+            type='button'
+            onClick={onRemove}
+            aria-label='Remove from selection'
+            title='Remove from selection'
+            className={cn(
+              'text-muted-foreground hover:text-foreground rounded-md p-1 transition-colors',
+              'hover:bg-muted/60 focus:ring-ring/30 focus:ring-2 focus:outline-none'
+            )}
+          >
+            <X className='h-3.5 w-3.5' />
+          </button>
+        </div>
+      </div>
+
+      <div className='mt-2 text-[11px] text-amber-700 dark:text-amber-400'>
+        MPP endpoints will be supported in a future release. Remove this endpoint from the selection
+        to send your message.
+      </div>
+    </div>
   );
 }
 
@@ -291,6 +356,8 @@ export function PaymentGate({
 
   const isWalletActive = useCallback(
     (p: PendingSubscription) => {
+      // mpp has no payment flow yet — these rows can never become active.
+      if (p.policyType === 'mpp') return false;
       const balance = balances[p.walletKey] ?? 0;
       const threshold = p.pricePerRequest ?? 1;
       return balance >= threshold;
@@ -305,6 +372,7 @@ export function PaymentGate({
   const registeredKeysReference = useRef<Set<string>>(new Set());
   useEffect(() => {
     for (const p of pending) {
+      if (p.policyType !== 'xendit') continue;
       const balance = balances[p.walletKey] ?? 0;
       if (balance <= 0) continue;
       if (registeredKeysReference.current.has(p.walletKey)) continue;
@@ -330,6 +398,7 @@ export function PaymentGate({
     const tick = async () => {
       const inactive = new Map<string, PendingSubscription>();
       for (const p of pending) {
+        if (p.policyType !== 'xendit') continue;
         if (isWalletActive(p)) continue;
         if (!inactive.has(p.walletKey)) inactive.set(p.walletKey, p);
       }
@@ -391,17 +460,31 @@ export function PaymentGate({
       </div>
 
       <div className='mt-3 space-y-1.5'>
-        {pending.map((p) => (
-          <PaymentGateRow
-            key={`${p.walletKey}::${p.endpoints[0]?.path ?? ''}`}
-            pending={p}
-            liveBalance={balances[p.walletKey] ?? 0}
-            isActive={isWalletActive(p)}
-            onRemove={() => {
-              onRemovePending(p);
-            }}
-          />
-        ))}
+        {pending.map((p) => {
+          const key = `${p.walletKey}::${p.endpoints[0]?.path ?? ''}`;
+          if (p.policyType === 'mpp') {
+            return (
+              <MppPaymentGateRow
+                key={key}
+                pending={p}
+                onRemove={() => {
+                  onRemovePending(p);
+                }}
+              />
+            );
+          }
+          return (
+            <PaymentGateRow
+              key={key}
+              pending={p}
+              liveBalance={balances[p.walletKey] ?? 0}
+              isActive={isWalletActive(p)}
+              onRemove={() => {
+                onRemovePending(p);
+              }}
+            />
+          );
+        })}
       </div>
 
       <div className='mt-4 flex items-center justify-end gap-2 border-t border-amber-200/60 pt-3 dark:border-amber-900/40'>
