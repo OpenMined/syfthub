@@ -23,6 +23,7 @@ from syfthub.schemas.endpoint import (
     EndpointUpdate,
     EndpointVisibility,
     GroupedEndpointsResponse,
+    filter_visible_policies,
     get_matching_types,
 )
 
@@ -75,6 +76,9 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         or SQLAlchemy Row) so it works for both regular and window-function queries.
         """
         transformed_connect = transform_connection_urls(domain, row.connect or [])
+        # Public response surfaces to anyone (including unauthenticated viewers),
+        # so only policies whose `applied_to` includes "*" (or is unset) are exposed.
+        visible_policies = filter_visible_policies(row.policies or [], None)
         return EndpointPublicResponse(
             name=row.name,
             slug=row.slug,
@@ -86,7 +90,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             readme=row.readme,
             tags=row.tags or [],
             stars_count=row.stars_count,
-            policies=row.policies,
+            policies=visible_policies,
             connect=transformed_connect,
             created_at=row.created_at,
             updated_at=row.updated_at,
