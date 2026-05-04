@@ -192,6 +192,7 @@ function PaymentGateRow({ pending, liveBalance, isActive, onRemove }: Readonly<R
                 onChange={setSelectedBundleName}
                 disabled={isBusy}
                 triggerClassName='h-8 min-w-[7rem]'
+                pricePerRequest={pending.pricePerRequest}
               />
               <button
                 type='button'

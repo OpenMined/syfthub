@@ -1381,10 +1381,10 @@ _XENDIT_POLICY_MINIMAL = {
 }
 
 
-def test_xendit_policy_auto_injects_subscription_tag_on_create(
+def test_xendit_policy_auto_injects_prepaid_tag_on_create(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test that creating an endpoint with xendit policy auto-injects 'subscription' tag."""
+    """Test that creating an endpoint with xendit policy auto-injects 'prepaid' tag."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     endpoint_data = {
@@ -1399,15 +1399,15 @@ def test_xendit_policy_auto_injects_subscription_tag_on_create(
     assert response.status_code == 201
 
     data = response.json()
-    assert "subscription" in data["tags"]
+    assert "prepaid" in data["tags"]
     assert "ml" in data["tags"]
     assert "nlp" in data["tags"]
 
 
-def test_xendit_policy_auto_injects_subscription_tag_on_update(
+def test_xendit_policy_auto_injects_prepaid_tag_on_update(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test that updating an endpoint to add xendit policy injects 'subscription' tag."""
+    """Test that updating an endpoint to add xendit policy injects 'prepaid' tag."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     # Create endpoint without xendit policy
@@ -1420,7 +1420,7 @@ def test_xendit_policy_auto_injects_subscription_tag_on_update(
     response = client.post("/api/v1/endpoints", json=create_data, headers=headers)
     assert response.status_code == 201
     endpoint_id = response.json()["id"]
-    assert "subscription" not in response.json()["tags"]
+    assert "prepaid" not in response.json()["tags"]
 
     # Update to add xendit policy
     update_data = {"policies": [_XENDIT_POLICY_MINIMAL]}
@@ -1428,7 +1428,7 @@ def test_xendit_policy_auto_injects_subscription_tag_on_update(
         f"/api/v1/endpoints/{endpoint_id}", json=update_data, headers=headers
     )
     assert response.status_code == 200
-    assert "subscription" in response.json()["tags"]
+    assert "prepaid" in response.json()["tags"]
 
 
 def test_xendit_auto_tag_skips_when_tag_limit_reached(
@@ -1451,18 +1451,18 @@ def test_xendit_auto_tag_skips_when_tag_limit_reached(
 
     data = response.json()
     assert len(data["tags"]) == 10
-    assert "subscription" not in data["tags"]
+    assert "prepaid" not in data["tags"]
 
 
 def test_xendit_auto_tag_is_idempotent(client: TestClient, user1_token: str) -> None:
-    """Test that 'subscription' tag is not duplicated if already present."""
+    """Test that 'prepaid' tag is not duplicated if already present."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     endpoint_data = {
         "name": "Idempotent Xendit Endpoint",
         "type": "model",
         "visibility": "public",
-        "tags": ["subscription", "ai"],
+        "tags": ["prepaid", "ai"],
         "policies": [_XENDIT_POLICY_MINIMAL],
     }
 
@@ -1470,7 +1470,7 @@ def test_xendit_auto_tag_is_idempotent(client: TestClient, user1_token: str) -> 
     assert response.status_code == 201
 
     data = response.json()
-    assert data["tags"].count("subscription") == 1
+    assert data["tags"].count("prepaid") == 1
 
 
 def test_create_endpoint_with_xendit_policy(
@@ -1507,7 +1507,7 @@ def test_create_endpoint_with_xendit_policy(
         policy["config"]["credits_url"]
         == "https://my-server.example.com/api/v1/payments/gateway/bundles/test-endpoint"
     )
-    assert "subscription" in data["tags"]
+    assert "prepaid" in data["tags"]
 
 
 def test_create_endpoint_with_connections(client: TestClient, user1_token: str) -> None:
@@ -2256,13 +2256,13 @@ def test_create_endpoint_with_xendit_policy_auto_tags(
     assert len(policy["config"]["bundles"]) == 2
 
     # Auto-tag injection
-    assert "subscription" in data["tags"]
+    assert "prepaid" in data["tags"]
 
 
 def test_create_endpoint_xendit_no_duplicate_tag(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test that auto-tag injection does not duplicate 'subscription' if already present."""
+    """Test that auto-tag injection does not duplicate 'prepaid' if already present."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     response = client.post(
@@ -2271,7 +2271,7 @@ def test_create_endpoint_xendit_no_duplicate_tag(
             "name": "Already Tagged Xendit Endpoint",
             "type": "model",
             "visibility": "public",
-            "tags": ["subscription", "ml"],
+            "tags": ["prepaid", "ml"],
             "policies": [_XENDIT_POLICY_MINIMAL],
         },
         headers=headers,
@@ -2279,13 +2279,13 @@ def test_create_endpoint_xendit_no_duplicate_tag(
     assert response.status_code == 201
 
     data = response.json()
-    assert data["tags"].count("subscription") == 1
+    assert data["tags"].count("prepaid") == 1
 
 
 def test_update_endpoint_with_xendit_auto_tags(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test that updating an endpoint to add xendit policy injects subscription tag."""
+    """Test that updating an endpoint to add xendit policy injects prepaid tag."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     # Create endpoint without policies
@@ -2300,7 +2300,7 @@ def test_update_endpoint_with_xendit_auto_tags(
     )
     assert response.status_code == 201
     endpoint_id = response.json()["id"]
-    assert "subscription" not in response.json()["tags"]
+    assert "prepaid" not in response.json()["tags"]
 
     # Update with xendit policy
     response = client.patch(
@@ -2309,13 +2309,13 @@ def test_update_endpoint_with_xendit_auto_tags(
         headers=headers,
     )
     assert response.status_code == 200
-    assert "subscription" in response.json()["tags"]
+    assert "prepaid" in response.json()["tags"]
 
 
 def test_sync_endpoint_with_xendit_auto_tags(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test that sync with xendit policy injects subscription tag."""
+    """Test that sync with xendit policy injects prepaid tag."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     sync_data = {
@@ -2335,7 +2335,7 @@ def test_sync_endpoint_with_xendit_auto_tags(
 
     endpoint = response.json()["endpoints"][0]
     assert "ai" in endpoint["tags"]
-    assert "subscription" in endpoint["tags"]
+    assert "prepaid" in endpoint["tags"]
     assert endpoint["policies"][0]["type"] == "xendit"
     assert endpoint["policies"][0]["config"]["bundles"][0]["name"] == "Starter"
 
@@ -2343,7 +2343,7 @@ def test_sync_endpoint_with_xendit_auto_tags(
 def test_remove_xendit_policy_does_not_remove_tag(
     client: TestClient, user1_token: str
 ) -> None:
-    """Test that removing xendit policies does NOT auto-remove 'subscription' tag."""
+    """Test that removing xendit policies does NOT auto-remove 'prepaid' tag."""
     headers = {"Authorization": f"Bearer {user1_token}"}
 
     # Create with xendit policy
@@ -2359,7 +2359,7 @@ def test_remove_xendit_policy_does_not_remove_tag(
     )
     assert response.status_code == 201
     endpoint_id = response.json()["id"]
-    assert "subscription" in response.json()["tags"]
+    assert "prepaid" in response.json()["tags"]
 
     # Remove all policies
     response = client.patch(
@@ -2369,4 +2369,4 @@ def test_remove_xendit_policy_does_not_remove_tag(
     )
     assert response.status_code == 200
     # Tag should still be present (not auto-removed)
-    assert "subscription" in response.json()["tags"]
+    assert "prepaid" in response.json()["tags"]

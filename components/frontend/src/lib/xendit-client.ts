@@ -80,6 +80,11 @@ export function parseXenditConfig(config: Record<string, unknown>): ParsedXendit
   return { paymentUrl, creditsUrl, bundles, currency, pricePerRequest, country };
 }
 
+export function formatRequestEstimate(amount: number, pricePerRequest: number): string {
+  const requests = Math.floor(amount / pricePerRequest);
+  return `~${requests.toLocaleString()} requests`;
+}
+
 export function openCheckoutWindow(url: string): void {
   const width = 800;
   const height = 900;
