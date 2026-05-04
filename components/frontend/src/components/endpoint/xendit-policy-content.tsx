@@ -244,22 +244,24 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
             disabled={!canPurchase || isCreatingAny}
             onClick={() => void handleSubscribe(selectedBundleName)}
             className={cn(
-              'group inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-colors',
-              'border border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-700 dark:bg-violet-950/30 dark:text-violet-300',
-              !canPurchase || isCreatingAny
-                ? 'cursor-not-allowed opacity-50'
-                : 'cursor-pointer hover:bg-violet-100 dark:hover:bg-violet-900/40'
+              'group inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-md text-sm font-medium transition-colors',
+              'bg-violet-600 text-white shadow-sm',
+              'hover:bg-violet-500 active:bg-violet-700',
+              'focus-visible:ring-offset-background focus-visible:ring-2 focus-visible:ring-violet-400/50 focus-visible:ring-offset-2 focus-visible:outline-none',
+              'disabled:cursor-not-allowed disabled:bg-violet-600/40 disabled:shadow-none',
+              'dark:bg-violet-500 dark:hover:bg-violet-400 dark:active:bg-violet-600',
+              'dark:disabled:bg-violet-500/30'
             )}
           >
             {isCreatingAny ? (
               <>
-                <Loader2 className='h-3 w-3 animate-spin' />
+                <Loader2 className='h-3.5 w-3.5 animate-spin' />
                 Opening checkout…
               </>
             ) : (
               <>
-                Buy
-                <ArrowRight className='h-3 w-3 transition-transform group-hover:translate-x-0.5' />
+                Buy credits
+                <ArrowRight className='h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5' />
               </>
             )}
           </button>

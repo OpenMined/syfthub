@@ -30,9 +30,14 @@ function RequestEstimate({
   pricePerRequest
 }: Readonly<{ amount: number; pricePerRequest: number }>) {
   return (
-    <span className='text-[10px] font-normal opacity-70'>
-      ({formatRequestEstimate(amount, pricePerRequest)})
-    </span>
+    <>
+      <span className='opacity-40' aria-hidden='true'>
+        ·
+      </span>
+      <span className='text-[11px] font-normal opacity-75'>
+        {formatRequestEstimate(amount, pricePerRequest)}
+      </span>
+    </>
   );
 }
 
@@ -54,16 +59,15 @@ export function BundlePicker({
     <Select value={value} onValueChange={onChange} disabled={disabled}>
       <SelectTrigger
         className={cn(
-          'h-8 text-xs transition-colors',
-          'border-violet-300 bg-violet-50 text-violet-700',
-          'hover:bg-violet-100 focus:ring-violet-400/40',
-          'dark:border-violet-700 dark:bg-violet-950/30 dark:text-violet-300',
-          'dark:hover:bg-violet-900/40 dark:focus:ring-violet-500/30',
+          'h-10 text-sm transition-colors',
+          'border-border bg-background text-foreground',
+          'hover:border-input hover:bg-muted/40',
+          'focus:ring-violet-400/40 dark:focus:ring-violet-500/30',
           triggerClassName
         )}
       >
         <SelectValue>
-          <span className='flex w-full items-center gap-1.5 pr-1'>
+          <span className='flex w-full items-center gap-2 pr-1'>
             <span className='font-medium tabular-nums'>
               {currency} {selected.amount.toLocaleString()}
             </span>
@@ -73,22 +77,10 @@ export function BundlePicker({
           </span>
         </SelectValue>
       </SelectTrigger>
-      <SelectContent
-        className={cn(
-          'border-violet-200 bg-violet-50/95 backdrop-blur-sm',
-          'dark:border-violet-800 dark:bg-violet-950/95'
-        )}
-      >
+      <SelectContent>
         {bundles.map((bundle) => (
-          <SelectItem
-            key={bundle.name}
-            value={bundle.name}
-            className={cn(
-              'text-xs text-violet-800 focus:bg-violet-100 focus:text-violet-900',
-              'dark:text-violet-200 dark:focus:bg-violet-900/50 dark:focus:text-violet-100'
-            )}
-          >
-            <span className='flex items-center gap-1.5'>
+          <SelectItem key={bundle.name} value={bundle.name} className='text-sm'>
+            <span className='flex items-center gap-2'>
               <span className='font-medium tabular-nums'>
                 {currency} {bundle.amount.toLocaleString()}
               </span>
