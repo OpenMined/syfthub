@@ -17,6 +17,10 @@ export interface User {
   readonly domain: string | null;
   /** Custom aggregator URL for RAG/chat workflows */
   readonly aggregatorUrl: string | null;
+  /** Markdown bio shown on the user's public profile */
+  readonly bio?: string | null;
+  /** Whether the user's email is shown on their public profile */
+  readonly isEmailPublic?: boolean;
 }
 
 /**
@@ -64,6 +68,10 @@ export interface UserUpdateInput {
   domain?: string;
   /** Custom aggregator URL for RAG/chat workflows */
   aggregatorUrl?: string;
+  /** Markdown bio shown on the user's public profile */
+  bio?: string;
+  /** Whether the user's email is shown on their public profile */
+  isEmailPublic?: boolean;
 }
 
 /**

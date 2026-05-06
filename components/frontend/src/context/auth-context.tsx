@@ -145,7 +145,9 @@ export function mapSdkUserToFrontend(sdkUser: SdkUser): User {
     created_at: sdkUser.createdAt.toISOString(),
     updated_at: sdkUser.updatedAt?.toISOString() ?? sdkUser.createdAt.toISOString(),
     domain: sdkUser.domain ?? undefined,
-    aggregator_url: sdkUser.aggregatorUrl ?? undefined
+    aggregator_url: sdkUser.aggregatorUrl ?? undefined,
+    bio: sdkUser.bio ?? undefined,
+    is_email_public: sdkUser.isEmailPublic ?? false
   };
 }
 

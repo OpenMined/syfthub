@@ -17,6 +17,7 @@ from syfthub.schemas.auth import UserRole
 from syfthub.schemas.user import (
     HeartbeatRequest,
     HeartbeatResponse,
+    PublicUserProfile,
     TunnelCredentialsResponse,
     User,
     UserResponse,
@@ -153,6 +154,33 @@ async def check_email_availability(
     """Check if an email is available (public endpoint)."""
     available = user_service.email_available(email.lower())
     return {"available": available, "email": email.lower()}
+
+
+@router.get(
+    "/public/{username}",
+    response_model=PublicUserProfile,
+    summary="Get Public User Profile",
+    description="""
+Public, anonymous-accessible profile for a user.
+
+**No Authentication Required.**
+
+Returns a sanitized profile suitable for the ``/:username`` page. Email is
+only present in the response when the user has opted in via
+``is_email_public``. Returns 404 for unknown or deactivated accounts.
+""",
+)
+async def get_public_user_profile(
+    username: str,
+    user_service: Annotated[UserService, Depends(get_user_service)],
+) -> PublicUserProfile:
+    """Return a sanitized public profile for ``username``."""
+    profile = user_service.get_public_user_profile(username.lower())
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
+        )
+    return profile
 
 
 @router.get("/{user_id}", response_model=UserResponse)
