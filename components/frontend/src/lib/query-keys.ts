@@ -15,7 +15,13 @@ export const endpointKeys = {
     [...endpointKeys.all, 'public', 'grouped', maxPerOwner] as const,
   trending: (limit: number) => [...endpointKeys.all, 'trending', limit] as const,
   count: () => [...endpointKeys.all, 'count'] as const,
-  byPath: (path: string) => [...endpointKeys.all, 'byPath', path] as const
+  byPath: (path: string) => [...endpointKeys.all, 'byPath', path] as const,
+  byOwner: (owner: string) => [...endpointKeys.all, 'byOwner', owner] as const
+};
+
+export const userKeys = {
+  all: ['users'] as const,
+  publicProfile: (username: string) => [...userKeys.all, 'public', username] as const
 };
 
 export const modelKeys = {

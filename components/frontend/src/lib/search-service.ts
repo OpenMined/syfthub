@@ -140,6 +140,7 @@ export async function searchEndpoints(
         tags: result.tags,
         status: 'active' as const, // Search results are assumed active
         updated: formatRelativeTime(new Date(result.updated_at)),
+        updated_at: result.updated_at,
         stars_count: result.stars_count,
         version: result.version,
         readme: result.readme,

@@ -240,6 +240,7 @@ export function mapEndpointPublicToSource(endpoint: SdkEndpointPublic): ChatSour
     description: endpoint.description,
     type: endpoint.type,
     updated: formatRelativeTime(updatedDate),
+    updated_at: updatedDate.toISOString(),
     status: status,
     slug: endpoint.slug,
     stars_count: endpoint.starsCount,
