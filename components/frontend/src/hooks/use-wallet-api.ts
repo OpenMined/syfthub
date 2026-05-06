@@ -249,6 +249,13 @@ export class WalletAPIClient {
   async deleteXenditSubscription(id: number): Promise<void> {
     await this.request<unknown>('DELETE', `/subscriptions/${String(id)}`);
   }
+
+  async deleteXenditSubscriptionsByOwner(endpointOwner: string): Promise<void> {
+    await this.request<unknown>(
+      'DELETE',
+      `/subscriptions/by-owner/${encodeURIComponent(endpointOwner)}`
+    );
+  }
 }
 
 // Singleton client instance
