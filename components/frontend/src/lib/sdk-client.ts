@@ -6,6 +6,7 @@ import type {
   AvailabilityResponse,
   User as FrontendUser,
   PasswordChange,
+  PublicUserProfile,
   UserRole,
   UserUpdate
 } from './types';
@@ -263,7 +264,9 @@ export async function updateUserProfileAPI(profileData: UserUpdate): Promise<Fro
     fullName: profileData.full_name,
     avatarUrl: profileData.avatar_url,
     domain: profileData.domain,
-    aggregatorUrl: profileData.aggregator_url
+    aggregatorUrl: profileData.aggregator_url,
+    bio: profileData.bio,
+    isEmailPublic: profileData.is_email_public
   });
 
   // Convert SDK User to frontend User format
@@ -279,8 +282,34 @@ export async function updateUserProfileAPI(profileData: UserUpdate): Promise<Fro
     created_at: sdkUser.createdAt.toISOString(),
     updated_at: sdkUser.updatedAt?.toISOString() ?? sdkUser.createdAt.toISOString(),
     domain: sdkUser.domain ?? undefined,
-    aggregator_url: sdkUser.aggregatorUrl ?? undefined
+    aggregator_url: sdkUser.aggregatorUrl ?? undefined,
+    bio: sdkUser.bio ?? undefined,
+    is_email_public: sdkUser.isEmailPublic ?? false
   };
+}
+
+/**
+ * Fetch a user's sanitized public profile by username.
+ *
+ * Backed by the unauthenticated ``GET /api/v1/users/public/{username}`` route.
+ * Returns ``null`` for 404s so callers can render a not-found state without
+ * try/catch. All other errors propagate so React Query can surface a real
+ * error UI instead of silently masking network failures as not-found.
+ */
+export async function getPublicUserProfileAPI(username: string): Promise<PublicUserProfile | null> {
+  const baseUrl = getBaseUrl() ?? '';
+  const response = await fetch(`${baseUrl}/api/v1/users/public/${encodeURIComponent(username)}`, {
+    method: 'GET'
+  });
+
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw new Error(`Failed to fetch user profile (status ${String(response.status)})`);
+  }
+
+  return (await response.json()) as PublicUserProfile;
 }
 
 /**

@@ -349,8 +349,12 @@ async def list_xendit_subscriptions(
         Depends(get_user_xendit_subscription_repository),
     ],
 ) -> XenditSubscriptionListResponse:
-    """List every publisher wallet the current user has funded."""
-    rows = repo.list_for_user(current_user.id)
+    """List publisher wallets the current user has funded, one per owner.
+
+    Multiple ``credits_url`` rows under the same ``endpoint_owner`` collapse
+    to a single entry — credits are shared across a publisher's endpoints.
+    """
+    rows = repo.list_unique_owners_for_user(current_user.id)
     return XenditSubscriptionListResponse(
         subscriptions=[XenditSubscriptionResponse.model_validate(r) for r in rows]
     )
@@ -398,6 +402,33 @@ async def upsert_xendit_subscription(
 
 
 @router.delete(
+    "/subscriptions/by-owner/{endpoint_owner}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_xendit_subscriptions_by_owner(
+    endpoint_owner: str,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    repo: Annotated[
+        UserXenditSubscriptionRepository,
+        Depends(get_user_xendit_subscription_repository),
+    ],
+) -> None:
+    """Forget every subscription row for ``endpoint_owner`` (no refund)."""
+    deleted = repo.delete_all_for_owner(current_user.id, endpoint_owner)
+    if deleted == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No subscriptions for this owner",
+        )
+    logger.info(
+        "wallet.xendit_subscriptions_forgotten_by_owner",
+        user_id=current_user.id,
+        endpoint_owner=endpoint_owner,
+        deleted_count=deleted,
+    )
+
+
+@router.delete(
     "/subscriptions/{subscription_id}",
     status_code=status.HTTP_204_NO_CONTENT,
 )
@@ -409,7 +440,7 @@ async def delete_xendit_subscription(
         Depends(get_user_xendit_subscription_repository),
     ],
 ) -> None:
-    """Forget a publisher wallet (no refund — just removes from the panel)."""
+    """Forget a single subscription row by id (no refund)."""
     deleted = repo.delete_for_user(current_user.id, subscription_id)
     if not deleted:
         raise HTTPException(

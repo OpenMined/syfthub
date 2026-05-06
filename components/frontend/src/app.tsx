@@ -27,6 +27,7 @@ const AboutPage = lazyWithRetry(() => import('./pages/about'));
 const ProfilePage = lazyWithRetry(() => import('./pages/profile'));
 const EndpointsPage = lazyWithRetry(() => import('./pages/endpoints'));
 const EndpointDetailPage = lazyWithRetry(() => import('./pages/endpoint-detail'));
+const UserProfilePage = lazyWithRetry(() => import('./pages/user-profile'));
 // TODO(agent-feature): Uncomment when agent endpoint UI is re-enabled
 // const AgentPage = lazyWithRetry(() => import('./pages/agent'));
 const NotFoundPage = lazyWithRetry(() => import('./pages/not-found'));
@@ -167,6 +168,16 @@ export default function App() {
                         element={
                           <RouteBoundary>
                             <EndpointDetailPage />
+                          </RouteBoundary>
+                        }
+                      />
+
+                      {/* Public user profile: /:username */}
+                      <Route
+                        path=':username'
+                        element={
+                          <RouteBoundary>
+                            <UserProfilePage />
                           </RouteBoundary>
                         }
                       />

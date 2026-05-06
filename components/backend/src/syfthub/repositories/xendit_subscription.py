@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, delete, select
 from sqlalchemy.exc import SQLAlchemyError
 
 from syfthub.models.xendit_subscription import UserXenditSubscriptionModel
@@ -32,6 +32,28 @@ class UserXenditSubscriptionRepository(BaseRepository[UserXenditSubscriptionMode
             return list(self.session.execute(stmt).scalars().all())
         except SQLAlchemyError:
             return []
+
+    def list_unique_owners_for_user(
+        self, user_id: int
+    ) -> List[UserXenditSubscriptionModel]:
+        """Return the newest subscription per ``endpoint_owner`` for a user.
+
+        A publisher's credits are shared across all of their endpoints, so
+        many rows under the same ``endpoint_owner`` represent a single
+        fundable wallet. Older rows remain on disk but are not surfaced.
+
+        Dedup is done in Python rather than via SQL ``DISTINCT ON`` so the
+        method works on both Postgres (production) and SQLite (test suite).
+        """
+        rows = self.list_for_user(user_id)
+        seen: set[str] = set()
+        unique: list[UserXenditSubscriptionModel] = []
+        for row in rows:
+            if row.endpoint_owner in seen:
+                continue
+            seen.add(row.endpoint_owner)
+            unique.append(row)
+        return unique
 
     def get_for_user(
         self, user_id: int, subscription_id: int
@@ -127,3 +149,22 @@ class UserXenditSubscriptionRepository(BaseRepository[UserXenditSubscriptionMode
         except SQLAlchemyError:
             self.session.rollback()
             return False
+
+    def delete_all_for_owner(self, user_id: int, endpoint_owner: str) -> int:
+        """Hard-delete every row for ``(user_id, endpoint_owner)``.
+
+        Returns the number of rows removed.
+        """
+        try:
+            stmt = delete(self.model).where(
+                and_(
+                    self.model.user_id == user_id,
+                    self.model.endpoint_owner == endpoint_owner,
+                )
+            )
+            result = self.session.execute(stmt)
+            self.session.commit()
+            return result.rowcount or 0
+        except SQLAlchemyError:
+            self.session.rollback()
+            return 0

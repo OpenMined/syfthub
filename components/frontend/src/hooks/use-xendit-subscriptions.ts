@@ -10,6 +10,7 @@
 import { useCallback } from 'react';
 
 import type { XenditSubscription } from '@/lib/types';
+import type { QueryClient } from '@tanstack/react-query';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -23,6 +24,16 @@ let walletClientInstance: WalletAPIClient | null = null;
 function getWalletClient(): WalletAPIClient {
   walletClientInstance ??= new WalletAPIClient();
   return walletClientInstance;
+}
+
+function removeFromSubscriptionsCache(
+  queryClient: QueryClient,
+  predicate: (sub: XenditSubscription) => boolean
+): void {
+  queryClient.setQueryData<XenditSubscription[] | undefined>(
+    walletKeys.subscriptions(),
+    (previous) => previous?.filter((sub) => predicate(sub)) ?? []
+  );
 }
 
 export interface RegisterXenditSubscriptionInput {
@@ -89,10 +100,21 @@ export function useDeleteXenditSubscription() {
       return id;
     },
     onSuccess: (id) => {
-      queryClient.setQueryData<XenditSubscription[] | undefined>(
-        walletKeys.subscriptions(),
-        (previous) => previous?.filter((p) => p.id !== id) ?? []
-      );
+      removeFromSubscriptionsCache(queryClient, (p) => p.id !== id);
+    }
+  });
+}
+
+export function useDeleteXenditSubscriptionsByOwner() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (endpointOwner: string) => {
+      await getWalletClient().deleteXenditSubscriptionsByOwner(endpointOwner);
+      return endpointOwner;
+    },
+    onSuccess: (endpointOwner) => {
+      removeFromSubscriptionsCache(queryClient, (p) => p.endpoint_owner !== endpointOwner);
     }
   });
 }

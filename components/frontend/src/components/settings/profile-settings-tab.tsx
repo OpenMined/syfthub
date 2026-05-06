@@ -6,11 +6,14 @@ import AlertCircle from 'lucide-react/dist/esm/icons/alert-circle';
 import Check from 'lucide-react/dist/esm/icons/check';
 import Globe from 'lucide-react/dist/esm/icons/globe';
 import Loader2 from 'lucide-react/dist/esm/icons/loader-2';
+import Mail from 'lucide-react/dist/esm/icons/mail';
 import Save from 'lucide-react/dist/esm/icons/save';
+import UserIcon from 'lucide-react/dist/esm/icons/user';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/context/auth-context';
 import {
   checkEmailAvailability,
@@ -30,7 +33,11 @@ interface ProfileFormData {
   full_name: string;
   avatar_url: string;
   domain: string;
+  bio: string;
+  is_email_public: boolean;
 }
+
+const BIO_MAX_LENGTH = 2000;
 
 export function ProfileSettingsTab() {
   const { user, updateUser } = useAuth();
@@ -44,7 +51,9 @@ export function ProfileSettingsTab() {
     email: user?.email ?? '',
     full_name: user?.full_name ?? '',
     avatar_url: user?.avatar_url ?? '',
-    domain: user?.domain ?? ''
+    domain: user?.domain ?? '',
+    bio: user?.bio ?? '',
+    is_email_public: user?.is_email_public ?? false
   });
 
   // Sync form data when user context changes (e.g., after successful update)
@@ -56,7 +65,9 @@ export function ProfileSettingsTab() {
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Defensive null check
         full_name: user.full_name ?? '',
         avatar_url: user.avatar_url ?? '',
-        domain: user.domain ?? ''
+        domain: user.domain ?? '',
+        bio: user.bio ?? '',
+        is_email_public: user.is_email_public ?? false
       });
     }
   }, [user]);
@@ -182,6 +193,18 @@ export function ProfileSettingsTab() {
     };
   }, []);
 
+  const handleBioChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setFormData((previous) => ({ ...previous, bio: e.target.value }));
+    setError(null);
+    setSuccess(null);
+  }, []);
+
+  const handleEmailVisibilityChange = useCallback((checked: boolean) => {
+    setFormData((previous) => ({ ...previous, is_email_public: checked }));
+    setError(null);
+    setSuccess(null);
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -198,7 +221,7 @@ export function ProfileSettingsTab() {
     }
 
     // Build update payload (only changed fields)
-    const updates: Record<string, string> = {};
+    const updates: Record<string, string | boolean> = {};
     if (formData.username !== user?.username) {
       updates.username = formData.username.trim().toLowerCase();
     }
@@ -216,6 +239,12 @@ export function ProfileSettingsTab() {
       let domainValue = formData.domain.trim();
       domainValue = domainValue.replace(/^https?:\/\//, '');
       updates.domain = domainValue;
+    }
+    if (formData.bio !== (user?.bio ?? '')) {
+      updates.bio = formData.bio;
+    }
+    if (formData.is_email_public !== (user?.is_email_public ?? false)) {
+      updates.is_email_public = formData.is_email_public;
     }
 
     // If nothing changed, show message
@@ -252,7 +281,9 @@ export function ProfileSettingsTab() {
     formData.email !== user?.email ||
     formData.full_name !== (user?.full_name ?? '') ||
     formData.avatar_url !== (user?.avatar_url ?? '') ||
-    formData.domain !== (user?.domain ?? '');
+    formData.domain !== (user?.domain ?? '') ||
+    formData.bio !== (user?.bio ?? '') ||
+    formData.is_email_public !== (user?.is_email_public ?? false);
   /* eslint-enable @typescript-eslint/no-unnecessary-condition */
 
   const canSubmit =
@@ -347,6 +378,64 @@ export function ProfileSettingsTab() {
           onChange={handleInputChange('full_name')}
           isLoading={isLoading}
         />
+
+        {/* Public Profile Section */}
+        <div className='border-border mt-6 border-t pt-6'>
+          <div className='mb-4 flex items-center gap-2'>
+            <UserIcon className='text-muted-foreground h-4 w-4' />
+            <h4 className='text-muted-foreground text-sm font-medium'>Public profile</h4>
+          </div>
+          <p className='text-muted-foreground mb-4 text-xs'>
+            What anonymous viewers see at{' '}
+            <span className='font-mono'>/{user?.username ?? 'username'}</span>.
+          </p>
+
+          {/* Bio */}
+          <div className='space-y-2'>
+            <div className='flex items-center justify-between'>
+              <Label htmlFor='bio'>Bio</Label>
+              <span className='text-muted-foreground text-[11px] tabular-nums'>
+                {formData.bio.length}/{BIO_MAX_LENGTH}
+              </span>
+            </div>
+            <textarea
+              id='bio'
+              value={formData.bio}
+              onChange={handleBioChange}
+              placeholder='Tell others what you do, what you publish, or what you care about. Markdown is supported.'
+              disabled={isLoading}
+              rows={5}
+              maxLength={BIO_MAX_LENGTH}
+              className='font-inter border-border bg-background focus:ring-ring/30 w-full resize-y rounded-md border px-3 py-2 text-sm focus:ring-2 focus:outline-none'
+            />
+            <p className='text-muted-foreground text-xs'>
+              Supports Markdown. Headings, lists, links, and code blocks render on your profile.
+            </p>
+          </div>
+
+          {/* Email visibility toggle */}
+          <div className='border-border mt-5 flex items-start justify-between gap-4 rounded-lg border p-4'>
+            <div className='flex items-start gap-3'>
+              <Mail
+                className='text-muted-foreground mt-0.5 h-4 w-4 flex-shrink-0'
+                aria-hidden='true'
+              />
+              <div>
+                <p className='text-foreground text-sm font-medium'>Show email on public profile</p>
+                <p className='text-muted-foreground mt-1 text-xs'>
+                  When enabled, your email address is visible to anyone viewing your profile page.
+                  Off by default.
+                </p>
+              </div>
+            </div>
+            <Switch
+              checked={formData.is_email_public}
+              onCheckedChange={handleEmailVisibilityChange}
+              disabled={isLoading}
+              aria-label='Show email on public profile'
+            />
+          </div>
+        </div>
 
         {/* Endpoint Configuration Section */}
         <div className='border-border mt-6 border-t pt-6'>

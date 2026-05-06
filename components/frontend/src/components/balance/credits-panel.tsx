@@ -262,9 +262,11 @@ function SubscriptionRow({
   const liveBalance = balance ?? subscription.last_known_balance ?? 0;
   const status = balanceStatus(liveBalance, 0);
   const label = subscription.endpoint_owner;
-  const targetPath = subscription.endpoint_slug
-    ? `/${subscription.endpoint_owner}/${subscription.endpoint_slug}`
-    : `/${subscription.endpoint_owner}`;
+  // Xendit wallets are scoped per-publisher, so the row always navigates to
+  // the publisher's profile page — not the specific endpoint that originally
+  // triggered funding (the same wallet is reusable across all endpoints owned
+  // by that publisher).
+  const targetPath = `/${subscription.endpoint_owner}`;
 
   return (
     <div

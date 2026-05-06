@@ -18,7 +18,7 @@ import { Link } from 'react-router-dom';
 import { formatBalance } from '@/components/balance/balance-display';
 import { Button } from '@/components/ui/button';
 import {
-  useDeleteXenditSubscription,
+  useDeleteXenditSubscriptionsByOwner,
   useSubscriptionBalance,
   useXenditSubscriptions
 } from '@/hooks/use-xendit-subscriptions';
@@ -98,7 +98,7 @@ function renderBody({ isLoading, error, subscriptions, onRetry }: RenderBodyArgu
 
 function SubscriptionCard({ subscription }: Readonly<{ subscription: XenditSubscription }>) {
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
-  const deleteMutation = useDeleteXenditSubscription();
+  const deleteMutation = useDeleteXenditSubscriptionsByOwner();
   const { balance, isLoading, error, refetch } = useSubscriptionBalance(subscription, {
     enabled: true,
     pollIntervalMs: 30_000
@@ -106,17 +106,19 @@ function SubscriptionCard({ subscription }: Readonly<{ subscription: XenditSubsc
 
   const liveBalance = balance ?? subscription.last_known_balance ?? 0;
   const label = subscription.endpoint_owner;
-  const targetPath = subscription.endpoint_slug
-    ? `/${subscription.endpoint_owner}/${subscription.endpoint_slug}`
-    : `/${subscription.endpoint_owner}`;
+  // Xendit wallets are scoped per-publisher, so the row always navigates to
+  // the publisher's profile page — not the specific endpoint that originally
+  // triggered funding (the same wallet is reusable across all endpoints owned
+  // by that publisher).
+  const targetPath = `/${subscription.endpoint_owner}`;
 
   const handleTopUp = useCallback(() => {
     openCheckoutWindow(subscription.payment_url);
   }, [subscription.payment_url]);
 
   const handleForget = useCallback(async () => {
-    await deleteMutation.mutateAsync(subscription.id);
-  }, [deleteMutation, subscription.id]);
+    await deleteMutation.mutateAsync(subscription.endpoint_owner);
+  }, [deleteMutation, subscription.endpoint_owner]);
 
   return (
     <div

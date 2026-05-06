@@ -145,6 +145,12 @@ class UserRepository(BaseRepository[UserModel]):
             # Aggregator URL
             if user_data.aggregator_url is not None:
                 user_model.aggregator_url = user_data.aggregator_url
+            # Public profile fields. Use model_fields_set so callers can
+            # explicitly clear the bio (set to "") without it being ignored.
+            if "bio" in user_data.model_fields_set:
+                user_model.bio = user_data.bio
+            if user_data.is_email_public is not None:
+                user_model.is_email_public = user_data.is_email_public
 
             self.session.commit()
             self.session.refresh(user_model)
