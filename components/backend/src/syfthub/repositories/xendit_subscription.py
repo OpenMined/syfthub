@@ -41,20 +41,19 @@ class UserXenditSubscriptionRepository(BaseRepository[UserXenditSubscriptionMode
         A publisher's credits are shared across all of their endpoints, so
         many rows under the same ``endpoint_owner`` represent a single
         fundable wallet. Older rows remain on disk but are not surfaced.
+
+        Dedup is done in Python rather than via SQL ``DISTINCT ON`` so the
+        method works on both Postgres (production) and SQLite (test suite).
         """
-        try:
-            stmt = (
-                select(self.model)
-                .where(self.model.user_id == user_id)
-                .order_by(
-                    self.model.endpoint_owner,
-                    self.model.created_at.desc(),
-                )
-                .distinct(self.model.endpoint_owner)
-            )
-            return list(self.session.execute(stmt).scalars().all())
-        except SQLAlchemyError:
-            return []
+        rows = self.list_for_user(user_id)
+        seen: set[str] = set()
+        unique: list[UserXenditSubscriptionModel] = []
+        for row in rows:
+            if row.endpoint_owner in seen:
+                continue
+            seen.add(row.endpoint_owner)
+            unique.append(row)
+        return unique
 
     def get_for_user(
         self, user_id: int, subscription_id: int
