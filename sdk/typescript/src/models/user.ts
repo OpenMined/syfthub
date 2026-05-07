@@ -119,6 +119,8 @@ export interface AuthConfig {
   readonly requireEmailVerification: boolean;
   readonly smtpConfigured: boolean;
   readonly passwordResetEnabled: boolean;
+  readonly googleOAuthEnabled: boolean;
+  readonly googleClientId: string | null;
 }
 
 /**

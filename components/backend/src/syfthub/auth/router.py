@@ -73,6 +73,10 @@ async def get_auth_config() -> AuthConfigResponse:
         require_email_verification=settings.smtp_configured,
         smtp_configured=settings.smtp_configured,
         password_reset_enabled=settings.smtp_configured,
+        google_oauth_enabled=settings.google_oauth_enabled,
+        google_client_id=settings.google_client_id
+        if settings.google_oauth_enabled
+        else None,
     )
 
 

@@ -215,6 +215,12 @@ class AuthConfigResponse(BaseModel):
     password_reset_enabled: bool = Field(
         ..., description="Whether password reset via email is available"
     )
+    google_oauth_enabled: bool = Field(
+        ..., description="Whether Google Sign-In is available"
+    )
+    google_client_id: str | None = Field(
+        None, description="Google OAuth Client ID (only set if Google OAuth is enabled)"
+    )
 
 
 class GoogleAuthRequest(BaseModel):

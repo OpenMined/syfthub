@@ -1,5 +1,5 @@
 import { GoogleOAuthProvider } from '@react-oauth/google';
-import { QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 
 import { ProtectedRoute } from './components/auth/protected-route';
@@ -11,11 +11,8 @@ import { WalletProvider } from './context/wallet-context';
 import { MainLayout } from './layouts/main-layout';
 import { lazyWithRetry } from './lib/lazy-with-retry';
 import { queryClient } from './lib/query-client';
-import { getGoogleClientId } from './lib/sdk-client';
+import { getGoogleClientId, syftClient } from './lib/sdk-client';
 import { ErrorBoundary } from './observability';
-
-// Get Google OAuth Client ID from environment
-const googleClientId = getGoogleClientId();
 
 // Lazy load all pages for code splitting (with auto-reload on stale chunks)
 const CLISetupPage = lazyWithRetry(() => import('./pages/cli-setup'));
@@ -55,12 +52,23 @@ const NotFoundPage = lazyWithRetry(() => import('./pages/not-found'));
  * Each lazy-loaded route has its own RouteBoundary (Suspense + ErrorBoundary)
  */
 /**
- * Wrapper component that conditionally provides GoogleOAuthProvider
- * only when Google OAuth is configured.
+ * Wrapper component that conditionally provides GoogleOAuthProvider.
+ *
+ * Fetches the Google Client ID from the backend auth config so no frontend
+ * env var is required. Falls back to VITE_GOOGLE_CLIENT_ID for local dev.
  */
 function GoogleOAuthWrapper({ children }: Readonly<{ children: React.ReactNode }>) {
-  if (googleClientId) {
-    return <GoogleOAuthProvider clientId={googleClientId}>{children}</GoogleOAuthProvider>;
+  const { data: authConfig } = useQuery({
+    queryKey: ['auth-config'],
+    queryFn: () => syftClient.auth.getAuthConfig(),
+    staleTime: Infinity,
+    retry: false
+  });
+
+  const clientId = authConfig?.googleClientId ?? getGoogleClientId() ?? null;
+
+  if (clientId) {
+    return <GoogleOAuthProvider clientId={clientId}>{children}</GoogleOAuthProvider>;
   }
   return <>{children}</>;
 }
