@@ -9,7 +9,8 @@ MPP challenge.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import httpx
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from syfthub.auth.db_dependencies import get_current_active_user
 from syfthub.core.config import settings
@@ -38,6 +39,26 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
+TEMPO_FAUCET_URL = "https://docs.tempo.xyz/api/faucet"
+
+
+async def _fund_via_tempo_faucet(address: str) -> None:
+    """Best-effort top-up of a freshly created MPP wallet from the Tempo faucet."""
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(TEMPO_FAUCET_URL, json={"address": address})
+        if response.is_success:
+            logger.info("wallet.faucet_funded", address=address)
+        else:
+            logger.warning(
+                "wallet.faucet_non_2xx",
+                address=address,
+                status_code=response.status_code,
+                body=response.text[:500],
+            )
+    except Exception as exc:
+        logger.warning("wallet.faucet_failed", address=address, error=str(exc))
+
 
 # =============================================================================
 # Wallet CRUD Endpoints
@@ -59,6 +80,7 @@ async def get_wallet(
 async def create_wallet(
     current_user: Annotated[User, Depends(get_current_active_user)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    background_tasks: BackgroundTasks,
 ) -> CreateWalletResponse:
     """Generate a new Tempo keypair and store it on the user.
 
@@ -92,6 +114,8 @@ async def create_wallet(
         user_id=current_user.id,
         wallet_address=tempo_acct.address,
     )
+
+    background_tasks.add_task(_fund_via_tempo_faucet, tempo_acct.address)
 
     return CreateWalletResponse(address=tempo_acct.address)
 
