@@ -25,7 +25,7 @@ dependencies = [
     "pyjwt>=2.12.0",  # CVE-2026-32597: accepts unknown crit header extensions
     # Utilities
     "python-dotenv>=1.2.2",  # CVE-2025-67006: symlink following allows arbitrary file overwrite
-    "python-multipart>=0.0.26",
+    "python-multipart>=0.0.27",
     "email-validator>=2.0.0",
     # SyftHub integration
     "syft-accounting-sdk @ git+https://git@github.com/OpenMined/accounting-sdk.git",
