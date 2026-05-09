@@ -196,7 +196,7 @@ pytempo==0.5.0
     # via pympp
 python-dotenv==1.2.2
     # via pydantic-settings
-python-multipart==0.0.26
+python-multipart==0.0.27
     # via syfthub (pyproject.toml)
 pyunormalize==17.0.0
     # via web3
