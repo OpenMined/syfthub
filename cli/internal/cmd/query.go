@@ -193,6 +193,35 @@ func queryStream(ctx context.Context, client *syfthub.Client, target, prompt, ag
 				output.StreamDone()
 				output.Error("%s", e.Error)
 				return fmt.Errorf("%s", e.Error)
+
+			case *syfthub.PaymentRequiredEvent:
+				// Bridge SDK event to CLI handler. See unit 9 of the
+				// transaction-policy plan (nifty-skipping-rainbow.md).
+				cliEvent := PaymentRequiredEvent{
+					ChatSessionID: e.ChatSessionID,
+					EndpointSlug:  e.EndpointSlug,
+					Challenge:     e.Challenge,
+					Amount:        e.Amount,
+					Currency:      e.Currency,
+					Recipient:     e.Recipient,
+					ChallengeID:   e.ChallengeID,
+					Intent:        e.Intent,
+					RPCURL:        e.RPCURL,
+				}
+				cfg := config.Load()
+				if err := HandlePaymentRequired(
+					ctx,
+					queryJSONOutput,
+					aggregatorURL,
+					cfg.APIToken,
+					e.ChatSessionID,
+					cfg.TempoRPCURL,
+					cliEvent,
+				); err != nil {
+					output.StreamDone()
+					output.Error("%v", err)
+					return err
+				}
 			}
 
 		case err := <-errs:

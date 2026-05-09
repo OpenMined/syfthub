@@ -114,6 +114,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	prompt := args[1]
 
 	cfg := config.Load()
+	aggregatorURL := cfg.GetAggregatorURL(agentAggregator)
 
 	client, err := clientutil.NewClient(cfg, agentAggregator, 0)
 	if err != nil {
@@ -244,6 +245,41 @@ func runAgent(cmd *cobra.Command, args []string) error {
 				fmt.Printf("\n⚠ Error [%s]: %s\n", e.Code, e.Message)
 				if !e.Recoverable {
 					return fmt.Errorf("agent error: %s", e.Message)
+				}
+
+			case *syfthub.AgentPaymentRequiredEvent:
+				// Bridge SDK event to CLI handler. The agent flow may emit
+				// payment_required at session start (only once); the handler
+				// is called once and the session continues.
+				// See unit 9 of the transaction-policy plan
+				// (nifty-skipping-rainbow.md).
+				cliEvent := PaymentRequiredEvent{
+					ChatSessionID: e.ChatSessionID,
+					EndpointSlug:  e.EndpointSlug,
+					Challenge:     e.Challenge,
+					Amount:        e.Amount,
+					Currency:      e.Currency,
+					Recipient:     e.Recipient,
+					ChallengeID:   e.ChallengeID,
+					Intent:        e.Intent,
+					RPCURL:        e.RPCURL,
+				}
+				sessionID := e.ChatSessionID
+				if sessionID == "" {
+					sessionID = session.SessionID
+				}
+				if err := HandlePaymentRequired(
+					ctx,
+					false, // agent command has no --json flag today
+					aggregatorURL,
+					cfg.APIToken,
+					sessionID,
+					cfg.TempoRPCURL,
+					cliEvent,
+				); err != nil {
+					output.Error("%v", err)
+					session.Cancel(context.Background())
+					return err
 				}
 			}
 

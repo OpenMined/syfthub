@@ -112,6 +112,13 @@ type NodeConfig struct {
 	ContainerEnabled bool   `json:"container_enabled,omitempty"`
 	ContainerRuntime string `json:"container_runtime,omitempty"` // "docker", "podman", or "auto"
 	ContainerImage   string `json:"container_image,omitempty"`   // default: "syfthub/endpoint-runner:latest"
+
+	// Transaction policy / Tempo settings.
+	// TempoRPCURL is the JSON-RPC URL used to broadcast payment credentials
+	// when an endpoint's transaction policy emits a payment_required event.
+	// May be overridden per-event when the aggregator includes rpc_url.
+	// See unit 9 of the transaction-policy plan (nifty-skipping-rainbow.md).
+	TempoRPCURL string `json:"tempo_rpc_url,omitempty"`
 }
 
 const (

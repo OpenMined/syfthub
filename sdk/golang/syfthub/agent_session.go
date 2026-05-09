@@ -94,6 +94,26 @@ type AgentErrorEvent struct {
 
 func (e *AgentErrorEvent) EventType() string { return "agent.error" }
 
+// AgentPaymentRequiredEvent indicates the agent endpoint's transaction policy
+// requires the caller to sign + submit an on-chain payment credential before
+// the session can proceed. Mirrors the chat SDK's PaymentRequiredEvent but
+// flows over the agent WebSocket envelope ("payment_required" / "agent.payment_required").
+//
+// See unit 10 of the transaction-policy plan (nifty-skipping-rainbow.md).
+type AgentPaymentRequiredEvent struct {
+	ChatSessionID string `json:"chat_session_id"`
+	EndpointSlug  string `json:"endpoint_slug"`
+	Challenge     string `json:"challenge"`
+	Amount        string `json:"amount"`
+	Currency      string `json:"currency"`
+	Recipient     string `json:"recipient"`
+	ChallengeID   string `json:"challenge_id"`
+	Intent        string `json:"intent"`
+	RPCURL        string `json:"rpc_url,omitempty"`
+}
+
+func (e *AgentPaymentRequiredEvent) EventType() string { return "agent.payment_required" }
+
 // AgentSessionClient wraps a WebSocket connection with typed send/receive
 // methods for agent sessions.
 type AgentSessionClient struct {
@@ -308,6 +328,10 @@ func (c *AgentSessionClient) parseEvent(eventType string, payload json.RawMessag
 		event = &e
 	case "agent.error":
 		var e AgentErrorEvent
+		err = json.Unmarshal(payload, &e)
+		event = &e
+	case "agent.payment_required", "payment_required":
+		var e AgentPaymentRequiredEvent
 		err = json.Unmarshal(payload, &e)
 		event = &e
 	default:

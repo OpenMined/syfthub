@@ -416,6 +416,19 @@ func (c *ChatResource) parseSSEEvent(eventType, dataStr string) ChatEvent {
 			Error: getString(data, "message"),
 		}
 
+	case "payment_required":
+		return &PaymentRequiredEvent{
+			ChatSessionID: getString(data, "chat_session_id"),
+			EndpointSlug:  getString(data, "endpoint_slug"),
+			Challenge:     getString(data, "challenge"),
+			Amount:        getString(data, "amount"),
+			Currency:      getString(data, "currency"),
+			Recipient:     getString(data, "recipient"),
+			ChallengeID:   getString(data, "challenge_id"),
+			Intent:        getString(data, "intent"),
+			RPCURL:        getString(data, "rpc_url"),
+		}
+
 	default:
 		slog.Warn("unknown SSE event type received from aggregator", "event_type", eventType)
 		return &ErrorEvent{Error: fmt.Sprintf("Unknown event type: %s", eventType)}
