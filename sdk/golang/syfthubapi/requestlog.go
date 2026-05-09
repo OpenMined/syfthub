@@ -38,8 +38,44 @@ type RequestLog struct {
 	// Policy contains policy evaluation results (if policies were applied).
 	Policy *LogPolicy `json:"policy,omitempty"`
 
+	// Payment contains payment information when a TransactionPolicy required
+	// (and possibly verified) an on-chain payment for this request. Nil when
+	// the endpoint had no payment policy attached.
+	Payment *PaymentLog `json:"payment,omitempty"`
+
 	// Timing contains timing information.
 	Timing *LogTiming `json:"timing"`
+}
+
+// PaymentLog captures on-chain payment metadata for a request that flowed
+// through a TransactionPolicy. It records both the issued challenge and, if
+// the caller settled it, the resulting on-chain transaction.
+type PaymentLog struct {
+	// ChallengeID is the unique identifier for the payment challenge issued
+	// to the caller (mirrors the `id` field of the WWW-Authenticate-style header).
+	ChallengeID string `json:"challenge_id"`
+
+	// TxHash is the on-chain transaction hash that settled the challenge.
+	// Empty when the request was rejected with PAYMENT_REQUIRED before settlement.
+	TxHash string `json:"tx_hash,omitempty"`
+
+	// Amount is the required payment amount, stringified to preserve precision
+	// (e.g., "0.10").
+	Amount string `json:"amount"`
+
+	// Currency is the token contract address or symbol (e.g., a PathUSD address).
+	Currency string `json:"currency"`
+
+	// Recipient is the on-chain address that should receive (or did receive)
+	// the payment.
+	Recipient string `json:"recipient"`
+
+	// Status is one of "required", "verified", or "failed".
+	Status string `json:"status"`
+
+	// PaidAt is the RFC3339 timestamp the payment was verified on-chain.
+	// Empty when Status is "required" or "failed".
+	PaidAt string `json:"paid_at,omitempty"`
 }
 
 // LogUserInfo contains user information for the log entry.
