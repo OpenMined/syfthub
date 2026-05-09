@@ -32,6 +32,20 @@ import { syftClient } from '@/lib/sdk-client';
 /** Polling interval for balance and transactions (30 seconds) */
 export const POLLING_INTERVAL_MS = 30_000;
 
+/**
+ * Soft offset (in USD) subtracted from the displayed wallet balance.
+ * The faucet drops 1M pathUSD on every new wallet; we hide all but ~$20 of it
+ * in the UI so users see a realistic-looking starting balance.
+ */
+const DISPLAY_BALANCE_OFFSET_USD = 999_980;
+
+function applyDisplayOffset(balance: WalletBalance): WalletBalance {
+  return {
+    ...balance,
+    balance: Math.max(0, balance.balance - DISPLAY_BALANCE_OFFSET_USD)
+  };
+}
+
 // =============================================================================
 // Force Refresh Event System
 // =============================================================================
@@ -214,7 +228,8 @@ export class WalletAPIClient {
   }
 
   async getBalance(): Promise<WalletBalance> {
-    return this.request<WalletBalance>('GET', '/balance');
+    const result = await this.request<WalletBalance>('GET', '/balance');
+    return applyDisplayOffset(result);
   }
 
   async getTransactions(): Promise<WalletTransaction[]> {
