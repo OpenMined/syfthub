@@ -549,6 +549,11 @@ const (
 	ChatEventTypeToken               ChatEventType = "token"
 	ChatEventTypeDone                ChatEventType = "done"
 	ChatEventTypeError               ChatEventType = "error"
+	// ChatEventTypePaymentRequired is emitted by the aggregator when an endpoint's
+	// transaction policy requires the caller to sign and submit an on-chain
+	// payment credential before the request can proceed. See unit 10 of the
+	// transaction-policy plan (nifty-skipping-rainbow.md).
+	ChatEventTypePaymentRequired ChatEventType = "payment_required"
 )
 
 // ChatEvent is the interface for all chat streaming events.
@@ -631,6 +636,28 @@ type ErrorEvent struct {
 }
 
 func (e *ErrorEvent) EventType() ChatEventType { return ChatEventTypeError }
+
+// PaymentRequiredEvent indicates the endpoint's transaction policy requires
+// the caller to sign + submit an on-chain payment credential before the
+// request can proceed. The CLI/SDK consumer is expected to (a) prompt the
+// user, (b) sign the challenge with a local wallet, and (c) POST the
+// resulting credential to <aggregator>/chat/{chat_session_id}/payment.
+//
+// All fields mirror the SSE event payload defined by the aggregator
+// (unit 10 of the transaction-policy plan, nifty-skipping-rainbow.md).
+type PaymentRequiredEvent struct {
+	ChatSessionID string `json:"chat_session_id"`
+	EndpointSlug  string `json:"endpoint_slug"`
+	Challenge     string `json:"challenge"`
+	Amount        string `json:"amount"`
+	Currency      string `json:"currency"`
+	Recipient     string `json:"recipient"`
+	ChallengeID   string `json:"challenge_id"`
+	Intent        string `json:"intent"`
+	RPCURL        string `json:"rpc_url,omitempty"`
+}
+
+func (e *PaymentRequiredEvent) EventType() ChatEventType { return ChatEventTypePaymentRequired }
 
 // =============================================================================
 // Transaction Tokens Models
