@@ -9,10 +9,23 @@ The client handles:
 - User authentication (login with email/password)
 - User profile retrieval
 - Accounting credentials retrieval for paid service access
+- Aggregator chat streaming with payment-required event detection
+
+# MCP and paid endpoints
+#
+# MCP tool callers (Claude, ChatGPT, IDE assistants) do not have wallets
+# and cannot sign Tempo transactions. When a paid endpoint is invoked
+# through MCP, the chat_with_syfthub tool returns a structured error
+# explaining that the user must pay via the syft CLI or desktop app.
+#
+# This is a known v1 limitation. v2 may introduce a paired-wallet flow
+# where the MCP server proxies challenges to a long-lived CLI wallet
+# daemon, but that is out of scope for now.
 """
 
+import json
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, AsyncIterator, Dict, Optional
 
 import httpx
 
@@ -35,6 +48,73 @@ class ConnectionError(SyftHubError):
     """Raised when connection to SyftHub fails."""
 
     pass
+
+
+class PaymentRequiredError(Exception):
+    """Raised when an aggregator chat call requires payment that the MCP
+    layer cannot provide (no wallet)."""
+
+    def __init__(
+        self,
+        *,
+        endpoint_slug: str,
+        challenge: str,
+        amount: str,
+        currency: str,
+        recipient: str,
+        challenge_id: str,
+        intent: str,
+    ):
+        self.endpoint_slug = endpoint_slug
+        self.challenge = challenge
+        self.amount = amount
+        self.currency = currency
+        self.recipient = recipient
+        self.challenge_id = challenge_id
+        self.intent = intent
+        super().__init__(
+            f"Endpoint {endpoint_slug} requires payment of {amount} "
+            f"{currency} to {recipient}; MCP cannot complete this payment."
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "error": "payment_required",
+            "endpoint_slug": self.endpoint_slug,
+            "amount": self.amount,
+            "currency": self.currency,
+            "recipient": self.recipient,
+            "challenge_id": self.challenge_id,
+            "intent": self.intent,
+            "hint": (
+                "Use the syft CLI ('syft wallet' + 'syft query') or the "
+                "SyftHub desktop app to pay this endpoint."
+            ),
+        }
+
+
+def _build_payment_required_error(data: Dict[str, Any]) -> "PaymentRequiredError":
+    """Construct a :class:`PaymentRequiredError` from an SSE event payload.
+
+    The aggregator emits (per plan unit 10)::
+
+        event: payment_required
+        data: {chat_session_id, endpoint_slug, challenge, amount, currency,
+               recipient, challenge_id, intent}
+
+    Missing fields default to empty strings so the error is always raisable
+    even if the aggregator omits a field; callers can still inspect what
+    was present.
+    """
+    return PaymentRequiredError(
+        endpoint_slug=str(data.get("endpoint_slug", "")),
+        challenge=str(data.get("challenge", "")),
+        amount=str(data.get("amount", "")),
+        currency=str(data.get("currency", "")),
+        recipient=str(data.get("recipient", "")),
+        challenge_id=str(data.get("challenge_id", "")),
+        intent=str(data.get("intent", "")),
+    )
 
 
 class SyftHubClient:
@@ -276,6 +356,107 @@ class SyftHubClient:
             error_msg = f"Unexpected error fetching accounting credentials: {e}"
             logger.error(error_msg)
             raise SyftHubError(error_msg) from e
+
+    async def chat_stream(
+        self,
+        *,
+        aggregator_url: str,
+        request_body: Dict[str, Any],
+        access_token: Optional[str] = None,
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """
+        Stream chat events from the aggregator's SSE endpoint, detecting
+        ``payment_required`` events.
+
+        This is a thin wrapper around the aggregator's ``POST /chat/stream``
+        SSE endpoint. It does its own SSE parsing so it can recognise the
+        ``payment_required`` event added by the transaction-policy work
+        (plan unit 10) and raise :class:`PaymentRequiredError` on the
+        FIRST such event — even if multiple endpoints in the same chat
+        require payment, the LLM caller only needs to know one is required.
+
+        All other events are yielded verbatim as ``{"type": str, "data": dict}``
+        for callers that want to consume the stream (e.g. accumulating tokens
+        for a non-streaming response).
+
+        Args:
+            aggregator_url: Base aggregator URL (e.g. ``http://aggregator:8001``).
+                The ``/chat/stream`` path is appended.
+            request_body: Aggregator request body (already shaped by the SDK
+                or caller — model_ref, ds_refs, tokens, etc.).
+            access_token: Optional bearer token for the aggregator request.
+
+        Yields:
+            Dicts with ``type`` (event name) and ``data`` (parsed JSON payload).
+
+        Raises:
+            PaymentRequiredError: If a ``payment_required`` SSE event is seen.
+            ConnectionError: If the aggregator cannot be reached.
+            SyftHubError: For other aggregator errors.
+        """
+        url = f"{aggregator_url.rstrip('/')}/chat/stream"
+        headers: Dict[str, str] = {
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+        }
+        if access_token:
+            headers["Authorization"] = f"Bearer {access_token}"
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                async with client.stream(
+                    "POST", url, json=request_body, headers=headers
+                ) as response:
+                    if response.status_code >= 400:
+                        body = await response.aread()
+                        raise SyftHubError(
+                            f"Aggregator returned {response.status_code}: "
+                            f"{body.decode('utf-8', errors='replace')[:500]}"
+                        )
+
+                    current_event: Optional[str] = None
+                    current_data: str = ""
+
+                    async for line in response.aiter_lines():
+                        line = line.strip()
+
+                        if not line:
+                            if current_event and current_data:
+                                try:
+                                    data = json.loads(current_data)
+                                except json.JSONDecodeError as exc:
+                                    logger.warning(
+                                        f"Failed to parse SSE data for "
+                                        f"event={current_event}: {exc}"
+                                    )
+                                    current_event = None
+                                    current_data = ""
+                                    continue
+
+                                if current_event == "payment_required":
+                                    raise _build_payment_required_error(data)
+
+                                yield {"type": current_event, "data": data}
+
+                            current_event = None
+                            current_data = ""
+                            continue
+
+                        if line.startswith("event:"):
+                            current_event = line[len("event:") :].strip()
+                        elif line.startswith("data:"):
+                            current_data = line[len("data:") :].strip()
+
+        except httpx.ConnectError as e:
+            raise ConnectionError(
+                f"Failed to connect to aggregator at {url}: {e}"
+            ) from e
+        except httpx.TimeoutException as e:
+            raise ConnectionError(f"Aggregator request timed out: {e}") from e
+        except (PaymentRequiredError, SyftHubError, ConnectionError):
+            raise
+        except Exception as e:
+            raise SyftHubError(f"Unexpected error during chat stream: {e}") from e
 
     async def check_health(self) -> bool:
         """
