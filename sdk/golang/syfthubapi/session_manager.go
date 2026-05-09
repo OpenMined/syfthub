@@ -80,6 +80,48 @@ func (m *AgentSessionManager) deregisterSession(sessionID string) {
 	}
 }
 
+// paymentMetadataKeys lists the policy-metadata keys that are safe to forward
+// to the caller as part of a PAYMENT_REQUIRED tunnel response.
+var paymentMetadataKeys = []string{
+	"payment_challenge",
+	"payment_amount",
+	"payment_currency",
+	"payment_recipient",
+	"challenge_id",
+	"intent",
+}
+
+// paymentChallengeFromMetadata returns the payment_challenge string from a
+// policy-result metadata map, and true iff present and non-empty.
+func paymentChallengeFromMetadata(meta map[string]any) (string, bool) {
+	if meta == nil {
+		return "", false
+	}
+	s, ok := meta["payment_challenge"].(string)
+	if !ok || s == "" {
+		return "", false
+	}
+	return s, true
+}
+
+// copyPaymentMetadata returns a copy of the safe payment_* keys from a policy
+// metadata map. Returns nil when no safe keys are present.
+func copyPaymentMetadata(meta map[string]any) map[string]any {
+	if meta == nil {
+		return nil
+	}
+	var out map[string]any
+	for _, k := range paymentMetadataKeys {
+		if v, ok := meta[k]; ok {
+			if out == nil {
+				out = make(map[string]any, len(paymentMetadataKeys))
+			}
+			out[k] = v
+		}
+	}
+	return out
+}
+
 // AgentSessionStartPayload is the decrypted payload of an agent_session_start message.
 type AgentSessionStartPayload struct {
 	SessionID    string      `json:"session_id"`
@@ -87,6 +129,11 @@ type AgentSessionStartPayload struct {
 	EndpointSlug string      `json:"endpoint_slug"`
 	Messages     []Message   `json:"messages,omitempty"`
 	Config       AgentConfig `json:"config"`
+
+	// PaymentCredential is the on-chain payment proof (e.g., Tempo/PathUSD tx hash
+	// or signed challenge response) supplied by the caller to satisfy a
+	// TransactionPolicy payment challenge for the agent session intent.
+	PaymentCredential string `json:"payment_credential,omitempty"`
 }
 
 // AgentUserMessagePayload is the decrypted payload of an agent_user_message.
@@ -117,22 +164,42 @@ func (m *AgentSessionManager) StartSession(
 
 	// Enforce policies before starting session.
 	reqCtx := &RequestContext{
-		User:         user,
-		EndpointSlug: payload.EndpointSlug,
-		EndpointType: EndpointTypeAgent,
+		User:              user,
+		EndpointSlug:      payload.EndpointSlug,
+		EndpointType:      EndpointTypeAgent,
+		PaymentCredential: payload.PaymentCredential,
 	}
 	policyResult, err := ep.CheckPolicies(context.Background(), reqCtx)
 	if err != nil {
 		return nil, fmt.Errorf("policy check failed: %w", err)
 	}
-	if policyResult != nil && !policyResult.Allowed {
-		m.logger.Warn("[AGENT] Session denied by policy",
-			"endpoint", payload.EndpointSlug,
-			"user", user.Username,
-			"policy_name", policyResult.PolicyName,
-			"reason", policyResult.Reason,
-		)
-		return nil, fmt.Errorf("access denied by policy %q: %s", policyResult.PolicyName, policyResult.Reason)
+	if policyResult != nil {
+		// A "pending" result with a payment_challenge means a transaction-style
+		// policy is asking the caller to obtain a payment credential and retry.
+		// Surface this as a typed error so the NATS bridge can emit a
+		// PAYMENT_REQUIRED tunnel response with the challenge details.
+		if policyResult.Pending {
+			if challenge, ok := paymentChallengeFromMetadata(policyResult.Metadata); ok {
+				m.logger.Info("[AGENT] Session pending payment",
+					"endpoint", payload.EndpointSlug,
+					"user", user.Username,
+					"policy_name", policyResult.PolicyName,
+				)
+				return nil, &PaymentRequiredError{
+					Challenge: challenge,
+					Details:   copyPaymentMetadata(policyResult.Metadata),
+				}
+			}
+		}
+		if !policyResult.Allowed {
+			m.logger.Warn("[AGENT] Session denied by policy",
+				"endpoint", payload.EndpointSlug,
+				"user", user.Username,
+				"policy_name", policyResult.PolicyName,
+				"reason", policyResult.Reason,
+			)
+			return nil, fmt.Errorf("access denied by policy %q: %s", policyResult.PolicyName, policyResult.Reason)
+		}
 	}
 
 	handler, err := ep.GetAgentHandler()

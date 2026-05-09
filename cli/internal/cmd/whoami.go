@@ -3,13 +3,12 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/OpenMined/syfthub/cli/internal/clientutil"
 	"github.com/OpenMined/syfthub/cli/internal/config"
 	"github.com/OpenMined/syfthub/cli/internal/output"
-	"github.com/openmined/syfthub/sdk/golang/syfthub"
 )
 
 var whoamiJSONOutput bool
@@ -32,8 +31,8 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 
 	if !cfg.HasAPIToken() {
 		if whoamiJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
+			output.JSON(map[string]any{
+				"status":  output.StatusError,
 				"message": "Not logged in",
 			})
 		} else {
@@ -42,42 +41,22 @@ func runWhoami(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("not logged in")
 	}
 
-	client, err := syfthub.NewClient(
-		syfthub.WithBaseURL(cfg.HubURL),
-		syfthub.WithAPIToken(cfg.APIToken),
-		syfthub.WithTimeout(time.Duration(cfg.Timeout)*time.Second),
-	)
+	client, err := clientutil.NewClient(cfg, "", 0)
 	if err != nil {
-		if whoamiJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": err.Error(),
-			})
-		} else {
-			output.Error("Failed to create client: %v", err)
-		}
-		return err
+		return output.ReplyError(whoamiJSONOutput, "Failed to create client: %v", err)
 	}
 	defer client.Close()
 
 	ctx := context.Background()
 	user, err := client.Me(ctx)
 	if err != nil {
-		if whoamiJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": err.Error(),
-			})
-		} else {
-			output.Error("Failed to get user info: %v", err)
-		}
-		return err
+		return output.ReplyError(whoamiJSONOutput, "Failed to get user info: %v", err)
 	}
 
 	if whoamiJSONOutput {
-		output.JSON(map[string]interface{}{
-			"status": "success",
-			"user": map[string]interface{}{
+		output.JSON(map[string]any{
+			"status": output.StatusSuccess,
+			"user": map[string]any{
 				"id":       fmt.Sprintf("%d", user.ID),
 				"username": user.Username,
 				"email":    user.Email,

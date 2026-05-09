@@ -9,7 +9,11 @@ from sqlalchemy import Text, and_, cast, delete, func, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from syfthub.core.url_builder import transform_connection_urls
-from syfthub.models.endpoint import EndpointModel, EndpointStarModel
+from syfthub.models.endpoint import (
+    EndpointModel,
+    EndpointStarModel,
+    policies_require_payment,
+)
 from syfthub.models.organization import OrganizationModel
 from syfthub.models.user import UserModel
 from syfthub.repositories.base import BaseRepository
@@ -23,6 +27,7 @@ from syfthub.schemas.endpoint import (
     EndpointUpdate,
     EndpointVisibility,
     GroupedEndpointsResponse,
+    filter_visible_policies,
     get_matching_types,
 )
 
@@ -67,7 +72,10 @@ class EndpointRepository(BaseRepository[EndpointModel]):
 
     @staticmethod
     def _build_public_response(
-        row: Any, owner_username: str, domain: Optional[str]
+        row: Any,
+        owner_username: str,
+        domain: Optional[str],
+        viewer_email: Optional[str] = None,
     ) -> EndpointPublicResponse:
         """Build an EndpointPublicResponse from a query row and owner context.
 
@@ -75,6 +83,11 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         or SQLAlchemy Row) so it works for both regular and window-function queries.
         """
         transformed_connect = transform_connection_urls(domain, row.connect or [])
+        all_policies = row.policies or []
+        visible_policies = filter_visible_policies(all_policies, viewer_email)
+        # Use the unfiltered policy list so the badge surfaces consistently
+        # regardless of the viewer's `applied_to` audience filter.
+        payment_required = policies_require_payment(all_policies)
         return EndpointPublicResponse(
             name=row.name,
             slug=row.slug,
@@ -86,8 +99,9 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             readme=row.readme,
             tags=row.tags or [],
             stars_count=row.stars_count,
-            policies=row.policies,
+            policies=visible_policies,
             connect=transformed_connect,
+            payment_required=payment_required,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -216,6 +230,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         limit: int = 10,
         endpoint_type: Optional[EndpointType] = None,
         search: Optional[str] = None,
+        viewer_email: Optional[str] = None,
     ) -> List[EndpointPublicResponse]:
         """Get all public endpoints with owner usernames and transformed URLs.
 
@@ -266,7 +281,9 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             endpoints = []
             for endpoint_model, username, domain in rows:
                 endpoints.append(
-                    self._build_public_response(endpoint_model, username, domain)
+                    self._build_public_response(
+                        endpoint_model, username, domain, viewer_email
+                    )
                 )
 
             return endpoints
@@ -279,6 +296,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         owner_slug: str,
         skip: int = 0,
         limit: int = 100,
+        viewer_email: Optional[str] = None,
     ) -> List[EndpointPublicResponse]:
         """Get all public endpoints for a specific owner.
 
@@ -315,7 +333,9 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             endpoints = []
             for endpoint_model, username, domain in rows:
                 endpoints.append(
-                    self._build_public_response(endpoint_model, username, domain)
+                    self._build_public_response(
+                        endpoint_model, username, domain, viewer_email
+                    )
                 )
 
             return endpoints
@@ -324,7 +344,10 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             return []
 
     def get_public_endpoint_by_owner_and_slug(
-        self, owner_username: str, slug: str
+        self,
+        owner_username: str,
+        slug: str,
+        viewer_email: Optional[str] = None,
     ) -> Optional[EndpointPublicResponse]:
         """Get a single public endpoint by owner username and slug.
 
@@ -364,7 +387,9 @@ class EndpointRepository(BaseRepository[EndpointModel]):
 
             endpoint_model, _username, domain = row
 
-            return self._build_public_response(endpoint_model, owner_username, domain)
+            return self._build_public_response(
+                endpoint_model, owner_username, domain, viewer_email
+            )
         except SQLAlchemyError as e:
             logger.error(
                 "Failed to query public endpoint %s/%s: %s",
@@ -377,6 +402,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
     def get_public_endpoints_by_ids(
         self,
         endpoint_ids: List[int],
+        viewer_email: Optional[str] = None,
     ) -> List[EndpointPublicResponse]:
         """Get public endpoints by IDs with owner usernames and transformed URLs.
 
@@ -411,7 +437,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             id_to_endpoint: dict[int, EndpointPublicResponse] = {}
             for endpoint_model, username, domain in rows:
                 id_to_endpoint[endpoint_model.id] = self._build_public_response(
-                    endpoint_model, username, domain
+                    endpoint_model, username, domain, viewer_email
                 )
 
             # Return in the original order (preserves RAG ranking)
@@ -428,6 +454,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         skip: int = 0,
         limit: int = 10,
         endpoint_type: Optional[EndpointType] = None,
+        viewer_email: Optional[str] = None,
     ) -> List[EndpointPublicResponse]:
         """Get all public endpoints that have no policies attached (guest-accessible).
 
@@ -468,7 +495,9 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             endpoints = []
             for endpoint_model, username, domain in rows:
                 endpoints.append(
-                    self._build_public_response(endpoint_model, username, domain)
+                    self._build_public_response(
+                        endpoint_model, username, domain, viewer_email
+                    )
                 )
 
             return endpoints
@@ -481,6 +510,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         limit: int = 10,
         min_stars: Optional[int] = None,
         endpoint_type: Optional[EndpointType] = None,
+        viewer_email: Optional[str] = None,
     ) -> List[EndpointPublicResponse]:
         """Get trending public endpoints with owner usernames and transformed URLs, sorted by stars count.
 
@@ -511,7 +541,9 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             endpoints = []
             for endpoint_model, username, domain in rows:
                 endpoints.append(
-                    self._build_public_response(endpoint_model, username, domain)
+                    self._build_public_response(
+                        endpoint_model, username, domain, viewer_email
+                    )
                 )
 
             return endpoints
@@ -521,6 +553,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
     def get_public_endpoints_grouped(
         self,
         max_per_owner: int = 15,
+        viewer_email: Optional[str] = None,
     ) -> GroupedEndpointsResponse:
         """Get public endpoints grouped by owner with a limit per owner.
 
@@ -611,7 +644,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                     }
 
                 owner_groups[username]["endpoints"].append(
-                    self._build_public_response(row, username, domain)
+                    self._build_public_response(row, username, domain, viewer_email)
                 )
 
             # Build the response groups

@@ -9,13 +9,18 @@ MPP challenge.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import httpx
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 
 from syfthub.auth.db_dependencies import get_current_active_user
 from syfthub.core.config import settings
-from syfthub.database.dependencies import get_user_repository
+from syfthub.database.dependencies import (
+    get_user_repository,
+    get_user_xendit_subscription_repository,
+)
 from syfthub.observability.logger import get_logger
 from syfthub.repositories.user import UserRepository
+from syfthub.repositories.xendit_subscription import UserXenditSubscriptionRepository
 from syfthub.schemas.user import (
     CreateWalletResponse,
     ImportWalletRequest,
@@ -25,11 +30,34 @@ from syfthub.schemas.user import (
     WalletBalanceResponse,
     WalletResponse,
     WalletTransaction,
+    XenditSubscriptionListResponse,
+    XenditSubscriptionResponse,
+    XenditSubscriptionUpsertRequest,
 )
 
 logger = get_logger(__name__)
 
 router = APIRouter()
+
+TEMPO_FAUCET_URL = "https://docs.tempo.xyz/api/faucet"
+
+
+async def _fund_via_tempo_faucet(address: str) -> None:
+    """Best-effort top-up of a freshly created MPP wallet from the Tempo faucet."""
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(TEMPO_FAUCET_URL, json={"address": address})
+        if response.is_success:
+            logger.info("wallet.faucet_funded", address=address)
+        else:
+            logger.warning(
+                "wallet.faucet_non_2xx",
+                address=address,
+                status_code=response.status_code,
+                body=response.text[:500],
+            )
+    except Exception as exc:
+        logger.warning("wallet.faucet_failed", address=address, error=str(exc))
 
 
 # =============================================================================
@@ -52,6 +80,7 @@ async def get_wallet(
 async def create_wallet(
     current_user: Annotated[User, Depends(get_current_active_user)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+    background_tasks: BackgroundTasks,
 ) -> CreateWalletResponse:
     """Generate a new Tempo keypair and store it on the user.
 
@@ -85,6 +114,8 @@ async def create_wallet(
         user_id=current_user.id,
         wallet_address=tempo_acct.address,
     )
+
+    background_tasks.add_task(_fund_via_tempo_faucet, tempo_acct.address)
 
     return CreateWalletResponse(address=tempo_acct.address)
 
@@ -327,3 +358,116 @@ async def pay(
                     "message": f"Failed to create payment credential: {e}",
                 },
             ) from e
+
+
+# =============================================================================
+# Xendit Subscription Endpoints (publisher-side wallets)
+# =============================================================================
+
+
+@router.get("/subscriptions", response_model=XenditSubscriptionListResponse)
+async def list_xendit_subscriptions(
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    repo: Annotated[
+        UserXenditSubscriptionRepository,
+        Depends(get_user_xendit_subscription_repository),
+    ],
+) -> XenditSubscriptionListResponse:
+    """List publisher wallets the current user has funded, one per owner.
+
+    Multiple ``credits_url`` rows under the same ``endpoint_owner`` collapse
+    to a single entry — credits are shared across a publisher's endpoints.
+    """
+    rows = repo.list_unique_owners_for_user(current_user.id)
+    return XenditSubscriptionListResponse(
+        subscriptions=[XenditSubscriptionResponse.model_validate(r) for r in rows]
+    )
+
+
+@router.post(
+    "/subscriptions",
+    response_model=XenditSubscriptionResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def upsert_xendit_subscription(
+    request: XenditSubscriptionUpsertRequest,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    repo: Annotated[
+        UserXenditSubscriptionRepository,
+        Depends(get_user_xendit_subscription_repository),
+    ],
+) -> XenditSubscriptionResponse:
+    """Register (or refresh) a publisher wallet for the current user.
+
+    Idempotent on (user_id, credits_url). Called by the frontend whenever a
+    Xendit balance transitions from inactive to active.
+    """
+    row = repo.upsert(
+        user_id=current_user.id,
+        credits_url=request.credits_url,
+        payment_url=request.payment_url,
+        endpoint_owner=request.endpoint_owner,
+        endpoint_slug=request.endpoint_slug,
+        currency=request.currency,
+        last_known_balance=request.last_known_balance,
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to record xendit subscription",
+        )
+    logger.info(
+        "wallet.xendit_subscription_upserted",
+        user_id=current_user.id,
+        subscription_id=row.id,
+        endpoint_owner=row.endpoint_owner,
+    )
+    return XenditSubscriptionResponse.model_validate(row)
+
+
+@router.delete(
+    "/subscriptions/by-owner/{endpoint_owner}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_xendit_subscriptions_by_owner(
+    endpoint_owner: str,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    repo: Annotated[
+        UserXenditSubscriptionRepository,
+        Depends(get_user_xendit_subscription_repository),
+    ],
+) -> None:
+    """Forget every subscription row for ``endpoint_owner`` (no refund)."""
+    deleted = repo.delete_all_for_owner(current_user.id, endpoint_owner)
+    if deleted == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No subscriptions for this owner",
+        )
+    logger.info(
+        "wallet.xendit_subscriptions_forgotten_by_owner",
+        user_id=current_user.id,
+        endpoint_owner=endpoint_owner,
+        deleted_count=deleted,
+    )
+
+
+@router.delete(
+    "/subscriptions/{subscription_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_xendit_subscription(
+    subscription_id: int,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    repo: Annotated[
+        UserXenditSubscriptionRepository,
+        Depends(get_user_xendit_subscription_repository),
+    ],
+) -> None:
+    """Forget a single subscription row by id (no refund)."""
+    deleted = repo.delete_for_user(current_user.id, subscription_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Subscription not found",
+        )

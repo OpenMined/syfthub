@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, DateTime, Index, String
+from sqlalchemy import Boolean, DateTime, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from syfthub.models.base import BaseModel, TimestampMixin
@@ -55,6 +55,14 @@ class UserModel(BaseModel, TimestampMixin):
     # Custom aggregator URL for RAG/chat workflows
     aggregator_url: Mapped[Optional[str]] = mapped_column(
         String(500), nullable=True, default=None
+    )
+
+    # Public profile bio (Markdown). Surfaced on /:username public profile page.
+    bio: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default=None)
+
+    # Whether the user's email is shown on their public profile page.
+    is_email_public: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )
 
     # Heartbeat tracking fields for push-based health monitoring

@@ -14,7 +14,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/openmined/syfthub/sdk/golang/syfthub"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/containermode"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/filemode"
@@ -22,6 +21,7 @@ import (
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/setupflow"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/transport"
 
+	"github.com/OpenMined/syfthub/cli/internal/clientutil"
 	"github.com/OpenMined/syfthub/cli/internal/nodeconfig"
 )
 
@@ -53,10 +53,7 @@ func runNodeRun(cmd *cobra.Command, args []string) error {
 	// Derive tunnel username from API key
 	fmt.Println("Authenticating with SyftHub...")
 
-	hubClient, err := syfthub.NewClient(
-		syfthub.WithBaseURL(cfg.HubURL),
-		syfthub.WithAPIToken(cfg.APIToken),
-	)
+	hubClient, err := clientutil.NewClient(cfg, "", 0)
 	if err != nil {
 		return fmt.Errorf("failed to create hub client: %w", err)
 	}
@@ -212,18 +209,21 @@ func runNodeRun(cmd *cobra.Command, args []string) error {
 				select {
 				case <-ticker.C:
 					results := lifecycleMgr.CheckAndRefresh(endpointsPath)
+					anyRefreshed := false
 					for _, r := range results {
 						if r.Success {
 							logger.Info("refreshed token", "slug", r.Slug, "step", r.StepID)
-							// Trigger endpoint reload
-							reloadEndpoints, loadErr := provider.LoadEndpoints()
-							if loadErr != nil {
-								logger.Warn("failed to reload endpoints after token refresh", "error", loadErr)
-							} else {
-								api.Registry().ReplaceFileBased(reloadEndpoints)
-							}
+							anyRefreshed = true
 						} else if r.Error != nil {
 							logger.Warn("token refresh failed", "slug", r.Slug, "step", r.StepID, "error", r.Error)
+						}
+					}
+					if anyRefreshed {
+						reloadEndpoints, loadErr := provider.LoadEndpoints()
+						if loadErr != nil {
+							logger.Warn("failed to reload endpoints after token refresh", "error", loadErr)
+						} else {
+							api.Registry().ReplaceFileBased(reloadEndpoints)
 						}
 					}
 				case <-ctx.Done():
@@ -284,8 +284,3 @@ type slogAdapter struct {
 func newSlogAdapter(l *slog.Logger) *slogAdapter {
 	return &slogAdapter{l}
 }
-
-func (s *slogAdapter) Debug(msg string, args ...any) { s.Logger.Debug(msg, args...) }
-func (s *slogAdapter) Info(msg string, args ...any)  { s.Logger.Info(msg, args...) }
-func (s *slogAdapter) Warn(msg string, args ...any)  { s.Logger.Warn(msg, args...) }
-func (s *slogAdapter) Error(msg string, args ...any) { s.Logger.Error(msg, args...) }

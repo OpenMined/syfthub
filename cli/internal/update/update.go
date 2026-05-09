@@ -158,10 +158,10 @@ func GetLatestPreRelease() (*VersionInfo, error) {
 	return getLatestRelease(true)
 }
 
-func getLatestRelease(includePreRelease bool) (*VersionInfo, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
+var githubHTTPClient = &http.Client{Timeout: 10 * time.Second}
 
-	resp, err := client.Get(GitHubAPIURL)
+func getLatestRelease(includePreRelease bool) (*VersionInfo, error) {
+	resp, err := githubHTTPClient.Get(GitHubAPIURL + "?per_page=10")
 	if err != nil {
 		return nil, err
 	}
@@ -319,36 +319,50 @@ func CheckForUpdates(force bool) (*VersionInfo, error) {
 	return nil, nil
 }
 
-// IsBinaryInstall checks if the CLI was installed as a standalone binary.
+// IsBinaryInstall reports whether the running CLI was installed as a
+// standalone binary (install script or system package) as opposed to via
+// `go install`. Self-update only makes sense for the former.
 func IsBinaryInstall() bool {
-	// Check if executable is in a typical binary location
 	exe, err := os.Executable()
 	if err != nil {
 		return false
 	}
-
-	// Resolve symlinks
 	exe, err = filepath.EvalSymlinks(exe)
 	if err != nil {
 		return false
 	}
-
-	// Check if it's in standard binary directories
 	dir := filepath.Dir(exe)
-	binaryDirs := []string{"/usr/local/bin", "/usr/bin", "/opt/homebrew/bin"}
-	for _, d := range binaryDirs {
+
+	// Exclude go-install locations: GOBIN or GOPATH/bin (and the default ~/go/bin).
+	if gobin := os.Getenv("GOBIN"); gobin != "" && dir == gobin {
+		return false
+	}
+	if gopath := os.Getenv("GOPATH"); gopath != "" {
+		if dir == filepath.Join(gopath, "bin") {
+			return false
+		}
+	}
+	if home := os.Getenv("HOME"); home != "" {
+		if dir == filepath.Join(home, "go", "bin") {
+			return false
+		}
+	}
+
+	// Accept well-known install-script targets.
+	systemBins := []string{"/usr/local/bin", "/usr/bin", "/opt/homebrew/bin"}
+	for _, d := range systemBins {
 		if dir == d {
 			return true
 		}
 	}
-
-	// Check HOME/bin or similar
-	home := os.Getenv("HOME")
-	if home != "" && strings.HasPrefix(dir, home) {
-		return true
+	if home := os.Getenv("HOME"); home != "" {
+		if strings.HasPrefix(dir, filepath.Join(home, ".local", "bin")) ||
+			strings.HasPrefix(dir, filepath.Join(home, "bin")) ||
+			strings.HasPrefix(dir, filepath.Join(home, ".syfthub")) {
+			return true
+		}
 	}
-
-	return true // Default to true for most cases
+	return false
 }
 
 // GetCurrentExecutable returns the path to the current executable.

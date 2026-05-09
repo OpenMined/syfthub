@@ -35,6 +35,7 @@ from syfthub.schemas.endpoint import (
     Policy,
     SyncEndpointsResponse,
     SyncValidationError,
+    filter_visible_policies,
     generate_slug_from_name,
     get_matching_types,
 )
@@ -48,6 +49,10 @@ if TYPE_CHECKING:
     from syfthub.schemas.user import User
 
 logger = logging.getLogger(__name__)
+
+
+def _viewer_email(user: Optional[User]) -> Optional[str]:
+    return user.email if user else None
 
 
 class EndpointService(BaseService):
@@ -74,7 +79,10 @@ class EndpointService(BaseService):
         return None
 
     def _to_response_with_urls(
-        self, endpoint: Endpoint, owner_domain: Optional[str] = None
+        self,
+        endpoint: Endpoint,
+        owner_domain: Optional[str] = None,
+        current_user: Optional[User] = None,
     ) -> EndpointResponse:
         """Convert Endpoint to EndpointResponse with transformed URLs.
 
@@ -82,6 +90,8 @@ class EndpointService(BaseService):
             endpoint: The endpoint model to convert.
             owner_domain: Pre-fetched owner domain. When provided, skips the
                 per-endpoint DB lookup (use in listing methods to avoid N+1).
+            current_user: The authenticated viewer. Used to filter policies
+                whose `config.applied_to` does not include the viewer.
         """
         domain = (
             owner_domain
@@ -95,9 +105,13 @@ class EndpointService(BaseService):
             [c.model_dump() for c in endpoint.connect] if endpoint.connect else [],
         )
 
-        # Create response with transformed connections
+        viewer_email = current_user.email if current_user else None
+
         endpoint_dict = endpoint.model_dump()
         endpoint_dict["connect"] = transformed_connect
+        endpoint_dict["policies"] = filter_visible_policies(
+            endpoint_dict.get("policies") or [], viewer_email
+        )
         return EndpointResponse.model_validate(endpoint_dict)
 
     def _is_slug_available(
@@ -178,18 +192,18 @@ class EndpointService(BaseService):
         return [uid for uid in unique_ids if uid in active_ids]
 
     @staticmethod
-    def _inject_subscription_tag(tags: list[str], policies: list[Policy]) -> list[str]:
-        """Inject 'subscription' tag if a bundle_subscription policy is present.
+    def _inject_prepaid_tag(tags: list[str], policies: list[Policy]) -> list[str]:
+        """Inject 'prepaid' tag if a xendit policy is present.
 
         Silently skips if the tags list already has 10 or more entries and
-        'subscription' is not present (preserves the 10-tag soft limit for
+        'prepaid' is not present (preserves the 10-tag soft limit for
         user-supplied tags without rejecting the request).
         """
-        has_bundle_sub = any(p.type.lower() == "bundle_subscription" for p in policies)
-        if has_bundle_sub and "subscription" not in tags:
+        has_xendit_policy = any(p.type.lower() == "xendit" for p in policies)
+        if has_xendit_policy and "prepaid" not in tags:
             if len(tags) >= 10:
                 return tags
-            return [*tags, "subscription"]
+            return [*tags, "prepaid"]
         return tags
 
     def create_endpoint(
@@ -241,9 +255,15 @@ class EndpointService(BaseService):
                     detail="slug already exists - already taken",
                 )
 
-        # Auto-inject 'subscription' tag when a bundle_subscription policy is present
-        final_tags = self._inject_subscription_tag(
+        final_tags = self._inject_prepaid_tag(
             endpoint_data.tags, endpoint_data.policies
+        )
+
+        # Force private visibility for archived endpoints so they vanish from public listings
+        effective_visibility = (
+            EndpointVisibility.PRIVATE
+            if endpoint_data.archived
+            else endpoint_data.visibility
         )
 
         # Create a validated endpoint creation object that includes server-managed fields
@@ -251,7 +271,8 @@ class EndpointService(BaseService):
             name=endpoint_data.name,
             description=endpoint_data.description,
             type=endpoint_data.type,
-            visibility=endpoint_data.visibility,
+            visibility=effective_visibility,
+            archived=endpoint_data.archived,
             version=endpoint_data.version,
             readme=endpoint_data.readme,
             tags=final_tags,
@@ -276,7 +297,7 @@ class EndpointService(BaseService):
         if endpoint.visibility == EndpointVisibility.PUBLIC:
             self._ingest_to_rag(endpoint.id)
 
-        return self._to_response_with_urls(endpoint)
+        return self._to_response_with_urls(endpoint, current_user=current_user)
 
     def get_endpoint_by_user_and_slug(
         self, user_id: int, slug: str
@@ -317,7 +338,11 @@ class EndpointService(BaseService):
         for endpoint in endpoints:
             if self._can_access_endpoint(endpoint, current_user, "user"):
                 accessible_endpoints.append(
-                    self._to_response_with_urls(endpoint, owner_domain=user_domain)
+                    self._to_response_with_urls(
+                        endpoint,
+                        owner_domain=user_domain,
+                        current_user=current_user,
+                    )
                 )
 
         return accessible_endpoints
@@ -343,7 +368,11 @@ class EndpointService(BaseService):
         for endpoint in endpoints:
             if self._can_access_endpoint(endpoint, current_user, "organization"):
                 accessible_endpoints.append(
-                    self._to_response_with_urls(endpoint, owner_domain=org_domain)
+                    self._to_response_with_urls(
+                        endpoint,
+                        owner_domain=org_domain,
+                        current_user=current_user,
+                    )
                 )
 
         return accessible_endpoints
@@ -354,10 +383,15 @@ class EndpointService(BaseService):
         limit: int = 10,
         endpoint_type: Optional[EndpointType] = None,
         search: Optional[str] = None,
+        current_user: Optional[User] = None,
     ) -> List[EndpointPublicResponse]:
         """Get public endpoints with optional search filtering."""
         return self.endpoint_repository.get_public_endpoints(
-            skip, limit, endpoint_type, search
+            skip,
+            limit,
+            endpoint_type,
+            search,
+            viewer_email=_viewer_email(current_user),
         )
 
     def _apply_endpoint_update(
@@ -383,18 +417,19 @@ class EndpointService(BaseService):
                 valid_contributors.append(current_user.id)
             endpoint_data.contributors = valid_contributors
 
-        # Auto-inject 'subscription' tag when a bundle_subscription policy is present
         if endpoint_data.policies is not None:
             effective_tags = (
                 endpoint_data.tags
                 if endpoint_data.tags is not None
                 else (endpoint.tags or [])
             )
-            new_tags = self._inject_subscription_tag(
-                effective_tags, endpoint_data.policies
-            )
+            new_tags = self._inject_prepaid_tag(effective_tags, endpoint_data.policies)
             if new_tags != effective_tags:
                 endpoint_data.tags = new_tags
+
+        # Force private visibility when archiving
+        if endpoint_data.archived:
+            endpoint_data.visibility = EndpointVisibility.PRIVATE
 
         updated_endpoint = self.endpoint_repository.update_endpoint(
             endpoint.id, endpoint_data
@@ -410,7 +445,7 @@ class EndpointService(BaseService):
             endpoint.id, old_visibility, new_visibility
         )
 
-        return self._to_response_with_urls(updated_endpoint)
+        return self._to_response_with_urls(updated_endpoint, current_user=current_user)
 
     def update_endpoint(
         self, endpoint_id: int, endpoint_data: EndpointUpdate, current_user: User
@@ -480,7 +515,7 @@ class EndpointService(BaseService):
                 detail="Failed to update endpoint",
             )
 
-        return self._to_response_with_urls(updated_endpoint)
+        return self._to_response_with_urls(updated_endpoint, current_user=current_user)
 
     # Router-compatible methods
     def list_user_endpoints(
@@ -507,10 +542,15 @@ class EndpointService(BaseService):
         limit: int = 10,
         endpoint_type: Optional[EndpointType] = None,
         search: Optional[str] = None,
+        current_user: Optional[User] = None,
     ) -> List[EndpointPublicResponse]:
         """List public endpoints - router-compatible wrapper."""
         return self.get_public_endpoints(
-            skip=skip, limit=limit, endpoint_type=endpoint_type, search=search
+            skip=skip,
+            limit=limit,
+            endpoint_type=endpoint_type,
+            search=search,
+            current_user=current_user,
         )
 
     def list_public_endpoints_by_owner(
@@ -518,6 +558,7 @@ class EndpointService(BaseService):
         owner_slug: str,
         skip: int = 0,
         limit: int = 100,
+        current_user: Optional[User] = None,
     ) -> List[EndpointPublicResponse]:
         """List public endpoints for a specific owner.
 
@@ -530,17 +571,24 @@ class EndpointService(BaseService):
             List of EndpointPublicResponse objects for the owner.
         """
         return self.endpoint_repository.get_public_endpoints_by_owner(
-            owner_slug=owner_slug, skip=skip, limit=limit
+            owner_slug=owner_slug,
+            skip=skip,
+            limit=limit,
+            viewer_email=_viewer_email(current_user),
         )
 
     def get_public_endpoint_by_path(
-        self, owner_username: str, slug: str
+        self,
+        owner_username: str,
+        slug: str,
+        current_user: Optional[User] = None,
     ) -> EndpointPublicResponse:
         """Get a single public endpoint by owner username and slug.
 
         Args:
             owner_username: The username of the endpoint owner
             slug: The endpoint slug
+            current_user: Optional authenticated viewer for policy personalization
 
         Returns:
             EndpointPublicResponse
@@ -549,7 +597,9 @@ class EndpointService(BaseService):
             HTTPException: 404 if endpoint is not found
         """
         endpoint = self.endpoint_repository.get_public_endpoint_by_owner_and_slug(
-            owner_username, slug
+            owner_username,
+            slug,
+            viewer_email=_viewer_email(current_user),
         )
         if endpoint is None:
             raise HTTPException(
@@ -564,10 +614,15 @@ class EndpointService(BaseService):
         limit: int = 10,
         min_stars: Optional[int] = None,
         endpoint_type: Optional[EndpointType] = None,
+        current_user: Optional[User] = None,
     ) -> List[EndpointPublicResponse]:
         """List trending public endpoints sorted by stars count with optional min_stars filter."""
         return self.endpoint_repository.get_trending_endpoints(
-            skip, limit, min_stars, endpoint_type
+            skip,
+            limit,
+            min_stars,
+            endpoint_type,
+            viewer_email=_viewer_email(current_user),
         )
 
     def list_guest_accessible_endpoints(
@@ -575,6 +630,7 @@ class EndpointService(BaseService):
         skip: int = 0,
         limit: int = 10,
         endpoint_type: Optional[EndpointType] = None,
+        current_user: Optional[User] = None,
     ) -> List[EndpointPublicResponse]:
         """List endpoints accessible to guest (unauthenticated) users.
 
@@ -594,12 +650,16 @@ class EndpointService(BaseService):
             List of EndpointPublicResponse objects for guest-accessible endpoints
         """
         return self.endpoint_repository.get_guest_accessible_endpoints(
-            skip=skip, limit=limit, endpoint_type=endpoint_type
+            skip=skip,
+            limit=limit,
+            endpoint_type=endpoint_type,
+            viewer_email=_viewer_email(current_user),
         )
 
     def list_public_endpoints_grouped(
         self,
         max_per_owner: int = 15,
+        current_user: Optional[User] = None,
     ) -> GroupedEndpointsResponse:
         """List public endpoints grouped by owner with a limit per owner.
 
@@ -614,7 +674,8 @@ class EndpointService(BaseService):
             GroupedEndpointsResponse with groups ordered by total endpoint count (descending)
         """
         return self.endpoint_repository.get_public_endpoints_grouped(
-            max_per_owner=max_per_owner
+            max_per_owner=max_per_owner,
+            viewer_email=_viewer_email(current_user),
         )
 
     def list_public_endpoint_owners(
@@ -770,6 +831,7 @@ class EndpointService(BaseService):
         query: str,
         top_k: int = 10,
         endpoint_type: Optional[EndpointType] = None,
+        current_user: Optional[User] = None,
     ) -> EndpointSearchResponse:
         """Search endpoints using semantic search (RAG).
 
@@ -796,7 +858,10 @@ class EndpointService(BaseService):
         endpoint_ids = list(score_map.keys())
 
         # Fetch endpoints from database (preserves ranking order)
-        endpoints = self.endpoint_repository.get_public_endpoints_by_ids(endpoint_ids)
+        endpoints = self.endpoint_repository.get_public_endpoints_by_ids(
+            endpoint_ids,
+            viewer_email=_viewer_email(current_user),
+        )
 
         # Filter by type if specified (inclusive: model_data_source matches both)
         if endpoint_type:
@@ -859,7 +924,7 @@ class EndpointService(BaseService):
                 detail="Endpoint not found",
             )
 
-        return self._to_response_with_urls(endpoint)
+        return self._to_response_with_urls(endpoint, current_user=current_user)
 
     def delete_endpoint(self, endpoint_id: int, current_user: User) -> bool:
         """Delete endpoint."""
@@ -1144,7 +1209,7 @@ class EndpointService(BaseService):
                 valid_contributors.append(current_user.id)
 
             # Prepare the validated endpoint data
-            final_tags = self._inject_subscription_tag(
+            final_tags = self._inject_prepaid_tag(
                 endpoint_data.tags or [], endpoint_data.policies
             )
             validated_endpoint = {
@@ -1265,7 +1330,9 @@ class EndpointService(BaseService):
             user = self.user_repository.get_by_id(current_user.id)
             user_domain = user.domain if user else None
             response_endpoints = [
-                self._to_response_with_urls(ep, owner_domain=user_domain)
+                self._to_response_with_urls(
+                    ep, owner_domain=user_domain, current_user=current_user
+                )
                 for ep in created_endpoints
             ]
 

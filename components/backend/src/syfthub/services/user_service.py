@@ -19,6 +19,7 @@ from syfthub.repositories.user import UserRepository
 from syfthub.schemas.user import (
     TUNNELING_PREFIX,
     HeartbeatResponse,
+    PublicUserProfile,
     User,
     UserResponse,
     UserUpdate,
@@ -76,6 +77,29 @@ class UserService(BaseService):
         if user:
             return UserResponse.model_validate(user)
         return None
+
+    def get_public_user_profile(self, username: str) -> Optional[PublicUserProfile]:
+        """Get a sanitized public profile by username.
+
+        Returns ``None`` if the user does not exist or is inactive. The email
+        field is populated only when the user has opted in via
+        ``is_email_public``.
+        """
+        user = self.user_repository.get_by_username(username)
+        if user is None or not user.is_active:
+            return None
+
+        return PublicUserProfile(
+            username=user.username,
+            full_name=user.full_name,
+            avatar_url=user.avatar_url,
+            role=user.role,
+            bio=user.bio,
+            domain=user.domain,
+            email=user.email if user.is_email_public else None,
+            is_email_public=user.is_email_public,
+            created_at=user.created_at,
+        )
 
     def get_users_list(
         self, skip: int = 0, limit: int = 10, active_only: bool = True

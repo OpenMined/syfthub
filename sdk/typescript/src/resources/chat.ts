@@ -37,6 +37,7 @@ import type {
   TokenUsage,
 } from '../models/chat.js';
 import { SyftHubError } from '../errors.js';
+import { readSSEEvents } from '../utils.js';
 import type { HubResource } from './hub.js';
 import type { AuthResource } from './auth.js';
 import { EndpointType } from '../models/index.js';
@@ -567,51 +568,17 @@ export class ChatResource {
       throw new AggregatorError('No response body from aggregator');
     }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let currentEvent: string | null = null;
-    let currentData = '';
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-
-          if (!trimmedLine) {
-            // Empty line = end of event
-            if (currentEvent && currentData) {
-              try {
-                const data = JSON.parse(currentData) as Record<string, unknown>;
-                const event = this.parseSSEEvent(currentEvent, data);
-                if (event) {
-                  yield event;
-                }
-              } catch {
-                yield { type: 'error', message: `Failed to parse SSE data: ${currentData}` };
-              }
-            }
-            currentEvent = null;
-            currentData = '';
-            continue;
-          }
-
-          if (trimmedLine.startsWith('event:')) {
-            currentEvent = trimmedLine.slice(6).trim();
-          } else if (trimmedLine.startsWith('data:')) {
-            currentData = trimmedLine.slice(5).trim();
-          }
+    for await (const { event: eventName, data: dataStr } of readSSEEvents(response)) {
+      if (eventName === 'message') continue; // chat protocol always names events
+      try {
+        const data = JSON.parse(dataStr) as Record<string, unknown>;
+        const event = this.parseSSEEvent(eventName, data);
+        if (event) {
+          yield event;
         }
+      } catch {
+        yield { type: 'error', message: `Failed to parse SSE data: ${dataStr}` };
       }
-    } finally {
-      reader.releaseLock();
     }
   }
 

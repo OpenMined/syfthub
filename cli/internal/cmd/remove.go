@@ -2,9 +2,6 @@ package cmd
 
 import (
 	"github.com/spf13/cobra"
-
-	"github.com/OpenMined/syfthub/cli/internal/config"
-	"github.com/OpenMined/syfthub/cli/internal/output"
 )
 
 var removeCmd = &cobra.Command{
@@ -21,7 +18,9 @@ var removeAggregatorCmd = &cobra.Command{
 	Use:   "aggregator <alias>",
 	Short: "Remove an aggregator alias",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runRemoveAggregator,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runRemoveAlias(aggregatorKind, args[0], removeAggregatorJSONOutput)
+	},
 }
 
 // Remove accounting subcommand
@@ -31,7 +30,9 @@ var removeAccountingCmd = &cobra.Command{
 	Use:   "accounting <alias>",
 	Short: "Remove an accounting service alias",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runRemoveAccounting,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runRemoveAlias(accountingKind, args[0], removeAccountingJSONOutput)
+	},
 }
 
 func init() {
@@ -40,102 +41,4 @@ func init() {
 
 	removeCmd.AddCommand(removeAggregatorCmd)
 	removeCmd.AddCommand(removeAccountingCmd)
-}
-
-func runRemoveAggregator(cmd *cobra.Command, args []string) error {
-	alias := args[0]
-
-	cfg := config.Load()
-
-	if _, exists := cfg.Aggregators[alias]; !exists {
-		if removeAggregatorJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": "Aggregator '" + alias + "' not found",
-			})
-		} else {
-			output.Error("Aggregator '%s' not found.", alias)
-		}
-		return nil
-	}
-
-	delete(cfg.Aggregators, alias)
-
-	// Clear default if it was this alias
-	if cfg.DefaultAggregator == alias {
-		cfg.DefaultAggregator = ""
-	}
-
-	if err := cfg.Save(); err != nil {
-		if removeAggregatorJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": err.Error(),
-			})
-		} else {
-			output.Error("Failed to save config: %v", err)
-		}
-		return err
-	}
-
-	if removeAggregatorJSONOutput {
-		output.JSON(map[string]interface{}{
-			"status":  "success",
-			"alias":   alias,
-			"message": "Removed",
-		})
-	} else {
-		output.Success("Removed aggregator '%s'", alias)
-	}
-
-	return nil
-}
-
-func runRemoveAccounting(cmd *cobra.Command, args []string) error {
-	alias := args[0]
-
-	cfg := config.Load()
-
-	if _, exists := cfg.AccountingServices[alias]; !exists {
-		if removeAccountingJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": "Accounting service '" + alias + "' not found",
-			})
-		} else {
-			output.Error("Accounting service '%s' not found.", alias)
-		}
-		return nil
-	}
-
-	delete(cfg.AccountingServices, alias)
-
-	// Clear default if it was this alias
-	if cfg.DefaultAccounting == alias {
-		cfg.DefaultAccounting = ""
-	}
-
-	if err := cfg.Save(); err != nil {
-		if removeAccountingJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": err.Error(),
-			})
-		} else {
-			output.Error("Failed to save config: %v", err)
-		}
-		return err
-	}
-
-	if removeAccountingJSONOutput {
-		output.JSON(map[string]interface{}{
-			"status":  "success",
-			"alias":   alias,
-			"message": "Removed",
-		})
-	} else {
-		output.Success("Removed accounting service '%s'", alias)
-	}
-
-	return nil
 }

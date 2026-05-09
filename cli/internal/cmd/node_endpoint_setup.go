@@ -45,12 +45,7 @@ func runNodeEndpointSetup(cmd *cobra.Command, args []string) error {
 
 	// 1. Verify endpoint exists
 	if _, err := os.Stat(endpointDir); os.IsNotExist(err) {
-		msg := fmt.Sprintf("Endpoint '%s' not found.", slug)
-		if nodeEPSetupJSON {
-			output.JSON(map[string]any{"status": "error", "message": msg})
-		} else {
-			output.Error(msg)
-		}
+		output.ReplyErrorSoft(nodeEPSetupJSON, "Endpoint '%s' not found.", slug)
 		return nil
 	}
 
@@ -58,21 +53,11 @@ func runNodeEndpointSetup(cmd *cobra.Command, args []string) error {
 	setupPath := filepath.Join(endpointDir, "setup.yaml")
 	spec, err := nodeops.ParseSetupYaml(setupPath)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to parse setup.yaml: %v", err)
-		if nodeEPSetupJSON {
-			output.JSON(map[string]any{"status": "error", "message": msg})
-		} else {
-			output.Error(msg)
-		}
+		output.ReplyErrorSoft(nodeEPSetupJSON, "Failed to parse setup.yaml: %v", err)
 		return nil
 	}
 	if spec == nil {
-		msg := fmt.Sprintf("No setup.yaml found for endpoint '%s'.", slug)
-		if nodeEPSetupJSON {
-			output.JSON(map[string]any{"status": "error", "message": msg})
-		} else {
-			output.Error(msg)
-		}
+		output.ReplyErrorSoft(nodeEPSetupJSON, "No setup.yaml found for endpoint '%s'.", slug)
 		return nil
 	}
 
@@ -105,19 +90,14 @@ func runNodeEndpointSetup(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := engine.Execute(ctx); err != nil {
-		msg := fmt.Sprintf("Setup failed: %v", err)
-		if nodeEPSetupJSON {
-			output.JSON(map[string]any{"status": "error", "message": msg})
-		} else {
-			output.Error(msg)
-		}
+		output.ReplyErrorSoft(nodeEPSetupJSON, "Setup failed: %v", err)
 		return nil
 	}
 
 	// 6. Report result
 	status, _ := nodeops.GetSetupStatus(endpointDir)
 	if nodeEPSetupJSON {
-		output.JSON(map[string]any{"status": "success", "setup_status": status})
+		output.JSON(map[string]any{"status": output.StatusSuccess, "setup_status": status})
 	} else {
 		if status != nil {
 			output.Success("Setup complete for '%s' (%d/%d steps)", slug, status.CompletedN, status.TotalSteps)
@@ -149,12 +129,7 @@ func runNodeEndpointSetupStatus(cmd *cobra.Command, args []string) error {
 	endpointDir := filepath.Join(cfg.EndpointsPath, slug)
 
 	if _, err := os.Stat(endpointDir); os.IsNotExist(err) {
-		msg := fmt.Sprintf("Endpoint '%s' not found.", slug)
-		if nodeEPSetupStatusJSON {
-			output.JSON(map[string]any{"status": "error", "message": msg})
-		} else {
-			output.Error(msg)
-		}
+		output.ReplyErrorSoft(nodeEPSetupStatusJSON, "Endpoint '%s' not found.", slug)
 		return nil
 	}
 
@@ -165,17 +140,12 @@ func runNodeEndpointSetupStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	if status == nil {
-		msg := fmt.Sprintf("Endpoint '%s' has no setup.yaml.", slug)
-		if nodeEPSetupStatusJSON {
-			output.JSON(map[string]any{"status": "error", "message": msg})
-		} else {
-			output.Error(msg)
-		}
+		output.ReplyErrorSoft(nodeEPSetupStatusJSON, "Endpoint '%s' has no setup.yaml.", slug)
 		return nil
 	}
 
 	if nodeEPSetupStatusJSON {
-		output.JSON(map[string]any{"status": "success", "setup_status": status})
+		output.JSON(map[string]any{"status": output.StatusSuccess, "setup_status": status})
 		return nil
 	}
 

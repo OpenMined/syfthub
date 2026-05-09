@@ -623,9 +623,9 @@ async def get_owner_endpoint(
             readme_html = sanitize_readme_html(raw_html)
 
         return templates.TemplateResponse(
+            request,
             "endpoint.html",
             {
-                "request": request,
                 "endpoint": endpoint,
                 "owner_name": owner_name,
                 "owner_slug": owner_slug,

@@ -28,37 +28,15 @@ func runLogout(cmd *cobra.Command, args []string) error {
 	cfg := config.Load()
 
 	if !cfg.HasAPIToken() {
-		if logoutJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "success",
-				"message": "Already logged out",
-			})
-		} else {
-			output.Success("Already logged out")
-		}
+		output.ReplySuccess(logoutJSONOutput, map[string]any{"message": "Already logged out"}, "Already logged out")
 		return nil
 	}
 
 	if err := config.ClearAPITokenAndSave(); err != nil {
-		if logoutJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": err.Error(),
-			})
-		} else {
-			output.Error("Failed to clear token: %v", err)
-		}
-		return err
+		return output.ReplyError(logoutJSONOutput, "Failed to clear token: %v", err)
 	}
 
-	if logoutJSONOutput {
-		output.JSON(map[string]interface{}{
-			"status":  "success",
-			"message": "Logged out",
-		})
-	} else {
-		output.Success("Logged out successfully")
-	}
+	output.ReplySuccess(logoutJSONOutput, map[string]any{"message": "Logged out"}, "Logged out successfully")
 
 	return nil
 }

@@ -11,6 +11,7 @@ from syfthub.repositories import (
     EndpointRepository,
     OrganizationRepository,
     UserRepository,
+    UserXenditSubscriptionRepository,
 )
 from syfthub.repositories.endpoint import EndpointStarRepository
 from syfthub.repositories.organization import OrganizationMemberRepository
@@ -64,6 +65,13 @@ def get_endpoint_star_repository(
 ) -> EndpointStarRepository:
     """Get EndpointStarRepository dependency."""
     return EndpointStarRepository(session)
+
+
+def get_user_xendit_subscription_repository(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> UserXenditSubscriptionRepository:
+    """Get UserXenditSubscriptionRepository dependency."""
+    return UserXenditSubscriptionRepository(session)
 
 
 # Service dependencies

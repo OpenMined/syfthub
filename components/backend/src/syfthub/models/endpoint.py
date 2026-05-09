@@ -27,6 +27,27 @@ if TYPE_CHECKING:
     from syfthub.models.user import UserModel
 
 
+# Policy types that mark an endpoint as requiring payment for invocation.
+# Includes "transaction" (on-chain MPP-over-NATS, emitted by the Go SDK) and
+# "xendit" (existing prepaid wallet flow). Compared case-insensitively.
+PAYMENT_POLICY_TYPES = frozenset({"transaction", "xendit"})
+
+
+def policies_require_payment(policies: object) -> bool:
+    """Return True iff any policy entry has a payment-bearing type."""
+    if not policies:
+        return False
+    if not isinstance(policies, list):
+        return False
+    for policy in policies:
+        if not isinstance(policy, dict):
+            continue
+        policy_type = policy.get("type")
+        if isinstance(policy_type, str) and policy_type.lower() in PAYMENT_POLICY_TYPES:
+            return True
+    return False
+
+
 class EndpointModel(BaseModel, TimestampMixin):
     """Endpoint database model."""
 
@@ -59,6 +80,7 @@ class EndpointModel(BaseModel, TimestampMixin):
         String(20), nullable=False, default="public"
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Health check failure tracking - used by health monitor to track consecutive failures
     # before marking endpoint as inactive (multi-worker safe, persisted in DB)
     consecutive_failure_count: Mapped[int] = mapped_column(
@@ -125,10 +147,21 @@ class EndpointModel(BaseModel, TimestampMixin):
         Index("idx_endpoints_type", "type"),
         Index("idx_endpoints_visibility", "visibility"),
         Index("idx_endpoints_is_active", "is_active"),
+        Index("idx_endpoints_archived", "archived"),
         Index("idx_endpoints_version", "version"),
         Index("idx_endpoints_stars_count", "stars_count"),
         Index("idx_endpoints_rag_file_id", "rag_file_id"),
     )
+
+    @property
+    def payment_required(self) -> bool:
+        """True iff any registered policy requires payment.
+
+        UI surfaces this flag to render paid-endpoint badges without
+        inspecting the full policy list. See ``PAYMENT_POLICY_TYPES`` for
+        the set of policy types that flip this on.
+        """
+        return policies_require_payment(self.policies)
 
     def __repr__(self) -> str:
         """String representation of Endpoint."""

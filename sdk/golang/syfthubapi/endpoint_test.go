@@ -6,6 +6,8 @@ import (
 	"errors"
 	"sync"
 	"testing"
+
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
 func TestValidateSlug(t *testing.T) {
@@ -83,8 +85,183 @@ func TestEndpointInfo(t *testing.T) {
 	}
 }
 
-func TestEndpointSetHandler(t *testing.T) {
-	ep := &Endpoint{Slug: "test", Type: EndpointTypeModel}
+func TestEndpoint_Info_PoliciesPopulated(t *testing.T) {
+	ep := &Endpoint{
+		Slug: "paid-ep",
+		Type: EndpointTypeModel,
+	}
+	ep.SetPolicyConfigs([]nodeops.Policy{
+		{
+			Name: "rate",
+			Type: PolicyTypeRateLimit,
+			Config: map[string]interface{}{
+				"requests_per_minute": 10,
+				"_internal":           "drop me",
+				"signing_key":         "drop me too",
+			},
+		},
+		{
+			Name: "pay",
+			Type: PolicyTypeTransaction,
+			Config: map[string]interface{}{
+				"recipient":       "0xabc",
+				"amount":          "100",
+				"currency":        "USDC",
+				"method":          "tempo",
+				"intent":          "pay-per-call",
+				"chain_id":        "tempo-mainnet",
+				"ttl_seconds":     60,
+				"secret_key_path": "/tmp/secret",
+				"signing_key":     "supersecret",
+			},
+		},
+	})
+
+	info := ep.Info()
+	if len(info.Policies) != 2 {
+		t.Fatalf("expected 2 policies, got %d", len(info.Policies))
+	}
+
+	// First policy: rate_limit — passthrough minus underscore/secret keys.
+	rate := info.Policies[0]
+	if rate["name"] != "rate" || rate["type"] != PolicyTypeRateLimit {
+		t.Errorf("unexpected rate header: %+v", rate)
+	}
+	rateCfg, ok := rate["config"].(map[string]any)
+	if !ok {
+		t.Fatalf("rate config not map: %T", rate["config"])
+	}
+	if _, present := rateCfg["_internal"]; present {
+		t.Error("underscore key should be stripped")
+	}
+	if _, present := rateCfg["signing_key"]; present {
+		t.Error("signing_key should be stripped from non-transaction policy")
+	}
+	if rateCfg["requests_per_minute"] != 10 {
+		t.Errorf("requests_per_minute should pass through: %+v", rateCfg)
+	}
+
+	// Second policy: transaction — strict allow-list, secrets dropped.
+	pay := info.Policies[1]
+	if pay["name"] != "pay" || pay["type"] != PolicyTypeTransaction {
+		t.Errorf("unexpected pay header: %+v", pay)
+	}
+	payCfg, ok := pay["config"].(map[string]any)
+	if !ok {
+		t.Fatalf("pay config not map: %T", pay["config"])
+	}
+	if _, present := payCfg["secret_key_path"]; present {
+		t.Error("secret_key_path must not appear in published transaction config")
+	}
+	if _, present := payCfg["signing_key"]; present {
+		t.Error("signing_key must not appear in published transaction config")
+	}
+	for _, key := range []string{"recipient", "amount", "currency", "method", "intent", "chain_id", "ttl_seconds"} {
+		if _, present := payCfg[key]; !present {
+			t.Errorf("expected key %q to remain in transaction config: %+v", key, payCfg)
+		}
+	}
+}
+
+func TestEndpoint_Info_PoliciesEmpty(t *testing.T) {
+	ep := &Endpoint{Slug: "no-policies", Type: EndpointTypeModel}
+
+	info := ep.Info()
+	if info.Policies != nil {
+		t.Errorf("Policies should be nil when no configs set, got %#v", info.Policies)
+	}
+
+	// Round-trip JSON — `omitempty` should drop the field entirely.
+	b, err := json.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var generic map[string]any
+	if err := json.Unmarshal(b, &generic); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, present := generic["policies"]; present {
+		t.Errorf("policies field should be omitted from JSON when empty: %s", string(b))
+	}
+}
+
+func TestBuildExecutorInput_PaymentCredential(t *testing.T) {
+	ep := &Endpoint{Slug: "ep", Type: EndpointTypeModel}
+	reqCtx := NewRequestContext()
+	reqCtx.User = &UserContext{Username: "alice"}
+	reqCtx.PaymentCredential = "Payment eyJ..."
+
+	input := ep.buildExecutorInput("model", reqCtx)
+	if input.PaymentCredential != "Payment eyJ..." {
+		t.Errorf("PaymentCredential = %q, want %q", input.PaymentCredential, "Payment eyJ...")
+	}
+}
+
+func TestSanitizePolicyConfig_RemovesSecrets(t *testing.T) {
+	t.Run("non-transaction policy strips underscore and secret keys", func(t *testing.T) {
+		cfg := map[string]any{
+			"_secret_key":     "drop",
+			"signing_key":     "drop",
+			"secret_key_path": "drop",
+			"api_key":         "drop",
+			"password":        "drop",
+			"auth_token":      "drop",
+			"private_key":     "drop",
+			"recipient":       "0xabc",
+			"amount":          "100",
+		}
+		got := sanitizePolicyConfig(PolicyTypeRateLimit, cfg)
+		want := map[string]any{
+			"recipient": "0xabc",
+			"amount":    "100",
+		}
+		if len(got) != len(want) {
+			t.Fatalf("expected %d keys, got %d (%+v)", len(want), len(got), got)
+		}
+		for k, v := range want {
+			if got[k] != v {
+				t.Errorf("key %q = %v, want %v", k, got[k], v)
+			}
+		}
+	})
+
+	t.Run("transaction policy uses allow-list", func(t *testing.T) {
+		cfg := map[string]any{
+			"recipient":       "0xabc",
+			"amount":          "100",
+			"currency":        "USDC",
+			"method":          "tempo",
+			"intent":          "pay-per-call",
+			"chain_id":        "tempo-mainnet",
+			"ttl_seconds":     60,
+			"secret_key_path": "/tmp/secret",
+			"signing_key":     "drop",
+			"_anything":       "drop",
+			"unknown_field":   "drop",
+		}
+		got := sanitizePolicyConfig(PolicyTypeTransaction, cfg)
+		for _, leak := range []string{"secret_key_path", "signing_key", "_anything", "unknown_field"} {
+			if _, present := got[leak]; present {
+				t.Errorf("transaction config leaked %q", leak)
+			}
+		}
+		for _, want := range []string{"recipient", "amount", "currency", "method", "intent", "chain_id", "ttl_seconds"} {
+			if _, present := got[want]; !present {
+				t.Errorf("transaction config missing %q", want)
+			}
+		}
+	})
+
+	t.Run("nil config returns empty map", func(t *testing.T) {
+		got := sanitizePolicyConfig(PolicyTypeRateLimit, nil)
+		if got == nil || len(got) != 0 {
+			t.Errorf("expected empty map, got %#v", got)
+		}
+	})
+}
+
+func TestEndpointSetExecutor(t *testing.T) {
+	ep := &Endpoint{Slug: "test"}
 
 	if ep.IsFileBased() {
 		t.Error("new endpoint should not be file-based")

@@ -20,7 +20,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { WalletBalance, WalletInfo, WalletTransaction } from '@/lib/types';
+import type { WalletBalance, WalletInfo, WalletTransaction, XenditSubscription } from '@/lib/types';
 
 import { useWalletContext } from '@/context/wallet-context';
 import { syftClient } from '@/lib/sdk-client';
@@ -31,6 +31,20 @@ import { syftClient } from '@/lib/sdk-client';
 
 /** Polling interval for balance and transactions (30 seconds) */
 export const POLLING_INTERVAL_MS = 30_000;
+
+/**
+ * Soft offset (in USD) subtracted from the displayed wallet balance.
+ * The faucet drops 1M pathUSD on every new wallet; we hide all but ~$20 of it
+ * in the UI so users see a realistic-looking starting balance.
+ */
+const DISPLAY_BALANCE_OFFSET_USD = 999_980;
+
+function applyDisplayOffset(balance: WalletBalance): WalletBalance {
+  return {
+    ...balance,
+    balance: Math.max(0, balance.balance - DISPLAY_BALANCE_OFFSET_USD)
+  };
+}
 
 // =============================================================================
 // Force Refresh Event System
@@ -214,7 +228,8 @@ export class WalletAPIClient {
   }
 
   async getBalance(): Promise<WalletBalance> {
-    return this.request<WalletBalance>('GET', '/balance');
+    const result = await this.request<WalletBalance>('GET', '/balance');
+    return applyDisplayOffset(result);
   }
 
   async getTransactions(): Promise<WalletTransaction[]> {
@@ -229,6 +244,32 @@ export class WalletAPIClient {
     return this.request<{ address: string }>('POST', '/import', {
       body: { private_key: privateKey }
     });
+  }
+
+  async listXenditSubscriptions(): Promise<{ subscriptions: XenditSubscription[] }> {
+    return this.request<{ subscriptions: XenditSubscription[] }>('GET', '/subscriptions');
+  }
+
+  async upsertXenditSubscription(payload: {
+    credits_url: string;
+    payment_url: string;
+    endpoint_owner: string;
+    endpoint_slug?: string | null;
+    currency: string;
+    last_known_balance?: number | null;
+  }): Promise<XenditSubscription> {
+    return this.request<XenditSubscription>('POST', '/subscriptions', { body: payload });
+  }
+
+  async deleteXenditSubscription(id: number): Promise<void> {
+    await this.request<unknown>('DELETE', `/subscriptions/${String(id)}`);
+  }
+
+  async deleteXenditSubscriptionsByOwner(endpointOwner: string): Promise<void> {
+    await this.request<unknown>(
+      'DELETE',
+      `/subscriptions/by-owner/${encodeURIComponent(endpointOwner)}`
+    );
   }
 }
 

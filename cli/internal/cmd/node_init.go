@@ -77,7 +77,7 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 		if alreadyRunning {
 			if nodeInitJSON {
 				output.JSON(map[string]any{
-					"status":  "error",
+					"status":  output.StatusError,
 					"message": "Node is already configured and running. Use --force to reinitialize.",
 					"path":    nodeconfig.ConfigFile,
 				})
@@ -96,7 +96,7 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			if nodeInitJSON {
 				output.JSON(map[string]any{
-					"status":  "error",
+					"status":  output.StatusError,
 					"message": fmt.Sprintf("Failed to start daemon: %v", err),
 				})
 			} else {
@@ -107,7 +107,7 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 		}
 		if nodeInitJSON {
 			output.JSON(map[string]any{
-				"status":         "success",
+				"status":         output.StatusSuccess,
 				"config_path":    nodeconfig.ConfigFile,
 				"endpoints_path": existing.EndpointsPath,
 				"syfthub_url":    existing.HubURL,
@@ -133,7 +133,6 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 
 	cfgCopy := *existing
 	cfg := &cfgCopy
-	cfg.IsConfigured = false
 
 	// Apply flag overrides
 	if nodeInitHubURL != "" {
@@ -164,7 +163,7 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 
 	if err := nodeconfig.EnsureConfigDir(); err != nil {
 		if nodeInitJSON {
-			output.JSON(map[string]any{"status": "error", "message": err.Error()})
+			output.JSON(map[string]any{"status": output.StatusError, "message": err.Error()})
 		} else {
 			output.Error("Failed to create config directory: %v", err)
 		}
@@ -173,7 +172,7 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 
 	if err := os.MkdirAll(cfg.EndpointsPath, 0755); err != nil {
 		if nodeInitJSON {
-			output.JSON(map[string]any{"status": "error", "message": err.Error()})
+			output.JSON(map[string]any{"status": output.StatusError, "message": err.Error()})
 		} else {
 			output.Error("Failed to create endpoints directory: %v", err)
 		}
@@ -186,7 +185,7 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 
 	if err := cfg.Save(); err != nil {
 		if nodeInitJSON {
-			output.JSON(map[string]any{"status": "error", "message": err.Error()})
+			output.JSON(map[string]any{"status": output.StatusError, "message": err.Error()})
 		} else {
 			output.Error("Failed to save configuration: %v", err)
 		}
@@ -197,7 +196,7 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		if nodeInitJSON {
 			output.JSON(map[string]any{
-				"status":  "error",
+				"status":  output.StatusError,
 				"message": fmt.Sprintf("Config saved but failed to start daemon: %v", err),
 			})
 		} else {
@@ -210,7 +209,7 @@ func runNodeInit(cmd *cobra.Command, args []string) error {
 
 	if nodeInitJSON {
 		output.JSON(map[string]any{
-			"status":         "success",
+			"status":         output.StatusSuccess,
 			"config_path":    nodeconfig.ConfigFile,
 			"endpoints_path": cfg.EndpointsPath,
 			"syfthub_url":    cfg.HubURL,

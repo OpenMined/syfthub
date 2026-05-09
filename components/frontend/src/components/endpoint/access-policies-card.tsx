@@ -8,11 +8,15 @@ import { PolicyItem } from './policy-item';
 
 export interface AccessPoliciesCardProperties {
   policies?: Policy[];
+  endpointSlug?: string;
+  endpointOwner?: string;
 }
 
 // Access Policies Card component - memoized to prevent unnecessary re-renders
 export const AccessPoliciesCard = memo(function AccessPoliciesCard({
-  policies
+  policies,
+  endpointSlug,
+  endpointOwner
 }: Readonly<AccessPoliciesCardProperties>) {
   const validPolicies = policies?.filter((p) => p.type) ?? [];
 
@@ -32,7 +36,12 @@ export const AccessPoliciesCard = memo(function AccessPoliciesCard({
       {validPolicies.length > 0 ? (
         <div className='space-y-3'>
           {validPolicies.map((policy, index) => (
-            <PolicyItem key={`${policy.type}-${String(index)}`} policy={policy} />
+            <PolicyItem
+              key={`${policy.type}-${String(index)}`}
+              policy={policy}
+              endpointSlug={endpointSlug}
+              endpointOwner={endpointOwner}
+            />
           ))}
         </div>
       ) : (

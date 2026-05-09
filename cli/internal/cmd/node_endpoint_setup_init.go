@@ -62,7 +62,7 @@ func runSetupInit(cmd *cobra.Command, args []string) error {
 					"tags":        m.Tags,
 				}
 			}
-			output.JSON(map[string]any{"status": "success", "connectors": items})
+			output.JSON(map[string]any{"status": output.StatusSuccess, "connectors": items})
 			return nil
 		}
 
@@ -85,22 +85,12 @@ func runSetupInit(cmd *cobra.Command, args []string) error {
 
 	// Scaffold mode requires a slug
 	if len(args) == 0 {
-		msg := "Endpoint slug is required. Usage: syft node endpoint setup-init <slug> --connector <id>"
-		if setupInitJSON {
-			output.JSON(map[string]any{"status": "error", "message": msg})
-		} else {
-			output.Error(msg)
-		}
+		output.ReplyErrorSoft(setupInitJSON, "Endpoint slug is required. Usage: syft node endpoint setup-init <slug> --connector <id>")
 		return nil
 	}
 
 	if len(setupInitConnectors) == 0 {
-		msg := "At least one --connector is required. Use --list to see available connectors."
-		if setupInitJSON {
-			output.JSON(map[string]any{"status": "error", "message": msg})
-		} else {
-			output.Error(msg)
-		}
+		output.ReplyErrorSoft(setupInitJSON, "At least one --connector is required. Use --list to see available connectors.")
 		return nil
 	}
 
@@ -110,52 +100,32 @@ func runSetupInit(cmd *cobra.Command, args []string) error {
 
 	// Check endpoint exists
 	if _, err := os.Stat(endpointDir); os.IsNotExist(err) {
-		msg := fmt.Sprintf("Endpoint '%s' not found at %s.", slug, endpointDir)
-		if setupInitJSON {
-			output.JSON(map[string]any{"status": "error", "message": msg})
-		} else {
-			output.Error(msg)
-		}
+		output.ReplyErrorSoft(setupInitJSON, "Endpoint '%s' not found at %s.", slug, endpointDir)
 		return nil
 	}
 
 	// Check setup.yaml doesn't already exist (unless --force)
 	setupPath := filepath.Join(endpointDir, "setup.yaml")
 	if _, err := os.Stat(setupPath); err == nil && !setupInitForce {
-		msg := fmt.Sprintf("setup.yaml already exists for '%s'. Use --force to overwrite.", slug)
-		if setupInitJSON {
-			output.JSON(map[string]any{"status": "error", "message": msg})
-		} else {
-			output.Error(msg)
-		}
+		output.ReplyErrorSoft(setupInitJSON, "setup.yaml already exists for '%s'. Use --force to overwrite.", slug)
 		return nil
 	}
 
 	// Scaffold
 	spec, err := registry.Scaffold(setupInitConnectors, nil)
 	if err != nil {
-		msg := fmt.Sprintf("Failed to scaffold setup.yaml: %v", err)
-		if setupInitJSON {
-			output.JSON(map[string]any{"status": "error", "message": msg})
-		} else {
-			output.Error(msg)
-		}
+		output.ReplyErrorSoft(setupInitJSON, "Failed to scaffold setup.yaml: %v", err)
 		return nil
 	}
 
 	if err := nodeops.WriteSetupYaml(setupPath, spec); err != nil {
-		msg := fmt.Sprintf("Failed to write setup.yaml: %v", err)
-		if setupInitJSON {
-			output.JSON(map[string]any{"status": "error", "message": msg})
-		} else {
-			output.Error(msg)
-		}
+		output.ReplyErrorSoft(setupInitJSON, "Failed to write setup.yaml: %v", err)
 		return nil
 	}
 
 	if setupInitJSON {
 		output.JSON(map[string]any{
-			"status":     "success",
+			"status":     output.StatusSuccess,
 			"slug":       slug,
 			"connectors": setupInitConnectors,
 			"path":       setupPath,

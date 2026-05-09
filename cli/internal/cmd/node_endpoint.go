@@ -69,17 +69,13 @@ func runNodeEndpointCreate(cmd *cobra.Command, args []string) error {
 		Version:     nodeEPCreateVersion,
 	})
 	if err != nil {
-		if nodeEPCreateJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": err.Error()})
-		} else {
-			output.Error("%v", err)
-		}
+		output.ReplyErrorSoft(nodeEPCreateJSON, "%v", err)
 		return nil
 	}
 
 	if nodeEPCreateJSON {
-		output.JSON(map[string]interface{}{
-			"status": "success",
+		output.JSON(map[string]any{
+			"status": output.StatusSuccess,
 			"slug":   slug,
 			"path":   fmt.Sprintf("%s/%s", cfg.EndpointsPath, slug),
 		})
@@ -115,17 +111,13 @@ func runNodeEndpointList(cmd *cobra.Command, args []string) error {
 
 	endpoints, err := mgr.ListEndpoints()
 	if err != nil {
-		if nodeEPListJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": err.Error()})
-		} else {
-			output.Error("%v", err)
-		}
+		output.ReplyErrorSoft(nodeEPListJSON, "%v", err)
 		return nil
 	}
 
 	if len(endpoints) == 0 {
 		if nodeEPListJSON {
-			output.JSON(map[string]interface{}{"status": "success", "endpoints": []interface{}{}})
+			output.JSON(map[string]any{"status": output.StatusSuccess, "endpoints": []any{}})
 		} else {
 			fmt.Println("No endpoints found.")
 			fmt.Printf("Create one with: syft node endpoint create <name> --type model\n")
@@ -134,7 +126,7 @@ func runNodeEndpointList(cmd *cobra.Command, args []string) error {
 	}
 
 	if nodeEPListJSON {
-		output.JSON(map[string]interface{}{"status": "success", "endpoints": endpoints})
+		output.JSON(map[string]any{"status": output.StatusSuccess, "endpoints": endpoints})
 		return nil
 	}
 
@@ -214,16 +206,12 @@ func runNodeEndpointDelete(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := mgr.DeleteEndpoint(slug); err != nil {
-		if nodeEPDeleteJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": err.Error()})
-		} else {
-			output.Error("%v", err)
-		}
+		output.ReplyErrorSoft(nodeEPDeleteJSON, "%v", err)
 		return nil
 	}
 
 	if nodeEPDeleteJSON {
-		output.JSON(map[string]interface{}{"status": "success", "slug": slug})
+		output.JSON(map[string]any{"status": output.StatusSuccess, "slug": slug})
 	} else {
 		output.Success("Deleted endpoint '%s'.", slug)
 	}
@@ -265,7 +253,7 @@ func runNodeEndpointEdit(cmd *cobra.Command, args []string) error {
 	readmePath := fmt.Sprintf("%s/%s/README.md", cfg.EndpointsPath, slug)
 
 	// Build updates from flags
-	updates := make(map[string]interface{})
+	updates := make(map[string]any)
 	if cmd.Flags().Changed("name") {
 		updates["name"] = nodeEPEditName
 	}
@@ -274,12 +262,7 @@ func runNodeEndpointEdit(cmd *cobra.Command, args []string) error {
 	}
 	if cmd.Flags().Changed("type") {
 		if nodeEPEditType != "model" && nodeEPEditType != "data_source" {
-			msg := "type must be 'model' or 'data_source'"
-			if nodeEPEditJSON {
-				output.JSON(map[string]interface{}{"status": "error", "message": msg})
-			} else {
-				output.Error(msg)
-			}
+			output.ReplyErrorSoft(nodeEPEditJSON, "type must be 'model' or 'data_source'")
 			return nil
 		}
 		updates["type"] = nodeEPEditType
@@ -294,37 +277,23 @@ func runNodeEndpointEdit(cmd *cobra.Command, args []string) error {
 		case "false", "no", "0":
 			updates["enabled"] = false
 		default:
-			msg := "enabled must be 'true' or 'false'"
-			if nodeEPEditJSON {
-				output.JSON(map[string]interface{}{"status": "error", "message": msg})
-			} else {
-				output.Error(msg)
-			}
+			output.ReplyErrorSoft(nodeEPEditJSON, "enabled must be 'true' or 'false'")
 			return nil
 		}
 	}
 
 	if len(updates) == 0 {
-		msg := "No changes specified. Use --name, --description, --type, --version, or --enabled flags."
-		if nodeEPEditJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": msg})
-		} else {
-			output.Error(msg)
-		}
+		output.ReplyErrorSoft(nodeEPEditJSON, "No changes specified. Use --name, --description, --type, --version, or --enabled flags.")
 		return nil
 	}
 
 	if err := nodeops.UpdateReadmeFrontmatter(readmePath, updates); err != nil {
-		if nodeEPEditJSON {
-			output.JSON(map[string]interface{}{"status": "error", "message": err.Error()})
-		} else {
-			output.Error("%v", err)
-		}
+		output.ReplyErrorSoft(nodeEPEditJSON, "%v", err)
 		return nil
 	}
 
 	if nodeEPEditJSON {
-		updates["status"] = "success"
+		updates["status"] = output.StatusSuccess
 		updates["slug"] = slug
 		output.JSON(updates)
 	} else {

@@ -57,10 +57,16 @@ const (
 //	// ... save tokens to file/db ...
 //	// Later:
 //	client.SetTokens(tokens)
+//
+// Client is the main SyftHub client. Options are applied as pure data
+// (they only set fields like apiToken); anything that depends on the HTTP
+// client is applied once in NewClient after c.http is constructed. Any
+// future option that needs c.http should follow the same pattern.
 type Client struct {
 	baseURL       string
 	aggregatorURL string
 	timeout       time.Duration
+	apiToken      string
 	http          *httpClient
 
 	// Eagerly-initialized resources
@@ -109,9 +115,7 @@ func WithAggregatorURL(url string) Option {
 // When provided, the client will be authenticated immediately without needing to call Login().
 func WithAPIToken(token string) Option {
 	return func(c *Client) error {
-		if c.http != nil {
-			c.http.SetAPIToken(token)
-		}
+		c.apiToken = token
 		return nil
 	}
 }
@@ -153,16 +157,11 @@ func NewClient(opts ...Option) (*Client, error) {
 	// Create HTTP client
 	c.http = newHTTPClient(c.baseURL, c.timeout)
 
-	// Check for API token from environment
-	if envToken := os.Getenv(EnvAPIToken); envToken != "" {
+	// Apply API token: explicit option takes precedence over environment.
+	if c.apiToken != "" {
+		c.http.SetAPIToken(c.apiToken)
+	} else if envToken := os.Getenv(EnvAPIToken); envToken != "" {
 		c.http.SetAPIToken(envToken)
-	}
-
-	// Re-apply WithAPIToken option if it was passed (after http client is created)
-	for _, opt := range opts {
-		if err := opt(c); err != nil {
-			return nil, err
-		}
 	}
 
 	// Create eagerly-initialized resources

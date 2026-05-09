@@ -4,7 +4,10 @@ import (
 	"context"
 	"log/slog"
 	"regexp"
+	"strings"
 	"sync"
+
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
 // Slug validation regex: 1-64 chars, lowercase alphanumeric with hyphens/underscores.
@@ -44,6 +47,20 @@ type Endpoint struct {
 
 	// isFileBased indicates if this is from file mode (for registry lifecycle management).
 	isFileBased bool
+
+	// executor is the subprocess executor (for file-based endpoints).
+	executor Executor
+
+	// policyExecutor runs policy checks without executing the handler.
+	// Used by agent endpoints where the handler lifecycle differs from model/data_source.
+	policyExecutor Executor
+
+	// policyConfigs holds the loaded policy configurations for this endpoint
+	// (typically read from policies.yaml by the file-mode loader). They are
+	// surfaced verbatim (after secret sanitization) via Info().Policies so
+	// that hub clients and gateways can discover requirements such as a
+	// transaction policy without invoking the endpoint.
+	policyConfigs []nodeops.Policy
 }
 
 // Executor interface for executing endpoint handlers.
@@ -53,8 +70,13 @@ type Executor interface {
 }
 
 // Info returns the endpoint information for sync.
+//
+// The Policies slice contains a sanitized projection of e.policyConfigs:
+// secret material is stripped via sanitizePolicyConfig before the data
+// leaves the runtime. When no policies are loaded, Policies is left nil so
+// that the JSON omitempty tag drops the field on the wire.
 func (e *Endpoint) Info() EndpointInfo {
-	return EndpointInfo{
+	info := EndpointInfo{
 		Slug:        e.Slug,
 		Name:        e.Name,
 		Description: e.Description,
@@ -63,6 +85,112 @@ func (e *Endpoint) Info() EndpointInfo {
 		Version:     e.Version,
 		Readme:      e.Readme,
 	}
+	if len(e.policyConfigs) > 0 {
+		info.Policies = make([]map[string]any, 0, len(e.policyConfigs))
+		for _, p := range e.policyConfigs {
+			info.Policies = append(info.Policies, map[string]any{
+				"name":   p.Name,
+				"type":   p.Type,
+				"config": sanitizePolicyConfig(p.Type, p.Config),
+			})
+		}
+	}
+	return info
+}
+
+// SetPolicyConfigs records the policy configurations associated with this
+// endpoint. The file-mode loader calls this after parsing policies.yaml so
+// that Info() can surface the policy metadata to hub clients.
+func (e *Endpoint) SetPolicyConfigs(cfgs []nodeops.Policy) {
+	e.policyConfigs = cfgs
+}
+
+// transactionPolicyAllowedKeys is the allow-list of fields that are safe to
+// publish for a "transaction" policy. Anything outside this set (including
+// any future signing material) is dropped during sanitization.
+var transactionPolicyAllowedKeys = map[string]struct{}{
+	"recipient":   {},
+	"amount":      {},
+	"currency":    {},
+	"method":      {},
+	"intent":      {},
+	"chain_id":    {},
+	"ttl_seconds": {},
+}
+
+// sanitizePolicyConfig returns a copy of cfg with secret material removed so
+// that the result is safe to ship over the wire via Info().
+//
+// Two strategies are used depending on policyType:
+//
+//  1. For "transaction" policies the result is built from a strict allow-list
+//     (transactionPolicyAllowedKeys: recipient, amount, currency, method,
+//     intent, chain_id, ttl_seconds). Any other key — including signing keys,
+//     secret_key_path, or future credential fields — is dropped. This keeps
+//     the public projection from leaking new secrets when the policy schema
+//     evolves.
+//
+//  2. For every other policy type the function passes keys through verbatim
+//     except those that are clearly private:
+//     - keys beginning with "_" (private-by-convention)
+//     - keys whose name (lower-cased) contains "secret", "password",
+//     "private_key", "signing_key", "auth_token", or "api_key".
+//
+// The check intentionally targets the substrings above rather than any
+// occurrence of "key" so that benign fields like "chain_id", "recipient" or
+// (for non-transaction policies) generic identifier fields are preserved.
+//
+// When adding a new policy type that contains secret material, prefer the
+// allow-list approach above to avoid silent leaks.
+func sanitizePolicyConfig(policyType string, cfg map[string]any) map[string]any {
+	if cfg == nil {
+		return map[string]any{}
+	}
+
+	if policyType == PolicyTypeTransaction {
+		out := make(map[string]any, len(transactionPolicyAllowedKeys))
+		for k, v := range cfg {
+			if _, ok := transactionPolicyAllowedKeys[k]; ok {
+				out[k] = v
+			}
+		}
+		return out
+	}
+
+	out := make(map[string]any, len(cfg))
+	for k, v := range cfg {
+		if strings.HasPrefix(k, "_") {
+			continue
+		}
+		if isSensitivePolicyKey(k) {
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// sensitivePolicyKeyNeedles are case-insensitive substrings that mark a
+// policy-config key as holding secret material.
+var sensitivePolicyKeyNeedles = []string{
+	"secret",
+	"password",
+	"private_key",
+	"signing_key",
+	"auth_token",
+	"api_key",
+}
+
+// isSensitivePolicyKey reports whether a config key name looks like it holds
+// secret material. The match is case-insensitive substring based.
+func isSensitivePolicyKey(name string) bool {
+	lower := strings.ToLower(name)
+	for _, needle := range sensitivePolicyKeyNeedles {
+		if strings.Contains(lower, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 // SetInvoker sets the endpoint's invoker directly.
@@ -98,10 +226,14 @@ func (e *Endpoint) SetHandler(cfg EndpointHandlerConfig) {
 			slug:           e.Slug,
 			logger:         cfg.Logger,
 		}
-	case EndpointTypeDataSource:
-		e.invoker = &UnifiedInvoker{codec: DataSourceCodec{}, executor: cfg.Executor, slug: e.Slug, epType: e.Type}
-	case EndpointTypeModel, EndpointTypeModelDataSource:
-		e.invoker = &UnifiedInvoker{codec: ModelCodec{}, executor: cfg.Executor, slug: e.Slug, epType: e.Type}
+		input.Context = &ExecutionContext{
+			UserID:       userID,
+			EndpointSlug: e.Slug,
+			EndpointType: string(e.Type),
+			Metadata:     reqCtx.Metadata,
+		}
+		input.TransactionToken = reqCtx.TransactionToken
+		input.PaymentCredential = reqCtx.PaymentCredential
 	}
 }
 

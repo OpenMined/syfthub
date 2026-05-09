@@ -88,6 +88,13 @@ class User(UserBase):
     encryption_public_key: Optional[str] = Field(
         None, description="X25519 public key for tunnel encryption (base64url)"
     )
+    # Public profile fields
+    bio: Optional[str] = Field(
+        None, description="Markdown bio shown on the user's public profile"
+    )
+    is_email_public: bool = Field(
+        False, description="Whether the user's email is visible on their public profile"
+    )
 
     model_config = {"from_attributes": True}
 
@@ -132,6 +139,13 @@ class UserResponse(BaseModel):
     encryption_public_key: Optional[str] = Field(
         None, description="X25519 public key for tunnel encryption (base64url)"
     )
+    # Public profile fields
+    bio: Optional[str] = Field(
+        None, description="Markdown bio shown on the user's public profile"
+    )
+    is_email_public: bool = Field(
+        False, description="Whether the user's email is visible on their public profile"
+    )
 
     model_config = {"from_attributes": True}
 
@@ -165,6 +179,16 @@ class UserUpdate(BaseModel):
         None,
         max_length=500,
         description="Custom aggregator URL for RAG/chat workflows",
+    )
+    # Public profile fields
+    bio: Optional[str] = Field(
+        None,
+        max_length=2000,
+        description="Markdown bio shown on the user's public profile",
+    )
+    is_email_public: Optional[bool] = Field(
+        None,
+        description="Whether the user's email is visible on their public profile",
     )
 
     @field_validator("domain")
@@ -201,6 +225,33 @@ class UserUpdate(BaseModel):
         if not parsed.netloc:
             raise ValueError("Domain must contain a valid hostname")
         return v
+
+
+class PublicUserProfile(BaseModel):
+    """Sanitized public profile shown on /:username.
+
+    Only fields safe to expose to anonymous viewers are included. Email is
+    only present when the user has opted in via ``is_email_public``.
+    """
+
+    username: str = Field(..., description="Username (URL slug)")
+    full_name: str = Field(..., description="Display name")
+    avatar_url: Optional[str] = Field(None, description="URL to user's avatar image")
+    role: UserRole = Field(..., description="User role")
+    bio: Optional[str] = Field(None, description="Markdown bio")
+    domain: Optional[str] = Field(
+        None, description="Public domain associated with the user (if any)"
+    )
+    email: Optional[str] = Field(
+        None,
+        description="Email address — only populated when the user has set is_email_public=True",
+    )
+    is_email_public: bool = Field(
+        ..., description="Whether the user has opted in to public email visibility"
+    )
+    created_at: datetime = Field(..., description="When the account was created")
+
+    model_config = {"from_attributes": True}
 
 
 class TunnelCredentialsResponse(BaseModel):
@@ -484,3 +535,48 @@ class WalletBalanceResponse(BaseModel):
     currency: str = "USD"
     recent_transactions: list[WalletTransaction] = []
     wallet_configured: bool = False
+
+
+# =============================================================================
+# Xendit Subscription Schemas (publisher-side wallets)
+# =============================================================================
+
+
+class XenditSubscriptionUpsertRequest(BaseModel):
+    """Request schema to register / refresh a publisher wallet subscription.
+
+    Called by the frontend when a successful Xendit payment is detected
+    (balance transitions from inactive to active). Idempotent on
+    (user_id, credits_url) — repeat calls only update freshness fields.
+    """
+
+    credits_url: str = Field(..., min_length=1, max_length=2000)
+    payment_url: str = Field(..., min_length=1, max_length=2000)
+    endpoint_owner: str = Field(..., min_length=1, max_length=50)
+    endpoint_slug: Optional[str] = Field(default=None, max_length=255)
+    currency: str = Field(default="IDR", min_length=1, max_length=8)
+    last_known_balance: Optional[float] = Field(default=None, ge=0)
+
+
+class XenditSubscriptionResponse(BaseModel):
+    """Response schema for a single subscription row."""
+
+    id: int
+    credits_url: str
+    payment_url: str
+    currency: str
+    endpoint_owner: str
+    endpoint_slug: Optional[str] = None
+    last_known_balance: Optional[float] = None
+    last_checked_at: Optional[datetime] = None
+    first_funded_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class XenditSubscriptionListResponse(BaseModel):
+    """Response schema for listing a user's subscriptions."""
+
+    subscriptions: list[XenditSubscriptionResponse] = []

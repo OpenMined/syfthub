@@ -5,6 +5,7 @@ from syfthub.repositories.base import BaseRepository
 from syfthub.repositories.endpoint import EndpointRepository
 from syfthub.repositories.organization import OrganizationRepository
 from syfthub.repositories.user import UserRepository
+from syfthub.repositories.xendit_subscription import UserXenditSubscriptionRepository
 
 __all__ = [
     "APITokenRepository",
@@ -12,4 +13,5 @@ __all__ = [
     "EndpointRepository",
     "OrganizationRepository",
     "UserRepository",
+    "UserXenditSubscriptionRepository",
 ]

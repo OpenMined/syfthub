@@ -98,6 +98,10 @@ class SyftAIResource:
         # Client for SyftAI-Space with reasonable timeout
         self._client = httpx.Client(timeout=60.0)
 
+    def close(self) -> None:
+        """Close the SyftAI-Space HTTP client."""
+        self._client.close()
+
     def _build_headers(
         self,
         tenant_name: str | None = None,
@@ -109,6 +113,54 @@ class SyftAIResource:
         if tenant_name:
             headers["X-Tenant-Name"] = tenant_name
         return headers
+
+    @staticmethod
+    def _endpoint_query_url(endpoint: EndpointRef) -> str:
+        return f"{endpoint.url.rstrip('/')}/api/v1/endpoints/{endpoint.slug}/query"
+
+    @staticmethod
+    def _extract_error_message(response: httpx.Response) -> str:
+        """Extract a human-readable error message from a response body."""
+        try:
+            error_data = response.json()
+            return str(
+                error_data.get("detail", error_data.get("message", str(error_data)))
+            )
+        except Exception:
+            return response.text or f"HTTP {response.status_code}"
+
+    def _post_endpoint(
+        self,
+        endpoint: EndpointRef,
+        body: dict[str, object],
+        *,
+        error_cls: type[RetrievalError | GenerationError],
+        error_prefix: str,
+        **error_kwargs: str,
+    ) -> httpx.Response:
+        """POST to an endpoint, mapping connection/HTTP errors to error_cls."""
+        try:
+            response = self._client.post(
+                self._endpoint_query_url(endpoint),
+                json=body,
+                headers=self._build_headers(endpoint.tenant_name),
+            )
+        except httpx.RequestError as e:
+            raise error_cls(
+                f"Failed to connect to {error_prefix} '{endpoint.slug}': {e}",
+                detail=str(e),
+                **error_kwargs,
+            ) from e
+
+        if response.status_code >= 400:
+            message = self._extract_error_message(response)
+            raise error_cls(
+                f"{error_prefix.capitalize()} query failed: {message}",
+                detail=response.text,
+                **error_kwargs,
+            )
+
+        return response
 
     def query_data_source(
         self,
@@ -146,8 +198,6 @@ class SyftAIResource:
             for doc in docs:
                 print(f"[{doc.score:.2f}] {doc.content[:100]}...")
         """
-        url = f"{endpoint.url.rstrip('/')}/api/v1/endpoints/{endpoint.slug}/query"
-
         request_body = {
             "user_email": user_email,
             "messages": query,  # SyftAI-Space expects "messages" for query text
@@ -155,33 +205,13 @@ class SyftAIResource:
             "similarity_threshold": similarity_threshold,
         }
 
-        try:
-            response = self._client.post(
-                url,
-                json=request_body,
-                headers=self._build_headers(endpoint.tenant_name),
-            )
-        except httpx.RequestError as e:
-            raise RetrievalError(
-                f"Failed to connect to data source '{endpoint.slug}': {e}",
-                source_path=endpoint.slug,
-                detail=str(e),
-            ) from e
-
-        if response.status_code >= 400:
-            try:
-                error_data = response.json()
-                message = error_data.get(
-                    "detail", error_data.get("message", str(error_data))
-                )
-            except Exception:
-                message = response.text or f"HTTP {response.status_code}"
-
-            raise RetrievalError(
-                f"Data source query failed: {message}",
-                source_path=endpoint.slug,
-                detail=response.text,
-            )
+        response = self._post_endpoint(
+            endpoint,
+            request_body,
+            error_cls=RetrievalError,
+            error_prefix="data source",
+            source_path=endpoint.slug,
+        )
 
         data = response.json()
         documents = []
@@ -235,8 +265,6 @@ class SyftAIResource:
             )
             print(response)
         """
-        url = f"{endpoint.url.rstrip('/')}/api/v1/endpoints/{endpoint.slug}/query"
-
         request_body = {
             "user_email": user_email,
             "messages": [
@@ -247,33 +275,13 @@ class SyftAIResource:
             "stream": False,
         }
 
-        try:
-            response = self._client.post(
-                url,
-                json=request_body,
-                headers=self._build_headers(endpoint.tenant_name),
-            )
-        except httpx.RequestError as e:
-            raise GenerationError(
-                f"Failed to connect to model '{endpoint.slug}': {e}",
-                model_slug=endpoint.slug,
-                detail=str(e),
-            ) from e
-
-        if response.status_code >= 400:
-            try:
-                error_data = response.json()
-                message = error_data.get(
-                    "detail", error_data.get("message", str(error_data))
-                )
-            except Exception:
-                message = response.text or f"HTTP {response.status_code}"
-
-            raise GenerationError(
-                f"Model query failed: {message}",
-                model_slug=endpoint.slug,
-                detail=response.text,
-            )
+        response = self._post_endpoint(
+            endpoint,
+            request_body,
+            error_cls=GenerationError,
+            error_prefix="model",
+            model_slug=endpoint.slug,
+        )
 
         data = response.json()
 
@@ -317,8 +325,6 @@ class SyftAIResource:
             ):
                 print(chunk, end="", flush=True)
         """
-        url = f"{endpoint.url.rstrip('/')}/api/v1/endpoints/{endpoint.slug}/query"
-
         request_body = {
             "user_email": user_email,
             "messages": [
@@ -332,7 +338,7 @@ class SyftAIResource:
         try:
             with self._client.stream(
                 "POST",
-                url,
+                self._endpoint_query_url(endpoint),
                 json=request_body,
                 headers={
                     **self._build_headers(endpoint.tenant_name),
@@ -341,13 +347,7 @@ class SyftAIResource:
             ) as response:
                 if response.status_code >= 400:
                     response.read()
-                    try:
-                        error_data = json.loads(response.text)
-                        message = error_data.get(
-                            "detail", error_data.get("message", str(error_data))
-                        )
-                    except Exception:
-                        message = response.text or f"HTTP {response.status_code}"
+                    message = self._extract_error_message(response)
 
                     raise GenerationError(
                         f"Model stream failed: {message}",

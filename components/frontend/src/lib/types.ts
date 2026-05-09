@@ -47,6 +47,10 @@ export interface User {
   domain?: string;
   /** Custom aggregator URL for RAG/chat workflows */
   aggregator_url?: string;
+  /** Markdown bio shown on the user's public profile */
+  bio?: string;
+  /** Whether the user's email is shown on their public profile */
+  is_email_public?: boolean;
 }
 
 // Authentication request schemas
@@ -99,6 +103,27 @@ export interface UserUpdate {
   domain?: string;
   /** Custom aggregator URL for RAG/chat workflows */
   aggregator_url?: string;
+  /** Markdown bio shown on the user's public profile */
+  bio?: string;
+  /** Whether the user's email is shown on their public profile */
+  is_email_public?: boolean;
+}
+
+// =============================================================================
+// Public User Profile (for /:username page)
+// =============================================================================
+
+export interface PublicUserProfile {
+  username: string;
+  full_name: string;
+  avatar_url?: string;
+  role: UserRole;
+  bio?: string;
+  domain?: string;
+  /** Only present when the user has opted in to public email visibility */
+  email?: string;
+  is_email_public: boolean;
+  created_at: string;
 }
 
 // =============================================================================
@@ -262,7 +287,8 @@ export interface ChatSource {
   tags: string[]; // Tags for categorization
   description: string;
   type: EndpointType; // Endpoint type (model or data_source)
-  updated: string; // Mapped from updated_at
+  updated: string; // Pre-formatted relative time, e.g. "2 days ago" (mapped from updated_at)
+  updated_at: string; // Raw ISO 8601 timestamp — use this for sorting/comparisons
   status: 'active' | 'warning' | 'inactive'; // Derived from backend data
   slug: string; // Backend URL identifier
   stars_count: number;
@@ -389,4 +415,24 @@ export interface WalletTransaction {
   created_at: string;
   app_name?: string;
   app_ep_path?: string;
+}
+
+/**
+ * A publisher-side Xendit subscription stored on the user account.
+ * One row per distinct credits_url. Identifies a wallet on a publisher's
+ * syft_space that the user has funded; balance is fetched live from the
+ * publisher with a satellite token, last_known_balance is just for fast paint.
+ */
+export interface XenditSubscription {
+  id: number;
+  credits_url: string;
+  payment_url: string;
+  currency: string;
+  endpoint_owner: string;
+  endpoint_slug: string | null;
+  last_known_balance: number | null;
+  last_checked_at: string | null;
+  first_funded_at: string | null;
+  created_at: string;
+  updated_at: string;
 }

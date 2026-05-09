@@ -2,9 +2,6 @@ package cmd
 
 import (
 	"github.com/spf13/cobra"
-
-	"github.com/OpenMined/syfthub/cli/internal/config"
-	"github.com/OpenMined/syfthub/cli/internal/output"
 )
 
 var updateCmd = &cobra.Command{
@@ -25,7 +22,9 @@ var updateAggregatorCmd = &cobra.Command{
 	Use:   "aggregator <alias>",
 	Short: "Update an aggregator alias",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runUpdateAggregator,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runUpdateAlias(aggregatorKind, args[0], updateAggregatorURL, updateAggregatorDefault, updateAggregatorJSONOutput)
+	},
 }
 
 // Update accounting subcommand
@@ -39,7 +38,9 @@ var updateAccountingCmd = &cobra.Command{
 	Use:   "accounting <alias>",
 	Short: "Update an accounting service alias",
 	Args:  cobra.ExactArgs(1),
-	RunE:  runUpdateAccounting,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runUpdateAlias(accountingKind, args[0], updateAccountingURL, updateAccountingDefault, updateAccountingJSONOutput)
+	},
 }
 
 func init() {
@@ -56,134 +57,4 @@ func init() {
 	// Register subcommands
 	updateCmd.AddCommand(updateAggregatorCmd)
 	updateCmd.AddCommand(updateAccountingCmd)
-}
-
-func runUpdateAggregator(cmd *cobra.Command, args []string) error {
-	alias := args[0]
-
-	cfg := config.Load()
-
-	if _, exists := cfg.Aggregators[alias]; !exists {
-		if updateAggregatorJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": "Aggregator '" + alias + "' not found",
-			})
-		} else {
-			output.Error("Aggregator '%s' not found.", alias)
-		}
-		return nil
-	}
-
-	if updateAggregatorURL == "" && !updateAggregatorDefault {
-		if updateAggregatorJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": "Nothing to update",
-			})
-		} else {
-			output.Warning("Nothing to update. Specify --url or --default.")
-		}
-		return nil
-	}
-
-	if updateAggregatorURL != "" {
-		cfg.Aggregators[alias] = config.AggregatorConfig{URL: updateAggregatorURL}
-	}
-
-	if updateAggregatorDefault {
-		cfg.DefaultAggregator = alias
-	}
-
-	if err := cfg.Save(); err != nil {
-		if updateAggregatorJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": err.Error(),
-			})
-		} else {
-			output.Error("Failed to save config: %v", err)
-		}
-		return err
-	}
-
-	isDefault := cfg.DefaultAggregator == alias
-
-	if updateAggregatorJSONOutput {
-		output.JSON(map[string]interface{}{
-			"status":     "success",
-			"alias":      alias,
-			"url":        cfg.Aggregators[alias].URL,
-			"is_default": isDefault,
-		})
-	} else {
-		output.Success("Updated aggregator '%s'", alias)
-	}
-
-	return nil
-}
-
-func runUpdateAccounting(cmd *cobra.Command, args []string) error {
-	alias := args[0]
-
-	cfg := config.Load()
-
-	if _, exists := cfg.AccountingServices[alias]; !exists {
-		if updateAccountingJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": "Accounting service '" + alias + "' not found",
-			})
-		} else {
-			output.Error("Accounting service '%s' not found.", alias)
-		}
-		return nil
-	}
-
-	if updateAccountingURL == "" && !updateAccountingDefault {
-		if updateAccountingJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": "Nothing to update",
-			})
-		} else {
-			output.Warning("Nothing to update. Specify --url or --default.")
-		}
-		return nil
-	}
-
-	if updateAccountingURL != "" {
-		cfg.AccountingServices[alias] = config.AccountingConfig{URL: updateAccountingURL}
-	}
-
-	if updateAccountingDefault {
-		cfg.DefaultAccounting = alias
-	}
-
-	if err := cfg.Save(); err != nil {
-		if updateAccountingJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": err.Error(),
-			})
-		} else {
-			output.Error("Failed to save config: %v", err)
-		}
-		return err
-	}
-
-	isDefault := cfg.DefaultAccounting == alias
-
-	if updateAccountingJSONOutput {
-		output.JSON(map[string]interface{}{
-			"status":     "success",
-			"alias":      alias,
-			"url":        cfg.AccountingServices[alias].URL,
-			"is_default": isDefault,
-		})
-	} else {
-		output.Success("Updated accounting service '%s'", alias)
-	}
-
-	return nil
 }

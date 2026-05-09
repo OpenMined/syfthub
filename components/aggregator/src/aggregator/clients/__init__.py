@@ -5,6 +5,10 @@ from aggregator.clients.error_reporter import ErrorReporter
 from aggregator.clients.model import ModelClient, ModelClientError
 from aggregator.clients.mpp_payment import handle_mpp_payment
 from aggregator.clients.nats_transport import NATSTransport, NATSTransportError
+from aggregator.clients.payment_negotiator import (
+    PaymentChallenge,
+    PaymentNegotiator,
+)
 from aggregator.clients.syfthub import (
     EndpointAccessDeniedError,
     EndpointNotFoundError,
@@ -23,5 +27,7 @@ __all__ = [
     "ModelClientError",
     "NATSTransport",
     "NATSTransportError",
+    "PaymentChallenge",
+    "PaymentNegotiator",
     "handle_mpp_payment",
 ]

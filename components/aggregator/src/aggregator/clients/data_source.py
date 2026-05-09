@@ -181,7 +181,7 @@ class DataSourceClient:
                 return RetrievalResult(
                     endpoint_path=endpoint_path,
                     documents=[],
-                    status="error",
+                    status="access_denied",
                     error_message=f"Access denied: {error_detail}",
                     latency_ms=latency_ms,
                 )

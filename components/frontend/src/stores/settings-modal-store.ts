@@ -5,6 +5,8 @@ export type SettingsTab =
   | 'security'
   | 'api-tokens'
   | 'payment'
+  | 'payment-history'
+  | 'subscriptions'
   | 'aggregator'
   | 'danger-zone';
 

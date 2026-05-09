@@ -605,7 +605,7 @@ func TestBasicAuthHTTPClient(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := newBasicAuthHTTPClient(server.URL, 30*time.Second, "user@example.com", "secret123")
+		client := newBasicAuthClient(server.URL, 30*time.Second, "user@example.com", "secret123")
 		_, err := client.Request(context.Background(), "GET", "/api/test", nil)
 		if err != nil {
 			t.Fatalf("Request error: %v", err)
@@ -622,7 +622,7 @@ func TestBasicAuthHTTPClient(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := newBasicAuthHTTPClient(server.URL, 30*time.Second, "user", "pass")
+		client := newBasicAuthClient(server.URL, 30*time.Second, "user", "pass")
 		var result map[string]int
 		err := client.Get(context.Background(), "/user", &result)
 		if err != nil {
@@ -639,7 +639,7 @@ func TestBasicAuthHTTPClient(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := newBasicAuthHTTPClient(server.URL, 30*time.Second, "user", "pass")
+		client := newBasicAuthClient(server.URL, 30*time.Second, "user", "pass")
 		var result map[string]string
 		err := client.Post(context.Background(), "/transactions", map[string]interface{}{"amount": 10.0}, &result)
 		if err != nil {
@@ -659,7 +659,7 @@ func TestBasicAuthHTTPClient(t *testing.T) {
 		}))
 		defer server.Close()
 
-		client := newBasicAuthHTTPClient(server.URL, 30*time.Second, "user", "pass")
+		client := newBasicAuthClient(server.URL, 30*time.Second, "user", "pass")
 		var result map[string]string
 		err := client.Patch(context.Background(), "/user", map[string]string{"name": "new name"}, &result)
 		if err != nil {

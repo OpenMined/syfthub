@@ -6,6 +6,7 @@ import {
   getGroupedPublicEndpoints,
   getPublicEndpointByPath,
   getPublicEndpoints,
+  getPublicEndpointsByOwner,
   getPublicEndpointsPaginated,
   getTotalEndpointsCount,
   getTrendingEndpoints
@@ -82,5 +83,18 @@ export function useEndpointByPath(path: string | undefined) {
     queryKey: endpointKeys.byPath(path ?? ''),
     queryFn: () => (path ? getPublicEndpointByPath(path) : null),
     enabled: !!path
+  });
+}
+
+/**
+ * Hook for fetching all public endpoints owned by a single user.
+ *
+ * Used by the public user profile page to render the endpoints list.
+ */
+export function useEndpointsByOwner(owner: string | undefined) {
+  return useQuery({
+    queryKey: endpointKeys.byOwner(owner ?? ''),
+    queryFn: () => (owner ? getPublicEndpointsByOwner(owner) : []),
+    enabled: !!owner
   });
 }

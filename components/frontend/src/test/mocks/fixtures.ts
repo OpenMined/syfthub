@@ -55,6 +55,7 @@ export function createMockChatSource(overrides: Partial<ChatSource> = {}): ChatS
     description: 'A test data source',
     type: 'data_source',
     updated: '2 days ago',
+    updated_at: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
     status: 'active',
     slug: 'test-source',
     stars_count: 5,

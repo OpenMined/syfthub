@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from syfthub_sdk.models import (
@@ -404,6 +405,38 @@ class AuthResource:
         data = response if isinstance(response, dict) else {}
         return SatelliteTokenResponse.model_validate(data)
 
+    def _parallel_fetch_tokens(
+        self,
+        audiences: list[str],
+        fetch_one: Callable[[str], SatelliteTokenResponse],
+    ) -> dict[str, str]:
+        """Fetch tokens for multiple audiences in parallel.
+
+        Failures are silently skipped — the aggregator handles missing tokens.
+        """
+        unique_audiences = list(set(audiences))
+        token_map: dict[str, str] = {}
+
+        if not unique_audiences:
+            return token_map
+
+        def fetch(aud: str) -> tuple[str, str | None]:
+            try:
+                return (aud, fetch_one(aud).target_token)
+            except Exception:
+                return (aud, None)
+
+        with concurrent.futures.ThreadPoolExecutor(
+            max_workers=min(len(unique_audiences), 10)
+        ) as executor:
+            results = list(executor.map(fetch, unique_audiences))
+
+        for aud, token in results:
+            if token is not None:
+                token_map[aud] = token
+
+        return token_map
+
     def get_satellite_tokens(self, audiences: list[str]) -> dict[str, str]:
         """Get satellite tokens for multiple audiences in parallel.
 
@@ -424,33 +457,7 @@ class AuthResource:
             tokens = client.auth.get_satellite_tokens(["alice", "bob"])
             print(f"Got {len(tokens)} tokens")
         """
-        unique_audiences = list(set(audiences))
-        token_map: dict[str, str] = {}
-
-        if not unique_audiences:
-            return token_map
-
-        def fetch_token(aud: str) -> tuple[str, str | None]:
-            """Fetch a single token, returning None on failure."""
-            try:
-                response = self.get_satellite_token(aud)
-                return (aud, response.target_token)
-            except Exception:
-                # Failed tokens are silently skipped - the aggregator will handle missing tokens
-                return (aud, None)
-
-        # Fetch tokens in parallel using ThreadPoolExecutor
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(len(unique_audiences), 10)
-        ) as executor:
-            results = list(executor.map(fetch_token, unique_audiences))
-
-        # Collect successful results
-        for aud, token in results:
-            if token is not None:
-                token_map[aud] = token
-
-        return token_map
+        return self._parallel_fetch_tokens(audiences, self.get_satellite_token)
 
     def get_guest_satellite_token(self, audience: str) -> SatelliteTokenResponse:
         """Get a guest satellite token for a specific audience without authentication.
@@ -480,29 +487,7 @@ class AuthResource:
         Returns:
             Dict mapping audience to satellite token
         """
-        unique_audiences = list(set(audiences))
-        token_map: dict[str, str] = {}
-
-        if not unique_audiences:
-            return token_map
-
-        def fetch_token(aud: str) -> tuple[str, str | None]:
-            try:
-                response = self.get_guest_satellite_token(aud)
-                return (aud, response.target_token)
-            except Exception:
-                return (aud, None)
-
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=min(len(unique_audiences), 10)
-        ) as executor:
-            results = list(executor.map(fetch_token, unique_audiences))
-
-        for aud, token in results:
-            if token is not None:
-                token_map[aud] = token
-
-        return token_map
+        return self._parallel_fetch_tokens(audiences, self.get_guest_satellite_token)
 
     def get_peer_token(self, target_usernames: list[str]) -> PeerTokenResponse:
         """Get a peer token for NATS communication with tunneling spaces.

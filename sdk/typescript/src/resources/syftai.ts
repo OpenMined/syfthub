@@ -25,6 +25,7 @@
 
 import type { Document, QueryDataSourceOptions, QueryModelOptions } from '../models/chat.js';
 import { SyftHubError } from '../errors.js';
+import { readSSEEvents } from '../utils.js';
 
 /**
  * Error thrown when data source retrieval fails.
@@ -253,55 +254,27 @@ export class SyftAIResource {
       throw new GenerationError('No response body from model', endpoint.slug);
     }
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
+    for await (const { data: dataStr } of readSSEEvents(response)) {
+      if (dataStr === '[DONE]') return;
 
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      try {
+        const data = JSON.parse(dataStr) as Record<string, unknown>;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-
-          if (!trimmedLine || trimmedLine.startsWith('event:')) {
-            continue;
-          }
-
-          if (trimmedLine.startsWith('data:')) {
-            const dataStr = trimmedLine.slice(5).trim();
-            if (dataStr === '[DONE]') {
-              return;
-            }
-
-            try {
-              const data = JSON.parse(dataStr) as Record<string, unknown>;
-
-              // Extract content from various response formats
-              if (typeof data['content'] === 'string') {
-                yield data['content'];
-              } else if (Array.isArray(data['choices'])) {
-                // OpenAI-style response
-                for (const choice of data['choices'] as Record<string, unknown>[]) {
-                  const delta = choice['delta'] as Record<string, unknown> | undefined;
-                  if (delta && typeof delta['content'] === 'string') {
-                    yield delta['content'];
-                  }
-                }
-              }
-            } catch {
-              // Skip malformed data
+        // Extract content from various response formats
+        if (typeof data['content'] === 'string') {
+          yield data['content'];
+        } else if (Array.isArray(data['choices'])) {
+          // OpenAI-style response
+          for (const choice of data['choices'] as Record<string, unknown>[]) {
+            const delta = choice['delta'] as Record<string, unknown> | undefined;
+            if (delta && typeof delta['content'] === 'string') {
+              yield delta['content'];
             }
           }
         }
+      } catch {
+        // Skip malformed data
       }
-    } finally {
-      reader.releaseLock();
     }
   }
 }

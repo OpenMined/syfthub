@@ -24,7 +24,9 @@ class SourceInfo(BaseModel):
 
     path: str = Field(..., description="Endpoint path (owner/slug)")
     documents_retrieved: int = Field(..., description="Number of documents retrieved")
-    status: Literal["success", "error", "timeout"] = Field(..., description="Query status")
+    status: Literal["success", "error", "timeout", "payment_failed", "access_denied"] = Field(
+        ..., description="Query status"
+    )
     error_message: str | None = Field(default=None, description="Error message if failed")
 
 

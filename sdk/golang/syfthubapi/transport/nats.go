@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ecdh"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -101,6 +102,17 @@ func (b *agentNATSBridge) handleSessionStart(msg *nats.Msg, req *syfthubapi.Tunn
 
 	session, err := b.handler.StartSession(startPayload, user)
 	if err != nil {
+		// Transaction-style policies surface a typed PaymentRequiredError so we
+		// can emit a structured PAYMENT_REQUIRED tunnel response carrying the
+		// payment challenge and amount/recipient details.
+		var payErr *syfthubapi.PaymentRequiredError
+		if errors.As(err, &payErr) {
+			b.logger.Info("[AGENT] session pending payment",
+				"endpoint", startPayload.EndpointSlug,
+				"user_sub", user.Sub, "username", user.Username)
+			b.transport.sendPaymentRequiredResponse(msg, req, payErr.Details)
+			return
+		}
 		b.logger.Error("[AGENT] failed to start session",
 			"endpoint", startPayload.EndpointSlug, "error", err)
 		b.transport.sendErrorResponse(msg, req, string(syfthubapi.TunnelErrorCodeExecutionFailed),
@@ -684,6 +696,32 @@ func (t *NATSTransport) sendErrorResponse(msg *nats.Msg, req *syfthubapi.TunnelR
 		Error: &syfthubapi.TunnelError{
 			Code:    syfthubapi.TunnelErrorCode(code),
 			Message: message,
+		},
+	}
+	t.sendResponse(msg, req, resp)
+}
+
+// sendPaymentRequiredResponse sends a PAYMENT_REQUIRED tunnel response with
+// the supplied payment-challenge details placed on TunnelError.Details so the
+// caller (aggregator / client) can surface the challenge to the user.
+func (t *NATSTransport) sendPaymentRequiredResponse(msg *nats.Msg, req *syfthubapi.TunnelRequest, details map[string]any) {
+	correlationID := ""
+	endpointSlug := ""
+	if req != nil {
+		correlationID = req.CorrelationID
+		endpointSlug = req.Endpoint.Slug
+	}
+
+	resp := &syfthubapi.TunnelResponse{
+		Protocol:      syfthubapi.TunnelProtocolV1,
+		Type:          syfthubapi.TunnelTypeResponse,
+		CorrelationID: correlationID,
+		Status:        syfthubapi.TunnelStatusError,
+		EndpointSlug:  endpointSlug,
+		Error: &syfthubapi.TunnelError{
+			Code:    syfthubapi.TunnelErrorCodePaymentRequired,
+			Message: "payment required",
+			Details: details,
 		},
 	}
 	t.sendResponse(msg, req, resp)

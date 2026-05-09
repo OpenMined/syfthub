@@ -1,11 +1,13 @@
-import React, { memo } from 'react';
+import React, { memo, useMemo, useState } from 'react';
 
 import type { Policy } from '@/lib/types';
 
+import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
 import Coins from 'lucide-react/dist/esm/icons/coins';
 import CreditCard from 'lucide-react/dist/esm/icons/credit-card';
 import Gauge from 'lucide-react/dist/esm/icons/gauge';
 import Globe from 'lucide-react/dist/esm/icons/globe';
+import Info from 'lucide-react/dist/esm/icons/info';
 import Key from 'lucide-react/dist/esm/icons/key';
 import Lock from 'lucide-react/dist/esm/icons/lock';
 import MapPin from 'lucide-react/dist/esm/icons/map-pin';
@@ -14,11 +16,13 @@ import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check';
 import Zap from 'lucide-react/dist/esm/icons/zap';
 
 import { Badge } from '@/components/ui/badge';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
+import { parseXenditConfig } from '@/lib/xendit-client';
 
-import { BundleSubscriptionPolicyContent } from './bundle-subscription-policy-content';
 import { GenericPolicyContent } from './generic-policy-content';
 import { formatConfigKey, TransactionPolicyContent } from './transaction-policy-content';
+import { XenditPolicyContent } from './xendit-policy-content';
 
 // Policy type configuration for styling and icons
 const POLICY_TYPE_CONFIG: Record<
@@ -33,6 +37,14 @@ const POLICY_TYPE_CONFIG: Record<
   }
 > = {
   // Transaction/Pricing policies
+  mpp_accounting: {
+    icon: Coins,
+    label: 'MPP Micro-payment',
+    color: 'text-emerald-600 dark:text-emerald-400',
+    bgColor: 'bg-emerald-50 dark:bg-emerald-950/30',
+    borderColor: 'border-emerald-200 dark:border-emerald-800',
+    description: 'Pay-per-request micro-payment via MPP blockchain'
+  },
   transaction: {
     icon: Coins,
     label: 'Transaction Policy',
@@ -41,13 +53,13 @@ const POLICY_TYPE_CONFIG: Record<
     borderColor: 'border-emerald-200 dark:border-emerald-800',
     description: 'Pay-per-use pricing for this endpoint'
   },
-  bundle_subscription: {
+  xendit: {
     icon: CreditCard,
-    label: 'Bundle Subscription',
+    label: 'Prepaid credits',
     color: 'text-violet-600 dark:text-violet-400',
     bgColor: 'bg-violet-50 dark:bg-violet-950/30',
     borderColor: 'border-violet-200 dark:border-violet-800',
-    description: 'Subscription required to access this endpoint'
+    description: 'Top up credits to use this endpoint.'
   },
   // Access control policies
   public: {
@@ -125,34 +137,142 @@ function getPolicyConfig(type: string) {
 
 export interface PolicyItemProperties {
   policy: Policy;
+  endpointSlug?: string;
+  endpointOwner?: string;
 }
 
 function renderPolicyContent(
   policy: Policy,
   isTransaction: boolean,
-  isBundleSubscription: boolean
+  isXendit: boolean,
+  endpointSlug?: string,
+  endpointOwner?: string
 ): React.ReactElement {
   if (isTransaction) {
     return <TransactionPolicyContent config={policy.config} />;
   }
-  if (isBundleSubscription) {
-    return <BundleSubscriptionPolicyContent config={policy.config} enabled={policy.enabled} />;
+  if (isXendit) {
+    return (
+      <XenditPolicyContent
+        config={policy.config}
+        enabled={policy.enabled}
+        endpointSlug={endpointSlug}
+        endpointOwner={endpointOwner}
+      />
+    );
   }
   return <GenericPolicyContent config={policy.config} />;
 }
 
 // Single policy item component - memoized to prevent unnecessary re-renders
-export const PolicyItem = memo(function PolicyItem({ policy }: Readonly<PolicyItemProperties>) {
+export const PolicyItem = memo(function PolicyItem({
+  policy,
+  endpointSlug,
+  endpointOwner
+}: Readonly<PolicyItemProperties>) {
   const config = getPolicyConfig(policy.type);
   const Icon = config.icon;
   const policyTypeLower = policy.type.toLowerCase();
   const isTransaction = policyTypeLower === 'transaction';
-  const isBundleSubscription = policyTypeLower === 'bundle_subscription';
+  const isXendit = policyTypeLower === 'xendit';
 
   // For unknown policy types, use the type as the label
   const displayLabel = POLICY_TYPE_CONFIG[policy.type.toLowerCase()]
     ? config.label
     : formatConfigKey(policy.type);
+
+  // Avoid printing the description when it just repeats the visible label
+  // (e.g. publisher set policy.name = type label).
+  const rawDescription = policy.description || config.description;
+  const description = rawDescription && rawDescription !== displayLabel ? rawDescription : null;
+
+  const xenditParsed = useMemo(
+    () => (isXendit ? parseXenditConfig(policy.config) : null),
+    [isXendit, policy.config]
+  );
+  const xenditPricePerRequest =
+    xenditParsed && xenditParsed.pricePerRequest !== null && xenditParsed.pricePerRequest > 0
+      ? xenditParsed.pricePerRequest
+      : null;
+
+  if (isXendit) {
+    return (
+      <div
+        className={cn(
+          'group bg-card relative rounded-lg border transition-colors transition-shadow duration-200',
+          'border-border',
+          policy.enabled ? 'hover:shadow-md hover:shadow-black/5' : 'opacity-60 grayscale-[30%]'
+        )}
+      >
+        <div className='p-4'>
+          <div className='flex items-start gap-3'>
+            <div
+              className={cn(
+                'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
+                config.bgColor,
+                'ring-1 ring-inset',
+                config.borderColor
+              )}
+            >
+              <Icon className={cn('h-4.5 w-4.5', config.color)} />
+            </div>
+
+            <div className='min-w-0 flex-1'>
+              <div className='flex items-start justify-between gap-2'>
+                <div className='min-w-0'>
+                  <h3 className='text-foreground text-sm leading-tight font-semibold'>
+                    {displayLabel}
+                  </h3>
+                  <p className='text-muted-foreground mt-0.5 text-[11px]'>via Xendit</p>
+                </div>
+                {policy.version ? (
+                  <span className='text-muted-foreground bg-muted/60 shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums'>
+                    v{policy.version}
+                  </span>
+                ) : null}
+              </div>
+
+              <div className='mt-1.5 flex items-center gap-1.5'>
+                <span
+                  aria-hidden='true'
+                  className={cn(
+                    'inline-block h-1.5 w-1.5 rounded-full',
+                    policy.enabled ? 'bg-emerald-500' : 'bg-muted-foreground/40'
+                  )}
+                />
+                <span
+                  className={cn(
+                    'text-[11px] font-medium',
+                    policy.enabled
+                      ? 'text-emerald-700 dark:text-emerald-400'
+                      : 'text-muted-foreground'
+                  )}
+                >
+                  {policy.enabled ? 'Active' : 'Disabled'}
+                </span>
+              </div>
+
+              {description && (
+                <p className='text-muted-foreground mt-2 text-xs leading-relaxed'>{description}</p>
+              )}
+              {xenditParsed && xenditPricePerRequest !== null && (
+                <p className='text-muted-foreground mt-0.5 text-[11px] tabular-nums'>
+                  {xenditParsed.currency} {xenditPricePerRequest.toLocaleString()} per request
+                </p>
+              )}
+
+              {Object.keys(policy.config).length > 0 &&
+                renderPolicyContent(policy, isTransaction, isXendit, endpointSlug, endpointOwner)}
+            </div>
+          </div>
+        </div>
+
+        <div className='border-border/60 border-t'>
+          <XenditHowItWorks />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -192,19 +312,49 @@ export const PolicyItem = memo(function PolicyItem({ policy }: Readonly<PolicyIt
               {policy.enabled ? 'Active' : 'Disabled'}
             </Badge>
           </div>
-          <p className='text-muted-foreground mt-1 text-xs'>
-            {policy.description || config.description}
-          </p>
+          {description && <p className='text-muted-foreground mt-1 text-xs'>{description}</p>}
 
           {/* Policy-specific content */}
           {Object.keys(policy.config).length > 0 &&
-            renderPolicyContent(policy, isTransaction, isBundleSubscription)}
+            renderPolicyContent(policy, isTransaction, isXendit, endpointSlug, endpointOwner)}
 
           {policy.version ? (
-            <p className='text-muted-foreground mt-2 text-[10px]'>Version {policy.version}</p>
+            <div className='mt-2'>
+              <p className='text-muted-foreground text-[10px]'>Version {policy.version}</p>
+            </div>
           ) : null}
         </div>
       </div>
     </div>
   );
 });
+
+function XenditHowItWorks() {
+  const [open, setOpen] = useState(false);
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger
+        className={cn(
+          'text-muted-foreground hover:text-foreground hover:bg-muted/40 flex w-full cursor-pointer items-center justify-between gap-2 rounded-b-lg px-4 py-2.5',
+          'focus-visible:bg-muted/40 focus-visible:text-foreground focus-visible:outline-none',
+          'transition-colors select-none'
+        )}
+      >
+        <span className='inline-flex items-center gap-1.5 text-[11px] font-medium'>
+          <Info className='h-3 w-3' aria-hidden='true' />
+          How does this work?
+        </span>
+        <ChevronDown
+          className={cn('h-3.5 w-3.5 transition-transform', open && 'rotate-180')}
+          aria-hidden='true'
+        />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <p className='text-muted-foreground border-border/60 max-w-prose border-t px-4 py-3 text-[11px] leading-relaxed'>
+          Purchase credits upfront with a data owner. Your balance is shared across all of their
+          endpoints. Top up anytime — credits are deducted per request until your balance runs out.
+        </p>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}

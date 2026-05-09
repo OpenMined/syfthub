@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 var configMutex sync.Mutex
@@ -112,6 +113,13 @@ type NodeConfig struct {
 	ContainerEnabled bool   `json:"container_enabled,omitempty"`
 	ContainerRuntime string `json:"container_runtime,omitempty"` // "docker", "podman", or "auto"
 	ContainerImage   string `json:"container_image,omitempty"`   // default: "syfthub/endpoint-runner:latest"
+
+	// Transaction policy / Tempo settings.
+	// TempoRPCURL is the JSON-RPC URL used to broadcast payment credentials
+	// when an endpoint's transaction policy emits a payment_required event.
+	// May be overridden per-event when the aggregator includes rpc_url.
+	// See unit 9 of the transaction-policy plan (nifty-skipping-rainbow.md).
+	TempoRPCURL string `json:"tempo_rpc_url,omitempty"`
 }
 
 const (
@@ -212,6 +220,15 @@ func (c *NodeConfig) Configured() bool {
 
 func (c *NodeConfig) HasAPIToken() bool {
 	return c.APIToken != ""
+}
+
+// TimeoutDuration returns the configured request timeout as a time.Duration.
+// Returns 0 if Timeout is not positive.
+func (c *NodeConfig) TimeoutDuration() time.Duration {
+	if c.Timeout <= 0 {
+		return 0
+	}
+	return time.Duration(c.Timeout * float64(time.Second))
 }
 
 func (c *NodeConfig) SetAPIToken(token string) {

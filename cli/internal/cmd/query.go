@@ -3,10 +3,10 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/OpenMined/syfthub/cli/internal/clientutil"
 	"github.com/OpenMined/syfthub/cli/internal/completion"
 	"github.com/OpenMined/syfthub/cli/internal/config"
 	"github.com/OpenMined/syfthub/cli/internal/output"
@@ -61,32 +61,12 @@ func runQuery(cmd *cobra.Command, args []string) error {
 
 	cfg := config.Load()
 
-	// Resolve aggregator URL
+	// Resolve aggregator URL (still needed downstream for ChatCompleteRequest).
 	aggregatorURL := cfg.GetAggregatorURL(queryAggregator)
 
-	// Create client options
-	opts := []syfthub.Option{
-		syfthub.WithBaseURL(cfg.HubURL),
-		syfthub.WithTimeout(time.Duration(cfg.Timeout) * time.Second),
-	}
-	if aggregatorURL != "" {
-		opts = append(opts, syfthub.WithAggregatorURL(aggregatorURL))
-	}
-	if cfg.HasAPIToken() {
-		opts = append(opts, syfthub.WithAPIToken(cfg.APIToken))
-	}
-
-	client, err := syfthub.NewClient(opts...)
+	client, err := clientutil.NewClient(cfg, queryAggregator, 0)
 	if err != nil {
-		if queryJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": err.Error(),
-			})
-		} else {
-			output.Error("Failed to create client: %v", err)
-		}
-		return err
+		return output.ReplyError(queryJSONOutput, "Failed to create client: %v", err)
 	}
 	defer client.Close()
 
@@ -111,26 +91,22 @@ func queryComplete(ctx context.Context, client *syfthub.Client, target, prompt, 
 
 	response, err := client.Chat().Complete(ctx, req)
 	if err != nil {
-		output.JSON(map[string]interface{}{
-			"status":  "error",
-			"message": err.Error(),
-		})
-		return err
+		return output.ReplyError(true, "%s", err.Error())
 	}
 
 	// Format sources
-	sources := make([]map[string]interface{}, 0)
+	sources := make([]map[string]any, 0)
 	for title, doc := range response.Sources {
-		sources = append(sources, map[string]interface{}{
+		sources = append(sources, map[string]any{
 			"title": title,
 			"slug":  doc.Slug,
 		})
 	}
 
 	// Format retrieval info
-	retrievalInfo := make([]map[string]interface{}, 0)
+	retrievalInfo := make([]map[string]any, 0)
 	for _, info := range response.RetrievalInfo {
-		retrievalInfo = append(retrievalInfo, map[string]interface{}{
+		retrievalInfo = append(retrievalInfo, map[string]any{
 			"path":                info.Path,
 			"documents_retrieved": info.DocumentsRetrieved,
 			"status":              string(info.Status),
@@ -149,8 +125,8 @@ func queryComplete(ctx context.Context, client *syfthub.Client, target, prompt, 
 		usage["total_tokens"] = response.Usage.TotalTokens
 	}
 
-	output.JSON(map[string]interface{}{
-		"status":         "success",
+	output.JSON(map[string]any{
+		"status":         output.StatusSuccess,
 		"response":       response.Response,
 		"sources":        sources,
 		"retrieval_info": retrievalInfo,
@@ -217,6 +193,35 @@ func queryStream(ctx context.Context, client *syfthub.Client, target, prompt, ag
 				output.StreamDone()
 				output.Error("%s", e.Error)
 				return fmt.Errorf("%s", e.Error)
+
+			case *syfthub.PaymentRequiredEvent:
+				// Bridge SDK event to CLI handler. See unit 9 of the
+				// transaction-policy plan (nifty-skipping-rainbow.md).
+				cliEvent := PaymentRequiredEvent{
+					ChatSessionID: e.ChatSessionID,
+					EndpointSlug:  e.EndpointSlug,
+					Challenge:     e.Challenge,
+					Amount:        e.Amount,
+					Currency:      e.Currency,
+					Recipient:     e.Recipient,
+					ChallengeID:   e.ChallengeID,
+					Intent:        e.Intent,
+					RPCURL:        e.RPCURL,
+				}
+				cfg := config.Load()
+				if err := HandlePaymentRequired(
+					ctx,
+					queryJSONOutput,
+					aggregatorURL,
+					cfg.APIToken,
+					e.ChatSessionID,
+					cfg.TempoRPCURL,
+					cliEvent,
+				); err != nil {
+					output.StreamDone()
+					output.Error("%v", err)
+					return err
+				}
 			}
 
 		case err := <-errs:

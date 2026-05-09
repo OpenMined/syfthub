@@ -20,12 +20,7 @@ import X from 'lucide-react/dist/esm/icons/x';
 import { Link } from 'react-router-dom';
 
 import { usePaginatedPublicEndpoints } from '@/hooks/use-endpoint-queries';
-import {
-  getEndpointTypeIcon,
-  getEndpointTypeIconColor,
-  getEndpointTypeLabel,
-  isDataSourceEndpoint
-} from '@/lib/endpoint-utils';
+import { formatPricingBadge, getPricing, isDataSourceEndpoint } from '@/lib/endpoint-utils';
 import { useContextSelectionStore } from '@/stores/context-selection-store';
 
 import {
@@ -35,6 +30,7 @@ import {
   extractUniqueTags,
   hasActiveFilters
 } from './browse-filters-modal';
+import { EndpointTypeIcon } from './endpoint-type-icon';
 import { Badge } from './ui/badge';
 import { LoadingSpinner } from './ui/loading-spinner';
 import { PageHeader } from './ui/page-header';
@@ -55,28 +51,6 @@ import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
 const PAGE_SIZE = 12;
 
 // ============================================================================
-// Helper functions
-// ============================================================================
-
-function getTypeIcon(type: EndpointType) {
-  // model_data_source renders a compound icon (two icons side by side)
-  if (type === 'model_data_source') {
-    return (
-      <span className='flex shrink-0 items-center gap-0.5' aria-label='Model and Data Source'>
-        <Sparkles className='h-3.5 w-3.5 text-purple-500' />
-        <Database className='h-3.5 w-3.5 text-emerald-500' />
-      </span>
-    );
-  }
-
-  const Icon = getEndpointTypeIcon(type);
-  const colorClass = getEndpointTypeIconColor(type);
-  const label = getEndpointTypeLabel(type);
-
-  return <Icon className={`h-4 w-4 shrink-0 ${colorClass}`} aria-label={label} />;
-}
-
-// ============================================================================
 // Tab types
 // ============================================================================
 
@@ -95,6 +69,23 @@ const TAB_CONFIG: Record<
   models: { endpointType: 'model', entityName: 'models', icon: Sparkles, label: 'Models' },
   agents: { endpointType: 'agent', entityName: 'agents', icon: Bot, label: 'Agents' }
 };
+
+// Renders the on-chain pricing badge when an endpoint has a transaction policy.
+// Renders nothing for free endpoints, so it is safe to drop into any header.
+function PricingBadge({ endpoint }: Readonly<{ endpoint: ChatSource }>) {
+  const pricing = getPricing(endpoint);
+  if (!pricing) return null;
+  const label = formatPricingBadge(pricing);
+  return (
+    <Badge
+      variant='outline'
+      className='font-inter shrink-0 border-amber-500/40 bg-amber-100 px-1.5 py-0 text-[0.65rem] font-bold text-amber-900 dark:bg-amber-500/15 dark:text-amber-300'
+      title={`Costs ${label} per call to ${pricing.recipient.slice(0, 6)}…`}
+    >
+      {label}
+    </Badge>
+  );
+}
 
 // ============================================================================
 // Main Component
@@ -487,8 +478,9 @@ export function BrowseView({ initialQuery = '' }: Readonly<BrowseViewProperties>
                       <div className='mb-3 flex items-start justify-between'>
                         <div className='min-w-0 flex-1 pr-8'>
                           <h3 className='font-inter text-foreground group-hover:text-primary flex items-center gap-1.5 text-base font-semibold'>
-                            {getTypeIcon(endpoint.type)}
+                            <EndpointTypeIcon type={endpoint.type} />
                             <span className='truncate'>{endpoint.name}</span>
+                            <PricingBadge endpoint={endpoint} />
                           </h3>
                           {endpoint.owner_username && (
                             <p className='font-inter text-muted-foreground mt-0.5 truncate text-xs'>

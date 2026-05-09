@@ -44,7 +44,7 @@ class RetrievalResult(BaseModel):
 
     endpoint_path: str = Field(..., description="Path of the data source")
     documents: list[Document] = Field(default_factory=list, description="Retrieved documents")
-    status: Literal["success", "error", "timeout", "payment_failed"] = Field(
+    status: Literal["success", "error", "timeout", "payment_failed", "access_denied"] = Field(
         ..., description="Query status"
     )
     error_message: str | None = Field(default=None, description="Error message if failed")

@@ -3,10 +3,10 @@ package cmd
 import (
 	"context"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/OpenMined/syfthub/cli/internal/clientutil"
 	"github.com/OpenMined/syfthub/cli/internal/completion"
 	"github.com/OpenMined/syfthub/cli/internal/config"
 	"github.com/OpenMined/syfthub/cli/internal/output"
@@ -50,24 +50,9 @@ func runLs(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create client
-	clientOpts := []syfthub.Option{
-		syfthub.WithBaseURL(cfg.HubURL),
-		syfthub.WithTimeout(time.Duration(cfg.Timeout) * time.Second),
-	}
-	if cfg.HasAPIToken() {
-		clientOpts = append(clientOpts, syfthub.WithAPIToken(cfg.APIToken))
-	}
-	client, err := syfthub.NewClient(clientOpts...)
+	client, err := clientutil.NewClient(cfg, "", 0)
 	if err != nil {
-		if lsJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": err.Error(),
-			})
-		} else {
-			output.Error("Failed to create client: %v", err)
-		}
-		return err
+		return output.ReplyError(lsJSONOutput, "Failed to create client: %v", err)
 	}
 	defer client.Close()
 
@@ -88,15 +73,7 @@ func runLs(cmd *cobra.Command, args []string) error {
 func listUsers(ctx context.Context, client *syfthub.Client) error {
 	owners, err := client.Hub.Owners(ctx, syfthub.WithOwnersLimit(lsLimit))
 	if err != nil {
-		if lsJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": err.Error(),
-			})
-		} else {
-			output.Error("Failed to list: %v", err)
-		}
-		return err
+		return output.ReplyError(lsJSONOutput, "Failed to list: %v", err)
 	}
 
 	// Convert to output format
@@ -111,17 +88,17 @@ func listUsers(ctx context.Context, client *syfthub.Client) error {
 	}
 
 	if lsJSONOutput {
-		result := make([]map[string]interface{}, 0, len(ownerInfos))
+		result := make([]map[string]any, 0, len(ownerInfos))
 		for _, owner := range ownerInfos {
-			result = append(result, map[string]interface{}{
+			result = append(result, map[string]any{
 				"username":          owner.Username,
 				"endpoint_count":    owner.EndpointCount,
 				"model_count":       owner.ModelCount,
 				"data_source_count": owner.DataSourceCount,
 			})
 		}
-		output.JSON(map[string]interface{}{
-			"status": "success",
+		output.JSON(map[string]any{
+			"status": output.StatusSuccess,
 			"owners": result,
 		})
 	} else if lsLongFormat {
@@ -137,15 +114,7 @@ func listUserEndpoints(ctx context.Context, client *syfthub.Client, username str
 	// Use the efficient ByOwner API (GET /{owner_slug})
 	eps, err := client.Hub.ByOwner(ctx, username, syfthub.WithByOwnerLimit(lsLimit))
 	if err != nil {
-		if lsJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": err.Error(),
-			})
-		} else {
-			output.Error("Failed to list: %v", err)
-		}
-		return err
+		return output.ReplyError(lsJSONOutput, "Failed to list: %v", err)
 	}
 
 	// Convert to output format
@@ -163,9 +132,9 @@ func listUserEndpoints(ctx context.Context, client *syfthub.Client, username str
 	}
 
 	if lsJSONOutput {
-		result := make([]map[string]interface{}, 0, len(endpoints))
+		result := make([]map[string]any, 0, len(endpoints))
 		for _, ep := range endpoints {
-			result = append(result, map[string]interface{}{
+			result = append(result, map[string]any{
 				"name":        ep.Name,
 				"type":        ep.Type,
 				"version":     ep.Version,
@@ -173,8 +142,8 @@ func listUserEndpoints(ctx context.Context, client *syfthub.Client, username str
 				"description": ep.Description,
 			})
 		}
-		output.JSON(map[string]interface{}{
-			"status":    "success",
+		output.JSON(map[string]any{
+			"status":    output.StatusSuccess,
 			"endpoints": result,
 		})
 	} else if lsLongFormat {
@@ -189,15 +158,7 @@ func listUserEndpoints(ctx context.Context, client *syfthub.Client, username str
 func showEndpoint(ctx context.Context, client *syfthub.Client, path string) error {
 	ep, err := client.Hub.Get(ctx, path)
 	if err != nil {
-		if lsJSONOutput {
-			output.JSON(map[string]interface{}{
-				"status":  "error",
-				"message": err.Error(),
-			})
-		} else {
-			output.Error("%v", err)
-		}
-		return err
+		return output.ReplyError(lsJSONOutput, "%v", err)
 	}
 
 	if lsJSONOutput {
@@ -211,9 +172,9 @@ func showEndpoint(ctx context.Context, client *syfthub.Client, path string) erro
 			updatedAt = &s
 		}
 
-		output.JSON(map[string]interface{}{
-			"status": "success",
-			"endpoint": map[string]interface{}{
+		output.JSON(map[string]any{
+			"status": output.StatusSuccess,
+			"endpoint": map[string]any{
 				"owner":       ep.OwnerUsername,
 				"name":        ep.Name,
 				"type":        string(ep.Type),

@@ -120,6 +120,11 @@ type RequestContext struct {
 	// TransactionToken is the pre-authorized billing token for this request.
 	// Used by TransactionPolicy to verify billing authorization before execution.
 	TransactionToken string
+
+	// PaymentCredential is the on-chain payment proof (e.g., Tempo/PathUSD tx hash
+	// or signed challenge) presented by the caller to satisfy a TransactionPolicy
+	// payment challenge. Internal state — not serialized.
+	PaymentCredential string
 }
 
 // NewRequestContext creates a new RequestContext with initialized fields.
@@ -272,6 +277,12 @@ type TunnelRequest struct {
 	// SatelliteToken is the JWT for user verification.
 	SatelliteToken string `json:"satellite_token,omitempty"`
 
+	// PaymentCredential is the on-chain payment proof (e.g., Tempo/PathUSD tx hash
+	// or signed challenge response) supplied by the caller to satisfy a
+	// TransactionPolicy payment challenge. Optional; when absent the endpoint
+	// may respond with a PAYMENT_REQUIRED challenge.
+	PaymentCredential string `json:"payment_credential,omitempty"`
+
 	// EncryptionInfo contains the key-exchange metadata required to decrypt
 	// the EncryptedPayload. Always present in encrypted tunnel requests.
 	EncryptionInfo *EncryptionInfo `json:"encryption_info"`
@@ -392,6 +403,11 @@ const (
 	TunnelErrorCodeEndpointDisabled  TunnelErrorCode = "ENDPOINT_DISABLED"
 	TunnelErrorCodeRateLimitExceeded TunnelErrorCode = "RATE_LIMIT_EXCEEDED"
 	TunnelErrorCodeDecryptionFailed  TunnelErrorCode = "DECRYPTION_FAILED"
+	// TunnelErrorCodePaymentRequired indicates the endpoint requires an on-chain
+	// payment (e.g., Tempo/PathUSD) before serving the request. The TunnelError.Details
+	// map carries the challenge metadata (payment_challenge, payment_amount,
+	// payment_currency, payment_recipient, challenge_id, intent).
+	TunnelErrorCodePaymentRequired TunnelErrorCode = "PAYMENT_REQUIRED"
 )
 
 // EndpointInfo contains metadata about a registered endpoint.
@@ -520,11 +536,10 @@ type ExecutorInput struct {
 	// Used by TransactionPolicy to verify billing authorization before execution.
 	TransactionToken string `json:"transaction_token,omitempty"`
 
-	// PolicyCheckOnly instructs the executor to evaluate policies and return the
-	// result without invoking the endpoint handler. Used by AgentOneShotInvoker
-	// to run a pre-session policy gate against a container executor where there
-	// is no dedicated noop handler (unlike subprocess mode).
-	PolicyCheckOnly bool `json:"policy_check_only,omitempty"`
+	// PaymentCredential is the on-chain payment proof (e.g., Tempo/PathUSD tx hash
+	// or signed challenge response) forwarded to the subprocess so a TransactionPolicy
+	// runner can verify payment before executing the handler.
+	PaymentCredential string `json:"payment_credential,omitempty"`
 }
 
 // ExecutorOutput is the output format from subprocess execution.

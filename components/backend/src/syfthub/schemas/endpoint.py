@@ -54,6 +54,11 @@ class Policy(BaseModel):
     type: str = Field(
         ..., min_length=1, max_length=100, description="Policy type identifier"
     )
+    name: Optional[str] = Field(
+        default=None,
+        max_length=100,
+        description="Optional human-readable policy name (e.g. 'paid-access')",
+    )
     version: str = Field(
         default="1.0", pattern=r"^\d+\.\d+$", description="Policy version"
     )
@@ -72,6 +77,62 @@ class Policy(BaseModel):
         extra="forbid",  # Only allow defined fields at Policy level
         str_strip_whitespace=True,
     )
+
+
+def filter_visible_policies(
+    policies: List[Any], viewer_email: Optional[str]
+) -> List[Any]:
+    """Filter policies by their `config.applied_to` audience list.
+
+    Specific targeting overrides the wildcard: if any policy explicitly
+    names the viewer's email, only those targeted policies are returned
+    (the wildcard fallback is suppressed for that viewer). Otherwise
+    the viewer falls back to wildcard / unset-`applied_to` policies.
+
+    `applied_to` semantics per policy:
+    - Missing/empty `applied_to` is treated as `["*"]` (wildcard fallback).
+    - `"*"` in `applied_to` makes the policy a wildcard fallback.
+    - Otherwise the policy is "targeted" and applies only to listed emails
+      (case-insensitive).
+    - An anonymous viewer (`viewer_email=None`) only ever sees wildcards.
+
+    Accepts policies as Pydantic Policy instances or plain dicts.
+    """
+    normalized_viewer = viewer_email.strip().lower() if viewer_email else None
+
+    def _applied_to(policy: Any) -> Optional[List[Any]]:
+        if isinstance(policy, BaseModel):
+            config = getattr(policy, "config", None) or {}
+        elif isinstance(policy, dict):
+            config = policy.get("config") or {}
+        else:
+            config = {}
+        applied_to = config.get("applied_to") if isinstance(config, dict) else None
+        return applied_to if applied_to else None
+
+    wildcards: List[Any] = []
+    targeted: List[Any] = []
+    for policy in policies:
+        applied_to = _applied_to(policy)
+        if applied_to is None:
+            wildcards.append(policy)
+            continue
+        is_wildcard = False
+        is_targeted = False
+        for entry in applied_to:
+            if not isinstance(entry, str):
+                continue
+            normalized_entry = entry.strip().lower()
+            if normalized_entry == "*":
+                is_wildcard = True
+            elif normalized_viewer and normalized_entry == normalized_viewer:
+                is_targeted = True
+        if is_targeted:
+            targeted.append(policy)
+        elif is_wildcard:
+            wildcards.append(policy)
+
+    return targeted or wildcards
 
 
 class Connection(BaseModel):
@@ -196,6 +257,10 @@ class EndpointBase(BaseModel):
     visibility: EndpointVisibility = Field(
         default=EndpointVisibility.PUBLIC, description="Who can access this endpoint"
     )
+    archived: bool = Field(
+        default=False,
+        description="Whether this endpoint is archived (no new purchases, kept accessible to existing users)",
+    )
     # REMOVED is_active - server-managed field
     # REMOVED contributors - will be validated separately
     version: str = Field(
@@ -288,6 +353,9 @@ class EndpointUpdate(BaseModel):
     visibility: Optional[EndpointVisibility] = Field(
         None, description="Who can access this endpoint"
     )
+    archived: Optional[bool] = Field(
+        None, description="Archive or restore the endpoint"
+    )
     # REMOVED is_active - only admin can change this
     contributors: Optional[List[int]] = Field(
         None, description="List of contributor user IDs (will be validated)"
@@ -352,6 +420,10 @@ class Endpoint(BaseModel):
     tags: List[str] = Field(..., description="List of tags for categorization")
     policies: List[Policy] = Field(..., description="List of policies")
     connect: List[Connection] = Field(..., description="List of connection methods")
+    payment_required: bool = Field(
+        default=False,
+        description="True iff any registered policy requires payment (e.g. transaction or xendit)",
+    )
 
     # Server-managed fields
     id: int = Field(..., description="Endpoint's unique identifier")
@@ -365,6 +437,7 @@ class Endpoint(BaseModel):
         ..., min_length=3, max_length=63, description="URL-safe identifier"
     )
     is_active: bool = Field(..., description="Whether the endpoint is active")
+    archived: bool = Field(..., description="Whether the endpoint is archived")
     contributors: List[int] = Field(..., description="List of contributor user IDs")
     stars_count: int = Field(
         ..., description="Number of stars this endpoint has received"
@@ -406,6 +479,7 @@ class EndpointResponse(BaseModel):
         ..., description="Who can access this endpoint"
     )
     is_active: bool = Field(..., description="Whether the endpoint is active")
+    archived: bool = Field(..., description="Whether the endpoint is archived")
     contributors: List[int] = Field(..., description="List of contributor user IDs")
     version: str = Field(..., description="Semantic version of the endpoint")
     readme: str = Field(..., description="Markdown content for the README")
@@ -418,6 +492,10 @@ class EndpointResponse(BaseModel):
     )
     connect: List[Connection] = Field(
         ..., description="List of connection methods available for this endpoint"
+    )
+    payment_required: bool = Field(
+        default=False,
+        description="True iff any registered policy requires payment (e.g. transaction or xendit)",
     )
     created_at: datetime = Field(..., description="When the endpoint was created")
     updated_at: datetime = Field(..., description="When the endpoint was last updated")
@@ -462,6 +540,10 @@ class EndpointPublicResponse(BaseModel):
     connect: List[Connection] = Field(
         ..., description="List of connection methods available for this endpoint"
     )
+    payment_required: bool = Field(
+        default=False,
+        description="True iff any registered policy requires payment (e.g. transaction or xendit)",
+    )
     created_at: datetime = Field(..., description="When the endpoint was created")
     updated_at: datetime = Field(..., description="When the endpoint was last updated")
 
@@ -471,6 +553,9 @@ class EndpointPublicResponse(BaseModel):
     )
     health_checked_at: Optional[datetime] = Field(
         None, description="When the client last checked this endpoint's health"
+    )
+    archived: bool = Field(
+        default=False, description="Whether the endpoint is archived"
     )
 
     # Note: Excludes user_id, id, visibility, is_active, contributors, health_ttl_seconds for security/privacy
