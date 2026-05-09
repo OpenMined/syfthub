@@ -120,6 +120,11 @@ type RequestContext struct {
 	// TransactionToken is the pre-authorized billing token for this request.
 	// Used by TransactionPolicy to verify billing authorization before execution.
 	TransactionToken string
+
+	// PaymentCredential carries the on-chain payment proof (e.g., MPP/Tempo
+	// PathUSD payment receipt) supplied by the caller in TunnelRequest.
+	// Used by TransactionPolicy to verify settlement before execution.
+	PaymentCredential string
 }
 
 // NewRequestContext creates a new RequestContext with initialized fields.
@@ -272,6 +277,10 @@ type TunnelRequest struct {
 	// SatelliteToken is the JWT for user verification.
 	SatelliteToken string `json:"satellite_token,omitempty"`
 
+	// PaymentCredential carries an on-chain payment proof (MPP/Tempo PathUSD)
+	// for endpoints guarded by a TransactionPolicy. Optional.
+	PaymentCredential string `json:"payment_credential,omitempty"`
+
 	// EncryptionInfo contains the key-exchange metadata required to decrypt
 	// the EncryptedPayload. Always present in encrypted tunnel requests.
 	EncryptionInfo *EncryptionInfo `json:"encryption_info"`
@@ -392,6 +401,7 @@ const (
 	TunnelErrorCodeEndpointDisabled  TunnelErrorCode = "ENDPOINT_DISABLED"
 	TunnelErrorCodeRateLimitExceeded TunnelErrorCode = "RATE_LIMIT_EXCEEDED"
 	TunnelErrorCodeDecryptionFailed  TunnelErrorCode = "DECRYPTION_FAILED"
+	TunnelErrorCodePaymentRequired   TunnelErrorCode = "PAYMENT_REQUIRED"
 )
 
 // EndpointInfo contains metadata about a registered endpoint.
