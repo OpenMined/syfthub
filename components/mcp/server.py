@@ -31,7 +31,12 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.backends import default_backend
 import jwt
-from syfthub_client import SyftHubClient, AuthenticationError, SyftHubError
+from syfthub_client import (
+    SyftHubClient,
+    AuthenticationError,
+    SyftHubError,
+    PaymentRequiredError,
+)
 
 # Import SyftHub SDK for endpoint discovery and chat
 try:
@@ -1758,6 +1763,46 @@ def update_router_paths(syftbox_data: Dict[str, Dict[str, Dict]]) -> None:
 
     logger.info(f"Updated router paths mapping with {len(syftbox_router_paths)} entries")
 
+
+# TRANSACTION POLICY HELPERS
+
+def _find_transaction_policy(policies: Any) -> Optional[Dict[str, Any]]:
+    """Return the transaction policy dict if one is enabled on the endpoint.
+
+    Accepts either a list of Policy pydantic models (from the SDK) or a
+    list of plain dicts (raw hub payload), so the same helper works in
+    both production and tests.
+    """
+    if not policies:
+        return None
+    for policy in policies:
+        if hasattr(policy, "type"):
+            ptype = policy.type
+            penabled = getattr(policy, "enabled", True)
+            pconfig = getattr(policy, "config", {}) or {}
+        elif isinstance(policy, dict):
+            ptype = policy.get("type")
+            penabled = policy.get("enabled", True)
+            pconfig = policy.get("config", {}) or {}
+        else:
+            continue
+        if ptype == "transaction" and penabled:
+            return {"type": ptype, "config": pconfig}
+    return None
+
+
+def _format_pricing_hint(transaction_policy: Dict[str, Any]) -> Optional[str]:
+    """Return a human-readable pricing hint from a transaction policy config."""
+    config = transaction_policy.get("config") or {}
+    amount = config.get("amount")
+    currency = config.get("currency", "PathUSD")
+    intent = config.get("intent", "charge")
+    if amount is None:
+        return None
+    suffix = "per session" if intent == "session" else "per call"
+    return f"{amount} {currency} {suffix}"
+
+
 # DISCOVERY & NETWORK TOOLS
 
 @mcp.tool(
@@ -1853,6 +1898,18 @@ def discover_syfthub_endpoints() -> Dict[str, Any]:
                     endpoint_url = conn.config.get("url")
                     break
 
+            # Detect transaction policies (paid endpoints) so MCP callers
+            # can surface pricing alongside discovery. The hub returns the
+            # endpoint's policy list (post-unit-11); pre-unit-11 backends
+            # simply omit it, which falls through to payment_required=False.
+            txn_policy = _find_transaction_policy(
+                getattr(endpoint, "policies", None)
+            )
+            payment_required = txn_policy is not None
+            pricing_hint = (
+                _format_pricing_hint(txn_policy) if txn_policy else None
+            )
+
             entry = {
                 "path": endpoint.path,
                 "name": endpoint.name,
@@ -1862,6 +1919,8 @@ def discover_syfthub_endpoints() -> Dict[str, Any]:
                 "url": endpoint_url,
                 "slug": endpoint.slug,
                 "tenant_name": endpoint.owner_username,
+                "payment_required": payment_required,
+                "pricing_hint": pricing_hint,
             }
 
             if endpoint.type == EndpointType.MODEL:
@@ -1872,24 +1931,31 @@ def discover_syfthub_endpoints() -> Dict[str, Any]:
         # Format output as markdown
         output_lines = ["## Available SyftHub Endpoints\n"]
 
+        def _pricing_cell(entry: Dict[str, Any]) -> str:
+            return entry["pricing_hint"] if entry.get("payment_required") else "Free"
+
         if models:
             output_lines.append("### Models (AI/ML)\n")
-            output_lines.append("| Path | Name | Description | Status |")
-            output_lines.append("|------|------|-------------|--------|")
+            output_lines.append("| Path | Name | Description | Status | Pricing |")
+            output_lines.append("|------|------|-------------|--------|---------|")
             for m in models:
                 status = "✅ Ready" if m["has_url"] else "⚠️ No URL"
                 desc = m["description"][:50] + "..." if len(m["description"]) > 50 else m["description"]
-                output_lines.append(f"| `{m['path']}` | {m['name']} | {desc} | {status} |")
+                output_lines.append(
+                    f"| `{m['path']}` | {m['name']} | {desc} | {status} | {_pricing_cell(m)} |"
+                )
             output_lines.append("")
 
         if data_sources:
             output_lines.append("### Data Sources (RAG)\n")
-            output_lines.append("| Path | Name | Description | Status |")
-            output_lines.append("|------|------|-------------|--------|")
+            output_lines.append("| Path | Name | Description | Status | Pricing |")
+            output_lines.append("|------|------|-------------|--------|---------|")
             for ds in data_sources:
                 status = "✅ Ready" if ds["has_url"] else "⚠️ No URL"
                 desc = ds["description"][:50] + "..." if len(ds["description"]) > 50 else ds["description"]
-                output_lines.append(f"| `{ds['path']}` | {ds['name']} | {desc} | {status} |")
+                output_lines.append(
+                    f"| `{ds['path']}` | {ds['name']} | {desc} | {status} | {_pricing_cell(ds)} |"
+                )
             output_lines.append("")
 
         if not models and not data_sources:
@@ -2109,6 +2175,32 @@ def chat_with_syfthub(
             "timestamp": datetime.now().isoformat()
         }
 
+    except PaymentRequiredError as e:
+        # MCP clients have no wallet — surface the challenge as a structured
+        # tool result so the LLM can route the user to the CLI / desktop app.
+        logger.info(
+            f"Endpoint {e.endpoint_slug} requires payment "
+            f"({e.amount} {e.currency} to {e.recipient}); "
+            f"returning structured payment_required error to MCP client"
+        )
+        return {
+            "success": False,
+            "ok": False,
+            "error_type": "payment_required",
+            **e.to_dict(),
+            "message": (
+                f"This endpoint requires payment of {e.amount} {e.currency} "
+                f"to {e.recipient}.\n\n"
+                f"MCP cannot complete this payment for you. To pay, please "
+                f"use the SyftHub desktop app or the `syft` CLI:\n"
+                f"  $ syft wallet init\n"
+                f"  $ syft query {e.endpoint_slug} '<your prompt>'\n\n"
+                f"Challenge ID: {e.challenge_id}"
+            ),
+            "prompt": prompt,
+            "model": model,
+            "timestamp": datetime.now().isoformat(),
+        }
     except AggregatorError as e:
         logger.error(f"Aggregator error in chat: {e}")
         return {
