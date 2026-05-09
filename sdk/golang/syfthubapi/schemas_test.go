@@ -478,6 +478,7 @@ func TestTunnelErrorCodes(t *testing.T) {
 		TunnelErrorCodeInternalError,
 		TunnelErrorCodeEndpointDisabled,
 		TunnelErrorCodeRateLimitExceeded,
+		TunnelErrorCodePaymentRequired,
 	}
 
 	expected := []string{
@@ -490,12 +491,172 @@ func TestTunnelErrorCodes(t *testing.T) {
 		"INTERNAL_ERROR",
 		"ENDPOINT_DISABLED",
 		"RATE_LIMIT_EXCEEDED",
+		"PAYMENT_REQUIRED",
 	}
 
 	for i, code := range codes {
 		if string(code) != expected[i] {
 			t.Errorf("TunnelErrorCode[%d] = %q, want %q", i, code, expected[i])
 		}
+	}
+}
+
+func TestPaymentRequiredErrorRoundTrip(t *testing.T) {
+	original := &TunnelError{
+		Code:    TunnelErrorCodePaymentRequired,
+		Message: "payment required",
+		Details: map[string]any{
+			"payment_challenge": `Payment id="abc", realm="x", method="tempo", amount="0.10", currency="0xCAFE", recipient="0xBEEF"`,
+			"payment_amount":    "0.10",
+			"payment_currency":  "0xCAFE",
+			"payment_recipient": "0xBEEF",
+			"challenge_id":      "abc",
+			"intent":            "charge",
+		},
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+
+	var decoded TunnelError
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+
+	if decoded.Code != TunnelErrorCodePaymentRequired {
+		t.Errorf("Code = %q, want %q", decoded.Code, TunnelErrorCodePaymentRequired)
+	}
+	if decoded.Message != original.Message {
+		t.Errorf("Message = %q, want %q", decoded.Message, original.Message)
+	}
+	for _, key := range []string{
+		"payment_challenge",
+		"payment_amount",
+		"payment_currency",
+		"payment_recipient",
+		"challenge_id",
+		"intent",
+	} {
+		got, ok := decoded.Details[key]
+		if !ok {
+			t.Errorf("Details[%q] missing after round-trip", key)
+			continue
+		}
+		want := original.Details[key]
+		if got != want {
+			t.Errorf("Details[%q] = %v, want %v", key, got, want)
+		}
+	}
+}
+
+func TestTunnelRequestPaymentCredential(t *testing.T) {
+	t.Run("present field round-trips", func(t *testing.T) {
+		req := TunnelRequest{
+			Protocol:          TunnelProtocolV1,
+			Type:              TunnelTypeRequest,
+			CorrelationID:     "req-1",
+			Endpoint:          TunnelEndpointInfo{Slug: "ep", Type: "model"},
+			PaymentCredential: "0xdeadbeef",
+		}
+		data, err := json.Marshal(req)
+		if err != nil {
+			t.Fatalf("Marshal error: %v", err)
+		}
+		if !strings.Contains(string(data), `"payment_credential":"0xdeadbeef"`) {
+			t.Errorf("expected payment_credential in JSON: %s", string(data))
+		}
+		var decoded TunnelRequest
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("Unmarshal error: %v", err)
+		}
+		if decoded.PaymentCredential != "0xdeadbeef" {
+			t.Errorf("PaymentCredential = %q", decoded.PaymentCredential)
+		}
+	})
+
+	t.Run("empty field omitted", func(t *testing.T) {
+		req := TunnelRequest{
+			Protocol:      TunnelProtocolV1,
+			Type:          TunnelTypeRequest,
+			CorrelationID: "req-2",
+			Endpoint:      TunnelEndpointInfo{Slug: "ep", Type: "model"},
+		}
+		data, err := json.Marshal(req)
+		if err != nil {
+			t.Fatalf("Marshal error: %v", err)
+		}
+		if strings.Contains(string(data), "payment_credential") {
+			t.Errorf("payment_credential should be omitted when empty: %s", string(data))
+		}
+	})
+}
+
+func TestExecutorInputPaymentCredential(t *testing.T) {
+	t.Run("present field round-trips", func(t *testing.T) {
+		input := ExecutorInput{
+			Type:              "model",
+			PaymentCredential: "0xfeedface",
+		}
+		data, err := json.Marshal(input)
+		if err != nil {
+			t.Fatalf("Marshal error: %v", err)
+		}
+		if !strings.Contains(string(data), `"payment_credential":"0xfeedface"`) {
+			t.Errorf("expected payment_credential in JSON: %s", string(data))
+		}
+		var decoded ExecutorInput
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("Unmarshal error: %v", err)
+		}
+		if decoded.PaymentCredential != "0xfeedface" {
+			t.Errorf("PaymentCredential = %q", decoded.PaymentCredential)
+		}
+	})
+
+	t.Run("empty field omitted", func(t *testing.T) {
+		input := ExecutorInput{Type: "model"}
+		data, err := json.Marshal(input)
+		if err != nil {
+			t.Fatalf("Marshal error: %v", err)
+		}
+		if strings.Contains(string(data), "payment_credential") {
+			t.Errorf("payment_credential should be omitted when empty: %s", string(data))
+		}
+	})
+}
+
+func TestAgentSessionStartPayloadPaymentCredential(t *testing.T) {
+	payload := AgentSessionStartPayload{
+		SessionID:         "sess-1",
+		Prompt:            "hi",
+		EndpointSlug:      "ep",
+		PaymentCredential: "0xabc",
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+	if !strings.Contains(string(data), `"payment_credential":"0xabc"`) {
+		t.Errorf("expected payment_credential in JSON: %s", string(data))
+	}
+	var decoded AgentSessionStartPayload
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal error: %v", err)
+	}
+	if decoded.PaymentCredential != "0xabc" {
+		t.Errorf("PaymentCredential = %q", decoded.PaymentCredential)
+	}
+
+	// Verify omitempty when blank.
+	emptyPayload := AgentSessionStartPayload{SessionID: "s", EndpointSlug: "ep"}
+	emptyData, err := json.Marshal(emptyPayload)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+	if strings.Contains(string(emptyData), "payment_credential") {
+		t.Errorf("payment_credential should be omitted when empty: %s", string(emptyData))
 	}
 }
 

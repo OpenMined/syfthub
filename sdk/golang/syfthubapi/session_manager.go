@@ -87,6 +87,11 @@ type AgentSessionStartPayload struct {
 	EndpointSlug string      `json:"endpoint_slug"`
 	Messages     []Message   `json:"messages,omitempty"`
 	Config       AgentConfig `json:"config"`
+
+	// PaymentCredential is the on-chain payment proof (e.g., Tempo/PathUSD tx hash
+	// or signed challenge response) supplied by the caller to satisfy a
+	// TransactionPolicy payment challenge for the agent session intent.
+	PaymentCredential string `json:"payment_credential,omitempty"`
 }
 
 // AgentUserMessagePayload is the decrypted payload of an agent_user_message.

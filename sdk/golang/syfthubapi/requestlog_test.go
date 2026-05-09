@@ -434,6 +434,122 @@ func TestLogPolicyJSONMarshaling(t *testing.T) {
 	}
 }
 
+func TestPaymentLogJSONMarshaling(t *testing.T) {
+	t.Run("verified payment round-trips", func(t *testing.T) {
+		payment := &PaymentLog{
+			ChallengeID: "abc",
+			TxHash:      "0x1234",
+			Amount:      "0.10",
+			Currency:    "0xCAFE",
+			Recipient:   "0xBEEF",
+			Status:      "verified",
+			PaidAt:      "2026-05-09T12:00:00Z",
+		}
+
+		data, err := json.Marshal(payment)
+		if err != nil {
+			t.Fatalf("Marshal error: %v", err)
+		}
+
+		var decoded PaymentLog
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("Unmarshal error: %v", err)
+		}
+
+		if decoded != *payment {
+			t.Errorf("decoded = %+v, want %+v", decoded, *payment)
+		}
+	})
+
+	t.Run("required-only payment omits tx_hash and paid_at", func(t *testing.T) {
+		payment := &PaymentLog{
+			ChallengeID: "abc",
+			Amount:      "0.10",
+			Currency:    "0xCAFE",
+			Recipient:   "0xBEEF",
+			Status:      "required",
+		}
+
+		data, err := json.Marshal(payment)
+		if err != nil {
+			t.Fatalf("Marshal error: %v", err)
+		}
+
+		raw := map[string]any{}
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatalf("Unmarshal error: %v", err)
+		}
+		if _, ok := raw["tx_hash"]; ok {
+			t.Error("tx_hash should be omitted when empty")
+		}
+		if _, ok := raw["paid_at"]; ok {
+			t.Error("paid_at should be omitted when empty")
+		}
+	})
+}
+
+func TestRequestLogPaymentField(t *testing.T) {
+	t.Run("payment present", func(t *testing.T) {
+		log := &RequestLog{
+			ID:            "log-1",
+			CorrelationID: "corr-1",
+			EndpointSlug:  "ep",
+			EndpointType:  "model",
+			Request:       &LogRequest{Type: "model"},
+			Response:      &LogResponse{Success: true},
+			Timing:        &LogTiming{},
+			Payment: &PaymentLog{
+				ChallengeID: "abc",
+				Amount:      "0.10",
+				Currency:    "0xCAFE",
+				Recipient:   "0xBEEF",
+				Status:      "verified",
+				TxHash:      "0xdead",
+				PaidAt:      "2026-05-09T12:00:00Z",
+			},
+		}
+
+		data, err := json.Marshal(log)
+		if err != nil {
+			t.Fatalf("Marshal error: %v", err)
+		}
+
+		var decoded RequestLog
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			t.Fatalf("Unmarshal error: %v", err)
+		}
+		if decoded.Payment == nil {
+			t.Fatal("Payment should not be nil after round-trip")
+		}
+		if decoded.Payment.ChallengeID != "abc" {
+			t.Errorf("ChallengeID = %q", decoded.Payment.ChallengeID)
+		}
+		if decoded.Payment.Status != "verified" {
+			t.Errorf("Status = %q", decoded.Payment.Status)
+		}
+	})
+
+	t.Run("payment omitted when nil", func(t *testing.T) {
+		log := &RequestLog{
+			ID:       "log-2",
+			Request:  &LogRequest{Type: "model"},
+			Response: &LogResponse{Success: true},
+			Timing:   &LogTiming{},
+		}
+		data, err := json.Marshal(log)
+		if err != nil {
+			t.Fatalf("Marshal error: %v", err)
+		}
+		raw := map[string]any{}
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Fatalf("Unmarshal error: %v", err)
+		}
+		if _, ok := raw["payment"]; ok {
+			t.Error("payment should be omitted when nil")
+		}
+	})
+}
+
 func TestLogTimingJSONMarshaling(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	timing := &LogTiming{
