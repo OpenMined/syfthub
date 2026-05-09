@@ -120,6 +120,11 @@ type RequestContext struct {
 	// TransactionToken is the pre-authorized billing token for this request.
 	// Used by TransactionPolicy to verify billing authorization before execution.
 	TransactionToken string
+
+	// PaymentCredential is the on-chain (e.g. Tempo) payment credential for this
+	// request, used by transaction-style policies. Populated from the inbound
+	// tunnel request or agent session start payload before policy evaluation.
+	PaymentCredential string
 }
 
 // NewRequestContext creates a new RequestContext with initialized fields.
@@ -392,6 +397,7 @@ const (
 	TunnelErrorCodeEndpointDisabled  TunnelErrorCode = "ENDPOINT_DISABLED"
 	TunnelErrorCodeRateLimitExceeded TunnelErrorCode = "RATE_LIMIT_EXCEEDED"
 	TunnelErrorCodeDecryptionFailed  TunnelErrorCode = "DECRYPTION_FAILED"
+	TunnelErrorCodePaymentRequired   TunnelErrorCode = "PAYMENT_REQUIRED"
 )
 
 // EndpointInfo contains metadata about a registered endpoint.
@@ -519,6 +525,10 @@ type ExecutorInput struct {
 	// TransactionToken is the pre-authorized billing token for this request.
 	// Used by TransactionPolicy to verify billing authorization before execution.
 	TransactionToken string `json:"transaction_token,omitempty"`
+
+	// PaymentCredential is an optional on-chain payment credential carried with
+	// the request, forwarded to transaction-style policies for verification.
+	PaymentCredential string `json:"payment_credential,omitempty"`
 }
 
 // ExecutorOutput is the output format from subprocess execution.

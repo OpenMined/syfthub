@@ -21,6 +21,24 @@ type ToolCall = agenttypes.ToolCall
 // Kept for backward compatibility so callers can continue using syfthubapi.ToolResult.
 type ToolResult = agenttypes.ToolResult
 
+// PaymentRequiredError signals that an agent session start was blocked by a
+// transaction-style policy and the caller must obtain a payment credential
+// (e.g. a Tempo on-chain payment) and retry. The NATS bridge maps this error
+// to a TunnelResponse with TunnelErrorCodePaymentRequired so the aggregator /
+// client can surface a payment challenge to the user.
+type PaymentRequiredError struct {
+	// Challenge is the WWW-Authenticate-style "Payment …" challenge string
+	// returned by the policy, e.g. `Payment id="…", realm="…", amount="…"`.
+	Challenge string
+
+	// Details is a copy of the safe payment_* keys from the policy metadata,
+	// suitable for placing into TunnelError.Details.
+	Details map[string]any
+}
+
+// Error implements the error interface.
+func (e *PaymentRequiredError) Error() string { return "payment required" }
+
 // AgentHandler is the function signature for agent endpoint handlers.
 // The handler receives a context (cancelled on user cancel or timeout) and
 // an AgentSession for bidirectional communication with the user.
