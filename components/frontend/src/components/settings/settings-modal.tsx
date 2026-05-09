@@ -7,6 +7,7 @@ import AlertTriangle from 'lucide-react/dist/esm/icons/alert-triangle';
 import CreditCard from 'lucide-react/dist/esm/icons/credit-card';
 import Key from 'lucide-react/dist/esm/icons/key';
 import Lock from 'lucide-react/dist/esm/icons/lock';
+import Receipt from 'lucide-react/dist/esm/icons/receipt';
 import Server from 'lucide-react/dist/esm/icons/server';
 import User from 'lucide-react/dist/esm/icons/user';
 import WalletIcon from 'lucide-react/dist/esm/icons/wallet';
@@ -20,6 +21,7 @@ import { useSettingsModalStore } from '@/stores/settings-modal-store';
 import { AggregatorSettingsTab } from './aggregator-settings-tab';
 import { APITokensSettingsTab } from './api-tokens-settings-tab';
 import { DangerZoneTab } from './danger-zone-tab';
+import { PaymentHistoryTab } from './payment-history-tab';
 import { PaymentSettingsTab } from './payment-settings-tab';
 import { ProfileSettingsTab } from './profile-settings-tab';
 import { SecuritySettingsTab } from './security-settings-tab';
@@ -46,6 +48,11 @@ const TABS: TabItem[] = [
     icon: <WalletIcon className='h-4 w-4' aria-hidden='true' />
   },
   {
+    id: 'payment-history',
+    label: 'Payments',
+    icon: <Receipt className='h-4 w-4' aria-hidden='true' />
+  },
+  {
     id: 'subscriptions',
     label: 'Top up credits',
     icon: <CreditCard className='h-4 w-4' aria-hidden='true' />
@@ -68,6 +75,7 @@ const TAB_CONTENT: Record<SettingsTab, React.ComponentType> = {
   security: SecuritySettingsTab,
   'api-tokens': APITokensSettingsTab,
   payment: PaymentSettingsTab,
+  'payment-history': PaymentHistoryTab,
   subscriptions: SubscriptionsSettingsTab,
   aggregator: AggregatorSettingsTab,
   'danger-zone': DangerZoneTab
