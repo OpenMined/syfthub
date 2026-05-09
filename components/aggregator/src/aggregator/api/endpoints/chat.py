@@ -86,6 +86,16 @@ async def chat_stream(
     - `token`: `{"content": "..."}` - A chunk of the response
     - `done`: `{"sources": [...], "metadata": {...}}` - Complete with final metadata
 
+    **Payment (transaction-policy endpoints):**
+    - `payment_required`: `{"chat_session_id": "...", "endpoint_slug": "...",
+      "challenge": "...", "amount": "...", "currency": "...", "recipient": "...",
+      "challenge_id": "...", "intent": "charge"}` - The endpoint requires an
+      on-chain payment. The client must POST to `/chat/{session_id}/payment`
+      with the matching `challenge_id` and a payment credential to resume the
+      stream. Multi-endpoint chats may emit several `payment_required` events
+      sharing the same `chat_session_id`; the client UI is responsible for
+      bundling them.
+
     **Error:**
     - `error`: `{"message": "..."}` - An error occurred
     """
