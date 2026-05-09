@@ -48,6 +48,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         get_error_reporter,
         get_model_client,
         get_nats_transport,
+        get_payment_negotiator,
     )
 
     shared = _app.state.http_client
@@ -57,6 +58,10 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     nats = get_nats_transport()
     if nats is not None:
         nats._http_client = shared
+
+    # Expose the singleton PaymentNegotiator on app.state so non-DI consumers
+    # (e.g. orchestrator tasks suspended mid-stream) can reach it directly.
+    _app.state.payment_negotiator = get_payment_negotiator()
 
     yield
 

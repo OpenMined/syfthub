@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import Depends, Header
 
-from aggregator.clients import DataSourceClient, ErrorReporter, ModelClient
+from aggregator.clients import DataSourceClient, ErrorReporter, ModelClient, PaymentNegotiator
 from aggregator.clients.nats_transport import NATSTransport
 from aggregator.core.config import get_settings
 from aggregator.services import (
@@ -41,6 +41,19 @@ def get_model_client() -> ModelClient:
         timeout=settings.generation_timeout,
         error_reporter=get_error_reporter(),
     )
+
+
+@lru_cache
+def get_payment_negotiator() -> PaymentNegotiator:
+    """Get the process-singleton PaymentNegotiator.
+
+    A single instance is shared across all chat sessions so the orchestrator
+    (which suspends a tunnel call awaiting a credential) and the payment
+    submission route (which resolves the awaiting future) talk to the same
+    negotiator. The instance is also exposed on ``app.state.payment_negotiator``
+    by the lifespan handler for direct access.
+    """
+    return PaymentNegotiator()
 
 
 @lru_cache
