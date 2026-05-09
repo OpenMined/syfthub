@@ -87,6 +87,7 @@ func (p *RequestProcessor) Process(ctx context.Context, req *TunnelRequest) (*Tu
 		return emitLogAndReturn(resp, nil)
 	}
 	reqCtx.User = userCtx
+	reqCtx.PaymentCredential = req.PaymentCredential
 
 	p.logger.Info("[REQUEST] User authenticated",
 		"correlation_id", req.CorrelationID,
@@ -138,6 +139,9 @@ func (p *RequestProcessor) Process(ctx context.Context, req *TunnelRequest) (*Tu
 
 	result, err := p.invokeEndpoint(ctx, req, endpoint, reqCtx)
 	if err != nil {
+		if resp := p.maybePaymentRequiredResponse(req, reqCtx); resp != nil {
+			return emitLogAndReturn(resp, userCtx)
+		}
 		p.logger.Error("[REQUEST] Endpoint execution failed",
 			"correlation_id", req.CorrelationID,
 			"slug", endpoint.Slug,
@@ -308,6 +312,21 @@ func (p *RequestProcessor) invokeEndpoint(ctx context.Context, req *TunnelReques
 		if policyResult != nil {
 			reqCtx.PolicyResult = policyResult
 			if !policyResult.Allowed {
+				// Pending+payment_challenge is a payment-required signal, not a
+				// generic denial. Surface it via a typed error so the processor
+				// helper can map it to a PAYMENT_REQUIRED tunnel response.
+				if policyResult.Pending {
+					if challenge, _ := policyResult.Metadata["payment_challenge"].(string); challenge != "" {
+						p.logger.Info("[INVOKE] Agent request requires payment",
+							"correlation_id", req.CorrelationID,
+							"policy_name", policyResult.PolicyName,
+						)
+						return nil, &ExecutionError{
+							Endpoint: endpoint.Slug,
+							Message:  "payment required",
+						}
+					}
+				}
 				p.logger.Warn("[INVOKE] Agent request denied by policy",
 					"correlation_id", req.CorrelationID,
 					"policy_name", policyResult.PolicyName,
@@ -422,6 +441,45 @@ func (p *RequestProcessor) invokeEndpoint(ctx context.Context, req *TunnelReques
 		)
 		return nil, fmt.Errorf("unknown endpoint type: %s", endpoint.Type)
 	}
+}
+
+// paymentChallengeKeys lists the policy-metadata keys that are forwarded to
+// the caller in a PAYMENT_REQUIRED tunnel error. Only these keys are copied;
+// other policy metadata stays internal.
+var paymentChallengeKeys = []string{
+	"payment_challenge",
+	"payment_amount",
+	"payment_currency",
+	"payment_recipient",
+	"challenge_id",
+	"intent",
+}
+
+// maybePaymentRequiredResponse builds a PAYMENT_REQUIRED tunnel response when
+// the policy chain returned a Pending result carrying a payment challenge.
+// Returns nil if the request did not surface a payment challenge.
+func (p *RequestProcessor) maybePaymentRequiredResponse(req *TunnelRequest, reqCtx *RequestContext) *TunnelResponse {
+	if reqCtx.PolicyResult == nil || !reqCtx.PolicyResult.Pending {
+		return nil
+	}
+	challenge, _ := reqCtx.PolicyResult.Metadata["payment_challenge"].(string)
+	if challenge == "" {
+		return nil
+	}
+	details := map[string]any{}
+	for _, k := range paymentChallengeKeys {
+		if v, ok := reqCtx.PolicyResult.Metadata[k]; ok {
+			details[k] = v
+		}
+	}
+	p.logger.Info("[REQUEST] Payment required",
+		"correlation_id", req.CorrelationID,
+		"challenge_id", details["challenge_id"],
+		"amount", details["payment_amount"],
+	)
+	resp := p.errorResponse(req, TunnelErrorCodePaymentRequired, "payment required")
+	resp.Error.Details = details
+	return resp
 }
 
 // errorResponse creates an error tunnel response.
