@@ -120,6 +120,12 @@ type RequestContext struct {
 	// TransactionToken is the pre-authorized billing token for this request.
 	// Used by TransactionPolicy to verify billing authorization before execution.
 	TransactionToken string
+
+	// PaymentCredential is an opaque on-chain payment credential (e.g. an MPP
+	// "Payment <jwt>" string) provided by the caller. When the endpoint
+	// declares a transaction policy, this credential is forwarded to the
+	// runner for verification before execution.
+	PaymentCredential string
 }
 
 // NewRequestContext creates a new RequestContext with initialized fields.
@@ -519,6 +525,11 @@ type ExecutorInput struct {
 	// TransactionToken is the pre-authorized billing token for this request.
 	// Used by TransactionPolicy to verify billing authorization before execution.
 	TransactionToken string `json:"transaction_token,omitempty"`
+
+	// PaymentCredential is an opaque on-chain payment credential (e.g. an MPP
+	// "Payment <jwt>" string) forwarded to the runner for transaction-policy
+	// verification.
+	PaymentCredential string `json:"payment_credential,omitempty"`
 }
 
 // ExecutorOutput is the output format from subprocess execution.
