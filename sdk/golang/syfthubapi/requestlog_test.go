@@ -265,6 +265,165 @@ func TestBuildRequestLog(t *testing.T) {
 	})
 }
 
+func TestBuildRequestLog_Payment_Required(t *testing.T) {
+	req := &TunnelRequest{
+		CorrelationID: "corr-pay-req",
+		Endpoint:      TunnelEndpointInfo{Slug: "test-ep", Type: "model"},
+	}
+	resp := &TunnelResponse{Status: "success"}
+	policyResult := &PolicyResultOutput{
+		Allowed: false,
+		Pending: true,
+		Metadata: map[string]any{
+			"challenge_id":      "abc",
+			"payment_amount":    "0.10",
+			"payment_currency":  "PathUSD",
+			"payment_recipient": "0xrecipient",
+		},
+	}
+
+	log := BuildRequestLog(req, nil, resp, policyResult, time.Now())
+
+	if log.Payment == nil {
+		t.Fatal("Payment should not be nil")
+	}
+	if log.Payment.Status != "required" {
+		t.Errorf("Status = %q, want %q", log.Payment.Status, "required")
+	}
+	if log.Payment.TxHash != "" {
+		t.Errorf("TxHash = %q, want empty", log.Payment.TxHash)
+	}
+	if log.Payment.PaidAt != "" {
+		t.Errorf("PaidAt = %q, want empty", log.Payment.PaidAt)
+	}
+	if log.Payment.ChallengeID != "abc" {
+		t.Errorf("ChallengeID = %q", log.Payment.ChallengeID)
+	}
+	if log.Payment.Amount != "0.10" {
+		t.Errorf("Amount = %q", log.Payment.Amount)
+	}
+	if log.Payment.Currency != "PathUSD" {
+		t.Errorf("Currency = %q", log.Payment.Currency)
+	}
+	if log.Payment.Recipient != "0xrecipient" {
+		t.Errorf("Recipient = %q", log.Payment.Recipient)
+	}
+}
+
+func TestBuildRequestLog_Payment_Verified(t *testing.T) {
+	req := &TunnelRequest{
+		CorrelationID: "corr-pay-ver",
+		Endpoint:      TunnelEndpointInfo{Slug: "test-ep", Type: "model"},
+	}
+	resp := &TunnelResponse{Status: "success"}
+	policyResult := &PolicyResultOutput{
+		Allowed: true,
+		Metadata: map[string]any{
+			"challenge_id":      "abc",
+			"tx_hash":           "0xdead",
+			"payment_amount":    "0.10",
+			"payment_currency":  "PathUSD",
+			"payment_recipient": "0xrecipient",
+		},
+	}
+
+	log := BuildRequestLog(req, nil, resp, policyResult, time.Now())
+
+	if log.Payment == nil {
+		t.Fatal("Payment should not be nil")
+	}
+	if log.Payment.Status != "verified" {
+		t.Errorf("Status = %q, want %q", log.Payment.Status, "verified")
+	}
+	if log.Payment.TxHash != "0xdead" {
+		t.Errorf("TxHash = %q, want %q", log.Payment.TxHash, "0xdead")
+	}
+	if log.Payment.PaidAt == "" {
+		t.Error("PaidAt should not be empty for verified status")
+	}
+	// Verify PaidAt parses as RFC3339.
+	if _, err := time.Parse(time.RFC3339, log.Payment.PaidAt); err != nil {
+		t.Errorf("PaidAt %q is not RFC3339: %v", log.Payment.PaidAt, err)
+	}
+}
+
+func TestBuildRequestLog_Payment_Failed(t *testing.T) {
+	req := &TunnelRequest{
+		CorrelationID: "corr-pay-fail",
+		Endpoint:      TunnelEndpointInfo{Slug: "test-ep", Type: "model"},
+	}
+	resp := &TunnelResponse{Status: "success"}
+	policyResult := &PolicyResultOutput{
+		Allowed: false,
+		Pending: false,
+		Metadata: map[string]any{
+			"challenge_id":      "abc",
+			"payment_amount":    "0.10",
+			"payment_currency":  "PathUSD",
+			"payment_recipient": "0xrecipient",
+		},
+	}
+
+	log := BuildRequestLog(req, nil, resp, policyResult, time.Now())
+
+	if log.Payment == nil {
+		t.Fatal("Payment should not be nil")
+	}
+	if log.Payment.Status != "failed" {
+		t.Errorf("Status = %q, want %q", log.Payment.Status, "failed")
+	}
+	if log.Payment.PaidAt != "" {
+		t.Errorf("PaidAt = %q, want empty", log.Payment.PaidAt)
+	}
+}
+
+func TestBuildRequestLog_NoPolicy_NoPayment(t *testing.T) {
+	req := &TunnelRequest{
+		CorrelationID: "corr-no-pol",
+		Endpoint:      TunnelEndpointInfo{Slug: "test-ep", Type: "model"},
+	}
+	resp := &TunnelResponse{Status: "success"}
+
+	log := BuildRequestLog(req, nil, resp, nil, time.Now())
+
+	if log.Payment != nil {
+		t.Errorf("Payment should be nil when policyResult is nil, got %+v", log.Payment)
+	}
+}
+
+func TestBuildRequestLog_PolicyButNoPaymentMetadata_NoPayment(t *testing.T) {
+	req := &TunnelRequest{
+		CorrelationID: "corr-no-pay-meta",
+		Endpoint:      TunnelEndpointInfo{Slug: "test-ep", Type: "model"},
+	}
+	resp := &TunnelResponse{Status: "success"}
+	policyResult := &PolicyResultOutput{
+		Allowed:  true,
+		Metadata: map[string]any{"some_other_key": "x"},
+	}
+
+	log := BuildRequestLog(req, nil, resp, policyResult, time.Now())
+
+	if log.Payment != nil {
+		t.Errorf("Payment should be nil when no payment metadata is present, got %+v", log.Payment)
+	}
+}
+
+func TestPaymentLog_JSON_Omitempty(t *testing.T) {
+	p := &PaymentLog{}
+	data, err := json.Marshal(p)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+	s := string(data)
+	if strings.Contains(s, "tx_hash") {
+		t.Errorf("empty PaymentLog should omit tx_hash, got: %s", s)
+	}
+	if strings.Contains(s, "paid_at") {
+		t.Errorf("empty PaymentLog should omit paid_at, got: %s", s)
+	}
+}
+
 func TestRequestLogJSONMarshaling(t *testing.T) {
 	log := &RequestLog{
 		ID:            "log-123",

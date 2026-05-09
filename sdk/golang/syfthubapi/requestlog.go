@@ -38,8 +38,37 @@ type RequestLog struct {
 	// Policy contains policy evaluation results (if policies were applied).
 	Policy *LogPolicy `json:"policy,omitempty"`
 
+	// Payment contains on-chain payment details (if a transaction policy was applied).
+	Payment *PaymentLog `json:"payment,omitempty"`
+
 	// Timing contains timing information.
 	Timing *LogTiming `json:"timing"`
+}
+
+// PaymentLog contains on-chain transaction payment details surfaced from
+// transaction-policy metadata. All fields are optional except Status, which
+// captures the lifecycle of the payment ("required" | "verified" | "failed").
+type PaymentLog struct {
+	// ChallengeID is the payment challenge identifier issued by the policy.
+	ChallengeID string `json:"challenge_id"`
+
+	// TxHash is the on-chain transaction hash (set once verified).
+	TxHash string `json:"tx_hash,omitempty"`
+
+	// Amount is the required payment amount, expressed as a decimal string.
+	Amount string `json:"amount"`
+
+	// Currency is the payment currency / token symbol.
+	Currency string `json:"currency"`
+
+	// Recipient is the payee address.
+	Recipient string `json:"recipient"`
+
+	// Status is the payment lifecycle: "required", "verified", or "failed".
+	Status string `json:"status"`
+
+	// PaidAt is the RFC3339 UTC timestamp when payment was verified.
+	PaidAt string `json:"paid_at,omitempty"`
 }
 
 // LogUserInfo contains user information for the log entry.
@@ -288,6 +317,43 @@ func BuildRequestLog(
 			Reason:     policyResult.Reason,
 			Pending:    policyResult.Pending,
 			Metadata:   policyResult.Metadata,
+		}
+	}
+
+	// Payment info — populated from transaction policy metadata.
+	if policyResult != nil && policyResult.Metadata != nil {
+		getStr := func(k string) string {
+			if v, ok := policyResult.Metadata[k].(string); ok {
+				return v
+			}
+			return ""
+		}
+		challengeID := getStr("challenge_id")
+		amount := getStr("payment_amount")
+		currency := getStr("payment_currency")
+		recipient := getStr("payment_recipient")
+		txHash := getStr("tx_hash")
+
+		if challengeID != "" || amount != "" || txHash != "" {
+			status := "required"
+			if policyResult.Allowed && txHash != "" {
+				status = "verified"
+			} else if !policyResult.Allowed && !policyResult.Pending {
+				status = "failed"
+			}
+			paidAt := ""
+			if status == "verified" {
+				paidAt = time.Now().UTC().Format(time.RFC3339)
+			}
+			log.Payment = &PaymentLog{
+				ChallengeID: challengeID,
+				TxHash:      txHash,
+				Amount:      amount,
+				Currency:    currency,
+				Recipient:   recipient,
+				Status:      status,
+				PaidAt:      paidAt,
+			}
 		}
 	}
 
