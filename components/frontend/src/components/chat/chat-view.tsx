@@ -34,6 +34,7 @@ import { useXenditPrecheck } from '@/hooks/use-xendit-precheck';
 import { useContextSelectionStore } from '@/stores/context-selection-store';
 import { useOnboardingStore } from '@/stores/onboarding-store';
 
+import { PaymentRequiredModal } from '../payment-required-modal';
 import { AddSourcesModal } from './add-sources-modal';
 import { MarkdownMessage } from './markdown-message';
 import { PaymentGate } from './payment-gate';
@@ -41,6 +42,15 @@ import { SearchInput } from './search-input';
 import { SourcesSection } from './sources-section';
 import { StatusIndicator } from './status-indicator';
 import { SuggestedSources } from './suggested-sources';
+
+// Tempo testnet defaults — overridden by VITE_ env vars when set.
+// Until a settings tab exposes these, they ship with the same constants the
+// payment policy assumes by default.
+const DEFAULT_TEMPO_RPC_URL =
+  (import.meta.env.VITE_TEMPO_RPC_URL as string | undefined) ?? 'https://rpc.testnet.tempo.xyz';
+const DEFAULT_TEMPO_CHAIN_ID = Number(
+  (import.meta.env.VITE_TEMPO_CHAIN_ID as string | undefined) ?? 42_431
+);
 
 // =============================================================================
 // Types
@@ -666,6 +676,25 @@ export function ChatView({
           setShowWelcomeBanner(false);
         }}
       />
+
+      {/* Payment required modal — surfaces aggregator-issued on-chain payment
+          challenges (transaction policy). Buffered + debounced inside the
+          workflow hook so multi-endpoint chats present a single approval. */}
+      {workflow.paymentChallenges.length > 0 && workflow.aggregatorUrl && (
+        <PaymentRequiredModal
+          challenges={workflow.paymentChallenges}
+          aggregatorURL={workflow.aggregatorUrl}
+          rpcURL={DEFAULT_TEMPO_RPC_URL}
+          chainID={DEFAULT_TEMPO_CHAIN_ID}
+          onApproved={() => {
+            workflow.clearPaymentChallenges();
+          }}
+          onCanceled={() => {
+            workflow.abort();
+            workflow.clearPaymentChallenges();
+          }}
+        />
+      )}
     </div>
   );
 }
