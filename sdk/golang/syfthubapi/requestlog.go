@@ -327,5 +327,42 @@ func BuildRequestLog(
 		}
 	}
 
+	// Payment info — populated from transaction policy metadata.
+	if policyResult != nil && policyResult.Metadata != nil {
+		getStr := func(k string) string {
+			if v, ok := policyResult.Metadata[k].(string); ok {
+				return v
+			}
+			return ""
+		}
+		challengeID := getStr("challenge_id")
+		amount := getStr("payment_amount")
+		currency := getStr("payment_currency")
+		recipient := getStr("payment_recipient")
+		txHash := getStr("tx_hash")
+
+		if challengeID != "" || amount != "" || txHash != "" {
+			status := "required"
+			if policyResult.Allowed && txHash != "" {
+				status = "verified"
+			} else if !policyResult.Allowed && !policyResult.Pending {
+				status = "failed"
+			}
+			paidAt := ""
+			if status == "verified" {
+				paidAt = time.Now().UTC().Format(time.RFC3339)
+			}
+			log.Payment = &PaymentLog{
+				ChallengeID: challengeID,
+				TxHash:      txHash,
+				Amount:      amount,
+				Currency:    currency,
+				Recipient:   recipient,
+				Status:      status,
+				PaidAt:      paidAt,
+			}
+		}
+	}
+
 	return log
 }
