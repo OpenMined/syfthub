@@ -226,14 +226,10 @@ func (e *Endpoint) SetHandler(cfg EndpointHandlerConfig) {
 			slug:           e.Slug,
 			logger:         cfg.Logger,
 		}
-		input.Context = &ExecutionContext{
-			UserID:       userID,
-			EndpointSlug: e.Slug,
-			EndpointType: string(e.Type),
-			Metadata:     reqCtx.Metadata,
-		}
-		input.TransactionToken = reqCtx.TransactionToken
-		input.PaymentCredential = reqCtx.PaymentCredential
+	case EndpointTypeDataSource:
+		e.invoker = &UnifiedInvoker{codec: DataSourceCodec{}, executor: cfg.Executor, slug: e.Slug, epType: e.Type}
+	case EndpointTypeModel, EndpointTypeModelDataSource:
+		e.invoker = &UnifiedInvoker{codec: ModelCodec{}, executor: cfg.Executor, slug: e.Slug, epType: e.Type}
 	}
 }
 

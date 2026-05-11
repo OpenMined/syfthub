@@ -72,6 +72,7 @@ func buildExecutorInput(inputType string, slug string, endpointType EndpointType
 			Metadata:     reqCtx.Metadata,
 		}
 		input.TransactionToken = reqCtx.TransactionToken
+		input.PaymentCredential = reqCtx.PaymentCredential
 	}
 	return input
 }

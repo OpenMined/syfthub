@@ -186,12 +186,11 @@ func TestEndpoint_Info_PoliciesEmpty(t *testing.T) {
 }
 
 func TestBuildExecutorInput_PaymentCredential(t *testing.T) {
-	ep := &Endpoint{Slug: "ep", Type: EndpointTypeModel}
 	reqCtx := NewRequestContext()
 	reqCtx.User = &UserContext{Username: "alice"}
 	reqCtx.PaymentCredential = "Payment eyJ..."
 
-	input := ep.buildExecutorInput("model", reqCtx)
+	input := buildExecutorInput("model", "ep", EndpointTypeModel, reqCtx)
 	if input.PaymentCredential != "Payment eyJ..." {
 		t.Errorf("PaymentCredential = %q, want %q", input.PaymentCredential, "Payment eyJ...")
 	}
@@ -261,7 +260,7 @@ func TestSanitizePolicyConfig_RemovesSecrets(t *testing.T) {
 }
 
 func TestEndpointSetExecutor(t *testing.T) {
-	ep := &Endpoint{Slug: "test"}
+	ep := &Endpoint{Slug: "test", Type: EndpointTypeModel}
 
 	if ep.IsFileBased() {
 		t.Error("new endpoint should not be file-based")
