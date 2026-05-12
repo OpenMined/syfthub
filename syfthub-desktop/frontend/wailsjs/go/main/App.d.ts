@@ -6,6 +6,8 @@ export function AddDependency(arg1:string,arg2:string,arg3:string):Promise<void>
 
 export function BrowseForFolder(arg1:string):Promise<string>;
 
+export function BrowseForSkillFile(arg1:string):Promise<string>;
+
 export function CancelSetup():Promise<void>;
 
 export function CheckEndpointExists(arg1:string):Promise<string|boolean>;
@@ -68,7 +70,11 @@ export function HasSettings():Promise<boolean>;
 
 export function InstallLibraryPackage(arg1:string,arg2:string,arg3:Record<string, string>):Promise<void>;
 
+export function InstallSkillFromPaths(arg1:string,arg2:Array<string>):Promise<void>;
+
 export function ListPolicyFiles(arg1:string):Promise<Array<main.PolicyFileInfo>>;
+
+export function ListSkills(arg1:string):Promise<Array<main.SkillInfo>>;
 
 export function LogDebug(arg1:string,arg2:string):Promise<void>;
 
@@ -76,7 +82,11 @@ export function OpenEndpointFolder(arg1:string):Promise<void>;
 
 export function OpenEndpointsFolder():Promise<void>;
 
+export function ReadSkill(arg1:string,arg2:string):Promise<string>;
+
 export function ReloadEndpoints():Promise<void>;
+
+export function RemoveSkill(arg1:string,arg2:string):Promise<void>;
 
 export function RespondToSetupConfirm(arg1:boolean):Promise<void>;
 

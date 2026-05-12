@@ -4,12 +4,14 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	goruntime "runtime"
 	"strings"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"gopkg.in/yaml.v3"
@@ -1323,4 +1325,381 @@ Edit the runner.py file to implement your endpoint logic.
 	runtime.EventsEmit(a.ctx, "app:endpoints-changed", nil)
 
 	return slug, nil
+}
+
+// ============================================================================
+// Skills bindings
+//
+// Agent endpoints load runtime knowledge from
+//   <endpointDir>/skills/<name>/SKILL.md (+ optional sibling files)
+// These bindings let the desktop UI install a skill from a single SKILL.md
+// drop or from a whole folder drag-drop, list installed skills, preview their
+// markdown, and remove them.
+// ============================================================================
+
+// SkillInfo is the JSON shape returned to the frontend for a single installed skill.
+type SkillInfo struct {
+	Name       string `json:"name"`
+	Title      string `json:"title"`
+	Size       int64  `json:"size"`
+	ModifiedAt string `json:"modifiedAt"`
+}
+
+// maxSkillFileBytes caps the size of any individual file copied into a skill
+// directory. A typical SKILL.md is ~5KB; the cap is generous enough for
+// scripts/data but prevents an accidental drop of a huge file.
+const maxSkillFileBytes = 5 * 1024 * 1024 // 5 MiB
+
+// maxSkillBundleFiles caps the number of files copied per bundle so a
+// pathological folder drop can't fan out unbounded.
+const maxSkillBundleFiles = 256
+
+// skillNameFromRawRe is the same regex Go-side ValidateSkillName uses; we
+// match against it here for the slugifier rather than re-importing nodeops.
+var skillSlugReplaceRe = regexp.MustCompile(`[^a-z0-9_-]+`)
+
+// ListSkills returns every installed skill for an endpoint, sorted by name.
+func (a *App) ListSkills(slug string) ([]SkillInfo, error) {
+	if err := validateSlug(slug); err != nil {
+		return nil, err
+	}
+	endpointDir, err := a.skillEndpointDir(slug)
+	if err != nil {
+		return nil, err
+	}
+	skills, err := nodeops.ListSkills(endpointDir)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SkillInfo, len(skills))
+	for i, s := range skills {
+		out[i] = SkillInfo{
+			Name:       s.Name,
+			Title:      s.Title,
+			Size:       s.Size,
+			ModifiedAt: s.ModifiedAt.UTC().Format(time.RFC3339Nano),
+		}
+	}
+	return out, nil
+}
+
+// ReadSkill returns the SKILL.md body for an installed skill.
+func (a *App) ReadSkill(slug, name string) (string, error) {
+	if err := validateSlug(slug); err != nil {
+		return "", err
+	}
+	endpointDir, err := a.skillEndpointDir(slug)
+	if err != nil {
+		return "", err
+	}
+	return nodeops.ReadSkill(endpointDir, name)
+}
+
+// RemoveSkill deletes <endpointDir>/skills/<name>/ recursively.
+func (a *App) RemoveSkill(slug, name string) error {
+	if err := validateSlug(slug); err != nil {
+		return err
+	}
+	endpointDir, err := a.skillEndpointDir(slug)
+	if err != nil {
+		return err
+	}
+	if err := nodeops.RemoveSkill(endpointDir, name); err != nil {
+		return err
+	}
+	runtime.EventsEmit(a.ctx, "app:endpoints-changed", nil)
+	return nil
+}
+
+// InstallSkillFromPaths installs a skill from one or more absolute paths
+// delivered by Wails' native file drop (or a native file dialog). It
+// auto-detects the kind of drop:
+//
+//   - exactly one path → a directory: copy the folder contents into
+//     <endpoint>/skills/<slugified-folder-name>/. SKILL.md must exist at the root.
+//   - exactly one path → a regular file ending in .md (case-insensitive): treat
+//     it as a SKILL.md drop. The skill name is derived from the file's parent
+//     directory if its basename is literally SKILL.md, else from the file's
+//     basename (without extension).
+//   - anything else (multiple paths, non-.md file, etc.) → return an error.
+//
+// All copies are size-capped (maxSkillFileBytes per file) and count-capped
+// (maxSkillBundleFiles per bundle), and the destination directory is created
+// fresh so reinstalling a skill replaces it cleanly.
+func (a *App) InstallSkillFromPaths(slug string, paths []string) error {
+	if err := validateSlug(slug); err != nil {
+		return err
+	}
+	endpointDir, err := a.skillEndpointDir(slug)
+	if err != nil {
+		return err
+	}
+	if len(paths) == 0 {
+		return fmt.Errorf("no files dropped")
+	}
+	if len(paths) > 1 {
+		return fmt.Errorf("drop one folder or one SKILL.md file at a time (got %d)", len(paths))
+	}
+
+	src := paths[0]
+	st, err := os.Stat(src)
+	if err != nil {
+		return fmt.Errorf("cannot read %s: %w", filepath.Base(src), err)
+	}
+
+	if st.IsDir() {
+		return a.installSkillFromDir(endpointDir, src)
+	}
+	return a.installSkillFromFile(endpointDir, src)
+}
+
+// installSkillFromFile handles the single-SKILL.md drop case.
+func (a *App) installSkillFromFile(endpointDir, src string) error {
+	if !strings.HasSuffix(strings.ToLower(src), ".md") {
+		return fmt.Errorf("only .md files are supported (got %s)", filepath.Base(src))
+	}
+	st, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if st.Size() > maxSkillFileBytes {
+		return fmt.Errorf("file exceeds %d bytes", maxSkillFileBytes)
+	}
+
+	// Derive the skill name. If the user dropped a file literally named
+	// SKILL.md (any case), use its parent directory's name as the slug —
+	// that's almost certainly what they intended. Otherwise use the file's
+	// basename without extension.
+	base := filepath.Base(src)
+	var rawName string
+	if strings.EqualFold(base, nodeops.SkillFileName) {
+		rawName = filepath.Base(filepath.Dir(src))
+	} else {
+		rawName = strings.TrimSuffix(base, filepath.Ext(base))
+	}
+	name := slugifySkillName(rawName)
+	if err := nodeops.ValidateSkillName(name); err != nil {
+		return fmt.Errorf("derived skill name %q is invalid: %w", name, err)
+	}
+
+	body, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if err := nodeops.WriteSkill(endpointDir, name, string(body)); err != nil {
+		return err
+	}
+	runtime.EventsEmit(a.ctx, "app:endpoints-changed", nil)
+	return nil
+}
+
+// installSkillFromDir handles the folder-drop case. The folder must contain
+// SKILL.md at its top level. The destination directory is wiped first so a
+// reinstall doesn't leave orphaned files.
+func (a *App) installSkillFromDir(endpointDir, srcDir string) error {
+	rawName := filepath.Base(srcDir)
+	name := slugifySkillName(rawName)
+	if err := nodeops.ValidateSkillName(name); err != nil {
+		return fmt.Errorf("derived skill name %q is invalid: %w", name, err)
+	}
+
+	// Find SKILL.md at the top level (case-insensitive) and read it first
+	// so we can route the install through nodeops.WriteSkill (which creates
+	// the dir, validates, and touches .env to fire the file watcher).
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", filepath.Base(srcDir), err)
+	}
+	var skillMdPath string
+	for _, e := range entries {
+		if !e.IsDir() && strings.EqualFold(e.Name(), nodeops.SkillFileName) {
+			skillMdPath = filepath.Join(srcDir, e.Name())
+			break
+		}
+	}
+	if skillMdPath == "" {
+		return fmt.Errorf("folder is missing %s at the top level", nodeops.SkillFileName)
+	}
+
+	skillMdInfo, err := os.Stat(skillMdPath)
+	if err != nil {
+		return err
+	}
+	if skillMdInfo.Size() > maxSkillFileBytes {
+		return fmt.Errorf("%s exceeds %d bytes", nodeops.SkillFileName, maxSkillFileBytes)
+	}
+	skillMdBody, err := os.ReadFile(skillMdPath)
+	if err != nil {
+		return err
+	}
+
+	// Wipe any existing skill dir so re-installing replaces cleanly.
+	destDir := filepath.Join(endpointDir, nodeops.SkillsDirName, name)
+	if err := os.RemoveAll(destDir); err != nil {
+		return fmt.Errorf("clean target: %w", err)
+	}
+
+	// Write SKILL.md via nodeops (creates dir, fires watcher).
+	if err := nodeops.WriteSkill(endpointDir, name, string(skillMdBody)); err != nil {
+		return err
+	}
+
+	// Copy the rest. We re-resolve destDir defensively in case nodeops
+	// changed any naming semantics. Walk srcDir, skipping hidden entries
+	// and the already-copied SKILL.md at the root.
+	fileCount := 1 // SKILL.md already written
+	err = filepath.Walk(srcDir, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == srcDir {
+			return nil
+		}
+		rel, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+
+		// Skip hidden files/dirs and common build artifacts at any depth.
+		if shouldSkipSkillFile(rel) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		// Skip the already-copied SKILL.md at the root.
+		if !info.IsDir() && strings.EqualFold(rel, nodeops.SkillFileName) {
+			return nil
+		}
+
+		target := filepath.Join(destDir, filepath.FromSlash(rel))
+		if info.IsDir() {
+			return os.MkdirAll(target, 0755)
+		}
+		if !info.Mode().IsRegular() {
+			return nil // skip symlinks, sockets, etc.
+		}
+		if info.Size() > maxSkillFileBytes {
+			return fmt.Errorf("%s exceeds %d bytes", rel, maxSkillFileBytes)
+		}
+		fileCount++
+		if fileCount > maxSkillBundleFiles {
+			return fmt.Errorf("bundle has more than %d files", maxSkillBundleFiles)
+		}
+		return copyFileTo(path, target)
+	})
+	if err != nil {
+		// Roll back partial copy by removing the destination directory.
+		_ = os.RemoveAll(destDir)
+		return err
+	}
+
+	runtime.EventsEmit(a.ctx, "app:endpoints-changed", nil)
+	return nil
+}
+
+// BrowseForSkillFile opens a native file picker filtered to .md files and
+// returns the absolute path, or an empty string if the user cancelled.
+func (a *App) BrowseForSkillFile(title string) string {
+	if title == "" {
+		title = "Choose SKILL.md"
+	}
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: title,
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Markdown files (*.md)", Pattern: "*.md"},
+		},
+	})
+	if err != nil {
+		runtime.LogWarning(a.ctx, fmt.Sprintf("Skill file dialog error: %v", err))
+		return ""
+	}
+	return path
+}
+
+// skillEndpointDir returns the absolute path of the endpoint directory and
+// verifies it exists.
+func (a *App) skillEndpointDir(slug string) (string, error) {
+	cfg, err := a.getConfig()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(cfg.EndpointsPath, slug)
+	st, err := os.Stat(dir)
+	if err != nil {
+		return "", fmt.Errorf("endpoint not found: %s", slug)
+	}
+	if !st.IsDir() {
+		return "", fmt.Errorf("endpoint path is not a directory: %s", slug)
+	}
+	return dir, nil
+}
+
+// slugifySkillName normalizes raw text to the lowercase ^[a-z0-9][a-z0-9_-]{0,63}$
+// shape enforced by nodeops.ValidateSkillName.
+func slugifySkillName(raw string) string {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	s = strings.TrimSuffix(s, ".md")
+	s = strings.TrimSuffix(s, ".markdown")
+	s = skillSlugReplaceRe.ReplaceAllString(s, "-")
+	s = strings.Trim(s, "-")
+	if len(s) > 64 {
+		s = s[:64]
+	}
+	if s == "" {
+		s = "skill"
+	}
+	// Leading char must be alnum; insert a placeholder if it isn't.
+	if !((s[0] >= 'a' && s[0] <= 'z') || (s[0] >= '0' && s[0] <= '9')) {
+		s = "s" + s
+		if len(s) > 64 {
+			s = s[:64]
+		}
+	}
+	return s
+}
+
+// shouldSkipSkillFile returns true for paths that should never be copied
+// into a skill bundle: hidden files/dirs, VCS metadata, and common build
+// artifacts. The check is applied to each segment so a hidden parent skips
+// the whole subtree.
+func shouldSkipSkillFile(rel string) bool {
+	for seg := range strings.SplitSeq(rel, "/") {
+		if seg == "" {
+			continue
+		}
+		if strings.HasPrefix(seg, ".") {
+			return true
+		}
+		switch seg {
+		case "node_modules", "__pycache__", "dist", "build":
+			return true
+		}
+	}
+	return false
+}
+
+// copyFileTo copies src to dst with maxSkillFileBytes capacity protection.
+// Parent directories of dst are created as needed.
+func copyFileTo(src, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	// LimitReader guards against the (unlikely) race where the file grows
+	// between stat and copy past our cap.
+	if _, err := io.Copy(out, io.LimitReader(in, maxSkillFileBytes+1)); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }

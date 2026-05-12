@@ -40,6 +40,14 @@ func main() {
 		Frameless:       true,
 		CSSDragProperty: "--wails-draggable",
 		CSSDragValue:    "drag",
+		// Enable Wails native file drop so dropped files arrive as absolute
+		// paths via the "wails:file-drop" event. The dropzone element opts in
+		// by setting style="--wails-drop-target: drop" on itself.
+		DragAndDrop: &options.DragAndDrop{
+			EnableFileDrop:  true,
+			CSSDropProperty: "--wails-drop-target",
+			CSSDropValue:    "drop",
+		},
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

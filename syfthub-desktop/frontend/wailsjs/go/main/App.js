@@ -10,6 +10,10 @@ export function BrowseForFolder(arg1) {
   return window['go']['main']['App']['BrowseForFolder'](arg1);
 }
 
+export function BrowseForSkillFile(arg1) {
+  return window['go']['main']['App']['BrowseForSkillFile'](arg1);
+}
+
 export function CancelSetup() {
   return window['go']['main']['App']['CancelSetup']();
 }
@@ -134,8 +138,16 @@ export function InstallLibraryPackage(arg1, arg2, arg3) {
   return window['go']['main']['App']['InstallLibraryPackage'](arg1, arg2, arg3);
 }
 
+export function InstallSkillFromPaths(arg1, arg2) {
+  return window['go']['main']['App']['InstallSkillFromPaths'](arg1, arg2);
+}
+
 export function ListPolicyFiles(arg1) {
   return window['go']['main']['App']['ListPolicyFiles'](arg1);
+}
+
+export function ListSkills(arg1) {
+  return window['go']['main']['App']['ListSkills'](arg1);
 }
 
 export function LogDebug(arg1, arg2) {
@@ -150,8 +162,16 @@ export function OpenEndpointsFolder() {
   return window['go']['main']['App']['OpenEndpointsFolder']();
 }
 
+export function ReadSkill(arg1, arg2) {
+  return window['go']['main']['App']['ReadSkill'](arg1, arg2);
+}
+
 export function ReloadEndpoints() {
   return window['go']['main']['App']['ReloadEndpoints']();
+}
+
+export function RemoveSkill(arg1, arg2) {
+  return window['go']['main']['App']['RemoveSkill'](arg1, arg2);
 }
 
 export function RespondToSetupConfirm(arg1) {

@@ -32,10 +32,11 @@ import {
 import { GetDependencies, AddDependency, DeleteDependency, OpenEndpointFolder, ListPolicyFiles, GetPolicyFileYaml, SavePolicyFileYaml, DeletePolicyFile, CreatePolicyFile } from '../../../wailsjs/go/main/App';
 import { main } from '../../../wailsjs/go/models';
 import Editor from '@monaco-editor/react';
+import { SkillsSection } from './SkillsSection';
 
 type Dependency = main.Dependency;
 type PolicyFileInfo = main.PolicyFileInfo;
-type SettingsSection = 'overview' | 'environment' | 'dependencies' | 'policies';
+type SettingsSection = 'overview' | 'environment' | 'dependencies' | 'policies' | 'skills';
 
 // Navigation items
 const navItems: { id: SettingsSection; label: string }[] = [
@@ -43,6 +44,7 @@ const navItems: { id: SettingsSection; label: string }[] = [
   { id: 'environment', label: 'Environment' },
   { id: 'dependencies', label: 'Dependencies' },
   { id: 'policies', label: 'Policies' },
+  { id: 'skills', label: 'Skills' },
 ];
 
 export function SettingsTab() {
@@ -75,6 +77,7 @@ export function SettingsTab() {
         {settingsSection === 'environment' && <EnvironmentSection />}
         {settingsSection === 'dependencies' && <DependenciesSection />}
         {settingsSection === 'policies' && <PoliciesSection />}
+        {settingsSection === 'skills' && <SkillsSection />}
       </div>
     </div>
   );

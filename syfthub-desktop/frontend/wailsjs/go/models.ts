@@ -758,6 +758,24 @@ export namespace main {
 
 
 
+	export class SkillInfo {
+	    name: string;
+	    title: string;
+	    size: number;
+	    modifiedAt: string;
+
+	    static createFrom(source: any = {}) {
+	        return new SkillInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.title = source["title"];
+	        this.size = source["size"];
+	        this.modifiedAt = source["modifiedAt"];
+	    }
+	}
 	export class StatusInfo {
 	    state: string;
 	    errorMessage?: string;

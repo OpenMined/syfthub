@@ -131,7 +131,7 @@ interface AppState {
   isSaving: boolean;
   error: string | null;
   activeTab: 'settings' | 'code' | 'docs' | 'logs';
-  settingsSection: 'overview' | 'environment' | 'dependencies' | 'policies';
+  settingsSection: 'overview' | 'environment' | 'dependencies' | 'policies' | 'skills';
   mainView: 'endpoints' | 'chat';
   showLibrary: boolean;
 
@@ -177,7 +177,7 @@ interface AppState {
   // Actions - Selection
   selectEndpoint: (slug: string | null) => Promise<void>;
   setActiveTab: (tab: 'settings' | 'code' | 'docs' | 'logs') => void;
-  setSettingsSection: (section: 'overview' | 'environment' | 'dependencies' | 'policies') => void;
+  setSettingsSection: (section: 'overview' | 'environment' | 'dependencies' | 'policies' | 'skills') => void;
   setMainView: (view: 'endpoints' | 'chat') => void;
   setShowLibrary: (show: boolean) => void;
 
