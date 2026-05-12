@@ -10,7 +10,7 @@ import (
 type EndpointCodec interface {
 	ParsePayload(payload json.RawMessage) (any, error)
 	WrapResponse(result any) (any, error)
-	EnrichLog(log *RequestLog, payload json.RawMessage)
+	EnrichLog(log *RequestLog, parsed any)
 	SetExecutorFields(input *ExecutorInput, parsed any)
 	UnmarshalResult(raw json.RawMessage) (any, error)
 }
@@ -35,13 +35,12 @@ func (ModelCodec) WrapResponse(result any) (any, error) {
 	}, nil
 }
 
-func (ModelCodec) EnrichLog(log *RequestLog, payload json.RawMessage) {
+func (ModelCodec) EnrichLog(log *RequestLog, parsed any) {
 	if log.Request == nil {
 		return
 	}
-	var req ModelQueryRequest
-	if err := json.Unmarshal(payload, &req); err == nil {
-		log.Request.Messages = req.Messages
+	if msgs, ok := parsed.([]Message); ok {
+		log.Request.Messages = msgs
 	}
 }
 
@@ -75,13 +74,12 @@ func (DataSourceCodec) WrapResponse(result any) (any, error) {
 	}, nil
 }
 
-func (DataSourceCodec) EnrichLog(log *RequestLog, payload json.RawMessage) {
+func (DataSourceCodec) EnrichLog(log *RequestLog, parsed any) {
 	if log.Request == nil {
 		return
 	}
-	var req DataSourceQueryRequest
-	if err := json.Unmarshal(payload, &req); err == nil {
-		log.Request.Query = req.GetQuery()
+	if q, ok := parsed.(string); ok {
+		log.Request.Query = q
 	}
 }
 
@@ -125,8 +123,8 @@ func (u *UnifiedInvoker) FormatResponse(result any) (any, error) {
 	return u.codec.WrapResponse(result)
 }
 
-func (u *UnifiedInvoker) EnrichLog(log *RequestLog, payload json.RawMessage) {
-	u.codec.EnrichLog(log, payload)
+func (u *UnifiedInvoker) EnrichLog(log *RequestLog, parsed any) {
+	u.codec.EnrichLog(log, parsed)
 }
 
 func (u *UnifiedInvoker) Close() error {

@@ -1,24 +1,11 @@
 package syfthubapi
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"time"
 )
-
-// HubAPIError represents an HTTP-level error from the SyftHub backend.
-type HubAPIError struct {
-	StatusCode int
-	Body       string
-}
-
-func (e *HubAPIError) Error() string {
-	return fmt.Sprintf("hub API error (status %d): %s", e.StatusCode, e.Body)
-}
 
 // HubClient handles all communication with the SyftHub backend.
 // It provides a single HTTP client for auth, sync, and NATS credential operations.
@@ -32,55 +19,19 @@ type HubClient struct {
 // NewHubClient creates a new hub client.
 func NewHubClient(baseURL, apiKey string, logger Logger) *HubClient {
 	return &HubClient{
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		httpClient: &http.Client{Timeout: DefaultHTTPTimeout},
 		baseURL:    baseURL,
 		apiKey:     apiKey,
 		logger:     logger,
 	}
 }
 
-// doJSON performs a JSON HTTP request and decodes the response.
+// doJSON performs a JSON HTTP request to the hub with the bearer-token
+// Authorization header attached.
 func (c *HubClient) doJSON(ctx context.Context, method, path string, reqBody, respBody any) error {
-	var body io.Reader
-	if reqBody != nil {
-		data, err := json.Marshal(reqBody)
-		if err != nil {
-			return fmt.Errorf("marshal request: %w", err)
-		}
-		body = bytes.NewReader(data)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
-	if reqBody != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return fmt.Errorf("read response: %w", err)
-	}
-
-	if resp.StatusCode >= 300 {
-		return &HubAPIError{StatusCode: resp.StatusCode, Body: string(raw)}
-	}
-
-	if respBody != nil {
-		if err := json.Unmarshal(raw, respBody); err != nil {
-			return fmt.Errorf("parse response: %w", err)
-		}
-	}
-	return nil
+	headers := http.Header{}
+	headers.Set("Authorization", "Bearer "+c.apiKey)
+	return DoJSONRequest(ctx, c.httpClient, method, c.baseURL+path, headers, reqBody, respBody)
 }
 
 // VerifyToken verifies a satellite token and returns the user context.
@@ -152,7 +103,8 @@ func (c *HubClient) RegisterEncryptionPublicKey(ctx context.Context, publicKeyB6
 func (c *HubClient) SyncEndpoints(ctx context.Context, endpoints []EndpointInfo) (*SyncEndpointsResponse, error) {
 	var resp SyncEndpointsResponse
 	if err := c.doJSON(ctx, "POST", "/api/v1/endpoints/sync", SyncEndpointsRequest{Endpoints: endpoints}, &resp); err != nil {
-		if apiErr, ok := err.(*HubAPIError); ok {
+		var apiErr *HubAPIError
+		if errors.As(err, &apiErr) {
 			return nil, &SyncError{Message: fmt.Sprintf("sync failed: %s", apiErr.Body), StatusCode: apiErr.StatusCode}
 		}
 		return nil, &SyncError{Message: "sync failed", Cause: err}
@@ -167,7 +119,8 @@ func (c *HubClient) SyncEndpoints(ctx context.Context, endpoints []EndpointInfo)
 // UpdateDomain updates the user's space domain.
 func (c *HubClient) UpdateDomain(ctx context.Context, domain string) error {
 	if err := c.doJSON(ctx, "PUT", "/api/v1/users/me", map[string]string{"domain": domain}, nil); err != nil {
-		if apiErr, ok := err.(*HubAPIError); ok {
+		var apiErr *HubAPIError
+		if errors.As(err, &apiErr) {
 			return &SyncError{Message: fmt.Sprintf("failed to update domain: %s", apiErr.Body), StatusCode: apiErr.StatusCode}
 		}
 		return &SyncError{Message: "failed to update domain", Cause: err}

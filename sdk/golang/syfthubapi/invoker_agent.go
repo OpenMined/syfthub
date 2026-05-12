@@ -75,14 +75,14 @@ func (a *AgentOneShotInvoker) Invoke(ctx context.Context, input any, reqCtx *Req
 	inputRequested := false
 	for event := range session.SendCh() {
 		switch event.EventType {
-		case "agent.message":
+		case EventTypeAgentMessage:
 			var data map[string]any
 			if json.Unmarshal(event.Data, &data) == nil {
 				if content, ok := data["content"].(string); ok {
 					buf.WriteString(content)
 				}
 			}
-		case "agent.request_input":
+		case EventTypeAgentRequestInput:
 			inputRequested = true
 			session.Cancel()
 		}
@@ -108,8 +108,8 @@ func (a *AgentOneShotInvoker) FormatResponse(result any) (any, error) {
 	return a.codec.WrapResponse(result)
 }
 
-func (a *AgentOneShotInvoker) EnrichLog(log *RequestLog, payload json.RawMessage) {
-	a.codec.EnrichLog(log, payload)
+func (a *AgentOneShotInvoker) EnrichLog(log *RequestLog, parsed any) {
+	a.codec.EnrichLog(log, parsed)
 }
 
 func (a *AgentOneShotInvoker) Close() error {
@@ -133,11 +133,6 @@ func (a *AgentOneShotInvoker) checkPolicies(ctx context.Context, reqCtx *Request
 		return nil, fmt.Errorf("policy check failed: %w", err)
 	}
 	return output.PolicyResult, nil
-}
-
-// GetAgentHandler returns the underlying agent handler.
-func (a *AgentOneShotInvoker) GetAgentHandler() AgentHandler {
-	return a.handler
 }
 
 // Ensure AgentOneShotInvoker implements the interface at compile time.

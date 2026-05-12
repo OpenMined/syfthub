@@ -1,17 +1,12 @@
 package filemode
 
 import (
-	"bufio"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sort"
-	"strings"
 	"sync"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
@@ -89,18 +84,17 @@ func (m *VenvManager) lockForHash(key string) *sync.Mutex {
 
 // resolveDeps reads pyproject.toml or requirements.txt from endpointDir and
 // returns the list of pip dependencies. extras selects optional-dependency
-// groups from pyproject.toml.
+// groups from pyproject.toml. The underlying readers return (nil, nil) when
+// the file does not exist.
 func (m *VenvManager) resolveDeps(endpointDir string, extras []string) ([]string, error) {
-	pyprojectPath := filepath.Join(endpointDir, "pyproject.toml")
-	requirementsPath := filepath.Join(endpointDir, "requirements.txt")
-
-	if _, statErr := os.Stat(pyprojectPath); statErr == nil {
-		return m.parsePyprojectDeps(pyprojectPath, extras)
+	deps, err := m.parsePyprojectDeps(filepath.Join(endpointDir, "pyproject.toml"), extras)
+	if err != nil {
+		return nil, err
 	}
-	if _, statErr := os.Stat(requirementsPath); statErr == nil {
-		return m.parseRequirementsTxt(requirementsPath)
+	if deps != nil {
+		return deps, nil
 	}
-	return nil, nil
+	return m.parseRequirementsTxt(filepath.Join(endpointDir, "requirements.txt"))
 }
 
 // EnsureVenv ensures a virtual environment exists for the given endpoint.
@@ -200,140 +194,15 @@ func (m *VenvManager) installDeps(pythonPath string, deps []string) error {
 
 // parsePyprojectDeps parses dependencies from pyproject.toml.
 func (m *VenvManager) parsePyprojectDeps(path string, extras []string) ([]string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	var deps []string
-	scanner := bufio.NewScanner(file)
-	inDeps := false
-	inOptionalDeps := false
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		// Section headers
-		if line == "[project.dependencies]" {
-			inDeps = true
-			continue
-		}
-		if strings.HasPrefix(line, "[project.optional-dependencies.") {
-			extra := strings.TrimSuffix(strings.TrimPrefix(line, "[project.optional-dependencies."), "]")
-			inOptionalDeps = false
-			for _, e := range extras {
-				if e == extra {
-					inOptionalDeps = true
-					break
-				}
-			}
-			continue
-		}
-		if strings.HasPrefix(line, "[") {
-			inDeps = false
-			inOptionalDeps = false
-			continue
-		}
-
-		// Inline dependencies = [...] (handled via shared helper)
-		if strings.HasPrefix(line, "dependencies = [") {
-			if entries, ok := nodeops.ParseInlineDeps(line); ok {
-				for _, entry := range entries {
-					deps = append(deps, strings.Trim(entry, `"'`))
-				}
-				continue
-			}
-			// Multi-line array start
-			inDeps = true
-			continue
-		}
-
-		// Inline extras format: extra_name = ["dep1", "dep2"]
-		for _, extra := range extras {
-			prefix := extra + " = ["
-			if strings.HasPrefix(line, prefix) && strings.Contains(line, "]") {
-				inner := line[len(prefix):strings.Index(line, "]")]
-				for _, dep := range strings.Split(inner, ",") {
-					dep = strings.Trim(dep, `"' `)
-					if dep != "" {
-						deps = append(deps, dep)
-					}
-				}
-			}
-		}
-
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "#") || line == "]" {
-			if line == "]" {
-				inDeps = false
-				inOptionalDeps = false
-			}
-			continue
-		}
-
-		// Multi-line array entries
-		if inDeps || inOptionalDeps {
-			dep := strings.Trim(line, `"',`)
-			if dep != "" {
-				deps = append(deps, dep)
-			}
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-
-	return deps, nil
+	return nodeops.ReadPyprojectDepsWithExtras(path, extras)
 }
 
 // parseRequirementsTxt parses dependencies from requirements.txt.
 func (m *VenvManager) parseRequirementsTxt(path string) ([]string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	var deps []string
-	scanner := bufio.NewScanner(file)
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		// Skip empty lines and comments
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		// Skip editable installs and file references for now
-		if strings.HasPrefix(line, "-e") || strings.HasPrefix(line, "-r") {
-			continue
-		}
-
-		deps = append(deps, line)
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-
-	return deps, nil
+	return nodeops.ReadRequirementsTxt(path)
 }
 
 // hashDeps creates a hash of the dependencies for caching.
 func (m *VenvManager) hashDeps(deps []string) string {
-	// Sort for consistent hashing
-	sorted := make([]string, len(deps))
-	copy(sorted, deps)
-	sort.Strings(sorted)
-
-	h := sha256.New()
-	for _, dep := range sorted {
-		h.Write([]byte(dep))
-		h.Write([]byte("\n"))
-	}
-
-	return hex.EncodeToString(h.Sum(nil))
+	return nodeops.HashSortedLines(deps)
 }

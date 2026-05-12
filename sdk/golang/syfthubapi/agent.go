@@ -175,7 +175,7 @@ func (s *AgentSession) SendThinking(content string) error {
 		return fmt.Errorf("marshal thinking event: %w", err)
 	}
 	return s.Send(AgentEventPayload{
-		EventType: "agent.thinking",
+		EventType: EventTypeAgentThinking,
 		Data:      data,
 	})
 }
@@ -187,7 +187,7 @@ func (s *AgentSession) SendToolCall(tc ToolCall) error {
 		return fmt.Errorf("marshal tool call event: %w", err)
 	}
 	return s.Send(AgentEventPayload{
-		EventType: "agent.tool_call",
+		EventType: EventTypeAgentToolCall,
 		Data:      data,
 	})
 }
@@ -199,7 +199,7 @@ func (s *AgentSession) SendToolResult(tr ToolResult) error {
 		return fmt.Errorf("marshal tool result event: %w", err)
 	}
 	return s.Send(AgentEventPayload{
-		EventType: "agent.tool_result",
+		EventType: EventTypeAgentToolResult,
 		Data:      data,
 	})
 }
@@ -214,7 +214,7 @@ func (s *AgentSession) SendMessage(content string) error {
 		return fmt.Errorf("marshal message event: %w", err)
 	}
 	return s.Send(AgentEventPayload{
-		EventType: "agent.message",
+		EventType: EventTypeAgentMessage,
 		Data:      data,
 	})
 }
@@ -228,7 +228,7 @@ func (s *AgentSession) SendToken(token string) error {
 		return fmt.Errorf("marshal token event: %w", err)
 	}
 	return s.Send(AgentEventPayload{
-		EventType: "agent.token",
+		EventType: EventTypeAgentToken,
 		Data:      data,
 	})
 }
@@ -243,7 +243,7 @@ func (s *AgentSession) SendStatus(status, detail string) error {
 		return fmt.Errorf("marshal status event: %w", err)
 	}
 	return s.Send(AgentEventPayload{
-		EventType: "agent.status",
+		EventType: EventTypeAgentStatus,
 		Data:      data,
 	})
 }
@@ -267,7 +267,7 @@ func (s *AgentSession) RequestInput(prompt string) (UserMessage, error) {
 		return UserMessage{}, fmt.Errorf("marshal request_input event: %w", err)
 	}
 	if err := s.Send(AgentEventPayload{
-		EventType: "agent.request_input",
+		EventType: EventTypeAgentRequestInput,
 		Data:      data,
 	}); err != nil {
 		return UserMessage{}, err
@@ -329,7 +329,7 @@ func (s *AgentSession) RunHandler(handler AgentHandler) {
 				select {
 				case s.sendCh <- AgentEventPayload{
 					SessionID: s.ID,
-					EventType: "session.failed",
+					EventType: EventTypeSessionFailed,
 					Sequence:  int(s.sequence.Add(1)),
 					Data:      data,
 				}:
@@ -356,7 +356,7 @@ func (s *AgentSession) RunHandler(handler AgentHandler) {
 			select {
 			case s.sendCh <- AgentEventPayload{
 				SessionID: s.ID,
-				EventType: "session.failed",
+				EventType: EventTypeSessionFailed,
 				Sequence:  int(s.sequence.Add(1)),
 				Data:      data,
 			}:
@@ -369,7 +369,7 @@ func (s *AgentSession) RunHandler(handler AgentHandler) {
 			select {
 			case s.sendCh <- AgentEventPayload{
 				SessionID: s.ID,
-				EventType: "session.completed",
+				EventType: EventTypeSessionCompleted,
 				Sequence:  int(s.sequence.Add(1)),
 				Data:      data,
 			}:

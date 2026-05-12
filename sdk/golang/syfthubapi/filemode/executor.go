@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -95,38 +94,18 @@ func (e *SubprocessExecutor) Execute(ctx context.Context, input *syfthubapi.Exec
 		return nil, fmt.Errorf("executor is closed")
 	}
 
-	// Log execution start with context
-	e.logger.Info("[POLICY-EXEC] Starting execution",
+	e.logger.Debug("[POLICY-EXEC] starting execution",
 		"endpoint_type", input.Type,
 		"use_policy_runner", e.usePolicyRunner,
 		"policy_count", len(e.policyConfigs),
 		"work_dir", e.workDir,
 	)
 
-	// Log user context if available
 	if input.Context != nil {
-		e.logger.Debug("[POLICY-EXEC] Request context",
+		e.logger.Debug("[POLICY-EXEC] request context",
 			"user_id", input.Context.UserID,
 			"endpoint_slug", input.Context.EndpointSlug,
 			"endpoint_type", input.Context.EndpointType,
-		)
-	}
-
-	// Log query shape (not content — content may contain PII)
-	if input.Type == "model" {
-		e.logger.Debug("[POLICY-EXEC] Model query",
-			"messages_count", len(input.Messages),
-		)
-	} else {
-		e.logger.Debug("[POLICY-EXEC] Data source query")
-	}
-
-	// Log configured policies
-	for i, p := range e.policyConfigs {
-		e.logger.Info("[POLICY-EXEC] Configured policy",
-			"index", i,
-			"name", p.Name,
-			"type", p.Type,
 		)
 	}
 
@@ -137,13 +116,11 @@ func (e *SubprocessExecutor) Execute(ctx context.Context, input *syfthubapi.Exec
 	var cmd *exec.Cmd
 
 	if e.usePolicyRunner {
-		e.logger.Info("[POLICY-EXEC] Using policy_manager.runner for policy-aware execution")
-		// Use policy_manager.runner for policy-aware execution
-		cmd = e.buildPolicyRunnerCommand(ctx, input)
+		e.logger.Debug("[POLICY-EXEC] Using policy_manager.runner for policy-aware execution")
+		cmd = e.buildPolicyRunnerCommand(ctx)
 	} else {
-		e.logger.Info("[POLICY-EXEC] Using legacy inline wrapper (NO POLICY ENFORCEMENT)")
-		// Use legacy inline wrapper script
-		cmd = e.buildLegacyCommand(ctx, input)
+		e.logger.Debug("[POLICY-EXEC] Using legacy inline wrapper (NO POLICY ENFORCEMENT)")
+		cmd = e.buildLegacyCommand(ctx)
 	}
 
 	if cmd == nil {
@@ -167,26 +144,21 @@ func (e *SubprocessExecutor) Execute(ctx context.Context, input *syfthubapi.Exec
 		"length", len(inputJSON),
 	)
 
-	cmd.Dir = e.workDir
-
-	// Hide console window on Windows
-	hideWindow(cmd)
-
-	// Set environment: use cached base env snapshot + endpoint-specific vars.
-	cmd.Env = append(e.baseEnv, e.env...)
-
-	// Setup pipes
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create stdin pipe: %w", err)
 	}
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
+	// stdout is capped at maxStdoutBytes to prevent OOM from a runaway handler.
+	// stderr is left unbounded because it is small in practice and drains on
+	// process exit; bounding it would risk truncating Python tracebacks needed
+	// for diagnostics.
+	stdout := &limitedBuffer{cap: maxStdoutBytes}
+	var stderr bytes.Buffer
+	cmd.Stdout = stdout
 	cmd.Stderr = &stderr
 
-	// Start the process
-	e.logger.Info("[POLICY-EXEC] Starting Python process",
+	e.logger.Debug("[POLICY-EXEC] starting Python process",
 		"python_path", e.pythonPath,
 		"runner_path", e.runnerPath,
 	)
@@ -216,14 +188,14 @@ func (e *SubprocessExecutor) Execute(ctx context.Context, input *syfthubapi.Exec
 		}
 	}
 
-	// Log stderr if present
 	if stderr.Len() > 0 {
-		e.logger.Info("[POLICY-EXEC] Python stderr output", "stderr", stderr.String())
+		e.logger.Debug("[POLICY-EXEC] python stderr", "stderr", stderr.String())
 	}
 
-	// Log stdout length at Info; full content only at Debug to avoid leaking handler output
-	e.logger.Info("[POLICY-EXEC] Python stdout output", "length", stdout.Len())
-	e.logger.Debug("[POLICY-EXEC] Python stdout content", "content", stdout.String())
+	e.logger.Debug("[POLICY-EXEC] python stdout",
+		"length", stdout.Len(),
+		"content", stdout.String(),
+	)
 
 	// Parse output even if there was an error (handler might have returned error JSON)
 	if stdout.Len() > 0 {
@@ -236,25 +208,21 @@ func (e *SubprocessExecutor) Execute(ctx context.Context, input *syfthubapi.Exec
 			return nil, fmt.Errorf("failed to parse output: %w (stderr: %s)", err, stderr.String())
 		}
 
-		// Log policy result if present
-		e.logger.Info("[POLICY-EXEC] Execution result",
-			"success", output.Success,
-			"has_error", output.Error != "",
-			"error", output.Error,
-			"error_type", output.ErrorType,
-		)
-
 		if output.PolicyResult != nil {
-			e.logger.Info("[POLICY-EXEC] POLICY ENFORCEMENT RESULT",
+			e.logger.Debug("[POLICY-EXEC] policy enforcement result",
 				"allowed", output.PolicyResult.Allowed,
 				"policy_name", output.PolicyResult.PolicyName,
-				"reason", output.PolicyResult.Reason,
 				"pending", output.PolicyResult.Pending,
-				"metadata", fmt.Sprintf("%+v", output.PolicyResult.Metadata),
 			)
-		} else {
-			e.logger.Warn("[POLICY-EXEC] No policy result in output - policies may not be enforced")
+		} else if len(e.policyConfigs) > 0 {
+			e.logger.Warn("[POLICY-EXEC] no policy result in output - policies may not be enforced")
 		}
+
+		e.logger.Info("[POLICY-EXEC] execution complete",
+			"success", output.Success,
+			"error_type", output.ErrorType,
+			"policy_allowed", output.PolicyResult != nil && output.PolicyResult.Allowed,
+		)
 
 		return &output, nil
 	}
@@ -273,12 +241,15 @@ func (e *SubprocessExecutor) Execute(ctx context.Context, input *syfthubapi.Exec
 }
 
 // buildPolicyRunnerCommand builds command for policy_manager.runner.
-func (e *SubprocessExecutor) buildPolicyRunnerCommand(ctx context.Context, input *syfthubapi.ExecutorInput) *exec.Cmd {
-	return exec.CommandContext(ctx, e.pythonPath, "-m", "policy_manager.runner")
+func (e *SubprocessExecutor) buildPolicyRunnerCommand(ctx context.Context) *exec.Cmd {
+	return newPythonCmd(ctx, e.pythonPath,
+		[]string{"-m", "policy_manager.runner"},
+		e.workDir, e.baseEnv, e.env,
+	)
 }
 
 // buildLegacyCommand builds command for legacy inline wrapper script.
-func (e *SubprocessExecutor) buildLegacyCommand(ctx context.Context, input *syfthubapi.ExecutorInput) *exec.Cmd {
+func (e *SubprocessExecutor) buildLegacyCommand(ctx context.Context) *exec.Cmd {
 	wrapperScript := `
 import sys
 import json
@@ -335,7 +306,10 @@ def main():
 if __name__ == "__main__":
     main()
 `
-	return exec.CommandContext(ctx, e.pythonPath, "-c", wrapperScript)
+	return newPythonCmd(ctx, e.pythonPath,
+		[]string{"-c", wrapperScript},
+		e.workDir, e.baseEnv, e.env,
+	)
 }
 
 // serializeInput serializes executor input to JSON.
@@ -365,15 +339,4 @@ func (e *SubprocessExecutor) Close() error {
 	defer e.mu.Unlock()
 	e.closed = true
 	return nil
-}
-
-// CreateExecutor creates an executor based on the runtime config.
-func CreateExecutor(cfg *ExecutorConfig, runtime *RuntimeConfig) (syfthubapi.Executor, error) {
-	// Use venv python if available
-	venvPython := filepath.Join(cfg.WorkDir, ".venv", "bin", "python")
-	if _, err := os.Stat(venvPython); err == nil {
-		cfg.PythonPath = venvPython
-	}
-
-	return NewSubprocessExecutor(cfg)
 }

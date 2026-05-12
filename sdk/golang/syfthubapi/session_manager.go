@@ -80,48 +80,6 @@ func (m *AgentSessionManager) deregisterSession(sessionID string) {
 	}
 }
 
-// paymentMetadataKeys lists the policy-metadata keys that are safe to forward
-// to the caller as part of a PAYMENT_REQUIRED tunnel response.
-var paymentMetadataKeys = []string{
-	"payment_challenge",
-	"payment_amount",
-	"payment_currency",
-	"payment_recipient",
-	"challenge_id",
-	"intent",
-}
-
-// paymentChallengeFromMetadata returns the payment_challenge string from a
-// policy-result metadata map, and true iff present and non-empty.
-func paymentChallengeFromMetadata(meta map[string]any) (string, bool) {
-	if meta == nil {
-		return "", false
-	}
-	s, ok := meta["payment_challenge"].(string)
-	if !ok || s == "" {
-		return "", false
-	}
-	return s, true
-}
-
-// copyPaymentMetadata returns a copy of the safe payment_* keys from a policy
-// metadata map. Returns nil when no safe keys are present.
-func copyPaymentMetadata(meta map[string]any) map[string]any {
-	if meta == nil {
-		return nil
-	}
-	var out map[string]any
-	for _, k := range paymentMetadataKeys {
-		if v, ok := meta[k]; ok {
-			if out == nil {
-				out = make(map[string]any, len(paymentMetadataKeys))
-			}
-			out[k] = v
-		}
-	}
-	return out
-}
-
 // AgentSessionStartPayload is the decrypted payload of an agent_session_start message.
 type AgentSessionStartPayload struct {
 	SessionID    string      `json:"session_id"`
@@ -179,7 +137,7 @@ func (m *AgentSessionManager) StartSession(
 		// Surface this as a typed error so the NATS bridge can emit a
 		// PAYMENT_REQUIRED tunnel response with the challenge details.
 		if policyResult.Pending {
-			if challenge, ok := paymentChallengeFromMetadata(policyResult.Metadata); ok {
+			if challenge, ok := PaymentChallengeFromMetadata(policyResult.Metadata); ok {
 				m.logger.Info("[AGENT] Session pending payment",
 					"endpoint", payload.EndpointSlug,
 					"user", user.Username,
@@ -187,7 +145,7 @@ func (m *AgentSessionManager) StartSession(
 				)
 				return nil, &PaymentRequiredError{
 					Challenge: challenge,
-					Details:   copyPaymentMetadata(policyResult.Metadata),
+					Details:   CopyPaymentMetadata(policyResult.Metadata),
 				}
 			}
 		}

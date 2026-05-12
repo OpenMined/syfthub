@@ -21,8 +21,9 @@ type EndpointInvoker interface {
 	// FormatResponse wraps the handler result in the aggregator-expected shape.
 	FormatResponse(result any) (any, error)
 
-	// EnrichLog adds type-specific fields to the request log.
-	EnrichLog(log *RequestLog, payload json.RawMessage)
+	// EnrichLog adds type-specific fields to the request log using the
+	// already-parsed input (avoids re-unmarshaling the raw payload).
+	EnrichLog(log *RequestLog, parsed any)
 
 	// Close releases any resources owned by the invoker (executors, subprocesses, containers).
 	Close() error

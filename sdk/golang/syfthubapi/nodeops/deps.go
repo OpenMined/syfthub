@@ -1,6 +1,8 @@
 package nodeops
 
 import (
+	"bufio"
+	"errors"
 	"os"
 	"regexp"
 	"strings"
@@ -115,6 +117,135 @@ func ReadDependencies(path string) ([]Dependency, error) {
 				deps = append(deps, dep)
 			}
 		}
+	}
+
+	return deps, nil
+}
+
+// ReadRequirementsTxt reads a requirements.txt file and returns its raw
+// dependency lines, skipping blank lines, comments, editable installs (-e),
+// and recursive includes (-r). Returns nil, nil if the file does not exist.
+func ReadRequirementsTxt(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer file.Close()
+
+	var deps []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "-e") || strings.HasPrefix(line, "-r") {
+			continue
+		}
+		deps = append(deps, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return deps, nil
+}
+
+// ReadPyprojectDepsWithExtras reads a pyproject.toml file and returns the raw
+// dependency strings from [project.dependencies] (including extras matching
+// any of the requested extras names in [project.optional-dependencies.X]).
+// Inline `dependencies = [...]` and `extra_name = [...]` arrays are also
+// supported. Returns raw entries (e.g. `numpy[cuda]>=1.0`) suitable to pass
+// to pip install. Returns nil, nil if the file does not exist.
+func ReadPyprojectDepsWithExtras(path string, extras []string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer file.Close()
+
+	var deps []string
+	scanner := bufio.NewScanner(file)
+	inDeps := false
+	inOptionalDeps := false
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		// Section headers
+		if line == "[project.dependencies]" {
+			inDeps = true
+			continue
+		}
+		if strings.HasPrefix(line, "[project.optional-dependencies.") {
+			extra := strings.TrimSuffix(strings.TrimPrefix(line, "[project.optional-dependencies."), "]")
+			inOptionalDeps = false
+			for _, e := range extras {
+				if e == extra {
+					inOptionalDeps = true
+					break
+				}
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "[") {
+			inDeps = false
+			inOptionalDeps = false
+			continue
+		}
+
+		// Inline dependencies = [...] (handled via shared helper)
+		if strings.HasPrefix(line, "dependencies = [") {
+			if entries, ok := ParseInlineDeps(line); ok {
+				for _, entry := range entries {
+					deps = append(deps, strings.Trim(entry, `"'`))
+				}
+				continue
+			}
+			// Multi-line array start
+			inDeps = true
+			continue
+		}
+
+		// Inline extras format: extra_name = ["dep1", "dep2"]
+		for _, extra := range extras {
+			prefix := extra + " = ["
+			if strings.HasPrefix(line, prefix) && strings.Contains(line, "]") {
+				inner := line[len(prefix):strings.Index(line, "]")]
+				for _, dep := range strings.Split(inner, ",") {
+					dep = strings.Trim(dep, `"' `)
+					if dep != "" {
+						deps = append(deps, dep)
+					}
+				}
+			}
+		}
+
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") || line == "]" {
+			if line == "]" {
+				inDeps = false
+				inOptionalDeps = false
+			}
+			continue
+		}
+
+		// Multi-line array entries
+		if inDeps || inOptionalDeps {
+			dep := strings.Trim(line, `"',`)
+			if dep != "" {
+				deps = append(deps, dep)
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
 	}
 
 	return deps, nil

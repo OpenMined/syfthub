@@ -2,7 +2,6 @@ package nodeops
 
 import (
 	"archive/zip"
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -78,11 +77,24 @@ func (c *MarketplaceClient) InstallPackage(endpointsPath, slug, downloadURL stri
 	}
 
 	const maxDownloadSize = 100 << 20 // 100 MB
-	zipData, err := io.ReadAll(io.LimitReader(resp.Body, maxDownloadSize+1))
+
+	// Stream the download to a temp file to avoid buffering a 100 MB zip in memory.
+	tempFile, err := os.CreateTemp("", "syfthub-pkg-*.zip")
 	if err != nil {
-		return fmt.Errorf("failed to read package data: %w", err)
+		return fmt.Errorf("failed to create temp file: %w", err)
 	}
-	if len(zipData) > maxDownloadSize {
+	tempPath := tempFile.Name()
+	defer os.Remove(tempPath)
+
+	written, copyErr := io.Copy(tempFile, io.LimitReader(resp.Body, int64(maxDownloadSize)+1))
+	closeErr := tempFile.Close()
+	if copyErr != nil {
+		return fmt.Errorf("failed to download package data: %w", copyErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("failed to close temp file: %w", closeErr)
+	}
+	if written > int64(maxDownloadSize) {
 		return fmt.Errorf("package exceeds maximum size of %d MB", maxDownloadSize>>20)
 	}
 
@@ -103,10 +115,11 @@ func (c *MarketplaceClient) InstallPackage(endpointsPath, slug, downloadURL stri
 		}
 	}()
 
-	zipReader, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
+	zipReader, err := zip.OpenReader(tempPath)
 	if err != nil {
 		return fmt.Errorf("failed to read zip archive: %w", err)
 	}
+	defer zipReader.Close()
 
 	// Pre-compute whether all entries share a common top-level directory
 	topLevelPrefix := commonTopLevelDir(zipReader.File)

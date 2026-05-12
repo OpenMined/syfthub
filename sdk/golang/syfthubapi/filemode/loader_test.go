@@ -5,10 +5,25 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 )
+
+// envVarsToMap is a test-only helper that converts "KEY=value" strings to a
+// map. Production code uses nodeops.EnvVarsToMap on structured EnvVar slices;
+// the legacy []string form survives here purely to keep the existing test
+// expectations readable.
+func envVarsToMap(vars []string) map[string]string {
+	m := make(map[string]string, len(vars))
+	for _, v := range vars {
+		if idx := strings.Index(v, "="); idx != -1 {
+			m[v[:idx]] = v[idx+1:]
+		}
+	}
+	return m
+}
 
 func TestNewLoader(t *testing.T) {
 	t.Run("with logger", func(t *testing.T) {

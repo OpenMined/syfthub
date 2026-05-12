@@ -90,3 +90,13 @@ func MergeEnvFile(path string, updates map[string]string, skipEmpty bool) error 
 
 	return WriteEnvFile(path, result)
 }
+
+// EnvVarsToMap converts a slice of EnvVar to a map keyed by Key. Later entries
+// win on duplicate keys.
+func EnvVarsToMap(vars []EnvVar) map[string]string {
+	m := make(map[string]string, len(vars))
+	for _, v := range vars {
+		m[v.Key] = v.Value
+	}
+	return m
+}

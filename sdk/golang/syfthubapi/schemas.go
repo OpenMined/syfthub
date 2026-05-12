@@ -29,6 +29,23 @@ const (
 	MsgTypeAgentEvent         = "agent_event"
 )
 
+// Agent event type constants (the "event_type" field of AgentEventPayload).
+const (
+	EventTypeAgentThinking     = "agent.thinking"
+	EventTypeAgentMessage      = "agent.message"
+	EventTypeAgentToolCall     = "agent.tool_call"
+	EventTypeAgentToolResult   = "agent.tool_result"
+	EventTypeAgentToken        = "agent.token"
+	EventTypeAgentStatus       = "agent.status"
+	EventTypeAgentRequestInput = "agent.request_input"
+
+	// Terminal session events
+	EventTypeSessionCompleted     = "session.completed"
+	EventTypeSessionFailed        = "session.failed"
+	EventTypeAgentSessionComplete = "agent.session_complete" // legacy
+	EventTypeAgentSessionFailed   = "agent.session_failed"   // legacy
+)
+
 // Tunnel protocol constants.
 const (
 	TunnelProtocolV1    = "syfthub-tunnel/v1"

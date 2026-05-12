@@ -193,16 +193,6 @@ func isSensitivePolicyKey(name string) bool {
 	return false
 }
 
-// SetInvoker sets the endpoint's invoker directly.
-func (e *Endpoint) SetInvoker(inv EndpointInvoker) {
-	e.invoker = inv
-}
-
-// Invoker returns the endpoint's invoker.
-func (e *Endpoint) Invoker() EndpointInvoker {
-	return e.invoker
-}
-
 // EndpointHandlerConfig holds the configuration for wiring an endpoint's handler.
 // This replaces the separate SetExecutor/SetAgentHandler/SetPolicyExecutor methods
 // with a single unified wiring point.

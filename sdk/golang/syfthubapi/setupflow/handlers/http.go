@@ -39,8 +39,8 @@ var allowedMethods = map[string]bool{
 }
 
 func (h *HTTPHandler) Validate(step *nodeops.SetupStep) error {
-	if step.HTTP == nil {
-		return fmt.Errorf("http config is required for type 'http'")
+	if err := requireTypedConfig(step, "http", step.HTTP != nil); err != nil {
+		return err
 	}
 	if step.HTTP.Method == "" {
 		return fmt.Errorf("http.method is required")

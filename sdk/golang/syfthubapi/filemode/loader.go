@@ -315,8 +315,15 @@ func (l *Loader) loadEnvVars(dir string, envConfig *EnvConfig) ([]string, error)
 		envVars = append(envVars, vars...)
 	}
 
-	// Check required variables
-	envMap := envVarsToMap(envVars)
+	// Check required variables. Convert "KEY=value" strings into structured
+	// EnvVar entries so nodeops.EnvVarsToMap can index them.
+	envVarStructs := make([]nodeops.EnvVar, 0, len(envVars))
+	for _, v := range envVars {
+		if idx := strings.Index(v, "="); idx != -1 {
+			envVarStructs = append(envVarStructs, nodeops.EnvVar{Key: v[:idx], Value: v[idx+1:]})
+		}
+	}
+	envMap := nodeops.EnvVarsToMap(envVarStructs)
 	for _, req := range envConfig.Required {
 		// Check endpoint .env first, then system env
 		if _, ok := envMap[req]; !ok {
@@ -550,18 +557,6 @@ func loadDotEnv(path string) ([]string, error) {
 		result[i] = ev.Key + "=" + ev.Value
 	}
 	return result, nil
-}
-
-// envVarsToMap converts a slice of KEY=value strings to a map.
-func envVarsToMap(vars []string) map[string]string {
-	m := make(map[string]string)
-	for _, v := range vars {
-		idx := strings.Index(v, "=")
-		if idx != -1 {
-			m[v[:idx]] = v[idx+1:]
-		}
-	}
-	return m
 }
 
 // ToEndpointType converts string type to EndpointType.

@@ -2,7 +2,6 @@ package containermode
 
 import (
 	"context"
-	"crypto/sha256"
 	"embed"
 	"fmt"
 	"io"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
 // maxBuildOutputBytes caps the in-memory buffer for docker build output.
@@ -206,7 +206,7 @@ func resolveDockerfileImage(ctx context.Context, rt syfthubapi.ContainerRuntime,
 		}
 	}
 
-	currentHash := fmt.Sprintf("%x", sha256.Sum256(dockerfileContent))
+	currentHash := nodeops.HashString(string(dockerfileContent))
 
 	// Check if image exists and is up-to-date.
 	if imageExists(ctx, cli.binary, imageName) {

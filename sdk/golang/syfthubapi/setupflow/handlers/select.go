@@ -13,8 +13,8 @@ import (
 type SelectHandler struct{}
 
 func (h *SelectHandler) Validate(step *nodeops.SetupStep) error {
-	if step.Select == nil {
-		return fmt.Errorf("select config is required for type 'select'")
+	if err := requireTypedConfig(step, "select", step.Select != nil); err != nil {
+		return err
 	}
 	if len(step.Select.Options) == 0 && step.Select.OptionsFrom == nil {
 		return fmt.Errorf("select requires options or options_from")

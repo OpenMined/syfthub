@@ -2,7 +2,6 @@ package filemode
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/containermode"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
 // noopPolicyHandler is the Python noop handler used by agent endpoints with
@@ -247,10 +247,8 @@ func (p *Provider) LoadEndpoints() ([]*syfthubapi.Endpoint, error) {
 		pythonPath, err := p.embeddedPython.EnsurePython(ctx)
 		if err != nil {
 			p.logger.Error("failed to ensure embedded Python", "error", err)
-			// Fall back to system Python
-		} else {
+		} else if pythonPath != p.pythonPath {
 			p.pythonPath = pythonPath
-			// Update venv manager with embedded Python path
 			p.venvManager, err = NewVenvManager(&VenvConfig{
 				PythonPath: pythonPath,
 				Logger:     p.logger,
@@ -460,7 +458,7 @@ func (p *Provider) createEndpoint(loaded *LoadedEndpoint) (*syfthubapi.Endpoint,
 // Agents use long-lived subprocesses, so policies are evaluated separately via
 // a noop handler that only runs the policy_manager.runner.
 func (p *Provider) createAgentPolicyExecutor(loaded *LoadedEndpoint, pythonPath string) (syfthubapi.Executor, error) {
-	slugHash := fmt.Sprintf("%x", sha256.Sum256([]byte(loaded.Config.Slug)))[:12]
+	slugHash := nodeops.HashShort(loaded.Config.Slug)
 	noopPath := filepath.Join(os.TempDir(), fmt.Sprintf("syfthub_noop_policy_%s.py", slugHash))
 	if err := os.WriteFile(noopPath, []byte(noopPolicyHandler), 0600); err != nil {
 		return nil, fmt.Errorf("failed to write policy check handler: %w", err)
@@ -700,14 +698,14 @@ func (p *Provider) createContainerEndpoint(ctx context.Context, loaded *LoadedEn
 		return nil, fmt.Errorf("failed to resolve container image for %s: %w", loaded.Config.Slug, err)
 	}
 
-	spec := containermode.BuildEndpointSpec(
-		loaded.Config.Slug,
-		loaded.Dir,
-		*p.containerConfig,
-		loaded.EnvVars,
-		p.instanceID,
-		image,
-	)
+	spec := containermode.BuildEndpointSpec(containermode.EndpointSpecConfig{
+		Slug:       loaded.Config.Slug,
+		Dir:        loaded.Dir,
+		Global:     *p.containerConfig,
+		EnvVars:    loaded.EnvVars,
+		InstanceID: p.instanceID,
+		Image:      image,
+	})
 
 	// Append per-endpoint host bind mounts declared in README.md frontmatter.
 	for _, m := range loaded.Config.Container.Mounts {

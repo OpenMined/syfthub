@@ -17,10 +17,10 @@ import (
 
 // terminalEvents are event types that signal the end of an agent session.
 var terminalEvents = map[string]bool{
-	"agent.session_complete": true,
-	"agent.session_failed":   true,
-	"session.completed":      true,
-	"session.failed":         true,
+	syfthubapi.EventTypeAgentSessionComplete: true,
+	syfthubapi.EventTypeAgentSessionFailed:   true,
+	syfthubapi.EventTypeSessionCompleted:     true,
+	syfthubapi.EventTypeSessionFailed:        true,
 }
 
 // NewContainerAgentHandler returns an AgentHandler that bridges a Go AgentSession

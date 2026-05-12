@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"sync"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
@@ -25,6 +24,29 @@ type AgentHandlerConfig struct {
 
 // agentWrapperScript is the Python script that bridges stdin/stdout JSON-lines
 // protocol to the user's runner.py handler(session) function.
+//
+// The AgentSession class defined here intentionally mirrors the SessionAPI
+// class in containermode/runner/session.py. The two implementations have
+// different runtime mechanics (stdin/stdout JSON-lines here vs. thread+queue
+// in containermode), but their PUBLIC METHOD NAMES and EVENT TYPE STRINGS
+// MUST stay identical so the same user-written runner.py works in both modes.
+//
+// Public surface (keep in sync with containermode/runner/session.py SessionAPI):
+//   - send_message(content)                          → event "agent.message"
+//   - send_thinking(content)                         → event "agent.thinking"
+//   - send_status(status, detail="")                 → event "agent.status"
+//   - send_tool_call(tool_name, arguments, ...)      → event "agent.tool_call"
+//   - send_tool_result(tool_call_id, ...)            → event "agent.tool_result"
+//   - send_token(token)                              → event "agent.token"
+//   - receive()                                      → blocks for user message
+//   - request_input(prompt)                          → event "agent.request_input"
+//   - request_confirmation(action, ...)              → tool_call w/ requires_confirmation
+//
+// Full Python-side deduplication is not viable: the queue-based SessionAPI
+// depends on a Session dataclass with thread/queue state that has no analog
+// in the one-shot subprocess model. Method-signature + event-name drift
+// between the two is caught at code-review time; any change to one side must
+// be mirrored to the other.
 const agentWrapperScript = `
 import sys
 import json
@@ -162,12 +184,10 @@ func NewAgentHandler(cfg *AgentHandlerConfig) syfthubapi.AgentHandler {
 	baseEnv := os.Environ()
 
 	return func(ctx context.Context, session *syfthubapi.AgentSession) error {
-		cmd := exec.CommandContext(ctx, cfg.PythonPath, "-c", agentWrapperScript)
-		cmd.Dir = cfg.WorkDir
-		cmd.Env = append(baseEnv, cfg.Env...)
-
-		// Hide console window on Windows
-		hideWindow(cmd)
+		cmd := newPythonCmd(ctx, cfg.PythonPath,
+			[]string{"-c", agentWrapperScript},
+			cfg.WorkDir, baseEnv, cfg.Env,
+		)
 
 		stdin, err := cmd.StdinPipe()
 		if err != nil {

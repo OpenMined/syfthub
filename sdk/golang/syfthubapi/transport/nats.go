@@ -37,7 +37,7 @@ func (b *agentNATSBridge) handleAgentMessage(msg *nats.Msg, req *syfthubapi.Tunn
 	if req.EncryptionInfo == nil || req.EncryptedPayload == "" {
 		b.logger.Error("[AGENT] agent message missing encryption fields",
 			"correlation_id", req.CorrelationID, "type", req.Type)
-		b.transport.sendErrorResponse(msg, req, "DECRYPTION_FAILED", "agent messages must be encrypted")
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeDecryptionFailed, "agent messages must be encrypted")
 		return
 	}
 
@@ -45,7 +45,7 @@ func (b *agentNATSBridge) handleAgentMessage(msg *nats.Msg, req *syfthubapi.Tunn
 	if err != nil {
 		b.logger.Error("[AGENT] failed to decrypt agent message",
 			"correlation_id", req.CorrelationID, "error", err)
-		b.transport.sendErrorResponse(msg, req, "DECRYPTION_FAILED", "failed to decrypt agent message")
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeDecryptionFailed, "failed to decrypt agent message")
 		return
 	}
 
@@ -63,7 +63,7 @@ func (b *agentNATSBridge) handleSessionStart(msg *nats.Msg, req *syfthubapi.Tunn
 	var startPayload syfthubapi.AgentSessionStartPayload
 	if err := json.Unmarshal(payload, &startPayload); err != nil {
 		b.logger.Error("[AGENT] failed to parse session start payload", "error", err)
-		b.transport.sendErrorResponse(msg, req, "INVALID_REQUEST", "failed to parse session start payload")
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeInvalidRequest, "failed to parse session start payload")
 		return
 	}
 
@@ -71,7 +71,7 @@ func (b *agentNATSBridge) handleSessionStart(msg *nats.Msg, req *syfthubapi.Tunn
 	if b.tokenVerifier == nil {
 		b.logger.Error("[AGENT] token verifier not configured — cannot authenticate agent session",
 			"endpoint", startPayload.EndpointSlug)
-		b.transport.sendErrorResponse(msg, req, string(syfthubapi.TunnelErrorCodeAuthFailed),
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAuthFailed,
 			"agent session authentication not configured")
 		return
 	}
@@ -79,7 +79,7 @@ func (b *agentNATSBridge) handleSessionStart(msg *nats.Msg, req *syfthubapi.Tunn
 	if req.SatelliteToken == "" {
 		b.logger.Warn("[AGENT] agent session start missing satellite token",
 			"endpoint", startPayload.EndpointSlug)
-		b.transport.sendErrorResponse(msg, req, string(syfthubapi.TunnelErrorCodeAuthFailed),
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAuthFailed,
 			"missing satellite token")
 		return
 	}
@@ -91,7 +91,7 @@ func (b *agentNATSBridge) handleSessionStart(msg *nats.Msg, req *syfthubapi.Tunn
 	if err != nil {
 		b.logger.Warn("[AGENT] agent session token verification failed",
 			"endpoint", startPayload.EndpointSlug, "error", err)
-		b.transport.sendErrorResponse(msg, req, string(syfthubapi.TunnelErrorCodeAuthFailed),
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAuthFailed,
 			"agent session authentication failed")
 		return
 	}
@@ -115,7 +115,7 @@ func (b *agentNATSBridge) handleSessionStart(msg *nats.Msg, req *syfthubapi.Tunn
 		}
 		b.logger.Error("[AGENT] failed to start session",
 			"endpoint", startPayload.EndpointSlug, "error", err)
-		b.transport.sendErrorResponse(msg, req, string(syfthubapi.TunnelErrorCodeExecutionFailed),
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeExecutionFailed,
 			fmt.Sprintf("failed to start agent session: %v", err))
 		return
 	}
@@ -522,7 +522,7 @@ func (t *NATSTransport) handleMessage(msg *nats.Msg) {
 			"error", err,
 			"data", string(msg.Data),
 		)
-		t.sendErrorResponse(msg, nil, "INVALID_REQUEST", "failed to parse request")
+		t.sendErrorResponse(msg, nil, syfthubapi.TunnelErrorCodeInvalidRequest, "failed to parse request")
 		return
 	}
 
@@ -540,7 +540,7 @@ func (t *NATSTransport) handleMessage(msg *nats.Msg) {
 		syfthubapi.MsgTypeAgentUserMessage,
 		syfthubapi.MsgTypeAgentSessionCancel:
 		if t.agentBridge == nil {
-			t.sendErrorResponse(msg, &req, "INVALID_REQUEST", "agent sessions not supported")
+			t.sendErrorResponse(msg, &req, syfthubapi.TunnelErrorCodeInvalidRequest, "agent sessions not supported")
 			return
 		}
 		t.agentBridge.handleAgentMessage(msg, &req, t.privateKey)
@@ -552,7 +552,7 @@ func (t *NATSTransport) handleMessage(msg *nats.Msg) {
 		t.logger.Error("request missing encryption fields — plaintext requests are not accepted",
 			"correlation_id", req.CorrelationID,
 		)
-		t.sendErrorResponse(msg, &req, "DECRYPTION_FAILED", "request must be encrypted (encryption_info and encrypted_payload are required)")
+		t.sendErrorResponse(msg, &req, syfthubapi.TunnelErrorCodeDecryptionFailed, "request must be encrypted (encryption_info and encrypted_payload are required)")
 		return
 	}
 
@@ -567,7 +567,7 @@ func (t *NATSTransport) handleMessage(msg *nats.Msg) {
 			"correlation_id", req.CorrelationID,
 			"error", err,
 		)
-		t.sendErrorResponse(msg, &req, "DECRYPTION_FAILED", "failed to decrypt request payload")
+		t.sendErrorResponse(msg, &req, syfthubapi.TunnelErrorCodeDecryptionFailed, "failed to decrypt request payload")
 		return
 	}
 	req.Payload = json.RawMessage(plaintext)
@@ -587,7 +587,7 @@ func (t *NATSTransport) handleMessage(msg *nats.Msg) {
 			"correlation_id", req.CorrelationID,
 			"error", err,
 		)
-		t.sendErrorResponse(msg, &req, "INTERNAL_ERROR", err.Error())
+		t.sendErrorResponse(msg, &req, syfthubapi.TunnelErrorCodeInternalError, err.Error())
 		return
 	}
 
@@ -679,7 +679,7 @@ func (t *NATSTransport) sendResponse(msg *nats.Msg, req *syfthubapi.TunnelReques
 }
 
 // sendErrorResponse sends an error response.
-func (t *NATSTransport) sendErrorResponse(msg *nats.Msg, req *syfthubapi.TunnelRequest, code, message string) {
+func (t *NATSTransport) sendErrorResponse(msg *nats.Msg, req *syfthubapi.TunnelRequest, code syfthubapi.TunnelErrorCode, message string) {
 	correlationID := ""
 	endpointSlug := ""
 	if req != nil {
@@ -694,7 +694,7 @@ func (t *NATSTransport) sendErrorResponse(msg *nats.Msg, req *syfthubapi.TunnelR
 		Status:        syfthubapi.TunnelStatusError,
 		EndpointSlug:  endpointSlug,
 		Error: &syfthubapi.TunnelError{
-			Code:    syfthubapi.TunnelErrorCode(code),
+			Code:    code,
 			Message: message,
 		},
 	}

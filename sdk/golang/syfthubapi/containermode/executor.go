@@ -1,11 +1,9 @@
 package containermode
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -141,20 +139,22 @@ func (e *ContainerExecutor) Execute(ctx context.Context, input *syfthubapi.Execu
 		input = &enriched
 	}
 
-	body, err := json.Marshal(input)
+	var output syfthubapi.ExecutorOutput
+	err := syfthubapi.DoJSONRequest(ctx, e.httpClient, http.MethodPost, baseURL+"/execute", nil, input, &output)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal executor input: %w", err)
-	}
+		// On HTTP-level errors the container is reachable; surface the status
+		// code so callers don't have to unwrap. For transport errors, probe
+		// whether the container is still running.
+		var apiErr *syfthubapi.HubAPIError
+		if errors.As(err, &apiErr) {
+			return nil, &syfthubapi.ContainerError{
+				Operation: "execute",
+				Container: e.containerID,
+				Message:   fmt.Sprintf("request failed: HTTP %d", apiErr.StatusCode),
+				Cause:     err,
+			}
+		}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/execute", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := e.httpClient.Do(req)
-	if err != nil {
-		// Check if container is still running
 		info, inspectErr := e.runtime.Inspect(ctx, e.containerID)
 		if inspectErr == nil && !info.Running {
 			return nil, &syfthubapi.ContainerError{
@@ -170,17 +170,6 @@ func (e *ContainerExecutor) Execute(ctx context.Context, input *syfthubapi.Execu
 			Message:   "request failed",
 			Cause:     err,
 		}
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	var output syfthubapi.ExecutorOutput
-	if err := json.Unmarshal(respBody, &output); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w (body: %s)", err, string(respBody[:min(len(respBody), 200)]))
 	}
 
 	return &output, nil
@@ -267,14 +256,26 @@ func (e *ContainerExecutor) BaseURL() string {
 	return e.baseURL
 }
 
+// EndpointSpecConfig groups the parameters needed to build a ContainerSpec for
+// an endpoint. Using a struct avoids silent argument-order mistakes between
+// adjacent string fields (slug/dir, instanceID/image).
+type EndpointSpecConfig struct {
+	Slug       string
+	Dir        string
+	Global     syfthubapi.ContainerConfig
+	EnvVars    []string
+	InstanceID string
+	Image      string
+}
+
 // BuildEndpointSpec creates a hardened ContainerSpec for running an endpoint.
 // Resource limits (CPU, memory, network, GPU) come from the global ContainerConfig.
 // The image parameter is the resolved image name — either a per-endpoint custom
 // image (from ResolveEndpointImage) or the global default.
-func BuildEndpointSpec(slug, dir string, globalCfg syfthubapi.ContainerConfig, envVars []string, instanceID string, image string) *ContainerSpec {
+func BuildEndpointSpec(cfg EndpointSpecConfig) *ContainerSpec {
 	spec := &ContainerSpec{
-		Name:  fmt.Sprintf("syfthub-%s-%s", slug, instanceID),
-		Image: image,
+		Name:  fmt.Sprintf("syfthub-%s-%s", cfg.Slug, cfg.InstanceID),
+		Image: cfg.Image,
 		User:  "1000:1000",
 
 		ReadOnlyFS:   true,
@@ -282,28 +283,28 @@ func BuildEndpointSpec(slug, dir string, globalCfg syfthubapi.ContainerConfig, e
 		SecurityOpts: []string{"no-new-privileges"},
 
 		Mounts: []Mount{
-			{Type: "bind", Source: dir, Target: "/app/endpoint", ReadOnly: true},
-			{Type: "volume", Source: fmt.Sprintf("syfthub-%s-pip-cache", slug), Target: "/app/.cache"},
-			{Type: "volume", Source: fmt.Sprintf("syfthub-%s-policy-store", slug), Target: "/app/.store"},
+			{Type: "bind", Source: cfg.Dir, Target: "/app/endpoint", ReadOnly: true},
+			{Type: "volume", Source: fmt.Sprintf("syfthub-%s-pip-cache", cfg.Slug), Target: "/app/.cache"},
+			{Type: "volume", Source: fmt.Sprintf("syfthub-%s-policy-store", cfg.Slug), Target: "/app/.store"},
 		},
 		Tmpfs: []string{"/tmp"},
 
 		Labels: map[string]string{
 			"syfthub.managed":  "true",
-			"syfthub.instance": instanceID,
-			"syfthub.endpoint": slug,
+			"syfthub.instance": cfg.InstanceID,
+			"syfthub.endpoint": cfg.Slug,
 		},
 
 		Ports: []PortMapping{
 			{HostPort: "0", ContainerPort: "8080"},
 		},
 
-		CPUs:     globalCfg.CPUs,
-		MemoryMB: globalCfg.MemoryMB,
-		Network:  globalCfg.Network,
-		GPU:      globalCfg.GPU,
+		CPUs:     cfg.Global.CPUs,
+		MemoryMB: cfg.Global.MemoryMB,
+		Network:  cfg.Global.Network,
+		GPU:      cfg.Global.GPU,
 
-		Env: envVars,
+		Env: cfg.EnvVars,
 	}
 
 	return spec

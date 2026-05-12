@@ -12,8 +12,8 @@ import (
 type TemplateHandler struct{}
 
 func (h *TemplateHandler) Validate(step *nodeops.SetupStep) error {
-	if step.Template == nil {
-		return fmt.Errorf("template config is required for type 'template'")
+	if err := requireTypedConfig(step, "template", step.Template != nil); err != nil {
+		return err
 	}
 	if step.Template.Value == "" {
 		return fmt.Errorf("template.value is required")

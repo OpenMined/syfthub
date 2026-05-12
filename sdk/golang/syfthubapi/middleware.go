@@ -113,40 +113,19 @@ func RecoveryMiddleware(logger *slog.Logger) Middleware {
 	}
 }
 
-// TimeoutMiddleware adds a timeout to request processing.
+// TimeoutMiddleware enforces a per-request timeout via context cancellation
+// and translates a DeadlineExceeded ctx error into a TunnelStatusError
+// response. Assumes `next` returns when ctx is cancelled; a handler that
+// ignores ctx will block this middleware until it returns on its own.
 func TimeoutMiddleware(timeout time.Duration) Middleware {
 	return func(next RequestHandler) RequestHandler {
 		return func(ctx context.Context, req *TunnelRequest) (*TunnelResponse, error) {
 			ctx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
 
-			// Channel for the response
-			type result struct {
-				resp *TunnelResponse
-				err  error
-			}
-			ch := make(chan result, 1)
+			resp, err := next(ctx, req)
 
-			go func() {
-				resp, err := next(ctx, req)
-				ch <- result{resp, err}
-			}()
-
-			select {
-			case <-ctx.Done():
-				if ctx.Err() == context.DeadlineExceeded {
-					return &TunnelResponse{
-						Protocol:      TunnelProtocolV1,
-						Type:          TunnelTypeResponse,
-						CorrelationID: req.CorrelationID,
-						Status:        TunnelStatusError,
-						EndpointSlug:  req.Endpoint.Slug,
-						Error: &TunnelError{
-							Code:    TunnelErrorCodeTimeout,
-							Message: "request timeout",
-						},
-					}, nil
-				}
+			if ctx.Err() == context.DeadlineExceeded {
 				return &TunnelResponse{
 					Protocol:      TunnelProtocolV1,
 					Type:          TunnelTypeResponse,
@@ -154,13 +133,12 @@ func TimeoutMiddleware(timeout time.Duration) Middleware {
 					Status:        TunnelStatusError,
 					EndpointSlug:  req.Endpoint.Slug,
 					Error: &TunnelError{
-						Code:    TunnelErrorCodeInternalError,
-						Message: "request cancelled",
+						Code:    TunnelErrorCodeTimeout,
+						Message: "request timeout",
 					},
 				}, nil
-			case r := <-ch:
-				return r.resp, r.err
 			}
+			return resp, err
 		}
 	}
 }

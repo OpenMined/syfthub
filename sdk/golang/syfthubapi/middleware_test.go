@@ -233,8 +233,8 @@ func TestTimeoutMiddleware(t *testing.T) {
 	t.Run("returns timeout error when exceeded", func(t *testing.T) {
 		mw := TimeoutMiddleware(10 * time.Millisecond)
 		handler := mw(func(ctx context.Context, req *TunnelRequest) (*TunnelResponse, error) {
-			time.Sleep(100 * time.Millisecond)
-			return &TunnelResponse{Status: "success"}, nil
+			<-ctx.Done()
+			return nil, ctx.Err()
 		})
 
 		req := &TunnelRequest{
@@ -271,13 +271,10 @@ func TestTimeoutMiddleware(t *testing.T) {
 		}()
 
 		req := &TunnelRequest{Endpoint: TunnelEndpointInfo{Slug: "test"}}
-		resp, _ := handler(ctx, req)
+		_, err := handler(ctx, req)
 
-		if resp == nil {
-			t.Fatal("response should not be nil")
-		}
-		if resp.Status != "error" {
-			t.Errorf("status = %q", resp.Status)
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("expected context.Canceled, got: %v", err)
 		}
 	})
 }

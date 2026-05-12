@@ -23,8 +23,8 @@ import (
 type OAuth2Handler struct{}
 
 func (h *OAuth2Handler) Validate(step *nodeops.SetupStep) error {
-	if step.OAuth2 == nil {
-		return fmt.Errorf("oauth2 config is required for type 'oauth2'")
+	if err := requireTypedConfig(step, "oauth2", step.OAuth2 != nil); err != nil {
+		return err
 	}
 	if step.OAuth2.AuthURL == "" {
 		return fmt.Errorf("oauth2.auth_url is required")

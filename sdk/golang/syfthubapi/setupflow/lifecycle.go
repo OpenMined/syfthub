@@ -232,7 +232,7 @@ func (m *LifecycleManager) refreshToken(endpointDir, slug, stepID string, step *
 	}
 
 	if len(updates) > 0 {
-		if err := mergeEnvFile(endpointDir, updates); err != nil {
+		if err := nodeops.MergeEnvFile(filepath.Join(endpointDir, ".env"), updates, false); err != nil {
 			result.Error = fmt.Errorf("failed to update .env: %w", err)
 			return result
 		}

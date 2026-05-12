@@ -488,17 +488,24 @@ func (api *SyftAPI) shutdown(ctx context.Context) {
 		}
 	}
 
-	// Close all endpoint invokers (which close their owned executors).
-	// fileProvider.Stop() is called above before this point, which ensures
-	// the file watcher has stopped delivering reload events. This ordering
-	// prevents ReplaceFileBased from racing with the invoker close loop.
+	// Close all endpoint invokers (which close their owned executors) in parallel.
+	// Container executors block on container stop (default 15s each) so a sequential
+	// loop would stall shutdown by N×15s. fileProvider.Stop() above ensures the
+	// watcher has stopped delivering reload events, so ReplaceFileBased cannot
+	// race with this loop.
+	var shutdownWG sync.WaitGroup
 	for _, ep := range api.registry.List() {
 		if ep.invoker != nil {
-			if err := ep.invoker.Close(); err != nil {
-				api.logger.Warn("error closing invoker", "endpoint", ep.Slug, "error", err)
-			}
+			shutdownWG.Add(1)
+			go func(ep *Endpoint) {
+				defer shutdownWG.Done()
+				if err := ep.invoker.Close(); err != nil {
+					api.logger.Warn("error closing invoker", "endpoint", ep.Slug, "error", err)
+				}
+			}(ep)
 		}
 	}
+	shutdownWG.Wait()
 
 	// Run shutdown hooks
 	for _, hook := range api.shutdownHooks {

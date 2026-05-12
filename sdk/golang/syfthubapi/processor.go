@@ -44,17 +44,12 @@ func (p *RequestProcessor) SetLogHook(hook RequestLogHook) {
 func (p *RequestProcessor) Process(ctx context.Context, req *TunnelRequest) (*TunnelResponse, error) {
 	startTime := time.Now()
 
-	p.logger.Info("[REQUEST] ========== INCOMING REQUEST ==========",
+	p.logger.Debug("[REQUEST] incoming",
 		"correlation_id", req.CorrelationID,
 		"endpoint", req.Endpoint.Slug,
 		"endpoint_type", req.Endpoint.Type,
 		"has_token", req.SatelliteToken != "",
 		"payload_size", len(req.Payload),
-	)
-
-	p.logger.Debug("[REQUEST] Raw payload",
-		"correlation_id", req.CorrelationID,
-		"payload", string(req.Payload),
 	)
 
 	// Create request context
@@ -69,7 +64,7 @@ func (p *RequestProcessor) Process(ctx context.Context, req *TunnelRequest) (*Tu
 		if p.logHook != nil {
 			log := BuildRequestLog(req, userCtx, resp, reqCtx.PolicyResult, startTime)
 			if log.Request != nil {
-				p.enrichLog(log, req, ep)
+				p.enrichLog(log, req, ep, reqCtx.Input)
 			}
 			p.logHook(ctx, log)
 		}
@@ -89,7 +84,7 @@ func (p *RequestProcessor) Process(ctx context.Context, req *TunnelRequest) (*Tu
 	reqCtx.User = userCtx
 	reqCtx.PaymentCredential = req.PaymentCredential
 
-	p.logger.Info("[REQUEST] User authenticated",
+	p.logger.Debug("[REQUEST] user authenticated",
 		"correlation_id", req.CorrelationID,
 		"user_sub", userCtx.Sub,
 		"username", userCtx.Username,
@@ -115,8 +110,7 @@ func (p *RequestProcessor) Process(ctx context.Context, req *TunnelRequest) (*Tu
 		return emitLogAndReturn(resp, userCtx, endpoint)
 	}
 
-	// Generic invocation pipeline: parse → invoke → format
-	p.logger.Info("[REQUEST] Invoking endpoint",
+	p.logger.Debug("[REQUEST] invoking endpoint",
 		"correlation_id", req.CorrelationID,
 		"slug", endpoint.Slug,
 		"type", endpoint.Type,
@@ -151,7 +145,7 @@ func (p *RequestProcessor) Process(ctx context.Context, req *TunnelRequest) (*Tu
 
 	reqCtx.Output = formatted
 
-	p.logger.Info("[REQUEST] Endpoint execution succeeded",
+	p.logger.Debug("[REQUEST] endpoint execution succeeded",
 		"correlation_id", req.CorrelationID,
 		"slug", endpoint.Slug,
 	)
@@ -183,10 +177,11 @@ func (p *RequestProcessor) Process(ctx context.Context, req *TunnelRequest) (*Tu
 
 // enrichLog delegates type-specific log enrichment to the endpoint's invoker.
 // endpoint may be nil (e.g. for error responses where lookup failed); in that
-// case the function falls back to payload-based type inference.
-func (p *RequestProcessor) enrichLog(log *RequestLog, req *TunnelRequest, endpoint *Endpoint) {
-	if endpoint != nil && endpoint.invoker != nil {
-		endpoint.invoker.EnrichLog(log, req.Payload)
+// case the function falls back to payload-based type inference. parsedInput is
+// the value produced by ParseRequest (nil when parsing did not run).
+func (p *RequestProcessor) enrichLog(log *RequestLog, req *TunnelRequest, endpoint *Endpoint, parsedInput any) {
+	if endpoint != nil && endpoint.invoker != nil && parsedInput != nil {
+		endpoint.invoker.EnrichLog(log, parsedInput)
 		return
 	}
 	p.enrichLogFallback(log, req)
@@ -220,18 +215,6 @@ func (p *RequestProcessor) verifyToken(ctx context.Context, token string) (*User
 	return p.authClient.VerifyToken(ctx, token)
 }
 
-// paymentChallengeKeys lists the policy-metadata keys that are forwarded to
-// the caller in a PAYMENT_REQUIRED tunnel error. Only these keys are copied;
-// other policy metadata stays internal.
-var paymentChallengeKeys = []string{
-	"payment_challenge",
-	"payment_amount",
-	"payment_currency",
-	"payment_recipient",
-	"challenge_id",
-	"intent",
-}
-
 // maybePaymentRequiredResponse builds a PAYMENT_REQUIRED tunnel response when
 // the policy chain returned a Pending result carrying a payment challenge.
 // Returns nil if the request did not surface a payment challenge.
@@ -239,16 +222,10 @@ func (p *RequestProcessor) maybePaymentRequiredResponse(req *TunnelRequest, reqC
 	if reqCtx.PolicyResult == nil || !reqCtx.PolicyResult.Pending {
 		return nil
 	}
-	challenge, _ := reqCtx.PolicyResult.Metadata["payment_challenge"].(string)
-	if challenge == "" {
+	if _, ok := PaymentChallengeFromMetadata(reqCtx.PolicyResult.Metadata); !ok {
 		return nil
 	}
-	details := map[string]any{}
-	for _, k := range paymentChallengeKeys {
-		if v, ok := reqCtx.PolicyResult.Metadata[k]; ok {
-			details[k] = v
-		}
-	}
+	details := CopyPaymentMetadata(reqCtx.PolicyResult.Metadata)
 	p.logger.Info("[REQUEST] Payment required",
 		"correlation_id", req.CorrelationID,
 		"challenge_id", details["challenge_id"],
