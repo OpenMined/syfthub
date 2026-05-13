@@ -8,10 +8,37 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 )
+
+// filepathAbs / osOpen / pathIsUnder are tiny indirections so the runner-
+// attachment helper is easy to test (and easy to retarget if we later want
+// to support mounted virtual paths).
+
+func filepathAbs(p string) (string, error) {
+	return filepath.Abs(p)
+}
+
+func osOpen(p string) (*os.File, error) {
+	return os.Open(p)
+}
+
+// pathIsUnder reports whether absPath is the same as or a descendant of absDir.
+// Both arguments must be absolute and cleaned.
+func pathIsUnder(absPath, absDir string) bool {
+	if absPath == absDir {
+		return true
+	}
+	withSep := absDir
+	if !strings.HasSuffix(withSep, string(filepath.Separator)) {
+		withSep += string(filepath.Separator)
+	}
+	return strings.HasPrefix(absPath, withSep)
+}
 
 // AgentHandlerConfig holds configuration for creating a file-based agent handler.
 type AgentHandlerConfig struct {
@@ -38,7 +65,10 @@ type AgentHandlerConfig struct {
 //   - send_tool_call(tool_name, arguments, ...)      → event "agent.tool_call"
 //   - send_tool_result(tool_call_id, ...)            → event "agent.tool_result"
 //   - send_token(token)                              → event "agent.token"
+//   - send_attachment(path, mime=None, name=None)    → event "agent.attachment"
 //   - receive()                                      → blocks for user message
+//   - receive_attachment(timeout=None)               → next inbound attachment dict
+//   - attachments_dir                                → tempdir for inbound files
 //   - request_input(prompt)                          → event "agent.request_input"
 //   - request_confirmation(action, ...)              → tool_call w/ requires_confirmation
 //
@@ -50,7 +80,9 @@ type AgentHandlerConfig struct {
 const agentWrapperScript = `
 import sys
 import json
+import os
 import threading
+import queue
 import importlib.util
 import traceback
 
@@ -63,9 +95,20 @@ class AgentSession:
         self.prompt = data.get("prompt", "")
         self.messages = data.get("messages", [])
         self.config = data.get("config", {})
+        # attachments_dir, when non-empty, is a per-session tempdir on the host
+        # where inbound attachment plaintexts have been materialized. The
+        # runner reads files from this dir for inbound attachments and writes
+        # outbound attachment files here before calling send_attachment().
+        self.attachments_dir = data.get("attachments_dir", "")
         self._write_lock = threading.Lock()
-        self._read_lock = threading.Lock()
         self._tc_counter = 0
+        # Inbound attachments arrive as separate JSON frames on stdin, so we
+        # demultiplex stdin into two queues read by a single dispatcher thread.
+        self._messages: queue.Queue = queue.Queue()
+        self._attachments: queue.Queue = queue.Queue()
+        self._cancelled = False
+        self._stdin_thread = threading.Thread(target=self._read_stdin_loop, daemon=True)
+        self._stdin_thread.start()
 
     def send_message(self, content):
         """Send a complete message to the user."""
@@ -108,16 +151,49 @@ class AgentSession:
         """Send a streaming token."""
         self._emit("agent.token", {"token": token})
 
-    def receive(self):
+    def send_attachment(self, path, mime=None, name=None):
+        """Send a file attachment to the user.
+
+        The host bridge reads the file off disk, encrypts + uploads (or inlines
+        for small files), and emits the agent.attachment event. The Python
+        runner just hands over a path.
+
+        Args:
+            path: filesystem path to the file (str or os.PathLike)
+            mime: MIME type (default "application/octet-stream")
+            name: display name (default os.path.basename(path))
+        """
+        path_str = os.fspath(path)
+        if not os.path.isfile(path_str):
+            raise FileNotFoundError(path_str)
+        payload = {
+            "path": path_str,
+            "mime": mime or "application/octet-stream",
+            "name": name or os.path.basename(path_str),
+        }
+        # Distinct envelope type — read by the Go bridge in a different arm
+        # than agent.* events. See filemode/agent_executor.go.
+        self._emit_raw({"type": "agent_attachment", "payload": payload})
+
+    def receive(self, timeout=None):
         """Block until a user message arrives. Returns dict with 'type' and 'content'."""
-        with self._read_lock:
-            line = sys.stdin.readline()
-            if not line:
-                raise EOFError("Connection closed")
-            msg = json.loads(line)
-            if msg.get("type") == "cancel":
-                raise KeyboardInterrupt("Session cancelled by user")
-            return msg.get("message", {})
+        try:
+            msg = self._messages.get(timeout=timeout)
+        except queue.Empty:
+            return None
+        if isinstance(msg, _Cancelled):
+            raise KeyboardInterrupt("Session cancelled by user")
+        return msg
+
+    def receive_attachment(self, timeout=None):
+        """Block until an inbound attachment arrives, or return None on timeout.
+
+        Returns a dict with keys: file_id, path, name, mime, size_bytes, sha256.
+        """
+        try:
+            return self._attachments.get(timeout=timeout)
+        except queue.Empty:
+            return None
 
     def request_input(self, prompt):
         """Ask the user for input and wait for their response."""
@@ -133,12 +209,40 @@ class AgentSession:
             requires_confirmation=True,
         )
         response = self.receive()
+        if response is None:
+            return False
         return response.get("type") == "user_confirm"
 
     def _emit(self, event_type, data):
+        self._emit_raw({"type": event_type, "data": data})
+
+    def _emit_raw(self, frame):
         with self._write_lock:
-            sys.stdout.write(json.dumps({"type": event_type, "data": data}) + "\n")
+            sys.stdout.write(json.dumps(frame) + "\n")
             sys.stdout.flush()
+
+    def _read_stdin_loop(self):
+        """Demultiplex stdin frames into message vs. attachment queues."""
+        for line in sys.stdin:
+            try:
+                frame = json.loads(line)
+            except Exception:
+                continue
+            t = frame.get("type", "")
+            if t == "cancel":
+                self._cancelled = True
+                self._messages.put(_Cancelled())
+                self._attachments.put(_Cancelled())
+                return
+            if t == "user_attachment":
+                self._attachments.put(frame.get("attachment", {}))
+                continue
+            # default: user_message-style frame
+            self._messages.put(frame.get("message", {}))
+
+
+class _Cancelled:
+    pass
 
 
 def main():
@@ -170,6 +274,54 @@ def main():
 if __name__ == "__main__":
     main()
 `
+
+// handleRunnerAttachment reads a runner-produced file and forwards it as an
+// agent.attachment event via the session. The runner writes the file under
+// the per-session AttachmentDir (or any path it has access to); the bridge
+// validates the path stays inside the session tempdir, then calls
+// session.SendAttachment which inlines the bytes (PR-2) or stages an Object
+// Store upload (PR-5).
+func handleRunnerAttachment(session *syfthubapi.AgentSession, payload []byte, logger *slog.Logger) error {
+	if !session.AttachmentsEnabled() {
+		return fmt.Errorf("attachments not enabled for session %s", session.ID)
+	}
+	var att struct {
+		Path string `json:"path"`
+		Name string `json:"name"`
+		MIME string `json:"mime"`
+	}
+	if err := json.Unmarshal(payload, &att); err != nil {
+		return fmt.Errorf("decode runner attachment payload: %w", err)
+	}
+	if att.Path == "" {
+		return fmt.Errorf("empty path")
+	}
+	// Path-traversal guard: only allow files under the session AttachmentDir.
+	absPath, err := filepathAbs(att.Path)
+	if err != nil {
+		return fmt.Errorf("resolve attachment path: %w", err)
+	}
+	absDir, err := filepathAbs(session.AttachmentDir)
+	if err != nil {
+		return fmt.Errorf("resolve attachment dir: %w", err)
+	}
+	if !pathIsUnder(absPath, absDir) {
+		return fmt.Errorf("attachment path %q outside session dir %q", absPath, absDir)
+	}
+
+	f, err := osOpen(absPath)
+	if err != nil {
+		return fmt.Errorf("open attachment %q: %w", absPath, err)
+	}
+	defer f.Close()
+	fileID, err := session.SendAttachment(f, att.Name, att.MIME)
+	if err != nil {
+		return fmt.Errorf("send attachment: %w", err)
+	}
+	logger.Debug("[AGENT-BRIDGE] Forwarded runner attachment",
+		"session_id", session.ID, "file_id", fileID, "path", absPath)
+	return nil
+}
 
 // NewAgentHandler creates an AgentHandler that delegates to a Python runner.py subprocess.
 // Each session spawns a new long-lived Python subprocess with JSON-lines bidirectional protocol.
@@ -215,11 +367,12 @@ func NewAgentHandler(cfg *AgentHandlerConfig) syfthubapi.AgentHandler {
 
 		// Write session_start to stdin (before spawning goroutines)
 		startPayload := map[string]any{
-			"type":       "session_start",
-			"session_id": session.ID,
-			"prompt":     session.InitialPrompt,
-			"messages":   session.Messages,
-			"config":     session.Config,
+			"type":            "session_start",
+			"session_id":      session.ID,
+			"prompt":          session.InitialPrompt,
+			"messages":        session.Messages,
+			"config":          session.Config,
+			"attachments_dir": session.AttachmentDir,
 		}
 		if err := json.NewEncoder(stdin).Encode(startPayload); err != nil {
 			cmd.Process.Kill()
@@ -228,7 +381,7 @@ func NewAgentHandler(cfg *AgentHandlerConfig) syfthubapi.AgentHandler {
 
 		var wg sync.WaitGroup
 
-		// Reader goroutine: Python stdout → session.Send()
+		// Reader goroutine: Python stdout → session events
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -237,14 +390,26 @@ func NewAgentHandler(cfg *AgentHandlerConfig) syfthubapi.AgentHandler {
 
 			for scanner.Scan() {
 				var envelope struct {
-					Type string          `json:"type"`
-					Data json.RawMessage `json:"data"`
+					Type    string          `json:"type"`
+					Data    json.RawMessage `json:"data"`
+					Payload json.RawMessage `json:"payload"`
 				}
 				if err := json.Unmarshal(scanner.Bytes(), &envelope); err != nil {
 					logger.Warn("[AGENT-BRIDGE] Failed to parse event",
 						"session_id", session.ID,
 						"error", err,
 					)
+					continue
+				}
+
+				// Distinct envelope for outbound attachments: the runner has
+				// written a file to disk; we now read it, encode + emit the
+				// agent.attachment event. See docs/architecture/attachments.md.
+				if envelope.Type == "agent_attachment" {
+					if err := handleRunnerAttachment(session, envelope.Payload, logger); err != nil {
+						logger.Warn("[AGENT-BRIDGE] Failed to forward runner attachment",
+							"session_id", session.ID, "error", err)
+					}
 					continue
 				}
 
@@ -263,7 +428,8 @@ func NewAgentHandler(cfg *AgentHandlerConfig) syfthubapi.AgentHandler {
 			}
 		}()
 
-		// Writer goroutine: session.Receive() → Python stdin
+		// Writer goroutine for user messages: session.Receive() → Python stdin
+		stdinMu := &sync.Mutex{}
 		stdinEncoder := json.NewEncoder(stdin)
 		go func() {
 			for {
@@ -276,11 +442,49 @@ func NewAgentHandler(cfg *AgentHandlerConfig) syfthubapi.AgentHandler {
 					"type":    "user_message",
 					"message": msg,
 				}
-				if err := stdinEncoder.Encode(wrapper); err != nil {
+				stdinMu.Lock()
+				err = stdinEncoder.Encode(wrapper)
+				stdinMu.Unlock()
+				if err != nil {
 					return // stdin closed, Python exited
 				}
 			}
 		}()
+
+		// Writer goroutine for user attachments: session.AttachmentCh → Python stdin
+		// Only active when attachments are enabled for this session.
+		if session.AttachmentsEnabled() {
+			ch := session.AttachmentCh()
+			go func() {
+				for {
+					select {
+					case <-session.Context().Done():
+						return
+					case att, ok := <-ch:
+						if !ok {
+							return
+						}
+						wrapper := map[string]any{
+							"type": "user_attachment",
+							"attachment": map[string]any{
+								"file_id":    att.FileID,
+								"path":       att.LocalPath,
+								"name":       att.Name,
+								"mime":       att.MIME,
+								"size_bytes": att.SizeBytes,
+								"sha256":     att.PlaintextSHA256,
+							},
+						}
+						stdinMu.Lock()
+						err := stdinEncoder.Encode(wrapper)
+						stdinMu.Unlock()
+						if err != nil {
+							return // stdin closed
+						}
+					}
+				}
+			}()
+		}
 
 		// Wait for Python process to exit
 		waitErr := cmd.Wait()

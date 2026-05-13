@@ -17,6 +17,10 @@ class Session:
     messages: list
     config: dict
     handler: object  # callable
+    # Container-local directory where inbound attachments are materialized
+    # and outbound attachments may be written. Defaults to an empty string
+    # when attachments are not enabled for this session.
+    attachments_dir: str = ""
 
     # Internal state
     event_queue: queue.Queue = field(
@@ -24,6 +28,9 @@ class Session:
     )
     message_queue: queue.Queue = field(
         default_factory=lambda: queue.Queue(maxsize=100)
+    )
+    attachment_queue: queue.Queue = field(
+        default_factory=lambda: queue.Queue(maxsize=32)
     )
     _thread: Optional[threading.Thread] = field(default=None, repr=False)
     _cancel_event: threading.Event = field(
@@ -80,6 +87,17 @@ class Session:
             )
             return False
 
+    def deliver_attachment(self, attachment: dict):
+        """Non-blocking put on the attachment queue (see attachments protocol)."""
+        try:
+            self.attachment_queue.put_nowait(attachment)
+            return True
+        except queue.Full:
+            logger.warning(
+                "Attachment queue full for session %s", self.id
+            )
+            return False
+
     def cancel(self):
         """Set cancel event; handler should check periodically."""
         self._cancel_event.set()
@@ -127,6 +145,7 @@ class SessionAPI:
         self.prompt = session.prompt
         self.messages = session.messages
         self.config = session.config
+        self.attachments_dir = session.attachments_dir
 
     def send_message(self, content: str):
         """Send a complete message to the user."""
@@ -185,6 +204,46 @@ class SessionAPI:
             "agent.token", {"token": token}
         )
 
+    def send_attachment(self, path, mime: str = None, name: str = None):
+        """Send a file attachment to the user.
+
+        Reads the file from disk and emits an agent.attachment event with the
+        file's bytes embedded as inline_data_b64 (PR-3 inline tier). PR-5
+        will switch large files to Object Store transport.
+        """
+        import base64
+        import hashlib
+        import os
+        path_str = os.fspath(path)
+        if not os.path.isfile(path_str):
+            raise FileNotFoundError(path_str)
+        with open(path_str, "rb") as f:
+            data = f.read()
+        sha = hashlib.sha256(data).hexdigest()
+        file_id = "att-" + uuid.uuid4().hex
+        self._session.send_event(
+            "agent.attachment",
+            {
+                "file_id": file_id,
+                "name": name or os.path.basename(path_str),
+                "mime": mime or "application/octet-stream",
+                "size_bytes": len(data),
+                "plaintext_sha256": sha,
+                "transport": "inline",
+                "inline_data_b64": base64.b64encode(data).decode("ascii"),
+            },
+        )
+        return file_id
+
+    def receive_attachment(self, timeout: float = None) -> Optional[dict]:
+        """Block until an inbound attachment arrives, or return None on timeout."""
+        if self._session._cancel_event.is_set():
+            raise InterruptedError("Session cancelled")
+        try:
+            return self._session.attachment_queue.get(timeout=timeout)
+        except queue.Empty:
+            return None
+
     def receive(self) -> Optional[dict]:
         """Block until a user message arrives. Returns dict with message content."""
         if self._session._cancel_event.is_set():
@@ -238,7 +297,12 @@ class SessionManager:
         self._lock = threading.Lock()
 
     def start_session(
-        self, session_id: str, prompt: str, messages: list, config: dict
+        self,
+        session_id: str,
+        prompt: str,
+        messages: list,
+        config: dict,
+        attachments_dir: str = "",
     ) -> Session:
         """Create and start a new session."""
         session = Session(
@@ -247,12 +311,20 @@ class SessionManager:
             messages=messages,
             config=config,
             handler=self.handler,
+            attachments_dir=attachments_dir,
         )
         with self._lock:
             self._sessions[session_id] = session
         session.start()
         logger.info("Started session %s", session_id)
         return session
+
+    def deliver_attachment(self, session_id: str, attachment: dict) -> bool:
+        """Deliver an inbound attachment to a session."""
+        session = self.get_session(session_id)
+        if session is None:
+            return False
+        return session.deliver_attachment(attachment)
 
     def get_session(self, session_id: str) -> Optional[Session]:
         """Get a session by ID."""
