@@ -52,7 +52,7 @@ export function DeleteEndpointDialog() {
   return (
     <AlertDialog open={isDeleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
       <AlertDialogContent className="sm:max-w-[450px]">
-        <AlertDialogHeader className="items-center">
+        <AlertDialogHeader className="sm:place-items-center! sm:text-center!">
           <AlertDialogTitle>
             <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10">
               <OctagonAlert className="h-7 w-7 text-destructive" />
@@ -90,7 +90,7 @@ export function DeleteEndpointDialog() {
           <ErrorBanner message={error} className="text-center" />
         </div>
 
-        <AlertDialogFooter className="mt-2 sm:justify-center">
+        <AlertDialogFooter className="mt-2 sm:justify-center!">
           <AlertDialogCancel disabled={isDeletingEndpoint}>
             Cancel
           </AlertDialogCancel>

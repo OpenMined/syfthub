@@ -14,8 +14,19 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { useSettings } from '@/contexts/SettingsContext';
 import { extractErrorMessage, isValidUrl } from '@/lib/utils';
-import { BrowseForFolder, SetContainerEnabled } from '../../wailsjs/go/main/App';
+import { BrowseForFolder, SetContainerEnabled, Stop } from '../../wailsjs/go/main/App';
+import { Quit } from '../../wailsjs/runtime/runtime';
 import { ErrorBanner } from '@/components/ui/error-banner';
+import { Spinner } from '@/components/ui/spinner';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface SettingsModalProps {
   open: boolean;
@@ -30,6 +41,9 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
   const [endpointsPath, setEndpointsPath] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingContainerEnabled, setPendingContainerEnabled] = useState<boolean | null>(null);
+  const [isRestarting, setIsRestarting] = useState(false);
+  const [restartStatus, setRestartStatus] = useState<string>('');
 
   // Initialize form with current settings when modal opens
   useEffect(() => {
@@ -78,6 +92,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
   const isUrlValid = !syfthubUrl || isValidUrl(syfthubUrl);
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
@@ -163,13 +178,9 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
             </div>
             <Switch
               checked={settings?.container_enabled ?? false}
-              onCheckedChange={async (checked) => {
-                try {
-                  await SetContainerEnabled(checked);
-                  await refreshSettings();
-                } catch (err) {
-                  setError(extractErrorMessage(err, 'Failed to toggle container mode'));
-                }
+              onCheckedChange={(checked) => {
+                setError(null);
+                setPendingContainerEnabled(checked);
               }}
             />
           </div>
@@ -195,5 +206,65 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+    <AlertDialog open={pendingContainerEnabled !== null}>
+      <AlertDialogContent onEscapeKeyDown={(e) => e.preventDefault()}>
+        {isRestarting ? (
+          <>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Restarting SyftHub Desktop</AlertDialogTitle>
+              <AlertDialogDescription>
+                Please don't close the window — this can take up to 15 seconds
+                while running containers are stopped cleanly.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="flex items-center gap-3 rounded-md border bg-muted/40 px-3 py-3 text-sm">
+              <Spinner className="h-4 w-4 text-foreground" />
+              <span className="text-foreground">{restartStatus}</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Restart required</AlertDialogTitle>
+              <AlertDialogDescription>
+                {pendingContainerEnabled ? 'Enabling' : 'Disabling'} Container Mode
+                requires restarting SyftHub Desktop to take effect. The app will
+                close now — please reopen it to continue.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogAction
+                onClick={async (e) => {
+                  e.preventDefault();
+                  if (pendingContainerEnabled === null) return;
+                  setIsRestarting(true);
+                  try {
+                    setRestartStatus('Saving configuration…');
+                    await SetContainerEnabled(pendingContainerEnabled);
+                    setRestartStatus(
+                      pendingContainerEnabled
+                        ? 'Shutting down current endpoints…'
+                        : 'Stopping running containers…',
+                    );
+                    await Stop();
+                    setRestartStatus('Closing app…');
+                    Quit();
+                  } catch (err) {
+                    setIsRestarting(false);
+                    setRestartStatus('');
+                    setPendingContainerEnabled(null);
+                    setError(extractErrorMessage(err, 'Failed to toggle container mode'));
+                  }
+                }}
+              >
+                Restart
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </>
+        )}
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

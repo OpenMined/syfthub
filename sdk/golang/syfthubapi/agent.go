@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"sync"
 	"sync/atomic"
 
 	"github.com/openmined/syfthub/sdk/golang/agenttypes"
@@ -128,6 +129,17 @@ type AgentSession struct {
 
 	// sequence is a monotonically increasing event counter.
 	sequence atomic.Int64
+
+	// transcript records the conversational messages (user + assistant)
+	// exchanged during the session, in chronological order. Populated
+	// automatically by NewAgentSession (initial Messages + Prompt),
+	// DeliverMessage (Type=="user_message" only), and Send (events with
+	// EventType == EventTypeAgentMessage). Control signals
+	// (user_confirm/user_deny/user_cancel) and non-message agent events
+	// (tokens, thinking, tool calls, status, attachments) are excluded.
+	// Read via Transcript().
+	transcript   []Message
+	transcriptMu sync.Mutex
 }
 
 // HasCapability returns true if the session advertised the named capability.
@@ -199,7 +211,7 @@ func NewAgentSession(parentCtx context.Context, params AgentSessionParams) *Agen
 	if params.AttachmentDir != "" {
 		recvAttachCh = make(chan AttachmentInfo, 32)
 	}
-	return &AgentSession{
+	s := &AgentSession{
 		ID:            params.ID,
 		InitialPrompt: params.Prompt,
 		Messages:      params.Messages,
@@ -215,6 +227,51 @@ func NewAgentSession(parentCtx context.Context, params AgentSessionParams) *Agen
 		recvCh:        make(chan UserMessage, 100),
 		done:          make(chan struct{}),
 	}
+	s.seedTranscript()
+	return s
+}
+
+// seedTranscript initializes the transcript from the construction-time
+// Messages history and InitialPrompt. The prompt is appended only when it
+// would not duplicate the trailing user message in the history.
+func (s *AgentSession) seedTranscript() {
+	s.transcriptMu.Lock()
+	defer s.transcriptMu.Unlock()
+	if len(s.Messages) > 0 {
+		s.transcript = append(s.transcript, s.Messages...)
+	}
+	if s.InitialPrompt == "" {
+		return
+	}
+	if n := len(s.transcript); n > 0 {
+		last := s.transcript[n-1]
+		if last.Role == "user" && last.Content == s.InitialPrompt {
+			return
+		}
+	}
+	s.transcript = append(s.transcript, Message{Role: "user", Content: s.InitialPrompt})
+}
+
+// appendTranscript adds a single conversational message to the session
+// transcript under the transcript lock.
+func (s *AgentSession) appendTranscript(msg Message) {
+	s.transcriptMu.Lock()
+	defer s.transcriptMu.Unlock()
+	s.transcript = append(s.transcript, msg)
+}
+
+// Transcript returns a defensive copy of every conversational message
+// exchanged during this session in chronological order: the seeded
+// history + initial prompt, user messages delivered via DeliverMessage
+// (Type=="user_message" only), and assistant messages emitted via Send
+// with EventType==EventTypeAgentMessage. Safe to call from any goroutine
+// at any point in the session lifecycle, including after termination.
+func (s *AgentSession) Transcript() []Message {
+	s.transcriptMu.Lock()
+	defer s.transcriptMu.Unlock()
+	out := make([]Message, len(s.transcript))
+	copy(out, s.transcript)
+	return out
 }
 
 // Context returns the session's context.
@@ -239,9 +296,16 @@ func (s *AgentSession) SendCh() <-chan AgentEventPayload {
 
 // DeliverMessage pushes a user message to the session's receive channel.
 // Returns false if the channel is full.
+//
+// On successful delivery, conversational messages (Type == "user_message"
+// with non-empty Content) are recorded in the session transcript. Control
+// signals (user_confirm/user_deny/user_cancel) are intentionally excluded.
 func (s *AgentSession) DeliverMessage(msg UserMessage) bool {
 	select {
 	case s.recvCh <- msg:
+		if msg.Type == "user_message" && msg.Content != "" {
+			s.appendTranscript(Message{Role: "user", Content: msg.Content})
+		}
 		return true
 	default:
 		return false
@@ -249,15 +313,39 @@ func (s *AgentSession) DeliverMessage(msg UserMessage) bool {
 }
 
 // Send sends a raw AgentEventPayload to the user.
+//
+// After a successful channel write, EventTypeAgentMessage events are
+// recorded in the session transcript (other event types — tokens,
+// thinking, tool calls, status, attachments, terminal session events —
+// are excluded). Recording happens post-write so a context-cancelled
+// send never produces a phantom transcript entry.
 func (s *AgentSession) Send(event AgentEventPayload) error {
 	event.SessionID = s.ID
 	event.Sequence = int(s.sequence.Add(1))
 	select {
 	case s.sendCh <- event:
+		s.recordOutboundEvent(event)
 		return nil
 	case <-s.ctx.Done():
 		return s.ctx.Err()
 	}
+}
+
+// recordOutboundEvent appends an outgoing event to the transcript when
+// it carries conversational assistant content. Silently skips events
+// that aren't agent.message or whose payload doesn't unmarshal/contain
+// a non-empty content field.
+func (s *AgentSession) recordOutboundEvent(event AgentEventPayload) {
+	if event.EventType != EventTypeAgentMessage {
+		return
+	}
+	var payload struct {
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(event.Data, &payload); err != nil || payload.Content == "" {
+		return
+	}
+	s.appendTranscript(Message{Role: "assistant", Content: payload.Content})
 }
 
 // SendThinking sends a thinking/reasoning event.

@@ -32,6 +32,11 @@ type agentSessionLog struct {
 	failed          bool
 	failError       string
 	policyResult    *syfthubapi.PolicyResultOutput
+	// transcript is the full conversational history captured by the SDK
+	// (user + assistant messages, interleaved). Empty for pre-session
+	// failures, in which case emitAgentSessionLog falls back to a single
+	// user message constructed from prompt.
+	transcript []syfthubapi.Message
 }
 
 // requireAPI returns the core API, or an error if the app is not running.
@@ -97,9 +102,11 @@ func (a *App) StartAgentSession(slug string, prompt string) (string, error) {
 		return "", fmt.Errorf("agent session manager not initialized")
 	}
 
-	// Cancel any existing session before starting a new one.
+	// Cancel any existing session before starting a new one. Mark it as
+	// user-cancelled so its trailing "signal: killed" failure is suppressed.
 	a.agentMu.Lock()
 	if a.agentSessionID != "" {
+		a.agentCancelledID = a.agentSessionID
 		_ = sm.CancelSession(a.agentSessionID)
 		a.agentSessionID = ""
 	}
@@ -181,16 +188,23 @@ func (a *App) StartAgentSession(slug string, prompt string) (string, error) {
 				}
 			}
 
+			eventType := event.EventType
 			switch event.EventType {
-			case "session.completed":
+			case syfthubapi.EventTypeSessionCompleted:
 				sawTerminal = true
-			case "session.failed":
+			case syfthubapi.EventTypeSessionFailed:
 				sawTerminal = true
-				sessionFailed = true
-				if e, ok := data["error"].(string); ok {
-					failError = e
+				// "signal: killed" from a user-initiated cancel is not an error;
+				// rewrite the relayed event and skip failure tracking.
+				if a.consumeAgentCancelled(session.ID) {
+					eventType = syfthubapi.EventTypeSessionCancelled
+				} else {
+					sessionFailed = true
+					if e, ok := data["error"].(string); ok {
+						failError = e
+					}
 				}
-			case "agent.message":
+			case syfthubapi.EventTypeAgentMessage:
 				if content, ok := data["content"].(string); ok {
 					if messageBuf.Len() > 0 {
 						messageBuf.WriteString("\n")
@@ -204,16 +218,23 @@ func (a *App) StartAgentSession(slug string, prompt string) (string, error) {
 			}
 
 			runtime.EventsEmit(a.ctx, "agent:event", AgentStreamEvent{
-				Type:      event.EventType,
+				Type:      eventType,
 				SessionID: session.ID,
 				Data:      data,
 			})
 		}
 
-		// Ensure the frontend always receives a terminal event to exit "Running" state.
+		// Ensure the frontend always receives a terminal event to exit "Running"
+		// state. If the user cancelled but no failed event arrived (e.g. the
+		// handler returned nil after cleanup), prefer session.cancelled over
+		// session.completed so the UI still reflects the explicit stop.
 		if !sawTerminal {
+			terminalType := syfthubapi.EventTypeSessionCompleted
+			if a.consumeAgentCancelled(session.ID) {
+				terminalType = syfthubapi.EventTypeSessionCancelled
+			}
 			runtime.EventsEmit(a.ctx, "agent:event", AgentStreamEvent{
-				Type:      "session.completed",
+				Type:      terminalType,
 				SessionID: session.ID,
 			})
 		}
@@ -221,6 +242,11 @@ func (a *App) StartAgentSession(slug string, prompt string) (string, error) {
 		a.agentMu.Lock()
 		if a.agentSessionID == session.ID {
 			a.agentSessionID = ""
+		}
+		// Clear any lingering cancellation marker so it cannot leak across
+		// sessions (defense in depth — consumeAgentCancelled normally clears it).
+		if a.agentCancelledID == session.ID {
+			a.agentCancelledID = ""
 		}
 		a.agentMu.Unlock()
 
@@ -232,12 +258,16 @@ func (a *App) StartAgentSession(slug string, prompt string) (string, error) {
 
 		// Emit a RequestLog so agent sessions appear in the Logs tab alongside
 		// model/data_source request logs. Pass the policy result so that
-		// allowed-but-evaluated policies are recorded in the log.
+		// allowed-but-evaluated policies are recorded in the log, and the
+		// SDK-captured transcript so the log carries the full conversation
+		// (initial prompt + all user follow-ups + all assistant messages)
+		// rather than just the first user input.
 		l := logInfo
 		l.responseContent = messageBuf.String()
 		l.failed = logFailed
 		l.failError = failError
 		l.policyResult = policyResult
+		l.transcript = session.Transcript()
 		a.emitAgentSessionLog(l)
 	}()
 
@@ -259,6 +289,14 @@ func (a *App) emitAgentSessionLog(l agentSessionLog) {
 
 	processedAt := time.Now()
 
+	// Prefer the SDK-captured transcript (full user+assistant history). Fall
+	// back to a single-prompt slice for pre-session failures (policy denial,
+	// session start error) where no AgentSession ever existed.
+	messages := l.transcript
+	if len(messages) == 0 {
+		messages = []syfthubapi.Message{{Role: "user", Content: l.prompt}}
+	}
+
 	log := &syfthubapi.RequestLog{
 		ID:            syfthubapi.NewRequestLogID(),
 		Timestamp:     l.startTime,
@@ -272,11 +310,9 @@ func (a *App) emitAgentSessionLog(l agentSessionLog) {
 			Role:     l.user.Role,
 		},
 		Request: &syfthubapi.LogRequest{
-			Type: string(syfthubapi.EndpointTypeAgent),
-			Messages: []syfthubapi.Message{
-				{Role: "user", Content: l.prompt},
-			},
-			RawSize: len(l.prompt),
+			Type:     string(syfthubapi.EndpointTypeAgent),
+			Messages: messages,
+			RawSize:  len(l.prompt),
 		},
 		Response: &syfthubapi.LogResponse{},
 		Timing: &syfthubapi.LogTiming{
@@ -338,11 +374,16 @@ func (a *App) SendAgentMessage(content string) error {
 }
 
 // StopAgentSession cancels the active agent session via the shared
-// AgentSessionManager.
+// AgentSessionManager. The session ID is recorded in agentCancelledID so the
+// event drain goroutine can rewrite the trailing "signal: killed" failure
+// into a session.cancelled event — a user-initiated stop is not an error.
 func (a *App) StopAgentSession() error {
 	a.agentMu.Lock()
 	sessionID := a.agentSessionID
 	a.agentSessionID = ""
+	if sessionID != "" {
+		a.agentCancelledID = sessionID
+	}
 	a.agentMu.Unlock()
 
 	if sessionID == "" {
@@ -355,4 +396,18 @@ func (a *App) StopAgentSession() error {
 	}
 
 	return sm.CancelSession(sessionID)
+}
+
+// consumeAgentCancelled returns true and clears the marker if sessionID
+// matches the session the user explicitly stopped. The drain goroutine uses
+// this to decide whether a session.failed event should be rewritten to
+// session.cancelled.
+func (a *App) consumeAgentCancelled(sessionID string) bool {
+	a.agentMu.Lock()
+	defer a.agentMu.Unlock()
+	if a.agentCancelledID != "" && a.agentCancelledID == sessionID {
+		a.agentCancelledID = ""
+		return true
+	}
+	return false
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { OctagonAlert, TriangleAlert } from 'lucide-react';
+import { MoreVertical, OctagonAlert, TriangleAlert } from 'lucide-react';
 import { useAppStore, MULTILINE_ENV_KEYS, type EnvVar } from '../../stores/appStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -100,6 +105,7 @@ export function OverviewSection() {
   const [endpointType, setEndpointType] = useState('');
   const [version, setVersion] = useState('');
   const [isDirty, setIsDirty] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     if (selectedEndpointDetail) {
@@ -130,9 +136,15 @@ export function OverviewSection() {
   };
 
   const handleOpenFolder = async () => {
+    setMenuOpen(false);
     if (selectedEndpointSlug) {
       await OpenEndpointFolder(selectedEndpointSlug);
     }
+  };
+
+  const handleDeleteFromMenu = () => {
+    setMenuOpen(false);
+    setDeleteDialogOpen(true);
   };
 
   return (
@@ -146,15 +158,37 @@ export function OverviewSection() {
                 {isSaving ? 'Saving...' : 'Save'}
               </Button>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleOpenFolder}
-              className="h-7 text-xs"
-            >
-              <FolderIcon className="w-3.5 h-3.5 mr-1.5" />
-              Open Folder
-            </Button>
+            <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Endpoint actions"
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  className="inline-flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:bg-secondary/60 hover:text-foreground focus:outline-none focus:ring-1 focus:ring-ring/50"
+                >
+                  <MoreVertical className="w-4 h-4" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-48 p-1">
+                <button
+                  type="button"
+                  onClick={handleOpenFolder}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded-sm text-foreground hover:bg-secondary/60 focus:bg-secondary/60 focus:outline-none"
+                >
+                  <FolderIcon className="w-3.5 h-3.5" />
+                  Open Folder
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteFromMenu}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded-sm text-destructive hover:bg-destructive/10 focus:bg-destructive/10 focus:outline-none"
+                >
+                  <TrashIcon className="w-3.5 h-3.5" />
+                  Delete endpoint
+                </button>
+              </PopoverContent>
+            </Popover>
           </div>
         }
       />
@@ -213,29 +247,6 @@ export function OverviewSection() {
         </Field> */}
       </div>
 
-      {/* Danger Zone */}
-      <div className="pt-6 mt-6 border-t border-destructive/20">
-        <h3 className="text-sm font-medium text-destructive mb-3">Danger Zone</h3>
-        <div className="p-4 rounded-lg border border-destructive/30 bg-destructive/5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-foreground">Delete this endpoint</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Once deleted, this endpoint and all its files cannot be recovered.
-              </p>
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setDeleteDialogOpen(true)}
-              className="h-8 border-destructive/50 text-destructive hover:bg-destructive/10"
-            >
-              <TrashIcon className="w-4 h-4 mr-1.5" />
-              Delete Endpoint
-            </Button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
@@ -779,8 +790,7 @@ export function PoliciesSection() {
             onClick={() => setShowNewDialog(true)}
             className="h-7 text-xs"
           >
-            <PlusIcon className="w-3.5 h-3.5 mr-1" />
-            Add Policy
+            New Policy
           </Button>
         }
       />
@@ -846,7 +856,7 @@ export function PoliciesSection() {
           <ShieldIcon className="w-10 h-10 mx-auto mb-3 text-secondary" />
           <p className="text-sm text-muted-foreground">No policies configured</p>
           <p className="text-xs text-muted-foreground/70 mt-1">
-            Click "Add Policy" to create a new policy file
+            Click "New Policy" to create a new policy file
           </p>
         </div>
       )}

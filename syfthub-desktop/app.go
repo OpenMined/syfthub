@@ -57,8 +57,9 @@ type App struct {
 	runtimeStates    map[string]string           // Transient lifecycle states per endpoint slug
 	runtimeMu        sync.RWMutex                // Protects runtimeStates; separate from mu so GetEndpoints() doesn't hold mu during the endpoint loop
 	setupStatusCache map[string]*SetupStatusInfo // Cached per-endpoint setup status; protected by mu
-	agentSessionID string     // ID of active agent session (empty if none); SessionManager owns the session
-	agentMu        sync.Mutex // Protects agentSessionID
+	agentSessionID    string     // ID of active agent session (empty if none); SessionManager owns the session
+	agentCancelledID  string     // Session ID that the user explicitly stopped; consumed by the event drain goroutine to suppress the misleading "signal: killed" session.failed event
+	agentMu           sync.Mutex // Protects agentSessionID and agentCancelledID
 	libraryClient    *nodeops.MarketplaceClient // Cached library client; protected by mu
 	libraryClientURL string                     // URL the cached client was created for
 }

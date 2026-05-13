@@ -15,7 +15,7 @@ export interface AgentStreamEvent {
 // Each entry in the agent conversation
 export interface AgentEntry {
   id: string;
-  kind: 'user' | 'thinking' | 'status' | 'tool_call' | 'tool_result' | 'message' | 'token' | 'request_input' | 'error' | 'completed' | 'attachment';
+  kind: 'user' | 'thinking' | 'status' | 'tool_call' | 'tool_result' | 'message' | 'token' | 'request_input' | 'error' | 'completed' | 'cancelled' | 'attachment';
   content: string;
   data?: Record<string, unknown>;
   timestamp: number;
@@ -214,6 +214,24 @@ export function useAgentWorkflow({ endpointSlug }: UseAgentWorkflowProps) {
             id: makeId(),
             kind: 'completed',
             content: 'Session completed',
+            timestamp: Date.now(),
+          }]);
+          setIsRunning(false);
+          setAwaitingInput(false);
+          sessionIdRef.current = null;
+          break;
+
+        case 'session.cancelled':
+          // User-initiated stop. Backend rewrites the misleading subprocess
+          // "signal: killed" failure into this event so the UI treats it as a
+          // graceful termination rather than an error.
+          flushTokens();
+          streamingContentRef.current = '';
+          hasTokenEntryRef.current = false;
+          setEntries(prev => [...prev, {
+            id: makeId(),
+            kind: 'cancelled',
+            content: 'Session stopped',
             timestamp: Date.now(),
           }]);
           setIsRunning(false);

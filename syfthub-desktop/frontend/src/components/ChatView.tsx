@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 // TODO(AGENT_ONLY): WifiOff removed from import — only used by ChatModeContent empty state.
 // To restore, add WifiOff back to this import.
-import { ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, Copy, Loader2, MessageSquarePlus, Paperclip, Square, Upload } from 'lucide-react';
+import { ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, Copy, Loader2, Paperclip, Square, Upload } from 'lucide-react';
 import { OnFileDrop, OnFileDropOff } from '../../wailsjs/runtime/runtime';
 import {
   BrowseForAttachment,
@@ -327,9 +327,7 @@ function ChatInputArea({
             disabled={inputDisabled}
           />
 
-          {/* TODO(AGENT_ONLY): Changed to justify-end since SourceSelector (left element) is hidden.
-              To restore, change back to justify-between and uncomment SourceSelector. */}
-          <PromptInputActions className='justify-end pt-1'>
+          <PromptInputActions className='justify-between pt-1'>
             <div className='flex items-center gap-1'>
               {showAttachmentButton && (
                 <PromptInputAction
@@ -357,6 +355,8 @@ function ChatInputArea({
                   </button>
                 </PromptInputAction>
               )}
+            </div>
+            <div className='flex items-center gap-1'>
               <ModelSelector
                 models={modelEndpoints}
                 selectedModel={chatSelectedModel}
@@ -425,7 +425,6 @@ function AgentChatContent() {
     startSession,
     sendInput,
     stopSession,
-    clearEntries,
   } = useAgentWorkflow({
     endpointSlug: chatSelectedModel?.slug ?? null,
   });
@@ -540,11 +539,6 @@ function AgentChatContent() {
     await stopSession();
   }, [stopSession]);
 
-  const handleNewChat = useCallback(() => {
-    clearEntries();
-    clearStaged();
-  }, [clearEntries, clearStaged]);
-
   const canSubmit = Boolean(inputValue.trim()) && Boolean(chatSelectedModel) && (!isRunning || awaitingInput);
 
   // Derive a stable fingerprint that only changes when tool_call/tool_result
@@ -574,29 +568,6 @@ function AgentChatContent() {
 
   return (
     <div className='flex h-full flex-col'>
-      {/* Top bar */}
-      <div className='border-border flex shrink-0 items-center justify-between border-b px-4 py-2'>
-        <div className='flex items-center gap-2'>
-          <span className='text-foreground text-sm font-semibold'>Agent</span>
-          {isRunning && (
-            <span className='flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-[10px] text-green-400'>
-              <span className='h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse' />
-              Running
-            </span>
-          )}
-        </div>
-        {entries.length > 0 && !isRunning ? (
-          <button
-            type='button'
-            onClick={handleNewChat}
-            className='text-muted-foreground hover:text-foreground flex items-center gap-1 text-xs transition-colors'
-          >
-            <MessageSquarePlus className='h-3.5 w-3.5' />
-            <span>New session</span>
-          </button>
-        ) : null}
-      </div>
-
       {/* Scrollable entries */}
       <div className='relative min-h-0 flex-1'>
         <ChatContainerRoot className='h-full'>
@@ -717,11 +688,11 @@ function AgentChatContent() {
                   );
                 }
 
-                if (entry.kind === 'completed') {
+                if (entry.kind === 'completed' || entry.kind === 'cancelled') {
                   return (
                     <div key={entry.id} className='ml-10'>
                       <div className='text-muted-foreground text-xs italic'>
-                        Session completed
+                        {entry.kind === 'cancelled' ? 'Session stopped' : 'Session completed'}
                       </div>
                     </div>
                   );

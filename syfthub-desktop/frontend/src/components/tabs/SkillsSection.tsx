@@ -5,10 +5,14 @@ import {
   useState,
   type DragEvent,
   type CSSProperties,
+  type ReactNode,
 } from 'react';
-import { BookOpen, Eye, OctagonAlert, Sparkles, Trash2, Upload, X } from 'lucide-react';
+import { Eye, OctagonAlert, Sparkles, Trash2, Upload, X } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
+import { Markdown } from '@/components/prompt-kit/markdown';
+import { parseFrontmatter } from '@/lib/markdown';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import {
   AlertDialog,
@@ -28,7 +32,6 @@ import {
 
 import {
   BrowseForFolder,
-  BrowseForSkillFile,
   InstallSkillFromPaths,
   ListSkills,
   ReadSkill,
@@ -182,18 +185,7 @@ export function SkillsSection({ embedded = false }: { embedded?: boolean } = {})
     }
   };
 
-  const handleBrowseFile = async () => {
-    try {
-      const path = await BrowseForSkillFile('Choose SKILL.md');
-      if (path) {
-        await installFromPaths([path]);
-      }
-    } catch (err) {
-      setDropState({ phase: 'error', message: String(err) });
-    }
-  };
-
-  const handleBrowseFolder = async () => {
+  const handleBrowse = async () => {
     try {
       const path = await BrowseForFolder('Choose skill folder');
       if (path) {
@@ -252,39 +244,54 @@ export function SkillsSection({ embedded = false }: { embedded?: boolean } = {})
 
   return (
     <div className={outerCls}>
-      <SkillsHeader count={loading ? undefined : skills.length} />
+      <SkillsHeader
+        count={loading ? undefined : skills.length}
+        action={
+          <Button
+            size="sm"
+            onClick={handleBrowse}
+            className="h-7 text-xs bg-primary text-primary-foreground hover:bg-primary/90"
+          >
+            New Skill
+          </Button>
+        }
+      />
 
-      <Dropzone
-        state={dropState}
+      <div
+        role="region"
+        aria-label="Installed skills. Drop a folder or SKILL.md file here to install."
+        className={`relative flex flex-col min-h-0 h-[360px] rounded-lg border-2 px-4 py-3 transition-colors duration-150 ease-out ${
+          dropState.phase === 'dragover'
+            ? 'border-solid border-primary bg-primary/5 ring-2 ring-primary/20'
+            : dropState.phase === 'error'
+              ? 'border-solid border-destructive/40 bg-destructive/5'
+              : 'border-dashed border-border/60 bg-card/30'
+        }`}
+        style={dropTargetStyle}
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        onBrowseFile={handleBrowseFile}
-        onBrowseFolder={handleBrowseFolder}
-        onDismissError={() => setDropState({ phase: 'idle' })}
-      />
-
-      <div>
-        <p className="text-xs text-muted-foreground mb-3">
+      >
+        <p className="text-xs text-muted-foreground mb-3 flex-shrink-0">
           Installed {!loading && skills.length > 0 ? `(${skills.length})` : ''}
         </p>
 
         {loading ? (
-          <div className="flex items-center gap-3 py-8 justify-center text-muted-foreground">
-            <div className="w-5 h-5 border-2 border-secondary border-t-primary rounded-full animate-spin" />
+          <div className="flex-1 flex items-center gap-3 justify-center text-muted-foreground">
+            <Spinner className="w-5 h-5 text-primary" />
             <span className="text-sm">Loading skills…</span>
           </div>
         ) : skills.length === 0 ? (
-          <div className="py-8 text-center">
-            <BookOpen className="w-10 h-10 mx-auto mb-3 text-secondary" />
-            <p className="text-sm text-muted-foreground">No skills installed yet</p>
+          <div className="flex-1 flex flex-col items-center justify-center text-center">
+            <Upload className="w-10 h-10 mb-3 text-muted-foreground" />
+            <p className="text-sm text-foreground">No skills installed yet</p>
             <p className="text-xs text-muted-foreground/70 mt-1">
-              Drag a folder or SKILL.md file into the area above
+              Drop a folder or SKILL.md file here to install
             </p>
           </div>
         ) : (
-          <ul className="space-y-2">
+          <ul className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
             {skills.map((skill) => (
               <li
                 key={skill.name}
@@ -322,7 +329,7 @@ export function SkillsSection({ embedded = false }: { embedded?: boolean } = {})
                       aria-label={`Delete ${skill.name}`}
                     >
                       {deleting === skill.name ? (
-                        <span className="w-4 h-4 border border-muted-foreground border-t-foreground rounded-full animate-spin block" />
+                        <Spinner className="w-4 h-4" />
                       ) : (
                         <Trash2 className="w-4 h-4" />
                       )}
@@ -333,6 +340,34 @@ export function SkillsSection({ embedded = false }: { embedded?: boolean } = {})
               </li>
             ))}
           </ul>
+        )}
+
+        {dropState.phase === 'dragover' && (
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center rounded-lg bg-primary/5">
+            <Upload className="w-8 h-8 mb-2 text-primary" />
+            <p className="text-sm text-primary font-medium">Release to install skill</p>
+          </div>
+        )}
+
+        {dropState.phase === 'uploading' && (
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center rounded-lg bg-card/80 backdrop-blur-sm">
+            <Spinner className="w-8 h-8 mb-2 text-primary" />
+            <p className="text-sm text-foreground">{dropState.label}</p>
+          </div>
+        )}
+
+        {dropState.phase === 'error' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center rounded-lg bg-destructive/5 p-4">
+            <OctagonAlert className="w-8 h-8 mb-2 text-destructive" />
+            <p className="text-sm text-destructive max-w-sm text-center">{dropState.message}</p>
+            <button
+              onClick={() => setDropState({ phase: 'idle' })}
+              className="absolute top-2 right-2 p-1 text-muted-foreground hover:text-foreground rounded transition-colors"
+              aria-label="Dismiss error"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         )}
       </div>
 
@@ -357,9 +392,7 @@ export function SkillsSection({ embedded = false }: { embedded?: boolean } = {})
                 </div>
               </div>
             ) : (
-              <pre className="px-4 py-3 text-xs font-mono text-foreground whitespace-pre-wrap break-words leading-relaxed">
-                {previewBody}
-              </pre>
+              <SkillPreviewBody source={previewBody} />
             )}
           </div>
           <div className="flex-shrink-0 px-4 py-1.5 border-t border-border/50 bg-card/30 text-xs text-muted-foreground flex items-center justify-between">
@@ -374,7 +407,7 @@ export function SkillsSection({ embedded = false }: { embedded?: boolean } = {})
       {/* Delete confirmation */}
       <AlertDialog open={!!toDelete} onOpenChange={(open) => !open && setToDelete(null)}>
         <AlertDialogContent>
-          <AlertDialogHeader className="items-center">
+          <AlertDialogHeader className="sm:place-items-center! sm:text-center!">
             <AlertDialogTitle>
               <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10">
                 <OctagonAlert className="h-7 w-7 text-destructive" />
@@ -385,7 +418,7 @@ export function SkillsSection({ embedded = false }: { embedded?: boolean } = {})
               Delete "{toDelete?.name}" and all its files? This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter className="mt-2 sm:justify-center">
+          <AlertDialogFooter className="mt-2 sm:justify-center!">
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction variant="destructive" onClick={confirmDelete}>
               Delete
@@ -401,7 +434,34 @@ export function SkillsSection({ embedded = false }: { embedded?: boolean } = {})
 // Sub-components
 // ----------------------------------------------------------------------------
 
-function SkillsHeader({ count }: { count: number | undefined }) {
+// Render the YAML frontmatter as a metadata header so react-markdown
+// doesn't turn the leading `---` into an <hr> and the keys into stray text.
+function SkillPreviewBody({ source }: { source: string }) {
+  const { frontmatter, body } = parseFrontmatter(source);
+  const fmContent = frontmatter
+    ? frontmatter.replace(/^---\s*\n?/, '').replace(/\n?---\s*$/, '').trim()
+    : '';
+  return (
+    <div className="px-4 py-3">
+      {fmContent && (
+        <pre className="mb-4 px-3 py-2 rounded-md border border-border/50 bg-card/40 text-[11px] font-mono text-muted-foreground whitespace-pre-wrap break-words leading-relaxed">
+          {fmContent}
+        </pre>
+      )}
+      <Markdown className="markdown-message prose prose-invert max-w-none prose-sm">
+        {body}
+      </Markdown>
+    </div>
+  );
+}
+
+function SkillsHeader({
+  count,
+  action,
+}: {
+  count: number | undefined;
+  action?: ReactNode;
+}) {
   return (
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-2">
@@ -412,19 +472,9 @@ function SkillsHeader({ count }: { count: number | undefined }) {
           </span>
         )}
       </div>
+      {action}
     </div>
   );
-}
-
-interface DropzoneProps {
-  state: DropzoneState;
-  onDragEnter: (e: DragEvent<HTMLDivElement>) => void;
-  onDragOver: (e: DragEvent<HTMLDivElement>) => void;
-  onDragLeave: (e: DragEvent<HTMLDivElement>) => void;
-  onDrop: (e: DragEvent<HTMLDivElement>) => void;
-  onBrowseFile: () => void;
-  onBrowseFolder: () => void;
-  onDismissError: () => void;
 }
 
 // dropTargetStyle marks this element as a Wails native file-drop target.
@@ -434,97 +484,3 @@ interface DropzoneProps {
 const dropTargetStyle: CSSProperties = {
   ['--wails-drop-target' as unknown as keyof CSSProperties]: 'drop',
 } as CSSProperties;
-
-function Dropzone({
-  state,
-  onDragEnter,
-  onDragOver,
-  onDragLeave,
-  onDrop,
-  onBrowseFile,
-  onBrowseFolder,
-  onDismissError,
-}: DropzoneProps) {
-  let containerCls =
-    'relative rounded-lg px-6 py-10 transition-colors duration-150 ease-out border-2 ';
-  switch (state.phase) {
-    case 'dragover':
-      containerCls += 'border-solid border-primary bg-primary/5 ring-2 ring-primary/20';
-      break;
-    case 'uploading':
-      containerCls += 'border-dashed border-border/60 bg-card/30';
-      break;
-    case 'error':
-      containerCls += 'border-solid border-destructive/40 bg-destructive/5';
-      break;
-    case 'idle':
-    default:
-      containerCls += 'border-dashed border-border/60 bg-card/30 hover:bg-card/40';
-      break;
-  }
-
-  return (
-    <div
-      role="region"
-      aria-label="Install a skill by dropping a folder or a SKILL.md file"
-      className={containerCls}
-      style={dropTargetStyle}
-      onDragEnter={onDragEnter}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-    >
-      <div className="pointer-events-none flex flex-col items-center text-center">
-        {state.phase === 'uploading' ? (
-          <div className="w-8 h-8 mb-3 border-2 border-secondary border-t-primary rounded-full animate-spin" />
-        ) : state.phase === 'error' ? (
-          <OctagonAlert className="w-8 h-8 mb-3 text-destructive" />
-        ) : (
-          <Upload
-            className={`w-8 h-8 mb-3 ${state.phase === 'dragover' ? 'text-primary' : 'text-muted-foreground'}`}
-          />
-        )}
-        <div aria-live="polite">
-          {state.phase === 'idle' && (
-            <>
-              <p className="text-sm text-foreground">Drop a folder or SKILL.md file here</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                The folder must contain a SKILL.md at its root
-              </p>
-            </>
-          )}
-          {state.phase === 'dragover' && (
-            <p className="text-sm text-primary font-medium">Release to install skill</p>
-          )}
-          {state.phase === 'uploading' && (
-            <p className="text-sm text-foreground">{state.label}</p>
-          )}
-          {state.phase === 'error' && (
-            <p className="text-sm text-destructive max-w-sm">{state.message}</p>
-          )}
-        </div>
-      </div>
-
-      {(state.phase === 'idle' || state.phase === 'error') && (
-        <div className="mt-4 flex items-center justify-center gap-2">
-          <Button variant="outline" size="sm" onClick={onBrowseFile} className="h-8 text-xs">
-            Browse SKILL.md
-          </Button>
-          <Button variant="outline" size="sm" onClick={onBrowseFolder} className="h-8 text-xs">
-            Browse Folder
-          </Button>
-        </div>
-      )}
-
-      {state.phase === 'error' && (
-        <button
-          onClick={onDismissError}
-          className="absolute top-2 right-2 p-1 text-muted-foreground hover:text-foreground rounded transition-colors"
-          aria-label="Dismiss error"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      )}
-    </div>
-  );
-}
