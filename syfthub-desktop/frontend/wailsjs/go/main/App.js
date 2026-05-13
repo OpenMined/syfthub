@@ -10,10 +10,6 @@ export function AttachToActiveSession(arg1) {
   return window['go']['main']['App']['AttachToActiveSession'](arg1);
 }
 
-export function DownloadActiveSessionAttachment(arg1, arg2) {
-  return window['go']['main']['App']['DownloadActiveSessionAttachment'](arg1, arg2);
-}
-
 export function AttachmentInlineBytes(arg1, arg2) {
   return window['go']['main']['App']['AttachmentInlineBytes'](arg1, arg2);
 }
@@ -60,6 +56,10 @@ export function DeleteLogs(arg1) {
 
 export function DeletePolicyFile(arg1, arg2) {
   return window['go']['main']['App']['DeletePolicyFile'](arg1, arg2);
+}
+
+export function DownloadActiveSessionAttachment(arg1, arg2) {
+  return window['go']['main']['App']['DownloadActiveSessionAttachment'](arg1, arg2);
 }
 
 export function GetAggregatorURL() {

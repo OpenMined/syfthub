@@ -52,13 +52,11 @@ export function AttachmentChip({
     (async () => {
       try {
         // Cap preview fetch at 2 MiB to avoid loading huge images into memory.
+        // Wails serializes Go []byte as a number array over the JSON bridge.
         const bytes = await AttachmentInlineBytes(fileId, 2 * 1024 * 1024);
         if (revoked) return;
-        // Bytes come back from Wails as base64-encoded string (Go []byte default).
-        const blob =
-          typeof bytes === 'string'
-            ? new Blob([Uint8Array.from(atob(bytes), c => c.charCodeAt(0))], { type: mime })
-            : new Blob([bytes as unknown as ArrayBuffer], { type: mime });
+        const u8 = new Uint8Array(bytes as ArrayLike<number>);
+        const blob = new Blob([u8], { type: mime });
         createdUrl = URL.createObjectURL(blob);
         setPreviewUrl(createdUrl);
       } catch {

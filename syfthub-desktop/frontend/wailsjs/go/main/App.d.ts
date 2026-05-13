@@ -6,9 +6,7 @@ export function AddDependency(arg1:string,arg2:string,arg3:string):Promise<void>
 
 export function AttachToActiveSession(arg1:string):Promise<main.AttachmentSummary>;
 
-export function DownloadActiveSessionAttachment(arg1:string,arg2:string):Promise<void>;
-
-export function AttachmentInlineBytes(arg1:string,arg2:number):Promise<Array<number>|string>;
+export function AttachmentInlineBytes(arg1:string,arg2:number):Promise<Array<number>>;
 
 export function BrowseForFolder(arg1:string):Promise<string>;
 
@@ -31,6 +29,8 @@ export function DeleteEnvironment(arg1:string,arg2:string):Promise<void>;
 export function DeleteLogs(arg1:string):Promise<void>;
 
 export function DeletePolicyFile(arg1:string,arg2:string):Promise<void>;
+
+export function DownloadActiveSessionAttachment(arg1:string,arg2:string):Promise<void>;
 
 export function GetAggregatorURL():Promise<string>;
 
