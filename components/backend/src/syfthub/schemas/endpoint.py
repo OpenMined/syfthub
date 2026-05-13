@@ -446,6 +446,10 @@ class Endpoint(BaseModel):
     health_ttl_seconds: Optional[int] = Field(
         None, description="TTL for the health status report in seconds"
     )
+    last_latency_ms: Optional[int] = Field(
+        None,
+        description="Last reported endpoint round-trip latency in milliseconds",
+    )
 
     model_config = {"from_attributes": True}
 
@@ -497,6 +501,10 @@ class EndpointResponse(BaseModel):
     health_ttl_seconds: Optional[int] = Field(
         None, description="TTL for the health status report in seconds"
     )
+    last_latency_ms: Optional[int] = Field(
+        None,
+        description="Last reported endpoint round-trip latency in milliseconds",
+    )
 
     model_config = {"from_attributes": True}
 
@@ -536,6 +544,10 @@ class EndpointPublicResponse(BaseModel):
     )
     health_checked_at: Optional[datetime] = Field(
         None, description="When the client last checked this endpoint's health"
+    )
+    last_latency_ms: Optional[int] = Field(
+        None,
+        description="Last reported endpoint round-trip latency in milliseconds",
     )
     archived: bool = Field(
         default=False, description="Whether the endpoint is archived"
@@ -712,6 +724,15 @@ class EndpointHealthItem(BaseModel):
     checked_at: datetime = Field(
         ..., description="When the client checked this endpoint's health"
     )
+    latency_ms: Optional[int] = Field(
+        None,
+        ge=0,
+        le=300_000,
+        description=(
+            "Optional round-trip latency for the client's upstream probe, "
+            "in milliseconds. Used to populate the endpoint uptime chart."
+        ),
+    )
 
 
 class EndpointHealthRequest(BaseModel):
@@ -786,4 +807,56 @@ class EndpointHealthResponse(BaseModel):
         ...,
         ge=0,
         description="Number of slugs that were not found or not accessible",
+    )
+
+
+# ===========================================
+# ENDPOINT UPTIME / TELEMETRY SCHEMAS
+# ===========================================
+
+
+class UptimeBucket(BaseModel):
+    """One bucketed uptime + latency data point for an endpoint."""
+
+    bucket_start: datetime = Field(..., description="UTC start of the bucket interval")
+    samples: int = Field(
+        ..., ge=0, description="Number of health monitor cycles in this bucket"
+    )
+    healthy_samples: int = Field(
+        ..., ge=0, description="Number of those cycles that observed a healthy state"
+    )
+    uptime_pct: float = Field(
+        ...,
+        ge=0.0,
+        le=100.0,
+        description="Percentage of cycles in which the endpoint was healthy",
+    )
+    avg_latency_ms: Optional[float] = Field(
+        None,
+        description=(
+            "Mean round-trip latency reported in this bucket. "
+            "Null when no fresh latency signals were recorded."
+        ),
+    )
+    min_latency_ms: Optional[int] = Field(
+        None, description="Minimum reported latency in the bucket (milliseconds)"
+    )
+    max_latency_ms: Optional[int] = Field(
+        None, description="Maximum reported latency in the bucket (milliseconds)"
+    )
+
+
+class EndpointUptimeResponse(BaseModel):
+    """Bucketed uptime + latency series for a single endpoint."""
+
+    endpoint_id: int = Field(..., description="Endpoint ID the series belongs to")
+    owner_username: str = Field(..., description="Owner's username (user or org slug)")
+    slug: str = Field(..., description="Endpoint slug")
+    bucket_seconds: int = Field(..., ge=1, description="Size of each bucket in seconds")
+    window_hours: int = Field(
+        ..., ge=1, description="Time window covered by the response in hours"
+    )
+    buckets: List[UptimeBucket] = Field(
+        default_factory=list,
+        description="Ordered list of buckets (oldest first)",
     )
