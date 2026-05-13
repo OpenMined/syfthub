@@ -67,6 +67,12 @@ type AgentSessionRequest struct {
 
 	// AggregatorURL overrides the default aggregator URL.
 	AggregatorURL string
+
+	// Capabilities lists optional protocol extensions to advertise to the
+	// HOST in session.start. The "attachments" capability enables the
+	// file-transfer surface (SendAttachment, AttachmentEvent). Hosts that
+	// don't support the requested capability simply ignore it.
+	Capabilities []string
 }
 
 // StartSession starts a new agent session.
@@ -123,6 +129,9 @@ func (a *AgentResource) StartSession(ctx context.Context, req *AgentSessionReque
 	}
 	if len(req.Messages) > 0 {
 		startPayload["messages"] = req.Messages
+	}
+	if len(req.Capabilities) > 0 {
+		startPayload["capabilities"] = req.Capabilities
 	}
 
 	startMsg := map[string]any{

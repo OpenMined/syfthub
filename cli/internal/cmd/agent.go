@@ -18,7 +18,9 @@ import (
 )
 
 var (
-	agentAggregator string
+	agentAggregator        string
+	agentAttachPaths       []string
+	agentSaveAttachmentsTo string
 )
 
 var agentCmd = &cobra.Command{
@@ -47,6 +49,8 @@ Examples:
 
 func init() {
 	agentCmd.Flags().StringVarP(&agentAggregator, "aggregator", "a", "", "Aggregator alias or URL to use")
+	agentCmd.Flags().StringSliceVar(&agentAttachPaths, "attach", nil, "File(s) to attach to the prompt (repeat or comma-separate). Files <=64 KiB ride inline; larger uses Object Store (PR-5+).")
+	agentCmd.Flags().StringVar(&agentSaveAttachmentsTo, "save-attachments-to", "", "Directory to save inbound agent attachments (defaults to current dir)")
 }
 
 // ── Tool result rendering ──────────────────────────────────────────────────
@@ -128,10 +132,14 @@ func runAgent(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Connecting to %s...\n", endpoint)
 
-	session, err := client.Agent().StartSession(ctx, &syfthub.AgentSessionRequest{
+	startReq := &syfthub.AgentSessionRequest{
 		Prompt:   prompt,
 		Endpoint: endpoint,
-	})
+	}
+	if len(agentAttachPaths) > 0 {
+		startReq.Capabilities = append(startReq.Capabilities, syfthub.AttachmentCapability)
+	}
+	session, err := client.Agent().StartSession(ctx, startReq)
 	if err != nil {
 		output.Error("Failed to start session: %v", err)
 		return err
@@ -139,6 +147,16 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	defer session.Close()
 
 	fmt.Printf("Session %s started\n\n", session.SessionID)
+
+	// Stage attachments up-front so the agent sees them before processing
+	// the prompt. Each file rides as a user.attachment WS frame; inline tier
+	// only in PR-4.
+	for _, p := range agentAttachPaths {
+		if err := uploadAgentAttachment(ctx, session, p); err != nil {
+			output.Error("Failed to attach %s: %v", p, err)
+			return err
+		}
+	}
 
 	// ── State ──
 	var tools []toolEntry      // all tool calls for /expand
@@ -245,6 +263,11 @@ func runAgent(cmd *cobra.Command, args []string) error {
 				fmt.Printf("\n⚠ Error [%s]: %s\n", e.Code, e.Message)
 				if !e.Recoverable {
 					return fmt.Errorf("agent error: %s", e.Message)
+				}
+
+			case *syfthub.AttachmentEvent:
+				if err := saveAgentAttachment(e); err != nil {
+					fmt.Printf("\n⚠ Attachment %s (%s): %v\n", e.Name, e.FileID, err)
 				}
 
 			case *syfthub.AgentPaymentRequiredEvent:

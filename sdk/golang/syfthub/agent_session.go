@@ -2,13 +2,37 @@ package syfthub
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/coder/websocket"
 	"github.com/openmined/syfthub/sdk/golang/agenttypes"
 )
+
+// AttachmentCapability is the capability string clients advertise in
+// session.start to opt into the attachments protocol. See
+// docs/architecture/attachments.md.
+const AttachmentCapability = "attachments"
+
+// InlineAttachmentMaxBytes is the maximum plaintext size supported by the
+// inline transport. Larger files require the Object Store transport
+// (PR-5+). MUST equal syfthubapi.InlineMaxBytes.
+const InlineAttachmentMaxBytes = 64 * 1024
+
+// newAttachmentID returns a fresh "att-<uuid>" identifier.
+func newAttachmentID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("att-%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
 
 // AgentEvent is the interface for all agent events.
 type AgentEvent interface {
@@ -114,6 +138,43 @@ type AgentPaymentRequiredEvent struct {
 
 func (e *AgentPaymentRequiredEvent) EventType() string { return "agent.payment_required" }
 
+// AttachmentEvent represents an attachment emitted by the agent (HOST → CLIENT
+// direction). The bytes are either inline (transport=inline, base64 in
+// InlineDataB64) or live in JetStream Object Store (transport=object_store).
+// See docs/architecture/attachments.md.
+type AttachmentEvent struct {
+	FileID          string `json:"file_id"`
+	Name            string `json:"name"`
+	MIME            string `json:"mime"`
+	SizeBytes       int64  `json:"size_bytes"`
+	PlaintextSHA256 string `json:"plaintext_sha256"`
+	Transport       string `json:"transport"`
+
+	// Inline tier:
+	InlineDataB64 string `json:"inline_data_b64,omitempty"`
+
+	// Object-store tier (PR-5+):
+	ObjectBucket string                 `json:"object_bucket,omitempty"`
+	ObjectKey    string                 `json:"object_key,omitempty"`
+	ChunkSize    int                    `json:"chunk_size,omitempty"`
+	WrappedKey   map[string]interface{} `json:"wrapped_key,omitempty"`
+}
+
+func (e *AttachmentEvent) EventType() string { return "agent.attachment" }
+
+// Bytes returns the decoded plaintext bytes for an inline-tier attachment.
+// For object-store-tier attachments it returns an error; callers should use
+// AgentSessionClient.DownloadAttachment instead.
+func (e *AttachmentEvent) Bytes() ([]byte, error) {
+	if e.Transport != "inline" {
+		return nil, fmt.Errorf("attachment %q is not inline (transport=%q)", e.FileID, e.Transport)
+	}
+	if e.InlineDataB64 == "" {
+		return nil, fmt.Errorf("inline_data_b64 is empty")
+	}
+	return base64.StdEncoding.DecodeString(e.InlineDataB64)
+}
+
 // AgentSessionClient wraps a WebSocket connection with typed send/receive
 // methods for agent sessions.
 type AgentSessionClient struct {
@@ -201,6 +262,81 @@ func (c *AgentSessionClient) Cancel(ctx context.Context) error {
 	return c.sendJSON(ctx, map[string]any{
 		"type": "user.cancel",
 	})
+}
+
+// AttachmentOpts holds the per-call options for SendAttachment.
+type AttachmentOpts struct {
+	// Name is the display name (defaults to "attachment.bin").
+	Name string
+	// MIME is the declared media type (defaults to application/octet-stream).
+	MIME string
+}
+
+// SendAttachment uploads a file as a user.attachment WebSocket message.
+//
+// PR-4 supports the inline tier only: payloads larger than
+// InlineAttachmentMaxBytes return an error. PR-7 adds HTTP side-channel
+// upload for the Object Store tier.
+//
+// Returns the assigned file_id. Callers should reference attachments in
+// subsequent text with the URI scheme `attachment://{file_id}`.
+func (c *AgentSessionClient) SendAttachment(ctx context.Context, r io.Reader, opts AttachmentOpts) (string, error) {
+	body, err := io.ReadAll(io.LimitReader(r, InlineAttachmentMaxBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("read attachment: %w", err)
+	}
+	if len(body) > InlineAttachmentMaxBytes {
+		return "", fmt.Errorf("attachment exceeds inline limit (%d bytes); Object Store transport not yet implemented", InlineAttachmentMaxBytes)
+	}
+
+	fileID := newAttachmentID()
+	sum := sha256.Sum256(body)
+	name := opts.Name
+	if name == "" {
+		name = "attachment.bin"
+	}
+	mime := opts.MIME
+	if mime == "" {
+		mime = "application/octet-stream"
+	}
+
+	return fileID, c.sendJSON(ctx, map[string]any{
+		"type": "user.attachment",
+		"payload": map[string]any{
+			"file_id":          fileID,
+			"name":             name,
+			"mime":             mime,
+			"size_bytes":       int64(len(body)),
+			"plaintext_sha256": hex.EncodeToString(sum[:]),
+			"transport":        "inline",
+			"inline_data_b64":  base64.StdEncoding.EncodeToString(body),
+		},
+	})
+}
+
+// SendAttachmentBytes is a convenience wrapper for SendAttachment with a
+// []byte source.
+func (c *AgentSessionClient) SendAttachmentBytes(ctx context.Context, data []byte, opts AttachmentOpts) (string, error) {
+	return c.SendAttachment(ctx, bytesReader(data), opts)
+}
+
+// bytesReader is a tiny helper to avoid importing bytes just for NewReader.
+func bytesReader(b []byte) io.Reader {
+	return &sliceReader{b: b}
+}
+
+type sliceReader struct {
+	b   []byte
+	pos int
+}
+
+func (r *sliceReader) Read(p []byte) (int, error) {
+	if r.pos >= len(r.b) {
+		return 0, io.EOF
+	}
+	n := copy(p, r.b[r.pos:])
+	r.pos += n
+	return n, nil
 }
 
 // Close closes the WebSocket connection and cleans up resources.
@@ -332,6 +468,10 @@ func (c *AgentSessionClient) parseEvent(eventType string, payload json.RawMessag
 		event = &e
 	case "agent.payment_required", "payment_required":
 		var e AgentPaymentRequiredEvent
+		err = json.Unmarshal(payload, &e)
+		event = &e
+	case "agent.attachment":
+		var e AttachmentEvent
 		err = json.Unmarshal(payload, &e)
 		event = &e
 	default:
