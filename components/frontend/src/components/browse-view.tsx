@@ -31,6 +31,7 @@ import {
   extractUniqueTags,
   hasActiveFilters
 } from './browse-filters-modal';
+import { CollectiveBadge } from './collectives/collective-badge';
 import { EndpointTypeIcon } from './endpoint-type-icon';
 import { Badge } from './ui/badge';
 import { LoadingSpinner } from './ui/loading-spinner';
@@ -44,6 +45,7 @@ import {
   PaginationPrevious
 } from './ui/pagination';
 import { Tabs, TabsList, TabsTrigger } from './ui/tabs';
+import { getEndpointCollective } from '@/lib/mock-data/collectives';
 
 // ============================================================================
 // Constants
@@ -474,6 +476,20 @@ export function BrowseView({ initialQuery = '' }: Readonly<BrowseViewProperties>
                           <p className='font-inter text-muted-foreground mt-1.5 line-clamp-2 text-sm'>
                             {endpoint.description}
                           </p>
+                          {/* Collective Badge */}
+                          {(() => {
+                            const collective = getEndpointCollective(endpoint.owner_username || '');
+                            return collective ? (
+                              <div className='mt-2'>
+                                <CollectiveBadge
+                                  name={collective.name}
+                                  slug={collective.slug}
+                                  isVerified={collective.isVerified}
+                                  size='sm'
+                                />
+                              </div>
+                            ) : null;
+                          })()}
                         </div>
                         <ChevronRight
                           className='text-muted-foreground mt-1 h-5 w-5 shrink-0 transition-transform group-hover:translate-x-0.5'

@@ -28,6 +28,11 @@ const ProfilePage = lazyWithRetry(() => import('./pages/profile'));
 const EndpointsPage = lazyWithRetry(() => import('./pages/endpoints'));
 const EndpointDetailPage = lazyWithRetry(() => import('./pages/endpoint-detail'));
 const UserProfilePage = lazyWithRetry(() => import('./pages/user-profile'));
+// Collectives pages
+const CollectivesPage = lazyWithRetry(() => import('./pages/collectives'));
+const CollectiveDetailPage = lazyWithRetry(() => import('./pages/collective-detail'));
+const CollectiveAdminPage = lazyWithRetry(() => import('./pages/collective-admin'));
+const CreateCollectivePage = lazyWithRetry(() => import('./pages/create-collective'));
 // TODO(agent-feature): Uncomment when agent endpoint UI is re-enabled
 // const AgentPage = lazyWithRetry(() => import('./pages/agent'));
 const NotFoundPage = lazyWithRetry(() => import('./pages/not-found'));
@@ -126,6 +131,44 @@ export default function App() {
                           <RouteBoundary>
                             <AboutPage />
                           </RouteBoundary>
+                        }
+                      />
+
+                      {/* Collectives routes */}
+                      <Route
+                        path='collectives'
+                        element={
+                          <RouteBoundary>
+                            <CollectivesPage />
+                          </RouteBoundary>
+                        }
+                      />
+                      <Route
+                        path='collectives/create'
+                        element={
+                          <ProtectedRoute>
+                            <RouteBoundary>
+                              <CreateCollectivePage />
+                            </RouteBoundary>
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path='c/:slug'
+                        element={
+                          <RouteBoundary>
+                            <CollectiveDetailPage />
+                          </RouteBoundary>
+                        }
+                      />
+                      <Route
+                        path='c/:slug/admin'
+                        element={
+                          <ProtectedRoute>
+                            <RouteBoundary>
+                              <CollectiveAdminPage />
+                            </RouteBoundary>
+                          </ProtectedRoute>
                         }
                       />
 
