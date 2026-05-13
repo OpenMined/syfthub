@@ -283,6 +283,26 @@ func EncryptTunnelResponse(
 type SessionEncryptor struct {
 	gcm          cipher.AEAD
 	ephPubKeyB64 string
+
+	// aesKey retains the 32-byte AES key derived from ECDH+HKDF. Used by
+	// AttachmentEncryptor (PR-5+) to derive per-file KEKs for envelope-
+	// encrypted file keys. See docs/architecture/attachments.md.
+	aesKey []byte
+}
+
+// AESKey returns a copy of the session-derived 32-byte AES key. Used by
+// AttachmentEncryptor to derive per-file KEKs.
+func (e *SessionEncryptor) AESKey() []byte {
+	out := make([]byte, len(e.aesKey))
+	copy(out, e.aesKey)
+	return out
+}
+
+// EphemeralPublicKeyB64 returns the base64url-encoded ephemeral public key
+// the session is using for the response direction. Exposed so callers (e.g.,
+// the attachments-relay code) can echo it in correlated artifacts.
+func (e *SessionEncryptor) EphemeralPublicKeyB64() string {
+	return e.ephPubKeyB64
 }
 
 // NewSessionEncryptor generates a single ephemeral X25519 keypair, performs ECDH
@@ -321,6 +341,7 @@ func NewSessionEncryptor(requestEphemeralPubKeyB64 string) (*SessionEncryptor, e
 	return &SessionEncryptor{
 		gcm:          gcm,
 		ephPubKeyB64: b64urlEncode(respPriv.PublicKey().Bytes()),
+		aesKey:       aesKey,
 	}, nil
 }
 

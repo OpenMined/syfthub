@@ -93,6 +93,10 @@ type AgentSession struct {
 	// otherwise. Files in this directory are cleaned up on session end.
 	AttachmentDir string
 
+	// AttachmentUploader, if set, routes outbound attachments larger than
+	// InlineMaxBytes through Object Store. PR-5 supplies the implementation.
+	AttachmentUploader AttachmentUploader
+
 	// recvAttachCh carries inbound attachment metadata to the handler.
 	// nil if attachments are not enabled for this session.
 	recvAttachCh chan AttachmentInfo
@@ -330,49 +334,68 @@ func (s *AgentSession) Receive() (UserMessage, error) {
 	}
 }
 
-// SendAttachment sends an attachment to the user. The bytes are read from r
-// and encoded inline (base64) when small, or staged for Object Store upload
-// when larger.
+// SendAttachment sends an attachment to the user.
 //
-// In PR-2 (this PR), only the inline tier is supported; payloads larger than
-// InlineMaxBytes return an error. PR-5 adds the Object Store path.
+// Behavior:
+//   - For payloads up to InlineMaxBytes the bytes ride inline (base64) in the
+//     event payload — single round-trip, low latency.
+//   - For larger payloads, an AttachmentUploader (Object Store transport) is
+//     required: bytes are encrypted with a fresh per-file key and uploaded
+//     to JetStream Object Store; the event payload carries the wrapped key
+//     and bucket/key refs.
 //
-// The caller must have set AttachmentDir on the session (i.e., the session
-// was started with attachments enabled). Returns the assigned file_id.
+// Returns the assigned file_id.
 func (s *AgentSession) SendAttachment(r io.Reader, name, mime string) (string, error) {
 	if !s.AttachmentsEnabled() {
 		return "", fmt.Errorf("attachments not enabled for this session")
 	}
-	body, err := io.ReadAll(io.LimitReader(r, InlineMaxBytes+1))
+
+	// Read up to (InlineMaxBytes+1) so we can detect the spill-over and switch
+	// to Object Store without two passes for small files.
+	head, err := io.ReadAll(io.LimitReader(r, int64(InlineMaxBytes)+1))
 	if err != nil {
-		return "", fmt.Errorf("read attachment body: %w", err)
-	}
-	if len(body) > InlineMaxBytes {
-		return "", fmt.Errorf("attachment exceeds inline limit (%d bytes); Object Store transport not yet implemented", InlineMaxBytes)
+		return "", fmt.Errorf("read attachment head: %w", err)
 	}
 
 	fileID := "att-" + newUUID()
-	sum := sha256.Sum256(body)
-	info := AttachmentInfo{
-		FileID:          fileID,
-		Name:            name,
-		MIME:            mime,
-		SizeBytes:       int64(len(body)),
-		PlaintextSHA256: hex.EncodeToString(sum[:]),
-		Transport:       AttachmentTransportInline,
-		InlineDataB64:   base64.StdEncoding.EncodeToString(body),
+
+	if len(head) <= InlineMaxBytes {
+		sum := sha256.Sum256(head)
+		info := AttachmentInfo{
+			FileID:          fileID,
+			Name:            name,
+			MIME:            mime,
+			SizeBytes:       int64(len(head)),
+			PlaintextSHA256: hex.EncodeToString(sum[:]),
+			Transport:       AttachmentTransportInline,
+			InlineDataB64:   base64.StdEncoding.EncodeToString(head),
+		}
+		return fileID, s.emitAttachmentEvent(info)
 	}
+
+	// Spill-over: route through Object Store.
+	if s.AttachmentUploader == nil {
+		return "", fmt.Errorf("attachment exceeds inline limit (%d bytes) and no AttachmentUploader configured", InlineMaxBytes)
+	}
+	combined := io.MultiReader(bytes.NewReader(head), r)
+	// We don't know the exact size yet — pass -1 so the uploader streams
+	// and computes the true size from the stream.
+	info, err := s.AttachmentUploader.Upload(fileID, name, mime, -1, combined)
+	if err != nil {
+		return "", fmt.Errorf("object-store upload: %w", err)
+	}
+	return fileID, s.emitAttachmentEvent(info)
+}
+
+func (s *AgentSession) emitAttachmentEvent(info AttachmentInfo) error {
 	data, err := json.Marshal(info)
 	if err != nil {
-		return "", fmt.Errorf("marshal attachment metadata: %w", err)
+		return fmt.Errorf("marshal attachment metadata: %w", err)
 	}
-	if err := s.Send(AgentEventPayload{
+	return s.Send(AgentEventPayload{
 		EventType: EventTypeAgentAttachment,
 		Data:      data,
-	}); err != nil {
-		return "", err
-	}
-	return fileID, nil
+	})
 }
 
 // SendAttachmentBytes is a convenience for SendAttachment with a []byte source.
