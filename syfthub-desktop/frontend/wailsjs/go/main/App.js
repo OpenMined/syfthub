@@ -178,6 +178,10 @@ export function OpenEndpointsFolder() {
   return window['go']['main']['App']['OpenEndpointsFolder']();
 }
 
+export function OpenInDefaultApp(arg1) {
+  return window['go']['main']['App']['OpenInDefaultApp'](arg1);
+}
+
 export function ReadSkill(arg1, arg2) {
   return window['go']['main']['App']['ReadSkill'](arg1, arg2);
 }

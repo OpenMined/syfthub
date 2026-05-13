@@ -9,7 +9,9 @@ import (
 	"io"
 	"mime"
 	"os"
+	"os/exec"
 	"path/filepath"
+	gosysruntime "runtime"
 	"strings"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
@@ -184,6 +186,38 @@ func (a *App) SaveAgentAttachment(fileID, suggestedName string) (string, error) 
 		return "", fmt.Errorf("copy: %w", err)
 	}
 	return dest, nil
+}
+
+// OpenInDefaultApp launches the OS's default handler for the file at path
+// (xdg-open on Linux, open on macOS, rundll32 on Windows). Returns an error
+// if the path doesn't exist or the command fails to start.
+//
+// Bound to the AttachmentChip's "Open" button — fires after the user has
+// saved an agent-emitted attachment to disk.
+func (a *App) OpenInDefaultApp(path string) error {
+	if path == "" {
+		return fmt.Errorf("path is required")
+	}
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("file not found: %w", err)
+	}
+	var cmd *exec.Cmd
+	switch gosysruntime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", path)
+	case "windows":
+		// rundll32 is the most reliable Windows file-open shim that doesn't
+		// require a cmd.exe window flash.
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", path)
+	default: // linux + bsds
+		cmd = exec.Command("xdg-open", path)
+	}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("launch failed: %w", err)
+	}
+	// Detach — we don't want to block the UI goroutine on the spawned process.
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
 
 // BrowseForAttachment opens a native file picker (no filter — attachments

@@ -90,6 +90,8 @@ export function OpenEndpointFolder(arg1:string):Promise<void>;
 
 export function OpenEndpointsFolder():Promise<void>;
 
+export function OpenInDefaultApp(arg1:string):Promise<void>;
+
 export function ReadSkill(arg1:string,arg2:string):Promise<string>;
 
 export function ReloadEndpoints():Promise<void>;

@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Check,
   Download,
+  ExternalLink,
   File as FileIcon,
   FileCode,
   FileImage,
   FileText,
+  Loader2,
   X,
 } from 'lucide-react';
-import { AttachmentInlineBytes } from '../../../wailsjs/go/main/App';
+import {
+  AttachmentInlineBytes,
+  OpenInDefaultApp,
+} from '../../../wailsjs/go/main/App';
 
 export interface AttachmentChipProps {
   fileId: string;
@@ -105,33 +109,42 @@ function useInlinePreview(
   return url;
 }
 
-// ── Download button ───────────────────────────────────────────────────────
+// ── Download/Open button ──────────────────────────────────────────────────
+
+type DownloadState =
+  | { kind: 'idle' }
+  | { kind: 'saving' }
+  | { kind: 'saved'; path: string }
+  | { kind: 'error' };
 
 /**
- * DownloadButton wraps onDownload with optimistic state. Three visual states:
+ * DownloadOrOpenButton flips role based on saved state.
  *
- *   idle    -> Download icon, neutral foreground
- *   saving  -> Download icon, brief 'sending' disable (avoid double-click)
- *   saved   -> Check icon, brand-accent foreground, for ~2.5s, then idle
+ *   idle    -> Download icon, neutral foreground. Click = save to Downloads.
+ *   saving  -> Loader spinner, disabled.
+ *   saved   -> ExternalLink icon, primary foreground. Click = open the
+ *              saved file in the OS's default app. Tooltip shows the
+ *              absolute path. State is sticky for the session.
+ *   error   -> Download icon, destructive foreground, for ~2.5s, reverts.
  *
- * The saved-state tooltip shows the absolute destination path so the user
- * always knows where the file landed.
+ * State lives here AND is reported up via onStateChange so the parent
+ * chip can tint its background to match.
  */
-function DownloadButton({
+function DownloadOrOpenButton({
   fileId,
   name,
   onDownload,
   size,
+  state,
+  setState,
 }: {
   fileId: string;
   name: string;
   onDownload: (fileId: string) => Promise<string | null | undefined>;
   size: 'sm' | 'md';
+  state: DownloadState;
+  setState: (s: DownloadState) => void;
 }) {
-  const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'error'>(
-    'idle',
-  );
-  const [savedPath, setSavedPath] = useState<string>('');
   const timerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -140,53 +153,72 @@ function DownloadButton({
     };
   }, []);
 
-  const cls =
-    size === 'md'
-      ? 'h-6 w-6'
-      : 'h-5 w-5';
+  const cls = size === 'md' ? 'h-6 w-6' : 'h-5 w-5';
   const iconCls = size === 'md' ? 'h-3.5 w-3.5' : 'h-3 w-3';
 
   const handleClick = async () => {
-    if (state === 'saving') return;
-    setState('saving');
+    if (state.kind === 'saving') return;
+    // Saved path is sticky — clicking again opens the file in the default app.
+    if (state.kind === 'saved') {
+      try {
+        await OpenInDefaultApp(state.path);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('open in default app failed', err);
+      }
+      return;
+    }
+    setState({ kind: 'saving' });
     try {
       const dest = await onDownload(fileId);
       if (!dest) {
-        setState('idle');
+        setState({ kind: 'idle' });
         return;
       }
-      setSavedPath(dest);
-      setState('saved');
-      timerRef.current = window.setTimeout(() => setState('idle'), 2500);
+      setState({ kind: 'saved', path: dest });
     } catch (err) {
-      setState('error');
+      setState({ kind: 'error' });
       // eslint-disable-next-line no-console
       console.error('download failed', err);
-      timerRef.current = window.setTimeout(() => setState('idle'), 2500);
+      timerRef.current = window.setTimeout(
+        () => setState({ kind: 'idle' }),
+        2500,
+      );
     }
   };
 
   const tooltip =
-    state === 'saved'
-      ? `Saved to ${savedPath}`
-      : state === 'error'
+    state.kind === 'saved'
+      ? `Open ${name}  ·  ${state.path}`
+      : state.kind === 'error'
         ? 'Save failed — see console'
-        : `Save ${name} to Downloads`;
+        : state.kind === 'saving'
+          ? 'Saving…'
+          : `Save ${name} to Downloads`;
+
+  let Icon = Download;
+  if (state.kind === 'saving') Icon = Loader2;
+  else if (state.kind === 'saved') Icon = ExternalLink;
 
   return (
     <button
       type='button'
       onClick={handleClick}
-      disabled={state === 'saving'}
-      className={`${cls} text-muted-foreground hover:text-foreground hover:bg-background focus-visible:ring-ring focus-visible:ring-offset-background ml-0.5 flex shrink-0 items-center justify-center rounded transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 ${state === 'saved' ? 'text-primary hover:text-primary' : ''} ${state === 'error' ? 'text-destructive hover:text-destructive' : ''}`}
+      disabled={state.kind === 'saving'}
+      className={`${cls} focus-visible:ring-ring focus-visible:ring-offset-background ml-0.5 flex shrink-0 items-center justify-center rounded transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 ${
+        state.kind === 'saved'
+          ? 'text-primary-foreground hover:bg-primary-foreground/15'
+          : state.kind === 'error'
+            ? 'text-destructive hover:bg-background'
+            : 'text-muted-foreground hover:text-foreground hover:bg-background'
+      }`}
       aria-label={tooltip}
       title={tooltip}
     >
-      {state === 'saved' ? (
-        <Check className={iconCls} aria-hidden='true' />
-      ) : (
-        <Download className={iconCls} aria-hidden='true' />
-      )}
+      <Icon
+        className={`${iconCls} ${state.kind === 'saving' ? 'animate-spin' : ''}`}
+        aria-hidden='true'
+      />
     </button>
   );
 }
@@ -227,10 +259,24 @@ export function AttachmentChip({
   const wantsThumb = isImage && Boolean(staged);
   const thumbUrl = useInlinePreview(fileId, mime, wantsThumb, 256 * 1024);
 
+  // Download/open state lives at the chip level so the chip background can
+  // tint to match. Only meaningful for agent-emitted attachments
+  // (staged === false || undefined). Stays sticky for the session once saved.
+  const [downloadState, setDownloadState] = useState<DownloadState>({
+    kind: 'idle',
+  });
+  const isSaved = downloadState.kind === 'saved';
+
   // ── Image figure ──
   if (wantsFigure) {
     return (
-      <figure className='border-border bg-muted/30 animate-in fade-in slide-in-from-bottom-1 my-2 inline-flex max-w-md flex-col overflow-hidden rounded-xl border duration-200'>
+      <figure
+        className={`animate-in fade-in slide-in-from-bottom-1 my-2 inline-flex max-w-md flex-col overflow-hidden rounded-xl border duration-200 transition-colors ${
+          isSaved
+            ? 'border-primary/40 bg-primary/10'
+            : 'border-border bg-muted/30'
+        }`}
+      >
         {figureUrl ? (
           <img
             src={figureUrl}
@@ -242,21 +288,38 @@ export function AttachmentChip({
             <FileImage className='text-muted-foreground h-6 w-6' />
           </div>
         )}
-        <figcaption className='flex items-center justify-between gap-3 px-3 py-2'>
+        <figcaption
+          className={`flex items-center justify-between gap-3 px-3 py-2 transition-colors ${
+            isSaved ? 'bg-primary/15' : ''
+          }`}
+        >
           <div className='min-w-0 flex-1'>
-            <p className='text-foreground truncate text-xs font-medium'>
+            <p
+              className={`truncate text-xs font-medium ${
+                isSaved ? 'text-primary-foreground' : 'text-foreground'
+              }`}
+            >
               {name}
             </p>
-            <p className='text-muted-foreground text-[10px] tabular-nums'>
+            <p
+              className={`text-[10px] tabular-nums ${
+                isSaved
+                  ? 'text-primary-foreground/70'
+                  : 'text-muted-foreground'
+              }`}
+            >
               {humanSize(sizeBytes)} · {mime.split('/')[1] ?? mime}
+              {isSaved && ' · Saved'}
             </p>
           </div>
           {onDownload && (
-            <DownloadButton
+            <DownloadOrOpenButton
               fileId={fileId}
               name={name}
               onDownload={onDownload}
               size='md'
+              state={downloadState}
+              setState={setDownloadState}
             />
           )}
         </figcaption>
@@ -270,7 +333,11 @@ export function AttachmentChip({
 
   return (
     <span
-      className='group/chip border-border bg-muted text-foreground animate-in fade-in slide-in-from-bottom-1 inline-flex max-w-[18rem] items-center gap-2 rounded-md border py-1 pl-2 pr-1 text-xs duration-150'
+      className={`group/chip animate-in fade-in slide-in-from-bottom-1 inline-flex max-w-[18rem] items-center gap-2 rounded-md border py-1 pl-2 pr-1 text-xs duration-150 transition-colors ${
+        isSaved
+          ? 'border-primary/40 bg-primary text-primary-foreground'
+          : 'border-border bg-muted text-foreground'
+      }`}
       title={`${name} · ${mime}`}
     >
       {showThumbnail ? (
@@ -282,12 +349,18 @@ export function AttachmentChip({
         />
       ) : (
         <Icon
-          className='text-muted-foreground h-3.5 w-3.5 shrink-0'
+          className={`h-3.5 w-3.5 shrink-0 ${
+            isSaved ? 'text-primary-foreground/80' : 'text-muted-foreground'
+          }`}
           aria-hidden='true'
         />
       )}
       <span className='min-w-0 truncate'>{name}</span>
-      <span className='text-muted-foreground shrink-0 text-[10px] tabular-nums'>
+      <span
+        className={`shrink-0 text-[10px] tabular-nums ${
+          isSaved ? 'text-primary-foreground/70' : 'text-muted-foreground'
+        }`}
+      >
         {humanSize(sizeBytes)}
       </span>
       {staged && onRemove && (
@@ -301,11 +374,13 @@ export function AttachmentChip({
         </button>
       )}
       {!staged && onDownload && (
-        <DownloadButton
+        <DownloadOrOpenButton
           fileId={fileId}
           name={name}
           onDownload={onDownload}
           size='sm'
+          state={downloadState}
+          setState={setDownloadState}
         />
       )}
     </span>
