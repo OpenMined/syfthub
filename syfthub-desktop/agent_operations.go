@@ -199,6 +199,15 @@ func (a *App) StartAgentSession(slug string, prompt string) (string, error) {
 					}
 					messageBuf.WriteString(content)
 				}
+			case "agent.attachment":
+				// Materialize the inline bytes to the per-session
+				// AttachmentDir so AttachmentInlineBytes (preview) and
+				// SaveAgentAttachment (download) can find them. The
+				// container runner emits transport="inline" only — the
+				// cloud (Object Store) tier writes are handled elsewhere.
+				if err := materializeAgentInlineAttachment(session.AttachmentDir, data); err != nil {
+					runtime.LogWarning(a.ctx, fmt.Sprintf("agent.attachment materialize failed: %v", err))
+				}
 			}
 
 			runtime.EventsEmit(a.ctx, "agent:event", AgentStreamEvent{

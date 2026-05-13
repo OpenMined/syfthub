@@ -206,6 +206,10 @@ export function RunEndpointSetup(arg1, arg2) {
   return window['go']['main']['App']['RunEndpointSetup'](arg1, arg2);
 }
 
+export function SaveAgentAttachment(arg1, arg2) {
+  return window['go']['main']['App']['SaveAgentAttachment'](arg1, arg2);
+}
+
 export function SavePolicyFileYaml(arg1, arg2, arg3) {
   return window['go']['main']['App']['SavePolicyFileYaml'](arg1, arg2, arg3);
 }

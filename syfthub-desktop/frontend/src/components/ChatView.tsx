@@ -6,8 +6,7 @@ import { ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, Copy, Loader2, M
 import { OnFileDrop, OnFileDropOff } from '../../wailsjs/runtime/runtime';
 import {
   BrowseForAttachment,
-  BrowseForFolder,
-  DownloadActiveSessionAttachment,
+  SaveAgentAttachment,
 } from '../../wailsjs/go/main/App';
 
 import { AttachmentChip } from '@/components/chat/AttachmentChip';
@@ -460,20 +459,11 @@ function AgentChatContent() {
     }
   }, [sessionActive, attach]);
 
-  // Save an agent-emitted attachment to a user-chosen folder.
+  // Save an agent-emitted attachment to ~/Downloads. Returns the absolute
+  // path so the chip can show a "Saved to …" confirmation tooltip.
   const handleDownloadAttachment = useCallback(
-    async (fileId: string, fileName: string) => {
-      const folder = await BrowseForFolder('Save attachment to');
-      if (!folder) return;
-      const dest = `${folder}/${fileName}`;
-      try {
-        await DownloadActiveSessionAttachment(fileId, dest);
-      } catch (e) {
-        // No toast surface in the desktop yet — surface as a console error
-        // so a user reporting a failed download can paste the message.
-        // eslint-disable-next-line no-console
-        console.error('download attachment failed', e);
-      }
+    async (fileId: string, fileName: string): Promise<string> => {
+      return await SaveAgentAttachment(fileId, fileName);
     },
     [],
   );

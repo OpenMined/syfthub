@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  Check,
   Download,
   File as FileIcon,
   FileCode,
@@ -21,7 +22,13 @@ export interface AttachmentChipProps {
    */
   staged?: boolean;
   onRemove?: (fileId: string) => void;
-  onDownload?: (fileId: string) => void;
+  /**
+   * Save the attachment somewhere on the user's disk. The parent should
+   * resolve with the absolute destination path on success (used to
+   * tooltip the "Saved" confirmation), null/undefined on user cancel,
+   * or throw on failure (chip shows the error briefly).
+   */
+  onDownload?: (fileId: string) => Promise<string | null | undefined>;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -98,6 +105,92 @@ function useInlinePreview(
   return url;
 }
 
+// ── Download button ───────────────────────────────────────────────────────
+
+/**
+ * DownloadButton wraps onDownload with optimistic state. Three visual states:
+ *
+ *   idle    -> Download icon, neutral foreground
+ *   saving  -> Download icon, brief 'sending' disable (avoid double-click)
+ *   saved   -> Check icon, brand-accent foreground, for ~2.5s, then idle
+ *
+ * The saved-state tooltip shows the absolute destination path so the user
+ * always knows where the file landed.
+ */
+function DownloadButton({
+  fileId,
+  name,
+  onDownload,
+  size,
+}: {
+  fileId: string;
+  name: string;
+  onDownload: (fileId: string) => Promise<string | null | undefined>;
+  size: 'sm' | 'md';
+}) {
+  const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'error'>(
+    'idle',
+  );
+  const [savedPath, setSavedPath] = useState<string>('');
+  const timerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  const cls =
+    size === 'md'
+      ? 'h-6 w-6'
+      : 'h-5 w-5';
+  const iconCls = size === 'md' ? 'h-3.5 w-3.5' : 'h-3 w-3';
+
+  const handleClick = async () => {
+    if (state === 'saving') return;
+    setState('saving');
+    try {
+      const dest = await onDownload(fileId);
+      if (!dest) {
+        setState('idle');
+        return;
+      }
+      setSavedPath(dest);
+      setState('saved');
+      timerRef.current = window.setTimeout(() => setState('idle'), 2500);
+    } catch (err) {
+      setState('error');
+      // eslint-disable-next-line no-console
+      console.error('download failed', err);
+      timerRef.current = window.setTimeout(() => setState('idle'), 2500);
+    }
+  };
+
+  const tooltip =
+    state === 'saved'
+      ? `Saved to ${savedPath}`
+      : state === 'error'
+        ? 'Save failed — see console'
+        : `Save ${name} to Downloads`;
+
+  return (
+    <button
+      type='button'
+      onClick={handleClick}
+      disabled={state === 'saving'}
+      className={`${cls} text-muted-foreground hover:text-foreground hover:bg-background focus-visible:ring-ring focus-visible:ring-offset-background ml-0.5 flex shrink-0 items-center justify-center rounded transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:opacity-50 ${state === 'saved' ? 'text-primary hover:text-primary' : ''} ${state === 'error' ? 'text-destructive hover:text-destructive' : ''}`}
+      aria-label={tooltip}
+      title={tooltip}
+    >
+      {state === 'saved' ? (
+        <Check className={iconCls} aria-hidden='true' />
+      ) : (
+        <Download className={iconCls} aria-hidden='true' />
+      )}
+    </button>
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────────────────
 
 /**
@@ -159,14 +252,12 @@ export function AttachmentChip({
             </p>
           </div>
           {onDownload && (
-            <button
-              type='button'
-              onClick={() => onDownload(fileId)}
-              className='text-muted-foreground hover:text-foreground focus-visible:ring-ring focus-visible:ring-offset-background flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2'
-              aria-label={`Download ${name}`}
-            >
-              <Download className='h-3.5 w-3.5' aria-hidden='true' />
-            </button>
+            <DownloadButton
+              fileId={fileId}
+              name={name}
+              onDownload={onDownload}
+              size='md'
+            />
           )}
         </figcaption>
       </figure>
@@ -210,14 +301,12 @@ export function AttachmentChip({
         </button>
       )}
       {!staged && onDownload && (
-        <button
-          type='button'
-          onClick={() => onDownload(fileId)}
-          className='text-muted-foreground hover:text-foreground hover:bg-background focus-visible:ring-ring focus-visible:ring-offset-background ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2'
-          aria-label={`Download ${name}`}
-        >
-          <Download className='h-3 w-3' aria-hidden='true' />
-        </button>
+        <DownloadButton
+          fileId={fileId}
+          name={name}
+          onDownload={onDownload}
+          size='sm'
+        />
       )}
     </span>
   );

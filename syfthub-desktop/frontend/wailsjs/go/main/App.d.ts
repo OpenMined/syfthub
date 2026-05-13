@@ -104,6 +104,8 @@ export function RespondToSetupSelect(arg1:string):Promise<void>;
 
 export function RunEndpointSetup(arg1:string,arg2:boolean):Promise<void>;
 
+export function SaveAgentAttachment(arg1:string,arg2:string):Promise<string>;
+
 export function SavePolicyFileYaml(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SaveReadme(arg1:string,arg2:string):Promise<void>;

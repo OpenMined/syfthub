@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"mime"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -25,6 +27,163 @@ type AttachmentSummary struct {
 	// LocalPath is the on-disk path inside the session's AttachmentDir.
 	// The agent runner reads from here.
 	LocalPath string `json:"local_path"`
+}
+
+// materializeAgentInlineAttachment decodes the inline base64 bytes from an
+// agent.attachment event and writes them to attachmentsDir using the
+// filename pattern {file_id}{ext} so DownloadActiveSessionAttachment and
+// AttachmentInlineBytes (both of which glob by file_id prefix) can find
+// the file later. data is the decoded JSON payload of the event.
+//
+// No-op if attachmentsDir is empty (attachments disabled), if the transport
+// isn't inline, or if the inline_data_b64 field is missing.
+func materializeAgentInlineAttachment(attachmentsDir string, data map[string]any) error {
+	if attachmentsDir == "" {
+		return nil
+	}
+	transport, _ := data["transport"].(string)
+	if transport != "inline" {
+		return nil
+	}
+	fileID, _ := data["file_id"].(string)
+	if fileID == "" {
+		return fmt.Errorf("missing file_id")
+	}
+	inlineB64, _ := data["inline_data_b64"].(string)
+	if inlineB64 == "" {
+		return nil // metadata-only event, nothing to write
+	}
+	raw, err := base64.StdEncoding.DecodeString(inlineB64)
+	if err != nil {
+		return fmt.Errorf("decode inline_data_b64: %w", err)
+	}
+
+	// Verify declared size + SHA when present — the same checks the inbound
+	// materializer enforces. Bad bytes never reach disk.
+	if sizeF, ok := data["size_bytes"].(float64); ok {
+		if int64(len(raw)) != int64(sizeF) {
+			return fmt.Errorf("size mismatch: declared %d, actual %d", int64(sizeF), len(raw))
+		}
+	}
+	if expected, _ := data["plaintext_sha256"].(string); expected != "" {
+		sum := sha256.Sum256(raw)
+		if hex.EncodeToString(sum[:]) != expected {
+			return fmt.Errorf("sha256 mismatch")
+		}
+	}
+
+	name, _ := data["name"].(string)
+	ext := filepath.Ext(name)
+	dest := filepath.Join(attachmentsDir, fileID+ext)
+	return os.WriteFile(dest, raw, 0o600)
+}
+
+// attachmentDownloadDir returns ~/Downloads, creating it if missing. The
+// default destination for agent-emitted attachment saves — chosen because
+// it's the universal "I'll find this later" location on every desktop OS.
+func attachmentDownloadDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("user home: %w", err)
+	}
+	dir := filepath.Join(home, "Downloads")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("mkdir %s: %w", dir, err)
+	}
+	return dir, nil
+}
+
+// uniqueDestPath returns destDir/baseName, appending " (n)" before the
+// extension if a file with that exact name already exists. Idempotent
+// across many concurrent saves; bounded at 999 to avoid pathological loops.
+func uniqueDestPath(destDir, baseName string) string {
+	candidate := filepath.Join(destDir, baseName)
+	if _, err := os.Stat(candidate); os.IsNotExist(err) {
+		return candidate
+	}
+	ext := filepath.Ext(baseName)
+	stem := strings.TrimSuffix(baseName, ext)
+	for i := 1; i < 1000; i++ {
+		candidate = filepath.Join(destDir, fmt.Sprintf("%s (%d)%s", stem, i, ext))
+		if _, err := os.Stat(candidate); os.IsNotExist(err) {
+			return candidate
+		}
+	}
+	// Pathological case — fall back to timestamp-suffixed name. Unlikely.
+	return filepath.Join(destDir, fmt.Sprintf("%s-%d%s", stem, os.Getpid(), ext))
+}
+
+// SaveAgentAttachment copies an agent-emitted attachment from the per-session
+// AttachmentDir into the user's ~/Downloads folder under the original
+// filename (with " (n)" suffix on collision). Returns the absolute path of
+// the saved file so the frontend can surface it in the chip.
+//
+// Replaces the previous "open folder picker → write" two-click flow.
+func (a *App) SaveAgentAttachment(fileID, suggestedName string) (string, error) {
+	if fileID == "" {
+		return "", fmt.Errorf("file_id required")
+	}
+	a.agentMu.Lock()
+	sessionID := a.agentSessionID
+	a.agentMu.Unlock()
+	if sessionID == "" {
+		return "", fmt.Errorf("no active agent session")
+	}
+	api, err := a.requireAPI()
+	if err != nil {
+		return "", err
+	}
+	sm := api.AgentSessionManager()
+	if sm == nil {
+		return "", fmt.Errorf("agent session manager not initialized")
+	}
+	sess, ok := sm.GetSession(sessionID)
+	if !ok {
+		return "", fmt.Errorf("session %s not found", sessionID)
+	}
+	if sess.AttachmentDir == "" {
+		return "", fmt.Errorf("session has no attachment dir")
+	}
+
+	matches, err := filepath.Glob(filepath.Join(sess.AttachmentDir, fileID+"*"))
+	if err != nil {
+		return "", fmt.Errorf("glob: %w", err)
+	}
+	if len(matches) == 0 {
+		return "", fmt.Errorf("attachment %s not found in session (was it materialized?)", fileID)
+	}
+	src := matches[0]
+	in, err := os.Open(src)
+	if err != nil {
+		return "", fmt.Errorf("open src: %w", err)
+	}
+	defer in.Close()
+
+	downloads, err := attachmentDownloadDir()
+	if err != nil {
+		return "", err
+	}
+	name := strings.TrimSpace(suggestedName)
+	if name == "" {
+		name = filepath.Base(src)
+	}
+	// Path-traversal guard: only the basename ever lands in Downloads.
+	name = filepath.Base(name)
+	if name == "." || name == ".." || name == string(filepath.Separator) {
+		name = fileID + filepath.Ext(src)
+	}
+	dest := uniqueDestPath(downloads, name)
+
+	out, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return "", fmt.Errorf("open dest: %w", err)
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		_ = os.Remove(dest)
+		return "", fmt.Errorf("copy: %w", err)
+	}
+	return dest, nil
 }
 
 // BrowseForAttachment opens a native file picker (no filter — attachments
