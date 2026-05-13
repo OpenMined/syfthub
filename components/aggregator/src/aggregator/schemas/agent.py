@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 # =============================================================================
 
 
-class AgentSessionState(str, Enum):
+class AgentSessionState(StrEnum):
     """Agent session lifecycle state."""
 
     INITIALIZING = "initializing"
@@ -193,7 +193,7 @@ ATTACHMENT_CAPABILITY = "attachments"
 ATTACHMENT_HKDF_INFO_V1 = b"syfthub-attachment-v1"
 
 
-class AttachmentTransport(str, Enum):
+class AttachmentTransport(StrEnum):
     INLINE = "inline"
     OBJECT_STORE = "object_store"
 

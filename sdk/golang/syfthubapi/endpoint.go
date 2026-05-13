@@ -53,13 +53,6 @@ type Endpoint struct {
 	// isFileBased indicates if this is from file mode (for registry lifecycle management).
 	isFileBased bool
 
-	// executor is the subprocess executor (for file-based endpoints).
-	executor Executor
-
-	// policyExecutor runs policy checks without executing the handler.
-	// Used by agent endpoints where the handler lifecycle differs from model/data_source.
-	policyExecutor Executor
-
 	// policyConfigs holds the loaded policy configurations for this endpoint
 	// (typically read from policies.yaml by the file-mode loader). They are
 	// surfaced verbatim (after secret sanitization) via Info().Policies so
