@@ -1,8 +1,13 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 // TODO(AGENT_ONLY): WifiOff removed from import — only used by ChatModeContent empty state.
 // To restore, add WifiOff back to this import.
-import { ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, Copy, Loader2, MessageSquarePlus, Square } from 'lucide-react';
+import { ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, Copy, Loader2, MessageSquarePlus, Paperclip, Square, Upload } from 'lucide-react';
+import { OnFileDrop, OnFileDropOff } from '../../wailsjs/runtime/runtime';
+import { BrowseForAttachment } from '../../wailsjs/go/main/App';
+
+import { AttachmentChip } from '@/components/chat/AttachmentChip';
+import { useAttachments, type AttachmentSummary } from '@/hooks/use-attachments';
 
 import { ChatContainerContent, ChatContainerRoot } from '@/components/prompt-kit/chat-container';
 import { Loader } from '@/components/prompt-kit/loader';
@@ -221,6 +226,15 @@ interface ChatInputAreaProps {
   promptInputDisabled?: boolean;
   banner?: React.ReactNode;
   footer?: React.ReactNode;
+  // Optional attachment props — only the agent path passes these. When the
+  // staged list / handlers are provided, the input renders the paperclip
+  // button + the staged-files chip strip.
+  staged?: AttachmentSummary[];
+  onPickAttachment?: () => void;
+  onRemoveAttachment?: (fileId: string) => void;
+  attachmentsBusy?: boolean;
+  attachmentError?: string | null;
+  attachmentsDisabled?: boolean;
 }
 
 function ChatInputArea({
@@ -238,6 +252,12 @@ function ChatInputArea({
   promptInputDisabled,
   banner,
   footer,
+  staged,
+  onPickAttachment,
+  onRemoveAttachment,
+  attachmentsBusy,
+  attachmentError,
+  attachmentsDisabled,
 }: Readonly<ChatInputAreaProps>) {
   const endpoints = useAppStore((s) => s.endpoints);
   const chatSelectedModel = useAppStore((s) => s.chatSelectedModel);
@@ -254,10 +274,34 @@ function ChatInputArea({
   //   [endpoints],
   // );
 
+  const showAttachmentButton = onPickAttachment !== undefined;
+  const stagedFiles = staged ?? [];
+
   return (
     <div className='shrink-0 p-4'>
       <div className='mx-auto max-w-4xl px-6'>
         {banner}
+        {/* Staged-attachment chip strip — visible only when something is staged */}
+        {stagedFiles.length > 0 && (
+          <div className='mb-2 flex flex-wrap items-center gap-2'>
+            {stagedFiles.map((s) => (
+              <AttachmentChip
+                key={s.file_id}
+                fileId={s.file_id}
+                name={s.name}
+                mime={s.mime}
+                sizeBytes={s.size_bytes}
+                staged
+                onRemove={onRemoveAttachment}
+              />
+            ))}
+          </div>
+        )}
+        {attachmentError && (
+          <p className='text-destructive mb-2 text-xs' role='alert'>
+            Attachment error: {attachmentError}
+          </p>
+        )}
         <PromptInput
           isLoading={isLoading}
           value={value}
@@ -275,6 +319,27 @@ function ChatInputArea({
               To restore, change back to justify-between and uncomment SourceSelector. */}
           <PromptInputActions className='justify-end pt-1'>
             <div className='flex items-center gap-1'>
+              {showAttachmentButton && (
+                <PromptInputAction tooltip={
+                  attachmentsDisabled
+                    ? 'Start a session to attach files'
+                    : 'Attach file'
+                }>
+                  <button
+                    type='button'
+                    onClick={onPickAttachment}
+                    disabled={attachmentsDisabled || attachmentsBusy}
+                    className='text-muted-foreground hover:text-foreground flex h-8 w-8 items-center justify-center rounded-full transition-colors disabled:opacity-30'
+                    aria-label='Attach file'
+                  >
+                    {attachmentsBusy ? (
+                      <Loader2 className='h-4 w-4 animate-spin' aria-hidden='true' />
+                    ) : (
+                      <Paperclip className='h-4 w-4' aria-hidden='true' />
+                    )}
+                  </button>
+                </PromptInputAction>
+              )}
               <ModelSelector
                 models={modelEndpoints}
                 selectedModel={chatSelectedModel}
@@ -351,18 +416,99 @@ function AgentChatContent() {
   const { copiedId, copy: handleCopy } = useCopyToClipboard();
   const [inputValue, setInputValue] = useState('');
 
+  // ── Attachments ──────────────────────────────────────────────────────────
+  const {
+    staged,
+    attach,
+    remove: removeStaged,
+    clear: clearStaged,
+    busy: attachmentsBusy,
+    error: attachmentError,
+  } = useAttachments();
+
+  // Drop overlay is visible while a file is being dragged into the window.
+  const [dragActive, setDragActive] = useState(false);
+  // Track whether the active session has accepted at least one inbound staged
+  // file so the UI can warn users who drop before starting a session.
+  const sessionActive = isRunning || awaitingInput;
+
+  const handlePickAttachment = useCallback(async () => {
+    if (!sessionActive) return;
+    try {
+      const path = await BrowseForAttachment();
+      if (path) await attach(path);
+    } catch {
+      /* attach() already records the error via the hook */
+    }
+  }, [sessionActive, attach]);
+
+  // Wails native file-drop. Paths are absolute strings. We only act when a
+  // session is live — the runner won't see anything until a session exists.
+  useEffect(() => {
+    OnFileDrop((_x, _y, paths) => {
+      if (!sessionActive) return;
+      setDragActive(false);
+      void (async () => {
+        for (const p of paths) {
+          try {
+            await attach(p);
+          } catch {
+            /* hook records the per-file error; keep iterating */
+          }
+        }
+      })();
+    }, /* useDropTarget */ true);
+
+    // HTML5 drag events are needed to flash the overlay; the actual drop is
+    // handled by Wails (above). dragenter/dragleave use a counter pattern to
+    // avoid flicker when entering child elements.
+    let depth = 0;
+    const onEnter = () => {
+      depth++;
+      if (sessionActive) setDragActive(true);
+    };
+    const onLeave = () => {
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) setDragActive(false);
+    };
+    const onDrop = () => {
+      depth = 0;
+      setDragActive(false);
+    };
+    window.addEventListener('dragenter', onEnter);
+    window.addEventListener('dragleave', onLeave);
+    window.addEventListener('drop', onDrop);
+
+    return () => {
+      OnFileDropOff();
+      window.removeEventListener('dragenter', onEnter);
+      window.removeEventListener('dragleave', onLeave);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, [sessionActive, attach]);
+
   const handleSubmit = useCallback(async () => {
     const prompt = inputValue.trim();
     if (!prompt || !chatSelectedModel) return;
 
     if (awaitingInput) {
       setInputValue('');
+      // Staged files were already delivered to the runner when the user
+      // dropped/picked them (AttachToActiveSession queued them on the
+      // session). The chip strip just gives visual confirmation; clear it
+      // now that we're sending the follow-up text.
+      clearStaged();
       await sendInput(prompt);
     } else if (!isRunning) {
       setInputValue('');
+      // Note: any pre-session staged files (dropped before clicking send)
+      // currently fail because AttachToActiveSession requires an active
+      // session. We could buffer them, but for v1 the staged chip strip is
+      // visible-only-while-running.
+      clearStaged();
       await startSession(prompt);
     }
-  }, [inputValue, chatSelectedModel, awaitingInput, isRunning, sendInput, startSession]);
+  }, [inputValue, chatSelectedModel, awaitingInput, isRunning, sendInput, startSession, clearStaged]);
 
   const handleStop = useCallback(async () => {
     await stopSession();
@@ -370,7 +516,8 @@ function AgentChatContent() {
 
   const handleNewChat = useCallback(() => {
     clearEntries();
-  }, [clearEntries]);
+    clearStaged();
+  }, [clearEntries, clearStaged]);
 
   const canSubmit = Boolean(inputValue.trim()) && Boolean(chatSelectedModel) && (!isRunning || awaitingInput);
 
@@ -485,6 +632,38 @@ function AgentChatContent() {
                   );
                 }
 
+                if (entry.kind === 'attachment') {
+                  const d = entry.data ?? {};
+                  return (
+                    <Message key={entry.id} className='max-w-3xl items-start'>
+                      <AssistantAvatar />
+                      <div className='min-w-0 flex-1'>
+                        <AttachmentChip
+                          fileId={String(d.file_id ?? '')}
+                          name={String(d.name ?? entry.content)}
+                          mime={String(d.mime ?? 'application/octet-stream')}
+                          sizeBytes={Number(d.size_bytes ?? 0)}
+                          onDownload={async (fid) => {
+                            // Default save behavior: prompt for a folder, then
+                            // write the inline plaintext (or fetched bytes) there.
+                            // Keep it minimal in v1 — a future iteration adds a
+                            // proper Save-As dialog.
+                            const folder = await (
+                              await import('../../wailsjs/go/main/App')
+                            ).BrowseForFolder('Choose where to save attachment');
+                            if (!folder) return;
+                            const dest = `${folder}/${String(d.name ?? fid)}`;
+                            const { DownloadActiveSessionAttachment } = await import(
+                              '../../wailsjs/go/main/App'
+                            );
+                            await DownloadActiveSessionAttachment(fid, dest);
+                          }}
+                        />
+                      </div>
+                    </Message>
+                  );
+                }
+
                 if (entry.kind === 'message' || entry.kind === 'token') {
                   return (
                     <Message key={entry.id} className='group/message max-w-3xl items-start'>
@@ -571,12 +750,35 @@ function AgentChatContent() {
         stopTooltip='Stop agent'
         sendTooltip='Send (Enter)'
         isActive={isRunning}
+        staged={staged}
+        onPickAttachment={handlePickAttachment}
+        onRemoveAttachment={removeStaged}
+        attachmentsBusy={attachmentsBusy}
+        attachmentError={attachmentError}
+        attachmentsDisabled={!sessionActive}
         footer={chatSelectedModel ? (
           <p className='text-muted-foreground mt-1.5 text-center text-[10px]'>
             <span className='font-medium'>{chatSelectedModel.name}</span>
           </p>
         ) : undefined}
       />
+
+      {/* Drop overlay — fades in when files are dragged over the window AND
+          a session is active. The Wails-recognized drop target uses the
+          --wails-drop-target CSS custom property (see main.go DragAndDrop
+          options) so the runtime knows we accept the drop here. */}
+      {dragActive && sessionActive && (
+        <div
+          // eslint-disable-next-line react/forbid-dom-props
+          style={{ '--wails-drop-target': 'drop' } as React.CSSProperties}
+          className='pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-primary/20 backdrop-blur-sm'
+        >
+          <div className='border-primary text-primary bg-background flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed px-8 py-6 shadow-2xl'>
+            <Upload className='h-8 w-8' aria-hidden='true' />
+            <p className='text-sm font-medium'>Drop file(s) to attach</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

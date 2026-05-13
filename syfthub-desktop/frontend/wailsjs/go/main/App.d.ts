@@ -8,6 +8,8 @@ export function AttachToActiveSession(arg1:string):Promise<main.AttachmentSummar
 
 export function AttachmentInlineBytes(arg1:string,arg2:number):Promise<Array<number>>;
 
+export function BrowseForAttachment():Promise<string>;
+
 export function BrowseForFolder(arg1:string):Promise<string>;
 
 export function BrowseForSkillFile(arg1:string):Promise<string>;

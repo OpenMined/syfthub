@@ -14,6 +14,10 @@ export function AttachmentInlineBytes(arg1, arg2) {
   return window['go']['main']['App']['AttachmentInlineBytes'](arg1, arg2);
 }
 
+export function BrowseForAttachment() {
+  return window['go']['main']['App']['BrowseForAttachment']();
+}
+
 export function BrowseForFolder(arg1) {
   return window['go']['main']['App']['BrowseForFolder'](arg1);
 }

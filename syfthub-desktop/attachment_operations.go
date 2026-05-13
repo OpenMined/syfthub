@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // AttachmentSummary is the payload returned to the frontend after staging an
@@ -24,6 +25,20 @@ type AttachmentSummary struct {
 	// LocalPath is the on-disk path inside the session's AttachmentDir.
 	// The agent runner reads from here.
 	LocalPath string `json:"local_path"`
+}
+
+// BrowseForAttachment opens a native file picker (no filter — attachments
+// can be any MIME) and returns the absolute path, or an empty string if
+// the user cancelled. Bound to the desktop UI's paperclip button.
+func (a *App) BrowseForAttachment() string {
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Attach file to agent",
+	})
+	if err != nil {
+		runtime.LogWarning(a.ctx, fmt.Sprintf("Attachment file dialog error: %v", err))
+		return ""
+	}
+	return path
 }
 
 // AttachToActiveSession reads the file at hostPath, copies it into the
