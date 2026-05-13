@@ -69,10 +69,8 @@ func (b *agentNATSBridge) handleAgentMessage(msg *nats.Msg, req *syfthubapi.Tunn
 // handleUserAttachment decrypts an attachment delivery and routes it to the
 // session. Inline-tier payloads are materialized to a tempfile under the
 // session's AttachmentDir; the session's runner is then notified via
-// AgentSession.DeliverAttachment.
-//
-// Object-store tier (PR-5) will replace the inline-data branch with an
-// Object Store download + per-file AES key unwrap.
+// AgentSession.DeliverAttachment. Object-store tier delegates to the
+// session's AttachmentDownloader.
 func (b *agentNATSBridge) handleUserAttachment(msg *nats.Msg, req *syfthubapi.TunnelRequest, payload []byte) {
 	var attachPayload syfthubapi.AgentUserAttachmentPayload
 	if err := json.Unmarshal(payload, &attachPayload); err != nil {
@@ -122,9 +120,6 @@ func (b *agentNATSBridge) handleUserAttachment(msg *nats.Msg, req *syfthubapi.Tu
 // declared SHA-256, and writes plaintext to a 0600-mode file inside dir.
 // On success, info.LocalPath is set to the materialized file path so the
 // runner protocol layer can hand it to the agent handler.
-//
-// Object-store tier (PR-5) will use a different code path; this helper is
-// inline-only.
 func materializeInlineAttachment(dir string, info *syfthubapi.AttachmentInfo) error {
 	if info.Transport != syfthubapi.AttachmentTransportInline {
 		return fmt.Errorf("inline materialization called for transport=%q", info.Transport)
@@ -202,9 +197,6 @@ func (b *agentNATSBridge) handleSessionStart(msg *nats.Msg, req *syfthubapi.Tunn
 
 	session, err := b.handler.StartSession(startPayload, user)
 	if err == nil && session != nil && session.AttachmentsEnabled() && startPayload.SessionAttachmentKey != "" {
-		// Bind an Object Store-backed uploader so handler-side
-		// session.SendAttachment calls dispatch large files through Object
-		// Store. PR-5+; see docs/architecture/attachments.md.
 		keyBytes, decErr := base64.StdEncoding.DecodeString(startPayload.SessionAttachmentKey)
 		if decErr != nil || len(keyBytes) != 32 {
 			b.logger.Warn("[AGENT] invalid session_attachment_key — attachments will be inline-only",

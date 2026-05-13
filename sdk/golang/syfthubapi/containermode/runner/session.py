@@ -205,11 +205,10 @@ class SessionAPI:
         )
 
     def send_attachment(self, path, mime: str = None, name: str = None):
-        """Send a file attachment to the user.
+        """Send a file attachment to the user (inline tier).
 
         Reads the file from disk and emits an agent.attachment event with the
-        file's bytes embedded as inline_data_b64 (PR-3 inline tier). PR-5
-        will switch large files to Object Store transport.
+        file's bytes embedded as inline_data_b64.
         """
         import base64
         import hashlib

@@ -32,6 +32,7 @@ from aggregator.attachment_crypto import (
     generate_base_nonce,
     generate_file_key,
 )
+from aggregator.clients.nats_object_store import AttachmentObjectStoreClient
 from aggregator.services.attachment_session_state import (
     MAX_ATTACHMENT_BYTES_PER_FILE,
     registry,
@@ -89,7 +90,7 @@ _metadata = _MetadataStore()
 # shared across the relay endpoints. The shared NATSTransport singleton lives
 # in aggregator.api.endpoints.agent; we import it indirectly to avoid a hard
 # import cycle.
-async def _get_object_store():
+async def _get_object_store() -> AttachmentObjectStoreClient:
     from aggregator.clients.nats_object_store import get_attachment_object_store
 
     return await get_attachment_object_store()
@@ -305,5 +306,3 @@ def reset_for_tests() -> None:
     """Clear the in-memory metadata map. Tests only."""
     global _metadata
     _metadata = _MetadataStore()
-
-

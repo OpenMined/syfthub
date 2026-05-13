@@ -22,6 +22,7 @@ from aggregator.clients.nats_transport import (
     TUNNEL_PROTOCOL_VERSION,
     NATSTransport,
 )
+from aggregator.schemas.agent import ATTACHMENT_CAPABILITY
 
 logger = logging.getLogger(__name__)
 
@@ -105,16 +106,13 @@ class NATSSessionTransport:
             extra={"peer_channel": self._peer_channel, "session_id": self._session_id},
         )
 
-        # Embed the per-session attachment AES key in the (encrypted) session
-        # start payload so the HOST and aggregator share the same KEK material
-        # for envelope-wrapping per-file content keys. Only included when the
-        # caller advertised the attachments capability.
-        if "attachments" in payload.get("capabilities", []):
+        # HOST + aggregator derive the same per-file KEK from this shared key.
+        if ATTACHMENT_CAPABILITY in payload.get("capabilities", []):
             payload = {
                 **payload,
-                "session_attachment_key": base64.b64encode(
-                    self._session_attachment_key
-                ).decode("ascii"),
+                "session_attachment_key": base64.b64encode(self._session_attachment_key).decode(
+                    "ascii"
+                ),
             }
 
         # Build and send the session start message

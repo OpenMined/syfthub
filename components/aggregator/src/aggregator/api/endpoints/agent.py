@@ -20,11 +20,14 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from aggregator.clients.nats_transport import NATSTransport
 from aggregator.schemas.agent import (
+    ATTACHMENT_CAPABILITY,
     AgentSessionState,
     SessionStartPayload,
 )
 from aggregator.services.attachment_session_state import (
     AttachmentSession,
+)
+from aggregator.services.attachment_session_state import (
     registry as attachment_registry,
 )
 from aggregator.services.session_manager import (
@@ -175,11 +178,7 @@ async def agent_session_ws(websocket: WebSocket) -> None:
         )
         session.state = AgentSessionState.RUNNING
 
-        # Register the session in the attachment-state registry so the HTTP
-        # relay endpoints can authorize uploads/downloads + look up the
-        # session-attachment-key. Only meaningful when the caller declared
-        # the attachments capability.
-        if "attachments" in (payload.capabilities or []):
+        if ATTACHMENT_CAPABILITY in (payload.capabilities or []):
             attachment_registry().register(
                 AttachmentSession(
                     session_id=session_id,

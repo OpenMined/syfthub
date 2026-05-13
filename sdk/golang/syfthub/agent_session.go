@@ -25,8 +25,8 @@ import (
 const AttachmentCapability = "attachments"
 
 // InlineAttachmentMaxBytes is the maximum plaintext size supported by the
-// inline transport. Larger files require the Object Store transport
-// (PR-5+). MUST equal syfthubapi.InlineMaxBytes.
+// inline transport. Larger files require the Object Store transport.
+// MUST equal syfthubapi.InlineMaxBytes.
 const InlineAttachmentMaxBytes = 64 * 1024
 
 // newAttachmentID returns a fresh "att-<uuid>" identifier.
@@ -157,7 +157,7 @@ type AttachmentEvent struct {
 	// Inline tier:
 	InlineDataB64 string `json:"inline_data_b64,omitempty"`
 
-	// Object-store tier (PR-5+):
+	// Object-store tier:
 	ObjectBucket string                 `json:"object_bucket,omitempty"`
 	ObjectKey    string                 `json:"object_key,omitempty"`
 	ChunkSize    int                    `json:"chunk_size,omitempty"`

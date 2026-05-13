@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
-from typing import IO
+from typing import IO, Any
 
 from aggregator.api.endpoints.agent import get_nats_transport
 
@@ -37,9 +37,9 @@ class AttachmentObjectStoreClient:
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
-        self._stores: dict = {}  # bucket -> ObjectStore
+        self._stores: dict[str, Any] = {}  # bucket -> ObjectStore
 
-    async def _get_or_create(self, bucket: str):
+    async def _get_or_create(self, bucket: str) -> Any:
         async with self._lock:
             if bucket in self._stores:
                 return self._stores[bucket]
@@ -82,7 +82,7 @@ class AttachmentObjectStoreClient:
             logger.debug("delete_object_store %s failed", bucket, exc_info=True)
 
 
-async def _read_async_stream(stream) -> bytes:
+async def _read_async_stream(stream: Any) -> bytes:
     buf = io.BytesIO()
     while True:
         chunk = await stream.read(64 * 1024)

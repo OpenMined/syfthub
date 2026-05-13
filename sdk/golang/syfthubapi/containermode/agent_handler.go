@@ -282,11 +282,8 @@ func parseSSEStream(reader io.Reader, callback func(eventType, data, id string))
 }
 
 // containerAttachmentsDir returns the path the container should expose to the
-// runner as session.attachments_dir. Inline-tier attachments are materialized
-// here by _handle_session_attachment in runner/server.py.
-//
-// For PR-3 we use a stable per-session subdirectory under /tmp inside the
-// container. PR-5 may switch to a bind-mounted host directory.
+// runner as session.attachments_dir. A stable per-session subdir under /tmp
+// inside the container.
 func containerAttachmentsDir(session *syfthubapi.AgentSession) string {
 	if !session.AttachmentsEnabled() {
 		return ""
@@ -296,9 +293,7 @@ func containerAttachmentsDir(session *syfthubapi.AgentSession) string {
 
 // writeUserAttachments forwards inbound attachments from the session's
 // attachment channel into the container via POST /session/{id}/attachment.
-//
-// Inline-tier only (PR-3): reads the file off disk, base64-encodes,
-// POSTs JSON. PR-5 will switch large files to Object Store transport.
+// Reads the file off disk, base64-encodes, POSTs JSON (inline-tier).
 func writeUserAttachments(ctx context.Context, baseURL string, session *syfthubapi.AgentSession, logger *slog.Logger) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	url := fmt.Sprintf("%s/session/%s/attachment", baseURL, session.ID)

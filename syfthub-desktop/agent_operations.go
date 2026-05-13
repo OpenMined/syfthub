@@ -142,13 +142,11 @@ func (a *App) StartAgentSession(slug string, prompt string) (string, error) {
 		return "", fmt.Errorf("failed to start agent session: %s", errMsg)
 	}
 
+	// Endpoint opt-in via YAML accepts_attachments is the real gate.
 	session, err := sm.StartSession(syfthubapi.AgentSessionStartPayload{
 		SessionID:    sessionID,
 		Prompt:       prompt,
 		EndpointSlug: slug,
-		// Desktop sessions advertise the attachments capability unconditionally
-		// — endpoints opt in via their YAML accepts_attachments flag, which is
-		// the gate the session manager uses to provision an attachment tempdir.
 		Capabilities: []string{syfthubapi.AttachmentCapability},
 	}, userCtx)
 	if err != nil {
@@ -199,12 +197,7 @@ func (a *App) StartAgentSession(slug string, prompt string) (string, error) {
 					}
 					messageBuf.WriteString(content)
 				}
-			case "agent.attachment":
-				// Materialize the inline bytes to the per-session
-				// AttachmentDir so AttachmentInlineBytes (preview) and
-				// SaveAgentAttachment (download) can find them. The
-				// container runner emits transport="inline" only — the
-				// cloud (Object Store) tier writes are handled elsewhere.
+			case syfthubapi.EventTypeAgentAttachment:
 				if err := materializeAgentInlineAttachment(session.AttachmentDir, data); err != nil {
 					runtime.LogWarning(a.ctx, fmt.Sprintf("agent.attachment materialize failed: %v", err))
 				}

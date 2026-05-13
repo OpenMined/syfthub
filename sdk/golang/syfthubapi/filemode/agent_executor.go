@@ -276,11 +276,8 @@ if __name__ == "__main__":
 `
 
 // handleRunnerAttachment reads a runner-produced file and forwards it as an
-// agent.attachment event via the session. The runner writes the file under
-// the per-session AttachmentDir (or any path it has access to); the bridge
-// validates the path stays inside the session tempdir, then calls
-// session.SendAttachment which inlines the bytes (PR-2) or stages an Object
-// Store upload (PR-5).
+// agent.attachment event via the session. The bridge validates the path
+// stays inside the session tempdir before reading.
 func handleRunnerAttachment(session *syfthubapi.AgentSession, payload []byte, logger *slog.Logger) error {
 	if !session.AttachmentsEnabled() {
 		return fmt.Errorf("attachments not enabled for session %s", session.ID)

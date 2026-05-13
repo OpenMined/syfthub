@@ -49,7 +49,7 @@ Examples:
 
 func init() {
 	agentCmd.Flags().StringVarP(&agentAggregator, "aggregator", "a", "", "Aggregator alias or URL to use")
-	agentCmd.Flags().StringSliceVar(&agentAttachPaths, "attach", nil, "File(s) to attach to the prompt (repeat or comma-separate). Files <=64 KiB ride inline; larger uses Object Store (PR-5+).")
+	agentCmd.Flags().StringSliceVar(&agentAttachPaths, "attach", nil, "File(s) to attach to the prompt (repeat or comma-separate). Files <=64 KiB ride inline; larger uses Object Store.")
 	agentCmd.Flags().StringVar(&agentSaveAttachmentsTo, "save-attachments-to", "", "Directory to save inbound agent attachments (defaults to current dir)")
 }
 
@@ -149,8 +149,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 	fmt.Printf("Session %s started\n\n", session.SessionID)
 
 	// Stage attachments up-front so the agent sees them before processing
-	// the prompt. Each file rides as a user.attachment WS frame; inline tier
-	// only in PR-4.
+	// the prompt. Each file rides as a user.attachment WS frame.
 	for _, p := range agentAttachPaths {
 		if err := uploadAgentAttachment(ctx, session, p); err != nil {
 			output.Error("Failed to attach %s: %v", p, err)

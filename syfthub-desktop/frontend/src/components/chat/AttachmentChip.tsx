@@ -109,27 +109,12 @@ function useInlinePreview(
   return url;
 }
 
-// ── Download/Open button ──────────────────────────────────────────────────
-
 type DownloadState =
   | { kind: 'idle' }
   | { kind: 'saving' }
   | { kind: 'saved'; path: string }
   | { kind: 'error' };
 
-/**
- * DownloadOrOpenButton flips role based on saved state.
- *
- *   idle    -> Download icon, neutral foreground. Click = save to Downloads.
- *   saving  -> Loader spinner, disabled.
- *   saved   -> ExternalLink icon, primary foreground. Click = open the
- *              saved file in the OS's default app. Tooltip shows the
- *              absolute path. State is sticky for the session.
- *   error   -> Download icon, destructive foreground, for ~2.5s, reverts.
- *
- * State lives here AND is reported up via onStateChange so the parent
- * chip can tint its background to match.
- */
 function DownloadOrOpenButton({
   fileId,
   name,

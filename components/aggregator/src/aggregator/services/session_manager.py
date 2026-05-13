@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 from fastapi import WebSocket
 
 from aggregator.schemas.agent import AgentSessionState
+from aggregator.services.attachment_relay import record_agent_attachment_metadata
 
 if TYPE_CHECKING:
     from aggregator.services.session_transport import SessionTransport
@@ -86,15 +87,6 @@ async def relay_space_to_frontend(session: AgentSession) -> None:
             elif event_type == "session.failed":
                 session.state = AgentSessionState.FAILED
             elif event_type == "agent.attachment":
-                # Track Object Store metadata so the CLIENT can later download
-                # via GET /agent/session/{sid}/attachment/{fid}. Inline-tier
-                # attachments are rendered directly from the WS payload by the
-                # frontend and don't need server-side state.
-                # Lazy import to avoid a circular dep at module load.
-                from aggregator.services.attachment_relay import (
-                    record_agent_attachment_metadata,
-                )
-
                 info = event.get("data") or {}
                 if isinstance(info, dict):
                     await record_agent_attachment_metadata(session.session_id, info)

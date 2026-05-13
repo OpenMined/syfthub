@@ -15,7 +15,7 @@ import (
 )
 
 // uploadAgentAttachment reads a file from disk and uploads it as a
-// user.attachment WebSocket frame. PR-4 supports the inline tier only.
+// user.attachment WebSocket frame.
 func uploadAgentAttachment(ctx context.Context, session *syfthub.AgentSessionClient, path string) error {
 	st, err := os.Stat(path)
 	if err != nil {

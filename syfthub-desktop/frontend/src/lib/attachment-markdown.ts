@@ -1,17 +1,11 @@
 /**
  * Markdown rewriter for the `attachment://{file_id}` URI scheme.
  *
- * The agent can reference attachments inline in messages with markdown like:
- *
+ * Agents reference attachments inline:
  *     Here's the chart you asked for: ![chart](attachment://att-abc123)
  *
- * The remark/rehype pipeline normally would not know what to do with the
- * non-http(s) URL. This plugin rewrites those URIs to placeholder anchors
- * that the ChatMessage renderer recognizes and replaces with an
- * AttachmentChip component at render time.
- *
- * Why not use a real remark plugin? Avoiding an extra dependency in PR-8.
- * A real remark plugin pass lands in a follow-up.
+ * Rewrites those URIs to sentinel <span> tags that ChatMessage swaps for an
+ * <AttachmentChip> at render time, avoiding a full remark plugin dependency.
  *
  * See docs/architecture/attachments.md.
  */

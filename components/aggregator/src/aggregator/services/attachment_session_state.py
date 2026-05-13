@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -23,7 +24,7 @@ class AttachmentSession:
     target_username: str
     session_attachment_key: bytes  # 32-byte AES key shared with the HOST
     # transport is typed loosely to avoid circular imports.
-    transport: object
+    transport: Any
 
     # Quota tracking (platform-level — per-endpoint policy lands in v2).
     bytes_used: int = 0

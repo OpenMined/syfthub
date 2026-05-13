@@ -94,7 +94,7 @@ type AgentSession struct {
 	AttachmentDir string
 
 	// AttachmentUploader, if set, routes outbound attachments larger than
-	// InlineMaxBytes through Object Store. PR-5 supplies the implementation.
+	// InlineMaxBytes through Object Store.
 	AttachmentUploader AttachmentUploader
 
 	// attachmentDownloader is the inbound counterpart: fetches object_store-

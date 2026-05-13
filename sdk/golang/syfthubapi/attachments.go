@@ -89,8 +89,7 @@ type AttachmentInfo struct {
 
 	// LocalPath is the on-disk path where the receiving HOST has materialized
 	// the plaintext bytes for delivery to the runner. Internal state — not
-	// serialized to the wire. Set by materializeInlineAttachment (PR-2) or
-	// the Object Store downloader (PR-5).
+	// serialized to the wire.
 	LocalPath string `json:"-"`
 }
 
@@ -143,15 +142,9 @@ const (
 // MUST match the Python aggregator constant exactly.
 const AttachmentHKDFInfoV1 = "syfthub-attachment-v1"
 
-// AttachmentUploader is the optional injection point that lets a session
-// route outbound files via JetStream Object Store (PR-5+) instead of riding
-// them inline in the event payload. The transport package supplies a real
+// AttachmentUploader routes outbound files via JetStream Object Store
+// instead of riding them inline. The transport package supplies the real
 // implementation; the syfthubapi package only knows the interface.
-//
-// Upload reads plaintext from r, encrypts it under a fresh per-file key
-// (envelope-wrapped by the session AES key), uploads ciphertext to Object
-// Store, and returns a fully populated AttachmentInfo with
-// Transport=object_store + WrappedKey + ObjectBucket/Key set.
 type AttachmentUploader interface {
 	Upload(fileID, name, mime string, sizeBytes int64, r io.Reader) (AttachmentInfo, error)
 }

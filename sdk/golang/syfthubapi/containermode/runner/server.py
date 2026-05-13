@@ -387,7 +387,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         if not data_b64:
             self._send_json(
                 400,
-                {"success": False, "error": "inline_data_b64 required (PR-3 inline only)"},
+                {"success": False, "error": "inline_data_b64 required"},
             )
             return
         try:
