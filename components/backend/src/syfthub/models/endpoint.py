@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import (
     JSON,
-    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -77,14 +76,6 @@ class EndpointModel(BaseModel, TimestampMixin):
         DateTime(timezone=True), nullable=True, default=None
     )
     health_ttl_seconds: Mapped[Optional[int]] = mapped_column(
-        Integer, nullable=True, default=None
-    )
-
-    # Last endpoint round-trip latency in milliseconds, reported by client
-    # alongside health status via POST /endpoints/health. Trusted only while
-    # the per-endpoint health signal (health_checked_at + health_ttl_seconds)
-    # is still fresh; otherwise treated as stale and ignored by the monitor.
-    last_latency_ms: Mapped[Optional[int]] = mapped_column(
         Integer, nullable=True, default=None
     )
 
@@ -206,10 +197,6 @@ class EndpointUptimeSampleModel(Base):
     )
     total_checks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     healthy_checks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    latency_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    latency_sum_ms: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    latency_min_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    latency_max_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     __table_args__ = (
         PrimaryKeyConstraint("endpoint_id", "bucket_start"),

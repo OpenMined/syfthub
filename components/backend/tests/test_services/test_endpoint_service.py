@@ -1644,10 +1644,6 @@ class TestGetEndpointUptime:
         s.bucket_start = kwargs["bucket_start"]
         s.total_checks = kwargs.get("total_checks", 0)
         s.healthy_checks = kwargs.get("healthy_checks", 0)
-        s.latency_count = kwargs.get("latency_count", 0)
-        s.latency_sum_ms = kwargs.get("latency_sum_ms", 0)
-        s.latency_min_ms = kwargs.get("latency_min_ms")
-        s.latency_max_ms = kwargs.get("latency_max_ms")
         return s
 
     def test_uptime_user_owned_happy_path(self, endpoint_service, sample_user):
@@ -1657,15 +1653,7 @@ class TestGetEndpointUptime:
         )
         bucket = datetime(2026, 5, 13, 12, 0, tzinfo=timezone.utc)
         samples = [
-            self._sample(
-                bucket_start=bucket,
-                total_checks=60,
-                healthy_checks=60,
-                latency_count=60,
-                latency_sum_ms=60 * 42,
-                latency_min_ms=30,
-                latency_max_ms=80,
-            )
+            self._sample(bucket_start=bucket, total_checks=60, healthy_checks=60)
         ]
 
         with (
@@ -1700,9 +1688,6 @@ class TestGetEndpointUptime:
         assert b.samples == 60
         assert b.healthy_samples == 60
         assert b.uptime_pct == 100.0
-        assert b.avg_latency_ms == 42.0
-        assert b.min_latency_ms == 30
-        assert b.max_latency_ms == 80
 
     def test_uptime_falls_back_to_org_lookup(self, endpoint_service, sample_user):
         org = MagicMock(id=99, slug="acme")
@@ -1816,23 +1801,15 @@ class TestGetEndpointUptime:
             )
         assert result.buckets == []
 
-    def test_uptime_partial_health_and_no_latency(self, endpoint_service, sample_user):
+    def test_uptime_partial_health(self, endpoint_service, sample_user):
         owner = MagicMock(id=1, username="testuser")
         endpoint = self._endpoint(
             id=42, slug="mixed", user_id=1, visibility=EndpointVisibility.PUBLIC
         )
         bucket = datetime(2026, 5, 13, 12, 30, tzinfo=timezone.utc)
-        # 40 of 60 checks healthy, no latency data
+        # 40 of 60 cycles observed a healthy state
         samples = [
-            self._sample(
-                bucket_start=bucket,
-                total_checks=60,
-                healthy_checks=40,
-                latency_count=0,
-                latency_sum_ms=0,
-                latency_min_ms=None,
-                latency_max_ms=None,
-            )
+            self._sample(bucket_start=bucket, total_checks=60, healthy_checks=40)
         ]
         with (
             patch.object(
@@ -1857,6 +1834,5 @@ class TestGetEndpointUptime:
             )
         b = result.buckets[0]
         assert b.uptime_pct == round(100.0 * 40 / 60, 2)
-        assert b.avg_latency_ms is None
-        assert b.min_latency_ms is None
-        assert b.max_latency_ms is None
+        assert b.samples == 60
+        assert b.healthy_samples == 40
