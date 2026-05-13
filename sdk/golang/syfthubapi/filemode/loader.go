@@ -25,6 +25,11 @@ type EndpointConfig struct {
 	Env         EnvConfig               `yaml:"env"`
 	Runtime     RuntimeConfig           `yaml:"runtime"`
 	Container   EndpointContainerConfig `yaml:"container"`
+
+	// AcceptsAttachments opts an agent endpoint into receiving file attachments
+	// from the caller. Default false. See docs/architecture/attachments.md.
+	// Only meaningful for agent endpoints.
+	AcceptsAttachments bool `yaml:"accepts_attachments"`
 }
 
 // EnvConfig specifies environment variable requirements.

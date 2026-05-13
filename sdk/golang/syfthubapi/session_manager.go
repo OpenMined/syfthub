@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 )
@@ -92,6 +93,17 @@ type AgentSessionStartPayload struct {
 	// or signed challenge response) supplied by the caller to satisfy a
 	// TransactionPolicy payment challenge for the agent session intent.
 	PaymentCredential string `json:"payment_credential,omitempty"`
+
+	// Capabilities lists optional protocol extensions the caller supports.
+	// See docs/architecture/attachments.md for the "attachments" capability.
+	// Hosts MUST NOT emit attachment events unless this list contains
+	// AttachmentCapability AND the endpoint has accepts_attachments=true.
+	Capabilities []string `json:"capabilities,omitempty"`
+}
+
+// HasCapability returns true if the payload declared the named capability.
+func (p *AgentSessionStartPayload) HasCapability(cap string) bool {
+	return slices.Contains(p.Capabilities, cap)
 }
 
 // AgentUserMessagePayload is the decrypted payload of an agent_user_message.

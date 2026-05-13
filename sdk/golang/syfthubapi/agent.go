@@ -1,13 +1,30 @@
 package syfthubapi
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"slices"
 	"sync/atomic"
 
 	"github.com/openmined/syfthub/sdk/golang/agenttypes"
 )
+
+// newUUID returns a random UUIDv4 string. Local helper to avoid a new
+// dependency just for ID generation in this package.
+func newUUID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
 
 // AgentConfig is an alias for the shared agent config type.
 // Kept for backward compatibility so callers can continue using syfthubapi.AgentConfig.
@@ -67,6 +84,19 @@ type AgentSession struct {
 	// EndpointSlug is the slug of the agent endpoint handling this session.
 	EndpointSlug string
 
+	// Capabilities lists optional protocol extensions the caller advertised
+	// in session.start. See docs/architecture/attachments.md.
+	Capabilities []string
+
+	// AttachmentDir is the per-session tempdir for materialized attachment
+	// files. Set by the session manager when attachments are enabled; empty
+	// otherwise. Files in this directory are cleaned up on session end.
+	AttachmentDir string
+
+	// recvAttachCh carries inbound attachment metadata to the handler.
+	// nil if attachments are not enabled for this session.
+	recvAttachCh chan AttachmentInfo
+
 	// ctx is the session lifecycle context; cancelled on user cancel or timeout.
 	ctx context.Context
 
@@ -91,14 +121,49 @@ type AgentSession struct {
 	sequence atomic.Int64
 }
 
+// HasCapability returns true if the session advertised the named capability.
+func (s *AgentSession) HasCapability(cap string) bool {
+	return slices.Contains(s.Capabilities, cap)
+}
+
+// AttachmentsEnabled reports whether the attachments capability is active
+// for this session AND a tempdir is configured. Handlers SHOULD gate calls
+// to attachment helpers on this.
+func (s *AgentSession) AttachmentsEnabled() bool {
+	return s.AttachmentDir != "" && s.HasCapability(AttachmentCapability)
+}
+
+// AttachmentCh returns the channel of inbound user attachments. Returns nil
+// if attachments are not enabled for this session — handlers should check
+// AttachmentsEnabled() first.
+func (s *AgentSession) AttachmentCh() <-chan AttachmentInfo {
+	return s.recvAttachCh
+}
+
+// DeliverAttachment pushes an attachment to the session's receive channel.
+// Returns false if the channel is full or attachments are disabled.
+func (s *AgentSession) DeliverAttachment(a AttachmentInfo) bool {
+	if s.recvAttachCh == nil {
+		return false
+	}
+	select {
+	case s.recvAttachCh <- a:
+		return true
+	default:
+		return false
+	}
+}
+
 // AgentSessionParams holds the parameters for creating a new AgentSession.
 type AgentSessionParams struct {
-	ID           string
-	Prompt       string
-	EndpointSlug string
-	Messages     []Message
-	Config       AgentConfig
-	User         *UserContext
+	ID            string
+	Prompt        string
+	EndpointSlug  string
+	Messages      []Message
+	Config        AgentConfig
+	User          *UserContext
+	Capabilities  []string
+	AttachmentDir string
 }
 
 // NewAgentSession creates a new AgentSession with the given parameters.
@@ -107,6 +172,10 @@ type AgentSessionParams struct {
 // Pass context.Background() for sessions with no external deadline.
 func NewAgentSession(parentCtx context.Context, params AgentSessionParams) *AgentSession {
 	ctx, cancel := context.WithCancel(parentCtx)
+	var recvAttachCh chan AttachmentInfo
+	if params.AttachmentDir != "" {
+		recvAttachCh = make(chan AttachmentInfo, 32)
+	}
 	return &AgentSession{
 		ID:            params.ID,
 		InitialPrompt: params.Prompt,
@@ -114,6 +183,9 @@ func NewAgentSession(parentCtx context.Context, params AgentSessionParams) *Agen
 		Config:        params.Config,
 		User:          params.User,
 		EndpointSlug:  params.EndpointSlug,
+		Capabilities:  params.Capabilities,
+		AttachmentDir: params.AttachmentDir,
+		recvAttachCh:  recvAttachCh,
 		ctx:           ctx,
 		cancel:        cancel,
 		sendCh:        make(chan AgentEventPayload, 100),
@@ -256,6 +328,56 @@ func (s *AgentSession) Receive() (UserMessage, error) {
 	case <-s.ctx.Done():
 		return UserMessage{}, s.ctx.Err()
 	}
+}
+
+// SendAttachment sends an attachment to the user. The bytes are read from r
+// and encoded inline (base64) when small, or staged for Object Store upload
+// when larger.
+//
+// In PR-2 (this PR), only the inline tier is supported; payloads larger than
+// InlineMaxBytes return an error. PR-5 adds the Object Store path.
+//
+// The caller must have set AttachmentDir on the session (i.e., the session
+// was started with attachments enabled). Returns the assigned file_id.
+func (s *AgentSession) SendAttachment(r io.Reader, name, mime string) (string, error) {
+	if !s.AttachmentsEnabled() {
+		return "", fmt.Errorf("attachments not enabled for this session")
+	}
+	body, err := io.ReadAll(io.LimitReader(r, InlineMaxBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("read attachment body: %w", err)
+	}
+	if len(body) > InlineMaxBytes {
+		return "", fmt.Errorf("attachment exceeds inline limit (%d bytes); Object Store transport not yet implemented", InlineMaxBytes)
+	}
+
+	fileID := "att-" + newUUID()
+	sum := sha256.Sum256(body)
+	info := AttachmentInfo{
+		FileID:          fileID,
+		Name:            name,
+		MIME:            mime,
+		SizeBytes:       int64(len(body)),
+		PlaintextSHA256: hex.EncodeToString(sum[:]),
+		Transport:       AttachmentTransportInline,
+		InlineDataB64:   base64.StdEncoding.EncodeToString(body),
+	}
+	data, err := json.Marshal(info)
+	if err != nil {
+		return "", fmt.Errorf("marshal attachment metadata: %w", err)
+	}
+	if err := s.Send(AgentEventPayload{
+		EventType: EventTypeAgentAttachment,
+		Data:      data,
+	}); err != nil {
+		return "", err
+	}
+	return fileID, nil
+}
+
+// SendAttachmentBytes is a convenience for SendAttachment with a []byte source.
+func (s *AgentSession) SendAttachmentBytes(b []byte, name, mime string) (string, error) {
+	return s.SendAttachment(bytes.NewReader(b), name, mime)
 }
 
 // RequestInput sends an agent.request_input event, then blocks for user response.

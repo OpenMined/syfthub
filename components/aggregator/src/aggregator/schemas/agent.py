@@ -59,6 +59,10 @@ class SessionStartPayload(BaseModel):
     peer_channel: str | None = Field(default=None, description="Peer channel identifier")
     config: dict[str, Any] | None = Field(default=None, description="Agent configuration")
     messages: list[dict[str, str]] | None = Field(default=None, description="Conversation history")
+    capabilities: list[str] = Field(
+        default_factory=list,
+        description="Optional protocol extensions (e.g., 'attachments'). See docs/architecture/attachments.md.",
+    )
 
 
 class UserMessagePayload(BaseModel):
@@ -170,3 +174,82 @@ class SessionFailedPayload(BaseModel):
 
     error: str = Field(..., description="Error message")
     reason: str = Field(default="unknown", description="Failure reason")
+
+
+# =============================================================================
+# Attachments (see docs/architecture/attachments.md)
+# =============================================================================
+
+
+# Inline-tier ceiling: plaintext bytes <= 65 536 ride inline_data_b64 in the
+# event payload. Larger payloads MUST use Object Store transport.
+ATTACHMENT_INLINE_MAX_BYTES = 64 * 1024
+
+# Capability string clients/hosts declare in session.start.
+ATTACHMENT_CAPABILITY = "attachments"
+
+# HKDF-Expand info string for deriving per-file KEKs from the session AES key.
+# MUST match the Go constant syfthubapi.AttachmentHKDFInfoV1 exactly.
+ATTACHMENT_HKDF_INFO_V1 = b"syfthub-attachment-v1"
+
+
+class AttachmentTransport(str, Enum):
+    INLINE = "inline"
+    OBJECT_STORE = "object_store"
+
+
+class AttachmentWrappedKey(BaseModel):
+    """Envelope-encrypted per-file AES key."""
+
+    algorithm: str = Field(default="AES-256-GCM")
+    ciphertext: str = Field(..., description="b64 of (file_key || GCM tag)")
+    nonce: str = Field(..., description="b64 of 12-byte GCM nonce")
+    info: str = Field(..., description="HKDF info string, e.g. 'syfthub-attachment-v1'")
+
+
+class AttachmentInfo(BaseModel):
+    """Metadata for an attachment, carried in the event Data field."""
+
+    file_id: str = Field(..., description="Server-minted UUID for this attachment")
+    name: str = Field(..., description="Original file name (display only)")
+    mime: str = Field(..., description="Declared media type")
+    size_bytes: int = Field(..., ge=0, description="Plaintext byte length")
+    plaintext_sha256: str = Field(..., description="hex SHA-256 of plaintext")
+    transport: AttachmentTransport = Field(..., description="inline | object_store")
+
+    # Inline tier (size_bytes <= ATTACHMENT_INLINE_MAX_BYTES):
+    inline_data_b64: str | None = Field(default=None)
+
+    # Object-store tier (size_bytes > ATTACHMENT_INLINE_MAX_BYTES):
+    object_bucket: str | None = Field(default=None)
+    object_key: str | None = Field(default=None)
+    chunk_size: int | None = Field(default=None, ge=1)
+    wrapped_key: AttachmentWrappedKey | None = Field(default=None)
+
+
+class UserAttachmentPayload(BaseModel):
+    """Payload for user.attachment event (frontend -> aggregator -> space)."""
+
+    attachment: AttachmentInfo
+
+
+class AgentAttachmentPayload(BaseModel):
+    """Payload for agent.attachment event (space -> aggregator -> frontend)."""
+
+    attachment: AttachmentInfo
+
+
+class AttachmentErrorPayload(BaseModel):
+    """Payload for agent.error events tied to attachment failure codes.
+
+    Distinct attachment error codes (see docs/architecture/attachments.md
+    section "Failure modes"):
+      ATTACHMENT_QUOTA_EXCEEDED, ATTACHMENT_NOT_ACCEPTED,
+      ATTACHMENT_INTEGRITY, ATTACHMENT_DECRYPT_FAILED,
+      ATTACHMENT_NOT_FOUND, ATTACHMENT_INVALID_METADATA.
+    """
+
+    code: str = Field(..., description="ATTACHMENT_* code")
+    message: str = Field(..., description="Human-readable error")
+    file_id: str | None = Field(default=None)
+    recoverable: bool = Field(default=False)
