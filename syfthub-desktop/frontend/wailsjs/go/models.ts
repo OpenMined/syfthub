@@ -1,5 +1,27 @@
 export namespace main {
 
+	export class AttachmentSummary {
+	    file_id: string;
+	    name: string;
+	    mime: string;
+	    size_bytes: number;
+	    sha256: string;
+	    local_path: string;
+
+	    static createFrom(source: any = {}) {
+	        return new AttachmentSummary(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.file_id = source["file_id"];
+	        this.name = source["name"];
+	        this.mime = source["mime"];
+	        this.size_bytes = source["size_bytes"];
+	        this.sha256 = source["sha256"];
+	        this.local_path = source["local_path"];
+	    }
+	}
 	export class AccountingConfig {
 	    url: string;
 

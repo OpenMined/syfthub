@@ -146,6 +146,10 @@ func (a *App) StartAgentSession(slug string, prompt string) (string, error) {
 		SessionID:    sessionID,
 		Prompt:       prompt,
 		EndpointSlug: slug,
+		// Desktop sessions advertise the attachments capability unconditionally
+		// — endpoints opt in via their YAML accepts_attachments flag, which is
+		// the gate the session manager uses to provision an attachment tempdir.
+		Capabilities: []string{syfthubapi.AttachmentCapability},
 	}, userCtx)
 	if err != nil {
 		failLog(err.Error(), nil)

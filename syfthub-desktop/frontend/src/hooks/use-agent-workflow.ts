@@ -15,10 +15,27 @@ export interface AgentStreamEvent {
 // Each entry in the agent conversation
 export interface AgentEntry {
   id: string;
-  kind: 'user' | 'thinking' | 'status' | 'tool_call' | 'tool_result' | 'message' | 'token' | 'request_input' | 'error' | 'completed';
+  kind: 'user' | 'thinking' | 'status' | 'tool_call' | 'tool_result' | 'message' | 'token' | 'request_input' | 'error' | 'completed' | 'attachment';
   content: string;
   data?: Record<string, unknown>;
   timestamp: number;
+}
+
+// AttachmentMeta is the shape pushed into AgentEntry.data for attachment
+// entries — both inbound (agent.attachment events) and staged outbound
+// uploads (user attachments). See docs/architecture/attachments.md.
+export interface AttachmentMeta {
+  file_id: string;
+  name: string;
+  mime: string;
+  size_bytes: number;
+  plaintext_sha256: string;
+  // Set on outbound (user-staged) attachments to indicate they are local.
+  staged?: boolean;
+  // Inline payload (base64) when the agent emitted it under the inline tier.
+  inline_data_b64?: string;
+  // Optional attachment:// URI form for use in markdown.
+  uri?: string;
 }
 
 // =============================================================================
@@ -135,6 +152,21 @@ export function useAgentWorkflow({ endpointSlug }: UseAgentWorkflowProps) {
             timestamp: Date.now(),
           }]);
           break;
+
+        case 'agent.attachment': {
+          // Inbound attachment from the agent. Surface as an attachment
+          // timeline entry; the UI renders inline image previews when
+          // inline_data_b64 is present, otherwise a download chip.
+          const fileId = String(data.file_id ?? '');
+          setEntries(prev => [...prev, {
+            id: makeId(),
+            kind: 'attachment',
+            content: String(data.name ?? fileId),
+            data: { ...data, uri: fileId ? `attachment://${fileId}` : undefined },
+            timestamp: Date.now(),
+          }]);
+          break;
+        }
 
         case 'agent.message': {
           // Flush any pending batched tokens before adding the message
