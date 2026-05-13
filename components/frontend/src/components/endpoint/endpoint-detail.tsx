@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 
 import type { Components } from 'react-markdown';
 
@@ -8,16 +8,24 @@ import ExternalLink from 'lucide-react/dist/esm/icons/external-link';
 import Package from 'lucide-react/dist/esm/icons/package';
 import Star from 'lucide-react/dist/esm/icons/star';
 import Users from 'lucide-react/dist/esm/icons/users';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 
 import { ConnectionCard } from '@/components/connection-card';
 import { Markdown } from '@/components/prompt-kit/markdown';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useEndpointByPath } from '@/hooks/use-endpoint-queries';
 import { getEndpointTypeBadgeStyles, getEndpointTypeLabel } from '@/lib/endpoint-utils';
 
 import { AccessPoliciesCard } from './access-policies-card';
+import { UptimeTab } from './uptime-tab';
+
+type EndpointTabId = 'overview' | 'uptime';
+
+function parseTab(raw: string | null): EndpointTabId {
+  return raw === 'uptime' ? 'uptime' : 'overview';
+}
 
 type EndpointStatus = 'active' | 'warning' | 'inactive';
 
@@ -134,6 +142,33 @@ export const EndpointDetail = memo(function EndpointDetail({
 }: Readonly<EndpointDetailProperties>) {
   const path = owner ? `${owner}/${slug}` : undefined;
   const { data: fetchedEndpoint, isLoading, error: queryError, refetch } = useEndpointByPath(path);
+
+  // Tab state lives in the URL so links like /:user/:slug?tab=uptime are
+  // shareable and refresh-stable. Default to overview when no param.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = parseTab(searchParams.get('tab'));
+
+  // Lazy-mount tracker: keep the uptime tab unmounted until the user has
+  // activated it at least once. After that, keep it mounted so the React
+  // Query cache survives further tab toggling without re-fetching.
+  const [uptimeOpened, setUptimeOpened] = useState(activeTab === 'uptime');
+
+  const handleTabChange = useCallback(
+    (next: string) => {
+      const nextTab = parseTab(next);
+      if (nextTab === 'uptime') setUptimeOpened(true);
+      setSearchParams(
+        (previous) => {
+          const params = new URLSearchParams(previous);
+          if (nextTab === 'overview') params.delete('tab');
+          else params.set('tab', nextTab);
+          return params;
+        },
+        { replace: true }
+      );
+    },
+    [setSearchParams]
+  );
 
   // Derive endpoint with full_path set
   const endpoint = fetchedEndpoint
@@ -254,10 +289,10 @@ export const EndpointDetail = memo(function EndpointDetail({
   }
 
   return (
-    <div className='bg-background min-h-screen'>
-      {/* Header */}
+    <Tabs value={activeTab} onValueChange={handleTabChange} className='bg-background min-h-screen'>
+      {/* Header (sticky) — back button, h1, description, badges, then tab strip */}
       <div className='border-border bg-card sticky top-0 z-10 border-b backdrop-blur-sm'>
-        <div className='mx-auto max-w-5xl px-6 py-4'>
+        <div className='mx-auto max-w-5xl px-6 pt-4'>
           <Button
             variant='ghost'
             onClick={onBack}
@@ -305,114 +340,141 @@ export const EndpointDetail = memo(function EndpointDetail({
               </div>
             </div>
           </div>
+
+          {/* Tab strip — sits flush with the header's bottom border via -mb-px */}
+          <TabsList className='-mb-px flex h-12 w-full justify-start gap-1 rounded-none bg-transparent p-0'>
+            <TabsTrigger
+              value='overview'
+              className='font-inter focus-visible:ring-ring data-[state=active]:border-primary data-[state=active]:text-foreground text-muted-foreground hover:text-foreground relative inline-flex h-12 items-center justify-center rounded-none border-b-2 border-transparent bg-transparent px-4 text-sm font-medium shadow-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-0 data-[state=active]:shadow-none'
+            >
+              Overview
+            </TabsTrigger>
+            <TabsTrigger
+              value='uptime'
+              className='font-inter focus-visible:ring-ring data-[state=active]:border-primary data-[state=active]:text-foreground text-muted-foreground hover:text-foreground relative inline-flex h-12 items-center justify-center rounded-none border-b-2 border-transparent bg-transparent px-4 text-sm font-medium shadow-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-0 data-[state=active]:shadow-none'
+            >
+              Uptime
+            </TabsTrigger>
+          </TabsList>
         </div>
       </div>
 
       {/* Content */}
       <div className='mx-auto max-w-5xl px-6 py-8'>
-        <div className='grid gap-8 lg:grid-cols-3'>
-          {/* Main content */}
-          <main className='space-y-6 lg:col-span-2'>
-            {/* README Section */}
-            <article className='border-border bg-card rounded-xl border p-6'>
-              <div className='prose prose-sm text-muted-foreground max-w-none'>
-                {endpoint.readme ? (
-                  <Markdown components={markdownComponents}>{endpoint.readme}</Markdown>
-                ) : (
-                  <p className='font-inter text-muted-foreground italic'>
-                    No documentation available for this endpoint.
-                  </p>
-                )}
-              </div>
-            </article>
-
-            {/* Access Policies Card */}
-            <AccessPoliciesCard
-              policies={endpoint.policies}
-              endpointSlug={endpoint.full_path ?? endpoint.slug}
-              endpointOwner={endpoint.owner_username}
-            />
-          </main>
-
-          {/* Sidebar */}
-          <aside className='space-y-6'>
-            {/* Info Card */}
-            <div className='border-border bg-card rounded-xl border p-6'>
-              <h3 className='font-rubik text-foreground mb-4 text-sm font-medium'>About</h3>
-              <div className='space-y-4'>
-                <div>
-                  <p className='font-inter text-muted-foreground mb-1 text-xs'>Owner</p>
-                  {endpoint.owner_username ? (
-                    <Link
-                      to={`/${endpoint.owner_username}`}
-                      className='hover:text-primary group flex items-center gap-2 transition-colors'
-                    >
-                      <div
-                        className='from-secondary to-chart-3 h-6 w-6 rounded-full bg-gradient-to-br'
-                        role='img'
-                        aria-label={`Avatar for ${endpoint.owner_username}`}
-                      />
-                      <span className='font-inter text-foreground group-hover:text-primary text-sm font-medium group-hover:underline'>
-                        @{endpoint.owner_username}
-                      </span>
-                    </Link>
+        <TabsContent value='overview' className='mt-0 focus-visible:outline-none'>
+          <div className='grid gap-8 lg:grid-cols-3'>
+            {/* Main content */}
+            <main className='space-y-6 lg:col-span-2'>
+              {/* README Section */}
+              <article className='border-border bg-card rounded-xl border p-6'>
+                <div className='prose prose-sm text-muted-foreground max-w-none'>
+                  {endpoint.readme ? (
+                    <Markdown components={markdownComponents}>{endpoint.readme}</Markdown>
                   ) : (
-                    <div className='flex items-center gap-2'>
-                      <div
-                        className='from-secondary to-chart-3 h-6 w-6 rounded-full bg-gradient-to-br'
-                        role='img'
-                        aria-label='Avatar for anonymous'
-                      />
-                      <span className='font-inter text-foreground text-sm font-medium'>
-                        @anonymous
-                      </span>
-                    </div>
+                    <p className='font-inter text-muted-foreground italic'>
+                      No documentation available for this endpoint.
+                    </p>
                   )}
                 </div>
+              </article>
 
-                <div>
-                  <p className='font-inter text-muted-foreground mb-1 text-xs'>Endpoint Type</p>
-                  <Badge className={`border ${getEndpointTypeBadgeStyles(endpoint.type)}`}>
-                    {getEndpointTypeLabel(endpoint.type)}
-                  </Badge>
-                </div>
+              {/* Access Policies Card */}
+              <AccessPoliciesCard
+                policies={endpoint.policies}
+                endpointSlug={endpoint.full_path ?? endpoint.slug}
+                endpointOwner={endpoint.owner_username}
+              />
+            </main>
 
-                {endpoint.tags.length > 0 ? (
+            {/* Sidebar */}
+            <aside className='space-y-6'>
+              {/* Info Card */}
+              <div className='border-border bg-card rounded-xl border p-6'>
+                <h3 className='font-rubik text-foreground mb-4 text-sm font-medium'>About</h3>
+                <div className='space-y-4'>
                   <div>
-                    <p className='font-inter text-muted-foreground mb-1 text-xs'>Tags</p>
-                    <div className='flex flex-wrap gap-1'>
-                      {endpoint.tags.map((tag) => (
-                        <Badge key={tag} variant='outline'>
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
+                    <p className='font-inter text-muted-foreground mb-1 text-xs'>Owner</p>
+                    {endpoint.owner_username ? (
+                      <Link
+                        to={`/${endpoint.owner_username}`}
+                        className='hover:text-primary group flex items-center gap-2 transition-colors'
+                      >
+                        <div
+                          className='from-secondary to-chart-3 h-6 w-6 rounded-full bg-gradient-to-br'
+                          role='img'
+                          aria-label={`Avatar for ${endpoint.owner_username}`}
+                        />
+                        <span className='font-inter text-foreground group-hover:text-primary text-sm font-medium group-hover:underline'>
+                          @{endpoint.owner_username}
+                        </span>
+                      </Link>
+                    ) : (
+                      <div className='flex items-center gap-2'>
+                        <div
+                          className='from-secondary to-chart-3 h-6 w-6 rounded-full bg-gradient-to-br'
+                          role='img'
+                          aria-label='Avatar for anonymous'
+                        />
+                        <span className='font-inter text-foreground text-sm font-medium'>
+                          @anonymous
+                        </span>
+                      </div>
+                    )}
                   </div>
-                ) : null}
 
-                <div>
-                  <p className='font-inter text-muted-foreground mb-1 text-xs'>Contributors</p>
-                  <div className='flex items-center gap-1'>
-                    <Users className='text-muted-foreground h-4 w-4' />
-                    <span className='font-inter text-foreground text-sm'>
-                      {endpoint.contributors_count} contributor
-                      {endpoint.contributors_count === 1 ? '' : 's'}
-                    </span>
+                  <div>
+                    <p className='font-inter text-muted-foreground mb-1 text-xs'>Endpoint Type</p>
+                    <Badge className={`border ${getEndpointTypeBadgeStyles(endpoint.type)}`}>
+                      {getEndpointTypeLabel(endpoint.type)}
+                    </Badge>
+                  </div>
+
+                  {endpoint.tags.length > 0 ? (
+                    <div>
+                      <p className='font-inter text-muted-foreground mb-1 text-xs'>Tags</p>
+                      <div className='flex flex-wrap gap-1'>
+                        {endpoint.tags.map((tag) => (
+                          <Badge key={tag} variant='outline'>
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div>
+                    <p className='font-inter text-muted-foreground mb-1 text-xs'>Contributors</p>
+                    <div className='flex items-center gap-1'>
+                      <Users className='text-muted-foreground h-4 w-4' />
+                      <span className='font-inter text-foreground text-sm'>
+                        {endpoint.contributors_count} contributor
+                        {endpoint.contributors_count === 1 ? '' : 's'}
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* Connections Card */}
-            {endpoint.connections && endpoint.connections.length > 0 ? (
-              <ConnectionCard
-                connections={endpoint.connections}
-                endpointSlug={endpoint.full_path}
-              />
-            ) : null}
-          </aside>
-        </div>
+              {/* Connections Card */}
+              {endpoint.connections && endpoint.connections.length > 0 ? (
+                <ConnectionCard
+                  connections={endpoint.connections}
+                  endpointSlug={endpoint.full_path}
+                />
+              ) : null}
+            </aside>
+          </div>
+        </TabsContent>
+
+        <TabsContent value='uptime' className='mt-0 focus-visible:outline-none'>
+          {/* Lazy-mount: only render once the user has activated the Uptime
+              tab at least once. After that we keep it mounted so the React
+              Query cache survives toggling. */}
+          {uptimeOpened ? (
+            <UptimeTab owner={endpoint.owner_username ?? owner ?? undefined} slug={endpoint.slug} />
+          ) : null}
+        </TabsContent>
       </div>
-    </div>
+    </Tabs>
   );
 });

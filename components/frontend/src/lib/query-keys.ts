@@ -16,7 +16,9 @@ export const endpointKeys = {
   trending: (limit: number) => [...endpointKeys.all, 'trending', limit] as const,
   count: () => [...endpointKeys.all, 'count'] as const,
   byPath: (path: string) => [...endpointKeys.all, 'byPath', path] as const,
-  byOwner: (owner: string) => [...endpointKeys.all, 'byOwner', owner] as const
+  byOwner: (owner: string) => [...endpointKeys.all, 'byOwner', owner] as const,
+  uptime: (owner: string, slug: string, windowHours: number) =>
+    [...endpointKeys.all, 'uptime', owner, slug, windowHours] as const
 };
 
 export const userKeys = {
