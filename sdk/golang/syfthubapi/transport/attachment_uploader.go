@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -16,7 +17,7 @@ import (
 // bucket scoped to the session.
 //
 // One ObjectStoreUploader instance per session. The encryptor is constructed
-// once from the session's SessionEncryptor.AESKey().
+// once from the shared session_attachment_key supplied by the aggregator.
 type ObjectStoreUploader struct {
 	encryptor *AttachmentEncryptor
 	store     AttachmentObjectStore
@@ -69,14 +70,9 @@ func (u *ObjectStoreUploader) Upload(
 		return syfthubapi.AttachmentInfo{}, err
 	}
 
-	// Tee the plaintext through SHA-256 so we can populate plaintext_sha256.
 	hash := sha256.New()
 	tee := io.TeeReader(r, hash)
 
-	// We must buffer ciphertext into a bytes.Buffer because the Object Store
-	// Put API takes an io.Reader and we want streaming size determination.
-	// For Phase-2/PR-5 this is acceptable (max attachment size = 25 MiB by
-	// platform default); PR-6+ may pipe directly with a counting writer.
 	var ct bytes.Buffer
 	plaintextSize, _, err := u.encryptor.EncryptStream(fileKey, baseNonce, fileID, tee, &ct)
 	if err != nil {
@@ -102,11 +98,11 @@ func (u *ObjectStoreUploader) Upload(
 		ObjectBucket:    u.bucket,
 		ObjectKey:       fileID,
 		ChunkSize:       AttachmentChunkSize,
-		BaseNonceB64:    b64urlEncode(baseNonce),
+		BaseNonceB64:    base64.StdEncoding.EncodeToString(baseNonce),
 		WrappedKey: &syfthubapi.WrappedKey{
 			Algorithm:  "AES-256-GCM",
-			Ciphertext: b64urlEncode(wrappedCT),
-			Nonce:      b64urlEncode(wrappedNonce),
+			Ciphertext: base64.StdEncoding.EncodeToString(wrappedCT),
+			Nonce:      base64.StdEncoding.EncodeToString(wrappedNonce),
 			Info:       syfthubapi.AttachmentHKDFInfoV1,
 		},
 	}, nil

@@ -3,10 +3,8 @@ package transport
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 
@@ -63,12 +61,11 @@ func (d *ObjectStoreDownloader) DownloadAndMaterialize(
 		return fmt.Errorf("object_bucket/key missing")
 	}
 
-	// Unwrap K under the session KEK.
-	wrappedCT, err := b64urlDecode(info.WrappedKey.Ciphertext)
+	wrappedCT, err := base64.StdEncoding.DecodeString(info.WrappedKey.Ciphertext)
 	if err != nil {
 		return fmt.Errorf("decode wrapped key ciphertext: %w", err)
 	}
-	wrappedNonce, err := b64urlDecode(info.WrappedKey.Nonce)
+	wrappedNonce, err := base64.StdEncoding.DecodeString(info.WrappedKey.Nonce)
 	if err != nil {
 		return fmt.Errorf("decode wrapped key nonce: %w", err)
 	}
@@ -76,29 +73,25 @@ func (d *ObjectStoreDownloader) DownloadAndMaterialize(
 	if err != nil {
 		return fmt.Errorf("unwrap file key: %w", err)
 	}
-	baseNonce, err := b64urlDecode(info.BaseNonceB64)
+	baseNonce, err := base64.StdEncoding.DecodeString(info.BaseNonceB64)
 	if err != nil {
 		return fmt.Errorf("decode base_nonce: %w", err)
 	}
 
-	// Pull ciphertext from Object Store.
 	var ct bytes.Buffer
 	if err := d.store.Get(d.ctx, info.ObjectBucket, info.ObjectKey, &ct); err != nil {
 		return fmt.Errorf("object-store get: %w", err)
 	}
 
-	// Decrypt into a plaintext buffer; we need to verify the SHA before
-	// committing to disk, but writing in chunks would also be fine.
 	var pt bytes.Buffer
-	gotSize, _, err := d.encryptor.DecryptStream(fileKey, baseNonce, info.FileID, info.SizeBytes, &ct, &pt)
+	gotSize, gotSHA, err := d.encryptor.DecryptStream(fileKey, baseNonce, info.FileID, info.SizeBytes, &ct, &pt)
 	if err != nil {
 		return fmt.Errorf("decrypt stream: %w", err)
 	}
 	if gotSize != info.SizeBytes {
 		return fmt.Errorf("size mismatch: declared %d, decrypted %d", info.SizeBytes, gotSize)
 	}
-	sum := sha256.Sum256(pt.Bytes())
-	if hex.EncodeToString(sum[:]) != info.PlaintextSHA256 {
+	if gotSHA != info.PlaintextSHA256 {
 		return fmt.Errorf("sha256 mismatch")
 	}
 
@@ -136,7 +129,3 @@ func MaterializeAttachment(
 		return fmt.Errorf("unknown transport %q", info.Transport)
 	}
 }
-
-// Compile-time check that io is used elsewhere; suppress unused-import on
-// some builds where the package only references typed io types via aliases.
-var _ io.Reader = (*bytes.Reader)(nil)

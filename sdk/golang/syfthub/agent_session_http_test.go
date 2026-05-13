@@ -196,4 +196,3 @@ func TestDownloadAttachmentMissingURLReturnsError(t *testing.T) {
 		t.Fatal("expected error for missing AggregatorHTTPURL")
 	}
 }
-

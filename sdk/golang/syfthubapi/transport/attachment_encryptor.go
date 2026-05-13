@@ -19,9 +19,7 @@ import (
 // AttachmentChunkSize is the per-chunk plaintext size for the streaming
 // AES-256-GCM scheme. Chunk N's nonce is base_nonce || u32_BE(N) and AAD is
 // file_id || u32_BE(N). Wire ciphertext is the concatenation of all chunk
-// ciphertext+tag blocks.
-//
-// MUST equal the Python aggregator constant in PR-6.
+// ciphertext+tag blocks. MUST equal the Python aggregator constant.
 const AttachmentChunkSize = 64 * 1024
 
 // AttachmentChunkCounterSize is the on-wire size of the per-chunk counter
@@ -40,10 +38,10 @@ const AttachmentTagSize = 16
 //
 // Lifecycle:
 //
-//  1. Caller obtains the 32-byte session AES key from SessionEncryptor (see
-//     SessionEncryptor.AESKey).
-//  2. NewAttachmentEncryptor(sessionAESKey) constructs an instance bound to the
-//     session.
+//  1. Caller obtains the 32-byte session_attachment_key shared with the
+//     aggregator via the encrypted session.start payload.
+//  2. NewAttachmentEncryptor(sessionAESKey) constructs an instance bound to
+//     the session.
 //  3. For each new attachment, GenerateFileKey() returns a fresh 32-byte K.
 //  4. WrapFileKey(fileID, K) → wrapped key + nonce; ride alongside metadata.
 //  5. EncryptStream(K, baseNonce, fileID, plaintext, ciphertext) writes the

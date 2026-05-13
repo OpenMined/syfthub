@@ -63,11 +63,11 @@ func TestObjectStoreUploaderBindsToSessionAttachmentKey(t *testing.T) {
 		t.Fatalf("Upload: %v", err)
 	}
 
-	wrappedCT, err := decodeB64URL(info.WrappedKey.Ciphertext)
+	wrappedCT, err := base64.StdEncoding.DecodeString(info.WrappedKey.Ciphertext)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrappedNonce, err := decodeB64URL(info.WrappedKey.Nonce)
+	wrappedNonce, err := base64.StdEncoding.DecodeString(info.WrappedKey.Nonce)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,8 +75,4 @@ func TestObjectStoreUploaderBindsToSessionAttachmentKey(t *testing.T) {
 	if _, err := aggrEnc.UnwrapFileKey(info.FileID, wrappedCT, wrappedNonce); err != nil {
 		t.Fatalf("aggregator failed to unwrap with the same session key: %v", err)
 	}
-}
-
-func decodeB64URL(s string) ([]byte, error) {
-	return b64urlDecode(s)
 }
