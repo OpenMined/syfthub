@@ -1247,7 +1247,6 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             - health_status: str ("healthy" or "unhealthy")
             - health_checked_at: datetime
             - health_ttl_seconds: int
-            - last_latency_ms: Optional[int] (when missing, latency is not updated)
 
         Does NOT commit — caller manages the transaction.
 
@@ -1260,18 +1259,14 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         updated_count = 0
         for item in updates:
             try:
-                values: dict[str, Any] = {
-                    "health_status": item["health_status"],
-                    "health_checked_at": item["health_checked_at"],
-                    "health_ttl_seconds": item["health_ttl_seconds"],
-                }
-                if "last_latency_ms" in item and item["last_latency_ms"] is not None:
-                    values["last_latency_ms"] = item["last_latency_ms"]
-
                 stmt = (
                     update(EndpointModel)
                     .where(EndpointModel.id == item["endpoint_id"])
-                    .values(**values)
+                    .values(
+                        health_status=item["health_status"],
+                        health_checked_at=item["health_checked_at"],
+                        health_ttl_seconds=item["health_ttl_seconds"],
+                    )
                 )
                 result = self.session.execute(stmt)
                 if result.rowcount > 0:
@@ -1319,7 +1314,6 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         endpoint_id: int,
         bucket_start: datetime,
         is_healthy: bool,
-        latency_ms: Optional[int],
     ) -> None:
         """Upsert one health-monitor tick into the bucketed uptime table.
 
@@ -1332,14 +1326,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             bucket_start: Truncated UTC bucket boundary
                 (``floor(epoch / bucket_seconds) * bucket_seconds``).
             is_healthy: Result of the monitor's tier evaluation.
-            latency_ms: Latency to record, or ``None`` if no fresh latency
-                signal is available (e.g. tier 2/3 decision).
         """
         healthy = 1 if is_healthy else 0
-        has_latency = latency_ms is not None
-        lat_count = 1 if has_latency else 0
-        lat_sum = latency_ms if has_latency else 0
-
         dialect = self.session.bind.dialect.name if self.session.bind else ""
 
         try:
@@ -1349,54 +1337,16 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                         """
                         INSERT INTO endpoint_uptime_samples (
                             endpoint_id, bucket_start,
-                            total_checks, healthy_checks,
-                            latency_count, latency_sum_ms,
-                            latency_min_ms, latency_max_ms
+                            total_checks, healthy_checks
                         )
-                        VALUES (
-                            :eid, :bucket,
-                            1, :h,
-                            :lc, :ls,
-                            :lat, :lat
-                        )
+                        VALUES (:eid, :bucket, 1, :h)
                         ON CONFLICT (endpoint_id, bucket_start) DO UPDATE SET
                             total_checks   = endpoint_uptime_samples.total_checks + 1,
                             healthy_checks = endpoint_uptime_samples.healthy_checks
-                                             + EXCLUDED.healthy_checks,
-                            latency_count  = endpoint_uptime_samples.latency_count
-                                             + EXCLUDED.latency_count,
-                            latency_sum_ms = endpoint_uptime_samples.latency_sum_ms
-                                             + EXCLUDED.latency_sum_ms,
-                            latency_min_ms = CASE
-                                WHEN EXCLUDED.latency_min_ms IS NULL
-                                    THEN endpoint_uptime_samples.latency_min_ms
-                                WHEN endpoint_uptime_samples.latency_min_ms IS NULL
-                                    THEN EXCLUDED.latency_min_ms
-                                ELSE LEAST(
-                                    endpoint_uptime_samples.latency_min_ms,
-                                    EXCLUDED.latency_min_ms
-                                )
-                            END,
-                            latency_max_ms = CASE
-                                WHEN EXCLUDED.latency_max_ms IS NULL
-                                    THEN endpoint_uptime_samples.latency_max_ms
-                                WHEN endpoint_uptime_samples.latency_max_ms IS NULL
-                                    THEN EXCLUDED.latency_max_ms
-                                ELSE GREATEST(
-                                    endpoint_uptime_samples.latency_max_ms,
-                                    EXCLUDED.latency_max_ms
-                                )
-                            END
+                                             + EXCLUDED.healthy_checks
                         """
                     ),
-                    {
-                        "eid": endpoint_id,
-                        "bucket": bucket_start,
-                        "h": healthy,
-                        "lc": lat_count,
-                        "ls": lat_sum,
-                        "lat": latency_ms,
-                    },
+                    {"eid": endpoint_id, "bucket": bucket_start, "h": healthy},
                 )
                 return
 
@@ -1416,10 +1366,6 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                     bucket_start=bucket_start,
                     total_checks=1,
                     healthy_checks=healthy,
-                    latency_count=lat_count,
-                    latency_sum_ms=lat_sum,
-                    latency_min_ms=latency_ms,
-                    latency_max_ms=latency_ms,
                 )
                 self.session.add(sample)
                 # Flush so successive calls within the same transaction see
@@ -1430,19 +1376,6 @@ class EndpointRepository(BaseRepository[EndpointModel]):
 
             existing.total_checks += 1
             existing.healthy_checks += healthy
-            if has_latency:
-                existing.latency_count += 1
-                existing.latency_sum_ms += int(latency_ms or 0)
-                existing.latency_min_ms = (
-                    latency_ms
-                    if existing.latency_min_ms is None
-                    else min(existing.latency_min_ms, int(latency_ms or 0))
-                )
-                existing.latency_max_ms = (
-                    latency_ms
-                    if existing.latency_max_ms is None
-                    else max(existing.latency_max_ms, int(latency_ms or 0))
-                )
         except SQLAlchemyError as e:
             logger.error(
                 f"Failed to upsert uptime sample for endpoint {endpoint_id} "

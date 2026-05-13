@@ -1479,7 +1479,6 @@ class EndpointService(BaseService):
                     "health_status": item.status.value,
                     "health_checked_at": item.checked_at,
                     "health_ttl_seconds": effective_ttl,
-                    "last_latency_ms": item.latency_ms,
                 }
             )
 
@@ -1607,11 +1606,6 @@ class EndpointService(BaseService):
             total = s.total_checks or 0
             healthy = s.healthy_checks or 0
             uptime_pct = (100.0 * healthy / total) if total > 0 else 0.0
-            avg_latency = (
-                (s.latency_sum_ms / s.latency_count)
-                if (s.latency_count and s.latency_count > 0)
-                else None
-            )
             # bucket_start is NOT NULL in the schema; assert narrows the type
             # so mypy stops treating it as Optional[datetime].
             bucket_start = s.bucket_start
@@ -1622,11 +1616,6 @@ class EndpointService(BaseService):
                     samples=total,
                     healthy_samples=healthy,
                     uptime_pct=round(uptime_pct, 2),
-                    avg_latency_ms=(
-                        round(avg_latency, 2) if avg_latency is not None else None
-                    ),
-                    min_latency_ms=s.latency_min_ms,
-                    max_latency_ms=s.latency_max_ms,
                 )
             )
 
