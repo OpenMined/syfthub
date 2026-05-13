@@ -23,20 +23,20 @@ func sha256New() hash.Hash { return sha256.New() }
 // To regenerate: SYFT_ATT_REGEN_VECTORS=1 go test -run TestEmitCrossLanguageVectors ./...
 func TestEmitCrossLanguageVectors(t *testing.T) {
 	type vector struct {
-		Name              string `json:"name"`
-		SessionKeyHex     string `json:"session_key_hex"`
-		FileID            string `json:"file_id"`
-		ExpectedKEKHex    string `json:"expected_kek_hex"`
-		FileKeyHex        string `json:"file_key_hex,omitempty"`
-		BaseNonceHex      string `json:"base_nonce_hex,omitempty"`
-		PlaintextHex      string `json:"plaintext_hex,omitempty"`
-		CiphertextHex     string `json:"ciphertext_hex,omitempty"`
-		PlaintextSha256   string `json:"plaintext_sha256,omitempty"`
-		Description       string `json:"description"`
-		ChunkSize         int    `json:"chunk_size,omitempty"`
-		TagSize           int    `json:"tag_size,omitempty"`
-		BaseNonceSize     int    `json:"base_nonce_size,omitempty"`
-		HKDFInfo          string `json:"hkdf_info,omitempty"`
+		Name            string `json:"name"`
+		SessionKeyHex   string `json:"session_key_hex"`
+		FileID          string `json:"file_id"`
+		ExpectedKEKHex  string `json:"expected_kek_hex"`
+		FileKeyHex      string `json:"file_key_hex,omitempty"`
+		BaseNonceHex    string `json:"base_nonce_hex,omitempty"`
+		PlaintextHex    string `json:"plaintext_hex,omitempty"`
+		CiphertextHex   string `json:"ciphertext_hex,omitempty"`
+		PlaintextSha256 string `json:"plaintext_sha256,omitempty"`
+		Description     string `json:"description"`
+		ChunkSize       int    `json:"chunk_size,omitempty"`
+		TagSize         int    `json:"tag_size,omitempty"`
+		BaseNonceSize   int    `json:"base_nonce_size,omitempty"`
+		HKDFInfo        string `json:"hkdf_info,omitempty"`
 	}
 
 	// Deterministic inputs so vectors are byte-stable across runs.
@@ -121,6 +121,8 @@ func TestEmitCrossLanguageVectors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	body = append(body, '\n')
 
 	if os.Getenv("SYFT_ATT_REGEN_VECTORS") != "" {
 		if err := os.WriteFile(out, body, 0o644); err != nil {
