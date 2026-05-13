@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"testing"
 
@@ -46,11 +47,11 @@ func TestObjectStoreUploaderRoundTrip(t *testing.T) {
 	// Aggregator side: derive the same session key (memoized), unwrap K,
 	// download ciphertext, decrypt.
 	aggrEnc, _ := NewAttachmentEncryptor(sessionKey)
-	wrappedCT, err := b64urlDecode(info.WrappedKey.Ciphertext)
+	wrappedCT, err := base64.StdEncoding.DecodeString(info.WrappedKey.Ciphertext)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrappedNonce, err := b64urlDecode(info.WrappedKey.Nonce)
+	wrappedNonce, err := base64.StdEncoding.DecodeString(info.WrappedKey.Nonce)
 	if err != nil {
 		t.Fatal(err)
 	}
