@@ -78,6 +78,11 @@ type AttachmentInfo struct {
 	// of the Object Store ciphertext.
 	ChunkSize int `json:"chunk_size,omitempty"`
 
+	// BaseNonceB64 is the base64-encoded 8-byte base nonce. Combined with
+	// a 4-byte BE chunk counter this yields the 12-byte GCM nonce. Required
+	// for object_store transport.
+	BaseNonceB64 string `json:"base_nonce,omitempty"`
+
 	// WrappedKey is the envelope-encrypted per-file AES key; set only
 	// when Transport == AttachmentTransportObjectStore.
 	WrappedKey *WrappedKey `json:"wrapped_key,omitempty"`
@@ -149,4 +154,13 @@ const AttachmentHKDFInfoV1 = "syfthub-attachment-v1"
 // Transport=object_store + WrappedKey + ObjectBucket/Key set.
 type AttachmentUploader interface {
 	Upload(fileID, name, mime string, sizeBytes int64, r io.Reader) (AttachmentInfo, error)
+}
+
+// AttachmentDownloader is the inbound counterpart to AttachmentUploader.
+// Given a populated AttachmentInfo with Transport=object_store, it fetches
+// ciphertext from Object Store, unwraps the per-file key under the session
+// KEK, decrypts the chunked stream, verifies SHA-256, and writes plaintext
+// to a 0600 file under dir. On success it sets info.LocalPath.
+type AttachmentDownloader interface {
+	DownloadAndMaterialize(dir string, info *AttachmentInfo) error
 }

@@ -244,6 +244,15 @@ async def agent_session_ws(websocket: WebSocket) -> None:
 
         if registered_session_id is not None:
             attachment_registry().unregister(registered_session_id)
+            # Best-effort cleanup of the per-session Object Store bucket +
+            # metadata map. Errors are swallowed because session teardown
+            # must not block on Object Store quirks.
+            try:
+                from aggregator.services.attachment_relay import cleanup_session
+
+                await cleanup_session(registered_session_id)
+            except Exception:
+                logger.debug("attachment cleanup failed", exc_info=True)
 
         duration_s = time.monotonic() - start_time
         logger.info(

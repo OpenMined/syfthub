@@ -97,6 +97,11 @@ type AgentSession struct {
 	// InlineMaxBytes through Object Store. PR-5 supplies the implementation.
 	AttachmentUploader AttachmentUploader
 
+	// attachmentDownloader is the inbound counterpart: fetches object_store-
+	// transport attachments from Object Store and materializes them under
+	// AttachmentDir. Exposed via AttachmentDownloader().
+	attachmentDownloader AttachmentDownloader
+
 	// recvAttachCh carries inbound attachment metadata to the handler.
 	// nil if attachments are not enabled for this session.
 	recvAttachCh chan AttachmentInfo
@@ -142,6 +147,20 @@ func (s *AgentSession) AttachmentsEnabled() bool {
 // AttachmentsEnabled() first.
 func (s *AgentSession) AttachmentCh() <-chan AttachmentInfo {
 	return s.recvAttachCh
+}
+
+// SetAttachmentDownloader installs the downloader the agentNATSBridge uses
+// when an inbound user.attachment arrives in the object_store transport.
+// Wired by the transport package's handleSessionStart after the session
+// AES key is established.
+func (s *AgentSession) SetAttachmentDownloader(d AttachmentDownloader) {
+	s.attachmentDownloader = d
+}
+
+// AttachmentDownloader returns the configured downloader (or nil if
+// attachments are inline-only for this session).
+func (s *AgentSession) AttachmentDownloader() AttachmentDownloader {
+	return s.attachmentDownloader
 }
 
 // DeliverAttachment pushes an attachment to the session's receive channel.

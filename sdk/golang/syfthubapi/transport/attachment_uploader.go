@@ -102,6 +102,7 @@ func (u *ObjectStoreUploader) Upload(
 		ObjectBucket:    u.bucket,
 		ObjectKey:       fileID,
 		ChunkSize:       AttachmentChunkSize,
+		BaseNonceB64:    b64urlEncode(baseNonce),
 		WrappedKey: &syfthubapi.WrappedKey{
 			Algorithm:  "AES-256-GCM",
 			Ciphertext: b64urlEncode(wrappedCT),

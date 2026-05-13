@@ -2,23 +2,29 @@
 
 CLIENT uploads/downloads attachments via these endpoints (one round trip per
 file). The aggregator handles ciphertext encryption (uploads) and decryption
-(downloads) using the session-attachment-key shared with the HOST. JetStream
-Object Store holds ciphertext blobs scoped per session.
+(downloads) using the session-attachment-key shared with the HOST.
+
+Ciphertext blobs live in NATS JetStream Object Store buckets scoped per
+session (`syft-att-{session_id}`). Metadata that the aggregator needs at
+download time (wrapped key, base nonce, mime, size) lives in an in-process
+map keyed by (session_id, file_id) — small and TTL-bounded by session
+lifetime.
 
 See docs/architecture/attachments.md.
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import io
 import logging
-import secrets
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from aggregator.attachment_crypto import (
@@ -36,53 +42,79 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["agent-attachments"])
 
 
-# In-process map: (session_id, file_id) → AttachmentRecord. PR-6 uses an
-# in-memory map; PR-7 persists ciphertext to JetStream Object Store and this
-# map only tracks the metadata needed to decrypt on download.
-class _InMemoryAttachmentStore:
+@dataclass
+class _AttachmentMeta:
+    """Per-attachment metadata the aggregator needs at download time."""
+
+    file_id: str
+    name: str
+    mime: str
+    size_bytes: int
+    plaintext_sha256: str
+    object_bucket: str
+    object_key: str
+    base_nonce_b64: str
+    # wrapped_key bytes are stored here so we don't need to re-publish them
+    # on the metadata channel just to satisfy the aggregator-side decrypt.
+    wrapped_key_ciphertext: bytes
+    wrapped_key_nonce: bytes
+
+
+class _MetadataStore:
+    """In-process map from (session_id, file_id) → metadata."""
+
     def __init__(self) -> None:
-        self._blobs: dict[tuple[str, str], bytes] = {}
-        self._meta: dict[tuple[str, str], dict[str, Any]] = {}
+        self._meta: dict[tuple[str, str], _AttachmentMeta] = {}
+        self._lock = asyncio.Lock()
 
-    def put(self, session_id: str, file_id: str, ciphertext: bytes, meta: dict[str, Any]) -> None:
-        self._blobs[(session_id, file_id)] = ciphertext
-        self._meta[(session_id, file_id)] = meta
+    async def put(self, session_id: str, meta: _AttachmentMeta) -> None:
+        async with self._lock:
+            self._meta[(session_id, meta.file_id)] = meta
 
-    def get(self, session_id: str, file_id: str) -> tuple[bytes, dict[str, Any]] | None:
-        key = (session_id, file_id)
-        if key not in self._blobs:
-            return None
-        return self._blobs[key], self._meta[key]
+    async def get(self, session_id: str, file_id: str) -> _AttachmentMeta | None:
+        async with self._lock:
+            return self._meta.get((session_id, file_id))
 
-    def delete_session(self, session_id: str) -> None:
-        for key in list(self._blobs.keys()):
-            if key[0] == session_id:
-                self._blobs.pop(key, None)
-                self._meta.pop(key, None)
+    async def delete_session(self, session_id: str) -> None:
+        async with self._lock:
+            for key in list(self._meta.keys()):
+                if key[0] == session_id:
+                    self._meta.pop(key, None)
 
 
-_store = _InMemoryAttachmentStore()
+_metadata = _MetadataStore()
+
+
+# ObjectStore wiring: lazily initialized JetStream Object Store-backed client
+# shared across the relay endpoints. The shared NATSTransport singleton lives
+# in aggregator.api.endpoints.agent; we import it indirectly to avoid a hard
+# import cycle.
+async def _get_object_store():
+    from aggregator.clients.nats_object_store import get_attachment_object_store
+
+    return await get_attachment_object_store()
+
+
+def bucket_for_session(session_id: str) -> str:
+    return f"syft-att-{session_id}"
 
 
 @router.post("/agent/session/{session_id}/attachment", status_code=status.HTTP_201_CREATED)
 async def upload_attachment(
     session_id: str,
-    request: Request,
     file: UploadFile,
 ) -> dict[str, Any]:
-    """Upload an attachment to the session. Returns the assigned file_id +
-    metadata that the CLIENT can echo in subsequent text.
+    """Upload an attachment to the session.
 
-    Bytes are encrypted with a fresh per-file AES key wrapped under the
-    session-attachment-key before being stored. The corresponding
-    user.attachment metadata event is published to the HOST over NATS.
+    Bytes are encrypted with a fresh per-file AES key, the ciphertext is
+    pushed to the session's JetStream Object Store bucket, K is envelope-
+    wrapped under the session-attachment-key, and a user.attachment metadata
+    event is published to the HOST over NATS.
     """
     sess = registry().get(session_id)
     if sess is None:
         raise HTTPException(status_code=404, detail="session not found")
 
-    # Read body fully — PR-6 uses an in-memory buffer; PR-7 will stream into
-    # JetStream Object Store via piped chunks.
     body = await file.read()
     size = len(body)
     if size == 0:
@@ -111,42 +143,47 @@ async def upload_attachment(
     enc = AttachmentEncryptor(sess.session_attachment_key)
     ct_buf = io.BytesIO()
     enc.encrypt_stream(file_key, base_nonce, file_id, io.BytesIO(body), ct_buf)
-
     wrapped_ct, wrapped_nonce = enc.wrap_file_key(file_id, file_key)
 
-    # Stash for the HOST-side download phase (HOST won't download itself in
-    # PR-6 because the HOST is the consumer, not the producer; this matters
-    # for the reverse direction below).
-    _store.put(
+    bucket = bucket_for_session(session_id)
+    object_store = await _get_object_store()
+    await object_store.put(bucket, file_id, ct_buf.getvalue())
+
+    name = file.filename or "attachment.bin"
+    mime = file.content_type or "application/octet-stream"
+    base_nonce_b64 = base64.b64encode(base_nonce).decode()
+
+    await _metadata.put(
         session_id,
-        file_id,
-        ct_buf.getvalue(),
-        {
-            "file_id": file_id,
-            "name": file.filename or "attachment.bin",
-            "mime": file.content_type or "application/octet-stream",
-            "size_bytes": size,
-            "plaintext_sha256": plaintext_sha,
-            "base_nonce_b64": base64.b64encode(base_nonce).decode(),
-            "file_key_b64": base64.b64encode(file_key).decode(),
-        },
+        _AttachmentMeta(
+            file_id=file_id,
+            name=name,
+            mime=mime,
+            size_bytes=size,
+            plaintext_sha256=plaintext_sha,
+            object_bucket=bucket,
+            object_key=file_id,
+            base_nonce_b64=base_nonce_b64,
+            wrapped_key_ciphertext=wrapped_ct,
+            wrapped_key_nonce=wrapped_nonce,
+        ),
     )
 
-    # Publish the user.attachment metadata event over the encrypted tunnel.
     transport = sess.transport
     if transport is None:
         raise HTTPException(status_code=500, detail="session transport missing")
 
     attachment_info = {
         "file_id": file_id,
-        "name": file.filename or "attachment.bin",
-        "mime": file.content_type or "application/octet-stream",
+        "name": name,
+        "mime": mime,
         "size_bytes": size,
         "plaintext_sha256": plaintext_sha,
         "transport": "object_store",
-        "object_bucket": f"syft-att-{session_id}",
+        "object_bucket": bucket,
         "object_key": file_id,
         "chunk_size": 64 * 1024,
+        "base_nonce": base_nonce_b64,
         "wrapped_key": {
             "algorithm": "AES-256-GCM",
             "ciphertext": base64.b64encode(wrapped_ct).decode(),
@@ -163,8 +200,8 @@ async def upload_attachment(
 
     return {
         "file_id": file_id,
-        "name": attachment_info["name"],
-        "mime": attachment_info["mime"],
+        "name": name,
+        "mime": mime,
         "size_bytes": size,
         "plaintext_sha256": plaintext_sha,
         "transport": "object_store",
@@ -175,79 +212,98 @@ async def upload_attachment(
 async def download_attachment(session_id: str, file_id: str) -> StreamingResponse:
     """Download a previously-stored attachment.
 
-    PR-6: serves agent-emitted attachments that the aggregator decrypted from
-    the encrypted event stream. PR-7 will replace the in-memory _store with a
-    JetStream Object Store fetch + chunked stream.
+    Pulls ciphertext from JetStream Object Store, unwraps K under the
+    session-attachment-key, decrypts the chunked stream, streams plaintext.
     """
     sess = registry().get(session_id)
     if sess is None:
         raise HTTPException(status_code=404, detail="session not found")
 
-    got = _store.get(session_id, file_id)
-    if got is None:
+    meta = await _metadata.get(session_id, file_id)
+    if meta is None:
         raise HTTPException(status_code=404, detail="attachment not found")
-    ciphertext, meta = got
+
+    object_store = await _get_object_store()
+    try:
+        ciphertext = await object_store.get(meta.object_bucket, meta.object_key)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="object-store object missing")
 
     enc = AttachmentEncryptor(sess.session_attachment_key)
-    base_nonce = base64.b64decode(meta["base_nonce_b64"])
-    file_key = base64.b64decode(meta["file_key_b64"])
+    file_key = enc.unwrap_file_key(file_id, meta.wrapped_key_ciphertext, meta.wrapped_key_nonce)
+    base_nonce = base64.b64decode(meta.base_nonce_b64)
+
     pt_buf = io.BytesIO()
     enc.decrypt_stream(
         file_key,
         base_nonce,
         file_id,
-        meta["size_bytes"],
+        meta.size_bytes,
         io.BytesIO(ciphertext),
         pt_buf,
     )
-
     pt_buf.seek(0)
     headers = {
-        "Content-Length": str(meta["size_bytes"]),
-        "X-Attachment-Sha256": meta["plaintext_sha256"],
+        "Content-Length": str(meta.size_bytes),
+        "X-Attachment-Sha256": meta.plaintext_sha256,
     }
-    if meta.get("name"):
-        headers["Content-Disposition"] = f'attachment; filename="{meta["name"]}"'
+    if meta.name:
+        headers["Content-Disposition"] = f'attachment; filename="{meta.name}"'
     return StreamingResponse(
         pt_buf,
-        media_type=meta.get("mime", "application/octet-stream"),
+        media_type=meta.mime,
         headers=headers,
     )
 
 
-def reset_for_tests() -> None:
-    """Clear the in-memory blob store. Tests only."""
-    global _store
-    _store = _InMemoryAttachmentStore()
+async def record_agent_attachment_metadata(session_id: str, info: dict[str, Any]) -> None:
+    """Stash HOST-emitted agent.attachment metadata for later download.
 
-
-def stash_outbound_attachment(
-    session_id: str,
-    info: dict[str, Any],
-    plaintext: bytes,
-    file_key: bytes,
-    base_nonce: bytes,
-) -> None:
-    """Store an aggregator-decrypted plaintext blob for HTTP-side serving.
-
-    Called by the session relay when an agent.attachment event arrives over
-    the encrypted tunnel — the aggregator decrypts the ciphertext from
-    Object Store, runs the SHA-256 check, and stashes the plaintext here so
-    the CLIENT can fetch it via GET /agent/session/{sid}/attachment/{fid}.
+    Called by the session relay (relay_space_to_frontend) when the HOST
+    publishes an agent.attachment event with transport=object_store. The
+    CLIENT will subsequently issue GET /agent/session/{sid}/attachment/{fid}
+    against the aggregator, which uses this stashed metadata to locate the
+    ciphertext in Object Store + unwrap the file key.
     """
-    file_id = info["file_id"]
-    meta = {
-        "file_id": file_id,
-        "name": info.get("name", "attachment.bin"),
-        "mime": info.get("mime", "application/octet-stream"),
-        "size_bytes": info["size_bytes"],
-        "plaintext_sha256": info["plaintext_sha256"],
-        "base_nonce_b64": base64.b64encode(base_nonce).decode(),
-        "file_key_b64": base64.b64encode(file_key).decode(),
-    }
-    enc = AttachmentEncryptor(secrets.token_bytes(32))  # local re-encrypt
-    ct = io.BytesIO()
-    enc.encrypt_stream(
-        secrets.token_bytes(32), generate_base_nonce(), file_id, io.BytesIO(plaintext), ct
-    )
-    _store.put(session_id, file_id, ct.getvalue(), meta)
+    if info.get("transport") != "object_store":
+        return
+    wrapped_key = info.get("wrapped_key") or {}
+    try:
+        meta = _AttachmentMeta(
+            file_id=info["file_id"],
+            name=info.get("name", "attachment.bin"),
+            mime=info.get("mime", "application/octet-stream"),
+            size_bytes=int(info["size_bytes"]),
+            plaintext_sha256=info["plaintext_sha256"],
+            object_bucket=info["object_bucket"],
+            object_key=info["object_key"],
+            base_nonce_b64=info["base_nonce"],
+            wrapped_key_ciphertext=base64.b64decode(wrapped_key["ciphertext"]),
+            wrapped_key_nonce=base64.b64decode(wrapped_key["nonce"]),
+        )
+    except KeyError as e:
+        logger.warning("agent.attachment missing field: %s", e)
+        return
+    await _metadata.put(session_id, meta)
+
+
+async def cleanup_session(session_id: str) -> None:
+    """Delete attachment metadata + the Object Store bucket for a session.
+
+    Called when the WS session ends. Idempotent; safe to call for sessions
+    that never staged any attachments.
+    """
+    await _metadata.delete_session(session_id)
+    try:
+        object_store = await _get_object_store()
+        await object_store.delete_bucket(bucket_for_session(session_id))
+    except Exception:  # pragma: no cover
+        logger.debug("cleanup bucket %s failed", session_id, exc_info=True)
+
+
+def reset_for_tests() -> None:
+    """Clear the in-memory metadata map. Tests only."""
+    global _metadata
+    _metadata = _MetadataStore()
+
+

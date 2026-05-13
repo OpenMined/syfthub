@@ -9,6 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from aggregator.clients import nats_object_store
 from aggregator.services import attachment_relay
 from aggregator.services.attachment_session_state import (
     MAX_ATTACHMENT_BYTES_PER_FILE,
@@ -41,7 +42,19 @@ def session_id() -> str:
 
 
 @pytest.fixture
-def fake_session(session_id: str) -> tuple[AttachmentSession, _FakeTransport]:
+def object_store_stub():
+    """Substitute the JetStream Object Store singleton with an in-memory stub
+    so tests don't need a real NATS server."""
+    stub = nats_object_store.use_in_memory_stub_for_tests()
+    yield stub
+    nats_object_store.reset_for_tests()
+
+
+@pytest.fixture
+def fake_session(
+    session_id: str,
+    object_store_stub,  # noqa: ARG001 — fixture is order-dependent
+) -> tuple[AttachmentSession, _FakeTransport]:
     """Register a fresh session in the global attachment-state registry."""
     transport = _FakeTransport()
     sess = AttachmentSession(

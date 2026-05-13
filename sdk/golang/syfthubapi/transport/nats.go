@@ -97,10 +97,18 @@ func (b *agentNATSBridge) handleUserAttachment(msg *nats.Msg, req *syfthubapi.Tu
 		return
 	}
 
-	if err := materializeInlineAttachment(sess.AttachmentDir, &info); err != nil {
+	downloader := sess.AttachmentDownloader()
+	if err := MaterializeAttachment(context.Background(), sess.AttachmentDir, &info, downloader); err != nil {
 		b.logger.Error("[AGENT] failed to materialize attachment",
-			"session_id", sess.ID, "file_id", info.FileID, "error", err)
-		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAttachmentIntegrity, err.Error())
+			"session_id", sess.ID, "file_id", info.FileID, "transport", info.Transport, "error", err)
+		// Object-store failures may be transient (missing bucket/key, etc.);
+		// surface a distinct error code so the aggregator can decide whether
+		// to retry.
+		errCode := syfthubapi.TunnelErrorCodeAttachmentIntegrity
+		if info.Transport == syfthubapi.AttachmentTransportObjectStore {
+			errCode = syfthubapi.TunnelErrorCodeAttachmentNotFound
+		}
+		b.transport.sendErrorResponse(msg, req, errCode, err.Error())
 		return
 	}
 
@@ -213,6 +221,13 @@ func (b *agentNATSBridge) handleSessionStart(msg *nats.Msg, req *syfthubapi.Tunn
 						"session_id", session.ID, "error", upErr)
 				} else {
 					session.AttachmentUploader = uploader
+				}
+				dl, dlErr := NewObjectStoreDownloader(context.Background(), keyBytes, store)
+				if dlErr != nil {
+					b.logger.Warn("[AGENT] failed to bind ObjectStoreDownloader",
+						"session_id", session.ID, "error", dlErr)
+				} else {
+					session.SetAttachmentDownloader(dl)
 				}
 			}
 		}
