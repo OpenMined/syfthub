@@ -80,7 +80,6 @@ class EndpointHealthInfo:
     health_status: Optional[str] = None
     health_checked_at: Optional[datetime] = None
     health_ttl_seconds: Optional[int] = None
-    last_latency_ms: Optional[int] = None
 
 
 class EndpointHealthMonitor:
@@ -188,7 +187,6 @@ class EndpointHealthMonitor:
             EndpointModel.health_status,
             EndpointModel.health_checked_at,
             EndpointModel.health_ttl_seconds,
-            EndpointModel.last_latency_ms,
         ).join(UserModel, EndpointModel.user_id == UserModel.id)
 
         # Query endpoints with organization domain (org-owned endpoints)
@@ -204,7 +202,6 @@ class EndpointHealthMonitor:
             EndpointModel.health_status,
             EndpointModel.health_checked_at,
             EndpointModel.health_ttl_seconds,
-            EndpointModel.last_latency_ms,
         ).join(OrganizationModel, EndpointModel.organization_id == OrganizationModel.id)
 
         endpoints: list[EndpointHealthInfo] = []
@@ -224,7 +221,6 @@ class EndpointHealthMonitor:
                 health_status,
                 health_checked_at,
                 health_ttl_seconds,
-                last_latency_ms,
             ) = row
             # Include endpoints with connections (even if domain is None)
             # Endpoints without domain will be marked unhealthy in health check
@@ -243,7 +239,6 @@ class EndpointHealthMonitor:
                         health_status=health_status,
                         health_checked_at=health_checked_at,
                         health_ttl_seconds=health_ttl_seconds,
-                        last_latency_ms=last_latency_ms,
                     )
                 )
 
@@ -262,7 +257,6 @@ class EndpointHealthMonitor:
                 health_status,
                 health_checked_at,
                 health_ttl_seconds,
-                last_latency_ms,
             ) = row
             # Include endpoints with connections (even if domain is None)
             # Endpoints without domain will be marked unhealthy in health check
@@ -281,7 +275,6 @@ class EndpointHealthMonitor:
                         health_status=health_status,
                         health_checked_at=health_checked_at,
                         health_ttl_seconds=health_ttl_seconds,
-                        last_latency_ms=last_latency_ms,
                     )
                 )
 
@@ -291,15 +284,12 @@ class EndpointHealthMonitor:
         self,
         endpoint: EndpointHealthInfo,
         now: datetime,
-    ) -> tuple[bool, Optional[int]] | None:
+    ) -> bool | None:
         """Check per-endpoint health reported via POST /endpoints/health.
 
-        Returns a tuple ``(is_healthy, latency_ms)`` if a fresh per-endpoint
-        health signal exists. Latency is included only when the same Tier 1
-        signal is fresh (so it cannot leak forward from a stale report).
-
-        Returns ``None`` when no fresh signal is available — callers should
-        fall through to the next health check tier.
+        Returns True/False if a fresh per-endpoint health signal exists,
+        or None if no fresh signal is available (caller should fall through
+        to the next health check tier).
         """
         if (
             endpoint.health_checked_at is not None
@@ -313,10 +303,9 @@ class EndpointHealthMonitor:
                 logger.debug(
                     f"Endpoint {endpoint.id}: fresh per-endpoint health "
                     f"(status={endpoint.health_status}, "
-                    f"expires={health_expires_at}, "
-                    f"latency_ms={endpoint.last_latency_ms})"
+                    f"expires={health_expires_at})"
                 )
-                return (is_healthy, endpoint.last_latency_ms)
+                return is_healthy
         return None
 
     def _check_heartbeat_health(
@@ -345,17 +334,15 @@ class EndpointHealthMonitor:
     def _check_endpoint_health(
         self,
         endpoint: EndpointHealthInfo,
-    ) -> tuple[int, bool, Optional[int]]:
+    ) -> tuple[int, bool]:
         """Determine if an endpoint is healthy using a 2-tier approach.
 
         Priority:
         1. Per-endpoint health (client-reported via POST /endpoints/health):
            If health_checked_at + health_ttl_seconds > now, trust health_status
-           and return the accompanying ``last_latency_ms`` (may be ``None``).
         2. Domain-level heartbeat (deprecated fallback):
-           If heartbeat_expires_at > now, assume healthy. No latency available
-           because heartbeat is owner-level, not endpoint-level.
-        3. Neither is fresh: Mark unhealthy, no latency.
+           If heartbeat_expires_at > now, assume healthy
+        3. Neither is fresh: Mark unhealthy
 
         When the deprecated heartbeat system is removed, delete tier 2
         (the ``_check_heartbeat_health`` call) so this becomes a single-tier check.
@@ -364,7 +351,7 @@ class EndpointHealthMonitor:
             endpoint: The endpoint information to evaluate
 
         Returns:
-            Tuple of (endpoint_id, is_healthy, latency_ms_or_None)
+            Tuple of (endpoint_id, is_healthy)
         """
         now = datetime.now(timezone.utc)
 
@@ -373,22 +360,21 @@ class EndpointHealthMonitor:
             logger.debug(
                 f"Endpoint {endpoint.id}: no owner domain configured (unhealthy)"
             )
-            return (endpoint.id, False, None)
+            return (endpoint.id, False)
 
         # Tier 1: Per-endpoint health (client-reported)
         tier1 = self._check_per_endpoint_health(endpoint, now)
         if tier1 is not None:
-            is_healthy, latency_ms = tier1
-            return (endpoint.id, is_healthy, latency_ms)
+            return (endpoint.id, tier1)
 
         # Tier 2: Domain-level heartbeat (deprecated fallback — remove with heartbeat)
         tier2 = self._check_heartbeat_health(endpoint, now)
         if tier2 is not None:
-            return (endpoint.id, tier2, None)
+            return (endpoint.id, tier2)
 
         # Neither signal is fresh — mark unhealthy
         logger.debug(f"Endpoint {endpoint.id}: no fresh health signal (unhealthy)")
-        return (endpoint.id, False, None)
+        return (endpoint.id, False)
 
     def _update_endpoint_health_status(
         self, session: Session, endpoint_id: int, is_healthy: bool
@@ -464,7 +450,6 @@ class EndpointHealthMonitor:
         session: Session,
         endpoint_id: int,
         is_healthy: bool,
-        latency_ms: Optional[int],
         now: datetime,
     ) -> None:
         """Persist one uptime sample for this cycle, swallowing errors.
@@ -481,7 +466,6 @@ class EndpointHealthMonitor:
                 endpoint_id=endpoint_id,
                 bucket_start=self._current_bucket_start(now),
                 is_healthy=is_healthy,
-                latency_ms=latency_ms,
             )
         except Exception as e:  # pragma: no cover - defensive
             logger.warning(
@@ -555,9 +539,7 @@ class EndpointHealthMonitor:
             now = datetime.now(timezone.utc)
             state_changes = 0
             for endpoint in endpoints:
-                endpoint_id, is_healthy, latency_ms = self._check_endpoint_health(
-                    endpoint
-                )
+                endpoint_id, is_healthy = self._check_endpoint_health(endpoint)
 
                 # Get the old status for comparison
                 old_is_active = old_status_map.get(endpoint_id, True)
@@ -574,9 +556,7 @@ class EndpointHealthMonitor:
                 # Record one uptime sample per cycle. Use a fresh session
                 # transaction (the failure-counter update above already
                 # committed) so an error here cannot poison the next loop.
-                self._emit_uptime_sample(
-                    session, endpoint_id, is_healthy, latency_ms, now
-                )
+                self._emit_uptime_sample(session, endpoint_id, is_healthy, now)
                 try:
                     session.commit()
                 except Exception as e:  # pragma: no cover - defensive
