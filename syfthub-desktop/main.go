@@ -2,7 +2,11 @@ package main
 
 import (
 	"embed"
+	"fmt"
+	"os"
+	"os/exec"
 
+	"github.com/openmined/syfthub-desktop-gui/internal/updater"
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -20,7 +24,53 @@ var assets embed.FS
 //go:embed build/appicon.png
 var icon []byte
 
+// preWailsBootstrap handles the Phase 3 post-update / rollback hooks
+// before Wails is started. It runs the post-update cleanup if invoked
+// with --post-update, then consults the boot guard to decide whether
+// to roll back a failing install.
+func preWailsBootstrap() {
+	exePath, err := os.Executable()
+	if err != nil {
+		// Without an executable path we can't run rollback logic safely.
+		return
+	}
+
+	// Post-update flag: clean up sibling .old binaries left over from
+	// the previous swap. Strip the flag from os.Args so it doesn't trip
+	// any other parser later.
+	if len(os.Args) > 1 && os.Args[1] == updater.PostUpdateFlag {
+		updater.PostUpdateCleanup(exePath)
+		os.Args = append(os.Args[:1], os.Args[2:]...)
+	}
+
+	// Rollback check: if the most recent install is failing to boot,
+	// restore the previous binary and exec it.
+	dir, err := getSettingsDir()
+	if err != nil {
+		return
+	}
+	guard := updater.NewBootGuard(dir, exePath)
+	if !guard.OnLaunch() {
+		return
+	}
+	restored, rbErr := updater.PerformRollback(exePath)
+	if rbErr != nil {
+		fmt.Fprintln(os.Stderr, "auto-rollback skipped:", rbErr)
+		return
+	}
+	cmd := exec.Command(restored)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "rollback process exited:", err)
+	}
+	os.Exit(0)
+}
+
 func main() {
+	preWailsBootstrap()
+
 	// Create an instance of the app structure
 	app := NewApp()
 

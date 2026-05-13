@@ -6,6 +6,7 @@ import { SetupFlowDialog } from './SetupFlowDialog';
 import { ChatView } from './ChatView';
 import { LibraryView } from './LibraryView';
 import { WindowControls } from './ui/window-controls';
+import { UpdateBanner } from './UpdateBanner';
 
 interface AppShellProps {
   sidebar: ReactNode;
@@ -63,6 +64,9 @@ export function AppShell({ sidebar, children }: AppShellProps) {
         {/* Right spacer for centering */}
         <div className="w-32" />
       </div>
+
+      {/* Update banner — sits between title bar and content, above the error banner */}
+      <UpdateBanner />
 
       {/* Error banner */}
       {error && (

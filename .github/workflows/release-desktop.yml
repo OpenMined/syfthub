@@ -204,6 +204,13 @@ jobs:
     defaults:
       run:
         working-directory: syfthub-desktop
+    env:
+      # Phase 4 toggles: set these via repository secrets to enable signing /
+      # notarization. While they are empty the macOS build ships unsigned,
+      # matching today's behavior.
+      HAS_APPLE_CERT: ${{ secrets.APPLE_DEVELOPER_ID_CERT_P12_BASE64 != '' && secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD != '' }}
+      HAS_APPLE_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_IDENTITY != '' }}
+      HAS_APPLE_NOTARY: ${{ secrets.APPLE_NOTARIZATION_APPLE_ID != '' && secrets.APPLE_NOTARIZATION_TEAM_ID != '' && secrets.APPLE_NOTARIZATION_APP_PASSWORD != '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -236,29 +243,73 @@ jobs:
             -ldflags "-X 'main.Version=$VERSION'" \
             -o syfthub-desktop
 
+      # ----------------------------------------------------------------
+      # Optional: code sign + notarize (Phase 4 scaffolding)
+      #
+      # These steps activate only when the required secrets are present.
+      # Until OpenMined provisions an Apple Developer ID + notarization
+      # credentials, they are skipped and macOS continues to ship
+      # unsigned (the existing Phase 2 manual-install UX).
+      #
+      # Required secrets to enable:
+      #   APPLE_DEVELOPER_ID_CERT_P12_BASE64  — base64 of the .p12 cert
+      #   APPLE_DEVELOPER_ID_CERT_PASSWORD    — password for the .p12
+      #   APPLE_DEVELOPER_ID_IDENTITY         — "Developer ID Application: <name> (<team>)"
+      #   APPLE_NOTARIZATION_APPLE_ID         — Apple ID email
+      #   APPLE_NOTARIZATION_TEAM_ID          — 10-char Team ID
+      #   APPLE_NOTARIZATION_APP_PASSWORD     — app-specific password
+      # ----------------------------------------------------------------
+      - name: Import code-signing certificate
+        if: ${{ env.HAS_APPLE_CERT == 'true' }}
+        env:
+          APPLE_DEVELOPER_ID_CERT_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERT_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="syfthub-signing.keychain-db"
+          KEYCHAIN_PASSWORD=$(uuidgen)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$APPLE_DEVELOPER_ID_CERT_P12_BASE64" | base64 -d > /tmp/cert.p12
+          security import /tmp/cert.p12 -k "$KEYCHAIN" -P "$APPLE_DEVELOPER_ID_CERT_PASSWORD" -T /usr/bin/codesign
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          rm /tmp/cert.p12
+          echo "MAC_KEYCHAIN=$KEYCHAIN" >> $GITHUB_ENV
+
+      - name: Codesign .app bundle
+        if: ${{ env.HAS_APPLE_IDENTITY == 'true' }}
+        env:
+          APPLE_DEVELOPER_ID_IDENTITY: ${{ secrets.APPLE_DEVELOPER_ID_IDENTITY }}
+        run: |
+          set -euo pipefail
+          APP=$(find build/bin -name "*.app" -type d | head -1)
+          if [ -z "$APP" ]; then
+            echo "::error::No .app bundle to sign"; exit 1
+          fi
+          codesign --deep --force --options runtime --timestamp \
+            --sign "$APPLE_DEVELOPER_ID_IDENTITY" "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
       - name: Prepare artifacts
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           mkdir -p dist
 
-          # Create zip of the .app bundle
+          # Create zip of the .app bundle. `ditto` (not `zip`) preserves
+          # extended attributes and resource forks, which notarization
+          # requires for signed bundles. We use ditto unconditionally so
+          # signed and unsigned outputs are byte-shaped the same way.
           cd build/bin
-          if [ -d "syfthub-desktop.app" ]; then
-            zip -r ../../dist/syfthub-desktop-macos-arm64.zip syfthub-desktop.app
-          elif [ -d "SyftHub Desktop.app" ]; then
-            zip -r ../../dist/syfthub-desktop-macos-arm64.zip "SyftHub Desktop.app"
-          else
-            # Find any .app bundle
-            APP_BUNDLE=$(find . -name "*.app" -type d | head -1)
-            if [ -n "$APP_BUNDLE" ]; then
-              zip -r ../../dist/syfthub-desktop-macos-arm64.zip "$APP_BUNDLE"
-            else
-              echo "::error::No .app bundle found"
-              ls -la
-              exit 1
-            fi
+          APP=$(find . -maxdepth 1 -name "*.app" -type d | head -1)
+          if [ -z "$APP" ]; then
+            echo "::error::No .app bundle found"
+            ls -la
+            exit 1
           fi
+          ditto -c -k --sequesterRsrc --keepParent "$APP" ../../dist/syfthub-desktop-macos-arm64.zip
 
           # Create checksum
           cd ../../dist
@@ -266,6 +317,30 @@ jobs:
 
           echo "macOS arm64 build artifacts:"
           ls -la
+
+      - name: Notarize and staple
+        if: ${{ env.HAS_APPLE_NOTARY == 'true' }}
+        env:
+          APPLE_NOTARIZATION_APPLE_ID: ${{ secrets.APPLE_NOTARIZATION_APPLE_ID }}
+          APPLE_NOTARIZATION_TEAM_ID: ${{ secrets.APPLE_NOTARIZATION_TEAM_ID }}
+          APPLE_NOTARIZATION_APP_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_APP_PASSWORD }}
+        run: |
+          set -euo pipefail
+          xcrun notarytool submit dist/syfthub-desktop-macos-arm64.zip \
+            --apple-id "$APPLE_NOTARIZATION_APPLE_ID" \
+            --team-id "$APPLE_NOTARIZATION_TEAM_ID" \
+            --password "$APPLE_NOTARIZATION_APP_PASSWORD" \
+            --wait
+          # Re-zip with the stapled ticket so downloaded users get it.
+          UNZIPPED=$(mktemp -d)
+          ditto -x -k dist/syfthub-desktop-macos-arm64.zip "$UNZIPPED"
+          APP=$(find "$UNZIPPED" -maxdepth 2 -name "*.app" -type d | head -1)
+          xcrun stapler staple "$APP"
+          rm dist/syfthub-desktop-macos-arm64.zip
+          ditto -c -k --sequesterRsrc --keepParent "$APP" dist/syfthub-desktop-macos-arm64.zip
+          # Recompute checksum after stapling
+          cd dist
+          shasum -a 256 syfthub-desktop-macos-arm64.zip > syfthub-desktop-macos-arm64.zip.sha256
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -372,3 +447,170 @@ jobs:
             release/syfthub-desktop-macos-arm64.zip
             release/syfthub-desktop-macos-arm64.zip.sha256
             release/checksums.txt
+
+  # ============================================================================
+  # Publish update manifest to desktop/latest-stable
+  # ============================================================================
+  manifest:
+    name: Publish update manifest
+    needs: [prepare, release]
+    # Skip pre-release tags — only stable versions advance the latest-stable pointer.
+    if: ${{ !contains(needs.prepare.outputs.version, '-') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Read min-supported-version and reason
+        id: floor
+        run: |
+          if [ -f syfthub-desktop/.min-supported-version ]; then
+            MIN=$(tr -d '[:space:]' < syfthub-desktop/.min-supported-version)
+          else
+            MIN=""
+          fi
+          if [ -z "$MIN" ]; then
+            echo "::error::syfthub-desktop/.min-supported-version is missing or empty"
+            exit 1
+          fi
+          REASON=""
+          if [ -f syfthub-desktop/.must-update-reason ]; then
+            REASON=$(tr -d '\r' < syfthub-desktop/.must-update-reason | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          fi
+          echo "min=$MIN" >> $GITHUB_OUTPUT
+          {
+            echo "reason<<EOF"
+            echo "$REASON"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Fetch release metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          TAG="desktop/v${VERSION}"
+          DATA=$(gh api "repos/${REPO}/releases/tags/${TAG}")
+          echo "$DATA" > /tmp/release.json
+          jq -r '.published_at' /tmp/release.json > /tmp/published_at
+          jq -r '.html_url' /tmp/release.json > /tmp/html_url
+          echo "published_at=$(cat /tmp/published_at)" >> $GITHUB_OUTPUT
+          echo "release_url=$(cat /tmp/html_url)" >> $GITHUB_OUTPUT
+
+      - name: Download checksum files
+        run: |
+          set -euo pipefail
+          TAG="desktop/v${VERSION}"
+          mkdir -p sums
+          gh release download "$TAG" --repo "$REPO" --dir sums \
+            --pattern 'syfthub-desktop-linux-amd64.sha256' \
+            --pattern 'syfthub-desktop-windows-amd64.exe.sha256' \
+            --pattern 'syfthub-desktop-macos-arm64.zip.sha256'
+          ls -la sums
+
+      - name: Build manifest.json
+        env:
+          MIN: ${{ steps.floor.outputs.min }}
+          REASON: ${{ steps.floor.outputs.reason }}
+          PUBLISHED_AT: ${{ steps.meta.outputs.published_at }}
+          RELEASE_URL: ${{ steps.meta.outputs.release_url }}
+        run: |
+          set -euo pipefail
+          # Extract just the hex sha (first whitespace-delimited token)
+          LINUX_SHA=$(awk '{print $1}' sums/syfthub-desktop-linux-amd64.sha256 | tr -d '\r' | head -c 64)
+          WIN_SHA=$(awk '{print $1}' sums/syfthub-desktop-windows-amd64.exe.sha256 | tr -d '\r' | head -c 64)
+          MAC_SHA=$(awk '{print $1}' sums/syfthub-desktop-macos-arm64.zip.sha256 | tr -d '\r' | head -c 64)
+
+          # Get artifact sizes from the release metadata
+          LINUX_SIZE=$(jq -r '.assets[] | select(.name=="syfthub-desktop-linux-amd64") | .size' /tmp/release.json)
+          WIN_SIZE=$(jq -r '.assets[] | select(.name=="syfthub-desktop-windows-amd64.exe") | .size' /tmp/release.json)
+          MAC_SIZE=$(jq -r '.assets[] | select(.name=="syfthub-desktop-macos-arm64.zip") | .size' /tmp/release.json)
+
+          BASE="https://github.com/${REPO}/releases/download/desktop/v${VERSION}"
+
+          jq -n \
+            --arg version "$VERSION" \
+            --arg min "$MIN" \
+            --arg published_at "$PUBLISHED_AT" \
+            --arg release_url "$RELEASE_URL" \
+            --arg reason "$REASON" \
+            --arg linux_url "$BASE/syfthub-desktop-linux-amd64" \
+            --arg linux_sha "$LINUX_SHA" \
+            --argjson linux_size "$LINUX_SIZE" \
+            --arg win_url "$BASE/syfthub-desktop-windows-amd64.exe" \
+            --arg win_sha "$WIN_SHA" \
+            --argjson win_size "$WIN_SIZE" \
+            --arg mac_url "$BASE/syfthub-desktop-macos-arm64.zip" \
+            --arg mac_sha "$MAC_SHA" \
+            --argjson mac_size "$MAC_SIZE" \
+            '{
+              schema_version: 1,
+              version: $version,
+              min_supported_version: $min,
+              published_at: $published_at,
+              release_notes_url: $release_url,
+              must_update_reason: (if $reason == "" then null else $reason end),
+              platforms: {
+                "linux/amd64":   { url: $linux_url, sha256: $linux_sha, size_bytes: $linux_size },
+                "windows/amd64": { url: $win_url,   sha256: $win_sha,   size_bytes: $win_size   },
+                "darwin/arm64":  { url: $mac_url,   sha256: $mac_sha,   size_bytes: $mac_size   }
+              }
+            }' > manifest.json
+
+          echo "Generated manifest.json:"
+          cat manifest.json
+
+      - name: Sign manifest with Ed25519 (Phase 5)
+        # Only signs if a private signing key is configured. While the
+        # secret is absent, clients accept unsigned manifests (lenient
+        # default). When DESKTOP_MANIFEST_SIGNING_KEY is set, future
+        # clients shipped with the matching public key will verify.
+        if: ${{ env.HAS_SIGNING_KEY == 'true' }}
+        env:
+          HAS_SIGNING_KEY: ${{ secrets.DESKTOP_MANIFEST_SIGNING_KEY != '' }}
+          SIGNING_KEY: ${{ secrets.DESKTOP_MANIFEST_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          echo "$SIGNING_KEY" > /tmp/manifest-signing.pem
+          # openssl pkeyutl is the standard way to sign an Ed25519 hash
+          # of an arbitrary file. We sign the raw manifest bytes (no
+          # canonicalization) — the client verifies the exact bytes it
+          # received off the wire.
+          openssl pkeyutl -sign \
+            -inkey /tmp/manifest-signing.pem \
+            -rawin -in manifest.json \
+            -out manifest.json.sig
+          rm /tmp/manifest-signing.pem
+          ls -la manifest.json.sig
+          echo "MANIFEST_SIG_PRODUCED=1" >> $GITHUB_ENV
+
+      - name: Ensure desktop/latest-stable release exists
+        run: |
+          set -euo pipefail
+          if ! gh release view desktop/latest-stable --repo "$REPO" >/dev/null 2>&1; then
+            echo "Bootstrapping desktop/latest-stable release"
+            gh release create desktop/latest-stable \
+              --repo "$REPO" \
+              --target "$GITHUB_SHA" \
+              --title "SyftHub Desktop — Auto-update manifest (stable)" \
+              --notes "This release exists only to host the auto-update manifest for the SyftHub Desktop app. Do not download from this release directly — it is overwritten on every stable release. The latest binaries are published under tags matching 'desktop/v*'."
+          else
+            echo "desktop/latest-stable already exists"
+          fi
+
+      - name: Upload manifest to desktop/latest-stable
+        run: |
+          set -euo pipefail
+          UPLOAD_ARGS="manifest.json"
+          if [ "${MANIFEST_SIG_PRODUCED:-}" = "1" ] && [ -f manifest.json.sig ]; then
+            UPLOAD_ARGS="$UPLOAD_ARGS manifest.json.sig"
+          fi
+          gh release upload desktop/latest-stable $UPLOAD_ARGS \
+            --repo "$REPO" \
+            --clobber
+          echo "Manifest published at: https://github.com/${REPO}/releases/download/desktop/latest-stable/manifest.json"

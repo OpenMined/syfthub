@@ -34,6 +34,14 @@ export function CheckEndpointExists(arg1) {
   return window['go']['main']['App']['CheckEndpointExists'](arg1);
 }
 
+export function CancelDownload() {
+  return window['go']['main']['App']['CancelDownload']();
+}
+
+export function CheckForUpdatesNow() {
+  return window['go']['main']['App']['CheckForUpdatesNow']();
+}
+
 export function CreateEndpoint(arg1) {
   return window['go']['main']['App']['CreateEndpoint'](arg1);
 }
@@ -56,6 +64,10 @@ export function DeleteEnvironment(arg1, arg2) {
 
 export function DeleteLogs(arg1) {
   return window['go']['main']['App']['DeleteLogs'](arg1);
+}
+
+export function DownloadUpdate() {
+  return window['go']['main']['App']['DownloadUpdate']();
 }
 
 export function DeletePolicyFile(arg1, arg2) {
@@ -142,6 +154,10 @@ export function GetStatus() {
   return window['go']['main']['App']['GetStatus']();
 }
 
+export function GetUpdateState() {
+  return window['go']['main']['App']['GetUpdateState']();
+}
+
 export function GetVersion() {
   return window['go']['main']['App']['GetVersion']();
 }
@@ -152,6 +168,10 @@ export function HasSettings() {
 
 export function InstallLibraryPackage(arg1, arg2, arg3) {
   return window['go']['main']['App']['InstallLibraryPackage'](arg1, arg2, arg3);
+}
+
+export function InstallUpdate() {
+  return window['go']['main']['App']['InstallUpdate']();
 }
 
 export function InstallSkillFromPaths(arg1, arg2) {
@@ -182,12 +202,20 @@ export function OpenInDefaultApp(arg1) {
   return window['go']['main']['App']['OpenInDefaultApp'](arg1);
 }
 
+export function OpenReleaseNotes(arg1) {
+  return window['go']['main']['App']['OpenReleaseNotes'](arg1);
+}
+
 export function ReadSkill(arg1, arg2) {
   return window['go']['main']['App']['ReadSkill'](arg1, arg2);
 }
 
 export function ReloadEndpoints() {
   return window['go']['main']['App']['ReloadEndpoints']();
+}
+
+export function RevealDownloadedUpdate(arg1) {
+  return window['go']['main']['App']['RevealDownloadedUpdate'](arg1);
 }
 
 export function RemoveSkill(arg1, arg2) {
@@ -228,6 +256,10 @@ export function SaveRunnerCode(arg1, arg2) {
 
 export function SaveSettingsData(arg1, arg2, arg3) {
   return window['go']['main']['App']['SaveSettingsData'](arg1, arg2, arg3);
+}
+
+export function SetAutoCheckEnabled(arg1) {
+  return window['go']['main']['App']['SetAutoCheckEnabled'](arg1);
 }
 
 export function SendAgentMessage(arg1) {

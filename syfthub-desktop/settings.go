@@ -50,6 +50,10 @@ type Settings struct {
 	ContainerEnabled bool   `json:"container_enabled,omitempty"`
 	ContainerRuntime string `json:"container_runtime,omitempty"`
 	ContainerImage   string `json:"container_image,omitempty"`
+
+	// Auto-update preference. Defaults to true via DefaultSettings.
+	// Plain bool (no omitempty) so an explicit "false" survives a round trip.
+	UpdateAutoCheckEnabled bool `json:"update_auto_check_enabled"`
 }
 
 // DefaultSettings returns settings with sensible defaults.
@@ -59,11 +63,12 @@ func DefaultSettings() *Settings {
 		endpointsPath = filepath.Join(dir, "endpoints")
 	}
 	return &Settings{
-		HubURL:        "https://syfthub.openmined.org",
-		EndpointsPath: endpointsPath,
-		Port:          8000,
-		LogLevel:      "INFO",
-		Timeout:       30.0,
+		HubURL:                 "https://syfthub.openmined.org",
+		EndpointsPath:          endpointsPath,
+		Port:                   8000,
+		LogLevel:               "INFO",
+		Timeout:                30.0,
+		UpdateAutoCheckEnabled: true,
 	}
 }
 

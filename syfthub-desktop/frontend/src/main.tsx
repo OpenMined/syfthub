@@ -4,6 +4,7 @@ import "@/index.css";
 import App from "@/App";
 import { SettingsProvider } from "@/contexts/SettingsContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import { UpdateProvider } from "@/contexts/UpdateContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 const container = document.getElementById("root");
@@ -14,9 +15,11 @@ root.render(
   <React.StrictMode>
     <ThemeProvider defaultTheme="dark">
       <SettingsProvider>
-        <TooltipProvider>
-          <App />
-        </TooltipProvider>
+        <UpdateProvider>
+          <TooltipProvider>
+            <App />
+          </TooltipProvider>
+        </UpdateProvider>
       </SettingsProvider>
     </ThemeProvider>
   </React.StrictMode>

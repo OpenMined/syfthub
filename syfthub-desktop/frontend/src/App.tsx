@@ -6,6 +6,8 @@ import { SettingsModal } from '@/components/SettingsModal';
 import { AppShell } from '@/components/AppShell';
 import { Sidebar } from '@/components/Sidebar';
 import { EndpointDetail } from '@/components/EndpointDetail';
+import { MustUpdateModal } from '@/components/MustUpdateModal';
+import { InstallProgress } from '@/components/InstallProgress';
 
 // Loading spinner
 function LoadingSpinner() {
@@ -44,18 +46,24 @@ function Dashboard() {
 function App() {
   const { isConfigured, isLoading } = useSettings();
 
-  // Show loading spinner while checking settings
+  // The MustUpdateModal renders above all other state — onboarding,
+  // dashboard, loading. A hard-gate is a hard-gate.
+  let body: React.ReactNode;
   if (isLoading) {
-    return <LoadingSpinner />;
+    body = <LoadingSpinner />;
+  } else if (!isConfigured) {
+    body = <OnboardingWizard />;
+  } else {
+    body = <Dashboard />;
   }
 
-  // Show onboarding wizard if not configured
-  if (!isConfigured) {
-    return <OnboardingWizard />;
-  }
-
-  // Show main dashboard
-  return <Dashboard />;
+  return (
+    <>
+      {body}
+      <MustUpdateModal />
+      <InstallProgress />
+    </>
+  );
 }
 
 export default App;

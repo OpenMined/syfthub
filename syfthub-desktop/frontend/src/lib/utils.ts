@@ -38,3 +38,16 @@ export const MULTILINE_ENV_KEYS = new Set(['SYSTEM_PROMPT']);
 export function extractErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
+
+/** Format a byte count in human-readable units (B/KB/MB/GB). */
+export function formatBytes(n?: number): string {
+  if (!n || n <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return v.toFixed(v < 10 ? 1 : 0) + ' ' + units[i];
+}

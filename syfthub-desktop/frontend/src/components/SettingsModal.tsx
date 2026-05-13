@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Globe, KeyRound, FolderOpen, Container } from 'lucide-react';
+import { Globe, KeyRound, FolderOpen, Container, RefreshCw, Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,8 +13,9 @@ import {
 } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { useSettings } from '@/contexts/SettingsContext';
+import { useUpdate } from '@/contexts/UpdateContext';
 import { extractErrorMessage, isValidUrl } from '@/lib/utils';
-import { BrowseForFolder, SetContainerEnabled, Stop } from '../../wailsjs/go/main/App';
+import { BrowseForFolder, SetContainerEnabled, Stop, GetVersion } from '../../wailsjs/go/main/App';
 import { Quit } from '../../wailsjs/runtime/runtime';
 import { ErrorBanner } from '@/components/ui/error-banner';
 import { Spinner } from '@/components/ui/spinner';
@@ -33,8 +34,22 @@ interface SettingsModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
+function updateStageLabel(stage: string, latestVersion?: string): string {
+  switch (stage) {
+    case 'idle': return 'Up to date';
+    case 'checking': return 'Checking…';
+    case 'available': return `v${latestVersion} available`;
+    case 'must_update': return `Update required (v${latestVersion})`;
+    case 'offline_grace':
+    case 'offline_no_grace': return "Couldn't reach update server";
+    case 'unsupported_platform': return 'Platform not supported';
+    default: return stage;
+  }
+}
+
 export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
   const { settings, saveSettings, defaultEndpointsPath, refreshSettings } = useSettings();
+  const { state: updateState, checkNow, setAutoCheck } = useUpdate();
 
   const [syfthubUrl, setSyfthubUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
@@ -44,6 +59,15 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
   const [pendingContainerEnabled, setPendingContainerEnabled] = useState<boolean | null>(null);
   const [isRestarting, setIsRestarting] = useState(false);
   const [restartStatus, setRestartStatus] = useState<string>('');
+  const [version, setVersion] = useState<string>('');
+  const [isChecking, setIsChecking] = useState(false);
+
+  // Pull the version once per open so the About section can render it.
+  useEffect(() => {
+    if (open) {
+      GetVersion().then(setVersion).catch(() => setVersion(''));
+    }
+  }, [open]);
 
   // Initialize form with current settings when modal opens
   useEffect(() => {
@@ -183,6 +207,79 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
                 setPendingContainerEnabled(checked);
               }}
             />
+          </div>
+
+          {/* About & Updates */}
+          <div className="space-y-2 pt-2 border-t border-border/60">
+            <Label className="flex items-center gap-1.5 text-foreground">
+              <Info className="w-4 h-4 text-muted-foreground" />
+              About & Updates
+            </Label>
+            <div className="rounded-md border border-border/60 bg-muted/30 p-3 space-y-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Version</span>
+                <span className="font-mono text-xs text-foreground">{version || '—'}</span>
+              </div>
+              {updateState && updateState.stage !== 'disabled' && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Status</span>
+                    <span className="text-xs text-foreground">
+                      {updateStageLabel(updateState.stage, updateState.latest_version)}
+                    </span>
+                  </div>
+                  {updateState.last_checked_at && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-muted-foreground">Last checked</span>
+                      <span className="text-xs text-foreground">
+                        {new Date(updateState.last_checked_at).toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="settings-autoCheck" className="text-muted-foreground cursor-pointer">
+                      Automatic update checks
+                    </Label>
+                    <Switch
+                      id="settings-autoCheck"
+                      checked={updateState.auto_check_enabled ?? true}
+                      onCheckedChange={async (checked) => {
+                        try {
+                          await setAutoCheck(checked);
+                        } catch (err) {
+                          setError(extractErrorMessage(err, 'Failed to update preference'));
+                        }
+                      }}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      setIsChecking(true);
+                      try {
+                        await checkNow();
+                        // Give the background goroutine a moment to publish.
+                        await new Promise((r) => setTimeout(r, 600));
+                      } finally {
+                        setIsChecking(false);
+                      }
+                    }}
+                    disabled={isChecking || updateState.stage === 'checking'}
+                    className="w-full"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 mr-2 ${isChecking ? 'animate-spin' : ''}`} />
+                    {isChecking ? 'Checking…' : 'Check for updates now'}
+                  </Button>
+                </>
+              )}
+              {updateState?.stage === 'disabled' && (
+                <p className="text-xs text-muted-foreground">
+                  Auto-update is disabled for this build (development version or bypass environment variable set).
+                </p>
+              )}
+            </div>
           </div>
 
           <ErrorBanner message={error} />

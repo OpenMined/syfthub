@@ -15,6 +15,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/openmined/syfthub-desktop-gui/internal/app"
+	"github.com/openmined/syfthub-desktop-gui/internal/updater"
 	syfthub "github.com/openmined/syfthub/sdk/golang/syfthub"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
@@ -62,6 +63,9 @@ type App struct {
 	agentMu           sync.Mutex // Protects agentSessionID and agentCancelledID
 	libraryClient    *nodeops.MarketplaceClient // Cached library client; protected by mu
 	libraryClientURL string                     // URL the cached client was created for
+	updater          *updater.Checker           // Auto-update checker; nil until startup completes
+	downloader       *updater.Downloader        // Update-artifact downloader; nil until startup completes
+	installer        *updater.Installer         // In-place binary installer; nil on macOS until Phase 4
 }
 
 // NewApp creates a new App application struct.
@@ -143,6 +147,13 @@ func (a *App) startup(ctx context.Context) {
 	runtime.LogInfo(ctx, fmt.Sprintf("SyftHub URL: %s", os.Getenv("SYFTHUB_URL")))
 	runtime.LogInfo(ctx, fmt.Sprintf("Space URL: %s", os.Getenv("SPACE_URL")))
 	runtime.LogInfo(ctx, fmt.Sprintf("Settings configured: %v", settings.IsConfigured))
+
+	// Start the auto-update background checker. Errors here are logged
+	// but never fatal — the app must boot even if updates can't be checked.
+	a.startUpdater(ctx)
+	a.initDownloader(ctx)
+	a.initInstaller(ctx)
+	a.scheduleCleanBootMarker(ctx)
 }
 
 // initSyftClient creates a new syfthub.Client and authenticates to fetch the username.
@@ -211,6 +222,10 @@ func (a *App) currentUserContext() *syfthubapi.UserContext {
 // shutdown is called when the Wails app is closing.
 func (a *App) shutdown(ctx context.Context) {
 	runtime.LogInfo(ctx, "SyftHub Desktop GUI shutting down")
+
+	// Stop the update checker first so it stops emitting events into a
+	// shutting-down runtime context.
+	a.shutdownUpdater()
 
 	// Stop the core app if running
 	a.mu.RLock()

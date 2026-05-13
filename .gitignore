@@ -176,6 +176,8 @@ backend/data/
 # These should NEVER be committed to version control
 **/rsa_keys/
 *.pem
+# Exception: the desktop auto-updater's embedded public key (NOT a private key)
+!syfthub-desktop/internal/updater/embed/manifest_pubkey.pem
 
 # Backend-specific ignores
 backend/.coverage
