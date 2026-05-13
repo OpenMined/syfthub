@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, List, Optional
 
-from sqlalchemy import Text, and_, cast, delete, func, or_, select, update
+from sqlalchemy import Text, and_, cast, delete, func, or_, select, text, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from syfthub.core.url_builder import transform_connection_urls
-from syfthub.models.endpoint import EndpointModel, EndpointStarModel
+from syfthub.models.endpoint import (
+    EndpointModel,
+    EndpointStarModel,
+    EndpointUptimeSampleModel,
+)
 from syfthub.models.organization import OrganizationModel
 from syfthub.models.user import UserModel
 from syfthub.repositories.base import BaseRepository
@@ -1242,6 +1247,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             - health_status: str ("healthy" or "unhealthy")
             - health_checked_at: datetime
             - health_ttl_seconds: int
+            - last_latency_ms: Optional[int] (when missing, latency is not updated)
 
         Does NOT commit — caller manages the transaction.
 
@@ -1254,14 +1260,18 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         updated_count = 0
         for item in updates:
             try:
+                values: dict[str, Any] = {
+                    "health_status": item["health_status"],
+                    "health_checked_at": item["health_checked_at"],
+                    "health_ttl_seconds": item["health_ttl_seconds"],
+                }
+                if "last_latency_ms" in item and item["last_latency_ms"] is not None:
+                    values["last_latency_ms"] = item["last_latency_ms"]
+
                 stmt = (
                     update(EndpointModel)
                     .where(EndpointModel.id == item["endpoint_id"])
-                    .values(
-                        health_status=item["health_status"],
-                        health_checked_at=item["health_checked_at"],
-                        health_ttl_seconds=item["health_ttl_seconds"],
-                    )
+                    .values(**values)
                 )
                 result = self.session.execute(stmt)
                 if result.rowcount > 0:
@@ -1271,6 +1281,211 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                     f"Failed to update health for endpoint {item['endpoint_id']}: {e}"
                 )
         return updated_count
+
+    def get_by_owner_and_slug_any_state(
+        self,
+        user_id: Optional[int],
+        organization_id: Optional[int],
+        slug: str,
+    ) -> Optional[Endpoint]:
+        """Look up an endpoint by owner + slug ignoring is_active.
+
+        Used by callers that need to operate on endpoints that may currently
+        be marked inactive by the health monitor (e.g. rendering the uptime
+        chart for a down endpoint).
+        """
+        if (user_id is None) == (organization_id is None):
+            return None
+        try:
+            conditions = [self.model.slug == slug.lower()]
+            if user_id is not None:
+                conditions.append(self.model.user_id == user_id)
+            else:
+                conditions.append(self.model.organization_id == organization_id)
+            stmt = select(self.model).where(and_(*conditions))
+            endpoint_model = self.session.execute(stmt).scalar_one_or_none()
+            if endpoint_model:
+                return Endpoint.model_validate(endpoint_model)
+            return None
+        except SQLAlchemyError:
+            return None
+
+    # ===========================================
+    # ENDPOINT UPTIME / TELEMETRY METHODS
+    # ===========================================
+
+    def upsert_uptime_sample(
+        self,
+        endpoint_id: int,
+        bucket_start: datetime,
+        is_healthy: bool,
+        latency_ms: Optional[int],
+    ) -> None:
+        """Upsert one health-monitor tick into the bucketed uptime table.
+
+        Uses ``INSERT … ON CONFLICT`` on Postgres and a select-then-update
+        fallback on other dialects (SQLite/dev). Does NOT commit — the caller
+        manages the transaction.
+
+        Args:
+            endpoint_id: Endpoint receiving the sample.
+            bucket_start: Truncated UTC bucket boundary
+                (``floor(epoch / bucket_seconds) * bucket_seconds``).
+            is_healthy: Result of the monitor's tier evaluation.
+            latency_ms: Latency to record, or ``None`` if no fresh latency
+                signal is available (e.g. tier 2/3 decision).
+        """
+        healthy = 1 if is_healthy else 0
+        has_latency = latency_ms is not None
+        lat_count = 1 if has_latency else 0
+        lat_sum = latency_ms if has_latency else 0
+
+        dialect = self.session.bind.dialect.name if self.session.bind else ""
+
+        try:
+            if dialect == "postgresql":
+                self.session.execute(
+                    text(
+                        """
+                        INSERT INTO endpoint_uptime_samples (
+                            endpoint_id, bucket_start,
+                            total_checks, healthy_checks,
+                            latency_count, latency_sum_ms,
+                            latency_min_ms, latency_max_ms
+                        )
+                        VALUES (
+                            :eid, :bucket,
+                            1, :h,
+                            :lc, :ls,
+                            :lat, :lat
+                        )
+                        ON CONFLICT (endpoint_id, bucket_start) DO UPDATE SET
+                            total_checks   = endpoint_uptime_samples.total_checks + 1,
+                            healthy_checks = endpoint_uptime_samples.healthy_checks
+                                             + EXCLUDED.healthy_checks,
+                            latency_count  = endpoint_uptime_samples.latency_count
+                                             + EXCLUDED.latency_count,
+                            latency_sum_ms = endpoint_uptime_samples.latency_sum_ms
+                                             + EXCLUDED.latency_sum_ms,
+                            latency_min_ms = CASE
+                                WHEN EXCLUDED.latency_min_ms IS NULL
+                                    THEN endpoint_uptime_samples.latency_min_ms
+                                WHEN endpoint_uptime_samples.latency_min_ms IS NULL
+                                    THEN EXCLUDED.latency_min_ms
+                                ELSE LEAST(
+                                    endpoint_uptime_samples.latency_min_ms,
+                                    EXCLUDED.latency_min_ms
+                                )
+                            END,
+                            latency_max_ms = CASE
+                                WHEN EXCLUDED.latency_max_ms IS NULL
+                                    THEN endpoint_uptime_samples.latency_max_ms
+                                WHEN endpoint_uptime_samples.latency_max_ms IS NULL
+                                    THEN EXCLUDED.latency_max_ms
+                                ELSE GREATEST(
+                                    endpoint_uptime_samples.latency_max_ms,
+                                    EXCLUDED.latency_max_ms
+                                )
+                            END
+                        """
+                    ),
+                    {
+                        "eid": endpoint_id,
+                        "bucket": bucket_start,
+                        "h": healthy,
+                        "lc": lat_count,
+                        "ls": lat_sum,
+                        "lat": latency_ms,
+                    },
+                )
+                return
+
+            # Fallback path (SQLite/dev): SELECT existing, then INSERT or UPDATE.
+            existing = self.session.execute(
+                select(EndpointUptimeSampleModel).where(
+                    and_(
+                        EndpointUptimeSampleModel.endpoint_id == endpoint_id,
+                        EndpointUptimeSampleModel.bucket_start == bucket_start,
+                    )
+                )
+            ).scalar_one_or_none()
+
+            if existing is None:
+                sample = EndpointUptimeSampleModel(
+                    endpoint_id=endpoint_id,
+                    bucket_start=bucket_start,
+                    total_checks=1,
+                    healthy_checks=healthy,
+                    latency_count=lat_count,
+                    latency_sum_ms=lat_sum,
+                    latency_min_ms=latency_ms,
+                    latency_max_ms=latency_ms,
+                )
+                self.session.add(sample)
+                return
+
+            existing.total_checks += 1
+            existing.healthy_checks += healthy
+            if has_latency:
+                existing.latency_count += 1
+                existing.latency_sum_ms += int(latency_ms or 0)
+                existing.latency_min_ms = (
+                    latency_ms
+                    if existing.latency_min_ms is None
+                    else min(existing.latency_min_ms, int(latency_ms or 0))
+                )
+                existing.latency_max_ms = (
+                    latency_ms
+                    if existing.latency_max_ms is None
+                    else max(existing.latency_max_ms, int(latency_ms or 0))
+                )
+        except SQLAlchemyError as e:
+            logger.error(
+                f"Failed to upsert uptime sample for endpoint {endpoint_id} "
+                f"at {bucket_start}: {e}"
+            )
+
+    def get_uptime_samples(
+        self,
+        endpoint_id: int,
+        window_hours: int,
+    ) -> list[EndpointUptimeSampleModel]:
+        """Return ordered uptime samples for an endpoint in a rolling window."""
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
+        try:
+            stmt = (
+                select(EndpointUptimeSampleModel)
+                .where(
+                    and_(
+                        EndpointUptimeSampleModel.endpoint_id == endpoint_id,
+                        EndpointUptimeSampleModel.bucket_start >= cutoff,
+                    )
+                )
+                .order_by(EndpointUptimeSampleModel.bucket_start.asc())
+            )
+            return list(self.session.execute(stmt).scalars().all())
+        except SQLAlchemyError as e:
+            logger.error(
+                f"Failed to load uptime samples for endpoint {endpoint_id}: {e}"
+            )
+            return []
+
+    def delete_uptime_samples_older_than(self, retention_days: int) -> int:
+        """Delete uptime samples older than the configured retention window.
+
+        Returns the number of rows removed. Does NOT commit — caller manages
+        the transaction.
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        try:
+            stmt = delete(EndpointUptimeSampleModel).where(
+                EndpointUptimeSampleModel.bucket_start < cutoff
+            )
+            result = self.session.execute(stmt)
+            return result.rowcount or 0
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to purge old uptime samples: {e}")
+            return 0
 
 
 class EndpointStarRepository(BaseRepository[EndpointStarModel]):

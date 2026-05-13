@@ -5,19 +5,21 @@ from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
     Integer,
+    PrimaryKeyConstraint,
     String,
     Text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from syfthub.models.base import BaseModel, TimestampMixin
+from syfthub.models.base import Base, BaseModel, TimestampMixin
 
 # Use JSONB for PostgreSQL, JSON for other databases (e.g., SQLite in tests)
 JSONType = JSON().with_variant(JSONB(), "postgresql")  # type: ignore[no-untyped-call]
@@ -75,6 +77,14 @@ class EndpointModel(BaseModel, TimestampMixin):
         DateTime(timezone=True), nullable=True, default=None
     )
     health_ttl_seconds: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, default=None
+    )
+
+    # Last endpoint round-trip latency in milliseconds, reported by client
+    # alongside health status via POST /endpoints/health. Trusted only while
+    # the per-endpoint health signal (health_checked_at + health_ttl_seconds)
+    # is still fresh; otherwise treated as stale and ignored by the monitor.
+    last_latency_ms: Mapped[Optional[int]] = mapped_column(
         Integer, nullable=True, default=None
     )
 
@@ -171,3 +181,49 @@ class EndpointStarModel(BaseModel):
     def __repr__(self) -> str:
         """String representation of EndpointStar."""
         return f"<EndpointStar(id={self.id}, user_id={self.user_id}, endpoint_id={self.endpoint_id})>"
+
+
+class EndpointUptimeSampleModel(Base):
+    """Bucketed uptime + latency aggregates for an endpoint.
+
+    One row per (endpoint_id, bucket_start). The health monitor upserts a row
+    every cycle (default every 30s), accumulating totals so the bucket can be
+    rendered as a single uptime + latency data point.
+
+    Bucket size is controlled by ``settings.uptime_bucket_seconds`` (default
+    1800s = 30 min, matching ``heartbeat_max_ttl_seconds``).
+    """
+
+    __tablename__ = "endpoint_uptime_samples"
+
+    endpoint_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("endpoints.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    bucket_start: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    total_checks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    healthy_checks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    latency_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    latency_sum_ms: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    latency_min_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    latency_max_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    __table_args__ = (
+        PrimaryKeyConstraint("endpoint_id", "bucket_start"),
+        Index(
+            "idx_endpoint_uptime_endpoint_bucket",
+            "endpoint_id",
+            "bucket_start",
+        ),
+        Index("idx_endpoint_uptime_bucket_start", "bucket_start"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<EndpointUptimeSample(endpoint_id={self.endpoint_id}, "
+            f"bucket_start={self.bucket_start}, "
+            f"healthy={self.healthy_checks}/{self.total_checks})>"
+        )
