@@ -182,5 +182,7 @@ func (a *AgentResource) StartSession(ctx context.Context, req *AgentSessionReque
 		sessionID = resp.Payload.SessionID
 	}
 
-	return newAgentSessionClient(conn, sessionID), nil
+	c := newAgentSessionClient(conn, sessionID)
+	c.AggregatorHTTPURL = aggregatorURL
+	return c, nil
 }

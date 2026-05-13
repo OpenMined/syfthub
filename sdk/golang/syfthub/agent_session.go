@@ -9,6 +9,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
+	"net/http"
+	"net/textproto"
+	"strings"
 	"sync"
 
 	"github.com/coder/websocket"
@@ -181,6 +185,11 @@ type AgentSessionClient struct {
 	// SessionID is the unique session identifier.
 	SessionID string
 
+	// AggregatorHTTPURL is the base HTTP URL used by the attachments side-
+	// channel (POST/GET /api/v1/agent/session/{sid}/attachment[/{fid}]).
+	// Set by AgentResource.StartSession.
+	AggregatorHTTPURL string
+
 	conn   *websocket.Conn
 	events chan AgentEvent
 	errs   chan error
@@ -272,25 +281,24 @@ type AttachmentOpts struct {
 	MIME string
 }
 
-// SendAttachment uploads a file as a user.attachment WebSocket message.
+// SendAttachment uploads a file to the agent.
 //
-// PR-4 supports the inline tier only: payloads larger than
-// InlineAttachmentMaxBytes return an error. PR-7 adds HTTP side-channel
-// upload for the Object Store tier.
+// Behavior:
+//   - Payload <= InlineAttachmentMaxBytes: rides inline (base64) in a
+//     user.attachment WebSocket frame.
+//   - Payload > InlineAttachmentMaxBytes: streamed via HTTP POST to the
+//     aggregator's relay endpoint (POST /api/v1/agent/session/{sid}/attachment).
+//     The aggregator handles encryption + Object Store storage + the
+//     accompanying user.attachment metadata event published over NATS.
 //
 // Returns the assigned file_id. Callers should reference attachments in
 // subsequent text with the URI scheme `attachment://{file_id}`.
 func (c *AgentSessionClient) SendAttachment(ctx context.Context, r io.Reader, opts AttachmentOpts) (string, error) {
-	body, err := io.ReadAll(io.LimitReader(r, InlineAttachmentMaxBytes+1))
+	// Try inline first by reading up to InlineAttachmentMaxBytes+1.
+	head, err := io.ReadAll(io.LimitReader(r, InlineAttachmentMaxBytes+1))
 	if err != nil {
 		return "", fmt.Errorf("read attachment: %w", err)
 	}
-	if len(body) > InlineAttachmentMaxBytes {
-		return "", fmt.Errorf("attachment exceeds inline limit (%d bytes); Object Store transport not yet implemented", InlineAttachmentMaxBytes)
-	}
-
-	fileID := newAttachmentID()
-	sum := sha256.Sum256(body)
 	name := opts.Name
 	if name == "" {
 		name = "attachment.bin"
@@ -300,18 +308,110 @@ func (c *AgentSessionClient) SendAttachment(ctx context.Context, r io.Reader, op
 		mime = "application/octet-stream"
 	}
 
-	return fileID, c.sendJSON(ctx, map[string]any{
-		"type": "user.attachment",
-		"payload": map[string]any{
-			"file_id":          fileID,
-			"name":             name,
-			"mime":             mime,
-			"size_bytes":       int64(len(body)),
-			"plaintext_sha256": hex.EncodeToString(sum[:]),
-			"transport":        "inline",
-			"inline_data_b64":  base64.StdEncoding.EncodeToString(body),
-		},
-	})
+	if len(head) <= InlineAttachmentMaxBytes {
+		fileID := newAttachmentID()
+		sum := sha256.Sum256(head)
+		return fileID, c.sendJSON(ctx, map[string]any{
+			"type": "user.attachment",
+			"payload": map[string]any{
+				"file_id":          fileID,
+				"name":             name,
+				"mime":             mime,
+				"size_bytes":       int64(len(head)),
+				"plaintext_sha256": hex.EncodeToString(sum[:]),
+				"transport":        "inline",
+				"inline_data_b64":  base64.StdEncoding.EncodeToString(head),
+			},
+		})
+	}
+
+	// Spill-over to HTTP relay.
+	if c.AggregatorHTTPURL == "" {
+		return "", fmt.Errorf("attachment exceeds inline limit and AggregatorHTTPURL is unset")
+	}
+	combined := io.MultiReader(bytesReader(head), r)
+	return c.uploadAttachmentHTTP(ctx, name, mime, combined)
+}
+
+// DownloadAttachment fetches an attachment by file_id and streams it into w.
+// Used to retrieve agent-emitted attachments that landed in Object Store.
+func (c *AgentSessionClient) DownloadAttachment(ctx context.Context, fileID string, w io.Writer) error {
+	if c.AggregatorHTTPURL == "" {
+		return fmt.Errorf("AggregatorHTTPURL is unset")
+	}
+	url := strings.TrimRight(c.AggregatorHTTPURL, "/") + "/api/v1/agent/session/" + c.SessionID + "/attachment/" + fileID
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("http get: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download returned %d", resp.StatusCode)
+	}
+	if _, err := io.Copy(w, resp.Body); err != nil {
+		return fmt.Errorf("stream body: %w", err)
+	}
+	return nil
+}
+
+// uploadAttachmentHTTP POSTs a multipart upload to the aggregator's relay.
+// Returns the file_id assigned by the server.
+func (c *AgentSessionClient) uploadAttachmentHTTP(ctx context.Context, name, mime string, r io.Reader) (string, error) {
+	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
+	url := strings.TrimRight(c.AggregatorHTTPURL, "/") + "/api/v1/agent/session/" + c.SessionID + "/attachment"
+
+	uploadErr := make(chan error, 1)
+	go func() {
+		defer pw.Close()
+		defer mw.Close()
+		hdr := make(textproto.MIMEHeader)
+		hdr.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename=%q`, name))
+		hdr.Set("Content-Type", mime)
+		part, err := mw.CreatePart(hdr)
+		if err != nil {
+			uploadErr <- err
+			return
+		}
+		if _, err := io.Copy(part, r); err != nil {
+			uploadErr <- err
+			return
+		}
+		uploadErr <- nil
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, pr)
+	if err != nil {
+		return "", fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("http post: %w", err)
+	}
+	defer resp.Body.Close()
+	if err := <-uploadErr; err != nil {
+		return "", fmt.Errorf("upload body: %w", err)
+	}
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("aggregator returned %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+	var out struct {
+		FileID string `json:"file_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", fmt.Errorf("decode response: %w", err)
+	}
+	if out.FileID == "" {
+		return "", fmt.Errorf("aggregator returned empty file_id")
+	}
+	return out.FileID, nil
 }
 
 // SendAttachmentBytes is a convenience wrapper for SendAttachment with a

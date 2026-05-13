@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -8,6 +9,7 @@ import (
 	"mime"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthub"
 )
@@ -21,9 +23,6 @@ func uploadAgentAttachment(ctx context.Context, session *syfthub.AgentSessionCli
 	}
 	if st.IsDir() {
 		return fmt.Errorf("attachments must be files, not directories")
-	}
-	if st.Size() > syfthub.InlineAttachmentMaxBytes {
-		return fmt.Errorf("file is %d bytes; inline ceiling is %d (Object Store transport ships in PR-7)", st.Size(), syfthub.InlineAttachmentMaxBytes)
 	}
 
 	f, err := os.Open(path)
@@ -51,7 +50,11 @@ func uploadAgentAttachment(ctx context.Context, session *syfthub.AgentSessionCli
 
 // saveAgentAttachment decodes an inbound attachment and saves it under
 // --save-attachments-to (or the current directory if unset).
-func saveAgentAttachment(e *syfthub.AttachmentEvent) error {
+//
+// Handles both transports:
+//   - inline: decode in-event base64 and verify SHA
+//   - object_store: stream via DownloadAttachment on the active session
+func saveAgentAttachment(session *syfthub.AgentSessionClient, e *syfthub.AttachmentEvent) error {
 	dir := agentSaveAttachmentsTo
 	if dir == "" {
 		var err error
@@ -64,32 +67,40 @@ func saveAgentAttachment(e *syfthub.AttachmentEvent) error {
 		return fmt.Errorf("mkdir: %w", err)
 	}
 
-	if e.Transport != "inline" {
-		return fmt.Errorf("transport %q not supported by PR-4 CLI (Object Store ships in PR-7)", e.Transport)
-	}
-
-	body, err := e.Bytes()
-	if err != nil {
-		return err
-	}
-
-	sum := sha256.Sum256(body)
-	if hex.EncodeToString(sum[:]) != e.PlaintextSHA256 {
-		return fmt.Errorf("sha256 mismatch on %s", e.FileID)
-	}
-
 	name := e.Name
 	if name == "" {
 		name = e.FileID
 	}
-	// Sanitize: only allow the basename — refuse anything containing path
-	// separators to avoid writing outside dir.
 	name = filepath.Base(name)
 	if name == "." || name == ".." || name == string(filepath.Separator) {
 		name = e.FileID
 	}
-
 	dest := filepath.Join(dir, name)
+
+	var body []byte
+	switch e.Transport {
+	case "inline":
+		var err error
+		body, err = e.Bytes()
+		if err != nil {
+			return err
+		}
+	case "object_store":
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		var buf bytes.Buffer
+		if err := session.DownloadAttachment(ctx, e.FileID, &buf); err != nil {
+			return fmt.Errorf("download: %w", err)
+		}
+		body = buf.Bytes()
+	default:
+		return fmt.Errorf("unknown attachment transport %q", e.Transport)
+	}
+
+	sum := sha256.Sum256(body)
+	if e.PlaintextSHA256 != "" && hex.EncodeToString(sum[:]) != e.PlaintextSHA256 {
+		return fmt.Errorf("sha256 mismatch on %s", e.FileID)
+	}
 	if err := os.WriteFile(dest, body, 0o600); err != nil {
 		return fmt.Errorf("write: %w", err)
 	}

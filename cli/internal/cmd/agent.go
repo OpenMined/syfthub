@@ -266,7 +266,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 				}
 
 			case *syfthub.AttachmentEvent:
-				if err := saveAgentAttachment(e); err != nil {
+				if err := saveAgentAttachment(session, e); err != nil {
 					fmt.Printf("\n⚠ Attachment %s (%s): %v\n", e.Name, e.FileID, err)
 				}
 
