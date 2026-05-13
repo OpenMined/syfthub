@@ -13,11 +13,13 @@ from aggregator.services.session_transport import NATSSessionTransport
 @pytest.mark.asyncio
 async def test_session_attachment_key_embedded_when_capability_declared() -> None:
     nats_transport = MagicMock()
-    nats_transport._ensure_connected = AsyncMock(return_value=MagicMock(
-        subscribe=AsyncMock(),
-        publish=AsyncMock(),
-        flush=AsyncMock(),
-    ))
+    nats_transport._ensure_connected = AsyncMock(
+        return_value=MagicMock(
+            subscribe=AsyncMock(),
+            publish=AsyncMock(),
+            flush=AsyncMock(),
+        )
+    )
     st = NATSSessionTransport(
         nats_transport=nats_transport,
         peer_channel="chan-1",
