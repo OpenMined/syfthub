@@ -29,12 +29,14 @@ from syfthub.schemas.endpoint import (
     EndpointResponse,
     EndpointType,
     EndpointUpdate,
+    EndpointUptimeResponse,
     EndpointVisibility,
     GroupedEndpointsResponse,
     OwnersListResponse,
     Policy,
     SyncEndpointsResponse,
     SyncValidationError,
+    UptimeBucket,
     filter_visible_policies,
     generate_slug_from_name,
     get_matching_types,
@@ -1522,4 +1524,106 @@ class EndpointService(BaseService):
         return EndpointHealthResponse(
             updated=updated,
             ignored=ignored,
+        )
+
+    # ===========================================
+    # ENDPOINT UPTIME / TELEMETRY
+    # ===========================================
+
+    def get_endpoint_uptime(
+        self,
+        owner_username: str,
+        slug: str,
+        window_hours: int,
+        current_user: Optional[User],
+    ) -> EndpointUptimeResponse:
+        """Return bucketed uptime + latency series for one endpoint.
+
+        Visibility mirrors the rest of the endpoint read path:
+        - Public endpoints are readable by anyone (including guests)
+        - INTERNAL/PRIVATE endpoints require the viewer to be the owner or,
+          for org-owned endpoints, a member of the org.
+
+        Args:
+            owner_username: User username or org slug
+            slug: Endpoint slug
+            window_hours: Rolling window in hours (1..168 enforced at route)
+            current_user: Authenticated viewer (optional for public reads)
+
+        Returns:
+            EndpointUptimeResponse with one entry per bucket (oldest first)
+
+        Raises:
+            HTTPException: 404 if endpoint is not found or not accessible
+        """
+        normalized_slug = slug.lower()
+
+        # Resolve owner — try user first, then organization. Use the
+        # any-state lookup so a chart can be rendered even when the health
+        # monitor has flipped the endpoint to is_active=False.
+        owner_user = self.user_repository.get_by_username(owner_username)
+        endpoint_model = None
+        if owner_user is not None:
+            endpoint_model = self.endpoint_repository.get_by_owner_and_slug_any_state(
+                user_id=owner_user.id,
+                organization_id=None,
+                slug=normalized_slug,
+            )
+
+        if endpoint_model is None:
+            owner_org = self.org_repository.get_by_slug(owner_username)
+            if owner_org is not None:
+                endpoint_model = (
+                    self.endpoint_repository.get_by_owner_and_slug_any_state(
+                        user_id=None,
+                        organization_id=owner_org.id,
+                        slug=normalized_slug,
+                    )
+                )
+
+        if endpoint_model is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Endpoint not found",
+            )
+
+        owner_type = "organization" if endpoint_model.organization_id else "user"
+        if not self._can_access_endpoint(endpoint_model, current_user, owner_type):
+            # Hide existence for security
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Endpoint not found",
+            )
+
+        bucket_seconds = max(1, settings.uptime_bucket_seconds)
+        samples = self.endpoint_repository.get_uptime_samples(
+            endpoint_id=endpoint_model.id,
+            window_hours=window_hours,
+        )
+
+        buckets: list[UptimeBucket] = []
+        for s in samples:
+            total = s.total_checks or 0
+            healthy = s.healthy_checks or 0
+            uptime_pct = (100.0 * healthy / total) if total > 0 else 0.0
+            # bucket_start is NOT NULL in the schema; assert narrows the type
+            # so mypy stops treating it as Optional[datetime].
+            bucket_start = s.bucket_start
+            assert bucket_start is not None
+            buckets.append(
+                UptimeBucket(
+                    bucket_start=bucket_start,
+                    samples=total,
+                    healthy_samples=healthy,
+                    uptime_pct=round(uptime_pct, 2),
+                )
+            )
+
+        return EndpointUptimeResponse(
+            endpoint_id=endpoint_model.id,
+            owner_username=owner_username,
+            slug=endpoint_model.slug,
+            bucket_seconds=bucket_seconds,
+            window_hours=window_hours,
+            buckets=buckets,
         )

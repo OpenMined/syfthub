@@ -371,6 +371,28 @@ class Settings(BaseSettings):
     )
 
     # ===========================================
+    # ENDPOINT UPTIME TELEMETRY
+    # ===========================================
+    # Aggregates the health monitor's per-cycle decisions into time buckets
+    # so each endpoint can render an uptime chart with latency.
+
+    uptime_bucket_seconds: int = Field(
+        default=1800,
+        description=(
+            "Bucket size for endpoint uptime aggregates, in seconds. "
+            "Default 1800s (30 min) mirrors heartbeat_max_ttl_seconds so a "
+            "single missed report fills at most one bucket."
+        ),
+    )
+    uptime_retention_days: int = Field(
+        default=90,
+        description=(
+            "Number of days of uptime samples to retain. Older samples are "
+            "deleted once per day by the health monitor. Set to 0 to disable."
+        ),
+    )
+
+    # ===========================================
     # RAG / MEILISEARCH SETTINGS
     # ===========================================
 

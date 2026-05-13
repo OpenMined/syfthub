@@ -446,7 +446,6 @@ class Endpoint(BaseModel):
     health_ttl_seconds: Optional[int] = Field(
         None, description="TTL for the health status report in seconds"
     )
-
     model_config = {"from_attributes": True}
 
 
@@ -497,7 +496,6 @@ class EndpointResponse(BaseModel):
     health_ttl_seconds: Optional[int] = Field(
         None, description="TTL for the health status report in seconds"
     )
-
     model_config = {"from_attributes": True}
 
 
@@ -786,4 +784,43 @@ class EndpointHealthResponse(BaseModel):
         ...,
         ge=0,
         description="Number of slugs that were not found or not accessible",
+    )
+
+
+# ===========================================
+# ENDPOINT UPTIME / TELEMETRY SCHEMAS
+# ===========================================
+
+
+class UptimeBucket(BaseModel):
+    """One bucketed uptime data point for an endpoint."""
+
+    bucket_start: datetime = Field(..., description="UTC start of the bucket interval")
+    samples: int = Field(
+        ..., ge=0, description="Number of health monitor cycles in this bucket"
+    )
+    healthy_samples: int = Field(
+        ..., ge=0, description="Number of those cycles that observed a healthy state"
+    )
+    uptime_pct: float = Field(
+        ...,
+        ge=0.0,
+        le=100.0,
+        description="Percentage of cycles in which the endpoint was healthy",
+    )
+
+
+class EndpointUptimeResponse(BaseModel):
+    """Bucketed uptime series for a single endpoint."""
+
+    endpoint_id: int = Field(..., description="Endpoint ID the series belongs to")
+    owner_username: str = Field(..., description="Owner's username (user or org slug)")
+    slug: str = Field(..., description="Endpoint slug")
+    bucket_seconds: int = Field(..., ge=1, description="Size of each bucket in seconds")
+    window_hours: int = Field(
+        ..., ge=1, description="Time window covered by the response in hours"
+    )
+    buckets: List[UptimeBucket] = Field(
+        default_factory=list,
+        description="Ordered list of buckets (oldest first)",
     )

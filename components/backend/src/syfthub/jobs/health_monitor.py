@@ -105,8 +105,19 @@ class EndpointHealthMonitor:
         self.enabled = settings.health_check_enabled
         self.interval = settings.health_check_interval_seconds
         self.failure_threshold = settings.health_check_failure_threshold
+        # ``getattr`` with defaults lets older test fixtures (which build
+        # ``Settings`` from MagicMock) instantiate the monitor without
+        # configuring the uptime fields. Production ``Settings`` always
+        # supplies real integers.
+        bucket = getattr(settings, "uptime_bucket_seconds", 1800)
+        retention = getattr(settings, "uptime_retention_days", 90)
+        self.bucket_seconds = max(1, bucket) if isinstance(bucket, int) else 1800
+        self.uptime_retention_days = retention if isinstance(retention, int) else 90
         self._running = False
         self._task: Optional[asyncio.Task[None]] = None
+        # Tracks the most recent date we ran the uptime retention sweep so we
+        # do it at most once per UTC day across cycles.
+        self._last_retention_sweep_date: Optional[str] = None
         # Note: Consecutive failure tracking is stored in the database
         # (endpoints.consecutive_failure_count) for multi-worker safety
 
@@ -352,14 +363,14 @@ class EndpointHealthMonitor:
             return (endpoint.id, False)
 
         # Tier 1: Per-endpoint health (client-reported)
-        result = self._check_per_endpoint_health(endpoint, now)
-        if result is not None:
-            return (endpoint.id, result)
+        tier1 = self._check_per_endpoint_health(endpoint, now)
+        if tier1 is not None:
+            return (endpoint.id, tier1)
 
         # Tier 2: Domain-level heartbeat (deprecated fallback — remove with heartbeat)
-        result = self._check_heartbeat_health(endpoint, now)
-        if result is not None:
-            return (endpoint.id, result)
+        tier2 = self._check_heartbeat_health(endpoint, now)
+        if tier2 is not None:
+            return (endpoint.id, tier2)
 
         # Neither signal is fresh — mark unhealthy
         logger.debug(f"Endpoint {endpoint.id}: no fresh health signal (unhealthy)")
@@ -428,6 +439,67 @@ class EndpointHealthMonitor:
             session.rollback()
             return None
 
+    def _current_bucket_start(self, now: datetime) -> datetime:
+        """Return the UTC bucket boundary that ``now`` falls into."""
+        epoch = int(now.timestamp())
+        floored = (epoch // self.bucket_seconds) * self.bucket_seconds
+        return datetime.fromtimestamp(floored, tz=timezone.utc)
+
+    def _emit_uptime_sample(
+        self,
+        session: Session,
+        endpoint_id: int,
+        is_healthy: bool,
+        now: datetime,
+    ) -> None:
+        """Persist one uptime sample for this cycle, swallowing errors.
+
+        The sample is bucketed by ``self.bucket_seconds`` so a single bucket
+        accumulates many monitor cycles (e.g. 60 cycles per 30-minute bucket
+        at the default 30s interval).
+        """
+        from syfthub.repositories.endpoint import EndpointRepository
+
+        try:
+            repo = EndpointRepository(session)
+            repo.upsert_uptime_sample(
+                endpoint_id=endpoint_id,
+                bucket_start=self._current_bucket_start(now),
+                is_healthy=is_healthy,
+            )
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning(
+                f"Failed to record uptime sample for endpoint {endpoint_id}: {e}"
+            )
+
+    def _maybe_run_uptime_retention(self, session: Session, now: datetime) -> None:
+        """Delete uptime samples older than the configured retention window.
+
+        Runs at most once per UTC day to keep the cost bounded. The first
+        cycle of each day pays the deletion cost; subsequent cycles skip it.
+        """
+        if self.uptime_retention_days <= 0:
+            return
+        today = now.date().isoformat()
+        if self._last_retention_sweep_date == today:
+            return
+
+        try:
+            from syfthub.repositories.endpoint import EndpointRepository
+
+            repo = EndpointRepository(session)
+            removed = repo.delete_uptime_samples_older_than(self.uptime_retention_days)
+            session.commit()
+            self._last_retention_sweep_date = today
+            if removed:
+                logger.info(
+                    f"Uptime retention sweep removed {removed} old sample(s) "
+                    f"(retention: {self.uptime_retention_days} days)"
+                )
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning(f"Uptime retention sweep failed: {e}")
+            session.rollback()
+
     async def run_health_check_cycle(self) -> None:
         """Run one complete health check cycle for all endpoints.
 
@@ -447,6 +519,10 @@ class EndpointHealthMonitor:
                 )
                 return
 
+            # Once per UTC day, sweep old uptime samples. Lock-holder only,
+            # so this runs from a single worker process per day.
+            self._maybe_run_uptime_retention(session, datetime.now(timezone.utc))
+
             # Get all endpoints that can be health checked
             endpoints = self._get_endpoints_for_health_check(session)
 
@@ -460,6 +536,7 @@ class EndpointHealthMonitor:
             old_status_map = {ep.id: ep.is_active for ep in endpoints}
 
             # Evaluate each endpoint's health (no I/O — purely signal-based)
+            now = datetime.now(timezone.utc)
             state_changes = 0
             for endpoint in endpoints:
                 endpoint_id, is_healthy = self._check_endpoint_health(endpoint)
@@ -475,6 +552,19 @@ class EndpointHealthMonitor:
                 if update_result is None:
                     # Endpoint was deleted between query and update
                     continue
+
+                # Record one uptime sample per cycle. Use a fresh session
+                # transaction (the failure-counter update above already
+                # committed) so an error here cannot poison the next loop.
+                self._emit_uptime_sample(session, endpoint_id, is_healthy, now)
+                try:
+                    session.commit()
+                except Exception as e:  # pragma: no cover - defensive
+                    logger.warning(
+                        f"Failed to commit uptime sample for endpoint "
+                        f"{endpoint_id}: {e}"
+                    )
+                    session.rollback()
 
                 new_is_active, failure_count = update_result
 
