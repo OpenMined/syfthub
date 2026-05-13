@@ -23,6 +23,10 @@ from aggregator.schemas.agent import (
     AgentSessionState,
     SessionStartPayload,
 )
+from aggregator.services.attachment_session_state import (
+    AttachmentSession,
+    registry as attachment_registry,
+)
 from aggregator.services.session_manager import (
     AgentSession,
     create_session_id,
@@ -61,6 +65,7 @@ async def agent_session_ws(websocket: WebSocket) -> None:
     await websocket.accept()
     start_time = time.monotonic()
     session_transport: NATSSessionTransport | None = None
+    registered_session_id: str | None = None
 
     try:
         # Wait for session.start message (30s timeout)
@@ -170,6 +175,21 @@ async def agent_session_ws(websocket: WebSocket) -> None:
         )
         session.state = AgentSessionState.RUNNING
 
+        # Register the session in the attachment-state registry so the HTTP
+        # relay endpoints can authorize uploads/downloads + look up the
+        # session-attachment-key. Only meaningful when the caller declared
+        # the attachments capability.
+        if "attachments" in (payload.capabilities or []):
+            attachment_registry().register(
+                AttachmentSession(
+                    session_id=session_id,
+                    target_username=payload.endpoint.owner,
+                    session_attachment_key=session_transport.session_attachment_key,
+                    transport=session_transport,
+                )
+            )
+            registered_session_id = session_id
+
         # Send session.created to frontend
         await websocket.send_json(
             {
@@ -221,6 +241,9 @@ async def agent_session_ws(websocket: WebSocket) -> None:
     finally:
         if session_transport is not None:
             await session_transport.close()
+
+        if registered_session_id is not None:
+            attachment_registry().unregister(registered_session_id)
 
         duration_s = time.monotonic() - start_time
         logger.info(

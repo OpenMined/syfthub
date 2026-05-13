@@ -193,6 +193,30 @@ func (b *agentNATSBridge) handleSessionStart(msg *nats.Msg, req *syfthubapi.Tunn
 		"user_sub", user.Sub, "username", user.Username)
 
 	session, err := b.handler.StartSession(startPayload, user)
+	if err == nil && session != nil && session.AttachmentsEnabled() && startPayload.SessionAttachmentKey != "" {
+		// Bind an Object Store-backed uploader so handler-side
+		// session.SendAttachment calls dispatch large files through Object
+		// Store. PR-5+; see docs/architecture/attachments.md.
+		keyBytes, decErr := base64.StdEncoding.DecodeString(startPayload.SessionAttachmentKey)
+		if decErr != nil || len(keyBytes) != 32 {
+			b.logger.Warn("[AGENT] invalid session_attachment_key — attachments will be inline-only",
+				"session_id", session.ID, "decode_err", decErr, "len", len(keyBytes))
+		} else {
+			store, osErr := b.transport.getAttachmentObjectStore()
+			if osErr != nil {
+				b.logger.Warn("[AGENT] failed to init attachment Object Store — attachments will be inline-only",
+					"session_id", session.ID, "error", osErr)
+			} else {
+				uploader, upErr := NewObjectStoreUploader(context.Background(), keyBytes, store, session.ID)
+				if upErr != nil {
+					b.logger.Warn("[AGENT] failed to bind ObjectStoreUploader",
+						"session_id", session.ID, "error", upErr)
+				} else {
+					session.AttachmentUploader = uploader
+				}
+			}
+		}
+	}
 	if err != nil {
 		// Transaction-style policies surface a typed PaymentRequiredError so we
 		// can emit a structured PAYMENT_REQUIRED tunnel response carrying the
@@ -374,6 +398,26 @@ type NATSTransport struct {
 	mu      sync.Mutex
 	running bool
 	stopCh  chan struct{}
+
+	// attachmentObjectStore is lazily initialized on first attachment-capable
+	// session. Shared across sessions on this transport.
+	attachmentObjectStore AttachmentObjectStore
+}
+
+// getAttachmentObjectStore returns the lazily-initialized Object Store
+// backing per-session attachment buckets. Safe for concurrent use.
+func (t *NATSTransport) getAttachmentObjectStore() (AttachmentObjectStore, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.attachmentObjectStore != nil {
+		return t.attachmentObjectStore, nil
+	}
+	store, err := NewNATSAttachmentObjectStore(t.conn)
+	if err != nil {
+		return nil, err
+	}
+	t.attachmentObjectStore = store
+	return store, nil
 }
 
 // NewNATSTransport creates a new NATS transport.

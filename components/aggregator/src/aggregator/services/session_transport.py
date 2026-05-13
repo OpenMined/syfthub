@@ -7,8 +7,10 @@ to spaces via NATS and receiving encrypted agent events back.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
+import secrets
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any, Protocol
@@ -73,6 +75,17 @@ class NATSSessionTransport:
         # Must NOT be overwritten by subsequent send_to_space calls.
         self._session_ephemeral_priv: X25519PrivateKey | None = None
 
+        # 32-byte AES key the aggregator generates per session for wrapping
+        # per-file content keys. Transmitted to the HOST inside the encrypted
+        # session_start payload; the HTTP relay reads it via the property
+        # below. See docs/architecture/attachments.md.
+        self._session_attachment_key: bytes = secrets.token_bytes(32)
+
+    @property
+    def session_attachment_key(self) -> bytes:
+        """Return the per-session 32-byte AES key used to wrap file KEKs."""
+        return self._session_attachment_key
+
     async def start_session(self, payload: dict[str, Any]) -> None:
         """Send agent_session_start to the space and subscribe for responses.
 
@@ -91,6 +104,18 @@ class NATSSessionTransport:
             "Subscribed to peer channel for agent session",
             extra={"peer_channel": self._peer_channel, "session_id": self._session_id},
         )
+
+        # Embed the per-session attachment AES key in the (encrypted) session
+        # start payload so the HOST and aggregator share the same KEK material
+        # for envelope-wrapping per-file content keys. Only included when the
+        # caller advertised the attachments capability.
+        if "attachments" in payload.get("capabilities", []):
+            payload = {
+                **payload,
+                "session_attachment_key": base64.b64encode(
+                    self._session_attachment_key
+                ).decode("ascii"),
+            }
 
         # Build and send the session start message
         await self._publish_to_space(

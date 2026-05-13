@@ -100,6 +100,13 @@ type AgentSessionStartPayload struct {
 	// Hosts MUST NOT emit attachment events unless this list contains
 	// AttachmentCapability AND the endpoint has accepts_attachments=true.
 	Capabilities []string `json:"capabilities,omitempty"`
+
+	// SessionAttachmentKey is the base64-encoded 32-byte AES key the
+	// aggregator generated for this session. HOST + aggregator both wrap
+	// per-file content keys with KEKs derived from this key (HKDF info =
+	// "syfthub-attachment-v1" || file_id). Only meaningful when the
+	// "attachments" capability is present.
+	SessionAttachmentKey string `json:"session_attachment_key,omitempty"`
 }
 
 // HasCapability returns true if the payload declared the named capability.
