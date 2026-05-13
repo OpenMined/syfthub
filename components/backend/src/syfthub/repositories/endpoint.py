@@ -1422,6 +1422,10 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                     latency_max_ms=latency_ms,
                 )
                 self.session.add(sample)
+                # Flush so successive calls within the same transaction see
+                # this row and take the UPDATE branch instead of inserting a
+                # duplicate (would violate the (endpoint_id, bucket_start) PK).
+                self.session.flush()
                 return
 
             existing.total_checks += 1

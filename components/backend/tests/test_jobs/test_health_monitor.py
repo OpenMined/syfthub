@@ -1159,3 +1159,124 @@ class TestHealthMonitorLifecycle:
         await monitor.stop()
 
         mock_task.cancel.assert_not_called()
+
+
+class TestUptimeSampleEmission:
+    """Tests for the new uptime telemetry hooks in EndpointHealthMonitor."""
+
+    @pytest.fixture
+    def monitor(self):
+        settings = MagicMock()
+        settings.health_check_enabled = True
+        settings.health_check_interval_seconds = 30
+        settings.health_check_failure_threshold = 3
+        settings.uptime_bucket_seconds = 1800
+        settings.uptime_retention_days = 90
+        return EndpointHealthMonitor(settings)
+
+    def test_init_reads_uptime_settings(self):
+        settings = MagicMock()
+        settings.health_check_enabled = True
+        settings.health_check_interval_seconds = 30
+        settings.health_check_failure_threshold = 3
+        settings.uptime_bucket_seconds = 600
+        settings.uptime_retention_days = 14
+        m = EndpointHealthMonitor(settings)
+        assert m.bucket_seconds == 600
+        assert m.uptime_retention_days == 14
+
+    def test_init_defaults_when_settings_are_magicmock(self):
+        # MagicMock returns MagicMock for absent attrs; init must fall back to
+        # safe defaults rather than blowing up.
+        settings = MagicMock()
+        settings.health_check_enabled = True
+        settings.health_check_interval_seconds = 30
+        settings.health_check_failure_threshold = 3
+        # uptime_* left unset → MagicMock attr access; init should coerce.
+        m = EndpointHealthMonitor(settings)
+        assert m.bucket_seconds == 1800
+        assert m.uptime_retention_days == 90
+
+    def test_current_bucket_start_floors_to_bucket(self, monitor):
+        # 12:34:56 with 1800s buckets → 12:30:00
+        now = datetime(2026, 5, 13, 12, 34, 56, tzinfo=timezone.utc)
+        bucket = monitor._current_bucket_start(now)
+        assert bucket == datetime(2026, 5, 13, 12, 30, 0, tzinfo=timezone.utc)
+
+    def test_current_bucket_start_on_boundary(self, monitor):
+        now = datetime(2026, 5, 13, 13, 0, 0, tzinfo=timezone.utc)
+        assert monitor._current_bucket_start(now) == now
+
+    def test_emit_uptime_sample_calls_repository(self, monitor):
+        mock_session = MagicMock()
+        now = datetime(2026, 5, 13, 12, 5, 0, tzinfo=timezone.utc)
+        with patch("syfthub.repositories.endpoint.EndpointRepository") as RepoCls:
+            repo = MagicMock()
+            RepoCls.return_value = repo
+            monitor._emit_uptime_sample(
+                mock_session,
+                endpoint_id=42,
+                is_healthy=True,
+                latency_ms=87,
+                now=now,
+            )
+        repo.upsert_uptime_sample.assert_called_once()
+        kwargs = repo.upsert_uptime_sample.call_args.kwargs
+        assert kwargs["endpoint_id"] == 42
+        assert kwargs["is_healthy"] is True
+        assert kwargs["latency_ms"] == 87
+        # bucket boundary
+        assert kwargs["bucket_start"] == datetime(
+            2026, 5, 13, 12, 0, 0, tzinfo=timezone.utc
+        )
+
+    def test_emit_uptime_sample_swallows_errors(self, monitor):
+        mock_session = MagicMock()
+        now = datetime(2026, 5, 13, 12, 0, 0, tzinfo=timezone.utc)
+        with patch(
+            "syfthub.repositories.endpoint.EndpointRepository",
+            side_effect=RuntimeError("boom"),
+        ):
+            # Must not raise — emission is best-effort.
+            monitor._emit_uptime_sample(
+                mock_session,
+                endpoint_id=1,
+                is_healthy=False,
+                latency_ms=None,
+                now=now,
+            )
+
+    def test_retention_runs_at_most_once_per_day(self, monitor):
+        mock_session = MagicMock()
+        now = datetime(2026, 5, 13, 1, 0, 0, tzinfo=timezone.utc)
+        with patch("syfthub.repositories.endpoint.EndpointRepository") as RepoCls:
+            repo = MagicMock()
+            repo.delete_uptime_samples_older_than.return_value = 5
+            RepoCls.return_value = repo
+
+            monitor._maybe_run_uptime_retention(mock_session, now)
+            monitor._maybe_run_uptime_retention(mock_session, now)  # same day → skipped
+        repo.delete_uptime_samples_older_than.assert_called_once_with(90)
+        mock_session.commit.assert_called_once()
+        assert monitor._last_retention_sweep_date == "2026-05-13"
+
+    def test_retention_disabled_when_zero(self, monitor):
+        monitor.uptime_retention_days = 0
+        with patch("syfthub.repositories.endpoint.EndpointRepository") as RepoCls:
+            monitor._maybe_run_uptime_retention(
+                MagicMock(), datetime(2026, 5, 13, tzinfo=timezone.utc)
+            )
+        RepoCls.assert_not_called()
+
+    def test_retention_rolls_back_on_error(self, monitor):
+        mock_session = MagicMock()
+        now = datetime(2026, 5, 14, 1, 0, 0, tzinfo=timezone.utc)
+        with patch("syfthub.repositories.endpoint.EndpointRepository") as RepoCls:
+            repo = MagicMock()
+            repo.delete_uptime_samples_older_than.side_effect = RuntimeError("db")
+            RepoCls.return_value = repo
+            # Must not raise
+            monitor._maybe_run_uptime_retention(mock_session, now)
+        mock_session.rollback.assert_called_once()
+        # Date marker must NOT advance on failure so we'll retry next cycle
+        assert monitor._last_retention_sweep_date != "2026-05-14"
