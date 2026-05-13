@@ -52,7 +52,10 @@ const INITIAL_COMPONENTS: Partial<Components> = {
   code: function CodeComponent({ className, children, ...props }) {
     return (
       <span
-        className={cn('bg-primary-foreground rounded-sm px-1 font-mono text-sm', className)}
+        className={cn(
+          'bg-muted border-border text-foreground rounded-md border px-1 font-mono text-[0.875em]',
+          className,
+        )}
         {...props}
       >
         {children}
@@ -99,7 +102,19 @@ const MemoizedCodeBlock = memo(
         </pre>
       );
     }
-    return <CodeBlock id="" code={code} language={language} lineNumbers="hidden" />;
+    // Line numbers help readers refer to "line N" when discussing code, but a
+    // gutter on a one- or two-line snippet is more noise than signal. Show
+    // numbers only once the block is long enough to justify the gutter.
+    const lineCount = code.split('\n').length;
+    const showLineNumbers = lineCount > 2;
+    return (
+      <CodeBlock
+        id=''
+        code={code}
+        language={language}
+        lineNumbers={showLineNumbers ? 'visible' : 'hidden'}
+      />
+    );
   },
   (prev, next) => prev.code === next.code && prev.language === next.language
 );

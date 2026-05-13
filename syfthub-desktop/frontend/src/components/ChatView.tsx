@@ -46,42 +46,55 @@ import { useCopyToClipboard } from '@/components/tool-ui/shared/use-copy-to-clip
 import { useAgentWorkflow } from '@/hooks/use-agent-workflow';
 import type { AgentEntry } from '@/hooks/use-agent-workflow';
 import { useAppStore } from '@/stores/appStore';
+import { cn } from '@/lib/utils';
+
+// Generic agent-suitable suggestion chips for the welcome screen. Kept short
+// (≤ ~6 words) so two columns fit on a max-w-3xl message column without wrap.
+const SUGGESTED_PROMPTS: readonly string[] = [
+  'Summarize the latest changes in my repo',
+  'Explain how this codebase handles auth',
+  'Draft release notes from recent commits',
+  'Help me debug a failing test',
+];
 
 // =============================================================================
 // Empty State
 // =============================================================================
 
-function EmptyState({ hasAggregator, isAgent }: Readonly<{ hasAggregator: boolean; isAgent: boolean }>) {
-  // TODO(AGENT_ONLY): Aggregator-missing branch hidden — only agent mode used.
-  // To restore, uncomment the hasAggregator check below.
-  /* if (!hasAggregator && !isAgent) {
-    return (
-      <div className='flex h-full flex-col items-center justify-center gap-3 p-8'>
-        <WifiOff className='text-muted-foreground h-8 w-8' />
-        <p className='text-muted-foreground text-center text-sm'>
-          Chat is not available — aggregator URL could not be loaded.
-          <br />
-          Check your API key and connection, then restart the app.
-        </p>
-      </div>
-    );
-  } */
+function EmptyState({ onSelectPrompt }: Readonly<{ onSelectPrompt?: (prompt: string) => void }>) {
+  const chatSelectedModel = useAppStore((s) => s.chatSelectedModel);
 
   return (
-    <div className='flex h-full flex-col items-center justify-center gap-4 p-8'>
-      <div className='bg-muted flex h-12 w-12 items-center justify-center rounded-full'>
-        <Bot className='text-muted-foreground h-6 w-6' />
-      </div>
-      <div className='text-center'>
-        {/* TODO(AGENT_ONLY): Simplified to agent-only messaging.
-            To restore, use ternary: isAgent ? 'Start an agent session' : 'How can I help you today?' */}
-        <p className='text-foreground text-sm font-medium'>
-          Start an agent session
-        </p>
-        <p className='text-muted-foreground mt-1 text-xs'>
-          Type a prompt to start an interactive agent session with real-time feedback.
-        </p>
-      </div>
+    <div className='flex h-full flex-col items-center justify-center px-6 py-12'>
+      <OpenMinedIcon className='mb-6 h-16 w-16 opacity-90' />
+      <h2 className='text-foreground text-xl font-semibold tracking-tight'>
+        What can I help you build?
+      </h2>
+      <p className='text-muted-foreground mt-2 max-w-md text-center text-sm leading-relaxed'>
+        {chatSelectedModel ? (
+          <>
+            Start an interactive session with{' '}
+            <span className='text-foreground font-medium'>{chatSelectedModel.name}</span>.
+          </>
+        ) : (
+          <>Select an agent below, then type a prompt to begin.</>
+        )}
+      </p>
+
+      {onSelectPrompt && (
+        <div className='mt-8 grid w-full max-w-lg grid-cols-1 gap-2 sm:grid-cols-2'>
+          {SUGGESTED_PROMPTS.map((p) => (
+            <button
+              key={p}
+              type='button'
+              onClick={() => onSelectPrompt(p)}
+              className='border-border bg-card text-muted-foreground hover:border-border hover:bg-muted/60 hover:text-foreground focus-visible:ring-ring rounded-lg border px-4 py-3 text-left text-sm transition-colors focus:outline-none focus-visible:ring-2'
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -105,15 +118,20 @@ function AssistantAvatar() {
 function ThinkingEntry({ content }: { content: string }) {
   const [expanded, setExpanded] = useState(false);
   return (
-    <div className='border-border/50 bg-muted/30 rounded-lg border px-3 py-2'>
+    <div className='border-border bg-muted/40 rounded-lg border px-3 py-2'>
       <button
         type='button'
         onClick={() => setExpanded(!expanded)}
-        className='text-muted-foreground flex w-full items-center gap-2 text-xs font-medium'
+        aria-expanded={expanded}
+        className='text-muted-foreground hover:text-foreground flex w-full items-center gap-2 text-xs font-medium transition-colors'
       >
-        <Brain className='h-3.5 w-3.5 text-purple-400' />
+        <Brain className='h-3.5 w-3.5' aria-hidden='true' />
         <span>Thinking</span>
-        {expanded ? <ChevronDown className='ml-auto h-3 w-3' /> : <ChevronRight className='ml-auto h-3 w-3' />}
+        {expanded ? (
+          <ChevronDown className='ml-auto h-3 w-3' aria-hidden='true' />
+        ) : (
+          <ChevronRight className='ml-auto h-3 w-3' aria-hidden='true' />
+        )}
       </button>
       {expanded && (
         <pre className='text-muted-foreground mt-2 whitespace-pre-wrap text-xs leading-relaxed'>
@@ -126,11 +144,16 @@ function ThinkingEntry({ content }: { content: string }) {
 
 function StatusEntry({ content, isActive }: { content: string; isActive: boolean }) {
   return (
-    <div className='text-muted-foreground flex items-center gap-2 px-1 text-xs'>
+    <div
+      className={cn(
+        'flex items-center gap-2 px-1 text-xs transition-colors',
+        isActive ? 'text-primary' : 'text-muted-foreground',
+      )}
+    >
       {isActive ? (
-        <Loader2 className='h-3 w-3 animate-spin' />
+        <Loader2 className='h-3 w-3 animate-spin' aria-hidden='true' />
       ) : (
-        <div className='h-1.5 w-1.5 rounded-full bg-current opacity-30 mx-[3px]' />
+        <Check className='h-3 w-3 opacity-40' aria-hidden='true' />
       )}
       <span>{content}</span>
     </div>
@@ -204,7 +227,7 @@ function buildToolPart(
 function RequestInputEntry({ prompt }: { prompt: string }) {
   return (
     <div className='border-primary/30 bg-primary/5 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs'>
-      <Bot className='h-3.5 w-3.5 text-primary shrink-0' />
+      <Bot className='text-primary h-3.5 w-3.5 shrink-0' aria-hidden='true' />
       <span className='text-foreground'>{prompt}</span>
     </div>
   );
@@ -282,7 +305,10 @@ function ChatInputArea({
 
   return (
     <div className='shrink-0 p-4'>
-      <div className='mx-auto max-w-4xl px-6'>
+      {/* Subtle top gradient: messages fade behind the input as they scroll
+          rather than terminating at a hard line. */}
+      <div className='pointer-events-none -mt-8 mb-2 h-8 bg-gradient-to-t from-background to-transparent' />
+      <div className='mx-auto max-w-3xl px-6'>
         {banner}
         {/* Staged-attachment chip strip — visible only when something is staged.
             aria-live announces additions to screen readers. */}
@@ -341,7 +367,7 @@ function ChatInputArea({
                     type='button'
                     onClick={onPickAttachment}
                     disabled={attachmentsDisabled || attachmentsBusy}
-                    className='text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:ring-ring focus-visible:ring-offset-background flex h-8 w-8 items-center justify-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-30'
+                    className='text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:ring-ring focus-visible:ring-offset-background flex h-8 w-8 items-center justify-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-30'
                     aria-label='Attach file'
                   >
                     {attachmentsBusy ? (
@@ -368,9 +394,10 @@ function ChatInputArea({
                   <button
                     type='button'
                     onClick={onStop}
-                    className='bg-foreground text-background flex h-8 w-8 items-center justify-center rounded-full transition-opacity hover:opacity-80'
+                    aria-label={typeof stopTooltip === 'string' ? stopTooltip : 'Stop'}
+                    className='bg-foreground text-background flex h-8 w-8 items-center justify-center rounded-md transition-opacity hover:opacity-80'
                   >
-                    <Square className='h-3 w-3 fill-current' aria-hidden='true' />
+                    <Square className='h-3.5 w-3.5' aria-hidden='true' />
                   </button>
                 </PromptInputAction>
               ) : (
@@ -379,7 +406,8 @@ function ChatInputArea({
                     type='button'
                     onClick={onSubmit}
                     disabled={!canSubmit}
-                    className='bg-foreground text-background flex h-8 w-8 items-center justify-center rounded-full transition-opacity disabled:opacity-30 hover:opacity-80'
+                    aria-label={typeof sendTooltip === 'string' ? sendTooltip : 'Send'}
+                    className='bg-foreground text-background flex h-8 w-8 items-center justify-center rounded-md transition-opacity hover:opacity-80 disabled:opacity-50'
                   >
                     <ArrowUp className='h-4 w-4' aria-hidden='true' />
                   </button>
@@ -399,11 +427,36 @@ function ChatInputArea({
 // Shared User Message Bubble
 // =============================================================================
 
-function UserBubble({ id, content }: { id: string; content: string }) {
+/**
+ * User message bubble.
+ *
+ * Visual: neutral muted surface (not the brand color). The single asymmetric
+ * corner (rounded-br-md) preserves the chat convention "the sender's tail
+ * points back to them" without flooding long conversations with saturated
+ * teal — which is reserved for true accents (send button, focus rings,
+ * citation badges, attachment-saved confirmation).
+ *
+ * isTurnBoundary adds extra top margin so the eye can clearly see where one
+ * back-and-forth ended and the next began.
+ */
+function UserBubble({
+  id,
+  content,
+  isTurnBoundary,
+}: {
+  id: string;
+  content: string;
+  isTurnBoundary?: boolean;
+}) {
   return (
-    <Message key={id} className='justify-end'>
+    <Message
+      key={id}
+      role='article'
+      aria-label='You said'
+      className={cn('justify-end', isTurnBoundary && 'mt-6')}
+    >
       <div className='flex max-w-full flex-col items-end'>
-        <MessageContent className='font-inter bg-primary text-primary-foreground max-w-2xl rounded-2xl rounded-br-none px-5 py-3 text-sm leading-relaxed shadow-sm'>
+        <MessageContent className='font-inter bg-muted text-foreground max-w-2xl rounded-lg rounded-br-sm px-4 py-2.5 text-[15px] leading-relaxed'>
           {content}
         </MessageContent>
       </div>
@@ -566,22 +619,41 @@ function AgentChatContent() {
     return entries.reduce((last, e, i) => e.kind === 'status' ? i : last, -1);
   }, [entries]);
 
+  // Suggestion-chip handler — populates the textarea so the user can edit
+  // before sending. Auto-send would feel surprising.
+  const handleSelectPrompt = useCallback((p: string) => {
+    setInputValue(p);
+  }, []);
+
   return (
     <div className='flex h-full flex-col'>
       {/* Scrollable entries */}
       <div className='relative min-h-0 flex-1'>
         <ChatContainerRoot className='h-full'>
-          <ChatContainerContent className='mx-auto w-full max-w-4xl space-y-3 px-6 py-6'>
+          <ChatContainerContent className='mx-auto w-full max-w-3xl space-y-4 px-6 py-6'>
             {entries.length === 0 ? (
-              <EmptyState hasAggregator={false} isAgent />
+              <EmptyState onSelectPrompt={handleSelectPrompt} />
             ) : entries.map((entry, entryIndex) => {
                 if (entry.kind === 'user') {
-                  return <UserBubble key={entry.id} id={entry.id} content={entry.content} />;
+                  // Anything past the first user message starts a fresh turn.
+                  return (
+                    <UserBubble
+                      key={entry.id}
+                      id={entry.id}
+                      content={entry.content}
+                      isTurnBoundary={entryIndex > 0}
+                    />
+                  );
                 }
 
                 if (entry.kind === 'thinking') {
                   return (
-                    <Message key={entry.id} className='max-w-3xl items-start'>
+                    <Message
+                      key={entry.id}
+                      role='article'
+                      aria-label='Assistant thinking'
+                      className='max-w-3xl items-start'
+                    >
                       <AssistantAvatar />
                       <div className='min-w-0 flex-1'>
                         <ThinkingEntry content={entry.content} />
@@ -633,7 +705,12 @@ function AgentChatContent() {
                   const d = entry.data ?? {};
                   const attName = String(d.name ?? entry.content);
                   return (
-                    <Message key={entry.id} className='max-w-3xl items-start'>
+                    <Message
+                      key={entry.id}
+                      role='article'
+                      aria-label='Assistant attachment'
+                      className='max-w-3xl items-start'
+                    >
                       <AssistantAvatar />
                       <div className='min-w-0 flex-1'>
                         <AttachmentChip
@@ -650,7 +727,12 @@ function AgentChatContent() {
 
                 if (entry.kind === 'message' || entry.kind === 'token') {
                   return (
-                    <Message key={entry.id} className='group/message max-w-3xl items-start'>
+                    <Message
+                      key={entry.id}
+                      role='article'
+                      aria-label='Assistant said'
+                      className='group/message max-w-3xl items-start'
+                    >
                       <AssistantAvatar />
                       <div className='flex min-w-0 flex-1 flex-col'>
                         <MarkdownMessage content={entry.content} />
@@ -660,9 +742,14 @@ function AgentChatContent() {
                               <button
                                 type='button'
                                 onClick={() => handleCopy(entry.content, entry.id)}
-                                className='hover:text-foreground text-muted-foreground rounded p-1 transition-colors'
+                                aria-label='Copy message'
+                                className='hover:text-foreground hover:bg-muted text-muted-foreground rounded-md p-1 transition-colors'
                               >
-                                {copiedId === entry.id ? <Check className='h-3.5 w-3.5 text-green-500' /> : <Copy className='h-3.5 w-3.5' />}
+                                {copiedId === entry.id ? (
+                                  <Check className='text-success h-3.5 w-3.5' aria-hidden='true' />
+                                ) : (
+                                  <Copy className='h-3.5 w-3.5' aria-hidden='true' />
+                                )}
                               </button>
                             </MessageAction>
                           </MessageActions>
@@ -680,20 +767,35 @@ function AgentChatContent() {
 
                 if (entry.kind === 'error') {
                   return (
-                    <div key={entry.id} className='ml-10'>
-                      <div className='text-destructive text-xs'>
-                        {entry.content}
-                      </div>
+                    <div
+                      key={entry.id}
+                      role='alert'
+                      className='border-destructive/30 bg-destructive/10 text-destructive ml-10 rounded-lg border px-3 py-2 text-xs'
+                    >
+                      {entry.content}
                     </div>
                   );
                 }
 
-                if (entry.kind === 'completed' || entry.kind === 'cancelled') {
+                if (entry.kind === 'completed') {
                   return (
-                    <div key={entry.id} className='ml-10'>
-                      <div className='text-muted-foreground text-xs italic'>
-                        {entry.kind === 'cancelled' ? 'Session stopped' : 'Session completed'}
-                      </div>
+                    <div key={entry.id} className='ml-10 flex items-center gap-2 py-2'>
+                      <Check className='text-success h-3.5 w-3.5' aria-hidden='true' />
+                      <span className='text-muted-foreground text-xs'>Session completed</span>
+                      <div className='bg-border/60 ml-2 h-px flex-1' />
+                    </div>
+                  );
+                }
+
+                if (entry.kind === 'cancelled') {
+                  return (
+                    <div key={entry.id} className='ml-10 flex items-center gap-2 py-2'>
+                      <div
+                        className='bg-muted-foreground/50 h-1.5 w-1.5 rounded-full'
+                        aria-hidden='true'
+                      />
+                      <span className='text-muted-foreground text-xs'>Session stopped</span>
+                      <div className='bg-border/60 ml-2 h-px flex-1' />
                     </div>
                   );
                 }
@@ -709,7 +811,7 @@ function AgentChatContent() {
               </div>
             )}
           </ChatContainerContent>
-          <ScrollButton className='absolute bottom-4 right-4' />
+          <ScrollButton className='absolute bottom-6 right-6' />
         </ChatContainerRoot>
       </div>
 
@@ -758,12 +860,12 @@ function AgentChatContent() {
           className='bg-background/60 animate-in fade-in pointer-events-none fixed inset-0 z-50 flex items-center justify-center backdrop-blur-md duration-150'
           role='presentation'
         >
-          <div className='border-primary/40 bg-card text-foreground animate-in fade-in zoom-in-95 flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed px-10 py-8 shadow-2xl duration-200'>
-            <div className='bg-primary/10 text-primary flex h-10 w-10 items-center justify-center rounded-full'>
-              <Upload className='h-5 w-5' aria-hidden='true' />
+          <div className='border-primary/40 bg-card text-foreground animate-in fade-in zoom-in-95 flex flex-col items-center gap-3 rounded-xl border-2 border-dashed px-10 py-8 shadow-2xl duration-200'>
+            <div className='bg-primary/10 text-primary flex h-12 w-12 items-center justify-center rounded-lg'>
+              <Upload className='h-6 w-6' aria-hidden='true' />
             </div>
-            <p className='text-sm font-medium'>Drop to attach</p>
-            <p className='text-muted-foreground text-xs'>
+            <p className='text-base font-medium'>Drop to attach</p>
+            <p className='text-muted-foreground text-sm'>
               Files will be sent on your next message
             </p>
           </div>

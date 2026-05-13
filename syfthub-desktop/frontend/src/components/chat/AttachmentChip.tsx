@@ -256,7 +256,7 @@ export function AttachmentChip({
   if (wantsFigure) {
     return (
       <figure
-        className={`animate-in fade-in slide-in-from-bottom-1 my-2 inline-flex max-w-md flex-col overflow-hidden rounded-xl border duration-200 transition-colors ${
+        className={`animate-in fade-in slide-in-from-bottom-1 my-2 inline-flex max-w-md flex-col overflow-hidden rounded-lg border duration-200 transition-colors ${
           isSaved
             ? 'border-primary/40 bg-primary/10'
             : 'border-border bg-muted/30'

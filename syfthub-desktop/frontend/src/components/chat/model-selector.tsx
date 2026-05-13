@@ -87,7 +87,7 @@ export function ModelSelector({
         </button>
       </PopoverTrigger>
 
-      <PopoverContent side='top' align='start' className='w-[340px] overflow-hidden rounded-xl p-0'>
+      <PopoverContent side='top' align='start' className='w-[340px] overflow-hidden rounded-lg p-0'>
         <div className='border-border border-b px-3 pt-3 pb-2'>
           <h3 className='text-foreground mb-2 text-sm font-semibold'>Select Model</h3>
           <div className='relative'>
@@ -129,18 +129,20 @@ export function ModelSelector({
                       handleSelect(model);
                     }}
                     className={`group flex w-full items-start gap-3 rounded-lg p-3 text-left transition-colors ${
-                      isSelected ? 'bg-muted ring-secondary/20 ring-1' : 'hover:bg-muted'
+                      isSelected ? 'bg-muted ring-primary/25 ring-1' : 'hover:bg-muted'
                     }`}
                     role='option'
                     aria-selected={isSelected}
                   >
                     <div
                       className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors ${
-                        isSelected ? 'border-secondary bg-secondary' : 'border-input bg-card'
+                        isSelected ? 'border-primary bg-primary' : 'border-input bg-card'
                       }`}
                       aria-hidden='true'
                     >
-                      {isSelected && <div className='h-1.5 w-1.5 rounded-full bg-white' />}
+                      {isSelected && (
+                        <div className='bg-primary-foreground h-1.5 w-1.5 rounded-full' />
+                      )}
                     </div>
 
                     <div className='min-w-0 flex-1'>
@@ -156,7 +158,9 @@ export function ModelSelector({
                         </p>
                       ) : null}
 
-                      <span className='text-secondary text-[11px]'>{model.slug}</span>
+                      <span className='text-muted-foreground font-mono text-[11px]'>
+                        {model.slug}
+                      </span>
                     </div>
                   </button>
                 );

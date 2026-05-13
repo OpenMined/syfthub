@@ -25,8 +25,9 @@ function ScrollButton({
     <Button
       variant={variant}
       size={size}
+      aria-label='Scroll to latest'
       className={cn(
-        'h-10 w-10 rounded-full transition-all duration-150 ease-out',
+        'bg-card text-foreground hover:bg-muted h-9 w-9 rounded-lg border shadow-md transition-all duration-150 ease-out',
         isAtBottom
           ? 'pointer-events-none translate-y-4 scale-95 opacity-0'
           : 'translate-y-0 scale-100 opacity-100',
@@ -35,7 +36,7 @@ function ScrollButton({
       onClick={() => scrollToBottom()}
       {...props}
     >
-      <ChevronDown className='h-5 w-5' />
+      <ChevronDown className='h-4 w-4' aria-hidden='true' />
     </Button>
   );
 }

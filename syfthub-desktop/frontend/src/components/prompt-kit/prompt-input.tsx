@@ -83,7 +83,11 @@ function PromptInput({
         <div
           onClick={handleClick}
           className={cn(
-            'border-input bg-background cursor-text rounded-3xl border p-2 shadow-xs',
+            // bg-card sits one elevation above the page background so the
+            // input reads as a distinct affordance even on a busy timeline.
+            // focus-within darkens the border to signal active focus
+            // without introducing a third color.
+            'border-border bg-card focus-within:border-foreground/30 cursor-text rounded-lg border p-2 shadow-sm transition-colors',
             disabled && 'cursor-not-allowed opacity-60',
             className
           )}
