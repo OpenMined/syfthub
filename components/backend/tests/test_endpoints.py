@@ -2370,3 +2370,39 @@ def test_remove_xendit_policy_does_not_remove_tag(
     assert response.status_code == 200
     # Tag should still be present (not auto-removed)
     assert "prepaid" in response.json()["tags"]
+
+
+# ---------------------------------------------------------------------------
+# GET /endpoints/{owner}/{slug}/uptime — window_hours boundary
+# ---------------------------------------------------------------------------
+#
+# The route uses Pydantic's Query(le=...) validation, so the validator runs
+# before the endpoint-lookup branch. A non-existent owner/slug means a valid
+# query returns 404 while an invalid query returns 422 — which lets us pin
+# the boundary without seeding endpoint data.
+
+
+def test_uptime_accepts_window_up_to_90_days(client: TestClient) -> None:
+    """30-day (720h) and 90-day (2160h) queries must clear the validator.
+
+    Regression: the original validator capped window_hours at 168h while the
+    frontend asked for 720h, so every Uptime tab on prod 422'd.
+    """
+    for hours in (720, 2160):
+        response = client.get(
+            f"/api/v1/endpoints/ghost/missing/uptime?window_hours={hours}"
+        )
+        assert response.status_code == 404, (
+            f"window_hours={hours} should clear validation and 404 on "
+            f"missing endpoint, got {response.status_code}: {response.text}"
+        )
+
+
+def test_uptime_rejects_window_over_cap(client: TestClient) -> None:
+    """Beyond the 90-day retention there is no data, so the cap holds."""
+    response = client.get("/api/v1/endpoints/ghost/missing/uptime?window_hours=2161")
+    assert response.status_code == 422
+    body = response.json()
+    assert any(
+        "window_hours" in (err.get("loc") or []) for err in body.get("detail", [])
+    ), body
