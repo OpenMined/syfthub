@@ -134,7 +134,12 @@ async def relay_frontend_to_space(session: AgentSession) -> None:
                 session.state = AgentSessionState.CANCELLED
                 await transport.send_cancel()
                 break
-            elif msg_type in ("user.message", "user.confirm", "user.deny"):
+            elif msg_type in (
+                "user.message",
+                "user.confirm",
+                "user.deny",
+                "user.attachment",
+            ):
                 await transport.send_to_space(data)
             elif msg_type == "ping":
                 await session.websocket.send_json({"type": "pong"})

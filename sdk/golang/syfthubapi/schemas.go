@@ -380,6 +380,11 @@ type AgentSessionHandler interface {
 
 	// CancelSession cancels a session by ID.
 	CancelSession(sessionID string) error
+
+	// GetSession looks up a session by ID. Returns (nil, false) if unknown.
+	// Used by the attachments transport to deliver inbound files without
+	// going through RouteMessage's message channel.
+	GetSession(sessionID string) (*AgentSession, bool)
 }
 
 // TunnelError contains error information for tunnel responses.

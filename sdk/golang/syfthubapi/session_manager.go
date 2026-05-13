@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"slices"
 	"sync"
 	"time"
@@ -177,15 +178,33 @@ func (m *AgentSessionManager) StartSession(
 		return nil, err
 	}
 
+	// Provision a per-session tempdir for attachments when both peers have
+	// opted in. The caller advertises support via Capabilities; the endpoint
+	// owner explicitly opts in via AcceptsAttachments. Either side missing
+	// disables attachments for this session (handler can check
+	// session.AttachmentsEnabled()).
+	var attachDir string
+	if ep.AcceptsAttachments && payload.HasCapability(AttachmentCapability) {
+		dir, derr := os.MkdirTemp("", "syft-att-"+payload.SessionID+"-")
+		if derr != nil {
+			return nil, fmt.Errorf("create attachment tempdir: %w", derr)
+		}
+		// 0700 enforced by MkdirTemp on Unix; double-check for portability.
+		_ = os.Chmod(dir, 0o700)
+		attachDir = dir
+	}
+
 	// Create session — long-lived WebSocket sessions use Background context
 	// (cancelled explicitly via CancelSession or session.Cancel).
 	session := NewAgentSession(context.Background(), AgentSessionParams{
-		ID:           payload.SessionID,
-		Prompt:       payload.Prompt,
-		EndpointSlug: payload.EndpointSlug,
-		Messages:     payload.Messages,
-		Config:       payload.Config,
-		User:         user,
+		ID:            payload.SessionID,
+		Prompt:        payload.Prompt,
+		EndpointSlug:  payload.EndpointSlug,
+		Messages:      payload.Messages,
+		Config:        payload.Config,
+		User:          user,
+		Capabilities:  payload.Capabilities,
+		AttachmentDir: attachDir,
 	})
 
 	// Register session (enforce max sessions limit)
@@ -232,6 +251,13 @@ func (m *AgentSessionManager) StartSession(
 			m.deregisterSession(session.ID)
 		}
 
+		if session.AttachmentDir != "" {
+			if err := os.RemoveAll(session.AttachmentDir); err != nil {
+				m.logger.Warn("[AGENT] Failed to clean up attachment tempdir",
+					"session_id", session.ID, "dir", session.AttachmentDir, "error", err)
+			}
+		}
+
 		m.logger.Info("[AGENT] Session ended", "session_id", session.ID)
 	}
 
@@ -275,11 +301,13 @@ func (m *AgentSessionManager) CancelSession(sessionID string) error {
 	return nil
 }
 
-// GetSession returns a session by ID, or nil if not found.
-func (m *AgentSessionManager) GetSession(sessionID string) *AgentSession {
+// GetSession returns a session by ID. The boolean is false if the session
+// is unknown. The two-return-value signature satisfies AgentSessionHandler.
+func (m *AgentSessionManager) GetSession(sessionID string) (*AgentSession, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.sessions[sessionID]
+	s, ok := m.sessions[sessionID]
+	return s, ok
 }
 
 // StartReaper launches a background goroutine that periodically scans for stale

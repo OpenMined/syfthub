@@ -42,6 +42,11 @@ type Endpoint struct {
 	// Readme is the markdown documentation (body after frontmatter).
 	Readme string
 
+	// AcceptsAttachments opts an agent endpoint into receiving inbound file
+	// attachments from the caller. Default false. See
+	// docs/architecture/attachments.md.
+	AcceptsAttachments bool
+
 	// invoker encapsulates all type-specific and mode-specific execution logic.
 	invoker EndpointInvoker
 

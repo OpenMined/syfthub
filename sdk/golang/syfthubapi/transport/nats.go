@@ -4,10 +4,15 @@ import (
 	"bytes"
 	"context"
 	"crypto/ecdh"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -56,7 +61,94 @@ func (b *agentNATSBridge) handleAgentMessage(msg *nats.Msg, req *syfthubapi.Tunn
 		b.handleUserMessage(plaintext)
 	case syfthubapi.MsgTypeAgentSessionCancel:
 		b.handleSessionCancel(plaintext)
+	case syfthubapi.MsgTypeAgentUserAttachment:
+		b.handleUserAttachment(msg, req, plaintext)
 	}
+}
+
+// handleUserAttachment decrypts an attachment delivery and routes it to the
+// session. Inline-tier payloads are materialized to a tempfile under the
+// session's AttachmentDir; the session's runner is then notified via
+// AgentSession.DeliverAttachment.
+//
+// Object-store tier (PR-5) will replace the inline-data branch with an
+// Object Store download + per-file AES key unwrap.
+func (b *agentNATSBridge) handleUserAttachment(msg *nats.Msg, req *syfthubapi.TunnelRequest, payload []byte) {
+	var attachPayload syfthubapi.AgentUserAttachmentPayload
+	if err := json.Unmarshal(payload, &attachPayload); err != nil {
+		b.logger.Error("[AGENT] failed to parse user attachment payload", "error", err)
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAttachmentInvalidMetadata, "invalid attachment metadata")
+		return
+	}
+
+	info := attachPayload.Attachment
+	sess, ok := b.handler.GetSession(attachPayload.SessionID)
+	if !ok {
+		b.logger.Warn("[AGENT] attachment for unknown session",
+			"session_id", attachPayload.SessionID, "file_id", info.FileID)
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAttachmentNotFound, "session not found")
+		return
+	}
+
+	if !sess.AttachmentsEnabled() {
+		b.logger.Warn("[AGENT] attachment delivered to session without attachments enabled",
+			"session_id", sess.ID, "file_id", info.FileID)
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAttachmentNotAccepted, "endpoint does not accept attachments")
+		return
+	}
+
+	if err := materializeInlineAttachment(sess.AttachmentDir, &info); err != nil {
+		b.logger.Error("[AGENT] failed to materialize attachment",
+			"session_id", sess.ID, "file_id", info.FileID, "error", err)
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAttachmentIntegrity, err.Error())
+		return
+	}
+
+	if !sess.DeliverAttachment(info) {
+		b.logger.Warn("[AGENT] attachment channel full, dropping",
+			"session_id", sess.ID, "file_id", info.FileID)
+	}
+}
+
+// materializeInlineAttachment decodes inline base64 bytes, verifies the
+// declared SHA-256, and writes plaintext to a 0600-mode file inside dir.
+// On success, info.LocalPath is set to the materialized file path so the
+// runner protocol layer can hand it to the agent handler.
+//
+// Object-store tier (PR-5) will use a different code path; this helper is
+// inline-only.
+func materializeInlineAttachment(dir string, info *syfthubapi.AttachmentInfo) error {
+	if info.Transport != syfthubapi.AttachmentTransportInline {
+		return fmt.Errorf("inline materialization called for transport=%q", info.Transport)
+	}
+	if info.InlineDataB64 == "" {
+		return fmt.Errorf("inline_data_b64 is empty")
+	}
+	raw, err := base64.StdEncoding.DecodeString(info.InlineDataB64)
+	if err != nil {
+		return fmt.Errorf("decode inline bytes: %w", err)
+	}
+	if int64(len(raw)) != info.SizeBytes {
+		return fmt.Errorf("size mismatch: declared %d, actual %d", info.SizeBytes, len(raw))
+	}
+	sum := sha256.Sum256(raw)
+	if hex.EncodeToString(sum[:]) != info.PlaintextSHA256 {
+		return fmt.Errorf("sha256 mismatch")
+	}
+
+	// Use the file_id as the on-disk name to keep paths unguessable + 1:1
+	// with the wire identifier. Preserve the original extension for the
+	// runner's convenience.
+	name := info.FileID
+	if ext := filepath.Ext(info.Name); ext != "" {
+		name += ext
+	}
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		return fmt.Errorf("write attachment: %w", err)
+	}
+	info.LocalPath = path
+	return nil
 }
 
 func (b *agentNATSBridge) handleSessionStart(msg *nats.Msg, req *syfthubapi.TunnelRequest, payload []byte) {

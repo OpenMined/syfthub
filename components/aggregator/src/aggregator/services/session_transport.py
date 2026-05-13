@@ -104,6 +104,7 @@ class NATSSessionTransport:
         "user.confirm": "agent_user_message",
         "user.deny": "agent_user_message",
         "user.cancel": "agent_session_cancel",
+        "user.attachment": "agent_user_attachment",
     }
 
     async def send_to_space(self, message: dict[str, Any]) -> None:
@@ -125,6 +126,13 @@ class NATSSessionTransport:
             }
         elif msg_type == "agent_session_cancel":
             nats_payload = {"session_id": self._session_id}
+        elif msg_type == "agent_user_attachment":
+            # ws_payload is expected to already be an AttachmentInfo dict.
+            # See docs/architecture/attachments.md.
+            nats_payload = {
+                "session_id": self._session_id,
+                "attachment": ws_payload,
+            }
         else:
             nats_payload = message
 

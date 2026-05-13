@@ -78,6 +78,12 @@ type AttachmentInfo struct {
 	// WrappedKey is the envelope-encrypted per-file AES key; set only
 	// when Transport == AttachmentTransportObjectStore.
 	WrappedKey *WrappedKey `json:"wrapped_key,omitempty"`
+
+	// LocalPath is the on-disk path where the receiving HOST has materialized
+	// the plaintext bytes for delivery to the runner. Internal state — not
+	// serialized to the wire. Set by materializeInlineAttachment (PR-2) or
+	// the Object Store downloader (PR-5).
+	LocalPath string `json:"-"`
 }
 
 // WrappedKey envelope-encrypts the per-file AES key with a KEK derived from

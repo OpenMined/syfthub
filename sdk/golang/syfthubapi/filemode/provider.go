@@ -398,13 +398,14 @@ func (p *Provider) createEndpoint(loaded *LoadedEndpoint) (*syfthubapi.Endpoint,
 	}
 
 	endpoint := &syfthubapi.Endpoint{
-		Slug:        loaded.Config.Slug,
-		Name:        loaded.Config.Name,
-		Description: loaded.Config.Description,
-		Type:        ToEndpointType(loaded.Config.Type),
-		Enabled:     enabled,
-		Version:     loaded.Config.Version,
-		Readme:      loaded.ReadmeBody,
+		Slug:               loaded.Config.Slug,
+		Name:               loaded.Config.Name,
+		Description:        loaded.Config.Description,
+		Type:               ToEndpointType(loaded.Config.Type),
+		Enabled:            enabled,
+		Version:            loaded.Config.Version,
+		Readme:             loaded.ReadmeBody,
+		AcceptsAttachments: loaded.Config.AcceptsAttachments,
 	}
 
 	// Build handler config based on endpoint type
@@ -741,13 +742,14 @@ func (p *Provider) createContainerEndpoint(ctx context.Context, loaded *LoadedEn
 	}
 
 	endpoint := &syfthubapi.Endpoint{
-		Slug:        loaded.Config.Slug,
-		Name:        loaded.Config.Name,
-		Description: loaded.Config.Description,
-		Type:        ToEndpointType(loaded.Config.Type),
-		Enabled:     enabled,
-		Version:     loaded.Config.Version,
-		Readme:      loaded.ReadmeBody,
+		Slug:               loaded.Config.Slug,
+		Name:               loaded.Config.Name,
+		Description:        loaded.Config.Description,
+		Type:               ToEndpointType(loaded.Config.Type),
+		Enabled:            enabled,
+		Version:            loaded.Config.Version,
+		Readme:             loaded.ReadmeBody,
+		AcceptsAttachments: loaded.Config.AcceptsAttachments,
 	}
 
 	// Wire via SetHandler — agent uses container agent handler, others use executor.

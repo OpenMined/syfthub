@@ -155,6 +155,7 @@ async def agent_session_ws(websocket: WebSocket) -> None:
             "transaction_token": payload.transaction_token,
             "config": payload.config or {},
             "messages": payload.messages or [],
+            "capabilities": payload.capabilities,
         }
         await session_transport.start_session(session_start_payload)
 
