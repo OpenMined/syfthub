@@ -89,25 +89,32 @@ export function DocsTab() {
               Preview
             </button>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleSave}
-            disabled={isSaving || !hasUnsavedChanges}
-            className="h-7 text-xs"
-          >
-            {isSaving ? (
-              <>
-                <span className="w-3 h-3 border border-muted-foreground border-t-transparent rounded-full animate-spin mr-1.5" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <SaveIcon className="w-3.5 h-3.5 mr-1.5" />
-                Save
-              </>
-            )}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSave}
+                disabled={isSaving || !hasUnsavedChanges}
+                className="h-7 text-xs"
+              >
+                {isSaving ? (
+                  <>
+                    <span className="w-3 h-3 border border-muted-foreground border-t-transparent rounded-full animate-spin mr-1.5" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <SaveIcon className="w-3.5 h-3.5 mr-1.5" />
+                    Save
+                  </>
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p>Save (Ctrl+S)</p>
+            </TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
@@ -149,11 +156,6 @@ export function DocsTab() {
         )}
       </div>
 
-      {/* Status bar */}
-      <div className="flex-shrink-0 px-4 py-1.5 border-t border-border/50 bg-card/30 text-xs text-muted-foreground flex items-center justify-between">
-        <span>Markdown</span>
-        <span className="text-muted-foreground/70">Ctrl+S to save</span>
-      </div>
     </div>
   );
 }

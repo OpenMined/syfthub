@@ -68,9 +68,10 @@ type DropzoneState =
   | { phase: 'uploading'; label: string }
   | { phase: 'error'; message: string };
 
-export function SkillsSection() {
+export function SkillsSection({ embedded = false }: { embedded?: boolean } = {}) {
   const { selectedEndpointSlug, selectedEndpointDetail } = useAppStore();
   const isAgent = selectedEndpointDetail?.type === 'agent';
+  const outerCls = embedded ? 'space-y-4' : 'p-6 space-y-6';
 
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -236,7 +237,7 @@ export function SkillsSection() {
 
   if (!isAgent) {
     return (
-      <div className="p-6 space-y-6">
+      <div className={outerCls}>
         <SkillsHeader count={undefined} />
         <div className="py-8 text-center">
           <Sparkles className="w-10 h-10 mx-auto mb-3 text-secondary" />
@@ -250,7 +251,7 @@ export function SkillsSection() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className={outerCls}>
       <SkillsHeader count={loading ? undefined : skills.length} />
 
       <Dropzone
@@ -411,9 +412,6 @@ function SkillsHeader({ count }: { count: number | undefined }) {
           </span>
         )}
       </div>
-      <p className="text-xs text-muted-foreground hidden sm:block">
-        Loaded by agent at <code className="text-secondary-foreground">skills/&lt;name&gt;/SKILL.md</code>
-      </p>
     </div>
   );
 }

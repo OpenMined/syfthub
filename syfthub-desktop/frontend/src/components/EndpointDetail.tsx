@@ -1,48 +1,79 @@
 import { useAppStore } from '../stores/appStore';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
+  OverviewSection,
+  EnvironmentSection,
+  DependenciesSection,
+  PoliciesSection,
+} from './tabs/SettingsTab';
 import { CodeTab } from './tabs/CodeTab';
 import { DocsTab } from './tabs/DocsTab';
-import { SettingsTab } from './tabs/SettingsTab';
 import { LogsTab } from './tabs/LogsTab';
 
-// Empty state when no endpoint is selected
+type Section =
+  | 'overview'
+  | 'environment'
+  | 'dependencies'
+  | 'policies'
+  | 'code'
+  | 'docs'
+  | 'logs';
+
+const NAV_GROUPS: { label: string; items: { id: Section; label: string }[] }[] = [
+  {
+    label: 'General',
+    items: [
+      { id: 'overview', label: 'Overview' },
+      { id: 'docs', label: 'Docs' },
+      { id: 'policies', label: 'Policies' },
+    ],
+  },
+  {
+    label: 'Monitor',
+    items: [{ id: 'logs', label: 'Logs' }],
+  },
+  {
+    label: 'Configure',
+    items: [
+      { id: 'environment', label: 'Environment' },
+      { id: 'dependencies', label: 'Dependencies' },
+      { id: 'code', label: 'Code' },
+    ],
+  },
+];
+
 function EmptyState() {
   return (
-    <div className="h-full flex flex-col text-muted-foreground">
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center">
-          <svg
-            className="w-16 h-16 mx-auto mb-4 opacity-30"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={1}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-            />
-          </svg>
-          <h3 className="text-lg font-medium text-foreground mb-1">No Endpoint Selected</h3>
-          <p className="text-sm">Select an endpoint from the sidebar to view details</p>
-        </div>
+    <div className="h-full flex items-center justify-center text-muted-foreground">
+      <div className="text-center">
+        <svg
+          className="w-10 h-10 mx-auto mb-3 opacity-30"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={1.5}
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+          />
+        </svg>
+        <p className="text-sm">Select an endpoint from the sidebar</p>
       </div>
     </div>
   );
 }
 
-// Loading state
 function LoadingState() {
   return (
-    <div className="h-full flex flex-col">
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-8 h-8 border-2 border-secondary border-t-primary rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground">Loading endpoint...</p>
-        </div>
-      </div>
+    <div className="h-full flex items-center justify-center">
+      <div className="w-6 h-6 border-2 border-secondary border-t-primary rounded-full animate-spin" />
     </div>
   );
 }
@@ -54,29 +85,23 @@ export function EndpointDetail() {
     isLoading,
     isSaving,
     activeTab,
+    settingsSection,
     setActiveTab,
+    setSettingsSection,
     toggleEnabled,
   } = useAppStore();
 
-  // No endpoint selected
-  if (!selectedEndpointSlug) {
-    return <EmptyState />;
-  }
+  if (!selectedEndpointSlug) return <EmptyState />;
+  if (isLoading && !selectedEndpointDetail) return <LoadingState />;
 
-  // Loading endpoint
-  if (isLoading && !selectedEndpointDetail) {
-    return <LoadingState />;
-  }
-
-  // Endpoint not found
   if (!selectedEndpointDetail) {
     return (
-      <div className="h-full flex flex-col text-destructive">
-        <div className="flex-1 flex items-center justify-center">
-          <div className="text-center">
-            <p className="text-lg font-medium">Endpoint Not Found</p>
-            <p className="text-sm mt-1 text-muted-foreground">Could not load "{selectedEndpointSlug}"</p>
-          </div>
+      <div className="h-full flex items-center justify-center text-destructive">
+        <div className="text-center">
+          <p className="text-sm font-medium">Endpoint Not Found</p>
+          <p className="text-xs mt-1 text-muted-foreground">
+            Could not load "{selectedEndpointSlug}"
+          </p>
         </div>
       </div>
     );
@@ -84,80 +109,90 @@ export function EndpointDetail() {
 
   const detail = selectedEndpointDetail;
 
+  // Derive the active section from the existing two store fields. Skills is no
+  // longer a standalone destination — it lives inside Overview now, so any
+  // persisted 'skills' selection lands on Overview.
+  const rawSection = activeTab === 'settings' ? settingsSection : activeTab;
+  const section: Section =
+    rawSection === 'skills' ? 'overview' : (rawSection as Section);
+
+  const navigate = (s: Section) => {
+    if (s === 'code' || s === 'docs' || s === 'logs') {
+      setActiveTab(s);
+    } else {
+      setActiveTab('settings');
+      setSettingsSection(s as typeof settingsSection);
+    }
+  };
+
   return (
-    <Tabs
-      value={activeTab}
-      onValueChange={(v) => setActiveTab(v as typeof activeTab)}
-      className="h-full flex flex-col"
-    >
-      {/* Single-line header: Name | Tabs (centered) | Toggle */}
-      <div className="flex-shrink-0 h-11 px-4 border-b border-border/50 bg-card/30 flex items-center">
-        {/* Left: Name */}
-        <div className="flex-1 min-w-0">
-          <h1 className="text-sm font-medium text-foreground truncate">
-            {detail.name || detail.slug}
-          </h1>
-        </div>
-
-        {/* Center: Tabs */}
-        <TabsList className="h-7 bg-transparent p-0 gap-1">
-          <TabsTrigger
-            value="settings"
-            className="h-7 px-3 text-xs data-[state=active]:bg-secondary data-[state=active]:text-foreground rounded"
-          >
-            Settings
-          </TabsTrigger>
-          <TabsTrigger
-            value="code"
-            className="h-7 px-3 text-xs data-[state=active]:bg-secondary data-[state=active]:text-foreground rounded"
-          >
-            Code
-          </TabsTrigger>
-          <TabsTrigger
-            value="docs"
-            className="h-7 px-3 text-xs data-[state=active]:bg-secondary data-[state=active]:text-foreground rounded"
-          >
-            Docs
-          </TabsTrigger>
-          <TabsTrigger
-            value="logs"
-            className="h-7 px-3 text-xs data-[state=active]:bg-secondary data-[state=active]:text-foreground rounded"
-          >
-            Logs
-          </TabsTrigger>
-        </TabsList>
-
-        {/* Right: Enable toggle */}
-        <div className="flex-1 flex justify-end">
-          <div className="flex items-center gap-2">
+    <div className="h-full flex flex-col">
+      {/* ── Top bar: name + status only (32px) ───────────────────────────── */}
+      <header className="flex-shrink-0 h-8 px-4 border-b border-border/50 flex items-center justify-between">
+        <h1 className="text-sm font-medium text-foreground truncate min-w-0">
+          {detail.name || detail.slug}
+        </h1>
+        <Tooltip>
+          <TooltipTrigger asChild>
             <Switch
               checked={detail.enabled}
               onCheckedChange={() => toggleEnabled()}
               disabled={isSaving}
-              className="data-[state=checked]:bg-chart-2 h-5 w-9"
+              aria-label={detail.enabled ? 'Disable endpoint' : 'Enable endpoint'}
+              className="data-[state=checked]:bg-chart-2 h-4 w-7"
             />
-            <span className="text-xs text-muted-foreground w-14">
-              {detail.enabled ? 'Enabled' : 'Disabled'}
-            </span>
-          </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            <p>{detail.enabled ? 'Enabled — click to disable' : 'Disabled — click to enable'}</p>
+          </TooltipContent>
+        </Tooltip>
+      </header>
+
+      {/* ── Body: unified left rail + content ────────────────────────────── */}
+      <div className="flex-1 flex min-h-0">
+        {/* Left rail */}
+        <nav className="w-44 flex-shrink-0 border-r border-border/30 flex flex-col py-2 overflow-y-auto">
+          {NAV_GROUPS.map((group) => (
+            <div key={group.label} className="mb-2">
+              <div className="px-3 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+                {group.label}
+              </div>
+              <div className="px-1.5">
+                {group.items.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => navigate(item.id)}
+                    aria-current={section === item.id ? 'page' : undefined}
+                    className={`w-full text-left px-2.5 py-1.5 text-sm rounded transition-colors ${
+                      section === item.id
+                        ? 'bg-secondary/60 text-foreground'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-card/40'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </nav>
+
+        {/* Section content */}
+        <div className="flex-1 min-w-0 overflow-hidden flex flex-col">
+          {section === 'overview' && <ScrollPane><OverviewSection /></ScrollPane>}
+          {section === 'environment' && <ScrollPane><EnvironmentSection /></ScrollPane>}
+          {section === 'dependencies' && <ScrollPane><DependenciesSection /></ScrollPane>}
+          {section === 'policies' && <ScrollPane><PoliciesSection /></ScrollPane>}
+          {section === 'code' && <CodeTab />}
+          {section === 'docs' && <DocsTab />}
+          {section === 'logs' && <LogsTab />}
         </div>
       </div>
-
-      {/* Tab content - full height */}
-      <div className="flex-1 overflow-hidden">
-        <TabsContent value="settings" className="h-full m-0 data-[state=active]:flex data-[state=active]:flex-col">
-          <SettingsTab />
-        </TabsContent>
-        <TabsContent value="code" className="h-full m-0 data-[state=active]:flex data-[state=active]:flex-col">
-          <CodeTab />
-        </TabsContent>
-        <TabsContent value="docs" className="h-full m-0 data-[state=active]:flex data-[state=active]:flex-col">
-          <DocsTab />
-        </TabsContent>
-        <TabsContent value="logs" className="h-full m-0 data-[state=active]:flex data-[state=active]:flex-col">
-          <LogsTab />
-        </TabsContent>
-      </div>
-    </Tabs>
+    </div>
   );
+}
+
+// Settings-style sections render their own padding; just wrap in a scroll container.
+function ScrollPane({ children }: { children: React.ReactNode }) {
+  return <div className="flex-1 overflow-y-auto">{children}</div>;
 }

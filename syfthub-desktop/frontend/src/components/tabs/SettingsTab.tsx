@@ -86,7 +86,7 @@ export function SettingsTab() {
 // ============================================================================
 // OVERVIEW SECTION
 // ============================================================================
-function OverviewSection() {
+export function OverviewSection() {
   const {
     selectedEndpointSlug,
     selectedEndpointDetail,
@@ -140,11 +140,22 @@ function OverviewSection() {
       <SectionHeader
         title="Overview"
         action={
-          isDirty && (
-            <Button size="sm" onClick={handleSave} disabled={isSaving} className="h-7 text-xs">
-              {isSaving ? 'Saving...' : 'Save'}
+          <div className="flex items-center gap-2">
+            {isDirty && (
+              <Button size="sm" onClick={handleSave} disabled={isSaving} className="h-7 text-xs">
+                {isSaving ? 'Saving...' : 'Save'}
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleOpenFolder}
+              className="h-7 text-xs"
+            >
+              <FolderIcon className="w-3.5 h-3.5 mr-1.5" />
+              Open Folder
             </Button>
-          )
+          </div>
         }
       />
 
@@ -178,6 +189,11 @@ function OverviewSection() {
           />
         </Field>
 
+        {/* Skills — embedded as an Overview subsection (not its own page). */}
+        <div className="pt-4 border-t border-border/30">
+          <SkillsSection embedded />
+        </div>
+
         {/* TODO(AGENT_ONLY): Type selector hidden — only agent endpoints supported.
             To restore, uncomment the <Field label="Type"> block below and remove the read-only display. */}
         {/* <Field label="Type">
@@ -195,27 +211,6 @@ function OverviewSection() {
             </SelectContent>
           </Select>
         </Field> */}
-      </div>
-
-      {/* File System */}
-      <div className="pt-4 border-t border-border/30">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm text-foreground">File System</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Slug: <code className="text-secondary-foreground">{selectedEndpointDetail.slug}</code>
-            </p>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleOpenFolder}
-            className="h-8"
-          >
-            <FolderIcon className="w-4 h-4 mr-1.5" />
-            Open Folder
-          </Button>
-        </div>
       </div>
 
       {/* Danger Zone */}
@@ -248,7 +243,7 @@ function OverviewSection() {
 // ============================================================================
 // ENVIRONMENT SECTION
 // ============================================================================
-function EnvironmentSection() {
+export function EnvironmentSection() {
   const { envVars, isSaving, setEnvVar, deleteEnvVar } = useAppStore();
   const [newKey, setNewKey] = useState('');
   const [newValue, setNewValue] = useState('');
@@ -278,12 +273,12 @@ function EnvironmentSection() {
 
       {/* Existing variables */}
       {envVars.length > 0 ? (
-        <div className="space-y-2">
+        <div className="divide-y divide-border/30 border-y border-border/30">
           {envVars.map((env: EnvVar) =>
             MULTILINE_ENV_KEYS.has(env.key) ? (
               <div
                 key={env.key}
-                className="px-3 py-2 rounded-lg bg-card/50 border border-border/50 space-y-1.5"
+                className="px-3 py-2.5 hover:bg-card/40 transition-colors space-y-1.5"
               >
                 <div className="flex items-center justify-between">
                   <span className="font-mono text-sm text-foreground">{env.key}</span>
@@ -302,7 +297,7 @@ function EnvironmentSection() {
             ) : (
               <div
                 key={env.key}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg bg-card/50 border border-border/50"
+                className="flex items-center gap-3 px-3 py-2 hover:bg-card/40 transition-colors"
               >
                 <span className="font-mono text-sm text-foreground min-w-[120px] truncate">
                   {env.key}
@@ -393,7 +388,7 @@ function EnvironmentSection() {
 // ============================================================================
 // DEPENDENCIES SECTION
 // ============================================================================
-function DependenciesSection() {
+export function DependenciesSection() {
   const { selectedEndpointSlug } = useAppStore();
   const [dependencies, setDependencies] = useState<Dependency[]>([]);
   const [loading, setLoading] = useState(false);
@@ -459,11 +454,11 @@ function DependenciesSection() {
           <span className="text-sm">Loading dependencies...</span>
         </div>
       ) : dependencies.length > 0 ? (
-        <div className="space-y-2">
+        <div className="divide-y divide-border/30 border-y border-border/30">
           {dependencies.map((dep, index) => (
             <div
               key={`${dep.package}-${index}`}
-              className="flex items-center gap-3 px-3 py-2 rounded-lg bg-card/50 border border-border/50"
+              className="flex items-center gap-3 px-3 py-2 hover:bg-card/40 transition-colors"
             >
               <span className="font-mono text-sm text-foreground flex-1 truncate">
                 {dep.package}
@@ -541,24 +536,31 @@ const POLICY_TYPES = [
 // Composite policy types that need child policy selection
 const COMPOSITE_TYPES = ['AllOfPolicy', 'AnyOfPolicy', 'NotPolicy'];
 
-// Policy type badge colors - using semantic chart colors
-const policyTypeColors: Record<string, string> = {
-  AccessGroupPolicy: 'bg-primary/20 text-primary',
-  RateLimitPolicy: 'bg-chart-3/20 text-chart-3',
-  TokenLimitPolicy: 'bg-chart-2/20 text-chart-2',
-  PromptFilterPolicy: 'bg-chart-4/20 text-chart-4',
-  AttributionPolicy: 'bg-cyan-500/20 text-cyan-400',
-  ManualReviewPolicy: 'bg-orange-500/20 text-orange-400',
-  TransactionPolicy: 'bg-pink-500/20 text-pink-400',
-  BundleSubscriptionPolicy: 'bg-emerald-500/20 text-emerald-400',
-  AllOfPolicy: 'bg-indigo-500/20 text-indigo-400',
-  AnyOfPolicy: 'bg-teal-500/20 text-teal-400',
-  NotPolicy: 'bg-destructive/20 text-destructive',
-  default: 'bg-secondary/50 text-muted-foreground',
+// Policies collapse to 3 semantic categories. Eleven distinct hues carried no
+// real meaning to users; three answer "what does this policy *do*?".
+const POLICY_CATEGORY_STYLES = {
+  access: 'bg-primary/15 text-primary',
+  limit: 'bg-chart-3/15 text-chart-3',
+  composite: 'border border-border/60 text-muted-foreground',
+} as const;
+
+const POLICY_CATEGORY: Record<string, keyof typeof POLICY_CATEGORY_STYLES> = {
+  AccessGroupPolicy: 'access',
+  AttributionPolicy: 'access',
+  ManualReviewPolicy: 'access',
+  TransactionPolicy: 'access',
+  BundleSubscriptionPolicy: 'access',
+  RateLimitPolicy: 'limit',
+  TokenLimitPolicy: 'limit',
+  PromptFilterPolicy: 'limit',
+  AllOfPolicy: 'composite',
+  AnyOfPolicy: 'composite',
+  NotPolicy: 'composite',
 };
 
 function getPolicyTypeBadgeColor(type: string): string {
-  return policyTypeColors[type] || policyTypeColors.default;
+  const cat = POLICY_CATEGORY[type];
+  return cat ? POLICY_CATEGORY_STYLES[cat] : 'bg-secondary/50 text-muted-foreground';
 }
 
 function formatPolicyType(type: string): string {
@@ -566,7 +568,7 @@ function formatPolicyType(type: string): string {
   return type.replace(/Policy$/, '').replace(/([A-Z])/g, ' $1').trim();
 }
 
-function PoliciesSection() {
+export function PoliciesSection() {
   const { selectedEndpointSlug, selectedEndpointDetail } = useAppStore();
   const [policyFiles, setPolicyFiles] = useState<PolicyFileInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -789,11 +791,11 @@ function PoliciesSection() {
           <span className="text-sm">Loading policies...</span>
         </div>
       ) : policyFiles.length > 0 ? (
-        <div className="space-y-2">
+        <div className="divide-y divide-border/30 border-y border-border/30">
           {policyFiles.map((policy) => (
             <div
               key={policy.filename}
-              className="p-3 rounded-lg bg-card/50 border border-border/50"
+              className="px-3 py-2.5 hover:bg-card/40 transition-colors"
             >
               <div className="flex items-center gap-2">
                 <ShieldIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
