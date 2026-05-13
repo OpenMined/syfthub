@@ -16,9 +16,16 @@ import io
 import logging
 from typing import IO, Any
 
-from aggregator.api.endpoints.agent import get_nats_transport
-
 logger = logging.getLogger(__name__)
+
+
+def _get_nats_transport() -> Any:
+    # Local import to break circular dependency:
+    # endpoints/agent → services/session_manager → services/attachment_relay → this module.
+    from aggregator.api.endpoints.agent import get_nats_transport
+
+    return get_nats_transport()
+
 
 ATTACHMENT_BUCKET_PREFIX = "syft-att-"
 DEFAULT_BUCKET_TTL_SECONDS = 3600  # 1h — matches Go DefaultAttachmentBucketTTL
@@ -43,7 +50,7 @@ class AttachmentObjectStoreClient:
         async with self._lock:
             if bucket in self._stores:
                 return self._stores[bucket]
-            nc = await get_nats_transport()._ensure_connected()
+            nc = await _get_nats_transport()._ensure_connected()
             js = nc.jetstream()
             try:
                 obj = await js.object_store(bucket)
@@ -74,7 +81,7 @@ class AttachmentObjectStoreClient:
     async def delete_bucket(self, bucket: str) -> None:
         async with self._lock:
             self._stores.pop(bucket, None)
-        nc = await get_nats_transport()._ensure_connected()
+        nc = await _get_nats_transport()._ensure_connected()
         js = nc.jetstream()
         try:
             await js.delete_object_store(bucket)

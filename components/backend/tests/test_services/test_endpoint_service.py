@@ -1603,3 +1603,236 @@ class TestReportEndpointHealth:
             assert exc_info.value.status_code == 500
 
         endpoint_service.session.rollback.assert_called_once()
+
+
+class TestGetEndpointUptime:
+    """Tests for EndpointService.get_endpoint_uptime method."""
+
+    @pytest.fixture
+    def endpoint_service(self):
+        session = MagicMock()
+        return EndpointService(session)
+
+    @pytest.fixture
+    def sample_user(self):
+        return User(
+            id=1,
+            username="testuser",
+            email="test@example.com",
+            full_name="Test User",
+            role="user",
+            is_active=True,
+            created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
+            updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
+            key_created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
+            age=25,
+            public_key="public_key",
+            password_hash="hashed_pass",
+        )
+
+    def _endpoint(self, **overrides):
+        ep = MagicMock()
+        ep.id = overrides.get("id", 42)
+        ep.slug = overrides.get("slug", "ep")
+        ep.user_id = overrides.get("user_id", 1)
+        ep.organization_id = overrides.get("organization_id")
+        ep.visibility = overrides.get("visibility", EndpointVisibility.PUBLIC)
+        return ep
+
+    def _sample(self, **kwargs):
+        s = MagicMock()
+        s.bucket_start = kwargs["bucket_start"]
+        s.total_checks = kwargs.get("total_checks", 0)
+        s.healthy_checks = kwargs.get("healthy_checks", 0)
+        return s
+
+    def test_uptime_user_owned_happy_path(self, endpoint_service, sample_user):
+        owner = MagicMock(id=1, username="testuser")
+        endpoint = self._endpoint(
+            id=42, slug="my-ep", user_id=1, visibility=EndpointVisibility.PUBLIC
+        )
+        bucket = datetime(2026, 5, 13, 12, 0, tzinfo=timezone.utc)
+        samples = [
+            self._sample(bucket_start=bucket, total_checks=60, healthy_checks=60)
+        ]
+
+        with (
+            patch.object(
+                endpoint_service.user_repository, "get_by_username", return_value=owner
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_owner_and_slug_any_state",
+                return_value=endpoint,
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_uptime_samples",
+                return_value=samples,
+            ),
+        ):
+            result = endpoint_service.get_endpoint_uptime(
+                owner_username="testuser",
+                slug="my-ep",
+                window_hours=24,
+                current_user=sample_user,
+            )
+
+        assert result.endpoint_id == 42
+        assert result.owner_username == "testuser"
+        assert result.window_hours == 24
+        assert result.bucket_seconds > 0
+        assert len(result.buckets) == 1
+        b = result.buckets[0]
+        assert b.bucket_start == bucket
+        assert b.samples == 60
+        assert b.healthy_samples == 60
+        assert b.uptime_pct == 100.0
+
+    def test_uptime_falls_back_to_org_lookup(self, endpoint_service, sample_user):
+        org = MagicMock(id=99, slug="acme")
+        endpoint = self._endpoint(
+            id=7,
+            slug="bar",
+            user_id=None,
+            organization_id=99,
+            visibility=EndpointVisibility.PUBLIC,
+        )
+
+        with (
+            patch.object(
+                endpoint_service.user_repository, "get_by_username", return_value=None
+            ),
+            patch.object(
+                endpoint_service.org_repository, "get_by_slug", return_value=org
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_owner_and_slug_any_state",
+                return_value=endpoint,
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_uptime_samples",
+                return_value=[],
+            ),
+        ):
+            result = endpoint_service.get_endpoint_uptime(
+                owner_username="acme",
+                slug="bar",
+                window_hours=12,
+                current_user=sample_user,
+            )
+
+        assert result.endpoint_id == 7
+        assert result.buckets == []
+
+    def test_uptime_not_found_returns_404(self, endpoint_service, sample_user):
+        with (
+            patch.object(
+                endpoint_service.user_repository, "get_by_username", return_value=None
+            ),
+            patch.object(
+                endpoint_service.org_repository, "get_by_slug", return_value=None
+            ),
+            pytest.raises(HTTPException) as exc,
+        ):
+            endpoint_service.get_endpoint_uptime(
+                owner_username="ghost",
+                slug="missing",
+                window_hours=24,
+                current_user=sample_user,
+            )
+        assert exc.value.status_code == 404
+
+    def test_uptime_private_endpoint_hidden_from_outsider(
+        self, endpoint_service, sample_user
+    ):
+        owner = MagicMock(id=2, username="owner2")
+        # Endpoint owned by user 2 with private visibility — sample_user.id is 1
+        endpoint = self._endpoint(
+            id=11, slug="hush", user_id=2, visibility=EndpointVisibility.PRIVATE
+        )
+        with (
+            patch.object(
+                endpoint_service.user_repository, "get_by_username", return_value=owner
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_owner_and_slug_any_state",
+                return_value=endpoint,
+            ),
+            pytest.raises(HTTPException) as exc,
+        ):
+            endpoint_service.get_endpoint_uptime(
+                owner_username="owner2",
+                slug="hush",
+                window_hours=24,
+                current_user=sample_user,
+            )
+        # Hidden via 404, not 403, to avoid leaking existence
+        assert exc.value.status_code == 404
+
+    def test_uptime_zero_samples_returns_empty(self, endpoint_service, sample_user):
+        owner = MagicMock(id=1, username="testuser")
+        endpoint = self._endpoint(
+            id=42, slug="empty", user_id=1, visibility=EndpointVisibility.PUBLIC
+        )
+        with (
+            patch.object(
+                endpoint_service.user_repository, "get_by_username", return_value=owner
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_owner_and_slug_any_state",
+                return_value=endpoint,
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_uptime_samples",
+                return_value=[],
+            ),
+        ):
+            result = endpoint_service.get_endpoint_uptime(
+                owner_username="testuser",
+                slug="empty",
+                window_hours=24,
+                current_user=None,
+            )
+        assert result.buckets == []
+
+    def test_uptime_partial_health(self, endpoint_service, sample_user):
+        owner = MagicMock(id=1, username="testuser")
+        endpoint = self._endpoint(
+            id=42, slug="mixed", user_id=1, visibility=EndpointVisibility.PUBLIC
+        )
+        bucket = datetime(2026, 5, 13, 12, 30, tzinfo=timezone.utc)
+        # 40 of 60 cycles observed a healthy state
+        samples = [
+            self._sample(bucket_start=bucket, total_checks=60, healthy_checks=40)
+        ]
+        with (
+            patch.object(
+                endpoint_service.user_repository, "get_by_username", return_value=owner
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_by_owner_and_slug_any_state",
+                return_value=endpoint,
+            ),
+            patch.object(
+                endpoint_service.endpoint_repository,
+                "get_uptime_samples",
+                return_value=samples,
+            ),
+        ):
+            result = endpoint_service.get_endpoint_uptime(
+                owner_username="testuser",
+                slug="mixed",
+                window_hours=24,
+                current_user=sample_user,
+            )
+        b = result.buckets[0]
+        assert b.uptime_pct == round(100.0 * 40 / 60, 2)
+        assert b.samples == 60
+        assert b.healthy_samples == 40

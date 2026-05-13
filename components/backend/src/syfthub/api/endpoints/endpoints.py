@@ -21,6 +21,7 @@ from syfthub.schemas.endpoint import (
     EndpointResponse,
     EndpointType,
     EndpointUpdate,
+    EndpointUptimeResponse,
     EndpointVisibility,
     GroupedEndpointsResponse,
     OwnersListResponse,
@@ -483,6 +484,49 @@ async def report_endpoint_health(
         url=health_data.url,
         current_user=current_user,
         ttl_seconds=health_data.ttl_seconds,
+    )
+
+
+@router.get(
+    "/{owner_username}/{slug}/uptime",
+    response_model=EndpointUptimeResponse,
+    summary="Get Endpoint Uptime Series",
+    description="""
+Return a bucketed uptime + latency time series for one endpoint.
+
+Each bucket aggregates the health monitor's per-cycle decisions over the
+configured ``uptime_bucket_seconds`` window (default 30 minutes, matching
+``heartbeat_max_ttl_seconds``). For each bucket the response includes:
+
+- ``uptime_pct`` — percentage of monitor cycles in which the endpoint was healthy
+- ``avg_latency_ms`` / ``min_latency_ms`` / ``max_latency_ms`` — derived from
+  ``EndpointHealthItem.latency_ms`` reported by the SDK alongside health status
+- ``samples`` / ``healthy_samples`` — raw counters for client-side aggregation
+
+Public endpoints are readable by anyone, including unauthenticated viewers.
+INTERNAL / PRIVATE endpoints require the viewer to be the owner or, for
+organization endpoints, a member of the org.
+""",
+    responses={404: {"description": "Endpoint not found"}},
+)
+async def get_endpoint_uptime(
+    owner_username: str,
+    slug: str,
+    current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
+    endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
+    window_hours: int = Query(
+        24,
+        ge=1,
+        le=168,
+        description="Rolling time window (max 7 days)",
+    ),
+) -> EndpointUptimeResponse:
+    """Get bucketed uptime + latency time series for one endpoint."""
+    return endpoint_service.get_endpoint_uptime(
+        owner_username=owner_username,
+        slug=slug,
+        window_hours=window_hours,
+        current_user=current_user,
     )
 
 
