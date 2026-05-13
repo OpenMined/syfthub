@@ -4,7 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 // To restore, add WifiOff back to this import.
 import { ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, Copy, Loader2, MessageSquarePlus, Paperclip, Square, Upload } from 'lucide-react';
 import { OnFileDrop, OnFileDropOff } from '../../wailsjs/runtime/runtime';
-import { BrowseForAttachment } from '../../wailsjs/go/main/App';
+import {
+  BrowseForAttachment,
+  BrowseForFolder,
+  DownloadActiveSessionAttachment,
+} from '../../wailsjs/go/main/App';
 
 import { AttachmentChip } from '@/components/chat/AttachmentChip';
 import { useAttachments, type AttachmentSummary } from '@/hooks/use-attachments';
@@ -281,9 +285,15 @@ function ChatInputArea({
     <div className='shrink-0 p-4'>
       <div className='mx-auto max-w-4xl px-6'>
         {banner}
-        {/* Staged-attachment chip strip — visible only when something is staged */}
+        {/* Staged-attachment chip strip — visible only when something is staged.
+            aria-live announces additions to screen readers. */}
         {stagedFiles.length > 0 && (
-          <div className='mb-2 flex flex-wrap items-center gap-2'>
+          <div
+            role='region'
+            aria-label='Staged attachments'
+            aria-live='polite'
+            className='animate-in fade-in mb-2 flex flex-wrap items-center gap-1.5 duration-150'
+          >
             {stagedFiles.map((s) => (
               <AttachmentChip
                 key={s.file_id}
@@ -298,8 +308,11 @@ function ChatInputArea({
           </div>
         )}
         {attachmentError && (
-          <p className='text-destructive mb-2 text-xs' role='alert'>
-            Attachment error: {attachmentError}
+          <p
+            role='alert'
+            className='text-destructive animate-in fade-in slide-in-from-top-1 mb-2 text-xs duration-150'
+          >
+            {attachmentError}
           </p>
         )}
         <PromptInput
@@ -320,20 +333,25 @@ function ChatInputArea({
           <PromptInputActions className='justify-end pt-1'>
             <div className='flex items-center gap-1'>
               {showAttachmentButton && (
-                <PromptInputAction tooltip={
-                  attachmentsDisabled
-                    ? 'Start a session to attach files'
-                    : 'Attach file'
-                }>
+                <PromptInputAction
+                  tooltip={
+                    attachmentsDisabled
+                      ? 'Start a session to attach files'
+                      : 'Attach file (or drag and drop)'
+                  }
+                >
                   <button
                     type='button'
                     onClick={onPickAttachment}
                     disabled={attachmentsDisabled || attachmentsBusy}
-                    className='text-muted-foreground hover:text-foreground flex h-8 w-8 items-center justify-center rounded-full transition-colors disabled:opacity-30'
+                    className='text-muted-foreground hover:text-foreground hover:bg-muted focus-visible:ring-ring focus-visible:ring-offset-background flex h-8 w-8 items-center justify-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-30'
                     aria-label='Attach file'
                   >
                     {attachmentsBusy ? (
-                      <Loader2 className='h-4 w-4 animate-spin' aria-hidden='true' />
+                      <Loader2
+                        className='h-4 w-4 animate-spin'
+                        aria-hidden='true'
+                      />
                     ) : (
                       <Paperclip className='h-4 w-4' aria-hidden='true' />
                     )}
@@ -441,6 +459,24 @@ function AgentChatContent() {
       /* attach() already records the error via the hook */
     }
   }, [sessionActive, attach]);
+
+  // Save an agent-emitted attachment to a user-chosen folder.
+  const handleDownloadAttachment = useCallback(
+    async (fileId: string, fileName: string) => {
+      const folder = await BrowseForFolder('Save attachment to');
+      if (!folder) return;
+      const dest = `${folder}/${fileName}`;
+      try {
+        await DownloadActiveSessionAttachment(fileId, dest);
+      } catch (e) {
+        // No toast surface in the desktop yet — surface as a console error
+        // so a user reporting a failed download can paste the message.
+        // eslint-disable-next-line no-console
+        console.error('download attachment failed', e);
+      }
+    },
+    [],
+  );
 
   // Wails native file-drop. Paths are absolute strings. We only act when a
   // session is live — the runner won't see anything until a session exists.
@@ -634,30 +670,17 @@ function AgentChatContent() {
 
                 if (entry.kind === 'attachment') {
                   const d = entry.data ?? {};
+                  const attName = String(d.name ?? entry.content);
                   return (
                     <Message key={entry.id} className='max-w-3xl items-start'>
                       <AssistantAvatar />
                       <div className='min-w-0 flex-1'>
                         <AttachmentChip
                           fileId={String(d.file_id ?? '')}
-                          name={String(d.name ?? entry.content)}
+                          name={attName}
                           mime={String(d.mime ?? 'application/octet-stream')}
                           sizeBytes={Number(d.size_bytes ?? 0)}
-                          onDownload={async (fid) => {
-                            // Default save behavior: prompt for a folder, then
-                            // write the inline plaintext (or fetched bytes) there.
-                            // Keep it minimal in v1 — a future iteration adds a
-                            // proper Save-As dialog.
-                            const folder = await (
-                              await import('../../wailsjs/go/main/App')
-                            ).BrowseForFolder('Choose where to save attachment');
-                            if (!folder) return;
-                            const dest = `${folder}/${String(d.name ?? fid)}`;
-                            const { DownloadActiveSessionAttachment } = await import(
-                              '../../wailsjs/go/main/App'
-                            );
-                            await DownloadActiveSessionAttachment(fid, dest);
-                          }}
+                          onDownload={(fid) => handleDownloadAttachment(fid, attName)}
                         />
                       </div>
                     </Message>
@@ -771,11 +794,17 @@ function AgentChatContent() {
         <div
           // eslint-disable-next-line react/forbid-dom-props
           style={{ '--wails-drop-target': 'drop' } as React.CSSProperties}
-          className='pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-primary/20 backdrop-blur-sm'
+          className='bg-background/60 animate-in fade-in pointer-events-none fixed inset-0 z-50 flex items-center justify-center backdrop-blur-md duration-150'
+          role='presentation'
         >
-          <div className='border-primary text-primary bg-background flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed px-8 py-6 shadow-2xl'>
-            <Upload className='h-8 w-8' aria-hidden='true' />
-            <p className='text-sm font-medium'>Drop file(s) to attach</p>
+          <div className='border-primary/40 bg-card text-foreground animate-in fade-in zoom-in-95 flex flex-col items-center gap-2 rounded-2xl border-2 border-dashed px-10 py-8 shadow-2xl duration-200'>
+            <div className='bg-primary/10 text-primary flex h-10 w-10 items-center justify-center rounded-full'>
+              <Upload className='h-5 w-5' aria-hidden='true' />
+            </div>
+            <p className='text-sm font-medium'>Drop to attach</p>
+            <p className='text-muted-foreground text-xs'>
+              Files will be sent on your next message
+            </p>
           </div>
         </div>
       )}
