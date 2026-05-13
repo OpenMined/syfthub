@@ -8,6 +8,7 @@ import ExternalLink from 'lucide-react/dist/esm/icons/external-link';
 import Package from 'lucide-react/dist/esm/icons/package';
 import Star from 'lucide-react/dist/esm/icons/star';
 import Users from 'lucide-react/dist/esm/icons/users';
+import { Link } from 'react-router-dom';
 
 import { ConnectionCard } from '@/components/connection-card';
 import { Markdown } from '@/components/prompt-kit/markdown';
@@ -341,16 +342,32 @@ export const EndpointDetail = memo(function EndpointDetail({
               <div className='space-y-4'>
                 <div>
                   <p className='font-inter text-muted-foreground mb-1 text-xs'>Owner</p>
-                  <div className='flex items-center gap-2'>
-                    <div
-                      className='from-secondary to-chart-3 h-6 w-6 rounded-full bg-gradient-to-br'
-                      role='img'
-                      aria-label={`Avatar for ${endpoint.owner_username ?? 'anonymous'}`}
-                    />
-                    <span className='font-inter text-foreground text-sm font-medium'>
-                      @{endpoint.owner_username ?? 'anonymous'}
-                    </span>
-                  </div>
+                  {endpoint.owner_username ? (
+                    <Link
+                      to={`/${endpoint.owner_username}`}
+                      className='hover:text-primary group flex items-center gap-2 transition-colors'
+                    >
+                      <div
+                        className='from-secondary to-chart-3 h-6 w-6 rounded-full bg-gradient-to-br'
+                        role='img'
+                        aria-label={`Avatar for ${endpoint.owner_username}`}
+                      />
+                      <span className='font-inter text-foreground group-hover:text-primary text-sm font-medium group-hover:underline'>
+                        @{endpoint.owner_username}
+                      </span>
+                    </Link>
+                  ) : (
+                    <div className='flex items-center gap-2'>
+                      <div
+                        className='from-secondary to-chart-3 h-6 w-6 rounded-full bg-gradient-to-br'
+                        role='img'
+                        aria-label='Avatar for anonymous'
+                      />
+                      <span className='font-inter text-foreground text-sm font-medium'>
+                        @anonymous
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div>

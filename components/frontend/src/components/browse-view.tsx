@@ -457,8 +457,14 @@ export function BrowseView({ initialQuery = '' }: Readonly<BrowseViewProperties>
                       </button>
                     )}
 
-                    {/* Card content is a Link for navigation */}
-                    <Link to={detailHref} className='block'>
+                    {/* Stretched link makes the whole card navigable to the detail page,
+                        while leaving room for nested interactive elements (e.g. username link). */}
+                    <Link
+                      to={detailHref}
+                      aria-label={`View ${endpoint.name}`}
+                      className='absolute inset-0 z-0 rounded-xl'
+                    />
+                    <div className='pointer-events-none relative'>
                       {/* Header */}
                       <div className='mb-3 flex items-start justify-between'>
                         <div className='min-w-0 flex-1 pr-8'>
@@ -468,7 +474,13 @@ export function BrowseView({ initialQuery = '' }: Readonly<BrowseViewProperties>
                           </h3>
                           {endpoint.owner_username && (
                             <p className='font-inter text-muted-foreground mt-0.5 truncate text-xs'>
-                              by @{endpoint.owner_username}
+                              by{' '}
+                              <Link
+                                to={`/${endpoint.owner_username}`}
+                                className='hover:text-primary pointer-events-auto hover:underline'
+                              >
+                                @{endpoint.owner_username}
+                              </Link>
                             </p>
                           )}
                           <p className='font-inter text-muted-foreground mt-1.5 line-clamp-2 text-sm'>
@@ -520,7 +532,7 @@ export function BrowseView({ initialQuery = '' }: Readonly<BrowseViewProperties>
                           </div>
                         </div>
                       </div>
-                    </Link>
+                    </div>
                   </div>
                 );
               })}
