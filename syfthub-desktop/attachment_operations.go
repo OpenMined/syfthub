@@ -31,11 +31,31 @@ type AttachmentSummary struct {
 	LocalPath string `json:"local_path"`
 }
 
+// locateSessionAttachment finds the on-disk file the session materialized
+// for fileID. Files are named {fileID}{ext} where ext is either empty or
+// begins with "." — so we accept the exact match first, then `fileID.*`.
+// Returns os.ErrNotExist when no match.
+func locateSessionAttachment(dir, fileID string) (string, error) {
+	if dir == "" || fileID == "" {
+		return "", os.ErrNotExist
+	}
+	exact := filepath.Join(dir, fileID)
+	if _, err := os.Stat(exact); err == nil {
+		return exact, nil
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, fileID+".*"))
+	if err != nil {
+		return "", err
+	}
+	if len(matches) == 0 {
+		return "", os.ErrNotExist
+	}
+	return matches[0], nil
+}
+
 // materializeAgentInlineAttachment decodes the inline base64 bytes from an
 // agent.attachment event and writes them to attachmentsDir using the
-// filename pattern {file_id}{ext} so DownloadActiveSessionAttachment and
-// AttachmentInlineBytes (both of which glob by file_id prefix) can find
-// the file later. data is the decoded JSON payload of the event.
+// filename pattern {file_id}{ext}.
 //
 // No-op if attachmentsDir is empty (attachments disabled), if the transport
 // isn't inline, or if the inline_data_b64 field is missing.
@@ -147,14 +167,10 @@ func (a *App) SaveAgentAttachment(fileID, suggestedName string) (string, error) 
 		return "", fmt.Errorf("session has no attachment dir")
 	}
 
-	matches, err := filepath.Glob(filepath.Join(sess.AttachmentDir, fileID+"*"))
+	src, err := locateSessionAttachment(sess.AttachmentDir, fileID)
 	if err != nil {
-		return "", fmt.Errorf("glob: %w", err)
-	}
-	if len(matches) == 0 {
 		return "", fmt.Errorf("attachment %s not found in session (was it materialized?)", fileID)
 	}
-	src := matches[0]
 	in, err := os.Open(src)
 	if err != nil {
 		return "", fmt.Errorf("open src: %w", err)
@@ -343,15 +359,10 @@ func (a *App) DownloadActiveSessionAttachment(fileID, destPath string) error {
 		return fmt.Errorf("session has no attachment dir")
 	}
 
-	// Match by file_id prefix in the session dir.
-	matches, err := filepath.Glob(filepath.Join(sess.AttachmentDir, fileID+"*"))
+	src, err := locateSessionAttachment(sess.AttachmentDir, fileID)
 	if err != nil {
-		return fmt.Errorf("glob: %w", err)
-	}
-	if len(matches) == 0 {
 		return fmt.Errorf("attachment %s not found in session", fileID)
 	}
-	src := matches[0]
 	in, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("open src: %w", err)
@@ -392,11 +403,11 @@ func (a *App) AttachmentInlineBytes(fileID string, maxBytes int64) ([]byte, erro
 	if !ok {
 		return nil, fmt.Errorf("session not found")
 	}
-	matches, err := filepath.Glob(filepath.Join(sess.AttachmentDir, fileID+"*"))
-	if err != nil || len(matches) == 0 {
+	src, err := locateSessionAttachment(sess.AttachmentDir, fileID)
+	if err != nil {
 		return nil, fmt.Errorf("attachment %s not found", fileID)
 	}
-	f, err := os.Open(matches[0])
+	f, err := os.Open(src)
 	if err != nil {
 		return nil, err
 	}
