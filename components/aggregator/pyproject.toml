@@ -18,6 +18,7 @@ classifiers = [
 
 dependencies = [
     "fastapi>=0.115.0",
+    "python-multipart>=0.0.20",  # multipart/form-data parser for attachment uploads (PR-6)
     "uvicorn[standard]>=0.32.0",
     "httpx>=0.28.0",
     "pydantic[email]>=2.10.0",
