@@ -102,16 +102,24 @@ type NodeConfig struct {
 	Timeout            float64                     `json:"timeout,omitempty"`
 
 	// Node / desktop daemon settings
-	EndpointsPath string `json:"endpoints_path,omitempty"`
-	IsConfigured  bool   `json:"is_configured,omitempty"`
-	LogLevel      string `json:"log_level,omitempty"`
-	PythonPath    string `json:"python_path,omitempty"`
-	Port          int    `json:"port,omitempty"`
+	EndpointsPath  string `json:"endpoints_path,omitempty"`
+	IsConfigured   bool   `json:"is_configured,omitempty"`
+	MarketplaceURL string `json:"marketplace_url,omitempty"`
+	LogLevel       string `json:"log_level,omitempty"`
+	PythonPath     string `json:"python_path,omitempty"`
+	Port           int    `json:"port,omitempty"`
 
 	// Container mode
 	ContainerEnabled bool   `json:"container_enabled,omitempty"`
 	ContainerRuntime string `json:"container_runtime,omitempty"` // "docker", "podman", or "auto"
 	ContainerImage   string `json:"container_image,omitempty"`   // default: "syfthub/endpoint-runner:latest"
+
+	// Transaction policy / Tempo settings.
+	// TempoRPCURL is the JSON-RPC URL used to broadcast payment credentials
+	// when an endpoint's transaction policy emits a payment_required event.
+	// May be overridden per-event when the aggregator includes rpc_url.
+	// See unit 9 of the transaction-policy plan (nifty-skipping-rainbow.md).
+	TempoRPCURL string `json:"tempo_rpc_url,omitempty"`
 }
 
 const (
@@ -268,6 +276,17 @@ func (c *NodeConfig) GetAccountingURL(alias string) string {
 		if acc, ok := c.AccountingServices[c.DefaultAccounting]; ok {
 			return acc.URL
 		}
+	}
+	return ""
+}
+
+// GetMarketplaceURL returns the marketplace manifest URL.
+func (c *NodeConfig) GetMarketplaceURL() string {
+	if c.MarketplaceURL != "" {
+		return c.MarketplaceURL
+	}
+	if c.HubURL != "" {
+		return strings.TrimRight(c.HubURL, "/") + "/marketplace/manifest.json"
 	}
 	return ""
 }

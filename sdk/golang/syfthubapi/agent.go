@@ -1,13 +1,30 @@
 package syfthubapi
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"slices"
 	"sync/atomic"
 
 	"github.com/openmined/syfthub/sdk/golang/agenttypes"
 )
+
+// newUUID returns a random UUIDv4 string. Local helper to avoid a new
+// dependency just for ID generation in this package.
+func newUUID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
 
 // AgentConfig is an alias for the shared agent config type.
 // Kept for backward compatibility so callers can continue using syfthubapi.AgentConfig.
@@ -20,6 +37,24 @@ type ToolCall = agenttypes.ToolCall
 // ToolResult is an alias for the shared tool result type.
 // Kept for backward compatibility so callers can continue using syfthubapi.ToolResult.
 type ToolResult = agenttypes.ToolResult
+
+// PaymentRequiredError signals that an agent session start was blocked by a
+// transaction-style policy and the caller must obtain a payment credential
+// (e.g. a Tempo on-chain payment) and retry. The NATS bridge maps this error
+// to a TunnelResponse with TunnelErrorCodePaymentRequired so the aggregator /
+// client can surface a payment challenge to the user.
+type PaymentRequiredError struct {
+	// Challenge is the WWW-Authenticate-style "Payment …" challenge string
+	// returned by the policy, e.g. `Payment id="…", realm="…", amount="…"`.
+	Challenge string
+
+	// Details is a copy of the safe payment_* keys from the policy metadata,
+	// suitable for placing into TunnelError.Details.
+	Details map[string]any
+}
+
+// Error implements the error interface.
+func (e *PaymentRequiredError) Error() string { return "payment required" }
 
 // AgentHandler is the function signature for agent endpoint handlers.
 // The handler receives a context (cancelled on user cancel or timeout) and
@@ -49,6 +84,28 @@ type AgentSession struct {
 	// EndpointSlug is the slug of the agent endpoint handling this session.
 	EndpointSlug string
 
+	// Capabilities lists optional protocol extensions the caller advertised
+	// in session.start. See docs/architecture/attachments.md.
+	Capabilities []string
+
+	// AttachmentDir is the per-session tempdir for materialized attachment
+	// files. Set by the session manager when attachments are enabled; empty
+	// otherwise. Files in this directory are cleaned up on session end.
+	AttachmentDir string
+
+	// AttachmentUploader, if set, routes outbound attachments larger than
+	// InlineMaxBytes through Object Store.
+	AttachmentUploader AttachmentUploader
+
+	// attachmentDownloader is the inbound counterpart: fetches object_store-
+	// transport attachments from Object Store and materializes them under
+	// AttachmentDir. Exposed via AttachmentDownloader().
+	attachmentDownloader AttachmentDownloader
+
+	// recvAttachCh carries inbound attachment metadata to the handler.
+	// nil if attachments are not enabled for this session.
+	recvAttachCh chan AttachmentInfo
+
 	// ctx is the session lifecycle context; cancelled on user cancel or timeout.
 	ctx context.Context
 
@@ -73,14 +130,63 @@ type AgentSession struct {
 	sequence atomic.Int64
 }
 
+// HasCapability returns true if the session advertised the named capability.
+func (s *AgentSession) HasCapability(cap string) bool {
+	return slices.Contains(s.Capabilities, cap)
+}
+
+// AttachmentsEnabled reports whether the attachments capability is active
+// for this session AND a tempdir is configured. Handlers SHOULD gate calls
+// to attachment helpers on this.
+func (s *AgentSession) AttachmentsEnabled() bool {
+	return s.AttachmentDir != "" && s.HasCapability(AttachmentCapability)
+}
+
+// AttachmentCh returns the channel of inbound user attachments. Returns nil
+// if attachments are not enabled for this session — handlers should check
+// AttachmentsEnabled() first.
+func (s *AgentSession) AttachmentCh() <-chan AttachmentInfo {
+	return s.recvAttachCh
+}
+
+// SetAttachmentDownloader installs the downloader the agentNATSBridge uses
+// when an inbound user.attachment arrives in the object_store transport.
+// Wired by the transport package's handleSessionStart after the session
+// AES key is established.
+func (s *AgentSession) SetAttachmentDownloader(d AttachmentDownloader) {
+	s.attachmentDownloader = d
+}
+
+// AttachmentDownloader returns the configured downloader (or nil if
+// attachments are inline-only for this session).
+func (s *AgentSession) AttachmentDownloader() AttachmentDownloader {
+	return s.attachmentDownloader
+}
+
+// DeliverAttachment pushes an attachment to the session's receive channel.
+// Returns false if the channel is full or attachments are disabled.
+func (s *AgentSession) DeliverAttachment(a AttachmentInfo) bool {
+	if s.recvAttachCh == nil {
+		return false
+	}
+	select {
+	case s.recvAttachCh <- a:
+		return true
+	default:
+		return false
+	}
+}
+
 // AgentSessionParams holds the parameters for creating a new AgentSession.
 type AgentSessionParams struct {
-	ID           string
-	Prompt       string
-	EndpointSlug string
-	Messages     []Message
-	Config       AgentConfig
-	User         *UserContext
+	ID            string
+	Prompt        string
+	EndpointSlug  string
+	Messages      []Message
+	Config        AgentConfig
+	User          *UserContext
+	Capabilities  []string
+	AttachmentDir string
 }
 
 // NewAgentSession creates a new AgentSession with the given parameters.
@@ -89,6 +195,10 @@ type AgentSessionParams struct {
 // Pass context.Background() for sessions with no external deadline.
 func NewAgentSession(parentCtx context.Context, params AgentSessionParams) *AgentSession {
 	ctx, cancel := context.WithCancel(parentCtx)
+	var recvAttachCh chan AttachmentInfo
+	if params.AttachmentDir != "" {
+		recvAttachCh = make(chan AttachmentInfo, 32)
+	}
 	return &AgentSession{
 		ID:            params.ID,
 		InitialPrompt: params.Prompt,
@@ -96,6 +206,9 @@ func NewAgentSession(parentCtx context.Context, params AgentSessionParams) *Agen
 		Config:        params.Config,
 		User:          params.User,
 		EndpointSlug:  params.EndpointSlug,
+		Capabilities:  params.Capabilities,
+		AttachmentDir: params.AttachmentDir,
+		recvAttachCh:  recvAttachCh,
 		ctx:           ctx,
 		cancel:        cancel,
 		sendCh:        make(chan AgentEventPayload, 100),
@@ -157,7 +270,7 @@ func (s *AgentSession) SendThinking(content string) error {
 		return fmt.Errorf("marshal thinking event: %w", err)
 	}
 	return s.Send(AgentEventPayload{
-		EventType: "agent.thinking",
+		EventType: EventTypeAgentThinking,
 		Data:      data,
 	})
 }
@@ -169,7 +282,7 @@ func (s *AgentSession) SendToolCall(tc ToolCall) error {
 		return fmt.Errorf("marshal tool call event: %w", err)
 	}
 	return s.Send(AgentEventPayload{
-		EventType: "agent.tool_call",
+		EventType: EventTypeAgentToolCall,
 		Data:      data,
 	})
 }
@@ -181,7 +294,7 @@ func (s *AgentSession) SendToolResult(tr ToolResult) error {
 		return fmt.Errorf("marshal tool result event: %w", err)
 	}
 	return s.Send(AgentEventPayload{
-		EventType: "agent.tool_result",
+		EventType: EventTypeAgentToolResult,
 		Data:      data,
 	})
 }
@@ -196,7 +309,7 @@ func (s *AgentSession) SendMessage(content string) error {
 		return fmt.Errorf("marshal message event: %w", err)
 	}
 	return s.Send(AgentEventPayload{
-		EventType: "agent.message",
+		EventType: EventTypeAgentMessage,
 		Data:      data,
 	})
 }
@@ -210,7 +323,7 @@ func (s *AgentSession) SendToken(token string) error {
 		return fmt.Errorf("marshal token event: %w", err)
 	}
 	return s.Send(AgentEventPayload{
-		EventType: "agent.token",
+		EventType: EventTypeAgentToken,
 		Data:      data,
 	})
 }
@@ -225,7 +338,7 @@ func (s *AgentSession) SendStatus(status, detail string) error {
 		return fmt.Errorf("marshal status event: %w", err)
 	}
 	return s.Send(AgentEventPayload{
-		EventType: "agent.status",
+		EventType: EventTypeAgentStatus,
 		Data:      data,
 	})
 }
@@ -240,6 +353,75 @@ func (s *AgentSession) Receive() (UserMessage, error) {
 	}
 }
 
+// SendAttachment sends an attachment to the user.
+//
+// Behavior:
+//   - For payloads up to InlineMaxBytes the bytes ride inline (base64) in the
+//     event payload — single round-trip, low latency.
+//   - For larger payloads, an AttachmentUploader (Object Store transport) is
+//     required: bytes are encrypted with a fresh per-file key and uploaded
+//     to JetStream Object Store; the event payload carries the wrapped key
+//     and bucket/key refs.
+//
+// Returns the assigned file_id.
+func (s *AgentSession) SendAttachment(r io.Reader, name, mime string) (string, error) {
+	if !s.AttachmentsEnabled() {
+		return "", fmt.Errorf("attachments not enabled for this session")
+	}
+
+	// Read up to (InlineMaxBytes+1) so we can detect the spill-over and switch
+	// to Object Store without two passes for small files.
+	head, err := io.ReadAll(io.LimitReader(r, int64(InlineMaxBytes)+1))
+	if err != nil {
+		return "", fmt.Errorf("read attachment head: %w", err)
+	}
+
+	fileID := "att-" + newUUID()
+
+	if len(head) <= InlineMaxBytes {
+		sum := sha256.Sum256(head)
+		info := AttachmentInfo{
+			FileID:          fileID,
+			Name:            name,
+			MIME:            mime,
+			SizeBytes:       int64(len(head)),
+			PlaintextSHA256: hex.EncodeToString(sum[:]),
+			Transport:       AttachmentTransportInline,
+			InlineDataB64:   base64.StdEncoding.EncodeToString(head),
+		}
+		return fileID, s.emitAttachmentEvent(info)
+	}
+
+	// Spill-over: route through Object Store.
+	if s.AttachmentUploader == nil {
+		return "", fmt.Errorf("attachment exceeds inline limit (%d bytes) and no AttachmentUploader configured", InlineMaxBytes)
+	}
+	combined := io.MultiReader(bytes.NewReader(head), r)
+	// We don't know the exact size yet — pass -1 so the uploader streams
+	// and computes the true size from the stream.
+	info, err := s.AttachmentUploader.Upload(fileID, name, mime, -1, combined)
+	if err != nil {
+		return "", fmt.Errorf("object-store upload: %w", err)
+	}
+	return fileID, s.emitAttachmentEvent(info)
+}
+
+func (s *AgentSession) emitAttachmentEvent(info AttachmentInfo) error {
+	data, err := json.Marshal(info)
+	if err != nil {
+		return fmt.Errorf("marshal attachment metadata: %w", err)
+	}
+	return s.Send(AgentEventPayload{
+		EventType: EventTypeAgentAttachment,
+		Data:      data,
+	})
+}
+
+// SendAttachmentBytes is a convenience for SendAttachment with a []byte source.
+func (s *AgentSession) SendAttachmentBytes(b []byte, name, mime string) (string, error) {
+	return s.SendAttachment(bytes.NewReader(b), name, mime)
+}
+
 // RequestInput sends an agent.request_input event, then blocks for user response.
 func (s *AgentSession) RequestInput(prompt string) (UserMessage, error) {
 	data, err := json.Marshal(map[string]any{
@@ -249,7 +431,7 @@ func (s *AgentSession) RequestInput(prompt string) (UserMessage, error) {
 		return UserMessage{}, fmt.Errorf("marshal request_input event: %w", err)
 	}
 	if err := s.Send(AgentEventPayload{
-		EventType: "agent.request_input",
+		EventType: EventTypeAgentRequestInput,
 		Data:      data,
 	}); err != nil {
 		return UserMessage{}, err
@@ -311,7 +493,7 @@ func (s *AgentSession) RunHandler(handler AgentHandler) {
 				select {
 				case s.sendCh <- AgentEventPayload{
 					SessionID: s.ID,
-					EventType: "session.failed",
+					EventType: EventTypeSessionFailed,
 					Sequence:  int(s.sequence.Add(1)),
 					Data:      data,
 				}:
@@ -338,7 +520,7 @@ func (s *AgentSession) RunHandler(handler AgentHandler) {
 			select {
 			case s.sendCh <- AgentEventPayload{
 				SessionID: s.ID,
-				EventType: "session.failed",
+				EventType: EventTypeSessionFailed,
 				Sequence:  int(s.sequence.Add(1)),
 				Data:      data,
 			}:
@@ -351,7 +533,7 @@ func (s *AgentSession) RunHandler(handler AgentHandler) {
 			select {
 			case s.sendCh <- AgentEventPayload{
 				SessionID: s.ID,
-				EventType: "session.completed",
+				EventType: EventTypeSessionCompleted,
 				Sequence:  int(s.sequence.Add(1)),
 				Data:      data,
 			}:

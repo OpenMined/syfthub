@@ -29,6 +29,23 @@ const (
 	MsgTypeAgentEvent         = "agent_event"
 )
 
+// Agent event type constants (the "event_type" field of AgentEventPayload).
+const (
+	EventTypeAgentThinking     = "agent.thinking"
+	EventTypeAgentMessage      = "agent.message"
+	EventTypeAgentToolCall     = "agent.tool_call"
+	EventTypeAgentToolResult   = "agent.tool_result"
+	EventTypeAgentToken        = "agent.token"
+	EventTypeAgentStatus       = "agent.status"
+	EventTypeAgentRequestInput = "agent.request_input"
+
+	// Terminal session events
+	EventTypeSessionCompleted     = "session.completed"
+	EventTypeSessionFailed        = "session.failed"
+	EventTypeAgentSessionComplete = "agent.session_complete" // legacy
+	EventTypeAgentSessionFailed   = "agent.session_failed"   // legacy
+)
+
 // Tunnel protocol constants.
 const (
 	TunnelProtocolV1    = "syfthub-tunnel/v1"
@@ -120,6 +137,11 @@ type RequestContext struct {
 	// TransactionToken is the pre-authorized billing token for this request.
 	// Used by TransactionPolicy to verify billing authorization before execution.
 	TransactionToken string
+
+	// PaymentCredential is the on-chain payment proof (e.g., Tempo/PathUSD tx hash
+	// or signed challenge) presented by the caller to satisfy a TransactionPolicy
+	// payment challenge. Internal state — not serialized.
+	PaymentCredential string
 }
 
 // NewRequestContext creates a new RequestContext with initialized fields.
@@ -272,6 +294,12 @@ type TunnelRequest struct {
 	// SatelliteToken is the JWT for user verification.
 	SatelliteToken string `json:"satellite_token,omitempty"`
 
+	// PaymentCredential is the on-chain payment proof (e.g., Tempo/PathUSD tx hash
+	// or signed challenge response) supplied by the caller to satisfy a
+	// TransactionPolicy payment challenge. Optional; when absent the endpoint
+	// may respond with a PAYMENT_REQUIRED challenge.
+	PaymentCredential string `json:"payment_credential,omitempty"`
+
 	// EncryptionInfo contains the key-exchange metadata required to decrypt
 	// the EncryptedPayload. Always present in encrypted tunnel requests.
 	EncryptionInfo *EncryptionInfo `json:"encryption_info"`
@@ -352,6 +380,11 @@ type AgentSessionHandler interface {
 
 	// CancelSession cancels a session by ID.
 	CancelSession(sessionID string) error
+
+	// GetSession looks up a session by ID. Returns (nil, false) if unknown.
+	// Used by the attachments transport to deliver inbound files without
+	// going through RouteMessage's message channel.
+	GetSession(sessionID string) (*AgentSession, bool)
 }
 
 // TunnelError contains error information for tunnel responses.
@@ -392,6 +425,11 @@ const (
 	TunnelErrorCodeEndpointDisabled  TunnelErrorCode = "ENDPOINT_DISABLED"
 	TunnelErrorCodeRateLimitExceeded TunnelErrorCode = "RATE_LIMIT_EXCEEDED"
 	TunnelErrorCodeDecryptionFailed  TunnelErrorCode = "DECRYPTION_FAILED"
+	// TunnelErrorCodePaymentRequired indicates the endpoint requires an on-chain
+	// payment (e.g., Tempo/PathUSD) before serving the request. The TunnelError.Details
+	// map carries the challenge metadata (payment_challenge, payment_amount,
+	// payment_currency, payment_recipient, challenge_id, intent).
+	TunnelErrorCodePaymentRequired TunnelErrorCode = "PAYMENT_REQUIRED"
 )
 
 // EndpointInfo contains metadata about a registered endpoint.
@@ -519,6 +557,17 @@ type ExecutorInput struct {
 	// TransactionToken is the pre-authorized billing token for this request.
 	// Used by TransactionPolicy to verify billing authorization before execution.
 	TransactionToken string `json:"transaction_token,omitempty"`
+
+	// PaymentCredential is the on-chain payment proof (e.g., Tempo/PathUSD tx hash
+	// or signed challenge response) forwarded to the subprocess so a TransactionPolicy
+	// runner can verify payment before executing the handler.
+	PaymentCredential string `json:"payment_credential,omitempty"`
+
+	// PolicyCheckOnly instructs the executor to evaluate policies and return the
+	// result without invoking the endpoint handler. Used by AgentOneShotInvoker
+	// to run a pre-session policy gate against a container executor where there
+	// is no dedicated noop handler (unlike subprocess mode).
+	PolicyCheckOnly bool `json:"policy_check_only,omitempty"`
 }
 
 // ExecutorOutput is the output format from subprocess execution.

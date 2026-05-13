@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
+	"slices"
 	"sync"
 	"time"
 )
@@ -87,6 +89,29 @@ type AgentSessionStartPayload struct {
 	EndpointSlug string      `json:"endpoint_slug"`
 	Messages     []Message   `json:"messages,omitempty"`
 	Config       AgentConfig `json:"config"`
+
+	// PaymentCredential is the on-chain payment proof (e.g., Tempo/PathUSD tx hash
+	// or signed challenge response) supplied by the caller to satisfy a
+	// TransactionPolicy payment challenge for the agent session intent.
+	PaymentCredential string `json:"payment_credential,omitempty"`
+
+	// Capabilities lists optional protocol extensions the caller supports.
+	// See docs/architecture/attachments.md for the "attachments" capability.
+	// Hosts MUST NOT emit attachment events unless this list contains
+	// AttachmentCapability AND the endpoint has accepts_attachments=true.
+	Capabilities []string `json:"capabilities,omitempty"`
+
+	// SessionAttachmentKey is the base64-encoded 32-byte AES key the
+	// aggregator generated for this session. HOST + aggregator both wrap
+	// per-file content keys with KEKs derived from this key (HKDF info =
+	// "syfthub-attachment-v1" || file_id). Only meaningful when the
+	// "attachments" capability is present.
+	SessionAttachmentKey string `json:"session_attachment_key,omitempty"`
+}
+
+// HasCapability returns true if the payload declared the named capability.
+func (p *AgentSessionStartPayload) HasCapability(cap string) bool {
+	return slices.Contains(p.Capabilities, cap)
 }
 
 // AgentUserMessagePayload is the decrypted payload of an agent_user_message.
@@ -117,22 +142,42 @@ func (m *AgentSessionManager) StartSession(
 
 	// Enforce policies before starting session.
 	reqCtx := &RequestContext{
-		User:         user,
-		EndpointSlug: payload.EndpointSlug,
-		EndpointType: EndpointTypeAgent,
+		User:              user,
+		EndpointSlug:      payload.EndpointSlug,
+		EndpointType:      EndpointTypeAgent,
+		PaymentCredential: payload.PaymentCredential,
 	}
 	policyResult, err := ep.CheckPolicies(context.Background(), reqCtx)
 	if err != nil {
 		return nil, fmt.Errorf("policy check failed: %w", err)
 	}
-	if policyResult != nil && !policyResult.Allowed {
-		m.logger.Warn("[AGENT] Session denied by policy",
-			"endpoint", payload.EndpointSlug,
-			"user", user.Username,
-			"policy_name", policyResult.PolicyName,
-			"reason", policyResult.Reason,
-		)
-		return nil, fmt.Errorf("access denied by policy %q: %s", policyResult.PolicyName, policyResult.Reason)
+	if policyResult != nil {
+		// A "pending" result with a payment_challenge means a transaction-style
+		// policy is asking the caller to obtain a payment credential and retry.
+		// Surface this as a typed error so the NATS bridge can emit a
+		// PAYMENT_REQUIRED tunnel response with the challenge details.
+		if policyResult.Pending {
+			if challenge, ok := PaymentChallengeFromMetadata(policyResult.Metadata); ok {
+				m.logger.Info("[AGENT] Session pending payment",
+					"endpoint", payload.EndpointSlug,
+					"user", user.Username,
+					"policy_name", policyResult.PolicyName,
+				)
+				return nil, &PaymentRequiredError{
+					Challenge: challenge,
+					Details:   CopyPaymentMetadata(policyResult.Metadata),
+				}
+			}
+		}
+		if !policyResult.Allowed {
+			m.logger.Warn("[AGENT] Session denied by policy",
+				"endpoint", payload.EndpointSlug,
+				"user", user.Username,
+				"policy_name", policyResult.PolicyName,
+				"reason", policyResult.Reason,
+			)
+			return nil, fmt.Errorf("access denied by policy %q: %s", policyResult.PolicyName, policyResult.Reason)
+		}
 	}
 
 	handler, err := ep.GetAgentHandler()
@@ -140,15 +185,33 @@ func (m *AgentSessionManager) StartSession(
 		return nil, err
 	}
 
+	// Provision a per-session tempdir for attachments when both peers have
+	// opted in. The caller advertises support via Capabilities; the endpoint
+	// owner explicitly opts in via AcceptsAttachments. Either side missing
+	// disables attachments for this session (handler can check
+	// session.AttachmentsEnabled()).
+	var attachDir string
+	if ep.AcceptsAttachments && payload.HasCapability(AttachmentCapability) {
+		dir, derr := os.MkdirTemp("", "syft-att-"+payload.SessionID+"-")
+		if derr != nil {
+			return nil, fmt.Errorf("create attachment tempdir: %w", derr)
+		}
+		// 0700 enforced by MkdirTemp on Unix; double-check for portability.
+		_ = os.Chmod(dir, 0o700)
+		attachDir = dir
+	}
+
 	// Create session — long-lived WebSocket sessions use Background context
 	// (cancelled explicitly via CancelSession or session.Cancel).
 	session := NewAgentSession(context.Background(), AgentSessionParams{
-		ID:           payload.SessionID,
-		Prompt:       payload.Prompt,
-		EndpointSlug: payload.EndpointSlug,
-		Messages:     payload.Messages,
-		Config:       payload.Config,
-		User:         user,
+		ID:            payload.SessionID,
+		Prompt:        payload.Prompt,
+		EndpointSlug:  payload.EndpointSlug,
+		Messages:      payload.Messages,
+		Config:        payload.Config,
+		User:          user,
+		Capabilities:  payload.Capabilities,
+		AttachmentDir: attachDir,
 	})
 
 	// Register session (enforce max sessions limit)
@@ -195,6 +258,13 @@ func (m *AgentSessionManager) StartSession(
 			m.deregisterSession(session.ID)
 		}
 
+		if session.AttachmentDir != "" {
+			if err := os.RemoveAll(session.AttachmentDir); err != nil {
+				m.logger.Warn("[AGENT] Failed to clean up attachment tempdir",
+					"session_id", session.ID, "dir", session.AttachmentDir, "error", err)
+			}
+		}
+
 		m.logger.Info("[AGENT] Session ended", "session_id", session.ID)
 	}
 
@@ -238,11 +308,13 @@ func (m *AgentSessionManager) CancelSession(sessionID string) error {
 	return nil
 }
 
-// GetSession returns a session by ID, or nil if not found.
-func (m *AgentSessionManager) GetSession(sessionID string) *AgentSession {
+// GetSession returns a session by ID. The boolean is false if the session
+// is unknown. The two-return-value signature satisfies AgentSessionHandler.
+func (m *AgentSessionManager) GetSession(sessionID string) (*AgentSession, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.sessions[sessionID]
+	s, ok := m.sessions[sessionID]
+	return s, ok
 }
 
 // StartReaper launches a background goroutine that periodically scans for stale

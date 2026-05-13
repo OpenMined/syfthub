@@ -73,6 +73,7 @@ func ensureAuthenticated(cmd *cobra.Command, _ []string) error {
 	switch {
 	case err == nil:
 		cfg.APIToken = token
+		cfg.IsConfigured = true
 		var saveErr error
 		if saveErr = nodeconfig.EnsureConfigDir(); saveErr == nil {
 			saveErr = cfg.Save()

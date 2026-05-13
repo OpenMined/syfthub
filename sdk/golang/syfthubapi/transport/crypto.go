@@ -285,6 +285,13 @@ type SessionEncryptor struct {
 	ephPubKeyB64 string
 }
 
+// EphemeralPublicKeyB64 returns the base64url-encoded ephemeral public key
+// the session is using for the response direction. Exposed so callers (e.g.,
+// the attachments-relay code) can echo it in correlated artifacts.
+func (e *SessionEncryptor) EphemeralPublicKeyB64() string {
+	return e.ephPubKeyB64
+}
+
 // NewSessionEncryptor generates a single ephemeral X25519 keypair, performs ECDH
 // with the peer's public key, and derives the AES-256-GCM key via HKDF. All
 // subsequent Encrypt calls reuse this derived key.

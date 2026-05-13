@@ -1,0 +1,48 @@
+{
+  "notes": [
+    "Vectors are deterministic with the listed session/file/nonce material.",
+    "Python aggregator tests should derive the same KEK and produce the same ciphertext.",
+    "chunked plaintexts only show a prefix to keep the file small; PR-6 regenerates and checks full byte equality."
+  ],
+  "vectors": [
+    {
+      "name": "kek-derivation-known-file-id",
+      "session_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "file_id": "att-vec-1",
+      "expected_kek_hex": "22dbb8cfd8ba0aad75393155fbd8ed62327652456e8fca57aace47fbd2ac74af",
+      "description": "HKDF-Expand(session_key, 'syfthub-attachment-v1' || file_id, L=32)",
+      "hkdf_info": "syfthub-attachment-v1"
+    },
+    {
+      "name": "stream-encrypt-small",
+      "session_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "file_id": "att-vec-2",
+      "expected_kek_hex": "",
+      "file_key_hex": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "base_nonce_hex": "4041424344454647",
+      "plaintext_hex": "68656c6c6f20766563746f722032",
+      "ciphertext_hex": "ebac52f33d543272031e0b2ab30afc92201bdeace77c98c1b50b9fd538fd",
+      "plaintext_sha256": "d63a5db39ed3f5de72a6a38231d8353380137a0460191667b6ace08541c91e48",
+      "description": "Single-chunk AES-256-GCM with nonce=base||u32(0), AAD=file_id||u32(0)",
+      "chunk_size": 65536,
+      "tag_size": 16,
+      "base_nonce_size": 8
+    },
+    {
+      "name": "stream-encrypt-exact-chunk",
+      "session_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "file_id": "att-vec-3",
+      "expected_kek_hex": "",
+      "file_key_hex": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f",
+      "base_nonce_hex": "4041424344454647",
+      "plaintext_hex": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab... (64KiB of 0xAB)",
+      "ciphertext_hex": "28629534f9dfefbccbc1cff33893ee0bc8003e09eaa5029956788de3b4ec34f954a9fe0d753daa1f62b83d10655ed373150b500f01ea2d6c371e42e05138acd1... (full ciphertext is 65552 bytes)",
+      "plaintext_sha256": "7c56cd2bee665a1839e41377e70c4a00e688c2b31e6e25638185b5ad1b1537e1",
+      "description": "Exactly AttachmentChunkSize plaintext — boundary case for the chunked loop",
+      "chunk_size": 65536,
+      "tag_size": 16,
+      "base_nonce_size": 8
+    }
+  ],
+  "version": "v1"
+}

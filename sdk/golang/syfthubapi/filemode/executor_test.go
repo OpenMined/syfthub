@@ -442,8 +442,7 @@ func TestBuildPolicyRunnerCommand(t *testing.T) {
 		UsePolicyRunner: true,
 	})
 
-	input := &syfthubapi.ExecutorInput{Type: "model"}
-	cmd := executor.buildPolicyRunnerCommand(context.Background(), input)
+	cmd := executor.buildPolicyRunnerCommand(context.Background())
 
 	if cmd == nil {
 		t.Fatal("command is nil")
@@ -484,8 +483,7 @@ func TestBuildLegacyCommand(t *testing.T) {
 		UsePolicyRunner: false,
 	})
 
-	input := &syfthubapi.ExecutorInput{Type: "model"}
-	cmd := executor.buildLegacyCommand(context.Background(), input)
+	cmd := executor.buildLegacyCommand(context.Background())
 
 	if cmd == nil {
 		t.Fatal("command is nil")
@@ -593,81 +591,6 @@ func TestSerializeInput(t *testing.T) {
 		}
 		if parsed["handler_path"] != runnerPath {
 			t.Errorf("JSON output handler_path = %q, want %q", parsed["handler_path"], runnerPath)
-		}
-	})
-}
-
-func TestCreateExecutor(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "create_executor_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	runnerPath := filepath.Join(tmpDir, "runner.py")
-	os.WriteFile(runnerPath, []byte("def handler(): pass"), 0644)
-
-	// Skip if python3 is not available
-	if _, err := exec.LookPath("python3"); err != nil {
-		t.Skip("python3 not available")
-	}
-
-	t.Run("without venv", func(t *testing.T) {
-		cfg := &ExecutorConfig{
-			RunnerPath: runnerPath,
-			WorkDir:    tmpDir,
-		}
-		runtime := &RuntimeConfig{
-			Mode:    "subprocess",
-			Timeout: 30,
-		}
-
-		executor, err := CreateExecutor(cfg, runtime)
-		if err != nil {
-			t.Fatalf("error: %v", err)
-		}
-
-		if executor == nil {
-			t.Fatal("executor is nil")
-		}
-	})
-
-	t.Run("with venv", func(t *testing.T) {
-		// Create fake venv structure
-		venvBin := filepath.Join(tmpDir, ".venv", "bin")
-		os.MkdirAll(venvBin, 0755)
-
-		// Create a fake python symlink/script
-		venvPython := filepath.Join(venvBin, "python")
-		// On Unix, we can create a symlink to python3
-		if pythonPath, err := exec.LookPath("python3"); err == nil {
-			os.Symlink(pythonPath, venvPython)
-		}
-
-		cfg := &ExecutorConfig{
-			RunnerPath: runnerPath,
-			WorkDir:    tmpDir,
-		}
-		runtime := &RuntimeConfig{
-			Mode:    "subprocess",
-			Timeout: 30,
-		}
-
-		executor, err := CreateExecutor(cfg, runtime)
-		if err != nil {
-			t.Fatalf("error: %v", err)
-		}
-
-		if executor == nil {
-			t.Fatal("executor is nil")
-		}
-
-		// Check if venv python is used (if symlink was created)
-		if _, err := os.Stat(venvPython); err == nil {
-			se := executor.(*SubprocessExecutor)
-			if se.pythonPath != venvPython {
-				t.Logf("pythonPath = %q (venv python available but not used)", se.pythonPath)
-			}
 		}
 	})
 }

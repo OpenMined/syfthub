@@ -12,8 +12,8 @@ import (
 type PromptHandler struct{}
 
 func (h *PromptHandler) Validate(step *nodeops.SetupStep) error {
-	if step.Prompt == nil {
-		return fmt.Errorf("prompt config is required for type 'prompt'")
+	if err := requireTypedConfig(step, "prompt", step.Prompt != nil); err != nil {
+		return err
 	}
 	if step.Prompt.Message == "" {
 		return fmt.Errorf("prompt.message is required")

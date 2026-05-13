@@ -38,48 +38,6 @@ func TestSentinelErrors(t *testing.T) {
 	}
 }
 
-func TestSyftAPIError(t *testing.T) {
-	t.Run("error with message", func(t *testing.T) {
-		err := &SyftAPIError{
-			Err:     ErrConfiguration,
-			Message: "custom message",
-			Details: map[string]any{"key": "value"},
-		}
-
-		if err.Error() != "custom message" {
-			t.Errorf("expected 'custom message', got %q", err.Error())
-		}
-		if !errors.Is(err, ErrConfiguration) {
-			t.Error("expected errors.Is to return true for ErrConfiguration")
-		}
-	})
-
-	t.Run("error without message uses underlying error", func(t *testing.T) {
-		err := &SyftAPIError{
-			Err: ErrAuthentication,
-		}
-
-		if err.Error() != "authentication error" {
-			t.Errorf("expected 'authentication error', got %q", err.Error())
-		}
-	})
-
-	t.Run("error without message or underlying error", func(t *testing.T) {
-		err := &SyftAPIError{}
-
-		if err.Error() != "unknown error" {
-			t.Errorf("expected 'unknown error', got %q", err.Error())
-		}
-	})
-
-	t.Run("unwrap returns underlying error", func(t *testing.T) {
-		err := &SyftAPIError{Err: ErrTimeout}
-		if err.Unwrap() != ErrTimeout {
-			t.Error("Unwrap should return ErrTimeout")
-		}
-	})
-}
-
 func TestConfigurationError(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -377,9 +335,9 @@ func TestFileLoadError(t *testing.T) {
 		if err.Error() != expected {
 			t.Errorf("expected %q, got %q", expected, err.Error())
 		}
-		// FileLoadError unwraps to its Cause, not a sentinel
-		if err.Unwrap() != cause {
-			t.Error("Unwrap should return the Cause")
+		// FileLoadError unwraps to ErrFileLoad sentinel
+		if !errors.Is(err, ErrFileLoad) {
+			t.Error("errors.Is should match ErrFileLoad")
 		}
 	})
 
@@ -410,9 +368,9 @@ func TestPolicyLoadError(t *testing.T) {
 		if err.Error() != expected {
 			t.Errorf("expected %q, got %q", expected, err.Error())
 		}
-		// PolicyLoadError unwraps to its Cause
-		if err.Unwrap() != cause {
-			t.Error("Unwrap should return the Cause")
+		// PolicyLoadError unwraps to ErrPolicyLoad sentinel
+		if !errors.Is(err, ErrPolicyLoad) {
+			t.Error("errors.Is should match ErrPolicyLoad")
 		}
 	})
 
@@ -506,6 +464,44 @@ func TestWrappedErrors(t *testing.T) {
 		var execErr *ExecutionError
 		if !errors.As(outer, &execErr) {
 			t.Error("errors.As should work through wrapper chain")
+		}
+	})
+}
+
+func TestCauseChainTraversal(t *testing.T) {
+	t.Run("AuthenticationError preserves cause", func(t *testing.T) {
+		cause := fmt.Errorf("connection refused")
+		err := &AuthenticationError{Message: "token verification failed", Cause: cause}
+
+		if !errors.Is(err, ErrAuthentication) {
+			t.Error("should match sentinel")
+		}
+		if !errors.Is(err, cause) {
+			t.Error("should match cause through Unwrap")
+		}
+	})
+
+	t.Run("ExecutionError preserves cause", func(t *testing.T) {
+		cause := fmt.Errorf("subprocess killed")
+		err := &ExecutionError{Endpoint: "ep", Message: "failed", Cause: cause}
+
+		if !errors.Is(err, ErrExecutionFailed) {
+			t.Error("should match sentinel")
+		}
+		if !errors.Is(err, cause) {
+			t.Error("should match cause through Unwrap")
+		}
+	})
+
+	t.Run("error without cause only matches sentinel", func(t *testing.T) {
+		err := &AuthenticationError{Message: "invalid"}
+		other := fmt.Errorf("other")
+
+		if !errors.Is(err, ErrAuthentication) {
+			t.Error("should match sentinel")
+		}
+		if errors.Is(err, other) {
+			t.Error("should not match unrelated error")
 		}
 	})
 }

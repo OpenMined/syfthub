@@ -46,9 +46,6 @@ func (t *HTTPTransport) Start(ctx context.Context) error {
 	// API v1 endpoints
 	mux.HandleFunc("POST /api/v1/endpoints/{slug}/query", t.handleQuery)
 
-	// List endpoints
-	mux.HandleFunc("GET /api/v1/endpoints", t.handleListEndpoints)
-
 	addr := fmt.Sprintf("%s:%d", t.config.Host, t.config.Port)
 	t.server = &http.Server{
 		Addr:         addr,
@@ -155,16 +152,6 @@ func (t *HTTPTransport) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 	// Write response
 	t.writeResponse(w, resp)
-}
-
-// handleListEndpoints is a non-functional stub.
-// TODO: This always returns an empty list because the transport layer has no
-// access to the endpoint registry. Either wire the registry into the transport
-// or remove this handler entirely once callers have been migrated.
-func (t *HTTPTransport) handleListEndpoints(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]any{"endpoints": []any{}})
 }
 
 // extractBearerToken extracts the bearer token from the Authorization header.

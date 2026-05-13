@@ -4,23 +4,43 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 )
 
+// buildInlineAttachmentRequest reads the file at att.LocalPath, base64-encodes
+// it, and constructs the JSON body for POST /session/{id}/attachment.
+func buildInlineAttachmentRequest(att syfthubapi.AttachmentInfo) ([]byte, error) {
+	data, err := os.ReadFile(att.LocalPath)
+	if err != nil {
+		return nil, fmt.Errorf("read attachment %q: %w", att.LocalPath, err)
+	}
+	payload := map[string]any{
+		"file_id":         att.FileID,
+		"name":            att.Name,
+		"mime":            att.MIME,
+		"size_bytes":      att.SizeBytes,
+		"sha256":          att.PlaintextSHA256,
+		"inline_data_b64": base64.StdEncoding.EncodeToString(data),
+	}
+	return json.Marshal(payload)
+}
+
 // terminalEvents are event types that signal the end of an agent session.
 var terminalEvents = map[string]bool{
-	"agent.session_complete": true,
-	"agent.session_failed":   true,
-	"session.completed":      true,
-	"session.failed":         true,
+	syfthubapi.EventTypeAgentSessionComplete: true,
+	syfthubapi.EventTypeAgentSessionFailed:   true,
+	syfthubapi.EventTypeSessionCompleted:     true,
+	syfthubapi.EventTypeSessionFailed:        true,
 }
 
 // NewContainerAgentHandler returns an AgentHandler that bridges a Go AgentSession
@@ -31,10 +51,11 @@ func NewContainerAgentHandler(executor *ContainerExecutor, logger *slog.Logger) 
 
 		// 1. Start session in container
 		startPayload := map[string]any{
-			"session_id": session.ID,
-			"prompt":     session.InitialPrompt,
-			"messages":   session.Messages,
-			"config":     session.Config,
+			"session_id":      session.ID,
+			"prompt":          session.InitialPrompt,
+			"messages":        session.Messages,
+			"config":          session.Config,
+			"attachments_dir": containerAttachmentsDir(session),
 		}
 		body, err := json.Marshal(startPayload)
 		if err != nil {
@@ -79,6 +100,12 @@ func NewContainerAgentHandler(executor *ContainerExecutor, logger *slog.Logger) 
 			defer close(writerDone)
 			writeUserMessages(writerCtx, baseURL, session.ID, session, logger)
 		}()
+
+		// Attachment writer (only active when attachments are enabled).
+		// See docs/architecture/attachments.md.
+		if session.AttachmentsEnabled() {
+			go writeUserAttachments(writerCtx, baseURL, session, logger)
+		}
 
 		// 3. Wait for reader to complete (signals session end)
 		readerErr := <-readerDone
@@ -252,6 +279,56 @@ func parseSSEStream(reader io.Reader, callback func(eventType, data, id string))
 	}
 
 	return scanner.Err()
+}
+
+// containerAttachmentsDir returns the path the container should expose to the
+// runner as session.attachments_dir. A stable per-session subdir under /tmp
+// inside the container.
+func containerAttachmentsDir(session *syfthubapi.AgentSession) string {
+	if !session.AttachmentsEnabled() {
+		return ""
+	}
+	return "/tmp/syft-att-" + session.ID
+}
+
+// writeUserAttachments forwards inbound attachments from the session's
+// attachment channel into the container via POST /session/{id}/attachment.
+// Reads the file off disk, base64-encodes, POSTs JSON (inline-tier).
+func writeUserAttachments(ctx context.Context, baseURL string, session *syfthubapi.AgentSession, logger *slog.Logger) {
+	client := &http.Client{Timeout: 30 * time.Second}
+	url := fmt.Sprintf("%s/session/%s/attachment", baseURL, session.ID)
+	ch := session.AttachmentCh()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case att, ok := <-ch:
+			if !ok {
+				return
+			}
+			body, err := buildInlineAttachmentRequest(att)
+			if err != nil {
+				logger.Warn("[CONTAINER-AGENT] failed to build attachment request",
+					"session_id", session.ID, "file_id", att.FileID, "error", err)
+				continue
+			}
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+			if err != nil {
+				return
+			}
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := client.Do(req)
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				logger.Warn("[CONTAINER-AGENT] failed to deliver attachment",
+					"session_id", session.ID, "file_id", att.FileID, "error", err)
+				continue
+			}
+			resp.Body.Close()
+		}
+	}
 }
 
 // writeUserMessages forwards user messages from the session to the container.

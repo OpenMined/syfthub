@@ -62,26 +62,6 @@ func TestHTTPTransportHandleHealth(t *testing.T) {
 	}
 }
 
-func TestHTTPTransportHandleListEndpoints(t *testing.T) {
-	transport, _ := NewHTTPTransport(&Config{Host: "localhost", Port: 8080})
-
-	req := httptest.NewRequest("GET", "/api/v1/endpoints", nil)
-	w := httptest.NewRecorder()
-
-	transport.handleListEndpoints(w, req)
-
-	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("status = %d", resp.StatusCode)
-	}
-
-	var body map[string]any
-	json.NewDecoder(resp.Body).Decode(&body)
-	if body["endpoints"] == nil {
-		t.Error("endpoints should be present")
-	}
-}
-
 func TestHTTPTransportExtractBearerToken(t *testing.T) {
 	transport, _ := NewHTTPTransport(&Config{})
 

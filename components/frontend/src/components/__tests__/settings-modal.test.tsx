@@ -28,6 +28,10 @@ vi.mock('@/components/settings/payment-settings-tab', () => ({
   PaymentSettingsTab: () => <div data-testid='payment-tab'>Payment Content</div>
 }));
 
+vi.mock('@/components/settings/payment-history-tab', () => ({
+  PaymentHistoryTab: () => <div data-testid='payment-history-tab'>Payment History Content</div>
+}));
+
 vi.mock('@/components/settings/aggregator-settings-tab', () => ({
   AggregatorSettingsTab: () => <div data-testid='aggregator-tab'>Aggregator Content</div>
 }));

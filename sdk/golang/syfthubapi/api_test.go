@@ -377,7 +377,7 @@ func TestAPISyncEndpointsAsync(t *testing.T) {
 	api.SyncEndpointsAsync()
 }
 
-func TestAPIHandleRequest(t *testing.T) {
+func TestAPIProcessRequest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(VerifyTokenResponse{
@@ -411,9 +411,9 @@ func TestAPIHandleRequest(t *testing.T) {
 		Payload:        payload,
 	}
 
-	resp, err := api.handleRequest(context.Background(), req)
+	resp, err := api.processor.Process(context.Background(), req)
 	if err != nil {
-		t.Fatalf("handleRequest error: %v", err)
+		t.Fatalf("Process error: %v", err)
 	}
 	if resp.Status != "success" {
 		t.Errorf("Status = %q", resp.Status)
@@ -456,6 +456,15 @@ func TestAPIShutdown(t *testing.T) {
 	if !hookCalled {
 		t.Error("shutdown hook should be called")
 	}
+}
+
+func TestAPIDoubleShutdown(t *testing.T) {
+	api := New()
+	api.SetTransport(&mockTransport{})
+
+	// Double shutdown should not panic
+	api.Shutdown(context.Background())
+	api.Shutdown(context.Background())
 }
 
 func TestAPIRunValidation(t *testing.T) {

@@ -156,6 +156,15 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._handle_session_message(parts[1])
             return
 
+        # POST /session/{id}/attachment
+        if (
+            len(parts) == 3
+            and parts[0] == "session"
+            and parts[2] == "attachment"
+        ):
+            self._handle_session_attachment(parts[1])
+            return
+
         self._send_json(404, {"error": "not found"})
 
     def do_DELETE(self):
@@ -190,6 +199,19 @@ class RequestHandler(BaseHTTPRequestHandler):
                 200,
                 {
                     "success": False,
+                    "policy_result": policy_result,
+                },
+            )
+            return
+
+        # Policy-check-only: return result without invoking the handler.
+        # Used by agent pre-session policy gates where there is no noop handler
+        # (unlike subprocess mode which loads a dedicated noop runner.py).
+        if executor_input.get("policy_check_only", False):
+            self._send_json(
+                200,
+                {
+                    "success": True,
                     "policy_result": policy_result,
                 },
             )
@@ -241,10 +263,11 @@ class RequestHandler(BaseHTTPRequestHandler):
         prompt = body.get("prompt", "")
         messages = body.get("messages", [])
         config = body.get("config", {})
+        attachments_dir = body.get("attachments_dir", "")
 
         try:
             session = self._session_manager.start_session(
-                session_id, prompt, messages, config
+                session_id, prompt, messages, config, attachments_dir
             )
             self._send_json(
                 200,
@@ -337,6 +360,90 @@ class RequestHandler(BaseHTTPRequestHandler):
                     "error": f"session {session_id} not found or queue full",
                 },
             )
+
+    def _handle_session_attachment(self, session_id: str):
+        """POST /session/{id}/attachment - deliver an inbound attachment.
+
+        Body: {file_id, name, mime, size_bytes, sha256, inline_data_b64}
+        The container writes plaintext into attachments_dir and queues a dict
+        for the next session.receive_attachment() call.
+
+        See docs/architecture/attachments.md.
+        """
+        import base64
+        import hashlib
+        try:
+            body = self._read_json()
+        except (json.JSONDecodeError, ValueError) as e:
+            self._send_json(400, {"success": False, "error": str(e)})
+            return
+
+        session = self._session_manager.get_session(session_id)
+        if session is None:
+            self._send_json(404, {"success": False, "error": "session not found"})
+            return
+
+        data_b64 = body.get("inline_data_b64", "")
+        if not data_b64:
+            self._send_json(
+                400,
+                {"success": False, "error": "inline_data_b64 required"},
+            )
+            return
+        try:
+            raw = base64.b64decode(data_b64)
+        except Exception as e:
+            self._send_json(400, {"success": False, "error": f"decode: {e}"})
+            return
+
+        declared_size = body.get("size_bytes")
+        if declared_size is not None and declared_size != len(raw):
+            self._send_json(400, {"success": False, "error": "size mismatch"})
+            return
+        declared_sha = body.get("sha256", "")
+        if declared_sha:
+            actual = hashlib.sha256(raw).hexdigest()
+            if actual != declared_sha:
+                self._send_json(400, {"success": False, "error": "sha mismatch"})
+                return
+
+        file_id = body.get("file_id", "")
+        name = body.get("name", file_id)
+        mime = body.get("mime", "application/octet-stream")
+        path = None
+        if session.attachments_dir:
+            os.makedirs(session.attachments_dir, exist_ok=True)
+            # Use the file_id (with original extension if available) for the
+            # on-disk name. Path traversal is prevented by joining only the
+            # basename.
+            ext = os.path.splitext(name)[1] if name else ""
+            basename = os.path.basename(file_id) + ext
+            path = os.path.join(session.attachments_dir, basename)
+            with open(path, "wb") as f:
+                f.write(raw)
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
+
+        delivered = self._session_manager.deliver_attachment(
+            session_id,
+            {
+                "file_id": file_id,
+                "name": name,
+                "mime": mime,
+                "size_bytes": len(raw),
+                "sha256": declared_sha,
+                "path": path or "",
+            },
+        )
+        if not delivered:
+            self._send_json(
+                503,
+                {"success": False, "error": "attachment queue full"},
+            )
+            return
+        self._send_json(200, {"success": True, "file_id": file_id, "path": path or ""})
 
     def _handle_session_cancel(self, session_id: str):
         """DELETE /session/{id} - cancel an agent session."""

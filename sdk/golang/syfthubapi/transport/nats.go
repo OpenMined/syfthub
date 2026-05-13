@@ -4,9 +4,15 @@ import (
 	"bytes"
 	"context"
 	"crypto/ecdh"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -36,7 +42,7 @@ func (b *agentNATSBridge) handleAgentMessage(msg *nats.Msg, req *syfthubapi.Tunn
 	if req.EncryptionInfo == nil || req.EncryptedPayload == "" {
 		b.logger.Error("[AGENT] agent message missing encryption fields",
 			"correlation_id", req.CorrelationID, "type", req.Type)
-		b.transport.sendErrorResponse(msg, req, "DECRYPTION_FAILED", "agent messages must be encrypted")
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeDecryptionFailed, "agent messages must be encrypted")
 		return
 	}
 
@@ -44,7 +50,7 @@ func (b *agentNATSBridge) handleAgentMessage(msg *nats.Msg, req *syfthubapi.Tunn
 	if err != nil {
 		b.logger.Error("[AGENT] failed to decrypt agent message",
 			"correlation_id", req.CorrelationID, "error", err)
-		b.transport.sendErrorResponse(msg, req, "DECRYPTION_FAILED", "failed to decrypt agent message")
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeDecryptionFailed, "failed to decrypt agent message")
 		return
 	}
 
@@ -55,14 +61,104 @@ func (b *agentNATSBridge) handleAgentMessage(msg *nats.Msg, req *syfthubapi.Tunn
 		b.handleUserMessage(plaintext)
 	case syfthubapi.MsgTypeAgentSessionCancel:
 		b.handleSessionCancel(plaintext)
+	case syfthubapi.MsgTypeAgentUserAttachment:
+		b.handleUserAttachment(msg, req, plaintext)
 	}
+}
+
+// handleUserAttachment decrypts an attachment delivery and routes it to the
+// session. Inline-tier payloads are materialized to a tempfile under the
+// session's AttachmentDir; the session's runner is then notified via
+// AgentSession.DeliverAttachment. Object-store tier delegates to the
+// session's AttachmentDownloader.
+func (b *agentNATSBridge) handleUserAttachment(msg *nats.Msg, req *syfthubapi.TunnelRequest, payload []byte) {
+	var attachPayload syfthubapi.AgentUserAttachmentPayload
+	if err := json.Unmarshal(payload, &attachPayload); err != nil {
+		b.logger.Error("[AGENT] failed to parse user attachment payload", "error", err)
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAttachmentInvalidMetadata, "invalid attachment metadata")
+		return
+	}
+
+	info := attachPayload.Attachment
+	sess, ok := b.handler.GetSession(attachPayload.SessionID)
+	if !ok {
+		b.logger.Warn("[AGENT] attachment for unknown session",
+			"session_id", attachPayload.SessionID, "file_id", info.FileID)
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAttachmentNotFound, "session not found")
+		return
+	}
+
+	if !sess.AttachmentsEnabled() {
+		b.logger.Warn("[AGENT] attachment delivered to session without attachments enabled",
+			"session_id", sess.ID, "file_id", info.FileID)
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAttachmentNotAccepted, "endpoint does not accept attachments")
+		return
+	}
+
+	downloader := sess.AttachmentDownloader()
+	if err := MaterializeAttachment(context.Background(), sess.AttachmentDir, &info, downloader); err != nil {
+		b.logger.Error("[AGENT] failed to materialize attachment",
+			"session_id", sess.ID, "file_id", info.FileID, "transport", info.Transport, "error", err)
+		// Object-store failures may be transient (missing bucket/key, etc.);
+		// surface a distinct error code so the aggregator can decide whether
+		// to retry.
+		errCode := syfthubapi.TunnelErrorCodeAttachmentIntegrity
+		if info.Transport == syfthubapi.AttachmentTransportObjectStore {
+			errCode = syfthubapi.TunnelErrorCodeAttachmentNotFound
+		}
+		b.transport.sendErrorResponse(msg, req, errCode, err.Error())
+		return
+	}
+
+	if !sess.DeliverAttachment(info) {
+		b.logger.Warn("[AGENT] attachment channel full, dropping",
+			"session_id", sess.ID, "file_id", info.FileID)
+	}
+}
+
+// materializeInlineAttachment decodes inline base64 bytes, verifies the
+// declared SHA-256, and writes plaintext to a 0600-mode file inside dir.
+// On success, info.LocalPath is set to the materialized file path so the
+// runner protocol layer can hand it to the agent handler.
+func materializeInlineAttachment(dir string, info *syfthubapi.AttachmentInfo) error {
+	if info.Transport != syfthubapi.AttachmentTransportInline {
+		return fmt.Errorf("inline materialization called for transport=%q", info.Transport)
+	}
+	if info.InlineDataB64 == "" {
+		return fmt.Errorf("inline_data_b64 is empty")
+	}
+	raw, err := base64.StdEncoding.DecodeString(info.InlineDataB64)
+	if err != nil {
+		return fmt.Errorf("decode inline bytes: %w", err)
+	}
+	if int64(len(raw)) != info.SizeBytes {
+		return fmt.Errorf("size mismatch: declared %d, actual %d", info.SizeBytes, len(raw))
+	}
+	sum := sha256.Sum256(raw)
+	if hex.EncodeToString(sum[:]) != info.PlaintextSHA256 {
+		return fmt.Errorf("sha256 mismatch")
+	}
+
+	// Use the file_id as the on-disk name to keep paths unguessable + 1:1
+	// with the wire identifier. Preserve the original extension for the
+	// runner's convenience.
+	name := info.FileID
+	if ext := filepath.Ext(info.Name); ext != "" {
+		name += ext
+	}
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		return fmt.Errorf("write attachment: %w", err)
+	}
+	info.LocalPath = path
+	return nil
 }
 
 func (b *agentNATSBridge) handleSessionStart(msg *nats.Msg, req *syfthubapi.TunnelRequest, payload []byte) {
 	var startPayload syfthubapi.AgentSessionStartPayload
 	if err := json.Unmarshal(payload, &startPayload); err != nil {
 		b.logger.Error("[AGENT] failed to parse session start payload", "error", err)
-		b.transport.sendErrorResponse(msg, req, "INVALID_REQUEST", "failed to parse session start payload")
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeInvalidRequest, "failed to parse session start payload")
 		return
 	}
 
@@ -70,7 +166,7 @@ func (b *agentNATSBridge) handleSessionStart(msg *nats.Msg, req *syfthubapi.Tunn
 	if b.tokenVerifier == nil {
 		b.logger.Error("[AGENT] token verifier not configured — cannot authenticate agent session",
 			"endpoint", startPayload.EndpointSlug)
-		b.transport.sendErrorResponse(msg, req, string(syfthubapi.TunnelErrorCodeAuthFailed),
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAuthFailed,
 			"agent session authentication not configured")
 		return
 	}
@@ -78,7 +174,7 @@ func (b *agentNATSBridge) handleSessionStart(msg *nats.Msg, req *syfthubapi.Tunn
 	if req.SatelliteToken == "" {
 		b.logger.Warn("[AGENT] agent session start missing satellite token",
 			"endpoint", startPayload.EndpointSlug)
-		b.transport.sendErrorResponse(msg, req, string(syfthubapi.TunnelErrorCodeAuthFailed),
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAuthFailed,
 			"missing satellite token")
 		return
 	}
@@ -90,7 +186,7 @@ func (b *agentNATSBridge) handleSessionStart(msg *nats.Msg, req *syfthubapi.Tunn
 	if err != nil {
 		b.logger.Warn("[AGENT] agent session token verification failed",
 			"endpoint", startPayload.EndpointSlug, "error", err)
-		b.transport.sendErrorResponse(msg, req, string(syfthubapi.TunnelErrorCodeAuthFailed),
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAuthFailed,
 			"agent session authentication failed")
 		return
 	}
@@ -100,10 +196,49 @@ func (b *agentNATSBridge) handleSessionStart(msg *nats.Msg, req *syfthubapi.Tunn
 		"user_sub", user.Sub, "username", user.Username)
 
 	session, err := b.handler.StartSession(startPayload, user)
+	if err == nil && session != nil && session.AttachmentsEnabled() && startPayload.SessionAttachmentKey != "" {
+		keyBytes, decErr := base64.StdEncoding.DecodeString(startPayload.SessionAttachmentKey)
+		if decErr != nil || len(keyBytes) != 32 {
+			b.logger.Warn("[AGENT] invalid session_attachment_key — attachments will be inline-only",
+				"session_id", session.ID, "decode_err", decErr, "len", len(keyBytes))
+		} else {
+			store, osErr := b.transport.getAttachmentObjectStore()
+			if osErr != nil {
+				b.logger.Warn("[AGENT] failed to init attachment Object Store — attachments will be inline-only",
+					"session_id", session.ID, "error", osErr)
+			} else {
+				uploader, upErr := NewObjectStoreUploader(context.Background(), keyBytes, store, session.ID)
+				if upErr != nil {
+					b.logger.Warn("[AGENT] failed to bind ObjectStoreUploader",
+						"session_id", session.ID, "error", upErr)
+				} else {
+					session.AttachmentUploader = uploader
+				}
+				dl, dlErr := NewObjectStoreDownloader(context.Background(), keyBytes, store)
+				if dlErr != nil {
+					b.logger.Warn("[AGENT] failed to bind ObjectStoreDownloader",
+						"session_id", session.ID, "error", dlErr)
+				} else {
+					session.SetAttachmentDownloader(dl)
+				}
+			}
+		}
+	}
 	if err != nil {
+		// Transaction-style policies surface a typed PaymentRequiredError so we
+		// can emit a structured PAYMENT_REQUIRED tunnel response carrying the
+		// payment challenge and amount/recipient details.
+		var payErr *syfthubapi.PaymentRequiredError
+		if errors.As(err, &payErr) {
+			b.logger.Info("[AGENT] session pending payment",
+				"endpoint", startPayload.EndpointSlug,
+				"user_sub", user.Sub, "username", user.Username)
+			b.transport.sendPaymentRequiredResponse(msg, req, payErr.Details)
+			return
+		}
 		b.logger.Error("[AGENT] failed to start session",
 			"endpoint", startPayload.EndpointSlug, "error", err)
-		b.transport.sendErrorResponse(msg, req, string(syfthubapi.TunnelErrorCodeExecutionFailed),
+		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeExecutionFailed,
 			fmt.Sprintf("failed to start agent session: %v", err))
 		return
 	}
@@ -270,6 +405,26 @@ type NATSTransport struct {
 	mu      sync.Mutex
 	running bool
 	stopCh  chan struct{}
+
+	// attachmentObjectStore is lazily initialized on first attachment-capable
+	// session. Shared across sessions on this transport.
+	attachmentObjectStore AttachmentObjectStore
+}
+
+// getAttachmentObjectStore returns the lazily-initialized Object Store
+// backing per-session attachment buckets. Safe for concurrent use.
+func (t *NATSTransport) getAttachmentObjectStore() (AttachmentObjectStore, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.attachmentObjectStore != nil {
+		return t.attachmentObjectStore, nil
+	}
+	store, err := NewNATSAttachmentObjectStore(t.conn)
+	if err != nil {
+		return nil, err
+	}
+	t.attachmentObjectStore = store
+	return store, nil
 }
 
 // NewNATSTransport creates a new NATS transport.
@@ -510,7 +665,7 @@ func (t *NATSTransport) handleMessage(msg *nats.Msg) {
 			"error", err,
 			"data", string(msg.Data),
 		)
-		t.sendErrorResponse(msg, nil, "INVALID_REQUEST", "failed to parse request")
+		t.sendErrorResponse(msg, nil, syfthubapi.TunnelErrorCodeInvalidRequest, "failed to parse request")
 		return
 	}
 
@@ -528,7 +683,7 @@ func (t *NATSTransport) handleMessage(msg *nats.Msg) {
 		syfthubapi.MsgTypeAgentUserMessage,
 		syfthubapi.MsgTypeAgentSessionCancel:
 		if t.agentBridge == nil {
-			t.sendErrorResponse(msg, &req, "INVALID_REQUEST", "agent sessions not supported")
+			t.sendErrorResponse(msg, &req, syfthubapi.TunnelErrorCodeInvalidRequest, "agent sessions not supported")
 			return
 		}
 		t.agentBridge.handleAgentMessage(msg, &req, t.privateKey)
@@ -540,7 +695,7 @@ func (t *NATSTransport) handleMessage(msg *nats.Msg) {
 		t.logger.Error("request missing encryption fields — plaintext requests are not accepted",
 			"correlation_id", req.CorrelationID,
 		)
-		t.sendErrorResponse(msg, &req, "DECRYPTION_FAILED", "request must be encrypted (encryption_info and encrypted_payload are required)")
+		t.sendErrorResponse(msg, &req, syfthubapi.TunnelErrorCodeDecryptionFailed, "request must be encrypted (encryption_info and encrypted_payload are required)")
 		return
 	}
 
@@ -555,7 +710,7 @@ func (t *NATSTransport) handleMessage(msg *nats.Msg) {
 			"correlation_id", req.CorrelationID,
 			"error", err,
 		)
-		t.sendErrorResponse(msg, &req, "DECRYPTION_FAILED", "failed to decrypt request payload")
+		t.sendErrorResponse(msg, &req, syfthubapi.TunnelErrorCodeDecryptionFailed, "failed to decrypt request payload")
 		return
 	}
 	req.Payload = json.RawMessage(plaintext)
@@ -575,7 +730,7 @@ func (t *NATSTransport) handleMessage(msg *nats.Msg) {
 			"correlation_id", req.CorrelationID,
 			"error", err,
 		)
-		t.sendErrorResponse(msg, &req, "INTERNAL_ERROR", err.Error())
+		t.sendErrorResponse(msg, &req, syfthubapi.TunnelErrorCodeInternalError, err.Error())
 		return
 	}
 
@@ -667,7 +822,7 @@ func (t *NATSTransport) sendResponse(msg *nats.Msg, req *syfthubapi.TunnelReques
 }
 
 // sendErrorResponse sends an error response.
-func (t *NATSTransport) sendErrorResponse(msg *nats.Msg, req *syfthubapi.TunnelRequest, code, message string) {
+func (t *NATSTransport) sendErrorResponse(msg *nats.Msg, req *syfthubapi.TunnelRequest, code syfthubapi.TunnelErrorCode, message string) {
 	correlationID := ""
 	endpointSlug := ""
 	if req != nil {
@@ -682,8 +837,34 @@ func (t *NATSTransport) sendErrorResponse(msg *nats.Msg, req *syfthubapi.TunnelR
 		Status:        syfthubapi.TunnelStatusError,
 		EndpointSlug:  endpointSlug,
 		Error: &syfthubapi.TunnelError{
-			Code:    syfthubapi.TunnelErrorCode(code),
+			Code:    code,
 			Message: message,
+		},
+	}
+	t.sendResponse(msg, req, resp)
+}
+
+// sendPaymentRequiredResponse sends a PAYMENT_REQUIRED tunnel response with
+// the supplied payment-challenge details placed on TunnelError.Details so the
+// caller (aggregator / client) can surface the challenge to the user.
+func (t *NATSTransport) sendPaymentRequiredResponse(msg *nats.Msg, req *syfthubapi.TunnelRequest, details map[string]any) {
+	correlationID := ""
+	endpointSlug := ""
+	if req != nil {
+		correlationID = req.CorrelationID
+		endpointSlug = req.Endpoint.Slug
+	}
+
+	resp := &syfthubapi.TunnelResponse{
+		Protocol:      syfthubapi.TunnelProtocolV1,
+		Type:          syfthubapi.TunnelTypeResponse,
+		CorrelationID: correlationID,
+		Status:        syfthubapi.TunnelStatusError,
+		EndpointSlug:  endpointSlug,
+		Error: &syfthubapi.TunnelError{
+			Code:    syfthubapi.TunnelErrorCodePaymentRequired,
+			Message: "payment required",
+			Details: details,
 		},
 	}
 	t.sendResponse(msg, req, resp)

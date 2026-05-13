@@ -1235,3 +1235,91 @@ export function analyzeQueryForSources(
     relevantSources: availableSources
   };
 }
+
+// ============================================================================
+// Endpoint Pricing (transaction policy)
+// ============================================================================
+
+/**
+ * Canonical PathUSD currency address (Tempo on-chain stablecoin).
+ * When the currency on a transaction policy matches this address (case-insensitive),
+ * the pricing badge renders as "$<amount>" rather than the raw currency string.
+ */
+export const PATHUSD_ADDRESS = '0x20c0000000000000000000000000000000000000';
+
+/**
+ * Default chain ID used when a transaction policy omits chain_id.
+ * Matches the Tempo chain ID used by the MPP-over-NATS payment flow.
+ */
+export const DEFAULT_TRANSACTION_CHAIN_ID = 42_431;
+
+/**
+ * Pricing info extracted from an endpoint's transaction policy.
+ *
+ * `currency` is a string so it can hold either a 0x-prefixed token address or
+ * a non-address currency symbol; `recipient` is always a 0x-prefixed address.
+ */
+export interface EndpointPricing {
+  amount: string;
+  currency: string;
+  recipient: string;
+  intent: 'charge' | 'session';
+  chainID: number;
+}
+
+/**
+ * Coerce an unknown config value to a string. Returns '' for objects/null/undefined
+ * so the caller never gets the "[object Object]" stringification footgun.
+ */
+function configString(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value);
+  }
+  return '';
+}
+
+/**
+ * Returns pricing info for a paid endpoint, or null if the endpoint is free.
+ *
+ * Looks up the first policy of type "transaction" in `endpoint.policies`.
+ * Disabled policies are ignored. Returns null when no such policy is present
+ * (which is the normal "free endpoint" case).
+ */
+export function getPricing(endpoint: {
+  policies?: Array<{ type: string; enabled?: boolean; config: Record<string, unknown> }>;
+}): EndpointPricing | null {
+  const policy = endpoint.policies?.find((p) => p.type === 'transaction' && p.enabled !== false);
+  if (!policy) return null;
+  const c = policy.config;
+  return {
+    amount: configString(c.amount),
+    currency: configString(c.currency),
+    recipient: configString(c.recipient),
+    intent: c.intent === 'session' ? 'session' : 'charge',
+    chainID: parseChainID(c.chain_id)
+  };
+}
+
+function parseChainID(raw: unknown): number {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+  if (typeof raw === 'string' && raw.trim() !== '') {
+    const n = Number(raw);
+    if (Number.isFinite(n)) return n;
+  }
+  return DEFAULT_TRANSACTION_CHAIN_ID;
+}
+
+/**
+ * Render pricing as a short human-readable badge label.
+ *
+ * For PathUSD (the canonical currency address) returns `"$<amount>"`.
+ * Otherwise returns `"<amount> <truncated-currency>…"`.
+ */
+export function formatPricingBadge(pricing: EndpointPricing): string {
+  if (pricing.currency.toLowerCase() === PATHUSD_ADDRESS.toLowerCase()) {
+    return `$${pricing.amount}`;
+  }
+  return `${pricing.amount} ${pricing.currency.slice(0, 6)}…`;
+}

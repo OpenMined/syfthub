@@ -24,8 +24,8 @@ const (
 type ExecHandler struct{}
 
 func (h *ExecHandler) Validate(step *nodeops.SetupStep) error {
-	if step.Exec == nil {
-		return fmt.Errorf("exec config is required for type 'exec'")
+	if err := requireTypedConfig(step, "exec", step.Exec != nil); err != nil {
+		return err
 	}
 	if step.Exec.Command == "" {
 		return fmt.Errorf("exec.command is required")

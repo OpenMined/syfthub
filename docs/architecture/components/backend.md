@@ -20,7 +20,6 @@ graph LR
     BE --> RD[(Redis)]
     BE --> MS[(Meilisearch)]
     BE --> NATS[(NATS)]
-    BE -->|proxy| ACCT[Accounting Service]
     BE -->|proxy| LIN[Linear API]
 ```
 
@@ -129,7 +128,7 @@ graph TB
 | `core/ssrf_protection.py` | `src/syfthub/core/ssrf_protection.py` | Domain validation before proxying POST requests to endpoints |
 | `core/url_builder.py` | `src/syfthub/core/url_builder.py` | Build connection URLs from owner domain + connection config |
 | `core/html_sanitizer.py` | `src/syfthub/core/html_sanitizer.py` | Sanitize README markdown HTML to prevent XSS |
-| `domain/exceptions.py` | `src/syfthub/domain/exceptions.py` | Domain-specific exception hierarchy (DomainException, IdPException, AccountingException, etc.) |
+| `domain/exceptions.py` | `src/syfthub/domain/exceptions.py` | Domain-specific exception hierarchy (DomainException, IdPException, OTP/Email exceptions, etc.) |
 | `domain/value_objects.py` | `src/syfthub/domain/value_objects.py` | Immutable domain value objects |
 
 ## Data Models
@@ -404,7 +403,6 @@ sequenceDiagram
 | **Redis** | Rate limiting, caching | `REDIS_URL` env var |
 | **Meilisearch** | Full-text endpoint search | `MEILI_URL` env var (optional) |
 | **NATS** | Tunnel communication for spaces | `NATS_URL` env var |
-| **Accounting Service** | External billing integration | `DEFAULT_ACCOUNTING_URL` env var |
 | **Linear** | Bug reports / feedback issues | `LINEAR_API_KEY` env var (optional) |
 
 ## Error Handling
@@ -422,7 +420,6 @@ The backend uses a structured domain exception hierarchy rooted at `DomainExcept
 | `AudienceNotFoundError` | `AUDIENCE_NOT_FOUND` | 404 | Unknown audience username |
 | `AudienceInactiveError` | `AUDIENCE_INACTIVE` | 403 | Deactivated audience user |
 | `KeyNotConfiguredError` | `KEY_NOT_CONFIGURED` | 503 | RSA keys missing |
-| `AccountingServiceUnavailableError` | `ACCOUNTING_SERVICE_UNAVAILABLE` | 502 | Accounting service down |
 
 Global exception handlers in `observability/handlers.py` catch domain exceptions and return structured JSON with error codes. Unhandled exceptions return 500 with correlation ID for tracing.
 

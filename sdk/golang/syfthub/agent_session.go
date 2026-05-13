@@ -2,13 +2,41 @@ package syfthub
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"net/textproto"
+	"strings"
 	"sync"
 
 	"github.com/coder/websocket"
 	"github.com/openmined/syfthub/sdk/golang/agenttypes"
 )
+
+// AttachmentCapability is the capability string clients advertise in
+// session.start to opt into the attachments protocol. See
+// docs/architecture/attachments.md.
+const AttachmentCapability = "attachments"
+
+// InlineAttachmentMaxBytes is the maximum plaintext size supported by the
+// inline transport. Larger files require the Object Store transport.
+// MUST equal syfthubapi.InlineMaxBytes.
+const InlineAttachmentMaxBytes = 64 * 1024
+
+// newAttachmentID returns a fresh "att-<uuid>" identifier.
+func newAttachmentID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("att-%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
 
 // AgentEvent is the interface for all agent events.
 type AgentEvent interface {
@@ -94,11 +122,73 @@ type AgentErrorEvent struct {
 
 func (e *AgentErrorEvent) EventType() string { return "agent.error" }
 
+// AgentPaymentRequiredEvent indicates the agent endpoint's transaction policy
+// requires the caller to sign + submit an on-chain payment credential before
+// the session can proceed. Mirrors the chat SDK's PaymentRequiredEvent but
+// flows over the agent WebSocket envelope ("payment_required" / "agent.payment_required").
+//
+// See unit 10 of the transaction-policy plan (nifty-skipping-rainbow.md).
+type AgentPaymentRequiredEvent struct {
+	ChatSessionID string `json:"chat_session_id"`
+	EndpointSlug  string `json:"endpoint_slug"`
+	Challenge     string `json:"challenge"`
+	Amount        string `json:"amount"`
+	Currency      string `json:"currency"`
+	Recipient     string `json:"recipient"`
+	ChallengeID   string `json:"challenge_id"`
+	Intent        string `json:"intent"`
+	RPCURL        string `json:"rpc_url,omitempty"`
+}
+
+func (e *AgentPaymentRequiredEvent) EventType() string { return "agent.payment_required" }
+
+// AttachmentEvent represents an attachment emitted by the agent (HOST → CLIENT
+// direction). The bytes are either inline (transport=inline, base64 in
+// InlineDataB64) or live in JetStream Object Store (transport=object_store).
+// See docs/architecture/attachments.md.
+type AttachmentEvent struct {
+	FileID          string `json:"file_id"`
+	Name            string `json:"name"`
+	MIME            string `json:"mime"`
+	SizeBytes       int64  `json:"size_bytes"`
+	PlaintextSHA256 string `json:"plaintext_sha256"`
+	Transport       string `json:"transport"`
+
+	// Inline tier:
+	InlineDataB64 string `json:"inline_data_b64,omitempty"`
+
+	// Object-store tier:
+	ObjectBucket string                 `json:"object_bucket,omitempty"`
+	ObjectKey    string                 `json:"object_key,omitempty"`
+	ChunkSize    int                    `json:"chunk_size,omitempty"`
+	WrappedKey   map[string]interface{} `json:"wrapped_key,omitempty"`
+}
+
+func (e *AttachmentEvent) EventType() string { return "agent.attachment" }
+
+// Bytes returns the decoded plaintext bytes for an inline-tier attachment.
+// For object-store-tier attachments it returns an error; callers should use
+// AgentSessionClient.DownloadAttachment instead.
+func (e *AttachmentEvent) Bytes() ([]byte, error) {
+	if e.Transport != "inline" {
+		return nil, fmt.Errorf("attachment %q is not inline (transport=%q)", e.FileID, e.Transport)
+	}
+	if e.InlineDataB64 == "" {
+		return nil, fmt.Errorf("inline_data_b64 is empty")
+	}
+	return base64.StdEncoding.DecodeString(e.InlineDataB64)
+}
+
 // AgentSessionClient wraps a WebSocket connection with typed send/receive
 // methods for agent sessions.
 type AgentSessionClient struct {
 	// SessionID is the unique session identifier.
 	SessionID string
+
+	// AggregatorHTTPURL is the base HTTP URL used by the attachments side-
+	// channel (POST/GET /api/v1/agent/session/{sid}/attachment[/{fid}]).
+	// Set by AgentResource.StartSession.
+	AggregatorHTTPURL string
 
 	conn   *websocket.Conn
 	events chan AgentEvent
@@ -181,6 +271,172 @@ func (c *AgentSessionClient) Cancel(ctx context.Context) error {
 	return c.sendJSON(ctx, map[string]any{
 		"type": "user.cancel",
 	})
+}
+
+// AttachmentOpts holds the per-call options for SendAttachment.
+type AttachmentOpts struct {
+	// Name is the display name (defaults to "attachment.bin").
+	Name string
+	// MIME is the declared media type (defaults to application/octet-stream).
+	MIME string
+}
+
+// SendAttachment uploads a file to the agent.
+//
+// Behavior:
+//   - Payload <= InlineAttachmentMaxBytes: rides inline (base64) in a
+//     user.attachment WebSocket frame.
+//   - Payload > InlineAttachmentMaxBytes: streamed via HTTP POST to the
+//     aggregator's relay endpoint (POST /api/v1/agent/session/{sid}/attachment).
+//     The aggregator handles encryption + Object Store storage + the
+//     accompanying user.attachment metadata event published over NATS.
+//
+// Returns the assigned file_id. Callers should reference attachments in
+// subsequent text with the URI scheme `attachment://{file_id}`.
+func (c *AgentSessionClient) SendAttachment(ctx context.Context, r io.Reader, opts AttachmentOpts) (string, error) {
+	// Try inline first by reading up to InlineAttachmentMaxBytes+1.
+	head, err := io.ReadAll(io.LimitReader(r, InlineAttachmentMaxBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("read attachment: %w", err)
+	}
+	name := opts.Name
+	if name == "" {
+		name = "attachment.bin"
+	}
+	mime := opts.MIME
+	if mime == "" {
+		mime = "application/octet-stream"
+	}
+
+	if len(head) <= InlineAttachmentMaxBytes {
+		fileID := newAttachmentID()
+		sum := sha256.Sum256(head)
+		return fileID, c.sendJSON(ctx, map[string]any{
+			"type": "user.attachment",
+			"payload": map[string]any{
+				"file_id":          fileID,
+				"name":             name,
+				"mime":             mime,
+				"size_bytes":       int64(len(head)),
+				"plaintext_sha256": hex.EncodeToString(sum[:]),
+				"transport":        "inline",
+				"inline_data_b64":  base64.StdEncoding.EncodeToString(head),
+			},
+		})
+	}
+
+	// Spill-over to HTTP relay.
+	if c.AggregatorHTTPURL == "" {
+		return "", fmt.Errorf("attachment exceeds inline limit and AggregatorHTTPURL is unset")
+	}
+	combined := io.MultiReader(bytesReader(head), r)
+	return c.uploadAttachmentHTTP(ctx, name, mime, combined)
+}
+
+// DownloadAttachment fetches an attachment by file_id and streams it into w.
+// Used to retrieve agent-emitted attachments that landed in Object Store.
+func (c *AgentSessionClient) DownloadAttachment(ctx context.Context, fileID string, w io.Writer) error {
+	if c.AggregatorHTTPURL == "" {
+		return fmt.Errorf("AggregatorHTTPURL is unset")
+	}
+	url := strings.TrimRight(c.AggregatorHTTPURL, "/") + "/api/v1/agent/session/" + c.SessionID + "/attachment/" + fileID
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("http get: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download returned %d", resp.StatusCode)
+	}
+	if _, err := io.Copy(w, resp.Body); err != nil {
+		return fmt.Errorf("stream body: %w", err)
+	}
+	return nil
+}
+
+// uploadAttachmentHTTP POSTs a multipart upload to the aggregator's relay.
+// Returns the file_id assigned by the server.
+func (c *AgentSessionClient) uploadAttachmentHTTP(ctx context.Context, name, mime string, r io.Reader) (string, error) {
+	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
+	url := strings.TrimRight(c.AggregatorHTTPURL, "/") + "/api/v1/agent/session/" + c.SessionID + "/attachment"
+
+	uploadErr := make(chan error, 1)
+	go func() {
+		defer pw.Close()
+		defer mw.Close()
+		hdr := make(textproto.MIMEHeader)
+		hdr.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename=%q`, name))
+		hdr.Set("Content-Type", mime)
+		part, err := mw.CreatePart(hdr)
+		if err != nil {
+			uploadErr <- err
+			return
+		}
+		if _, err := io.Copy(part, r); err != nil {
+			uploadErr <- err
+			return
+		}
+		uploadErr <- nil
+	}()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, pr)
+	if err != nil {
+		return "", fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("http post: %w", err)
+	}
+	defer resp.Body.Close()
+	if err := <-uploadErr; err != nil {
+		return "", fmt.Errorf("upload body: %w", err)
+	}
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("aggregator returned %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+	var out struct {
+		FileID string `json:"file_id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", fmt.Errorf("decode response: %w", err)
+	}
+	if out.FileID == "" {
+		return "", fmt.Errorf("aggregator returned empty file_id")
+	}
+	return out.FileID, nil
+}
+
+// SendAttachmentBytes is a convenience wrapper for SendAttachment with a
+// []byte source.
+func (c *AgentSessionClient) SendAttachmentBytes(ctx context.Context, data []byte, opts AttachmentOpts) (string, error) {
+	return c.SendAttachment(ctx, bytesReader(data), opts)
+}
+
+// bytesReader is a tiny helper to avoid importing bytes just for NewReader.
+func bytesReader(b []byte) io.Reader {
+	return &sliceReader{b: b}
+}
+
+type sliceReader struct {
+	b   []byte
+	pos int
+}
+
+func (r *sliceReader) Read(p []byte) (int, error) {
+	if r.pos >= len(r.b) {
+		return 0, io.EOF
+	}
+	n := copy(p, r.b[r.pos:])
+	r.pos += n
+	return n, nil
 }
 
 // Close closes the WebSocket connection and cleans up resources.
@@ -308,6 +564,14 @@ func (c *AgentSessionClient) parseEvent(eventType string, payload json.RawMessag
 		event = &e
 	case "agent.error":
 		var e AgentErrorEvent
+		err = json.Unmarshal(payload, &e)
+		event = &e
+	case "agent.payment_required", "payment_required":
+		var e AgentPaymentRequiredEvent
+		err = json.Unmarshal(payload, &e)
+		event = &e
+	case "agent.attachment":
+		var e AttachmentEvent
 		err = json.Unmarshal(payload, &e)
 		event = &e
 	default:

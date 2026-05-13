@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 from fastapi import WebSocket
 
 from aggregator.schemas.agent import AgentSessionState
+from aggregator.services.attachment_relay import record_agent_attachment_metadata
 
 if TYPE_CHECKING:
     from aggregator.services.session_transport import SessionTransport
@@ -85,6 +86,12 @@ async def relay_space_to_frontend(session: AgentSession) -> None:
                 session.state = AgentSessionState.COMPLETED
             elif event_type == "session.failed":
                 session.state = AgentSessionState.FAILED
+            elif event_type == "agent.attachment":
+                info = event.get("data") or {}
+                if isinstance(info, dict):
+                    await record_agent_attachment_metadata(session.session_id, info)
+                if session.state != AgentSessionState.AWAITING_INPUT:
+                    session.state = AgentSessionState.RUNNING
             elif session.state != AgentSessionState.AWAITING_INPUT:
                 session.state = AgentSessionState.RUNNING
 
@@ -134,7 +141,12 @@ async def relay_frontend_to_space(session: AgentSession) -> None:
                 session.state = AgentSessionState.CANCELLED
                 await transport.send_cancel()
                 break
-            elif msg_type in ("user.message", "user.confirm", "user.deny"):
+            elif msg_type in (
+                "user.message",
+                "user.confirm",
+                "user.deny",
+                "user.attachment",
+            ):
                 await transport.send_to_space(data)
             elif msg_type == "ping":
                 await session.websocket.send_json({"type": "pong"})

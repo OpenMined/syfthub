@@ -20,8 +20,15 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from aggregator.clients.nats_transport import NATSTransport
 from aggregator.schemas.agent import (
+    ATTACHMENT_CAPABILITY,
     AgentSessionState,
     SessionStartPayload,
+)
+from aggregator.services.attachment_session_state import (
+    AttachmentSession,
+)
+from aggregator.services.attachment_session_state import (
+    registry as attachment_registry,
 )
 from aggregator.services.session_manager import (
     AgentSession,
@@ -61,6 +68,7 @@ async def agent_session_ws(websocket: WebSocket) -> None:
     await websocket.accept()
     start_time = time.monotonic()
     session_transport: NATSSessionTransport | None = None
+    registered_session_id: str | None = None
 
     try:
         # Wait for session.start message (30s timeout)
@@ -155,6 +163,7 @@ async def agent_session_ws(websocket: WebSocket) -> None:
             "transaction_token": payload.transaction_token,
             "config": payload.config or {},
             "messages": payload.messages or [],
+            "capabilities": payload.capabilities,
         }
         await session_transport.start_session(session_start_payload)
 
@@ -168,6 +177,17 @@ async def agent_session_ws(websocket: WebSocket) -> None:
             config=payload.config or {},
         )
         session.state = AgentSessionState.RUNNING
+
+        if ATTACHMENT_CAPABILITY in (payload.capabilities or []):
+            attachment_registry().register(
+                AttachmentSession(
+                    session_id=session_id,
+                    target_username=payload.endpoint.owner,
+                    session_attachment_key=session_transport.session_attachment_key,
+                    transport=session_transport,
+                )
+            )
+            registered_session_id = session_id
 
         # Send session.created to frontend
         await websocket.send_json(
@@ -220,6 +240,18 @@ async def agent_session_ws(websocket: WebSocket) -> None:
     finally:
         if session_transport is not None:
             await session_transport.close()
+
+        if registered_session_id is not None:
+            attachment_registry().unregister(registered_session_id)
+            # Best-effort cleanup of the per-session Object Store bucket +
+            # metadata map. Errors are swallowed because session teardown
+            # must not block on Object Store quirks.
+            try:
+                from aggregator.services.attachment_relay import cleanup_session
+
+                await cleanup_session(registered_session_id)
+            except Exception:
+                logger.debug("attachment cleanup failed", exc_info=True)
 
         duration_s = time.monotonic() - start_time
         logger.info(

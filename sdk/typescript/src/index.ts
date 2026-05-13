@@ -60,10 +60,6 @@ export {
   ConfigurationError,
   // User registration errors
   UserAlreadyExistsError,
-  // Accounting-related errors
-  AccountingAccountExistsError,
-  InvalidAccountingPasswordError,
-  AccountingServiceUnavailableError,
 } from './errors.js';
 
 // Chat-specific errors

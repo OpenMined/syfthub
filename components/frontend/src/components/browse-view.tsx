@@ -4,8 +4,7 @@ import type { ChatSource, EndpointType } from '@/lib/types';
 import type { LucideIcon } from 'lucide-react';
 import type { BrowseFilters } from './browse-filters-modal';
 
-// TODO(agent-feature): Uncomment when agent endpoint UI is re-enabled
-// import Bot from 'lucide-react/dist/esm/icons/bot';
+import Bot from 'lucide-react/dist/esm/icons/bot';
 import Calendar from 'lucide-react/dist/esm/icons/calendar';
 import Check from 'lucide-react/dist/esm/icons/check';
 import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right';
@@ -21,7 +20,7 @@ import X from 'lucide-react/dist/esm/icons/x';
 import { Link } from 'react-router-dom';
 
 import { usePaginatedPublicEndpoints } from '@/hooks/use-endpoint-queries';
-import { isDataSourceEndpoint } from '@/lib/endpoint-utils';
+import { formatPricingBadge, getPricing, isDataSourceEndpoint } from '@/lib/endpoint-utils';
 import { useContextSelectionStore } from '@/stores/context-selection-store';
 
 import {
@@ -55,8 +54,7 @@ const PAGE_SIZE = 12;
 // Tab types
 // ============================================================================
 
-// TODO(agent-feature): Add 'agents' back to BrowseTab and TAB_CONFIG when agent endpoint UI is re-enabled
-type BrowseTab = 'data_sources' | 'models';
+type BrowseTab = 'data_sources' | 'models' | 'agents';
 
 const TAB_CONFIG: Record<
   BrowseTab,
@@ -68,9 +66,26 @@ const TAB_CONFIG: Record<
     icon: Database,
     label: 'Data Sources'
   },
-  models: { endpointType: 'model', entityName: 'models', icon: Sparkles, label: 'Models' }
-  // agents: { endpointType: 'agent', entityName: 'agents', icon: Bot, label: 'Agents' }
+  models: { endpointType: 'model', entityName: 'models', icon: Sparkles, label: 'Models' },
+  agents: { endpointType: 'agent', entityName: 'agents', icon: Bot, label: 'Agents' }
 };
+
+// Renders the on-chain pricing badge when an endpoint has a transaction policy.
+// Renders nothing for free endpoints, so it is safe to drop into any header.
+function PricingBadge({ endpoint }: Readonly<{ endpoint: ChatSource }>) {
+  const pricing = getPricing(endpoint);
+  if (!pricing) return null;
+  const label = formatPricingBadge(pricing);
+  return (
+    <Badge
+      variant='outline'
+      className='font-inter shrink-0 border-amber-500/40 bg-amber-100 px-1.5 py-0 text-[0.65rem] font-bold text-amber-900 dark:bg-amber-500/15 dark:text-amber-300'
+      title={`Costs ${label} per call to ${pricing.recipient.slice(0, 6)}…`}
+    >
+      {label}
+    </Badge>
+  );
+}
 
 // ============================================================================
 // Main Component
@@ -471,6 +486,7 @@ export function BrowseView({ initialQuery = '' }: Readonly<BrowseViewProperties>
                           <h3 className='font-inter text-foreground group-hover:text-primary flex items-center gap-1.5 text-base font-semibold'>
                             <EndpointTypeIcon type={endpoint.type} />
                             <span className='truncate'>{endpoint.name}</span>
+                            <PricingBadge endpoint={endpoint} />
                           </h3>
                           {endpoint.owner_username && (
                             <p className='font-inter text-muted-foreground mt-0.5 truncate text-xs'>

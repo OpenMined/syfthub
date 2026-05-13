@@ -164,7 +164,7 @@ func (e *Engine) Execute(ctx *SetupContext) error {
 
 		// Write to .env
 		if len(envUpdates) > 0 {
-			if err := mergeEnvFile(ctx.EndpointDir, envUpdates); err != nil {
+			if err := nodeops.MergeEnvFile(filepath.Join(ctx.EndpointDir, ".env"), envUpdates, false); err != nil {
 				return fmt.Errorf("step '%s': failed to write .env: %w", stepID, err)
 			}
 		}

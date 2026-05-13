@@ -6,6 +6,8 @@ import (
 	"errors"
 	"sync"
 	"testing"
+
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
 func TestValidateSlug(t *testing.T) {
@@ -83,18 +85,195 @@ func TestEndpointInfo(t *testing.T) {
 	}
 }
 
+func TestEndpoint_Info_PoliciesPopulated(t *testing.T) {
+	ep := &Endpoint{
+		Slug: "paid-ep",
+		Type: EndpointTypeModel,
+	}
+	ep.SetPolicyConfigs([]nodeops.Policy{
+		{
+			Name: "rate",
+			Type: PolicyTypeRateLimit,
+			Config: map[string]interface{}{
+				"requests_per_minute": 10,
+				"_internal":           "drop me",
+				"signing_key":         "drop me too",
+			},
+		},
+		{
+			Name: "pay",
+			Type: PolicyTypeTransaction,
+			Config: map[string]interface{}{
+				"recipient":       "0xabc",
+				"amount":          "100",
+				"currency":        "USDC",
+				"method":          "tempo",
+				"intent":          "pay-per-call",
+				"chain_id":        "tempo-mainnet",
+				"ttl_seconds":     60,
+				"secret_key_path": "/tmp/secret",
+				"signing_key":     "supersecret",
+			},
+		},
+	})
+
+	info := ep.Info()
+	if len(info.Policies) != 2 {
+		t.Fatalf("expected 2 policies, got %d", len(info.Policies))
+	}
+
+	// First policy: rate_limit — passthrough minus underscore/secret keys.
+	rate := info.Policies[0]
+	if rate["name"] != "rate" || rate["type"] != PolicyTypeRateLimit {
+		t.Errorf("unexpected rate header: %+v", rate)
+	}
+	rateCfg, ok := rate["config"].(map[string]any)
+	if !ok {
+		t.Fatalf("rate config not map: %T", rate["config"])
+	}
+	if _, present := rateCfg["_internal"]; present {
+		t.Error("underscore key should be stripped")
+	}
+	if _, present := rateCfg["signing_key"]; present {
+		t.Error("signing_key should be stripped from non-transaction policy")
+	}
+	if rateCfg["requests_per_minute"] != 10 {
+		t.Errorf("requests_per_minute should pass through: %+v", rateCfg)
+	}
+
+	// Second policy: transaction — strict allow-list, secrets dropped.
+	pay := info.Policies[1]
+	if pay["name"] != "pay" || pay["type"] != PolicyTypeTransaction {
+		t.Errorf("unexpected pay header: %+v", pay)
+	}
+	payCfg, ok := pay["config"].(map[string]any)
+	if !ok {
+		t.Fatalf("pay config not map: %T", pay["config"])
+	}
+	if _, present := payCfg["secret_key_path"]; present {
+		t.Error("secret_key_path must not appear in published transaction config")
+	}
+	if _, present := payCfg["signing_key"]; present {
+		t.Error("signing_key must not appear in published transaction config")
+	}
+	for _, key := range []string{"recipient", "amount", "currency", "method", "intent", "chain_id", "ttl_seconds"} {
+		if _, present := payCfg[key]; !present {
+			t.Errorf("expected key %q to remain in transaction config: %+v", key, payCfg)
+		}
+	}
+}
+
+func TestEndpoint_Info_PoliciesEmpty(t *testing.T) {
+	ep := &Endpoint{Slug: "no-policies", Type: EndpointTypeModel}
+
+	info := ep.Info()
+	if info.Policies != nil {
+		t.Errorf("Policies should be nil when no configs set, got %#v", info.Policies)
+	}
+
+	// Round-trip JSON — `omitempty` should drop the field entirely.
+	b, err := json.Marshal(info)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var generic map[string]any
+	if err := json.Unmarshal(b, &generic); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, present := generic["policies"]; present {
+		t.Errorf("policies field should be omitted from JSON when empty: %s", string(b))
+	}
+}
+
+func TestBuildExecutorInput_PaymentCredential(t *testing.T) {
+	reqCtx := NewRequestContext()
+	reqCtx.User = &UserContext{Username: "alice"}
+	reqCtx.PaymentCredential = "Payment eyJ..."
+
+	input := buildExecutorInput("model", "ep", EndpointTypeModel, reqCtx)
+	if input.PaymentCredential != "Payment eyJ..." {
+		t.Errorf("PaymentCredential = %q, want %q", input.PaymentCredential, "Payment eyJ...")
+	}
+}
+
+func TestSanitizePolicyConfig_RemovesSecrets(t *testing.T) {
+	t.Run("non-transaction policy strips underscore and secret keys", func(t *testing.T) {
+		cfg := map[string]any{
+			"_secret_key":     "drop",
+			"signing_key":     "drop",
+			"secret_key_path": "drop",
+			"api_key":         "drop",
+			"password":        "drop",
+			"auth_token":      "drop",
+			"private_key":     "drop",
+			"recipient":       "0xabc",
+			"amount":          "100",
+		}
+		got := sanitizePolicyConfig(PolicyTypeRateLimit, cfg)
+		want := map[string]any{
+			"recipient": "0xabc",
+			"amount":    "100",
+		}
+		if len(got) != len(want) {
+			t.Fatalf("expected %d keys, got %d (%+v)", len(want), len(got), got)
+		}
+		for k, v := range want {
+			if got[k] != v {
+				t.Errorf("key %q = %v, want %v", k, got[k], v)
+			}
+		}
+	})
+
+	t.Run("transaction policy uses allow-list", func(t *testing.T) {
+		cfg := map[string]any{
+			"recipient":       "0xabc",
+			"amount":          "100",
+			"currency":        "USDC",
+			"method":          "tempo",
+			"intent":          "pay-per-call",
+			"chain_id":        "tempo-mainnet",
+			"ttl_seconds":     60,
+			"secret_key_path": "/tmp/secret",
+			"signing_key":     "drop",
+			"_anything":       "drop",
+			"unknown_field":   "drop",
+		}
+		got := sanitizePolicyConfig(PolicyTypeTransaction, cfg)
+		for _, leak := range []string{"secret_key_path", "signing_key", "_anything", "unknown_field"} {
+			if _, present := got[leak]; present {
+				t.Errorf("transaction config leaked %q", leak)
+			}
+		}
+		for _, want := range []string{"recipient", "amount", "currency", "method", "intent", "chain_id", "ttl_seconds"} {
+			if _, present := got[want]; !present {
+				t.Errorf("transaction config missing %q", want)
+			}
+		}
+	})
+
+	t.Run("nil config returns empty map", func(t *testing.T) {
+		got := sanitizePolicyConfig(PolicyTypeRateLimit, nil)
+		if got == nil || len(got) != 0 {
+			t.Errorf("expected empty map, got %#v", got)
+		}
+	})
+}
+
 func TestEndpointSetExecutor(t *testing.T) {
-	ep := &Endpoint{Slug: "test"}
+	ep := &Endpoint{Slug: "test", Type: EndpointTypeModel}
 
 	if ep.IsFileBased() {
 		t.Error("new endpoint should not be file-based")
 	}
 
 	mockExec := &mockExecutor{}
-	ep.SetExecutor(mockExec)
+	ep.SetHandler(EndpointHandlerConfig{Executor: mockExec})
 
 	if !ep.IsFileBased() {
-		t.Error("endpoint should be file-based after SetExecutor")
+		t.Error("endpoint should be file-based after SetHandler")
+	}
+	if ep.invoker == nil {
+		t.Error("invoker should be set after SetHandler")
 	}
 }
 
@@ -154,14 +333,21 @@ func TestEndpointInvokeDataSource(t *testing.T) {
 	t.Run("calls handler", func(t *testing.T) {
 		handlerCalled := false
 		ep := &Endpoint{
-			Slug: "ds-ep",
-			Type: EndpointTypeDataSource,
-			dataSourceHandler: func(ctx context.Context, query string, reqCtx *RequestContext) ([]Document, error) {
-				handlerCalled = true
-				if query != "test query" {
-					t.Errorf("query = %q, want %q", query, "test query")
-				}
-				return []Document{{DocumentID: "1", Content: "result"}}, nil
+			Slug:    "ds-ep",
+			Type:    EndpointTypeDataSource,
+			Enabled: true,
+			invoker: &UnifiedInvoker{
+				codec:  DataSourceCodec{},
+				slug:   "ds-ep",
+				epType: EndpointTypeDataSource,
+				handler: func(ctx context.Context, input any, reqCtx *RequestContext) (any, error) {
+					handlerCalled = true
+					query := input.(string)
+					if query != "test query" {
+						t.Errorf("query = %q, want %q", query, "test query")
+					}
+					return []Document{{DocumentID: "1", Content: "result"}}, nil
+				},
 			},
 		}
 
@@ -183,18 +369,23 @@ func TestEndpointInvokeDataSource(t *testing.T) {
 			Slug:        "ds-ep",
 			Type:        EndpointTypeDataSource,
 			isFileBased: true,
-			executor: &mockExecutor{
-				executeFunc: func(ctx context.Context, input *ExecutorInput) (*ExecutorOutput, error) {
-					if input.Type != "data_source" {
-						t.Errorf("input.Type = %q", input.Type)
-					}
-					if input.Query != "test query" {
-						t.Errorf("input.Query = %q", input.Query)
-					}
-					return &ExecutorOutput{
-						Success: true,
-						Result:  json.RawMessage(docsJSON),
-					}, nil
+			invoker: &UnifiedInvoker{
+				codec:  DataSourceCodec{},
+				slug:   "ds-ep",
+				epType: EndpointTypeDataSource,
+				executor: &mockExecutor{
+					executeFunc: func(ctx context.Context, input *ExecutorInput) (*ExecutorOutput, error) {
+						if input.Type != "data_source" {
+							t.Errorf("input.Type = %q", input.Type)
+						}
+						if input.Query != "test query" {
+							t.Errorf("input.Query = %q", input.Query)
+						}
+						return &ExecutorOutput{
+							Success: true,
+							Result:  json.RawMessage(docsJSON),
+						}, nil
+					},
 				},
 			},
 		}
@@ -213,9 +404,14 @@ func TestEndpointInvokeDataSource(t *testing.T) {
 			Slug:        "ds-ep",
 			Type:        EndpointTypeDataSource,
 			isFileBased: true,
-			executor: &mockExecutor{
-				executeFunc: func(ctx context.Context, input *ExecutorInput) (*ExecutorOutput, error) {
-					return nil, errors.New("subprocess failed")
+			invoker: &UnifiedInvoker{
+				codec:  DataSourceCodec{},
+				slug:   "ds-ep",
+				epType: EndpointTypeDataSource,
+				executor: &mockExecutor{
+					executeFunc: func(ctx context.Context, input *ExecutorInput) (*ExecutorOutput, error) {
+						return nil, errors.New("subprocess failed")
+					},
 				},
 			},
 		}
@@ -231,13 +427,18 @@ func TestEndpointInvokeDataSource(t *testing.T) {
 			Slug:        "ds-ep",
 			Type:        EndpointTypeDataSource,
 			isFileBased: true,
-			executor: &mockExecutor{
-				executeFunc: func(ctx context.Context, input *ExecutorInput) (*ExecutorOutput, error) {
-					return &ExecutorOutput{
-						Success:   false,
-						Error:     "handler crashed",
-						ErrorType: "RuntimeError",
-					}, nil
+			invoker: &UnifiedInvoker{
+				codec:  DataSourceCodec{},
+				slug:   "ds-ep",
+				epType: EndpointTypeDataSource,
+				executor: &mockExecutor{
+					executeFunc: func(ctx context.Context, input *ExecutorInput) (*ExecutorOutput, error) {
+						return &ExecutorOutput{
+							Success:   false,
+							Error:     "handler crashed",
+							ErrorType: "RuntimeError",
+						}, nil
+					},
 				},
 			},
 		}
@@ -260,22 +461,27 @@ func TestEndpointInvokeDataSource(t *testing.T) {
 			Slug:        "ds-ep",
 			Type:        EndpointTypeDataSource,
 			isFileBased: true,
-			executor: &mockExecutor{
-				executeFunc: func(ctx context.Context, input *ExecutorInput) (*ExecutorOutput, error) {
-					if input.Context == nil {
-						t.Error("Context should not be nil")
-					}
-					if input.Context.UserID != "testuser" {
-						t.Errorf("UserID = %q", input.Context.UserID)
-					}
-					docsJSON, _ := json.Marshal([]Document{})
-					return &ExecutorOutput{
-						Success: true,
-						Result:  json.RawMessage(docsJSON),
-						PolicyResult: &PolicyResultOutput{
-							Allowed: true,
-						},
-					}, nil
+			invoker: &UnifiedInvoker{
+				codec:  DataSourceCodec{},
+				slug:   "ds-ep",
+				epType: EndpointTypeDataSource,
+				executor: &mockExecutor{
+					executeFunc: func(ctx context.Context, input *ExecutorInput) (*ExecutorOutput, error) {
+						if input.Context == nil {
+							t.Error("Context should not be nil")
+						}
+						if input.Context.UserID != "testuser" {
+							t.Errorf("UserID = %q", input.Context.UserID)
+						}
+						docsJSON, _ := json.Marshal([]Document{})
+						return &ExecutorOutput{
+							Success: true,
+							Result:  json.RawMessage(docsJSON),
+							PolicyResult: &PolicyResultOutput{
+								Allowed: true,
+							},
+						}, nil
+					},
 				},
 			},
 		}
@@ -322,11 +528,17 @@ func TestEndpointInvokeModel(t *testing.T) {
 		ep := &Endpoint{
 			Slug: "model-ep",
 			Type: EndpointTypeModel,
-			modelHandler: func(ctx context.Context, messages []Message, reqCtx *RequestContext) (string, error) {
-				if len(messages) != 1 || messages[0].Content != "Hello" {
-					t.Errorf("unexpected messages: %+v", messages)
-				}
-				return "Hi there!", nil
+			invoker: &UnifiedInvoker{
+				codec:  ModelCodec{},
+				slug:   "model-ep",
+				epType: EndpointTypeModel,
+				handler: func(ctx context.Context, input any, reqCtx *RequestContext) (any, error) {
+					messages := input.([]Message)
+					if len(messages) != 1 || messages[0].Content != "Hello" {
+						t.Errorf("unexpected messages: %+v", messages)
+					}
+					return "Hi there!", nil
+				},
 			},
 		}
 
@@ -345,18 +557,23 @@ func TestEndpointInvokeModel(t *testing.T) {
 			Slug:        "model-ep",
 			Type:        EndpointTypeModel,
 			isFileBased: true,
-			executor: &mockExecutor{
-				executeFunc: func(ctx context.Context, input *ExecutorInput) (*ExecutorOutput, error) {
-					if input.Type != "model" {
-						t.Errorf("input.Type = %q", input.Type)
-					}
-					if len(input.Messages) != 1 {
-						t.Errorf("expected 1 message, got %d", len(input.Messages))
-					}
-					return &ExecutorOutput{
-						Success: true,
-						Result:  json.RawMessage(resultJSON),
-					}, nil
+			invoker: &UnifiedInvoker{
+				codec:  ModelCodec{},
+				slug:   "model-ep",
+				epType: EndpointTypeModel,
+				executor: &mockExecutor{
+					executeFunc: func(ctx context.Context, input *ExecutorInput) (*ExecutorOutput, error) {
+						if input.Type != "model" {
+							t.Errorf("input.Type = %q", input.Type)
+						}
+						if len(input.Messages) != 1 {
+							t.Errorf("expected 1 message, got %d", len(input.Messages))
+						}
+						return &ExecutorOutput{
+							Success: true,
+							Result:  json.RawMessage(resultJSON),
+						}, nil
+					},
 				},
 			},
 		}
@@ -480,9 +697,13 @@ func TestEndpointRegistry(t *testing.T) {
 		// Add code-based endpoint
 		reg.Register(&Endpoint{Slug: "code-ep", isFileBased: false})
 
-		// Add file-based endpoints
+		// Add file-based endpoints with invokers that own executors
 		mockExec := &mockExecutor{}
-		reg.Register(&Endpoint{Slug: "file-ep1", isFileBased: true, executor: mockExec})
+		reg.Register(&Endpoint{
+			Slug:        "file-ep1",
+			isFileBased: true,
+			invoker:     &UnifiedInvoker{codec: ModelCodec{}, slug: "file-ep1", epType: EndpointTypeModel, executor: mockExec},
+		})
 		reg.Register(&Endpoint{Slug: "file-ep2", isFileBased: true})
 
 		// Replace file-based
@@ -510,26 +731,30 @@ func TestEndpointRegistry(t *testing.T) {
 			t.Error("new file-based endpoint should exist")
 		}
 
-		// Executor should be closed
+		// Executor should be closed (via invoker.Close())
 		if !mockExec.closed {
 			t.Error("old executor should be closed")
 		}
 	})
 
-	t.Run("ReplaceFileBased preserves reused executors", func(t *testing.T) {
+	t.Run("ReplaceFileBased preserves reused invokers", func(t *testing.T) {
 		reg := NewEndpointRegistry()
 
 		// Simulate selective reload: two endpoints where only one is recreated.
 		sharedExec := &mockExecutor{} // executor reused by unchanged endpoint
 		staleExec := &mockExecutor{}  // executor replaced during reload
 
-		reg.Register(&Endpoint{Slug: "unchanged-ep", isFileBased: true, executor: sharedExec})
-		reg.Register(&Endpoint{Slug: "changed-ep", isFileBased: true, executor: staleExec})
+		sharedInvoker := &UnifiedInvoker{codec: ModelCodec{}, slug: "unchanged-ep", epType: EndpointTypeModel, executor: sharedExec}
+		staleInvoker := &UnifiedInvoker{codec: ModelCodec{}, slug: "changed-ep", epType: EndpointTypeModel, executor: staleExec}
+
+		reg.Register(&Endpoint{Slug: "unchanged-ep", isFileBased: true, invoker: sharedInvoker})
+		reg.Register(&Endpoint{Slug: "changed-ep", isFileBased: true, invoker: staleInvoker})
 
 		newExec := &mockExecutor{} // fresh executor for the changed endpoint
+		newInvoker := &UnifiedInvoker{codec: ModelCodec{}, slug: "changed-ep", epType: EndpointTypeModel, executor: newExec}
 		reg.ReplaceFileBased([]*Endpoint{
-			{Slug: "unchanged-ep", executor: sharedExec}, // same instance reused
-			{Slug: "changed-ep", executor: newExec},      // new instance
+			{Slug: "unchanged-ep", invoker: sharedInvoker}, // same invoker reused
+			{Slug: "changed-ep", invoker: newInvoker},      // new invoker
 		})
 
 		// Reused executor must NOT be closed
@@ -556,19 +781,23 @@ func TestEndpointRegistry(t *testing.T) {
 		}
 	})
 
-	t.Run("ReplaceFileBased preserves reused policy executors", func(t *testing.T) {
+	t.Run("ReplaceFileBased preserves reused agent policy invokers", func(t *testing.T) {
 		reg := NewEndpointRegistry()
 
 		sharedPolicyExec := &mockExecutor{}
 		stalePolicyExec := &mockExecutor{}
 
-		reg.Register(&Endpoint{Slug: "agent1", isFileBased: true, policyExecutor: sharedPolicyExec})
-		reg.Register(&Endpoint{Slug: "agent2", isFileBased: true, policyExecutor: stalePolicyExec})
+		sharedInvoker := &AgentOneShotInvoker{slug: "agent1", policyExecutor: sharedPolicyExec}
+		staleInvoker := &AgentOneShotInvoker{slug: "agent2", policyExecutor: stalePolicyExec}
+
+		reg.Register(&Endpoint{Slug: "agent1", isFileBased: true, invoker: sharedInvoker})
+		reg.Register(&Endpoint{Slug: "agent2", isFileBased: true, invoker: staleInvoker})
 
 		newPolicyExec := &mockExecutor{}
+		newInvoker := &AgentOneShotInvoker{slug: "agent2", policyExecutor: newPolicyExec}
 		reg.ReplaceFileBased([]*Endpoint{
-			{Slug: "agent1", policyExecutor: sharedPolicyExec},
-			{Slug: "agent2", policyExecutor: newPolicyExec},
+			{Slug: "agent1", invoker: sharedInvoker},
+			{Slug: "agent2", invoker: newInvoker},
 		})
 
 		if sharedPolicyExec.closed {

@@ -17,6 +17,10 @@ class Session:
     messages: list
     config: dict
     handler: object  # callable
+    # Container-local directory where inbound attachments are materialized
+    # and outbound attachments may be written. Defaults to an empty string
+    # when attachments are not enabled for this session.
+    attachments_dir: str = ""
 
     # Internal state
     event_queue: queue.Queue = field(
@@ -24,6 +28,9 @@ class Session:
     )
     message_queue: queue.Queue = field(
         default_factory=lambda: queue.Queue(maxsize=100)
+    )
+    attachment_queue: queue.Queue = field(
+        default_factory=lambda: queue.Queue(maxsize=32)
     )
     _thread: Optional[threading.Thread] = field(default=None, repr=False)
     _cancel_event: threading.Event = field(
@@ -80,6 +87,17 @@ class Session:
             )
             return False
 
+    def deliver_attachment(self, attachment: dict):
+        """Non-blocking put on the attachment queue (see attachments protocol)."""
+        try:
+            self.attachment_queue.put_nowait(attachment)
+            return True
+        except queue.Full:
+            logger.warning(
+                "Attachment queue full for session %s", self.id
+            )
+            return False
+
     def cancel(self):
         """Set cancel event; handler should check periodically."""
         self._cancel_event.set()
@@ -113,44 +131,128 @@ class Session:
 
 class SessionAPI:
     """API object passed to agent handlers for sending events and
-    receiving messages."""
+    receiving messages.
+
+    This mirrors the filemode AgentSession interface so that the same
+    runner.py handler works in both subprocess and container mode.
+    """
 
     def __init__(self, session: Session):
         self._session = session
+        self._tc_counter = 0
+        # Expose session data (mirrors filemode AgentSession attributes).
+        self.id = session.id
+        self.prompt = session.prompt
+        self.messages = session.messages
+        self.config = session.config
+        self.attachments_dir = session.attachments_dir
 
-    def send_thinking(self, content: str):
+    def send_message(self, content: str):
+        """Send a complete message to the user."""
         self._session.send_event(
-            "agent.thinking", {"content": content}
+            "agent.message", {"content": content, "is_complete": True}
         )
 
-    def send_tool_call(
-        self, tool_call_id: str, tool_name: str, arguments: dict
-    ):
+    def send_thinking(self, content: str):
+        """Send thinking/reasoning content."""
+        self._session.send_event(
+            "agent.thinking", {"content": content, "is_streaming": False}
+        )
+
+    def send_status(self, status: str, detail: str = ""):
+        """Send a status update."""
+        self._session.send_event(
+            "agent.status", {"status": status, "detail": detail}
+        )
+
+    def send_tool_call(self, tool_name: str, arguments: dict,
+                       tool_call_id: str = None, description: str = "",
+                       requires_confirmation: bool = False):
+        """Send a tool call event."""
+        if tool_call_id is None:
+            self._tc_counter += 1
+            tool_call_id = f"tc-{self._tc_counter}"
         self._session.send_event(
             "agent.tool_call",
             {
                 "tool_call_id": tool_call_id,
                 "tool_name": tool_name,
                 "arguments": arguments,
+                "description": description,
+                "requires_confirmation": requires_confirmation,
             },
         )
 
-    def send_tool_result(self, tool_call_id: str, result: Any):
+    def send_tool_result(self, tool_call_id: str, status: str = "success",
+                         result: Any = None, error: Any = None,
+                         duration_ms: int = 0):
+        """Send a tool result event."""
         self._session.send_event(
             "agent.tool_result",
-            {"tool_call_id": tool_call_id, "result": result},
+            {
+                "tool_call_id": tool_call_id,
+                "status": status,
+                "result": result,
+                "error": error,
+                "duration_ms": duration_ms,
+            },
         )
 
-    def send_message(self, content: str):
+    def send_token(self, token: str):
+        """Send a streaming token."""
         self._session.send_event(
-            "agent.message", {"content": content}
+            "agent.token", {"token": token}
         )
 
-    def request_input(self, prompt: str = ""):
-        """Signal that the agent is waiting for user input."""
+    def send_attachment(self, path, mime: str = None, name: str = None):
+        """Send a file attachment to the user (inline tier).
+
+        Reads the file from disk and emits an agent.attachment event with the
+        file's bytes embedded as inline_data_b64.
+        """
+        import base64
+        import hashlib
+        import os
+        path_str = os.fspath(path)
+        if not os.path.isfile(path_str):
+            raise FileNotFoundError(path_str)
+        with open(path_str, "rb") as f:
+            data = f.read()
+        sha = hashlib.sha256(data).hexdigest()
+        file_id = "att-" + uuid.uuid4().hex
         self._session.send_event(
-            "agent.request_input", {"prompt": prompt}
+            "agent.attachment",
+            {
+                "file_id": file_id,
+                "name": name or os.path.basename(path_str),
+                "mime": mime or "application/octet-stream",
+                "size_bytes": len(data),
+                "plaintext_sha256": sha,
+                "transport": "inline",
+                "inline_data_b64": base64.b64encode(data).decode("ascii"),
+            },
         )
+        return file_id
+
+    def receive_attachment(self, timeout: float = None) -> Optional[dict]:
+        """Block until an inbound attachment arrives, or return None on timeout."""
+        if self._session._cancel_event.is_set():
+            raise InterruptedError("Session cancelled")
+        try:
+            return self._session.attachment_queue.get(timeout=timeout)
+        except queue.Empty:
+            return None
+
+    def receive(self) -> Optional[dict]:
+        """Block until a user message arrives. Returns dict with message content."""
+        if self._session._cancel_event.is_set():
+            raise InterruptedError("Session cancelled")
+        msg = self._session.receive_message()
+        if msg is None:
+            raise InterruptedError("Session cancelled")
+        if msg.get("type") == "cancel":
+            raise KeyboardInterrupt("Session cancelled by user")
+        return msg.get("message", msg)
 
     def receive_message(self, timeout: float = None) -> Optional[dict]:
         """Block until a user message arrives or timeout."""
@@ -160,6 +262,25 @@ class SessionAPI:
             return self._session.message_queue.get(timeout=timeout)
         except queue.Empty:
             return None
+
+    def request_input(self, prompt: str = ""):
+        """Ask the user for input and wait for their response."""
+        self._session.send_event(
+            "agent.request_input", {"prompt": prompt}
+        )
+        return self.receive()
+
+    def request_confirmation(self, action: str, arguments: dict = None,
+                             description: str = ""):
+        """Ask user to confirm an action. Returns True if confirmed."""
+        self.send_tool_call(
+            tool_name=action,
+            arguments=arguments or {},
+            description=description,
+            requires_confirmation=True,
+        )
+        response = self.receive()
+        return response.get("type") == "user_confirm"
 
     @property
     def cancelled(self) -> bool:
@@ -175,7 +296,12 @@ class SessionManager:
         self._lock = threading.Lock()
 
     def start_session(
-        self, session_id: str, prompt: str, messages: list, config: dict
+        self,
+        session_id: str,
+        prompt: str,
+        messages: list,
+        config: dict,
+        attachments_dir: str = "",
     ) -> Session:
         """Create and start a new session."""
         session = Session(
@@ -184,12 +310,20 @@ class SessionManager:
             messages=messages,
             config=config,
             handler=self.handler,
+            attachments_dir=attachments_dir,
         )
         with self._lock:
             self._sessions[session_id] = session
         session.start()
         logger.info("Started session %s", session_id)
         return session
+
+    def deliver_attachment(self, session_id: str, attachment: dict) -> bool:
+        """Deliver an inbound attachment to a session."""
+        session = self.get_session(session_id)
+        if session is None:
+            return False
+        return session.deliver_attachment(attachment)
 
     def get_session(self, session_id: str) -> Optional[Session]:
         """Get a session by ID."""

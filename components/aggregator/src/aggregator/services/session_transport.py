@@ -7,8 +7,10 @@ to spaces via NATS and receiving encrypted agent events back.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
+import secrets
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any, Protocol
@@ -20,6 +22,7 @@ from aggregator.clients.nats_transport import (
     TUNNEL_PROTOCOL_VERSION,
     NATSTransport,
 )
+from aggregator.schemas.agent import ATTACHMENT_CAPABILITY
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +76,17 @@ class NATSSessionTransport:
         # Must NOT be overwritten by subsequent send_to_space calls.
         self._session_ephemeral_priv: X25519PrivateKey | None = None
 
+        # 32-byte AES key the aggregator generates per session for wrapping
+        # per-file content keys. Transmitted to the HOST inside the encrypted
+        # session_start payload; the HTTP relay reads it via the property
+        # below. See docs/architecture/attachments.md.
+        self._session_attachment_key: bytes = secrets.token_bytes(32)
+
+    @property
+    def session_attachment_key(self) -> bytes:
+        """Return the per-session 32-byte AES key used to wrap file KEKs."""
+        return self._session_attachment_key
+
     async def start_session(self, payload: dict[str, Any]) -> None:
         """Send agent_session_start to the space and subscribe for responses.
 
@@ -92,6 +106,15 @@ class NATSSessionTransport:
             extra={"peer_channel": self._peer_channel, "session_id": self._session_id},
         )
 
+        # HOST + aggregator derive the same per-file KEK from this shared key.
+        if ATTACHMENT_CAPABILITY in payload.get("capabilities", []):
+            payload = {
+                **payload,
+                "session_attachment_key": base64.b64encode(self._session_attachment_key).decode(
+                    "ascii"
+                ),
+            }
+
         # Build and send the session start message
         await self._publish_to_space(
             msg_type="agent_session_start",
@@ -104,6 +127,7 @@ class NATSSessionTransport:
         "user.confirm": "agent_user_message",
         "user.deny": "agent_user_message",
         "user.cancel": "agent_session_cancel",
+        "user.attachment": "agent_user_attachment",
     }
 
     async def send_to_space(self, message: dict[str, Any]) -> None:
@@ -125,6 +149,13 @@ class NATSSessionTransport:
             }
         elif msg_type == "agent_session_cancel":
             nats_payload = {"session_id": self._session_id}
+        elif msg_type == "agent_user_attachment":
+            # ws_payload is expected to already be an AttachmentInfo dict.
+            # See docs/architecture/attachments.md.
+            nats_payload = {
+                "session_id": self._session_id,
+                "attachment": ws_payload,
+            }
         else:
             nats_payload = message
 

@@ -54,6 +54,11 @@ class Policy(BaseModel):
     type: str = Field(
         ..., min_length=1, max_length=100, description="Policy type identifier"
     )
+    name: Optional[str] = Field(
+        default=None,
+        max_length=100,
+        description="Optional human-readable policy name (e.g. 'paid-access')",
+    )
     version: str = Field(
         default="1.0", pattern=r"^\d+\.\d+$", description="Policy version"
     )
@@ -415,6 +420,10 @@ class Endpoint(BaseModel):
     tags: List[str] = Field(..., description="List of tags for categorization")
     policies: List[Policy] = Field(..., description="List of policies")
     connect: List[Connection] = Field(..., description="List of connection methods")
+    payment_required: bool = Field(
+        default=False,
+        description="True iff any registered policy requires payment (e.g. transaction or xendit)",
+    )
 
     # Server-managed fields
     id: int = Field(..., description="Endpoint's unique identifier")
@@ -483,6 +492,10 @@ class EndpointResponse(BaseModel):
     connect: List[Connection] = Field(
         ..., description="List of connection methods available for this endpoint"
     )
+    payment_required: bool = Field(
+        default=False,
+        description="True iff any registered policy requires payment (e.g. transaction or xendit)",
+    )
     created_at: datetime = Field(..., description="When the endpoint was created")
     updated_at: datetime = Field(..., description="When the endpoint was last updated")
 
@@ -524,6 +537,10 @@ class EndpointPublicResponse(BaseModel):
     )
     connect: List[Connection] = Field(
         ..., description="List of connection methods available for this endpoint"
+    )
+    payment_required: bool = Field(
+        default=False,
+        description="True iff any registered policy requires payment (e.g. transaction or xendit)",
     )
     created_at: datetime = Field(..., description="When the endpoint was created")
     updated_at: datetime = Field(..., description="When the endpoint was last updated")

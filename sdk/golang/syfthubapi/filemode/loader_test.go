@@ -5,10 +5,25 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 )
+
+// envVarsToMap is a test-only helper that converts "KEY=value" strings to a
+// map. Production code uses nodeops.EnvVarsToMap on structured EnvVar slices;
+// the legacy []string form survives here purely to keep the existing test
+// expectations readable.
+func envVarsToMap(vars []string) map[string]string {
+	m := make(map[string]string, len(vars))
+	for _, v := range vars {
+		if idx := strings.Index(v, "="); idx != -1 {
+			m[v[:idx]] = v[idx+1:]
+		}
+	}
+	return m
+}
 
 func TestNewLoader(t *testing.T) {
 	t.Run("with logger", func(t *testing.T) {
@@ -61,7 +76,6 @@ env:
   required: []
   optional: []
 runtime:
-  mode: subprocess
   timeout: 60
   workers: 2
 ---
@@ -176,6 +190,104 @@ type: model
 		}
 		if endpoint.Config.Enabled == nil || !*endpoint.Config.Enabled {
 			t.Error("Enabled should default to true")
+		}
+	})
+
+	t.Run("detects Dockerfile", func(t *testing.T) {
+		endpointDir := filepath.Join(tmpDir, "dockerfile-ep")
+		os.MkdirAll(endpointDir, 0755)
+
+		readme := `---
+name: Docker Endpoint
+type: model
+---
+`
+		os.WriteFile(filepath.Join(endpointDir, "README.md"), []byte(readme), 0644)
+		os.WriteFile(filepath.Join(endpointDir, "runner.py"), []byte("def handler(m, c): return 'ok'"), 0644)
+		os.WriteFile(filepath.Join(endpointDir, "Dockerfile"), []byte("FROM python:3.11-slim\n"), 0644)
+
+		loader := NewLoader(tmpDir, nil)
+		endpoint, err := loader.LoadEndpoint(endpointDir)
+		if err != nil {
+			t.Fatalf("error: %v", err)
+		}
+		if !endpoint.HasDockerfile {
+			t.Error("HasDockerfile should be true")
+		}
+	})
+
+	t.Run("no Dockerfile", func(t *testing.T) {
+		endpointDir := filepath.Join(tmpDir, "no-dockerfile-ep")
+		os.MkdirAll(endpointDir, 0755)
+
+		readme := `---
+name: Plain Endpoint
+type: model
+---
+`
+		os.WriteFile(filepath.Join(endpointDir, "README.md"), []byte(readme), 0644)
+		os.WriteFile(filepath.Join(endpointDir, "runner.py"), []byte("def handler(m, c): return 'ok'"), 0644)
+
+		loader := NewLoader(tmpDir, nil)
+		endpoint, err := loader.LoadEndpoint(endpointDir)
+		if err != nil {
+			t.Fatalf("error: %v", err)
+		}
+		if endpoint.HasDockerfile {
+			t.Error("HasDockerfile should be false")
+		}
+	})
+
+	t.Run("container image from frontmatter", func(t *testing.T) {
+		endpointDir := filepath.Join(tmpDir, "custom-image-ep")
+		os.MkdirAll(endpointDir, 0755)
+
+		readme := `---
+name: Custom Image Endpoint
+type: model
+container:
+  image: myorg/custom-runner:v2
+---
+`
+		os.WriteFile(filepath.Join(endpointDir, "README.md"), []byte(readme), 0644)
+		os.WriteFile(filepath.Join(endpointDir, "runner.py"), []byte("def handler(m, c): return 'ok'"), 0644)
+
+		loader := NewLoader(tmpDir, nil)
+		endpoint, err := loader.LoadEndpoint(endpointDir)
+		if err != nil {
+			t.Fatalf("error: %v", err)
+		}
+		if endpoint.Config.Container.Image != "myorg/custom-runner:v2" {
+			t.Errorf("Container.Image = %q, want %q", endpoint.Config.Container.Image, "myorg/custom-runner:v2")
+		}
+	})
+
+	t.Run("both container image and Dockerfile", func(t *testing.T) {
+		endpointDir := filepath.Join(tmpDir, "both-sources-ep")
+		os.MkdirAll(endpointDir, 0755)
+
+		readme := `---
+name: Both Sources
+type: model
+container:
+  image: myorg/preferred:v1
+---
+`
+		os.WriteFile(filepath.Join(endpointDir, "README.md"), []byte(readme), 0644)
+		os.WriteFile(filepath.Join(endpointDir, "runner.py"), []byte("def handler(m, c): return 'ok'"), 0644)
+		os.WriteFile(filepath.Join(endpointDir, "Dockerfile"), []byte("FROM python:3.11-slim\n"), 0644)
+
+		loader := NewLoader(tmpDir, nil)
+		endpoint, err := loader.LoadEndpoint(endpointDir)
+		if err != nil {
+			t.Fatalf("error: %v", err)
+		}
+		// Both should be detected
+		if !endpoint.HasDockerfile {
+			t.Error("HasDockerfile should be true")
+		}
+		if endpoint.Config.Container.Image != "myorg/preferred:v1" {
+			t.Errorf("Container.Image = %q, want %q", endpoint.Config.Container.Image, "myorg/preferred:v1")
 		}
 	})
 

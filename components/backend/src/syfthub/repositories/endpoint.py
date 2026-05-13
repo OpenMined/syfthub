@@ -14,6 +14,7 @@ from syfthub.models.endpoint import (
     EndpointModel,
     EndpointStarModel,
     EndpointUptimeSampleModel,
+    policies_require_payment,
 )
 from syfthub.models.organization import OrganizationModel
 from syfthub.models.user import UserModel
@@ -84,7 +85,11 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         or SQLAlchemy Row) so it works for both regular and window-function queries.
         """
         transformed_connect = transform_connection_urls(domain, row.connect or [])
-        visible_policies = filter_visible_policies(row.policies or [], viewer_email)
+        all_policies = row.policies or []
+        visible_policies = filter_visible_policies(all_policies, viewer_email)
+        # Use the unfiltered policy list so the badge surfaces consistently
+        # regardless of the viewer's `applied_to` audience filter.
+        payment_required = policies_require_payment(all_policies)
         return EndpointPublicResponse(
             name=row.name,
             slug=row.slug,
@@ -98,6 +103,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             stars_count=row.stars_count,
             policies=visible_policies,
             connect=transformed_connect,
+            payment_required=payment_required,
             created_at=row.created_at,
             updated_at=row.updated_at,
         )

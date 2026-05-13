@@ -2,16 +2,17 @@ package filemode
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/containermode"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
 // noopPolicyHandler is the Python noop handler used by agent endpoints with
@@ -246,10 +247,8 @@ func (p *Provider) LoadEndpoints() ([]*syfthubapi.Endpoint, error) {
 		pythonPath, err := p.embeddedPython.EnsurePython(ctx)
 		if err != nil {
 			p.logger.Error("failed to ensure embedded Python", "error", err)
-			// Fall back to system Python
-		} else {
+		} else if pythonPath != p.pythonPath {
 			p.pythonPath = pythonPath
-			// Update venv manager with embedded Python path
 			p.venvManager, err = NewVenvManager(&VenvConfig{
 				PythonPath: pythonPath,
 				Logger:     p.logger,
@@ -257,6 +256,16 @@ func (p *Provider) LoadEndpoints() ([]*syfthubapi.Endpoint, error) {
 			if err != nil {
 				p.logger.Warn("failed to recreate venv manager with embedded Python", "error", err)
 			}
+		}
+	}
+
+	// Ensure the container image exists before loading endpoints.
+	if p.containerRuntime != nil && p.containerConfig != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+		if err := containermode.EnsureImage(ctx, p.containerRuntime, p.containerConfig.Image, p.logger); err != nil {
+			p.logger.Error("failed to ensure container image", "image", p.containerConfig.Image, "error", err)
+			return nil, fmt.Errorf("container image not available: %w", err)
 		}
 	}
 
@@ -309,13 +318,10 @@ func (p *Provider) LoadEndpoints() ([]*syfthubapi.Endpoint, error) {
 }
 
 // createEndpoint creates an Endpoint from a LoadedEndpoint.
+// Container mode is all-or-nothing: when a container runtime has been injected
+// via SetContainerRuntime, every endpoint runs in a container.
 func (p *Provider) createEndpoint(loaded *LoadedEndpoint) (*syfthubapi.Endpoint, error) {
-	// Check if this endpoint should use container mode
-	mode, err := p.resolveExecutionMode(loaded)
-	if err != nil {
-		return nil, err
-	}
-	if mode == ExecutionModeContainer {
+	if p.containerRuntime != nil && p.containerConfig != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), p.containerConfig.StartTimeout)
 		defer cancel()
 		return p.createContainerEndpoint(ctx, loaded)
@@ -392,124 +398,99 @@ func (p *Provider) createEndpoint(loaded *LoadedEndpoint) (*syfthubapi.Endpoint,
 	}
 
 	endpoint := &syfthubapi.Endpoint{
-		Slug:        loaded.Config.Slug,
-		Name:        loaded.Config.Name,
-		Description: loaded.Config.Description,
-		Type:        ToEndpointType(loaded.Config.Type),
-		Enabled:     enabled,
-		Version:     loaded.Config.Version,
-		Readme:      loaded.ReadmeBody,
+		Slug:               loaded.Config.Slug,
+		Name:               loaded.Config.Name,
+		Description:        loaded.Config.Description,
+		Type:               ToEndpointType(loaded.Config.Type),
+		Enabled:            enabled,
+		Version:            loaded.Config.Version,
+		Readme:             loaded.ReadmeBody,
+		AcceptsAttachments: loaded.Config.AcceptsAttachments,
 	}
 
-	// Agent endpoints use a long-lived subprocess bridge (not one-shot executor)
+	// Build handler config based on endpoint type
+	handlerCfg := syfthubapi.EndpointHandlerConfig{Logger: p.logger}
+
 	if loaded.Config.Type == string(syfthubapi.EndpointTypeAgent) {
-		handler := NewAgentHandler(&AgentHandlerConfig{
+		// Agent endpoints use a long-lived subprocess bridge
+		handlerCfg.AgentHandler = NewAgentHandler(&AgentHandlerConfig{
 			PythonPath: pythonPath,
 			RunnerPath: loaded.RunnerPath,
 			WorkDir:    loaded.Dir,
 			Env:        loaded.EnvVars,
 			Logger:     p.logger,
 		})
-		endpoint.SetAgentHandler(handler)
-		p.logger.Info("[AGENT-SETUP] Agent handler created",
-			"slug", loaded.Config.Slug,
-		)
 
-		// If policies are configured, create a dedicated policy executor.
-		// Agent handlers run as long-lived subprocesses and cannot use the standard
-		// SubprocessExecutor for invocation, but policies still need to be enforced
-		// before the handler starts. A noop handler is used so the policy_manager.runner
-		// only evaluates policies and returns the result.
+		// Create dedicated policy executor if policies are configured
 		if len(loaded.PolicyConfigs) > 0 {
-			// Write the noop handler to a temp directory with a stable name
-			// derived from the slug so hot-reloads reuse the same file.
-			slugHash := fmt.Sprintf("%x", sha256.Sum256([]byte(loaded.Config.Slug)))[:12]
-			noopPath := filepath.Join(os.TempDir(), fmt.Sprintf("syfthub_noop_policy_%s.py", slugHash))
-			if err := os.WriteFile(noopPath, []byte(noopPolicyHandler), 0600); err != nil {
-				p.logger.Error("[AGENT-SETUP] Failed to write policy check handler",
-					"slug", loaded.Config.Slug, "path", noopPath, "error", err)
-				return nil, fmt.Errorf("failed to write policy check handler: %w", err)
-			}
-			p.noopHandlerPaths[loaded.Config.Slug] = noopPath
-
-			policyExec, err := NewSubprocessExecutor(&ExecutorConfig{
-				PythonPath:      pythonPath,
-				RunnerPath:      noopPath,
-				WorkDir:         loaded.Dir,
-				Env:             loaded.EnvVars,
-				Timeout:         10 * time.Second,
-				Logger:          p.logger,
-				PolicyConfigs:   loaded.PolicyConfigs,
-				StoreConfig:     loaded.StoreConfig,
-				UsePolicyRunner: true,
-			})
+			policyExec, err := p.createAgentPolicyExecutor(loaded, pythonPath)
 			if err != nil {
-				p.logger.Error("[AGENT-SETUP] Failed to create policy executor",
-					"slug", loaded.Config.Slug, "error", err)
 				return nil, err
 			}
-
-			endpoint.SetPolicyExecutor(policyExec)
+			handlerCfg.PolicyExecutor = policyExec
 			p.executors[loaded.Config.Slug+".policy"] = policyExec
-
-			p.logger.Info("[AGENT-SETUP] POLICY ENFORCEMENT ENABLED for agent endpoint",
-				"slug", loaded.Config.Slug,
-				"policy_count", len(loaded.PolicyConfigs),
-			)
-		} else {
-			p.logger.Warn("[AGENT-SETUP] NO POLICY ENFORCEMENT for agent endpoint (no policies configured)",
-				"slug", loaded.Config.Slug,
-			)
 		}
-
-		return endpoint, nil
+	} else {
+		// Model/DataSource endpoints use one-shot subprocess executor
+		usePolicyRunner := len(loaded.PolicyConfigs) > 0
+		executor, err := NewSubprocessExecutor(&ExecutorConfig{
+			PythonPath:      pythonPath,
+			RunnerPath:      loaded.RunnerPath,
+			WorkDir:         loaded.Dir,
+			Env:             loaded.EnvVars,
+			Timeout:         time.Duration(loaded.Config.Runtime.Timeout) * time.Second,
+			Logger:          p.logger,
+			PolicyConfigs:   loaded.PolicyConfigs,
+			StoreConfig:     loaded.StoreConfig,
+			UsePolicyRunner: usePolicyRunner,
+		})
+		if err != nil {
+			return nil, err
+		}
+		handlerCfg.Executor = executor
+		p.executors[loaded.Config.Slug] = executor
 	}
 
-	// Model/DataSource endpoints use one-shot subprocess executor
-	usePolicyRunner := len(loaded.PolicyConfigs) > 0
-	p.logger.Info("[POLICY-SETUP] Creating executor",
-		"slug", loaded.Config.Slug,
-		"use_policy_runner", usePolicyRunner,
-		"python_path", pythonPath,
-		"runner_path", loaded.RunnerPath,
-		"timeout", loaded.Config.Runtime.Timeout,
-	)
+	endpoint.SetHandler(handlerCfg)
+	return endpoint, nil
+}
 
-	executor, err := NewSubprocessExecutor(&ExecutorConfig{
+// createAgentPolicyExecutor creates a policy-only executor for agent endpoints.
+// Agents use long-lived subprocesses, so policies are evaluated separately via
+// a noop handler that only runs the policy_manager.runner.
+func (p *Provider) createAgentPolicyExecutor(loaded *LoadedEndpoint, pythonPath string) (syfthubapi.Executor, error) {
+	slugHash := nodeops.HashShort(loaded.Config.Slug)
+	noopPath := filepath.Join(os.TempDir(), fmt.Sprintf("syfthub_noop_policy_%s.py", slugHash))
+	if err := os.WriteFile(noopPath, []byte(noopPolicyHandler), 0600); err != nil {
+		return nil, fmt.Errorf("failed to write policy check handler: %w", err)
+	}
+	p.noopHandlerPaths[loaded.Config.Slug] = noopPath
+
+	return NewSubprocessExecutor(&ExecutorConfig{
 		PythonPath:      pythonPath,
-		RunnerPath:      loaded.RunnerPath,
+		RunnerPath:      noopPath,
 		WorkDir:         loaded.Dir,
 		Env:             loaded.EnvVars,
-		Timeout:         time.Duration(loaded.Config.Runtime.Timeout) * time.Second,
+		Timeout:         10 * time.Second,
 		Logger:          p.logger,
 		PolicyConfigs:   loaded.PolicyConfigs,
 		StoreConfig:     loaded.StoreConfig,
-		UsePolicyRunner: usePolicyRunner,
+		UsePolicyRunner: true,
 	})
-	if err != nil {
-		p.logger.Error("[POLICY-SETUP] Failed to create executor",
-			"slug", loaded.Config.Slug,
-			"error", err,
-		)
-		return nil, err
+}
+
+// ensurePolicyVenv returns the Python interpreter path for host-side policy
+// checks in container mode. It creates (or reuses) a venv that contains only
+// policy_manager — the endpoint's own runtime deps are installed inside the
+// container, so they are not needed here. Falls back to p.pythonPath when no
+// venv manager is available (requires policy_manager already on PATH).
+func (p *Provider) ensurePolicyVenv(loaded *LoadedEndpoint) (string, error) {
+	if p.venvManager == nil {
+		return p.pythonPath, nil
 	}
-
-	p.executors[loaded.Config.Slug] = executor
-
-	if usePolicyRunner {
-		p.logger.Info("[POLICY-SETUP] POLICY ENFORCEMENT ENABLED for endpoint",
-			"slug", loaded.Config.Slug,
-			"policy_count", len(loaded.PolicyConfigs),
-		)
-	} else {
-		p.logger.Warn("[POLICY-SETUP] NO POLICY ENFORCEMENT for endpoint (no policies configured)",
-			"slug", loaded.Config.Slug,
-		)
-	}
-
-	endpoint.SetExecutor(executor)
-
-	return endpoint, nil
+	const policyManagerDep = "git+https://github.com/IonesioJunior/policy-manager.git"
+	// nil extras: endpoint deps run inside the container, not on the host.
+	return p.venvManager.EnsureVenv(loaded.Dir, nil, policyManagerDep)
 }
 
 // handleReload handles file change notifications.
@@ -558,10 +539,12 @@ func (p *Provider) handleReload(affectedDirs []string) {
 		p.mu.Lock()
 		// Close the old executor and noop handler for this slug.
 		p.removeEndpointLocked(slug)
+		p.mu.Unlock()
 
+		// createEndpoint may do slow work (venv setup, container start); run it
+		// outside the lock so concurrent requests are not blocked during reload.
 		endpoint, err := p.createEndpoint(loaded)
 		if err != nil {
-			p.mu.Unlock()
 			p.logger.Warn("failed to recreate endpoint",
 				"slug", slug,
 				"error", err,
@@ -570,6 +553,7 @@ func (p *Provider) handleReload(affectedDirs []string) {
 		}
 
 		// Insert the new endpoint, replacing any existing one with the same slug.
+		p.mu.Lock()
 		replaced := false
 		for i, ep := range p.endpoints {
 			if ep.Slug == slug {
@@ -581,6 +565,33 @@ func (p *Provider) handleReload(affectedDirs []string) {
 		if !replaced {
 			p.endpoints = append(p.endpoints, endpoint)
 		}
+		p.mu.Unlock()
+	}
+
+	// Reconcile p.endpoints against the filesystem — the single source of truth.
+	// After selective reload, some slugs may have been removed from disk but
+	// not from the in-memory slice (e.g. removeEndpointLocked only cleans
+	// executors). A cheap ReadDir pins the list to reality.
+	entries, readErr := os.ReadDir(p.basePath)
+	if readErr != nil {
+		p.logger.Warn("reconcile: failed to read endpoints directory", "path", p.basePath, "error", readErr)
+	} else {
+		diskSlugs := make(map[string]struct{}, len(entries))
+		for _, e := range entries {
+			if e.IsDir() && len(e.Name()) > 0 && e.Name()[0] != '.' {
+				diskSlugs[e.Name()] = struct{}{}
+			}
+		}
+		p.mu.Lock()
+		filtered := make([]*syfthubapi.Endpoint, 0, len(p.endpoints))
+		for _, ep := range p.endpoints {
+			if _, ok := diskSlugs[ep.Slug]; ok {
+				filtered = append(filtered, ep)
+			} else {
+				p.logger.Info("removing stale endpoint not found on disk", "slug", ep.Slug)
+			}
+		}
+		p.endpoints = filtered
 		p.mu.Unlock()
 	}
 
@@ -599,6 +610,14 @@ func (p *Provider) handleReload(affectedDirs []string) {
 // closed (stopping the container) so that the name can be reused on recreate.
 // Subprocess executors are left open — the registry closes stale ones in
 // ReplaceFileBased. Caller must hold p.mu.
+//
+// NOTE: The noop handler file is intentionally NOT deleted here. Between
+// removeEndpointLocked and the subsequent ReplaceFileBased call (which closes
+// the old invoker), the old endpoint stays in the registry. Its SubprocessExecutor
+// still needs the noop file to service in-flight policy checks. Deleting the file
+// here would cause "policy check failed: FileNotFoundError" during the container
+// restart window. Files are cleaned up by cleanupResources (on Stop) and
+// overwritten by createAgentPolicyExecutor on the next reload.
 func (p *Provider) removeEndpointLocked(slug string) {
 	// Close container executors explicitly so the container name is freed for reuse.
 	// Subprocess executors are left open — the registry handles their lifecycle.
@@ -613,12 +632,24 @@ func (p *Provider) removeEndpointLocked(slug string) {
 	}
 	delete(p.executors, slug)
 	delete(p.executors, slug+".policy")
-	if path, ok := p.noopHandlerPaths[slug]; ok {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			p.logger.Warn("failed to remove noop handler", "slug", slug, "error", err)
+	// Keep p.noopHandlerPaths entry intact — see comment above.
+}
+
+// RemoveEndpoint removes a single endpoint by slug from both the executor map
+// and the in-memory endpoint list. Use this for synchronous deletion so the
+// endpoint disappears from Endpoints() immediately, without waiting for the
+// file watcher debounce.
+func (p *Provider) RemoveEndpoint(slug string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.removeEndpointLocked(slug)
+	filtered := make([]*syfthubapi.Endpoint, 0, len(p.endpoints))
+	for _, ep := range p.endpoints {
+		if ep.Slug != slug {
+			filtered = append(filtered, ep)
 		}
-		delete(p.noopHandlerPaths, slug)
 	}
+	p.endpoints = filtered
 }
 
 // Endpoints returns the currently loaded endpoints.
@@ -644,55 +675,61 @@ func (p *Provider) SetContainerRuntime(rt syfthubapi.ContainerRuntime, cfg *syft
 	p.instanceID = instanceID
 }
 
-// resolveExecutionMode determines whether an endpoint should use subprocess or container mode.
-// Returns the mode string or an error if the endpoint requires container mode but no runtime is available.
-func (p *Provider) resolveExecutionMode(loaded *LoadedEndpoint) (string, error) {
-	// Per-endpoint explicit mode takes priority
-	if loaded.Config.Runtime.Mode == ExecutionModeContainer {
-		if p.containerRuntime == nil {
-			return "", fmt.Errorf(
-				"endpoint %q requires container mode (runtime.mode: container) "+
-					"but no container runtime is available — "+
-					"restart the node with --container flag: syft node init --container --force",
-				loaded.Config.Slug,
-			)
-		}
-		return ExecutionModeContainer, nil
-	}
-	if loaded.Config.Runtime.Mode == ExecutionModeSubprocess {
-		return ExecutionModeSubprocess, nil
-	}
-	// No explicit mode — use global default
-	if p.containerRuntime != nil && p.containerConfig != nil && p.containerConfig.Enabled {
-		return ExecutionModeContainer, nil
-	}
-	return ExecutionModeSubprocess, nil
-}
-
 // createContainerEndpoint creates an endpoint backed by a container executor.
 func (p *Provider) createContainerEndpoint(ctx context.Context, loaded *LoadedEndpoint) (*syfthubapi.Endpoint, error) {
 	p.logger.Info("[CONTAINER-SETUP] Creating container endpoint",
 		"slug", loaded.Config.Slug,
 		"type", loaded.Config.Type,
 		"dir", loaded.Dir,
+		"policy_count", len(loaded.PolicyConfigs),
 	)
 
-	spec := containermode.BuildEndpointSpec(
-		loaded.Config.Slug,
-		loaded.Dir,
-		*p.containerConfig,
-		loaded.Config.Runtime.Container,
-		loaded.EnvVars,
-		p.instanceID,
-	)
-
-	executor, err := containermode.NewContainerExecutor(
+	// Resolve per-endpoint image: frontmatter container.image > Dockerfile > global default.
+	image, err := containermode.ResolveEndpointImage(
 		ctx,
 		p.containerRuntime,
-		spec,
-		p.containerConfig.StartTimeout,
+		loaded.Config.Slug,
+		loaded.Dir,
+		loaded.Config.Container.Image,
+		loaded.HasDockerfile,
+		p.containerConfig.Image,
 		p.logger,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve container image for %s: %w", loaded.Config.Slug, err)
+	}
+
+	spec := containermode.BuildEndpointSpec(containermode.EndpointSpecConfig{
+		Slug:       loaded.Config.Slug,
+		Dir:        loaded.Dir,
+		Global:     *p.containerConfig,
+		EnvVars:    loaded.EnvVars,
+		InstanceID: p.instanceID,
+		Image:      image,
+	})
+
+	// Append per-endpoint host bind mounts declared in README.md frontmatter.
+	for _, m := range loaded.Config.Container.Mounts {
+		source, err := expandMountSource(m.Source)
+		if err != nil {
+			return nil, fmt.Errorf("invalid mount for %s: %w", loaded.Config.Slug, err)
+		}
+		spec.Mounts = append(spec.Mounts, containermode.Mount{
+			Type:     "bind",
+			Source:   source,
+			Target:   m.Target,
+			ReadOnly: m.ReadOnly,
+		})
+	}
+
+	executor, err := containermode.NewContainerExecutor(ctx, &containermode.ContainerExecutorConfig{
+		Runtime:       p.containerRuntime,
+		Spec:          spec,
+		StartTimeout:  p.containerConfig.StartTimeout,
+		Logger:        p.logger,
+		PolicyConfigs: loaded.PolicyConfigs,
+		StoreConfig:   loaded.StoreConfig,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create container executor for %s: %w", loaded.Config.Slug, err)
 	}
@@ -705,25 +742,40 @@ func (p *Provider) createContainerEndpoint(ctx context.Context, loaded *LoadedEn
 	}
 
 	endpoint := &syfthubapi.Endpoint{
-		Slug:        loaded.Config.Slug,
-		Name:        loaded.Config.Name,
-		Description: loaded.Config.Description,
-		Type:        ToEndpointType(loaded.Config.Type),
-		Enabled:     enabled,
-		Version:     loaded.Config.Version,
-		Readme:      loaded.ReadmeBody,
+		Slug:               loaded.Config.Slug,
+		Name:               loaded.Config.Name,
+		Description:        loaded.Config.Description,
+		Type:               ToEndpointType(loaded.Config.Type),
+		Enabled:            enabled,
+		Version:            loaded.Config.Version,
+		Readme:             loaded.ReadmeBody,
+		AcceptsAttachments: loaded.Config.AcceptsAttachments,
 	}
 
-	// Agent endpoints use the container agent handler
+	// Wire via SetHandler — agent uses container agent handler, others use executor.
+	// For agents with policies the policy gate runs on the HOST via a noop
+	// SubprocessExecutor (same mechanism as file mode). policy_manager is not
+	// installed inside the container image; it runs in the endpoint's host-side
+	// venv so the gate executes before the container session is ever started.
+	handlerCfg := syfthubapi.EndpointHandlerConfig{Logger: p.logger}
 	if loaded.Config.Type == string(syfthubapi.EndpointTypeAgent) {
-		handler := containermode.NewContainerAgentHandler(executor, p.logger)
-		endpoint.SetAgentHandler(handler)
-		p.logger.Info("[CONTAINER-SETUP] Agent handler created via container",
-			"slug", loaded.Config.Slug,
-		)
+		handlerCfg.AgentHandler = containermode.NewContainerAgentHandler(executor, p.logger)
+		if len(loaded.PolicyConfigs) > 0 {
+			policyPython, err := p.ensurePolicyVenv(loaded)
+			if err != nil {
+				return nil, fmt.Errorf("failed to set up policy venv for %s: %w", loaded.Config.Slug, err)
+			}
+			policyExec, err := p.createAgentPolicyExecutor(loaded, policyPython)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create policy executor for %s: %w", loaded.Config.Slug, err)
+			}
+			handlerCfg.PolicyExecutor = policyExec
+			p.executors[loaded.Config.Slug+".policy"] = policyExec
+		}
 	} else {
-		endpoint.SetExecutor(executor)
+		handlerCfg.Executor = executor
 	}
+	endpoint.SetHandler(handlerCfg)
 
 	p.logger.Info("[CONTAINER-SETUP] Container endpoint ready",
 		"slug", loaded.Config.Slug,
@@ -731,4 +783,20 @@ func (p *Provider) createContainerEndpoint(ctx context.Context, loaded *LoadedEn
 	)
 
 	return endpoint, nil
+}
+
+// expandMountSource expands ~ and $VAR references in a mount source path.
+// Returns an error if expansion produces an empty or relative path.
+func expandMountSource(source string) (string, error) {
+	if strings.HasPrefix(source, "~/") || source == "~" {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			source = home + source[1:]
+		}
+	}
+	expanded := os.ExpandEnv(source)
+	if expanded == "" {
+		return "", fmt.Errorf("mount source %q expanded to empty string", source)
+	}
+	return expanded, nil
 }

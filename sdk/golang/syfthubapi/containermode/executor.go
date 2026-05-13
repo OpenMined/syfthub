@@ -1,11 +1,9 @@
 package containermode
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -17,20 +15,47 @@ import (
 // ContainerExecutor implements syfthubapi.Executor by delegating to a running container
 // via HTTP. The container runs the Python runner/server.py and exposes /execute.
 type ContainerExecutor struct {
-	runtime     syfthubapi.ContainerRuntime
-	spec        *ContainerSpec
-	containerID string
-	baseURL     string
-	timeout     time.Duration
-	logger      *slog.Logger
-	mu          sync.RWMutex
-	closed      bool
-	httpClient  *http.Client
+	runtime       syfthubapi.ContainerRuntime
+	spec          *ContainerSpec
+	containerID   string
+	baseURL       string
+	timeout       time.Duration
+	logger        *slog.Logger
+	mu            sync.RWMutex
+	closed        bool
+	httpClient    *http.Client
+	policyConfigs []syfthubapi.PolicyConfig
+	storeConfig   *syfthubapi.StoreConfig
 }
+
+// ContainerExecutorConfig holds all configuration for creating a ContainerExecutor.
+type ContainerExecutorConfig struct {
+	Runtime      syfthubapi.ContainerRuntime
+	Spec         *ContainerSpec
+	StartTimeout time.Duration
+	Logger       *slog.Logger
+	// PolicyConfigs contains the policies to enforce on every request.
+	// They are injected into the ExecutorInput sent to the container's /execute endpoint,
+	// which passes them to policy_manager.runner inside the container.
+	PolicyConfigs []syfthubapi.PolicyConfig
+	// StoreConfig is the stateful-policy store configuration from the file loader.
+	// The host path is overridden: the container writes to the dedicated policy-store
+	// volume mounted at /app/.store, not the read-only bind mount.
+	StoreConfig *syfthubapi.StoreConfig
+}
+
+// containerStoreDB is the SQLite path used inside every container.
+// The policy-store Docker volume is always mounted at /app/.store.
+const containerStoreDB = "/app/.store/store.db"
 
 // NewContainerExecutor creates a container from the spec, waits for it to become
 // healthy, and returns an executor ready for use.
-func NewContainerExecutor(ctx context.Context, runtime syfthubapi.ContainerRuntime, spec *ContainerSpec, timeout time.Duration, logger *slog.Logger) (*ContainerExecutor, error) {
+func NewContainerExecutor(ctx context.Context, cfg *ContainerExecutorConfig) (*ContainerExecutor, error) {
+	runtime := cfg.Runtime
+	spec := cfg.Spec
+	timeout := cfg.StartTimeout
+	logger := cfg.Logger
+
 	containerID, err := runtime.Create(ctx, spec)
 	if err != nil {
 		return nil, err
@@ -70,16 +95,19 @@ func NewContainerExecutor(ctx context.Context, runtime syfthubapi.ContainerRunti
 		"container", containerID[:12],
 		"base_url", baseURL,
 		"image", spec.Image,
+		"policy_count", len(cfg.PolicyConfigs),
 	)
 
 	return &ContainerExecutor{
-		runtime:     runtime,
-		spec:        spec,
-		containerID: containerID,
-		baseURL:     baseURL,
-		timeout:     timeout,
-		logger:      logger,
-		httpClient:  &http.Client{Timeout: 30 * time.Second},
+		runtime:       runtime,
+		spec:          spec,
+		containerID:   containerID,
+		baseURL:       baseURL,
+		timeout:       timeout,
+		logger:        logger,
+		httpClient:    &http.Client{Timeout: 30 * time.Second},
+		policyConfigs: cfg.PolicyConfigs,
+		storeConfig:   cfg.StoreConfig,
 	}, nil
 }
 
@@ -94,20 +122,39 @@ func (e *ContainerExecutor) Execute(ctx context.Context, input *syfthubapi.Execu
 	baseURL := e.baseURL
 	e.mu.RUnlock()
 
-	body, err := json.Marshal(input)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal executor input: %w", err)
+	// Inject policies when configured and the caller hasn't already set them.
+	// The host-side policy directory is read-only inside the container, so the
+	// store path is always redirected to the dedicated writable volume at /app/.store.
+	if len(e.policyConfigs) > 0 && len(input.Policies) == 0 {
+		enriched := *input
+		enriched.Policies = e.policyConfigs
+		storeType := "sqlite"
+		if e.storeConfig != nil {
+			storeType = e.storeConfig.Type
+		}
+		enriched.Store = &syfthubapi.StoreConfig{
+			Type: storeType,
+			Path: containerStoreDB,
+		}
+		input = &enriched
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/execute", bytes.NewReader(body))
+	var output syfthubapi.ExecutorOutput
+	err := syfthubapi.DoJSONRequest(ctx, e.httpClient, http.MethodPost, baseURL+"/execute", nil, input, &output)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
+		// On HTTP-level errors the container is reachable; surface the status
+		// code so callers don't have to unwrap. For transport errors, probe
+		// whether the container is still running.
+		var apiErr *syfthubapi.HubAPIError
+		if errors.As(err, &apiErr) {
+			return nil, &syfthubapi.ContainerError{
+				Operation: "execute",
+				Container: e.containerID,
+				Message:   fmt.Sprintf("request failed: HTTP %d", apiErr.StatusCode),
+				Cause:     err,
+			}
+		}
 
-	resp, err := e.httpClient.Do(req)
-	if err != nil {
-		// Check if container is still running
 		info, inspectErr := e.runtime.Inspect(ctx, e.containerID)
 		if inspectErr == nil && !info.Running {
 			return nil, &syfthubapi.ContainerError{
@@ -123,17 +170,6 @@ func (e *ContainerExecutor) Execute(ctx context.Context, input *syfthubapi.Execu
 			Message:   "request failed",
 			Cause:     err,
 		}
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	var output syfthubapi.ExecutorOutput
-	if err := json.Unmarshal(respBody, &output); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w (body: %s)", err, string(respBody[:min(len(respBody), 200)]))
 	}
 
 	return &output, nil
@@ -154,6 +190,9 @@ func (e *ContainerExecutor) Close() error {
 
 	if err := e.runtime.Stop(ctx, e.containerID); err != nil {
 		e.logger.Warn("error stopping container", "id", e.containerID[:12], "error", err)
+	}
+	if err := e.runtime.Remove(ctx, e.containerID); err != nil {
+		e.logger.Warn("error removing container", "id", e.containerID[:12], "error", err)
 	}
 
 	e.logger.Info("container executor closed", "id", e.containerID[:12])
@@ -181,6 +220,7 @@ func (e *ContainerExecutor) Restart(ctx context.Context, timeout time.Duration) 
 	hostPort, err := e.runtime.GetHostPort(ctx, containerID, "8080")
 	if err != nil {
 		_ = e.runtime.Stop(ctx, containerID)
+		_ = e.runtime.Remove(ctx, containerID)
 		return &syfthubapi.ContainerError{
 			Operation: "restart",
 			Container: containerID,
@@ -216,35 +256,26 @@ func (e *ContainerExecutor) BaseURL() string {
 	return e.baseURL
 }
 
+// EndpointSpecConfig groups the parameters needed to build a ContainerSpec for
+// an endpoint. Using a struct avoids silent argument-order mistakes between
+// adjacent string fields (slug/dir, instanceID/image).
+type EndpointSpecConfig struct {
+	Slug       string
+	Dir        string
+	Global     syfthubapi.ContainerConfig
+	EnvVars    []string
+	InstanceID string
+	Image      string
+}
+
 // BuildEndpointSpec creates a hardened ContainerSpec for running an endpoint.
-func BuildEndpointSpec(slug, dir string, globalCfg syfthubapi.ContainerConfig, overrides *ContainerOverrides, envVars []string, instanceID string) *ContainerSpec {
-	image := globalCfg.Image
-	cpus := globalCfg.CPUs
-	memoryMB := globalCfg.MemoryMB
-	network := globalCfg.Network
-	gpu := globalCfg.GPU
-
-	if overrides != nil {
-		if overrides.Image != "" {
-			image = overrides.Image
-		}
-		if overrides.CPUs > 0 {
-			cpus = overrides.CPUs
-		}
-		if overrides.MemoryMB > 0 {
-			memoryMB = overrides.MemoryMB
-		}
-		if overrides.Network != "" {
-			network = overrides.Network
-		}
-		if overrides.GPU != "" {
-			gpu = overrides.GPU
-		}
-	}
-
+// Resource limits (CPU, memory, network, GPU) come from the global ContainerConfig.
+// The image parameter is the resolved image name — either a per-endpoint custom
+// image (from ResolveEndpointImage) or the global default.
+func BuildEndpointSpec(cfg EndpointSpecConfig) *ContainerSpec {
 	spec := &ContainerSpec{
-		Name:  fmt.Sprintf("syfthub-%s-%s", slug, instanceID),
-		Image: image,
+		Name:  fmt.Sprintf("syfthub-%s-%s", cfg.Slug, cfg.InstanceID),
+		Image: cfg.Image,
 		User:  "1000:1000",
 
 		ReadOnlyFS:   true,
@@ -252,28 +283,28 @@ func BuildEndpointSpec(slug, dir string, globalCfg syfthubapi.ContainerConfig, o
 		SecurityOpts: []string{"no-new-privileges"},
 
 		Mounts: []Mount{
-			{Type: "bind", Source: dir, Target: "/app/endpoint", ReadOnly: true},
-			{Type: "volume", Source: fmt.Sprintf("syfthub-%s-pip-cache", slug), Target: "/app/.cache"},
-			{Type: "volume", Source: fmt.Sprintf("syfthub-%s-policy-store", slug), Target: "/app/.store"},
+			{Type: "bind", Source: cfg.Dir, Target: "/app/endpoint", ReadOnly: true},
+			{Type: "volume", Source: fmt.Sprintf("syfthub-%s-pip-cache", cfg.Slug), Target: "/app/.cache"},
+			{Type: "volume", Source: fmt.Sprintf("syfthub-%s-policy-store", cfg.Slug), Target: "/app/.store"},
 		},
 		Tmpfs: []string{"/tmp"},
 
 		Labels: map[string]string{
 			"syfthub.managed":  "true",
-			"syfthub.instance": instanceID,
-			"syfthub.endpoint": slug,
+			"syfthub.instance": cfg.InstanceID,
+			"syfthub.endpoint": cfg.Slug,
 		},
 
 		Ports: []PortMapping{
 			{HostPort: "0", ContainerPort: "8080"},
 		},
 
-		CPUs:     cpus,
-		MemoryMB: memoryMB,
-		Network:  network,
-		GPU:      gpu,
+		CPUs:     cfg.Global.CPUs,
+		MemoryMB: cfg.Global.MemoryMB,
+		Network:  cfg.Global.Network,
+		GPU:      cfg.Global.GPU,
 
-		Env: envVars,
+		Env: cfg.EnvVars,
 	}
 
 	return spec

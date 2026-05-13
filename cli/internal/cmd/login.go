@@ -92,6 +92,7 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	// Store token in config
 	cfg.SetAPIToken(token)
+	cfg.IsConfigured = true
 	if err := cfg.Save(); err != nil {
 		return output.ReplyError(loginJSONOutput, "Failed to save token: %v", err)
 	}

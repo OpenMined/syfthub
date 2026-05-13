@@ -58,7 +58,7 @@ func TestRequestProcessorProcess(t *testing.T) {
 		}))
 		t.Cleanup(authServer.Close)
 
-		authClient := NewAuthClient(authServer.URL, "test-key", NewSlogLogger(logger))
+		authClient := NewHubClient(authServer.URL, "test-key", logger)
 
 		proc := NewRequestProcessor(&ProcessorConfig{
 			Registry:   registry,
@@ -146,10 +146,15 @@ func TestRequestProcessorProcess(t *testing.T) {
 			Name:    "Data Source",
 			Type:    EndpointTypeDataSource,
 			Enabled: true,
-			dataSourceHandler: func(ctx context.Context, query string, reqCtx *RequestContext) ([]Document, error) {
-				return []Document{
-					{DocumentID: "doc1", Content: "content1"},
-				}, nil
+			invoker: &UnifiedInvoker{
+				codec:  DataSourceCodec{},
+				slug:   "ds-ep",
+				epType: EndpointTypeDataSource,
+				handler: func(ctx context.Context, input any, reqCtx *RequestContext) (any, error) {
+					return []Document{
+						{DocumentID: "doc1", Content: "content1"},
+					}, nil
+				},
 			},
 		})
 
@@ -181,8 +186,13 @@ func TestRequestProcessorProcess(t *testing.T) {
 			Name:    "Model",
 			Type:    EndpointTypeModel,
 			Enabled: true,
-			modelHandler: func(ctx context.Context, messages []Message, reqCtx *RequestContext) (string, error) {
-				return "Hello!", nil
+			invoker: &UnifiedInvoker{
+				codec:  ModelCodec{},
+				slug:   "model-ep",
+				epType: EndpointTypeModel,
+				handler: func(ctx context.Context, input any, reqCtx *RequestContext) (any, error) {
+					return "Hello!", nil
+				},
 			},
 		})
 
@@ -222,8 +232,13 @@ func TestRequestProcessorProcess(t *testing.T) {
 			Name:    "Failing",
 			Type:    EndpointTypeModel,
 			Enabled: true,
-			modelHandler: func(ctx context.Context, messages []Message, reqCtx *RequestContext) (string, error) {
-				return "", errors.New("handler crashed")
+			invoker: &UnifiedInvoker{
+				codec:  ModelCodec{},
+				slug:   "failing-ep",
+				epType: EndpointTypeModel,
+				handler: func(ctx context.Context, input any, reqCtx *RequestContext) (any, error) {
+					return "", errors.New("handler crashed")
+				},
 			},
 		})
 
@@ -307,8 +322,13 @@ func TestRequestProcessorProcess(t *testing.T) {
 			Name:    "Logged",
 			Type:    EndpointTypeModel,
 			Enabled: true,
-			modelHandler: func(ctx context.Context, messages []Message, reqCtx *RequestContext) (string, error) {
-				return "response", nil
+			invoker: &UnifiedInvoker{
+				codec:  ModelCodec{},
+				slug:   "logged-ep",
+				epType: EndpointTypeModel,
+				handler: func(ctx context.Context, input any, reqCtx *RequestContext) (any, error) {
+					return "response", nil
+				},
 			},
 		})
 
@@ -369,7 +389,7 @@ func TestRequestProcessorErrorResponse(t *testing.T) {
 	}
 }
 
-func TestEnrichLogWithRequestContent(t *testing.T) {
+func TestEnrichLogFallback(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
 	proc := &RequestProcessor{logger: logger}
@@ -384,7 +404,7 @@ func TestEnrichLogWithRequestContent(t *testing.T) {
 			Payload:  payload,
 		}
 
-		proc.enrichLogWithRequestContent(log, req)
+		proc.enrichLogFallback(log, req)
 
 		if len(log.Request.Messages) != 1 {
 			t.Errorf("Messages length = %d", len(log.Request.Messages))
@@ -399,7 +419,7 @@ func TestEnrichLogWithRequestContent(t *testing.T) {
 			Payload:  payload,
 		}
 
-		proc.enrichLogWithRequestContent(log, req)
+		proc.enrichLogFallback(log, req)
 
 		if log.Request.Query != "test query" {
 			t.Errorf("Query = %q", log.Request.Query)
@@ -414,7 +434,7 @@ func TestEnrichLogWithRequestContent(t *testing.T) {
 		}
 
 		// Should not panic
-		proc.enrichLogWithRequestContent(log, req)
+		proc.enrichLogFallback(log, req)
 	})
 
 	t.Run("invalid json payload", func(t *testing.T) {
@@ -425,7 +445,7 @@ func TestEnrichLogWithRequestContent(t *testing.T) {
 		}
 
 		// Should not panic, just not populate messages
-		proc.enrichLogWithRequestContent(log, req)
+		proc.enrichLogFallback(log, req)
 		if log.Request.Messages != nil {
 			t.Error("Messages should be nil for invalid JSON")
 		}

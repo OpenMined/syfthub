@@ -233,8 +233,8 @@ func TestTimeoutMiddleware(t *testing.T) {
 	t.Run("returns timeout error when exceeded", func(t *testing.T) {
 		mw := TimeoutMiddleware(10 * time.Millisecond)
 		handler := mw(func(ctx context.Context, req *TunnelRequest) (*TunnelResponse, error) {
-			time.Sleep(100 * time.Millisecond)
-			return &TunnelResponse{Status: "success"}, nil
+			<-ctx.Done()
+			return nil, ctx.Err()
 		})
 
 		req := &TunnelRequest{
@@ -271,13 +271,10 @@ func TestTimeoutMiddleware(t *testing.T) {
 		}()
 
 		req := &TunnelRequest{Endpoint: TunnelEndpointInfo{Slug: "test"}}
-		resp, _ := handler(ctx, req)
+		_, err := handler(ctx, req)
 
-		if resp == nil {
-			t.Fatal("response should not be nil")
-		}
-		if resp.Status != "error" {
-			t.Errorf("status = %q", resp.Status)
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("expected context.Canceled, got: %v", err)
 		}
 	})
 }
@@ -400,36 +397,7 @@ func TestGenerateRequestID(t *testing.T) {
 	}
 }
 
-func TestSlogLogger(t *testing.T) {
-	var buf bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	sl := NewSlogLogger(logger)
-
-	sl.Debug("debug message", "key", "value")
-	if !strings.Contains(buf.String(), "debug message") {
-		t.Error("Debug should log")
-	}
-
-	buf.Reset()
-	sl.Info("info message")
-	if !strings.Contains(buf.String(), "info message") {
-		t.Error("Info should log")
-	}
-
-	buf.Reset()
-	sl.Warn("warn message")
-	if !strings.Contains(buf.String(), "warn message") {
-		t.Error("Warn should log")
-	}
-
-	buf.Reset()
-	sl.Error("error message")
-	if !strings.Contains(buf.String(), "error message") {
-		t.Error("Error should log")
-	}
-}
-
-func TestLoggerInterface(t *testing.T) {
-	// Verify SlogLogger implements Logger interface
-	var _ Logger = (*SlogLogger)(nil)
+func TestSlogLoggerSatisfiesInterface(t *testing.T) {
+	// *slog.Logger satisfies Logger directly — no wrapper needed.
+	var _ Logger = slog.Default()
 }

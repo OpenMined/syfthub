@@ -11,26 +11,25 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
-	"github.com/openmined/syfthub/sdk/golang/syfthubapi/containermode"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
-)
-
-// Execution mode constants for RuntimeConfig.Mode.
-const (
-	ExecutionModeSubprocess = "subprocess"
-	ExecutionModeContainer  = "container"
 )
 
 // EndpointConfig represents the configuration from README.md frontmatter.
 type EndpointConfig struct {
-	Slug        string        `yaml:"slug"`
-	Type        string        `yaml:"type"` // "model", "data_source", or "agent"
-	Name        string        `yaml:"name"`
-	Description string        `yaml:"description"`
-	Enabled     *bool         `yaml:"enabled"` // Pointer to detect if set
-	Version     string        `yaml:"version"`
-	Env         EnvConfig     `yaml:"env"`
-	Runtime     RuntimeConfig `yaml:"runtime"`
+	Slug        string                  `yaml:"slug"`
+	Type        string                  `yaml:"type"` // "model", "data_source", or "agent"
+	Name        string                  `yaml:"name"`
+	Description string                  `yaml:"description"`
+	Enabled     *bool                   `yaml:"enabled"` // Pointer to detect if set
+	Version     string                  `yaml:"version"`
+	Env         EnvConfig               `yaml:"env"`
+	Runtime     RuntimeConfig           `yaml:"runtime"`
+	Container   EndpointContainerConfig `yaml:"container"`
+
+	// AcceptsAttachments opts an agent endpoint into receiving file attachments
+	// from the caller. Default false. See docs/architecture/attachments.md.
+	// Only meaningful for agent endpoints.
+	AcceptsAttachments bool `yaml:"accepts_attachments"`
 }
 
 // EnvConfig specifies environment variable requirements.
@@ -40,13 +39,27 @@ type EnvConfig struct {
 	Inherit  []string `yaml:"inherit"`
 }
 
-// RuntimeConfig specifies runtime settings.
+// RuntimeConfig specifies runtime settings for subprocess execution.
 type RuntimeConfig struct {
-	Mode      string                            `yaml:"mode"`                // "subprocess" (default) or "container"
-	Workers   int                               `yaml:"workers"`             // Number of worker processes
-	Timeout   int                               `yaml:"timeout"`             // Execution timeout in seconds
-	Extras    []string                          `yaml:"extras"`              // pip extras groups
-	Container *containermode.ContainerOverrides `yaml:"container,omitempty"` // Per-endpoint container overrides
+	Workers int      `yaml:"workers"` // Number of worker processes
+	Timeout int      `yaml:"timeout"` // Execution timeout in seconds
+	Extras  []string `yaml:"extras"`  // pip extras groups
+}
+
+// EndpointContainerConfig holds per-endpoint container overrides.
+// When specified in the README.md frontmatter under "container:", these
+// values override the global ContainerConfig for this endpoint only.
+type EndpointContainerConfig struct {
+	Image  string           `yaml:"image"`  // Registry image reference (e.g., "myorg/custom-runner:v2")
+	Mounts []ContainerMount `yaml:"mounts"` // Extra bind mounts from host into the container
+}
+
+// ContainerMount declares a host path to bind-mount into the container.
+// Source supports ~ expansion and $VAR substitution.
+type ContainerMount struct {
+	Source   string `yaml:"source"`    // Host path (e.g., "~/.claude/.credentials.json")
+	Target   string `yaml:"target"`    // Container path (e.g., "/home/runner/.claude/.credentials.json")
+	ReadOnly bool   `yaml:"read_only"` // Mount read-only (default: false)
 }
 
 // LoadedEndpoint represents a fully loaded endpoint from the file system.
@@ -58,6 +71,7 @@ type LoadedEndpoint struct {
 	PolicyConfigs []syfthubapi.PolicyConfig
 	StoreConfig   *syfthubapi.StoreConfig
 	ReadmeBody    string // README markdown content (after frontmatter)
+	HasDockerfile bool   // true if Dockerfile exists in endpoint dir
 }
 
 // Loader loads endpoints from the file system.
@@ -67,10 +81,16 @@ type Loader struct {
 }
 
 // NewLoader creates a new endpoint loader.
+// It ensures the base directory exists so that first-run or manual config
+// paths are created eagerly rather than on every LoadAll call.
 func NewLoader(basePath string, logger *slog.Logger) *Loader {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	// Best-effort: create the directory at init time so the first LoadAll
+	// doesn't fail with "no such directory" on a fresh install. Errors
+	// here are non-fatal; LoadAll will surface them when it reads.
+	_ = os.MkdirAll(basePath, 0755)
 	return &Loader{
 		basePath: basePath,
 		logger:   logger,
@@ -168,9 +188,6 @@ func (l *Loader) LoadEndpoint(dir string) (*LoadedEndpoint, error) {
 		enabled := true
 		config.Enabled = &enabled
 	}
-	if config.Runtime.Mode == "" {
-		config.Runtime.Mode = ExecutionModeSubprocess
-	}
 	if config.Runtime.Timeout == 0 {
 		config.Runtime.Timeout = 30
 	}
@@ -208,6 +225,18 @@ func (l *Loader) LoadEndpoint(dir string) (*LoadedEndpoint, error) {
 		l.logger.Warn("failed to load policies", "dir", dir, "error", err)
 	}
 
+	// Detect Dockerfile in endpoint directory for custom container image builds.
+	hasDockerfile := false
+	if _, err := os.Stat(filepath.Join(dir, "Dockerfile")); err == nil {
+		hasDockerfile = true
+	}
+	if config.Container.Image != "" && hasDockerfile {
+		l.logger.Warn("endpoint has both container.image and Dockerfile; using frontmatter image",
+			"slug", config.Slug,
+			"image", config.Container.Image,
+		)
+	}
+
 	return &LoadedEndpoint{
 		Config:        config,
 		Dir:           dir,
@@ -216,6 +245,7 @@ func (l *Loader) LoadEndpoint(dir string) (*LoadedEndpoint, error) {
 		PolicyConfigs: policyConfigs,
 		StoreConfig:   storeConfig,
 		ReadmeBody:    readmeBody,
+		HasDockerfile: hasDockerfile,
 	}, nil
 }
 
@@ -290,8 +320,15 @@ func (l *Loader) loadEnvVars(dir string, envConfig *EnvConfig) ([]string, error)
 		envVars = append(envVars, vars...)
 	}
 
-	// Check required variables
-	envMap := envVarsToMap(envVars)
+	// Check required variables. Convert "KEY=value" strings into structured
+	// EnvVar entries so nodeops.EnvVarsToMap can index them.
+	envVarStructs := make([]nodeops.EnvVar, 0, len(envVars))
+	for _, v := range envVars {
+		if idx := strings.Index(v, "="); idx != -1 {
+			envVarStructs = append(envVarStructs, nodeops.EnvVar{Key: v[:idx], Value: v[idx+1:]})
+		}
+	}
+	envMap := nodeops.EnvVarsToMap(envVarStructs)
 	for _, req := range envConfig.Required {
 		// Check endpoint .env first, then system env
 		if _, ok := envMap[req]; !ok {
@@ -525,18 +562,6 @@ func loadDotEnv(path string) ([]string, error) {
 		result[i] = ev.Key + "=" + ev.Value
 	}
 	return result, nil
-}
-
-// envVarsToMap converts a slice of KEY=value strings to a map.
-func envVarsToMap(vars []string) map[string]string {
-	m := make(map[string]string)
-	for _, v := range vars {
-		idx := strings.Index(v, "=")
-		if idx != -1 {
-			m[v[:idx]] = v[idx+1:]
-		}
-	}
-	return m
 }
 
 // ToEndpointType converts string type to EndpointType.

@@ -10,7 +10,7 @@
  */
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 
-import type { ChatStreamEvent } from '@/lib/sdk-client';
+import type { ChatStreamEvent as SDKChatStreamEvent } from '@/lib/sdk-client';
 import type { ChatSource } from '@/lib/types';
 
 import { useAuth } from '@/context/auth-context';
@@ -22,6 +22,39 @@ import {
   syftClient
 } from '@/lib/sdk-client';
 import { useUserAggregatorsStore } from '@/stores/user-aggregators-store';
+
+// =============================================================================
+// Local stream-event extension: payment_required
+//
+// The aggregator emits `payment_required` SSE events when an endpoint has a
+// transaction policy attached. The official SDK union (`SDKChatStreamEvent`)
+// does not yet model this event — that addition lives in another batch unit.
+// We type it locally and union it in so this hook can dispatch on it.
+// =============================================================================
+
+/**
+ * Fired by the aggregator when an endpoint requires an on-chain payment to
+ * proceed. K events with the same `chatSessionId` may be emitted in parallel
+ * for multi-endpoint chats and should be batched into a single approval UI.
+ */
+export interface PaymentRequiredEvent {
+  type: 'payment_required';
+  chatSessionId: string;
+  endpointSlug: string;
+  /** Raw `WWW-Authenticate: Payment ...` header value (parseable via parseChallenge). */
+  challenge: string;
+  /** Decimal-string amount (e.g. "0.10"). */
+  amount: string;
+  /** ERC-20 token contract address. */
+  currency: `0x${string}`;
+  /** Recipient address for the on-chain transfer. */
+  recipient: `0x${string}`;
+  challengeId: string;
+  /** "charge" | "session" | future variants. */
+  intent: string;
+}
+
+export type ChatStreamEvent = SDKChatStreamEvent | PaymentRequiredEvent;
 
 // =============================================================================
 // Types
@@ -115,7 +148,23 @@ export interface WorkflowResult {
 }
 
 /**
+ * A pending on-chain payment challenge surfaced by a `payment_required`
+ * stream event. Modal consumers batch these and present a single approval.
+ *
+ * Derived from `PaymentRequiredEvent` minus the discriminator + with an
+ * optional resolved owner name for display.
+ */
+export type PaymentChallenge = Omit<PaymentRequiredEvent, 'type'> & {
+  /** Optional owner name for `<owner>/<slug>` display. Resolved separately if available. */
+  ownerName?: string;
+};
+
+/**
  * Internal workflow state managed by the reducer.
+ *
+ * Note: the `payment_required` debounce buffer lives in a hook-local `useRef`
+ * (not in this state) so accumulating in-flight challenges doesn't trigger a
+ * consumer re-render — only the flushed `paymentChallenges` array does.
  */
 export interface WorkflowState {
   phase: WorkflowPhase;
@@ -125,6 +174,11 @@ export interface WorkflowState {
   streamedContent: string;
   aggregatorSources: SourcesData;
   error: string | null;
+  /**
+   * Challenges currently presented to the user via the modal.
+   * Cleared by the consumer (after approval or cancel) via `clearPaymentChallenges`.
+   */
+  paymentChallenges: PaymentChallenge[];
 }
 
 /**
@@ -169,6 +223,10 @@ export interface UseChatWorkflowReturn extends WorkflowState {
   abort: () => void;
   /** Reset the workflow to initial state */
   reset: () => void;
+  /** Resolved aggregator URL the active stream is talking to (for follow-up payment POSTs). */
+  aggregatorUrl: string | undefined;
+  /** Clear the active set of payment challenges (call after approval/cancel). */
+  clearPaymentChallenges: () => void;
 }
 
 // =============================================================================
@@ -182,7 +240,9 @@ export type WorkflowAction =
   | { type: 'UPDATE_CONTENT'; content: string }
   | { type: 'COMPLETE'; sources: SourcesData }
   | { type: 'ERROR'; error: string }
-  | { type: 'RESET' };
+  | { type: 'RESET' }
+  | { type: 'FLUSH_PAYMENT_CHALLENGES'; challenges: PaymentChallenge[] }
+  | { type: 'CLEAR_PAYMENT_CHALLENGES' };
 
 // =============================================================================
 // Initial State
@@ -195,7 +255,8 @@ export const initialState: WorkflowState = {
   processingStatus: null,
   streamedContent: '',
   aggregatorSources: {},
-  error: null
+  error: null,
+  paymentChallenges: []
 };
 
 // =============================================================================
@@ -482,6 +543,28 @@ export function workflowReducer(state: WorkflowState, action: WorkflowAction): W
       return initialState;
     }
 
+    case 'FLUSH_PAYMENT_CHALLENGES': {
+      if (action.challenges.length === 0) return state;
+      // Merge with any already-presented challenges (in case a second batch
+      // arrives while the modal is open from a prior batch). Dedupe by id so
+      // re-emitted challenges don't double up.
+      const seen = new Set(state.paymentChallenges.map((c) => c.challengeId));
+      const merged = [...state.paymentChallenges];
+      for (const c of action.challenges) {
+        if (!seen.has(c.challengeId)) {
+          merged.push(c);
+          seen.add(c.challengeId);
+        }
+      }
+      if (merged.length === state.paymentChallenges.length) return state;
+      return { ...state, paymentChallenges: merged };
+    }
+
+    case 'CLEAR_PAYMENT_CHALLENGES': {
+      if (state.paymentChallenges.length === 0) return state;
+      return { ...state, paymentChallenges: [] };
+    }
+
     default: {
       return state;
     }
@@ -547,6 +630,51 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
   const [state, dispatch] = useReducer(workflowReducer, initialState);
   const abortControllerReference = useRef<AbortController | null>(null);
 
+  // Debounce buffer for `payment_required` events that arrive in close
+  // succession (multi-endpoint chats). Held in refs because in-flight
+  // accumulation must not trigger consumer re-renders — only the flushed
+  // batch (via dispatch) does. 200ms window per the spec.
+  const paymentBufferReference = useRef<PaymentChallenge[]>([]);
+  const paymentFlushTimerReference = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const PAYMENT_FLUSH_DEBOUNCE_MS = 200;
+
+  const bufferPaymentChallenge = useCallback((challenge: PaymentChallenge) => {
+    // Dedupe by id so the aggregator re-emitting the same challenge doesn't
+    // produce two cards in the modal.
+    if (paymentBufferReference.current.some((c) => c.challengeId === challenge.challengeId)) {
+      return;
+    }
+    paymentBufferReference.current.push(challenge);
+    if (paymentFlushTimerReference.current) {
+      clearTimeout(paymentFlushTimerReference.current);
+    }
+    paymentFlushTimerReference.current = setTimeout(() => {
+      paymentFlushTimerReference.current = null;
+      const flushed = paymentBufferReference.current;
+      paymentBufferReference.current = [];
+      dispatch({ type: 'FLUSH_PAYMENT_CHALLENGES', challenges: flushed });
+    }, PAYMENT_FLUSH_DEBOUNCE_MS);
+  }, []);
+
+  // Cancel pending flush timer on unmount.
+  useEffect(() => {
+    return () => {
+      if (paymentFlushTimerReference.current) {
+        clearTimeout(paymentFlushTimerReference.current);
+        paymentFlushTimerReference.current = null;
+      }
+    };
+  }, []);
+
+  const clearPaymentChallenges = useCallback(() => {
+    if (paymentFlushTimerReference.current) {
+      clearTimeout(paymentFlushTimerReference.current);
+      paymentFlushTimerReference.current = null;
+    }
+    paymentBufferReference.current = [];
+    dispatch({ type: 'CLEAR_PAYMENT_CHALLENGES' });
+  }, []);
+
   // Build a sources map for O(1) lookups, including context sources if provided
   const sourcesMap = useMemo(() => {
     const base = dataSourcesById ?? new Map(dataSources.map((source) => [source.id, source]));
@@ -609,7 +737,7 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
 
       try {
         // Execute the stream
-        for await (const event of syftClient.chat.stream({
+        for await (const sdkEvent of syftClient.chat.stream({
           prompt: query,
           model: modelPath,
           dataSources: allDataSourcePaths.length > 0 ? allDataSourcePaths : undefined,
@@ -618,6 +746,29 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
           signal: abortControllerReference.current.signal,
           messages: history && history.length > 0 ? history : undefined
         })) {
+          // The SDK union does not yet include `payment_required` (added by a
+          // separate unit). Until then, the SDK may surface it via its own
+          // forward-compat path. We treat the value as the extended union so
+          // downstream branches can match on it.
+          const event = sdkEvent as ChatStreamEvent;
+
+          // Buffer payment_required events for batched approval. Multiple
+          // endpoints in a single chat can each emit one within ~ms of each
+          // other; the debounce window ensures the modal sees them as one.
+          if (event.type === 'payment_required') {
+            bufferPaymentChallenge({
+              chatSessionId: event.chatSessionId,
+              endpointSlug: event.endpointSlug,
+              challenge: event.challenge,
+              amount: event.amount,
+              currency: event.currency,
+              recipient: event.recipient,
+              challengeId: event.challengeId,
+              intent: event.intent
+            });
+            continue;
+          }
+
           // Update processing status
           dispatch({ type: 'STREAM_EVENT', event });
 
@@ -668,7 +819,16 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
         abortControllerReference.current = null;
       }
     },
-    [model, user, aggregatorUrl, sourcesMap, onComplete, onError, onStreamToken]
+    [
+      model,
+      user,
+      aggregatorUrl,
+      sourcesMap,
+      onComplete,
+      onError,
+      onStreamToken,
+      bufferPaymentChallenge
+    ]
   );
 
   /**
@@ -734,6 +894,8 @@ export function useChatWorkflow(options: UseChatWorkflowOptions): UseChatWorkflo
     ...state,
     submitQuery,
     abort,
-    reset
+    reset,
+    aggregatorUrl,
+    clearPaymentChallenges
   };
 }
