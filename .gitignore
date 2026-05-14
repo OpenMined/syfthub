@@ -19,6 +19,8 @@ CLAUDE.md
 .Python
 build/
 !components/frontend/src/components/build/
+!syfthub-desktop/build/
+!syfthub-desktop/build/appicon.png
 develop-eggs/
 dist/
 downloads/
