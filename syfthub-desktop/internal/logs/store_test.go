@@ -716,3 +716,205 @@ func TestWriteContextCancelled(t *testing.T) {
 func timePtr(t time.Time) *time.Time {
 	return &t
 }
+
+// TestFileLogStoreLiveEntries_RunningSnapshotsStayInMemory verifies that an
+// agent-session "running" snapshot is visible to Query/GetLogByID without
+// hitting disk, and that the terminal write replaces it on disk with exactly
+// one row sharing the same ID.
+func TestFileLogStoreLiveEntries_RunningSnapshotsStayInMemory(t *testing.T) {
+	tempDir := t.TempDir()
+	store, err := NewFileLogStore(tempDir)
+	if err != nil {
+		t.Fatalf("NewFileLogStore error: %v", err)
+	}
+	defer store.Close()
+
+	logID := "session-log-1"
+	slug := "my-agent"
+
+	running := &syfthubapi.RequestLog{
+		ID:           logID,
+		Timestamp:    time.Now(),
+		EndpointSlug: slug,
+		EndpointType: "agent",
+		Status:       syfthubapi.LogStatusRunning,
+		Response:     &syfthubapi.LogResponse{Success: false},
+		Timing:       &syfthubapi.LogTiming{},
+	}
+	if err := store.Write(context.Background(), running); err != nil {
+		t.Fatalf("Write running: %v", err)
+	}
+
+	// Disk must be untouched — the on-disk endpoint dir should not exist yet.
+	if _, err := os.Stat(filepath.Join(tempDir, slug)); !os.IsNotExist(err) {
+		t.Errorf("running snapshot should not create endpoint dir on disk: stat err = %v", err)
+	}
+
+	// Query should surface the running snapshot.
+	res, err := store.Query(context.Background(), slug, nil)
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(res.Logs) != 1 || res.Logs[0].ID != logID || res.Logs[0].Status != syfthubapi.LogStatusRunning {
+		t.Fatalf("Query result = %+v; want one running entry %q", res.Logs, logID)
+	}
+
+	// Stats must NOT count an in-flight session.
+	stats, err := store.GetStats(context.Background(), slug)
+	if err != nil {
+		t.Fatalf("GetStats: %v", err)
+	}
+	if stats.TotalRequests != 0 {
+		t.Errorf("TotalRequests = %d while session is running; want 0", stats.TotalRequests)
+	}
+
+	// GetLogByID should find the live entry.
+	got, err := store.GetLogByID(context.Background(), slug, logID)
+	if err != nil {
+		t.Fatalf("GetLogByID: %v", err)
+	}
+	if got.ID != logID || got.Status != syfthubapi.LogStatusRunning {
+		t.Errorf("GetLogByID returned %+v; want running entry %q", got, logID)
+	}
+
+	// Terminal write: the same ID with a completed status. This must clear the
+	// live entry and persist exactly one row to disk.
+	terminal := &syfthubapi.RequestLog{
+		ID:           logID,
+		Timestamp:    running.Timestamp,
+		EndpointSlug: slug,
+		EndpointType: "agent",
+		Status:       syfthubapi.LogStatusCompleted,
+		Response:     &syfthubapi.LogResponse{Success: true, Content: "all done"},
+		Timing:       &syfthubapi.LogTiming{DurationMs: 42},
+	}
+	if err := store.Write(context.Background(), terminal); err != nil {
+		t.Fatalf("Write terminal: %v", err)
+	}
+
+	// Allow the async writer to drain.
+	deadline := time.Now().Add(2 * time.Second)
+	var afterRes *syfthubapi.LogQueryResult
+	for time.Now().Before(deadline) {
+		afterRes, err = store.Query(context.Background(), slug, nil)
+		if err != nil {
+			t.Fatalf("Query after terminal: %v", err)
+		}
+		if len(afterRes.Logs) == 1 && afterRes.Logs[0].Status == syfthubapi.LogStatusCompleted {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if afterRes == nil || len(afterRes.Logs) != 1 {
+		t.Fatalf("expected exactly one entry after terminal write, got %+v", afterRes)
+	}
+	if afterRes.Logs[0].ID != logID || afterRes.Logs[0].Status != syfthubapi.LogStatusCompleted {
+		t.Errorf("post-terminal entry = %+v; want completed entry %q", afterRes.Logs[0], logID)
+	}
+
+	// Stats must now count the session exactly once.
+	stats, err = store.GetStats(context.Background(), slug)
+	if err != nil {
+		t.Fatalf("GetStats after terminal: %v", err)
+	}
+	if stats.TotalRequests != 1 || stats.SuccessCount != 1 {
+		t.Errorf("stats after terminal = %+v; want one total / one success", stats)
+	}
+}
+
+// TestFileLogStoreLiveEntries_QueryPlacesLiveEntriesAtTop checks that a
+// running snapshot is sorted ahead of older disk entries when Query returns
+// the combined view.
+func TestFileLogStoreLiveEntries_QueryPlacesLiveEntriesAtTop(t *testing.T) {
+	tempDir := t.TempDir()
+	store, err := NewFileLogStore(tempDir)
+	if err != nil {
+		t.Fatalf("NewFileLogStore: %v", err)
+	}
+	defer store.Close()
+
+	slug := "my-agent"
+	older := &syfthubapi.RequestLog{
+		ID:           "old-1",
+		Timestamp:    time.Now().Add(-1 * time.Hour),
+		EndpointSlug: slug,
+		EndpointType: "agent",
+		Status:       syfthubapi.LogStatusCompleted,
+		Response:     &syfthubapi.LogResponse{Success: true},
+		Timing:       &syfthubapi.LogTiming{},
+	}
+	if err := store.Write(context.Background(), older); err != nil {
+		t.Fatalf("Write older: %v", err)
+	}
+	// Drain the async writer.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		res, _ := store.Query(context.Background(), slug, nil)
+		if len(res.Logs) == 1 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	live := &syfthubapi.RequestLog{
+		ID:           "live-1",
+		Timestamp:    time.Now(),
+		EndpointSlug: slug,
+		EndpointType: "agent",
+		Status:       syfthubapi.LogStatusRunning,
+		Response:     &syfthubapi.LogResponse{Success: false},
+		Timing:       &syfthubapi.LogTiming{},
+	}
+	if err := store.Write(context.Background(), live); err != nil {
+		t.Fatalf("Write live: %v", err)
+	}
+
+	res, err := store.Query(context.Background(), slug, nil)
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(res.Logs) != 2 {
+		t.Fatalf("want 2 entries (live + disk), got %d", len(res.Logs))
+	}
+	if res.Logs[0].ID != "live-1" {
+		t.Errorf("Logs[0].ID = %q; want live entry on top", res.Logs[0].ID)
+	}
+	if res.Logs[1].ID != "old-1" {
+		t.Errorf("Logs[1].ID = %q; want disk entry second", res.Logs[1].ID)
+	}
+}
+
+// TestFileLogStoreLiveEntries_DeleteLogsClearsLive ensures DeleteLogs drops
+// in-flight snapshots for the slug it wipes.
+func TestFileLogStoreLiveEntries_DeleteLogsClearsLive(t *testing.T) {
+	tempDir := t.TempDir()
+	store, err := NewFileLogStore(tempDir)
+	if err != nil {
+		t.Fatalf("NewFileLogStore: %v", err)
+	}
+	defer store.Close()
+
+	slug := "my-agent"
+	live := &syfthubapi.RequestLog{
+		ID:           "live-1",
+		Timestamp:    time.Now(),
+		EndpointSlug: slug,
+		EndpointType: "agent",
+		Status:       syfthubapi.LogStatusRunning,
+		Response:     &syfthubapi.LogResponse{},
+		Timing:       &syfthubapi.LogTiming{},
+	}
+	if err := store.Write(context.Background(), live); err != nil {
+		t.Fatalf("Write live: %v", err)
+	}
+	if err := store.DeleteLogs(context.Background(), slug); err != nil {
+		t.Fatalf("DeleteLogs: %v", err)
+	}
+	res, err := store.Query(context.Background(), slug, nil)
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(res.Logs) != 0 {
+		t.Errorf("expected no entries after DeleteLogs, got %+v", res.Logs)
+	}
+}

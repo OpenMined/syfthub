@@ -823,3 +823,52 @@ func TestLogStatsJSONMarshaling(t *testing.T) {
 		t.Errorf("AvgDurationMs = %f", decoded.AvgDurationMs)
 	}
 }
+
+// TestBuildRequestLog_StampsStatus verifies that BuildRequestLog stamps the
+// Status field based on the response status so downstream consumers (desktop
+// log store, frontend) can distinguish completed from failed entries without
+// inferring from Response.Success.
+func TestBuildRequestLog_StampsStatus(t *testing.T) {
+	startTime := time.Now()
+	req := &TunnelRequest{
+		CorrelationID: "corr-status",
+		Endpoint:      TunnelEndpointInfo{Slug: "ep", Type: "model"},
+		Payload:       json.RawMessage(`{}`),
+	}
+
+	t.Run("success → completed", func(t *testing.T) {
+		resp := &TunnelResponse{Status: "success", Payload: json.RawMessage(`{}`)}
+		log := BuildRequestLog(req, nil, resp, nil, startTime)
+		if log.Status != LogStatusCompleted {
+			t.Errorf("Status = %q, want %q", log.Status, LogStatusCompleted)
+		}
+	})
+
+	t.Run("non-success → failed", func(t *testing.T) {
+		resp := &TunnelResponse{
+			Status: "error",
+			Error:  &TunnelError{Code: TunnelErrorCodeInternalError, Message: "boom"},
+		}
+		log := BuildRequestLog(req, nil, resp, nil, startTime)
+		if log.Status != LogStatusFailed {
+			t.Errorf("Status = %q, want %q", log.Status, LogStatusFailed)
+		}
+	})
+}
+
+// TestLogStatusConstants pins the wire values: changing these silently would
+// break the in-memory snapshot path in the desktop log store and the frontend
+// upsert handler.
+func TestLogStatusConstants(t *testing.T) {
+	cases := map[string]string{
+		LogStatusRunning:   "running",
+		LogStatusCompleted: "completed",
+		LogStatusFailed:    "failed",
+		LogStatusCancelled: "cancelled",
+	}
+	for got, want := range cases {
+		if got != want {
+			t.Errorf("status constant = %q, want %q", got, want)
+		}
+	}
+}

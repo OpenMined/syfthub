@@ -46,7 +46,21 @@ type FileLogStore struct {
 	statsCache map[string]*cachedEndpointStats
 	statsMu    sync.RWMutex // Protects statsCache
 	statsReady bool         // True once initial scan is complete
+
+	// liveEntries holds the latest in-flight RequestLog snapshot per ID
+	// (those with Status == LogStatusRunning). Intermediate snapshots are
+	// never persisted to disk — they live here only so Query/GetLogByID can
+	// surface them to the UI while the session runs. The terminal snapshot
+	// for the same ID replaces the file write path and removes the live entry.
+	liveEntries map[string]*syfthubapi.RequestLog
+	liveMu      sync.RWMutex
 }
+
+// maxLiveEntries caps the in-memory live snapshot map so a runaway producer
+// can't grow it unbounded. Above this, the oldest entry by snapshot timestamp
+// is evicted — losing a live preview row is harmless; the terminal snapshot
+// still goes to disk on its own path.
+const maxLiveEntries = 256
 
 // writeJob represents a pending write operation.
 type writeJob struct {
@@ -67,6 +81,7 @@ func NewFileLogStore(basePath string) (*FileLogStore, error) {
 		done:        make(chan struct{}),
 		fileHandles: make(map[string]*os.File),
 		statsCache:  make(map[string]*cachedEndpointStats),
+		liveEntries: make(map[string]*syfthubapi.RequestLog),
 	}
 
 	// Initialize stats cache from existing log files
@@ -150,8 +165,25 @@ func (s *FileLogStore) initStatsCache() {
 	s.statsReady = true
 }
 
-// Write appends a log entry asynchronously.
+// Write appends a log entry asynchronously, or — for in-flight agent-session
+// snapshots (Status == LogStatusRunning) — stores the snapshot in memory so
+// it's visible to Query/GetLogByID without ever touching disk. The terminal
+// snapshot for the same ID clears the live entry and goes through the normal
+// disk/stats path, leaving exactly one row per session on disk.
 func (s *FileLogStore) Write(ctx context.Context, entry *syfthubapi.RequestLog) error {
+	if entry == nil {
+		return nil
+	}
+
+	if entry.Status == syfthubapi.LogStatusRunning {
+		s.upsertLiveEntry(entry)
+		return nil
+	}
+
+	// Terminal (or legacy-blank) status: clear any prior live entry for this
+	// ID, then enqueue the canonical disk write.
+	s.deleteLiveEntry(entry.ID)
+
 	select {
 	case s.writeCh <- writeJob{slug: entry.EndpointSlug, entry: entry}:
 		return nil
@@ -160,6 +192,61 @@ func (s *FileLogStore) Write(ctx context.Context, entry *syfthubapi.RequestLog) 
 	case <-s.done:
 		return fmt.Errorf("log store is closed")
 	}
+}
+
+// upsertLiveEntry replaces (or inserts) the live snapshot for entry.ID. When
+// the map exceeds maxLiveEntries, the oldest entry by snapshot timestamp is
+// evicted to keep memory bounded.
+func (s *FileLogStore) upsertLiveEntry(entry *syfthubapi.RequestLog) {
+	s.liveMu.Lock()
+	defer s.liveMu.Unlock()
+
+	if _, exists := s.liveEntries[entry.ID]; !exists && len(s.liveEntries) >= maxLiveEntries {
+		var oldestID string
+		var oldestTime time.Time
+		for id, e := range s.liveEntries {
+			if oldestID == "" || e.Timestamp.Before(oldestTime) {
+				oldestID = id
+				oldestTime = e.Timestamp
+			}
+		}
+		if oldestID != "" {
+			delete(s.liveEntries, oldestID)
+		}
+	}
+	s.liveEntries[entry.ID] = entry
+}
+
+// deleteLiveEntry removes a live snapshot if present. Safe to call for IDs
+// that were never live (no-op).
+func (s *FileLogStore) deleteLiveEntry(id string) {
+	if id == "" {
+		return
+	}
+	s.liveMu.Lock()
+	delete(s.liveEntries, id)
+	s.liveMu.Unlock()
+}
+
+// snapshotLiveEntries returns the live snapshots for the slug along with the
+// set of all live IDs (across all slugs). Callers use the ID set to dedupe
+// disk entries against pending in-flight snapshots without re-acquiring the
+// live-entries lock per row.
+func (s *FileLogStore) snapshotLiveEntries(slug string) (entries []*syfthubapi.RequestLog, allIDs map[string]struct{}) {
+	s.liveMu.RLock()
+	defer s.liveMu.RUnlock()
+	if len(s.liveEntries) == 0 {
+		return nil, nil
+	}
+	allIDs = make(map[string]struct{}, len(s.liveEntries))
+	entries = make([]*syfthubapi.RequestLog, 0, len(s.liveEntries))
+	for id, e := range s.liveEntries {
+		allIDs[id] = struct{}{}
+		if e.EndpointSlug == slug {
+			entries = append(entries, e)
+		}
+	}
+	return entries, allIDs
 }
 
 // Query retrieves logs for an endpoint with optional filters.
@@ -176,24 +263,23 @@ func (s *FileLogStore) Query(ctx context.Context, slug string, opts *syfthubapi.
 
 	logDir := s.endpointLogDir(slug)
 
-	// Check if directory exists
-	if _, err := os.Stat(logDir); os.IsNotExist(err) {
-		return &syfthubapi.LogQueryResult{
-			Logs:    []*syfthubapi.RequestLog{},
-			Total:   0,
-			HasMore: false,
-		}, nil
-	}
+	// The endpoint dir may not exist yet — e.g. a first-ever agent session
+	// that has only emitted in-flight snapshots. Treat that the same as
+	// "no on-disk files" so the live-entry merge below still runs.
+	var files []string
+	if _, statErr := os.Stat(logDir); statErr == nil {
+		var err error
+		files, err = s.getLogFiles(logDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list log files: %w", err)
+		}
 
-	// Get all log files for this endpoint (already sorted descending by date)
-	files, err := s.getLogFiles(logDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list log files: %w", err)
-	}
-
-	// Skip files outside the query's date range
-	if opts.StartTime != nil || opts.EndTime != nil {
-		files = s.filterFilesByDateRange(files, opts.StartTime, opts.EndTime)
+		// Skip files outside the query's date range
+		if opts.StartTime != nil || opts.EndTime != nil {
+			files = s.filterFilesByDateRange(files, opts.StartTime, opts.EndTime)
+		}
+	} else if !os.IsNotExist(statErr) {
+		return nil, fmt.Errorf("failed to stat log dir: %w", statErr)
 	}
 
 	// Read files in reverse chronological order (most recent first).
@@ -203,6 +289,23 @@ func (s *FileLogStore) Query(ctx context.Context, slug string, opts *syfthubapi.
 	var collected []*syfthubapi.RequestLog
 	totalMatches := 0
 
+	// In-flight snapshots (Status == LogStatusRunning) never hit disk so the
+	// scan below would miss them. liveIDs gates the disk loop so we don't
+	// surface a stale disk row for an ID whose live snapshot is still the
+	// canonical state. In practice that race never fires (Write removes the
+	// live entry before enqueuing the terminal disk write), but cheaper to
+	// defend than to rely on ordering.
+	liveForSlug, liveIDs := s.snapshotLiveEntries(slug)
+	for _, entry := range liveForSlug {
+		if !s.matchesFilters(entry, opts) {
+			continue
+		}
+		totalMatches++
+		if len(collected) < needed {
+			collected = append(collected, entry)
+		}
+	}
+
 	for _, file := range files {
 		entries, err := s.readLogFileFiltered(filepath.Join(logDir, file), opts)
 		if err != nil {
@@ -210,6 +313,9 @@ func (s *FileLogStore) Query(ctx context.Context, slug string, opts *syfthubapi.
 		}
 
 		for _, entry := range entries {
+			if _, live := liveIDs[entry.ID]; live {
+				continue
+			}
 			totalMatches++
 			if len(collected) < needed {
 				collected = append(collected, entry)
@@ -380,6 +486,14 @@ func (s *FileLogStore) Close() error {
 		f.Close()
 		delete(s.fileHandles, path)
 	}
+
+	// Drop in-flight snapshots — any never-finalized session will not appear
+	// in subsequent Query() calls after a restart.
+	s.liveMu.Lock()
+	for id := range s.liveEntries {
+		delete(s.liveEntries, id)
+	}
+	s.liveMu.Unlock()
 
 	return nil
 }
@@ -620,6 +734,16 @@ func (s *FileLogStore) matchesFilters(log *syfthubapi.RequestLog, opts *syfthuba
 // Files are iterated in reverse chronological order (most recent first),
 // and scanning stops immediately on the first match.
 func (s *FileLogStore) GetLogByID(ctx context.Context, slug, logID string) (*syfthubapi.RequestLog, error) {
+	// Check the in-flight snapshot map first — a running entry exists only
+	// here, and even after the terminal write the live entry is gone before
+	// the disk row is enqueued, so falling through is safe.
+	s.liveMu.RLock()
+	if live, ok := s.liveEntries[logID]; ok && live.EndpointSlug == slug {
+		s.liveMu.RUnlock()
+		return live, nil
+	}
+	s.liveMu.RUnlock()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -696,6 +820,16 @@ func (s *FileLogStore) DeleteLogs(ctx context.Context, slug string) error {
 	s.statsMu.Lock()
 	delete(s.statsCache, slug)
 	s.statsMu.Unlock()
+
+	// Drop any in-flight snapshots for this slug so Query stops surfacing
+	// them after the user wipes logs.
+	s.liveMu.Lock()
+	for id, e := range s.liveEntries {
+		if e.EndpointSlug == slug {
+			delete(s.liveEntries, id)
+		}
+	}
+	s.liveMu.Unlock()
 
 	logDir := s.endpointLogDir(slug)
 	return os.RemoveAll(logDir)

@@ -807,6 +807,7 @@ func convertRequestLog(log *syfthubapi.RequestLog) *RequestLogEntry {
 		CorrelationID: log.CorrelationID,
 		EndpointSlug:  log.EndpointSlug,
 		EndpointType:  log.EndpointType,
+		Status:        log.Status,
 	}
 
 	if log.User != nil {

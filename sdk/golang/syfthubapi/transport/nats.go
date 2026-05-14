@@ -15,11 +15,18 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 )
+
+// agentLogSnapshotInterval is how often, at most, an in-flight agent session
+// emits a "running" RequestLog snapshot via the configured log hook. A
+// dedicated goroutine ticks at this rate and only emits when the event stream
+// has produced something since the previous tick.
+const agentLogSnapshotInterval = 1500 * time.Millisecond
 
 // TokenVerifier is a callback that verifies a satellite token and returns
 // the authenticated user context. It mirrors the signature of
@@ -246,12 +253,16 @@ func (b *agentNATSBridge) handleSessionStart(msg *nats.Msg, req *syfthubapi.Tunn
 			"endpoint", startPayload.EndpointSlug, "error", err)
 		// Pre-session failures (policy denial, auth) have no transcript yet —
 		// synthesize one from the prompt so the log shows what was rejected.
+		// Use a fresh logID because this entry has no in-flight predecessor
+		// (the session never reached the relay loop).
 		b.emitSessionLog(
+			syfthubapi.NewRequestLogID(),
 			startPayload.SessionID,
 			startPayload.EndpointSlug,
 			user,
 			[]syfthubapi.Message{{Role: "user", Content: startPayload.Prompt}},
 			len(startPayload.Prompt),
+			syfthubapi.LogStatusFailed,
 			err.Error(),
 			startTime,
 		)
@@ -301,18 +312,23 @@ func (b *agentNATSBridge) setLogHook(h syfthubapi.RequestLogHook) {
 	b.logMu.Unlock()
 }
 
-// emitSessionLog builds a RequestLog for an agent session and invokes the
-// configured hook. Safe to call with a nil hook (no-op). Used by both the
-// pre-session start-failure paths and the relay's terminal-event finalizer.
+// emitSessionLog builds a RequestLog snapshot for an agent session and invokes
+// the configured hook. Safe to call with a nil hook (no-op). The same logID
+// must be reused across every snapshot of a single session so downstream
+// stores can upsert on it; `status` controls whether the entry is treated as
+// in-flight (LogStatusRunning) or terminal (LogStatusCompleted /
+// LogStatusFailed / LogStatusCancelled).
 //
-// On success, Response.Content is derived from the assistant-role messages
-// already present in `transcript` (recorded by AgentSession.Send). Pass a
-// non-empty `failError` to record a failure.
+// For terminal-success entries, Response.Content is derived from the
+// assistant-role messages already present in `transcript` (recorded by
+// AgentSession.Send). `failError` is recorded on failure / cancellation paths
+// (cancellation typically passes "" because the cancel is the expected outcome).
 func (b *agentNATSBridge) emitSessionLog(
-	sessionID, endpointSlug string,
+	logID, sessionID, endpointSlug string,
 	user *syfthubapi.UserContext,
 	transcript []syfthubapi.Message,
 	rawSize int,
+	status string,
 	failError string,
 	startTime time.Time,
 ) {
@@ -325,11 +341,12 @@ func (b *agentNATSBridge) emitSessionLog(
 
 	processedAt := time.Now()
 	log := &syfthubapi.RequestLog{
-		ID:            syfthubapi.NewRequestLogID(),
+		ID:            logID,
 		Timestamp:     startTime,
 		CorrelationID: sessionID,
 		EndpointSlug:  endpointSlug,
 		EndpointType:  string(syfthubapi.EndpointTypeAgent),
+		Status:        status,
 		Request: &syfthubapi.LogRequest{
 			Type:     string(syfthubapi.EndpointTypeAgent),
 			Messages: transcript,
@@ -352,14 +369,25 @@ func (b *agentNATSBridge) emitSessionLog(
 		}
 	}
 
-	if failError != "" {
-		log.Response.Success = false
-		log.Response.Error = failError
-	} else {
+	switch status {
+	case syfthubapi.LogStatusCompleted:
 		log.Response.Success = true
 		content, truncated := syfthubapi.TruncateForLog(joinAssistantContent(transcript))
 		log.Response.Content = content
 		log.Response.ContentTruncated = truncated
+	case syfthubapi.LogStatusRunning:
+		// In-flight snapshot: surface whatever assistant content has been
+		// produced so far so the operator sees the transcript grow. Success
+		// stays false because the session has not finalized yet.
+		log.Response.Success = false
+		content, truncated := syfthubapi.TruncateForLog(joinAssistantContent(transcript))
+		log.Response.Content = content
+		log.Response.ContentTruncated = truncated
+	default:
+		// LogStatusFailed / LogStatusCancelled / unknown — record any error
+		// message but no synthetic success content.
+		log.Response.Success = false
+		log.Response.Error = failError
 	}
 
 	hook(context.Background(), log)
@@ -409,17 +437,72 @@ func (b *agentNATSBridge) relayEvents(session *syfthubapi.AgentSession, replyTo 
 	// so it can be reported in the per-session RequestLog after the loop exits.
 	var failError string
 
-	// Pre-compute the session encryption context: one ephemeral keypair + ECDH + HKDF
-	// for the entire event stream. Individual events get unique random nonces.
+	// Single stable log ID for every snapshot of this session. The desktop
+	// log store and frontend both upsert on RequestLog.ID, so reusing the
+	// same value across the initial / mid-session / terminal emits causes the
+	// same row to update in place instead of producing duplicates.
+	logID := syfthubapi.NewRequestLogID()
+
+	// emit captures the per-session fields shared by every snapshot so the
+	// caller only varies status + error message. Builds the transcript copy
+	// lazily inside emitSessionLog only when the hook is actually wired up.
+	emit := func(status, errMsg string) {
+		b.emitSessionLog(
+			logID,
+			session.ID,
+			session.EndpointSlug,
+			session.User,
+			session.Transcript(),
+			len(session.InitialPrompt),
+			status,
+			errMsg,
+			startTime,
+		)
+	}
+
 	encryptor, err := NewSessionEncryptor(requestEphPubKeyB64)
 	if err != nil {
 		b.logger.Error("[AGENT] failed to initialize session encryptor — cannot relay events",
 			"session_id", session.ID, "error", err)
-		// Drain the channel to avoid blocking the session goroutine
+		emit(syfthubapi.LogStatusFailed, "failed to initialize session encryptor")
 		for range session.SendCh() {
 		}
 		return
 	}
+
+	emit(syfthubapi.LogStatusRunning, "")
+
+	// Coalesced snapshot ticker. The relay can fire hundreds of events/sec on
+	// a streaming model; emitting per-event would saturate the log pipeline.
+	// Tokens don't mutate the loggable transcript, so the dirty flag is only
+	// set for transcript-changing events (see EventTypeAgentMessage branch
+	// in the loop below) — otherwise the ticker would re-emit byte-identical
+	// snapshots every interval for the duration of a long stream.
+	var dirty atomic.Bool
+	tickerDone := make(chan struct{})
+	tickerStopped := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(agentLogSnapshotInterval)
+		defer ticker.Stop()
+		defer close(tickerStopped)
+		for {
+			select {
+			case <-tickerDone:
+				return
+			case <-ticker.C:
+				if !dirty.Swap(false) {
+					continue
+				}
+				emit(syfthubapi.LogStatusRunning, "")
+			}
+		}
+	}()
+	// Defer the ticker shutdown so any future early-return between here and
+	// the terminal emit can't leak the goroutine.
+	defer func() {
+		close(tickerDone)
+		<-tickerStopped
+	}()
 
 	// Pre-encode the session ID JSON string once; reused in every event.
 	sessionIDJSON, _ := json.Marshal(session.ID)
@@ -433,10 +516,28 @@ func (b *agentNATSBridge) relayEvents(session *syfthubapi.AgentSession, replyTo 
 	msg := nats.NewMsg(subject)
 	msg.Header.Set("Syft-Session-Id", session.ID)
 
+	// The terminal outcome is decided by which event RunHandler put on the
+	// channel, NOT by the session context. Some agent runners (notably the
+	// filemode subprocess executor) call session.Cancel() after cmd.Wait
+	// regardless of whether the subprocess exited cleanly — so ctx.Err() is
+	// context.Canceled on every normal completion. We have to observe the
+	// terminal event ourselves to disambiguate completed / failed / cancelled.
+	var sawCompleted, sawFailed bool
+
 	for event := range session.SendCh() {
-		// session.failed is terminal (at most once per session) so the small
-		// best-effort decode here doesn't impact the high-frequency token path.
-		if event.EventType == syfthubapi.EventTypeSessionFailed {
+		switch event.EventType {
+		case syfthubapi.EventTypeAgentMessage:
+			// Assistant message appended to the session transcript — the
+			// next ticker fire should emit a fresh snapshot. Tokens, status,
+			// tool calls, etc. don't change the loggable Content so they
+			// intentionally don't trip dirty.
+			dirty.Store(true)
+		case syfthubapi.EventTypeSessionCompleted:
+			sawCompleted = true
+		case syfthubapi.EventTypeSessionFailed:
+			sawFailed = true
+			// Best-effort failure-reason decode; safe outside the hot
+			// token-stream path because session.failed is terminal.
 			var failData struct {
 				Error string `json:"error"`
 			}
@@ -490,23 +591,39 @@ func (b *agentNATSBridge) relayEvents(session *syfthubapi.AgentSession, replyTo 
 
 	b.logger.Info("[AGENT] event relay stopped", "session_id", session.ID)
 
-	// A user-initiated cancel terminates the subprocess, which the runtime
-	// surfaces as session.failed with "signal: killed". That isn't a real
-	// failure — it's the expected outcome of pressing Stop, and the session's
-	// own context carries that signal authoritatively.
-	if errors.Is(session.Context().Err(), context.Canceled) {
-		failError = ""
-	}
+	// Decide the terminal status from the events we observed plus the
+	// external-cancel flag. ctx.Err() alone is unreliable here: handlers like
+	// the filemode subprocess bridge call session.Cancel() as cleanup after
+	// cmd.Wait, so ctx is Canceled after every normal completion AND after
+	// every user-requested stop. ExternalCancelled() is the authoritative
+	// signal for "the user pressed Stop" and overrides any spurious
+	// SessionFailed event produced by exec.CommandContext killing the
+	// subprocess in response to that cancel.
+	terminalStatus, failError := decideTerminalStatus(session, sawCompleted, sawFailed, failError)
+	emit(terminalStatus, failError)
+}
 
-	b.emitSessionLog(
-		session.ID,
-		session.EndpointSlug,
-		session.User,
-		session.Transcript(),
-		len(session.InitialPrompt),
-		failError,
-		startTime,
-	)
+// decideTerminalStatus picks the final log status for an agent session from
+// the terminal events the relay observed plus whether the session was
+// cancelled externally. failErrorIn may be cleared (e.g. cancellation is not
+// a real error) — the returned failError is what the terminal log should
+// record.
+func decideTerminalStatus(session *syfthubapi.AgentSession, sawCompleted, sawFailed bool, failErrorIn string) (status, failError string) {
+	switch {
+	case session.ExternalCancelled():
+		return syfthubapi.LogStatusCancelled, ""
+	case sawCompleted:
+		return syfthubapi.LogStatusCompleted, ""
+	case sawFailed:
+		return syfthubapi.LogStatusFailed, failErrorIn
+	case errors.Is(session.Context().Err(), context.Canceled):
+		return syfthubapi.LogStatusCancelled, ""
+	default:
+		if failErrorIn == "" {
+			failErrorIn = "session ended without a terminal event"
+		}
+		return syfthubapi.LogStatusFailed, failErrorIn
+	}
 }
 
 // appendEventJSON writes the JSON encoding of an AgentEventPayload to buf

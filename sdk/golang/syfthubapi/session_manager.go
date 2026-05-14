@@ -304,7 +304,7 @@ func (m *AgentSessionManager) CancelSession(sessionID string) error {
 	}
 
 	m.logger.Info("[AGENT] Cancelling session", "session_id", sessionID)
-	session.Cancel()
+	session.CancelByUser()
 	return nil
 }
 
@@ -365,7 +365,7 @@ func (m *AgentSessionManager) CancelAllSessions() {
 	defer m.mu.Unlock()
 
 	for id, session := range m.sessions {
-		session.Cancel()
+		session.CancelByUser()
 		m.deregisterSession(id)
 		delete(m.sessions, id)
 	}

@@ -576,6 +576,7 @@ export namespace main {
 	    correlationId: string;
 	    endpointSlug: string;
 	    endpointType: string;
+	    status?: string;
 	    user?: LogUserInfo;
 	    request?: LogRequestInfo;
 	    response?: LogResponseInfo;
@@ -593,6 +594,7 @@ export namespace main {
 	        this.correlationId = source["correlationId"];
 	        this.endpointSlug = source["endpointSlug"];
 	        this.endpointType = source["endpointType"];
+	        this.status = source["status"];
 	        this.user = this.convertValues(source["user"], LogUserInfo);
 	        this.request = this.convertValues(source["request"], LogRequestInfo);
 	        this.response = this.convertValues(source["response"], LogResponseInfo);

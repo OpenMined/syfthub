@@ -180,11 +180,16 @@ type RequestLogEntry struct {
 	CorrelationID string           `json:"correlationId"`
 	EndpointSlug  string           `json:"endpointSlug"`
 	EndpointType  string           `json:"endpointType"`
-	User          *LogUserInfo     `json:"user,omitempty"`
-	Request       *LogRequestInfo  `json:"request,omitempty"`
-	Response      *LogResponseInfo `json:"response,omitempty"`
-	Policy        *LogPolicyInfo   `json:"policy,omitempty"`
-	Timing        *LogTimingInfo   `json:"timing,omitempty"`
+	// Status mirrors RequestLog.Status: "running" for in-flight agent-session
+	// snapshots; "completed" / "failed" / "cancelled" for terminal entries.
+	// Empty string is treated as terminal (back-compat with logs written
+	// before this field existed).
+	Status   string           `json:"status,omitempty"`
+	User     *LogUserInfo     `json:"user,omitempty"`
+	Request  *LogRequestInfo  `json:"request,omitempty"`
+	Response *LogResponseInfo `json:"response,omitempty"`
+	Policy   *LogPolicyInfo   `json:"policy,omitempty"`
+	Timing   *LogTimingInfo   `json:"timing,omitempty"`
 }
 
 // LogUserInfo contains user information for a log entry.

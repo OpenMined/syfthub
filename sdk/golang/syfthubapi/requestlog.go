@@ -45,7 +45,24 @@ type RequestLog struct {
 
 	// Timing contains timing information.
 	Timing *LogTiming `json:"timing"`
+
+	// Status is the lifecycle state of the request this entry describes.
+	// For agent sessions, multiple snapshots may be emitted with the same ID
+	// as the session progresses: LogStatusRunning while in flight, then one
+	// terminal value (LogStatusCompleted, LogStatusFailed, LogStatusCancelled)
+	// when the session ends. Old entries written before this field existed
+	// decode as "" — readers should treat empty as terminal.
+	Status string `json:"status,omitempty"`
 }
+
+// Lifecycle values for RequestLog.Status. Empty string is treated as terminal
+// by readers (back-compat with logs written before this field existed).
+const (
+	LogStatusRunning   = "running"
+	LogStatusCompleted = "completed"
+	LogStatusFailed    = "failed"
+	LogStatusCancelled = "cancelled"
+)
 
 // PaymentLog captures on-chain payment metadata for a request that flowed
 // through a TransactionPolicy. It records both the issued challenge and, if
@@ -277,6 +294,8 @@ func BuildRequestLog(
 		EndpointSlug:  req.Endpoint.Slug,
 		EndpointType:  req.Endpoint.Type,
 		Timing:        timing,
+		// Status is set below once we know whether the response succeeded.
+		Status: LogStatusCompleted,
 	}
 
 	// User info
@@ -308,6 +327,7 @@ func BuildRequestLog(
 			}
 		} else {
 			log.Response.Success = false
+			log.Status = LogStatusFailed
 			if resp.Error != nil {
 				log.Response.Error = resp.Error.Message
 				log.Response.ErrorCode = string(resp.Error.Code)

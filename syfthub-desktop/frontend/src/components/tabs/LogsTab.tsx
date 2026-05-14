@@ -1,5 +1,6 @@
 import { useEffect, useCallback } from 'react';
 import { useAppStore, RequestLogEntry } from '../../stores/appStore';
+import { LogStatus } from '../../lib/log-status';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -49,17 +50,48 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(2)}s`;
 }
 
-// Status badge component
-function StatusBadge({ success }: { success: boolean }) {
+// Status badge component. The agent-session lifecycle introduces lifecycle
+// values beyond plain success/failure: "running" while the session is in
+// flight, "completed" when the handler returned nil, "failed" when it
+// errored, "cancelled" when the user (or a teardown) stopped the session.
+// Empty status falls back to the legacy success/error binary so logs written
+// before the lifecycle field existed still render correctly.
+function StatusBadge({ success, status }: { success: boolean; status?: string }) {
+  if (status === LogStatus.Running) {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-chart-3/20 text-chart-3">
+        <svg className="w-3 h-3 mr-1 animate-spin" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+        </svg>
+        Running
+      </span>
+    );
+  }
+  if (status === LogStatus.Cancelled) {
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-muted text-muted-foreground">
+        <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
+        </svg>
+        Cancelled
+      </span>
+    );
+  }
+  // status === "completed" or "failed" (or "" for legacy entries) — render
+  // from success. A "completed" entry always has success=true; "failed"
+  // always success=false. Trusting both keeps the legacy/back-compat path
+  // working unchanged.
+  const ok = status === LogStatus.Completed ? true : status === LogStatus.Failed ? false : success;
   return (
     <span
       className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-        success
+        ok
           ? 'bg-chart-2/20 text-chart-2'
           : 'bg-destructive/20 text-destructive'
       }`}
     >
-      {success ? (
+      {ok ? (
         <>
           <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
@@ -126,6 +158,50 @@ function PolicyBadge({ policy }: { policy: { evaluated: boolean; allowed: boolea
   );
 }
 
+// ResponseBody renders the contents of the Response panel. The previous
+// inline gate keyed solely off response.success, which mis-rendered every
+// in-flight ("running") and cancelled snapshot as a destructive Error block
+// — running entries deliberately keep success=false until finalized.
+function ResponseBody({ log }: { log: RequestLogEntry }) {
+  const resp = log.response;
+  if (!resp) return null;
+
+  const isRunning = log.status === LogStatus.Running;
+  const isCancelled = log.status === LogStatus.Cancelled;
+  const hasContent = !!resp.content;
+  const hasErrorInfo = !!(resp.error || resp.errorCode || resp.errorType);
+
+  if (hasContent && (resp.success || isRunning || isCancelled)) {
+    return (
+      <pre className="text-sm text-foreground whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+        {resp.content}
+        {resp.contentTruncated && (
+          <span className="text-muted-foreground"> ... (truncated)</span>
+        )}
+        {isRunning && <span className="text-muted-foreground"> ▌</span>}
+      </pre>
+    );
+  }
+  if (isRunning) {
+    return <p className="text-sm text-muted-foreground italic">Streaming…</p>;
+  }
+  if (isCancelled) {
+    return <p className="text-sm text-muted-foreground italic">Cancelled before any output.</p>;
+  }
+  if (hasErrorInfo) {
+    return (
+      <div className="text-destructive">
+        <p className="text-sm font-medium">{resp.errorCode || 'Error'}</p>
+        <p className="text-sm">{resp.error}</p>
+        {resp.errorType && (
+          <p className="text-xs text-muted-foreground">Type: {resp.errorType}</p>
+        )}
+      </div>
+    );
+  }
+  return <p className="text-sm text-muted-foreground italic">No response recorded.</p>;
+}
+
 // Log detail modal/panel
 function LogDetailPanel({
   log,
@@ -169,7 +245,7 @@ function LogDetailPanel({
               </div>
               <div>
                 <label className="text-xs text-muted-foreground uppercase">Status</label>
-                <p className="text-sm">{log.response && <StatusBadge success={log.response.success} />}</p>
+                <p className="text-sm">{log.response && <StatusBadge success={log.response.success} status={log.status} />}</p>
               </div>
             </div>
 
@@ -208,31 +284,11 @@ function LogDetailPanel({
               </div>
             )}
 
-            {/* Response */}
             {log.response && (
               <div>
                 <label className="text-xs text-muted-foreground uppercase">Response</label>
                 <div className="mt-1 bg-background rounded p-2">
-                  {log.response.success ? (
-                    <>
-                      {log.response.content && (
-                        <pre className="text-sm text-foreground whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
-                          {log.response.content}
-                          {log.response.contentTruncated && (
-                            <span className="text-muted-foreground"> ... (truncated)</span>
-                          )}
-                        </pre>
-                      )}
-                    </>
-                  ) : (
-                    <div className="text-destructive">
-                      <p className="text-sm font-medium">{log.response.errorCode || 'Error'}</p>
-                      <p className="text-sm">{log.response.error}</p>
-                      {log.response.errorType && (
-                        <p className="text-xs text-muted-foreground">Type: {log.response.errorType}</p>
-                      )}
-                    </div>
-                  )}
+                  <ResponseBody log={log} />
                 </div>
               </div>
             )}
@@ -479,7 +535,7 @@ export function LogsTab() {
                     {log.user?.username || log.user?.id || 'Unknown'}
                   </td>
                   <td className="px-4 py-2">
-                    {log.response && <StatusBadge success={log.response.success} />}
+                    {log.response && <StatusBadge success={log.response.success} status={log.status} />}
                   </td>
                   <td className="px-4 py-2 text-muted-foreground">
                     {log.timing ? formatDuration(log.timing.durationMs) : '-'}

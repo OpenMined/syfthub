@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { EventsOff, EventsOn } from '../../wailsjs/runtime/runtime';
 import { parseFrontmatter } from '../lib/markdown';
+import { LogStatus } from '../lib/log-status';
 import { main } from '../../wailsjs/go/models';
 import {
   GetStatus,
@@ -473,13 +474,31 @@ export const useAppStore = create<AppState>((set, get) => ({
           set({ setupFlow: { ...SETUP_FLOW_CLEARED, error: errorMsg } });
         });
 
-        // Listen for new log events (real-time log updates)
+        // Listen for new log events (real-time log updates). Agent sessions
+        // emit multiple snapshots with the same id — a "running" snapshot at
+        // session start and on every ~1.5s ticker, followed by a single
+        // terminal snapshot. We upsert by id so the running row updates in
+        // place and finalizes when the terminal entry arrives.
         EventsOn('app:new-log', (entry: RequestLogEntry) => {
           const { selectedEndpointSlug, logs } = get();
-          // Only add to logs if viewing the same endpoint
-          if (entry.endpointSlug === selectedEndpointSlug) {
-            set({ logs: logs.length < 200 ? [entry, ...logs] : [entry, ...logs.slice(0, 199)] });
-            // Debounce stats refresh — one IPC call per burst, not per log entry
+          if (entry.endpointSlug !== selectedEndpointSlug) return;
+
+          const idx = logs.findIndex(l => l.id === entry.id);
+          let next: RequestLogEntry[];
+          if (idx >= 0) {
+            next = logs.slice();
+            next[idx] = entry;
+          } else if (logs.length < 200) {
+            next = [entry, ...logs];
+          } else {
+            next = [entry, ...logs.slice(0, 199)];
+          }
+          set({ logs: next });
+
+          // Running snapshots don't change the persisted stats — only refresh
+          // on terminal entries so an active token-streaming session doesn't
+          // trigger IPC every 1.5s.
+          if (entry.status !== LogStatus.Running) {
             if (logStatsDebounceTimer) clearTimeout(logStatsDebounceTimer);
             logStatsDebounceTimer = setTimeout(() => { get().fetchLogStats(); }, 2000);
           }

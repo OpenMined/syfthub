@@ -130,6 +130,18 @@ type AgentSession struct {
 	// sequence is a monotonically increasing event counter.
 	sequence atomic.Int64
 
+	// externalCancelled is set when something outside the handler asks the
+	// session to stop — user clicked Stop, NATS user.cancel arrived,
+	// AgentSessionManager.CancelAllSessions during shutdown, etc. The handler
+	// may also call s.cancel() as part of its own cleanup (e.g. the filemode
+	// executor cancels after cmd.Wait so the writer goroutine unblocks); that
+	// internal cancel must NOT be treated as a user cancel because the
+	// resulting cmd.Wait "signal: killed" error would otherwise be reported
+	// as Cancelled instead of Completed. The relay reads this flag to decide
+	// whether a SessionFailed event is a real failure or a side-effect of a
+	// requested cancel.
+	externalCancelled atomic.Bool
+
 	// transcript records the conversational messages (user + assistant)
 	// exchanged during the session, in chronological order. Populated
 	// automatically by NewAgentSession (initial Messages + Prompt),
@@ -279,9 +291,28 @@ func (s *AgentSession) Context() context.Context {
 	return s.ctx
 }
 
-// Cancel cancels the session context, causing the handler to return.
+// Cancel cancels the session context, causing the handler to return. This is
+// the "internal" cancellation entry point used by handlers (e.g. filemode's
+// agent_executor after cmd.Wait) to unblock their own goroutines; it does
+// NOT mark the session as user-cancelled.
 func (s *AgentSession) Cancel() {
 	s.cancel()
+}
+
+// CancelByUser marks the session as cancelled by an external actor (user
+// Stop button, NATS user.cancel, manager shutdown) and then cancels the
+// context. The relay uses ExternalCancelled() to distinguish a
+// SessionFailed-from-killed-subprocess that resulted from this cancel
+// (report as Cancelled) from a genuine handler failure (report as Failed).
+func (s *AgentSession) CancelByUser() {
+	s.externalCancelled.Store(true)
+	s.cancel()
+}
+
+// ExternalCancelled reports whether the session was cancelled by an external
+// actor via CancelByUser.
+func (s *AgentSession) ExternalCancelled() bool {
+	return s.externalCancelled.Load()
 }
 
 // Done returns a channel that is closed when the handler goroutine returns.
