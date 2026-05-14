@@ -289,7 +289,7 @@ export interface ChatSource {
   type: EndpointType; // Endpoint type (model or data_source)
   updated: string; // Pre-formatted relative time, e.g. "2 days ago" (mapped from updated_at)
   updated_at: string; // Raw ISO 8601 timestamp — use this for sorting/comparisons
-  status: 'active' | 'warning' | 'inactive'; // Derived from backend data
+  status: 'active' | 'inactive'; // Active iff the endpoint has at least one enabled connection (reachable)
   slug: string; // Backend URL identifier
   stars_count: number;
   version: string;
