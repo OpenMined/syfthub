@@ -42,6 +42,11 @@ type SyftAPI struct {
 	// transport handles HTTP or NATS communication.
 	transport Transport
 
+	// logHook is the RequestLogHook installed via SetLogHook. Cached so
+	// initTransport can wire it into the tunnel agent bridge once that exists
+	// (SetLogHook is usually called before Run, when the bridge does not).
+	logHook RequestLogHook
+
 	// heartbeatManager manages heartbeat signals.
 	heartbeatManager HeartbeatManager
 
@@ -98,6 +103,7 @@ type TunnelTransport interface {
 	SetAgentHandler(handler AgentSessionHandler)
 	SetTokenVerifier(fn func(ctx context.Context, token string) (*UserContext, error))
 	PublicKeyB64() string
+	SetAgentLogHook(hook RequestLogHook)
 }
 
 // FileProvider interface for file-based endpoint management.
@@ -419,6 +425,9 @@ func (api *SyftAPI) initTransport(ctx context.Context) error {
 	if tt, ok := api.transport.(TunnelTransport); ok {
 		tt.SetAgentHandler(api.agentSessionManager)
 		tt.SetTokenVerifier(api.hubClient.VerifyToken)
+		if api.logHook != nil {
+			tt.SetAgentLogHook(api.logHook)
+		}
 		api.logger.Info("agent handler and token verifier wired to tunnel transport")
 
 		pubKeyB64 := tt.PublicKeyB64()
@@ -596,11 +605,18 @@ func (api *SyftAPI) SetFileProvider(fp FileProvider) {
 	api.fileProvider = fp
 }
 
-// SetLogHook sets the request log hook callback.
-// The hook is called after each request is processed with the full log entry.
+// SetLogHook installs a callback that fires after every processed request,
+// covering both the request processor (model/data_source) and the tunnel
+// agent bridge (inbound NATS-tunneled agent sessions) so all endpoint types
+// share one log pipeline. Safe to call before or after Run — initTransport
+// re-applies the cached hook once the agent bridge is constructed.
 func (api *SyftAPI) SetLogHook(hook RequestLogHook) {
+	api.logHook = hook
 	if api.processor != nil {
 		api.processor.SetLogHook(hook)
+	}
+	if tt, ok := api.transport.(TunnelTransport); ok {
+		tt.SetAgentLogHook(hook)
 	}
 }
 

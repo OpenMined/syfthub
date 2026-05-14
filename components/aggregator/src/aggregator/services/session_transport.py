@@ -295,12 +295,15 @@ class NATSSessionTransport:
                         "details": error_info.get("details") or {},
                     },
                 }
+                # NB: 'message' is a reserved LogRecord attribute — pass the
+                # host error string under a different key or stdlib logging
+                # raises KeyError before the queue.put runs.
                 logger.info(
                     "Translating tunnel error to session.failed",
                     extra={
                         "session_id": self._session_id,
-                        "code": code,
-                        "message": message,
+                        "error_code": code,
+                        "error_message": message,
                     },
                 )
                 await self._message_queue.put(synthetic)
