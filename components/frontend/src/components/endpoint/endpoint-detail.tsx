@@ -19,13 +19,19 @@ import { useEndpointByPath } from '@/hooks/use-endpoint-queries';
 import { getEndpointTypeBadgeStyles, getEndpointTypeLabel } from '@/lib/endpoint-utils';
 
 import { AccessPoliciesCard } from './access-policies-card';
+import { ApiTab } from './api-tab';
 import { UptimeTab } from './uptime-tab';
 
-type EndpointTabId = 'overview' | 'uptime';
+type EndpointTabId = 'overview' | 'uptime' | 'api';
 
 function parseTab(raw: string | null): EndpointTabId {
-  return raw === 'uptime' ? 'uptime' : 'overview';
+  if (raw === 'uptime') return 'uptime';
+  if (raw === 'api') return 'api';
+  return 'overview';
 }
+
+const TAB_TRIGGER_CLASS =
+  'font-inter focus-visible:ring-ring data-[state=active]:border-primary data-[state=active]:text-foreground text-muted-foreground hover:text-foreground relative inline-flex h-12 items-center justify-center rounded-none border-b-2 border-transparent bg-transparent px-4 text-sm font-medium shadow-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-0 data-[state=active]:shadow-none';
 
 type EndpointStatus = 'active' | 'warning' | 'inactive';
 
@@ -148,15 +154,17 @@ export const EndpointDetail = memo(function EndpointDetail({
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = parseTab(searchParams.get('tab'));
 
-  // Lazy-mount tracker: keep the uptime tab unmounted until the user has
-  // activated it at least once. After that, keep it mounted so the React
-  // Query cache survives further tab toggling without re-fetching.
+  // Lazy-mount tracker: keep heavy tabs unmounted until the user has
+  // activated them at least once. After that, keep them mounted so the React
+  // Query / shiki state survives further tab toggling without redoing work.
   const [uptimeOpened, setUptimeOpened] = useState(activeTab === 'uptime');
+  const [apiOpened, setApiOpened] = useState(activeTab === 'api');
 
   const handleTabChange = useCallback(
     (next: string) => {
       const nextTab = parseTab(next);
       if (nextTab === 'uptime') setUptimeOpened(true);
+      if (nextTab === 'api') setApiOpened(true);
       setSearchParams(
         (previous) => {
           const params = new URLSearchParams(previous);
@@ -343,17 +351,14 @@ export const EndpointDetail = memo(function EndpointDetail({
 
           {/* Tab strip — sits flush with the header's bottom border via -mb-px */}
           <TabsList className='-mb-px flex h-12 w-full justify-start gap-1 rounded-none bg-transparent p-0'>
-            <TabsTrigger
-              value='overview'
-              className='font-inter focus-visible:ring-ring data-[state=active]:border-primary data-[state=active]:text-foreground text-muted-foreground hover:text-foreground relative inline-flex h-12 items-center justify-center rounded-none border-b-2 border-transparent bg-transparent px-4 text-sm font-medium shadow-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-0 data-[state=active]:shadow-none'
-            >
+            <TabsTrigger value='overview' className={TAB_TRIGGER_CLASS}>
               Overview
             </TabsTrigger>
-            <TabsTrigger
-              value='uptime'
-              className='font-inter focus-visible:ring-ring data-[state=active]:border-primary data-[state=active]:text-foreground text-muted-foreground hover:text-foreground relative inline-flex h-12 items-center justify-center rounded-none border-b-2 border-transparent bg-transparent px-4 text-sm font-medium shadow-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-0 data-[state=active]:shadow-none'
-            >
+            <TabsTrigger value='uptime' className={TAB_TRIGGER_CLASS}>
               Uptime
+            </TabsTrigger>
+            <TabsTrigger value='api' className={TAB_TRIGGER_CLASS}>
+              API
             </TabsTrigger>
           </TabsList>
         </div>
@@ -472,6 +477,15 @@ export const EndpointDetail = memo(function EndpointDetail({
               Query cache survives toggling. */}
           {uptimeOpened ? (
             <UptimeTab owner={endpoint.owner_username ?? owner ?? undefined} slug={endpoint.slug} />
+          ) : null}
+        </TabsContent>
+
+        <TabsContent value='api' className='mt-0 focus-visible:outline-none'>
+          {apiOpened ? (
+            <ApiTab
+              endpointPath={endpoint.full_path ?? endpoint.slug}
+              endpointType={endpoint.type}
+            />
           ) : null}
         </TabsContent>
       </div>

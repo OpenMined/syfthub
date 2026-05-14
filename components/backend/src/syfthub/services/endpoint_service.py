@@ -1547,7 +1547,7 @@ class EndpointService(BaseService):
         Args:
             owner_username: User username or org slug
             slug: Endpoint slug
-            window_hours: Rolling window in hours (1..168 enforced at route)
+            window_hours: Rolling window in hours (1..2160 enforced at route)
             current_user: Authenticated viewer (optional for public reads)
 
         Returns:
