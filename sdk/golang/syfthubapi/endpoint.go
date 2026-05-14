@@ -282,11 +282,24 @@ func (e *Endpoint) GetAgentHandler() (AgentHandler, error) {
 	}
 }
 
+// HasPolicyExecutor reports whether the endpoint has a configured policy
+// executor. Used by hot paths (e.g. per-message session routing) to skip
+// allocating policy-check request state when no policies are wired up.
+func (e *Endpoint) HasPolicyExecutor() bool {
+	inv, ok := e.invoker.(*AgentOneShotInvoker)
+	return ok && inv.policyExecutor != nil
+}
+
 // CheckPolicies runs policy evaluation without executing the endpoint handler.
+// userContent, when non-empty, is the actual user message text to evaluate so
+// stateful policies (rate_limit, token_limit) decrement on the right input and
+// prompt_filter can inspect it. Pass "" if no content is available — a
+// placeholder is used in that case.
+//
 // Returns nil PolicyResultOutput if no policy executor is configured.
-func (e *Endpoint) CheckPolicies(ctx context.Context, reqCtx *RequestContext) (*PolicyResultOutput, error) {
+func (e *Endpoint) CheckPolicies(ctx context.Context, reqCtx *RequestContext, userContent string) (*PolicyResultOutput, error) {
 	if inv, ok := e.invoker.(*AgentOneShotInvoker); ok && inv.policyExecutor != nil {
-		return inv.checkPolicies(ctx, reqCtx)
+		return inv.checkPolicies(ctx, reqCtx, userContent)
 	}
 	return nil, nil
 }

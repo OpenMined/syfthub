@@ -28,10 +28,12 @@ func (a *AgentOneShotInvoker) ParseRequest(payload json.RawMessage) (any, error)
 
 func (a *AgentOneShotInvoker) Invoke(ctx context.Context, input any, reqCtx *RequestContext) (any, error) {
 	messages := input.([]Message)
+	prompt := lastUserContent(messages)
 
-	// Enforce policies before starting agent handler.
+	// Enforce policies before starting agent handler. Pass the latest user
+	// content so prompt_filter / token_limit see real input.
 	if a.policyExecutor != nil {
-		policyResult, err := a.checkPolicies(ctx, reqCtx)
+		policyResult, err := a.checkPolicies(ctx, reqCtx, prompt)
 		if err != nil {
 			return nil, fmt.Errorf("policy check failed: %w", err)
 		}
@@ -48,15 +50,6 @@ func (a *AgentOneShotInvoker) Invoke(ctx context.Context, input any, reqCtx *Req
 
 	if a.handler == nil {
 		return nil, errNoHandler(a.slug)
-	}
-
-	// Extract prompt from last user message
-	prompt := ""
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "user" {
-			prompt = messages[i].Content
-			break
-		}
 	}
 
 	// Create a temporary session for one-shot invocation.
@@ -120,9 +113,17 @@ func (a *AgentOneShotInvoker) Close() error {
 }
 
 // checkPolicies runs policy evaluation without executing the endpoint handler.
-func (a *AgentOneShotInvoker) checkPolicies(ctx context.Context, reqCtx *RequestContext) (*PolicyResultOutput, error) {
+// userContent is the actual user message to evaluate; when empty a placeholder
+// is used so existing call sites that don't carry message content still work.
+// Passing real content lets prompt_filter / token_limit policies inspect input
+// rather than the placeholder.
+func (a *AgentOneShotInvoker) checkPolicies(ctx context.Context, reqCtx *RequestContext, userContent string) (*PolicyResultOutput, error) {
 	input := buildExecutorInput(string(EndpointTypeAgent), a.slug, EndpointTypeAgent, reqCtx)
-	input.Messages = []Message{{Role: "user", Content: "policy_check"}}
+	content := userContent
+	if content == "" {
+		content = "policy_check"
+	}
+	input.Messages = []Message{{Role: "user", Content: content}}
 	// Signal the executor to skip handler invocation. Required for container
 	// mode where the real handler is always loaded (no separate noop handler
 	// file exists unlike subprocess mode).
@@ -133,6 +134,19 @@ func (a *AgentOneShotInvoker) checkPolicies(ctx context.Context, reqCtx *Request
 		return nil, fmt.Errorf("policy check failed: %w", err)
 	}
 	return output.PolicyResult, nil
+}
+
+// lastUserContent returns the Content of the most recent user message in
+// messages, or "" if there is none. Used by both the one-shot Invoke path
+// (to extract the prompt) and the policy gate (to pass real input to
+// prompt_filter / token_limit).
+func lastUserContent(messages []Message) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "user" {
+			return messages[i].Content
+		}
+	}
+	return ""
 }
 
 // Ensure AgentOneShotInvoker implements the interface at compile time.

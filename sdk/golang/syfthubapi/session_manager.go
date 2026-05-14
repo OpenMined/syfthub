@@ -10,6 +10,12 @@ import (
 	"time"
 )
 
+// policyCheckTimeout caps every policy evaluation we run on behalf of an
+// agent session — both the initial gate in StartSession and the per-message
+// gate in RouteMessage. Long enough to absorb a Python subprocess spawn
+// under load; short enough to fail fast when the policy runner is wedged.
+const policyCheckTimeout = 30 * time.Second
+
 // DefaultMaxSessions is the default maximum number of concurrent agent sessions.
 const DefaultMaxSessions = 100
 
@@ -147,7 +153,9 @@ func (m *AgentSessionManager) StartSession(
 		EndpointType:      EndpointTypeAgent,
 		PaymentCredential: payload.PaymentCredential,
 	}
-	policyResult, err := ep.CheckPolicies(context.Background(), reqCtx)
+	policyCtx, policyCancel := context.WithTimeout(context.Background(), policyCheckTimeout)
+	policyResult, err := ep.CheckPolicies(policyCtx, reqCtx, payload.Prompt)
+	policyCancel()
 	if err != nil {
 		return nil, fmt.Errorf("policy check failed: %w", err)
 	}
@@ -275,6 +283,24 @@ func (m *AgentSessionManager) StartSession(
 }
 
 // RouteMessage routes an incoming user message to the correct session's recvCh.
+//
+// For conversational user messages (Type == "user_message") it first re-runs
+// policy enforcement against the endpoint as it currently exists in the
+// registry. Re-resolving the endpoint per call (rather than caching it at
+// StartSession time) is what gives mid-session policy updates effect: when
+// the file-mode reload swaps a new Endpoint pointer into the registry, the
+// next user message hits the new policy_executor with the new policyConfigs.
+// Stateful policies (rate_limit, token_limit) decrement on every call because
+// their SQLite store persists across executor recreation.
+//
+// Control signals (user_confirm / user_deny / user_cancel) bypass the gate —
+// they don't carry new prompt content and shouldn't trip rate limits.
+//
+// Denial outcomes:
+//   - Allowed=false  → emit agent.policy_denied, then cancel the session.
+//   - Pending+payment → emit agent.payment_required, then cancel the session.
+//   - executor error → log and drop the message; do NOT cancel the session
+//     (a transient runner failure shouldn't tear down a healthy chat).
 func (m *AgentSessionManager) RouteMessage(payload AgentUserMessagePayload) error {
 	m.mu.RLock()
 	session, ok := m.sessions[payload.SessionID]
@@ -284,10 +310,103 @@ func (m *AgentSessionManager) RouteMessage(payload AgentUserMessagePayload) erro
 		return fmt.Errorf("session not found: %s", payload.SessionID)
 	}
 
+	if payload.Message.Type == UserMessageTypeMessage {
+		if err := m.enforceMessagePolicy(session, payload.Message); err != nil {
+			return err
+		}
+	}
+
 	if !session.DeliverMessage(payload.Message) {
 		m.logger.Warn("[AGENT] Session receive channel full, dropping message",
 			"session_id", payload.SessionID,
 		)
+	}
+
+	return nil
+}
+
+// enforceMessagePolicy re-evaluates the endpoint's policies for a single
+// follow-up user message. Returns a non-nil error iff the message was denied
+// (or required payment) and therefore must NOT be delivered to the handler.
+// On denial the corresponding agent.policy_denied or agent.payment_required
+// event has already been published on the session's outbound channel and the
+// session has been cancelled.
+func (m *AgentSessionManager) enforceMessagePolicy(session *AgentSession, msg UserMessage) error {
+	ep, ok := m.registry.Get(session.EndpointSlug)
+	if !ok {
+		// Endpoint was removed mid-session — fail the session so the user
+		// gets a clear signal rather than a silent "channel-full" warning.
+		if err := session.SendPolicyDenied("endpoint_removed", "endpoint no longer registered"); err != nil {
+			m.logger.Debug("[AGENT] policy_denied event not delivered (session closing)",
+				"session_id", session.ID, "error", err)
+		}
+		session.CancelByUser()
+		return fmt.Errorf("endpoint not found: %s", session.EndpointSlug)
+	}
+
+	// Skip allocating policy-check state when the endpoint has no policies
+	// wired up. This is the dominant case for agent endpoints that don't
+	// declare a policies/ directory.
+	if !ep.HasPolicyExecutor() {
+		return nil
+	}
+
+	reqCtx := &RequestContext{
+		User:         session.User,
+		EndpointSlug: session.EndpointSlug,
+		EndpointType: EndpointTypeAgent,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), policyCheckTimeout)
+	defer cancel()
+
+	policyResult, err := ep.CheckPolicies(ctx, reqCtx, msg.Content)
+	if err != nil {
+		// Soft error: log, drop the message, keep the session alive. A wedged
+		// policy runner shouldn't tear down a session whose previous N turns
+		// were healthy.
+		m.logger.Error("[AGENT] mid-session policy check failed",
+			"session_id", session.ID,
+			"endpoint", session.EndpointSlug,
+			"error", err,
+		)
+		return fmt.Errorf("policy check failed: %w", err)
+	}
+	if policyResult == nil {
+		return nil
+	}
+
+	if policyResult.Pending {
+		challenge, _ := PaymentChallengeFromMetadata(policyResult.Metadata)
+		details := CopyPaymentMetadata(policyResult.Metadata)
+		m.logger.Info("[AGENT] mid-session payment required",
+			"session_id", session.ID,
+			"endpoint", session.EndpointSlug,
+			"user", session.User.UsernameOrEmpty(),
+			"policy_name", policyResult.PolicyName,
+		)
+		if err := session.SendPaymentRequired(policyResult.PolicyName, challenge, details); err != nil {
+			m.logger.Debug("[AGENT] payment_required event not delivered (session closing)",
+				"session_id", session.ID, "error", err)
+		}
+		session.CancelByUser()
+		return fmt.Errorf("payment required by policy %q", policyResult.PolicyName)
+	}
+
+	if !policyResult.Allowed {
+		m.logger.Warn("[AGENT] mid-session message denied by policy",
+			"session_id", session.ID,
+			"endpoint", session.EndpointSlug,
+			"user", session.User.UsernameOrEmpty(),
+			"policy_name", policyResult.PolicyName,
+			"reason", policyResult.Reason,
+		)
+		if err := session.SendPolicyDenied(policyResult.PolicyName, policyResult.Reason); err != nil {
+			m.logger.Debug("[AGENT] policy_denied event not delivered (session closing)",
+				"session_id", session.ID, "error", err)
+		}
+		session.CancelByUser()
+		return fmt.Errorf("denied by policy %q: %s", policyResult.PolicyName, policyResult.Reason)
 	}
 
 	return nil

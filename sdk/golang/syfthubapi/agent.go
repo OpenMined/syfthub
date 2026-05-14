@@ -334,7 +334,7 @@ func (s *AgentSession) SendCh() <-chan AgentEventPayload {
 func (s *AgentSession) DeliverMessage(msg UserMessage) bool {
 	select {
 	case s.recvCh <- msg:
-		if msg.Type == "user_message" && msg.Content != "" {
+		if msg.Type == UserMessageTypeMessage && msg.Content != "" {
 			s.appendTranscript(Message{Role: "user", Content: msg.Content})
 		}
 		return true
@@ -443,6 +443,47 @@ func (s *AgentSession) SendToken(token string) error {
 	}
 	return s.Send(AgentEventPayload{
 		EventType: EventTypeAgentToken,
+		Data:      data,
+	})
+}
+
+// SendPolicyDenied sends an agent.policy_denied event mid-session. Used by
+// the session manager when a per-message policy check rejects a user
+// follow-up. Caller is expected to cancel the session after this returns.
+func (s *AgentSession) SendPolicyDenied(policyName, reason string) error {
+	data, err := json.Marshal(map[string]any{
+		"policy_name": policyName,
+		"reason":      reason,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal policy_denied event: %w", err)
+	}
+	return s.Send(AgentEventPayload{
+		EventType: EventTypeAgentPolicyDenied,
+		Data:      data,
+	})
+}
+
+// SendPaymentRequired sends an agent.payment_required event mid-session.
+// challenge is the WWW-Authenticate-style Payment challenge string; details
+// is the safe metadata projection from the policy result. Caller is expected
+// to cancel the session after this returns.
+func (s *AgentSession) SendPaymentRequired(policyName, challenge string, details map[string]any) error {
+	payload := map[string]any{
+		"policy_name": policyName,
+	}
+	if challenge != "" {
+		payload["challenge"] = challenge
+	}
+	if len(details) > 0 {
+		payload["details"] = details
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal payment_required event: %w", err)
+	}
+	return s.Send(AgentEventPayload{
+		EventType: EventTypeAgentPaymentRequired,
 		Data:      data,
 	})
 }
@@ -577,7 +618,7 @@ func (s *AgentSession) RequestConfirmation(action string, args map[string]any) (
 		return false, err
 	}
 
-	return msg.Type == "user_confirm", nil
+	return msg.Type == UserMessageTypeConfirm, nil
 }
 
 // UserMessage represents a message from the user during an agent session.

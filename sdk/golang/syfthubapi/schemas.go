@@ -29,6 +29,15 @@ const (
 	MsgTypeAgentEvent         = "agent_event"
 )
 
+// UserMessage.Type values. UserMessageTypeMessage is the only one that
+// carries new prompt content; the others are control signals.
+const (
+	UserMessageTypeMessage = "user_message"
+	UserMessageTypeConfirm = "user_confirm"
+	UserMessageTypeDeny    = "user_deny"
+	UserMessageTypeCancel  = "user_cancel"
+)
+
 // Agent event type constants (the "event_type" field of AgentEventPayload).
 const (
 	EventTypeAgentThinking     = "agent.thinking"
@@ -38,6 +47,20 @@ const (
 	EventTypeAgentToken        = "agent.token"
 	EventTypeAgentStatus       = "agent.status"
 	EventTypeAgentRequestInput = "agent.request_input"
+
+	// EventTypeAgentPolicyDenied is emitted mid-session when a per-message
+	// policy check rejects a user follow-up message (access_group revoked,
+	// rate-limit exhausted, prompt_filter match, etc.). The session is
+	// terminated after this event is published. Data shape:
+	// {policy_name: string, reason: string}.
+	EventTypeAgentPolicyDenied = "agent.policy_denied"
+
+	// EventTypeAgentPaymentRequired is emitted mid-session when a
+	// transaction-style policy returns a payment challenge for a user
+	// follow-up message. The session is terminated after this event so the
+	// caller can obtain a payment credential and start a new session.
+	// Data shape: {policy_name: string, challenge: string, details: map}.
+	EventTypeAgentPaymentRequired = "agent.payment_required"
 
 	// Terminal session events
 	EventTypeSessionCompleted     = "session.completed"
@@ -107,6 +130,16 @@ type UserContext struct {
 
 	// Role is the user's role (e.g., "admin", "user", "guest").
 	Role string `json:"role"`
+}
+
+// UsernameOrEmpty returns the username, or "" when the receiver is nil.
+// Useful for log fields and policy inputs built from possibly-anonymous
+// requests where the caller hasn't been authenticated yet.
+func (u *UserContext) UsernameOrEmpty() string {
+	if u == nil {
+		return ""
+	}
+	return u.Username
 }
 
 // RequestContext carries request metadata through the processing chain.
