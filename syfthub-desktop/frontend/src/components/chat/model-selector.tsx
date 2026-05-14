@@ -16,13 +16,16 @@ interface ModelSelectorProps<T extends SelectableModel> {
   onModelSelect: (model: T) => void;
   models: T[];
   isLoading?: boolean;
+  /** Parent is responsible for coalescing/TTL — this fires on every open. */
+  onOpen?: () => void;
 }
 
 export function ModelSelector<T extends SelectableModel>({
   selectedModel,
   onModelSelect,
   models,
-  isLoading = false
+  isLoading = false,
+  onOpen
 }: Readonly<ModelSelectorProps<T>>) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -42,13 +45,14 @@ export function ModelSelector<T extends SelectableModel>({
   const handleOpenChange = useCallback((open: boolean) => {
     setIsOpen(open);
     if (open) {
+      onOpen?.();
       setTimeout(() => {
         searchInputReference.current?.focus();
       }, 0);
     } else {
       setSearchQuery('');
     }
-  }, []);
+  }, [onOpen]);
 
   const handleSelect = useCallback(
     (model: T) => {

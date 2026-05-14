@@ -165,6 +165,7 @@ interface AppState {
   // through the hub/aggregator path, not the local runner.
   networkAgents: NetworkAgentInfo[];
   networkAgentsLoading: boolean;
+  networkAgentsLastFetchedAt: number | null;
 
   // Library state
   libraryPackages: LibraryPackage[];
@@ -239,7 +240,7 @@ interface AppState {
   setChatSelectedSources: (sources: EndpointInfo[]) => void;
   toggleChatSource: (source: EndpointInfo) => void;
   refreshAggregatorURL: () => Promise<void>;
-  fetchNetworkAgents: () => Promise<void>;
+  fetchNetworkAgents: (force?: boolean) => Promise<void>;
 
   // Actions - Library
   fetchLibraryPackages: () => Promise<void>;
@@ -322,6 +323,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   aggregatorURL: null,
   networkAgents: [],
   networkAgentsLoading: false,
+  networkAgentsLastFetchedAt: null,
 
   // Library initial state
   libraryPackages: [],
@@ -416,7 +418,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         // first login, and on any settings update — so this catches the case
         // where the initial fetch ran with syftClient still nil.
         EventsOn('app:config-ready', () => {
-          void get().fetchNetworkAgents();
+          // force: auth identity may have changed, so bypass the TTL.
+          void get().fetchNetworkAgents(true);
         });
 
         // The file watcher is the ground truth. When it fires, the emitted list
@@ -997,11 +1000,29 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ aggregatorURL: url || null });
   },
 
-  fetchNetworkAgents: async () => {
+  fetchNetworkAgents: async (force) => {
+    const { networkAgentsLoading, networkAgentsLastFetchedAt } = get();
+    if (networkAgentsLoading) return;
+    const NETWORK_AGENTS_TTL_MS = 10_000;
+    if (
+      !force &&
+      networkAgentsLastFetchedAt !== null &&
+      Date.now() - networkAgentsLastFetchedAt < NETWORK_AGENTS_TTL_MS
+    ) {
+      return;
+    }
     set({ networkAgentsLoading: true });
     try {
-      const agents = await ListNetworkAgents();
-      set({ networkAgents: agents || [], networkAgentsLoading: false });
+      const agents = (await ListNetworkAgents()) || [];
+      // Skip the array-reference replacement when the wire payload is unchanged
+      // so subscribers (and the ModelSelector's filteredModels useMemo) don't
+      // re-render on a no-op refresh. Mirrors the app:endpoints-changed guard.
+      const unchanged = JSON.stringify(get().networkAgents) === JSON.stringify(agents);
+      set({
+        ...(unchanged ? {} : { networkAgents: agents }),
+        networkAgentsLoading: false,
+        networkAgentsLastFetchedAt: Date.now(),
+      });
     } catch (err) {
       // Swallow: the network list is supplementary; the local agent list still
       // works when the hub is unreachable, so don't surface to the error banner.

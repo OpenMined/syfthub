@@ -280,6 +280,7 @@ function ChatInputArea({
   const chatSelectedSources = useAppStore((s) => s.chatSelectedSources);
   const setChatSelectedModel = useAppStore((s) => s.setChatSelectedModel);
   const toggleChatSource = useAppStore((s) => s.toggleChatSource);
+  const fetchNetworkAgents = useAppStore((s) => s.fetchNetworkAgents);
 
   // Agent dropdown is sourced from the hub browse list (network-wide), not
   // local endpoints — see appStore.fetchNetworkAgents.
@@ -373,6 +374,7 @@ function ChatInputArea({
                 selectedModel={chatSelectedModel}
                 onModelSelect={setChatSelectedModel}
                 isLoading={networkAgentsLoading}
+                onOpen={() => { void fetchNetworkAgents(); }}
               />
               {isActive ? (
                 <PromptInputAction tooltip={stopTooltip}>
@@ -455,6 +457,14 @@ function UserBubble({
 
 function AgentChatContent() {
   const chatSelectedModel = useAppStore((s) => s.chatSelectedModel);
+  const fetchNetworkAgents = useAppStore((s) => s.fetchNetworkAgents);
+
+  // Refresh the hub catalog on entering the chat view; the hub has no push
+  // signal, so the dropdown would otherwise show whatever was cached at boot.
+  // TTL inside fetchNetworkAgents coalesces rapid remounts.
+  useEffect(() => {
+    void fetchNetworkAgents();
+  }, [fetchNetworkAgents]);
 
   const {
     entries,
