@@ -536,12 +536,13 @@ func (api *SyftAPI) Shutdown(ctx context.Context) error {
 }
 
 // syncEndpoints sends endpoints to SyftHub backend.
+//
+// The hub treats /endpoints/sync as authoritative: endpoints absent from the
+// posted list are deleted hub-side, and an empty list deletes all of the
+// user's endpoints. We MUST POST even when the local registry is empty,
+// otherwise deleting the user's last endpoint would never reach the hub.
 func (api *SyftAPI) syncEndpoints(ctx context.Context) error {
 	endpoints := api.registry.List()
-	if len(endpoints) == 0 {
-		api.logger.Debug("no endpoints to sync")
-		return nil
-	}
 
 	// Build endpoint infos with visibility and connect info
 	infos := make([]EndpointInfo, 0, len(endpoints))

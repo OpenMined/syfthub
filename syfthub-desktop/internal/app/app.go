@@ -374,11 +374,10 @@ func (a *App) handleReload(endpoints []*syfthubapi.Endpoint) {
 	a.logger.Info("endpoints reloaded", "count", len(endpoints))
 	a.api.Registry().ReplaceFileBased(endpoints)
 
-	// Re-sync with SyftHub
+	// Re-sync with SyftHub. The SDK logs the success path with synced/deleted
+	// counts; we only log the failure path here.
 	if err := a.api.SyncEndpoints(context.Background()); err != nil {
 		a.logger.Error("failed to re-sync endpoints", "error", err)
-	} else {
-		a.logger.Info("endpoints synced with SyftHub")
 	}
 
 	// Notify external listeners (Wails GUI)

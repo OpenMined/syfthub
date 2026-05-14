@@ -1208,6 +1208,10 @@ func (a *App) DeleteEndpoint(slug string) error {
 	// the debounced file watcher.
 	if core != nil {
 		core.RemoveEndpoint(slug)
+		// Propagate the deletion to SyftHub. The /endpoints/sync POST is
+		// authoritative — endpoints absent from the posted list are deleted
+		// hub-side — so this is what removes the endpoint from the web UI.
+		core.SyncEndpointsAsync()
 	}
 	a.notifyEndpointsChanged()
 	return nil
