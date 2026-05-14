@@ -193,13 +193,9 @@ export function mapEndpointPublicToSource(endpoint: SdkEndpointPublic): ChatSour
   // Get policies for mapping
   const policies = endpoint.policies;
 
-  // Determine status based on updated time
   const updatedDate = endpoint.updatedAt;
-  const daysSinceUpdate = Math.floor((Date.now() - updatedDate.getTime()) / (1000 * 60 * 60 * 24));
 
-  let status: 'active' | 'warning' | 'inactive' = 'active';
-  if (daysSinceUpdate > 7) status = 'warning';
-  if (daysSinceUpdate > 30) status = 'inactive';
+  const status = endpoint.connect.some((c) => c.enabled) ? 'active' : 'inactive';
 
   const ownerUsername = endpoint.ownerUsername;
   const fullPath = `${ownerUsername}/${endpoint.slug}`;
