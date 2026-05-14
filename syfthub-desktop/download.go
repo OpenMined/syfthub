@@ -90,6 +90,14 @@ func (a *App) surfaceExistingDownload() {
 	dl.CleanupOldVersions(s.LatestVersion)
 }
 
+// GetDownloadState returns an idle DownloadState. Exists so Wails
+// includes updater.DownloadState in the generated TypeScript bindings —
+// the live state is delivered to the frontend via the "update:download"
+// event, not by polling this method.
+func (a *App) GetDownloadState() updater.DownloadState {
+	return updater.DownloadState{Stage: updater.DownloadIdle}
+}
+
 // DownloadUpdate begins a background download of the latest update
 // artifact for the current platform. Returns immediately; progress is
 // published on the "update:download" event.

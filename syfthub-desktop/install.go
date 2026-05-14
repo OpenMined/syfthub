@@ -64,6 +64,13 @@ func (a *App) scheduleCleanBootMarker(ctx context.Context) {
 	}()
 }
 
+// GetInstallState returns an idle InstallState. Exists so Wails includes
+// updater.InstallState in the generated TypeScript bindings — the live
+// state is delivered to the frontend via the "update:install" event.
+func (a *App) GetInstallState() updater.InstallState {
+	return updater.InstallState{Stage: updater.InstallIdle}
+}
+
 // InstallUpdate performs the in-place swap and relaunch.
 // Returns ErrUnsupportedPlatform on macOS until Phase 4.
 func (a *App) InstallUpdate() error {
