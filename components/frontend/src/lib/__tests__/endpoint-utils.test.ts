@@ -237,9 +237,16 @@ describe('mapEndpointPublicToSource', () => {
       tags: ['ai'],
       starsCount: 5,
       policies: [],
-      connect: [],
+      connect: [
+        {
+          type: 'http',
+          enabled: true,
+          description: 'HTTP',
+          config: { url: 'https://example.com/api', tenant_name: 't' }
+        }
+      ],
       createdAt: new Date('2024-01-01T00:00:00Z'),
-      updatedAt: new Date('2024-01-14T00:00:00Z') // 1 day ago
+      updatedAt: new Date('2024-01-14T00:00:00Z')
     };
 
     const result = mapEndpointPublicToSource(endpoint as never);
@@ -251,10 +258,10 @@ describe('mapEndpointPublicToSource', () => {
     expect(result.tags).toEqual(['ai']);
   });
 
-  it('sets warning status for endpoints older than 7 days', () => {
+  it('sets inactive status when all connections are disabled', () => {
     const endpoint = {
-      name: 'Old',
-      slug: 'old',
+      name: 'Disabled',
+      slug: 'disabled',
       description: '',
       type: 'model' as const,
       ownerUsername: 'bob',
@@ -264,19 +271,26 @@ describe('mapEndpointPublicToSource', () => {
       tags: [],
       starsCount: 0,
       policies: [],
-      connect: [],
-      createdAt: new Date('2023-12-01T00:00:00Z'),
-      updatedAt: new Date('2024-01-01T00:00:00Z') // 14 days ago
+      connect: [
+        {
+          type: 'http',
+          enabled: false,
+          description: 'HTTP',
+          config: { url: 'https://example.com/api', tenant_name: 't' }
+        }
+      ],
+      createdAt: new Date('2024-01-01T00:00:00Z'),
+      updatedAt: new Date('2024-01-14T00:00:00Z')
     };
 
     const result = mapEndpointPublicToSource(endpoint as never);
-    expect(result.status).toBe('warning');
+    expect(result.status).toBe('inactive');
   });
 
-  it('sets inactive status for endpoints older than 30 days', () => {
+  it('sets inactive status when there are no connections', () => {
     const endpoint = {
-      name: 'Very Old',
-      slug: 'very-old',
+      name: 'No Connect',
+      slug: 'no-connect',
       description: '',
       type: 'model' as const,
       ownerUsername: 'carol',
@@ -287,8 +301,8 @@ describe('mapEndpointPublicToSource', () => {
       starsCount: 0,
       policies: [],
       connect: [],
-      createdAt: new Date('2023-06-01T00:00:00Z'),
-      updatedAt: new Date('2023-11-01T00:00:00Z') // > 30 days ago
+      createdAt: new Date('2024-01-14T00:00:00Z'),
+      updatedAt: new Date('2024-01-14T00:00:00Z')
     };
 
     const result = mapEndpointPublicToSource(endpoint as never);

@@ -33,62 +33,21 @@ function parseTab(raw: string | null): EndpointTabId {
 const TAB_TRIGGER_CLASS =
   'font-inter focus-visible:ring-ring data-[state=active]:border-primary data-[state=active]:text-foreground text-muted-foreground hover:text-foreground relative inline-flex h-12 items-center justify-center rounded-none border-b-2 border-transparent bg-transparent px-4 text-sm font-medium shadow-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-0 data-[state=active]:shadow-none';
 
-type EndpointStatus = 'active' | 'warning' | 'inactive';
+type EndpointStatus = 'active' | 'inactive';
 
-// Helper functions moved outside component for consistent-function-scoping
 function getStatusBadgeColor(status: EndpointStatus) {
-  switch (status) {
-    case 'active': {
-      return 'bg-green-100 text-green-800 border-green-200 hover:bg-green-200';
-    }
-    case 'warning': {
-      return 'bg-yellow-100 text-yellow-800 border-yellow-200 hover:bg-yellow-200';
-    }
-    case 'inactive': {
-      return 'bg-red-100 text-red-800 border-red-200 hover:bg-red-200';
-    }
-    default: {
-      return 'bg-muted text-foreground border-border';
-    }
-  }
+  return status === 'active'
+    ? 'bg-green-100 text-green-800 border-green-200 hover:bg-green-200'
+    : 'bg-muted text-muted-foreground border-border';
 }
 
 function getStatusDotColor(status: EndpointStatus) {
-  switch (status) {
-    case 'active': {
-      return 'bg-green-500';
-    }
-    case 'warning': {
-      return 'bg-yellow-500';
-    }
-    case 'inactive': {
-      return 'bg-red-500';
-    }
-    default: {
-      return 'bg-muted-foreground';
-    }
-  }
+  return status === 'active' ? 'bg-green-500' : 'bg-muted-foreground';
 }
 
 function getStatusLabel(status: EndpointStatus) {
-  switch (status) {
-    case 'active': {
-      return 'Active';
-    }
-    case 'warning': {
-      return 'Needs Update';
-    }
-    case 'inactive': {
-      return 'Inactive';
-    }
-    default: {
-      return status;
-    }
-  }
+  return status === 'active' ? 'Active' : 'Inactive';
 }
-
-// getTypeStyles and getTypeLabel are now centralized in @/lib/endpoint-utils
-// as getEndpointTypeBadgeStyles and getEndpointTypeLabel respectively.
 
 // Skeleton loading state that mirrors the real page layout
 function EndpointDetailSkeleton() {
