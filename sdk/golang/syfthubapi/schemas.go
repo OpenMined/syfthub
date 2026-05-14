@@ -42,6 +42,7 @@ const (
 	// Terminal session events
 	EventTypeSessionCompleted     = "session.completed"
 	EventTypeSessionFailed        = "session.failed"
+	EventTypeSessionCancelled     = "session.cancelled"
 	EventTypeAgentSessionComplete = "agent.session_complete" // legacy
 	EventTypeAgentSessionFailed   = "agent.session_failed"   // legacy
 )

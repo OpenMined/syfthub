@@ -1,6 +1,6 @@
-# Releasing SDKs
+# Releasing SDKs and Desktop App
 
-This document describes how to release the Python and TypeScript SDKs to their respective package registries (PyPI and npm).
+This document describes how to release the Python and TypeScript SDKs to their respective package registries (PyPI and npm), and how to publish the SyftHub Desktop app to GitHub Releases.
 
 ## Table of Contents
 
@@ -13,6 +13,7 @@ This document describes how to release the Python and TypeScript SDKs to their r
 - [Release Process](#release-process)
   - [Python SDK](#python-sdk)
   - [TypeScript SDK](#typescript-sdk)
+  - [SyftHub Desktop](#syfthub-desktop)
 - [Version Numbering](#version-numbering)
 - [Troubleshooting](#troubleshooting)
 - [Rollback Procedures](#rollback-procedures)
@@ -26,6 +27,7 @@ Before releasing, ensure you have:
 - **Repository administrator access** - Required for environment and secrets configuration
 - **PyPI account** - With ownership/maintainer access to the `syfthub-sdk` package
 - **npm account** - With publish access to the `@syfthub` organization
+- **Permission to push `desktop/v*` tags** - Required to trigger desktop releases (no external registry account needed; artifacts are published to GitHub Releases)
 
 ---
 
@@ -129,6 +131,7 @@ Prevent unauthorized tag creation for releases.
    - Target: Tags matching patterns:
      - `python-sdk/v*`
      - `typescript-sdk/v*`
+     - `desktop/v*`
    - Rules:
      - Restrict creations: Only maintainers
      - Restrict deletions: Only maintainers
@@ -232,11 +235,220 @@ Prevent unauthorized tag creation for releases.
    - Check https://www.npmjs.com/package/@syfthub/sdk
    - Check GitHub Releases page
 
+### SyftHub Desktop
+
+The desktop app is a Wails (Go + React) application that ships as platform-native binaries via GitHub Releases. It does **not** publish to any external package registry, so no trusted-publisher setup is required.
+
+#### What the pipeline does
+
+Workflow: `.github/workflows/release-desktop.yml`
+
+Triggered by pushing any tag matching `desktop/v*`. Concurrency-guarded by `release-desktop` so two releases can't race. Five jobs:
+
+1. **`prepare`** (`ubuntu-latest`) — strips `desktop/v` off the tag, validates it as semver (`X.Y.Z` or `X.Y.Z-pre.N`), and emits `version` / `version_tag` outputs.
+2. **`build-linux`** (`ubuntu-latest`) — Node LTS + Go 1.23 + Wails v2.11.0. Installs `libgtk-3-dev` / `libwebkit2gtk-4.1-dev`, runs `wails build -platform linux/amd64 -tags webkit2_41 -ldflags "-X 'main.Version=$VERSION'"`. Produces `syfthub-desktop-linux-amd64` + `.sha256`.
+3. **`build-windows`** (`windows-latest`) — same toolchain, `wails build -platform windows/amd64`. Produces `syfthub-desktop-windows-amd64.exe` + `.sha256`.
+4. **`build-macos-arm64`** (`macos-14`) — `wails build -platform darwin/arm64`, then `zip -r` the `.app` bundle. Produces `syfthub-desktop-macos-arm64.zip` + `.sha256`.
+5. **`release`** (`ubuntu-latest`) — downloads all artifacts, concatenates the per-file checksums into `checksums.txt`, then uses `softprops/action-gh-release@v2` to create/update the GitHub Release at `desktop/v<VERSION>` with a templated body (download table, install instructions, checksum verification). `generate_release_notes: true` auto-appends commit notes.
+
+The `WAILS_VERSION` env var (currently `v2.11.0`) is pinned at the top of the workflow — bump it there if you need a newer Wails toolchain.
+
+#### Release Checklist
+
+```
+[ ] 1. Verify the desktop app builds locally (wails build)
+[ ] 2. Decide the version (see Version Numbering below)
+[ ] 3. Update CHANGELOG / release notes if maintained
+[ ] 4. Ensure desktop-app is merged into main (or chosen release branch)
+[ ] 5. Create and push the desktop/vX.Y.Z tag
+[ ] 6. Monitor the release-desktop workflow
+[ ] 7. Verify the GitHub Release and download/checksums
+```
+
+#### Step-by-Step
+
+1. **Verify a local build** (optional but recommended):
+
+   ```bash
+   cd syfthub-desktop
+   wails build
+   ```
+
+   The version baked into the binary comes from the `-X 'main.Version=$VERSION'` ldflag set in CI from the tag; you don't need to edit any version file in the repo.
+
+2. **Create and push the release tag** from the commit you want to ship:
+
+   ```bash
+   git checkout main         # or the release branch
+   git pull origin main
+   git tag desktop/v0.1.1
+   git push origin desktop/v0.1.1
+   ```
+
+3. **Monitor the workflow:**
+   - Go to "Actions" → "Release SyftHub Desktop"
+   - Verify `prepare`, all three `build-*` jobs, and `release` complete successfully
+
+4. **Verify the release:**
+   - Check the GitHub Releases page for `SyftHub Desktop v<X.Y.Z>`
+   - Confirm all six asset files are present (3 binaries + 3 `.sha256` files) plus `checksums.txt`
+   - Download one binary and verify its SHA-256 matches `checksums.txt`
+
+#### Platform Coverage
+
+| Platform | Architecture | Artifact |
+|----------|--------------|----------|
+| Linux | x86_64 | `syfthub-desktop-linux-amd64` (raw ELF binary) |
+| Windows | x86_64 | `syfthub-desktop-windows-amd64.exe` |
+| macOS | Apple Silicon (M1/M2/M3) | `syfthub-desktop-macos-arm64.zip` (zipped `.app` bundle) |
+
+> **Not currently built:** macOS Intel (`darwin/amd64`), Linux arm64, Windows arm64. Add a job to `release-desktop.yml` if needed.
+
+#### Known Gaps
+
+- **No code signing or notarization.** macOS users must right-click → Open to bypass Gatekeeper on first launch. Windows SmartScreen will warn on the unsigned `.exe`.
+- **No DMG installer for macOS** — only a zipped `.app`.
+- **No MSI/installer for Windows** — only a raw `.exe`.
+
+#### Auto-update manifest (Phase 1)
+
+The release workflow publishes an `update manifest` at a stable URL that
+the desktop app polls to discover new releases and enforce a minimum
+supported version. See `docs/architecture/auto-update-plan.md` for the
+full design.
+
+- Source files in `syfthub-desktop/`:
+  - `.min-supported-version` — single-line semver. Bumped only for
+    security or data-corruption fixes. Clients running below this value
+    enter the hard-gate state and must update before they can continue.
+  - `.must-update-reason` — optional short string shown to users in the
+    must-update modal. Leave empty for non-security releases.
+- Manifest is published to a non-versioned GitHub Release tagged
+  `desktop/latest-stable`. The release is bootstrapped automatically on
+  the first run of the `manifest` job; thereafter the workflow uploads
+  `manifest.json` with `--clobber`.
+- Pre-release tags (`desktop/v0.2.0-beta.1` etc.) intentionally do **not**
+  advance the stable manifest. They publish binaries but the
+  `latest-stable` pointer stays where it is.
+- Manifest URL (do not change without a coordinated client release):
+  `https://github.com/OpenMined/syfthub/releases/download/desktop/latest-stable/manifest.json`
+
+**Bumping `min_supported_version`:**
+
+1. Determine the lowest version that contains the security fix.
+2. Edit `syfthub-desktop/.min-supported-version` in the release PR.
+3. Optionally populate `syfthub-desktop/.must-update-reason` with a one-line
+   summary (`security: CVE-2026-XXXX` style).
+4. Cut the release tag as usual. The `manifest` job picks up the new floor.
+
+**Emergency rollback:** if a release advances the floor incorrectly,
+either (a) overwrite the manifest by editing `.min-supported-version` and
+cutting a patch release, or (b) manually replace the `manifest.json`
+asset under `desktop/latest-stable` via `gh release upload --clobber`.
+
+**Emergency bypass on a single client:**
+
+```bash
+# Disables the entire updater (no checks, no banner, no hard-gate)
+SYFTHUB_DESKTOP_SKIP_UPDATE_CHECK=1 ./syfthub-desktop
+```
+
+**Tag protection rule:** the existing rule covers `desktop/v*`. Add a
+second rule restricting creation/deletion of `desktop/latest-stable` to
+maintainers.
+
+#### macOS code signing + notarization (Phase 4 — currently inactive)
+
+The `build-macos-arm64` job has scaffolding for `codesign` and
+`xcrun notarytool` that activates automatically when the required
+secrets are present. While they are absent (today), macOS continues to
+ship unsigned and the desktop app's in-app updater falls back to the
+Phase 2 manual install flow (download + reveal in Finder).
+
+Required GitHub secrets to enable:
+
+| Secret | What it is |
+|---|---|
+| `APPLE_DEVELOPER_ID_CERT_P12_BASE64` | Base64 of the `.p12` containing your "Developer ID Application" cert + private key. Generate with `base64 -i cert.p12 -o cert.p12.b64`. |
+| `APPLE_DEVELOPER_ID_CERT_PASSWORD` | Password used when exporting the `.p12`. |
+| `APPLE_DEVELOPER_ID_IDENTITY` | The codesign identity string, e.g. `Developer ID Application: OpenMined (TEAMID1234)`. Get it from `security find-identity -v -p codesigning`. |
+| `APPLE_NOTARIZATION_APPLE_ID` | The Apple ID email used to submit. |
+| `APPLE_NOTARIZATION_TEAM_ID` | 10-character Team ID. |
+| `APPLE_NOTARIZATION_APP_PASSWORD` | App-specific password generated at appleid.apple.com (NOT your Apple ID password). |
+
+The workflow checks all three groups separately, so partial activation
+is allowed: setting only the cert + identity will sign but not
+notarize, which is enough to stop Gatekeeper warnings on installs from
+trusted distribution channels.
+
+Once all secrets are in place and the next stable release notarizes
+successfully, flip `inPlaceSupported` to `true` in
+`syfthub-desktop/internal/updater/install_darwin.go` and implement
+`swapAndRelaunch` per the design notes in that file.
+
+#### Manifest signing (Phase 5)
+
+The desktop app's auto-updater verifies the manifest with an Ed25519
+public key embedded in the binary. Until a real keypair is provisioned,
+the repo ships a placeholder PEM and clients skip signature verification
+("lenient" mode, default).
+
+**One-time setup:**
+
+1. Generate a fresh keypair:
+
+   ```bash
+   cd syfthub-desktop
+   go run ./cmd/genkey
+   ```
+
+   The tool prints both PEMs on stdout. **Do not commit the private key.**
+
+2. Replace the placeholder public key:
+
+   - Open `syfthub-desktop/internal/updater/embed/manifest_pubkey.pem`.
+   - Paste the entire `-----BEGIN PUBLIC KEY-----` block in place of
+     the placeholder marker.
+
+3. Add the private key as a GitHub secret named
+   `DESKTOP_MANIFEST_SIGNING_KEY` (paste the entire
+   `-----BEGIN PRIVATE KEY-----` block).
+
+4. Commit and merge the public-key change. **Do not ship the next
+   release yet** — give existing users a chance to upgrade to a client
+   that has the public key embedded.
+
+5. After at least one stable release with the embedded public key,
+   start signing: the `manifest` job will automatically pick up the
+   secret and produce `manifest.json.sig` alongside `manifest.json`.
+
+**Rotating the key:**
+
+Rotation requires shipping a new client release with the rotated
+public key. Steps:
+
+1. Generate a new keypair via `go run ./cmd/genkey`.
+2. Replace the embedded public key in the repo.
+3. Update the GitHub secret with the new private key.
+4. Cut a new desktop release. Older clients (with the old public key)
+   will fail to verify after the rotation; they fall back to lenient
+   mode if the old key was already in lenient circulation, or refuse
+   updates in strict mode.
+
+**Strict mode** for security-conscious users / corporate deployments:
+
+```bash
+SYFTHUB_DESKTOP_REQUIRE_SIGNATURE=1 ./syfthub-desktop
+```
+
+In strict mode, unsigned manifests are refused — the client will enter
+an offline state until a signed manifest is published.
+
 ---
 
 ## Version Numbering
 
-Both SDKs follow [Semantic Versioning](https://semver.org/):
+All artifacts follow [Semantic Versioning](https://semver.org/):
 
 - **MAJOR** (X.0.0): Breaking changes
 - **MINOR** (0.X.0): New features, backwards compatible
@@ -246,15 +458,18 @@ Both SDKs follow [Semantic Versioning](https://semver.org/):
 
 For pre-release testing, use these formats:
 
-| Type | Python | TypeScript |
-|------|--------|------------|
-| Alpha | `0.2.0a1` | `0.2.0-alpha.1` |
-| Beta | `0.2.0b1` | `0.2.0-beta.1` |
-| Release Candidate | `0.2.0rc1` | `0.2.0-rc.1` |
+| Type | Python | TypeScript | Desktop |
+|------|--------|------------|---------|
+| Alpha | `0.2.0a1` | `0.2.0-alpha.1` | `0.2.0-alpha.1` |
+| Beta | `0.2.0b1` | `0.2.0-beta.1` | `0.2.0-beta.1` |
+| Release Candidate | `0.2.0rc1` | `0.2.0-rc.1` | `0.2.0-rc.1` |
 
 Tag format for pre-releases:
 - `python-sdk/v0.2.0a1`
 - `typescript-sdk/v0.2.0-alpha.1`
+- `desktop/v0.2.0-beta.1`
+
+> **Desktop note:** The `prepare` job validates the tag against `^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$`, so `0.2.0-beta.1` and `0.2.0-rc.1` pass while PyPI-style `0.2.0a1` does not. Stick to the TypeScript/SemVer-style pre-release suffix for desktop tags.
 
 ---
 
@@ -311,6 +526,24 @@ Tag format for pre-releases:
 2. Check for build errors in the workflow logs
 3. Ensure all dependencies are correctly specified
 
+### Desktop: Invalid Version Format
+
+**Error:** `Invalid version format: <tag>` from the `prepare` job
+
+**Solution:** The desktop pipeline accepts only SemVer-style versions. Use `desktop/vX.Y.Z` or `desktop/vX.Y.Z-pre.N` (e.g., `desktop/v0.2.0-beta.1`). PyPI-style suffixes like `0.2.0a1` are rejected.
+
+### Desktop: No .app Bundle Found (macOS job)
+
+**Error:** `::error::No .app bundle found` during the `build-macos-arm64` job
+
+**Solution:** Wails normally outputs `syfthub-desktop.app` or `SyftHub Desktop.app` under `build/bin/`. If the output name has changed (e.g., via `wails.json`), update the lookup branches in `build-macos-arm64` → "Prepare artifacts" or rely on the fallback `find . -name "*.app"` path.
+
+### Desktop: Wails Build Fails on Linux
+
+**Error:** Build fails with missing GTK/WebKit headers
+
+**Solution:** The workflow installs `libgtk-3-dev` and `libwebkit2gtk-4.1-dev`, and builds with `-tags webkit2_41`. If you bump Wails or the runner image and the WebKit ABI changes, update both the apt packages and the build tag together.
+
 ---
 
 ## Rollback Procedures
@@ -343,6 +576,30 @@ npm allows unpublishing within 72 hours:
 
 3. **Publish a new patch version** with the fix.
 
+### SyftHub Desktop (GitHub Releases)
+
+GitHub Releases can be edited or deleted, but binaries that users have already downloaded cannot be recalled.
+
+1. **Mark the release as a pre-release or draft** to hide it from the "Latest" badge:
+   - GitHub → Releases → Edit release → toggle "Set as a pre-release" (or "Save as draft" to fully unlist).
+
+2. **Delete the release and tag** (only safe immediately after publish, before users have downloaded):
+   ```bash
+   gh release delete desktop/v0.2.0 --yes
+   git push --delete origin desktop/v0.2.0
+   git tag -d desktop/v0.2.0
+   ```
+
+3. **Publish a new patch version** with the fix:
+   ```bash
+   git tag desktop/v0.2.1
+   git push origin desktop/v0.2.1
+   ```
+
+4. **Update release notes** of the bad release to point users at the fixed version.
+
+> **Note:** There is no auto-update channel today, so users on the bad version must manually download the fix.
+
 ---
 
 ## Future Enhancements
@@ -353,3 +610,7 @@ Consider implementing these improvements:
 - [ ] **Changesets** - Alternative changelog and release management
 - [ ] **Slack/Discord notifications** - Alert team on successful releases
 - [ ] **Automated compatibility testing** - Test against live API before release
+- [ ] **Desktop: code signing + notarization** (Apple Developer ID, Windows Authenticode) so installers don't trip Gatekeeper / SmartScreen
+- [ ] **Desktop: macOS Intel + Linux arm64 + Windows arm64 builds**
+- [ ] **Desktop: DMG installer for macOS, MSI installer for Windows**
+- [ ] **Desktop: in-app auto-updater** (e.g., via a manifest file in the release)
