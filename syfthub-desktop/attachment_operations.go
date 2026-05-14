@@ -1,9 +1,14 @@
+// Package main: chat attachment bindings.
+//
+// Attachments flow through the active AgentSessionClient: inline (≤64 KiB) over
+// the hub WebSocket, larger payloads over the aggregator's HTTP side-channel.
+// Tier selection is handled by the SDK; this file caches inbound bytes for
+// preview/save and forwards outbound uploads.
 package main
 
 import (
-	"bytes"
+	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -13,96 +18,86 @@ import (
 	"path/filepath"
 	gosysruntime "runtime"
 	"strings"
+	"time"
 
-	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
+	"github.com/openmined/syfthub/sdk/golang/syfthub"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// AttachmentSummary is the payload returned to the frontend after staging an
-// attachment for the active local agent session.
+// AttachmentSummary is returned to the frontend after staging an attachment
+// for the active agent session. There is no LocalPath — the bytes live on the
+// host's side of the tunnel, not on the client.
 type AttachmentSummary struct {
 	FileID    string `json:"file_id"`
 	Name      string `json:"name"`
 	MIME      string `json:"mime"`
 	SizeBytes int64  `json:"size_bytes"`
 	SHA256    string `json:"sha256"`
-	// LocalPath is the on-disk path inside the session's AttachmentDir.
-	// The agent runner reads from here.
-	LocalPath string `json:"local_path"`
 }
 
-// locateSessionAttachment finds the on-disk file the session materialized
-// for fileID. Files are named {fileID}{ext} where ext is either empty or
-// begins with "." — so we accept the exact match first, then `fileID.*`.
-// Returns os.ErrNotExist when no match.
-func locateSessionAttachment(dir, fileID string) (string, error) {
-	if dir == "" || fileID == "" {
-		return "", os.ErrNotExist
-	}
-	exact := filepath.Join(dir, fileID)
-	if _, err := os.Stat(exact); err == nil {
-		return exact, nil
-	}
-	matches, err := filepath.Glob(filepath.Join(dir, fileID+".*"))
-	if err != nil {
-		return "", err
-	}
-	if len(matches) == 0 {
-		return "", os.ErrNotExist
-	}
-	return matches[0], nil
+// agentAttachment caches an inbound attachment for the active session. For
+// inline-tier attachments the SDK delivered the bytes in the event; we decode
+// once when the event arrives so save/preview is a buffer copy. For
+// object-store-tier attachments we keep the metadata and lazily call
+// AgentSessionClient.DownloadAttachment on demand.
+type agentAttachment struct {
+	Meta  syfthub.AttachmentEvent
+	Bytes []byte // populated only for inline transport
 }
 
-// materializeAgentInlineAttachment decodes the inline base64 bytes from an
-// agent.attachment event and writes them to attachmentsDir using the
-// filename pattern {file_id}{ext}.
-//
-// No-op if attachmentsDir is empty (attachments disabled), if the transport
-// isn't inline, or if the inline_data_b64 field is missing.
-func materializeAgentInlineAttachment(attachmentsDir string, data map[string]any) error {
-	if attachmentsDir == "" {
-		return nil
-	}
-	transport, _ := data["transport"].(string)
-	if transport != "inline" {
-		return nil
-	}
-	fileID, _ := data["file_id"].(string)
-	if fileID == "" {
-		return fmt.Errorf("missing file_id")
-	}
-	inlineB64, _ := data["inline_data_b64"].(string)
-	if inlineB64 == "" {
-		return nil // metadata-only event, nothing to write
-	}
-	raw, err := base64.StdEncoding.DecodeString(inlineB64)
-	if err != nil {
-		return fmt.Errorf("decode inline_data_b64: %w", err)
-	}
+// cacheAgentAttachment stores an inbound attachment under the active session's
+// cache. No-op when the session has rotated since the event was emitted.
+func (a *App) cacheAgentAttachment(sessionID string, ev *syfthub.AttachmentEvent) error {
+	entry := &agentAttachment{Meta: *ev}
 
-	// Verify declared size + SHA when present — the same checks the inbound
-	// materializer enforces. Bad bytes never reach disk.
-	if sizeF, ok := data["size_bytes"].(float64); ok {
-		if int64(len(raw)) != int64(sizeF) {
-			return fmt.Errorf("size mismatch: declared %d, actual %d", int64(sizeF), len(raw))
+	if ev.Transport == "inline" {
+		raw, err := ev.Bytes()
+		if err != nil {
+			return fmt.Errorf("decode inline bytes: %w", err)
 		}
-	}
-	if expected, _ := data["plaintext_sha256"].(string); expected != "" {
-		sum := sha256.Sum256(raw)
-		if hex.EncodeToString(sum[:]) != expected {
-			return fmt.Errorf("sha256 mismatch")
+		if ev.SizeBytes > 0 && int64(len(raw)) != ev.SizeBytes {
+			return fmt.Errorf("size mismatch: declared %d, actual %d", ev.SizeBytes, len(raw))
 		}
+		if ev.PlaintextSHA256 != "" {
+			sum := sha256.Sum256(raw)
+			if hex.EncodeToString(sum[:]) != ev.PlaintextSHA256 {
+				return fmt.Errorf("sha256 mismatch on file %s", ev.FileID)
+			}
+		}
+		entry.Bytes = raw
 	}
 
-	name, _ := data["name"].(string)
-	ext := filepath.Ext(name)
-	dest := filepath.Join(attachmentsDir, fileID+ext)
-	return os.WriteFile(dest, raw, 0o600)
+	a.agentMu.Lock()
+	defer a.agentMu.Unlock()
+	if a.agentSession == nil || a.agentSession.SessionID != sessionID || a.agentAttachments == nil {
+		return nil // session rotated; drop silently
+	}
+	a.agentAttachments[ev.FileID] = entry
+	return nil
 }
 
-// attachmentDownloadDir returns ~/Downloads, creating it if missing. The
-// default destination for agent-emitted attachment saves — chosen because
-// it's the universal "I'll find this later" location on every desktop OS.
+// activeAttachment returns the live AgentSessionClient and a cached attachment
+// entry under one mutex acquisition. Either return can be nil — callers check
+// individually so they can produce specific error messages.
+func (a *App) activeAttachment(fileID string) (*syfthub.AgentSessionClient, *agentAttachment) {
+	a.agentMu.Lock()
+	defer a.agentMu.Unlock()
+	if a.agentAttachments == nil {
+		return a.agentSession, nil
+	}
+	return a.agentSession, a.agentAttachments[fileID]
+}
+
+// attachmentOpTimeout bounds a single attachment transfer (save/download/inline).
+// Generous enough for slow networks streaming object-store payloads.
+const attachmentOpTimeout = 2 * time.Minute
+
+// attachmentContext returns a context with attachmentOpTimeout derived from a.ctx.
+func (a *App) attachmentContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(a.ctx, attachmentOpTimeout)
+}
+
+// attachmentDownloadDir returns ~/Downloads, creating it if missing.
 func attachmentDownloadDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -116,8 +111,8 @@ func attachmentDownloadDir() (string, error) {
 }
 
 // uniqueDestPath returns destDir/baseName, appending " (n)" before the
-// extension if a file with that exact name already exists. Idempotent
-// across many concurrent saves; bounded at 999 to avoid pathological loops.
+// extension if a file with that exact name already exists. Bounded at 999 to
+// avoid pathological loops.
 func uniqueDestPath(destDir, baseName string) string {
 	candidate := filepath.Join(destDir, baseName)
 	if _, err := os.Stat(candidate); os.IsNotExist(err) {
@@ -131,64 +126,58 @@ func uniqueDestPath(destDir, baseName string) string {
 			return candidate
 		}
 	}
-	// Pathological case — fall back to timestamp-suffixed name. Unlikely.
 	return filepath.Join(destDir, fmt.Sprintf("%s-%d%s", stem, os.Getpid(), ext))
 }
 
-// SaveAgentAttachment copies an agent-emitted attachment from the per-session
-// AttachmentDir into the user's ~/Downloads folder under the original
-// filename (with " (n)" suffix on collision). Returns the absolute path of
-// the saved file so the frontend can surface it in the chip.
-//
-// Replaces the previous "open folder picker → write" two-click flow.
+// resolveAttachment returns (sc, entry) for fileID, or an error if no session
+// is active or the attachment is unknown. Callers use this before touching
+// any disk or context so error responses don't depend on Wails state.
+func (a *App) resolveAttachment(fileID string) (*syfthub.AgentSessionClient, *agentAttachment, error) {
+	sc, entry := a.activeAttachment(fileID)
+	if sc == nil {
+		return nil, nil, fmt.Errorf("no active agent session")
+	}
+	if entry == nil {
+		return nil, nil, fmt.Errorf("attachment %s not found in current session", fileID)
+	}
+	return sc, entry, nil
+}
+
+// writeAttachment writes a resolved attachment's bytes into w. Inline reads
+// from cache; object-store streams via the SDK's HTTP side-channel.
+func (a *App) writeAttachment(ctx context.Context, sc *syfthub.AgentSessionClient, entry *agentAttachment, w io.Writer) error {
+	if entry.Bytes != nil {
+		_, err := w.Write(entry.Bytes)
+		return err
+	}
+	if entry.Meta.Transport != "object_store" {
+		return fmt.Errorf("attachment %s has unknown transport %q", entry.Meta.FileID, entry.Meta.Transport)
+	}
+	return sc.DownloadAttachment(ctx, entry.Meta.FileID, w)
+}
+
+// SaveAgentAttachment writes an agent-emitted attachment into ~/Downloads
+// under its original filename (with " (n)" suffix on collision). Inline-tier
+// bytes are served from the in-memory cache; object-store-tier bytes are
+// streamed via the SDK's HTTP relay.
 func (a *App) SaveAgentAttachment(fileID, suggestedName string) (string, error) {
 	if fileID == "" {
 		return "", fmt.Errorf("file_id required")
 	}
-	a.agentMu.Lock()
-	sessionID := a.agentSessionID
-	a.agentMu.Unlock()
-	if sessionID == "" {
-		return "", fmt.Errorf("no active agent session")
-	}
-	api, err := a.requireAPI()
+	sc, entry, err := a.resolveAttachment(fileID)
 	if err != nil {
 		return "", err
 	}
-	sm := api.AgentSessionManager()
-	if sm == nil {
-		return "", fmt.Errorf("agent session manager not initialized")
-	}
-	sess, ok := sm.GetSession(sessionID)
-	if !ok {
-		return "", fmt.Errorf("session %s not found", sessionID)
-	}
-	if sess.AttachmentDir == "" {
-		return "", fmt.Errorf("session has no attachment dir")
-	}
-
-	src, err := locateSessionAttachment(sess.AttachmentDir, fileID)
-	if err != nil {
-		return "", fmt.Errorf("attachment %s not found in session (was it materialized?)", fileID)
-	}
-	in, err := os.Open(src)
-	if err != nil {
-		return "", fmt.Errorf("open src: %w", err)
-	}
-	defer in.Close()
 
 	downloads, err := attachmentDownloadDir()
 	if err != nil {
 		return "", err
 	}
-	name := strings.TrimSpace(suggestedName)
-	if name == "" {
-		name = filepath.Base(src)
-	}
+
 	// Path-traversal guard: only the basename ever lands in Downloads.
-	name = filepath.Base(name)
-	if name == "." || name == ".." || name == string(filepath.Separator) {
-		name = fileID + filepath.Ext(src)
+	name := filepath.Base(strings.TrimSpace(suggestedName))
+	if name == "" || name == "." || name == ".." || name == string(filepath.Separator) {
+		name = fileID
 	}
 	dest := uniqueDestPath(downloads, name)
 
@@ -197,19 +186,17 @@ func (a *App) SaveAgentAttachment(fileID, suggestedName string) (string, error) 
 		return "", fmt.Errorf("open dest: %w", err)
 	}
 	defer out.Close()
-	if _, err := io.Copy(out, in); err != nil {
+
+	ctx, cancel := a.attachmentContext()
+	defer cancel()
+	if err := a.writeAttachment(ctx, sc, entry, out); err != nil {
 		_ = os.Remove(dest)
-		return "", fmt.Errorf("copy: %w", err)
+		return "", err
 	}
 	return dest, nil
 }
 
-// OpenInDefaultApp launches the OS's default handler for the file at path
-// (xdg-open on Linux, open on macOS, rundll32 on Windows). Returns an error
-// if the path doesn't exist or the command fails to start.
-//
-// Bound to the AttachmentChip's "Open" button — fires after the user has
-// saved an agent-emitted attachment to disk.
+// OpenInDefaultApp launches the OS's default handler for the file at path.
 func (a *App) OpenInDefaultApp(path string) error {
 	if path == "" {
 		return fmt.Errorf("path is required")
@@ -222,23 +209,19 @@ func (a *App) OpenInDefaultApp(path string) error {
 	case "darwin":
 		cmd = exec.Command("open", path)
 	case "windows":
-		// rundll32 is the most reliable Windows file-open shim that doesn't
-		// require a cmd.exe window flash.
 		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", path)
-	default: // linux + bsds
+	default:
 		cmd = exec.Command("xdg-open", path)
 	}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("launch failed: %w", err)
 	}
-	// Detach — we don't want to block the UI goroutine on the spawned process.
 	go func() { _ = cmd.Wait() }()
 	return nil
 }
 
-// BrowseForAttachment opens a native file picker (no filter — attachments
-// can be any MIME) and returns the absolute path, or an empty string if
-// the user cancelled. Bound to the desktop UI's paperclip button.
+// BrowseForAttachment opens a native file picker and returns the absolute path
+// (or empty string on cancel).
 func (a *App) BrowseForAttachment() string {
 	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "Attach file to agent",
@@ -250,35 +233,17 @@ func (a *App) BrowseForAttachment() string {
 	return path
 }
 
-// AttachToActiveSession reads the file at hostPath, copies it into the
-// active agent session's AttachmentDir, and delivers it to the session's
-// attachment channel so the runner can pick it up.
-//
-// Returns the metadata that was queued for the runner. Returns an error
-// if there is no active session or attachments are not enabled for that
-// session (the endpoint must declare accepts_attachments: true).
+// AttachToActiveSession reads the file at hostPath and sends it to the agent
+// via the hub WebSocket (inline) or aggregator HTTP relay (object-store),
+// whichever the size dictates. Returns the assigned file_id and metadata so
+// the frontend can render a staged-attachment chip and reference the file in
+// follow-up messages with the attachment://{file_id} URI.
 func (a *App) AttachToActiveSession(hostPath string) (*AttachmentSummary, error) {
 	a.agentMu.Lock()
-	sessionID := a.agentSessionID
+	sc := a.agentSession
 	a.agentMu.Unlock()
-	if sessionID == "" {
+	if sc == nil {
 		return nil, fmt.Errorf("no active agent session")
-	}
-
-	api, err := a.requireAPI()
-	if err != nil {
-		return nil, err
-	}
-	sm := api.AgentSessionManager()
-	if sm == nil {
-		return nil, fmt.Errorf("agent session manager not initialized")
-	}
-	sess, ok := sm.GetSession(sessionID)
-	if !ok {
-		return nil, fmt.Errorf("session %s not found", sessionID)
-	}
-	if !sess.AttachmentsEnabled() {
-		return nil, fmt.Errorf("attachments not enabled for this endpoint (set accepts_attachments: true in the endpoint frontmatter)")
 	}
 
 	st, err := os.Stat(hostPath)
@@ -300,74 +265,33 @@ func (a *App) AttachToActiveSession(hostPath string) (*AttachmentSummary, error)
 		mimeType = "application/octet-stream"
 	}
 
+	ctx, cancel := a.attachmentContext()
+	defer cancel()
+	fileID, err := sc.SendAttachmentBytes(ctx, body, syfthub.AttachmentOpts{
+		Name: name,
+		MIME: mimeType,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("send attachment: %w", err)
+	}
+
 	sum := sha256.Sum256(body)
-	fileID := "att-" + sha256Short(sum[:])
-	destName := fileID + filepath.Ext(hostPath)
-	dest := filepath.Join(sess.AttachmentDir, destName)
-	if err := os.WriteFile(dest, body, 0o600); err != nil {
-		return nil, fmt.Errorf("stage: %w", err)
-	}
-
-	info := syfthubapi.AttachmentInfo{
-		FileID:          fileID,
-		Name:            name,
-		MIME:            mimeType,
-		SizeBytes:       int64(len(body)),
-		PlaintextSHA256: hex.EncodeToString(sum[:]),
-		Transport:       syfthubapi.AttachmentTransportInline,
-		LocalPath:       dest,
-	}
-	if !sess.DeliverAttachment(info) {
-		return nil, fmt.Errorf("attachment channel full")
-	}
-
 	return &AttachmentSummary{
-		FileID:    info.FileID,
-		Name:      info.Name,
-		MIME:      info.MIME,
-		SizeBytes: info.SizeBytes,
-		SHA256:    info.PlaintextSHA256,
-		LocalPath: info.LocalPath,
+		FileID:    fileID,
+		Name:      name,
+		MIME:      mimeType,
+		SizeBytes: int64(len(body)),
+		SHA256:    hex.EncodeToString(sum[:]),
 	}, nil
 }
 
-// DownloadActiveSessionAttachment copies the file referenced by fileID out
-// of the active session's AttachmentDir to destPath.
-//
-// Useful when the agent emits an attachment and the user wants to save it.
-// fileID must correspond to a file the runner produced in this session.
+// DownloadActiveSessionAttachment writes fileID's bytes to destPath. Used
+// when the user picks "Save to…" with a custom path.
 func (a *App) DownloadActiveSessionAttachment(fileID, destPath string) error {
-	a.agentMu.Lock()
-	sessionID := a.agentSessionID
-	a.agentMu.Unlock()
-	if sessionID == "" {
-		return fmt.Errorf("no active agent session")
-	}
-	api, err := a.requireAPI()
+	sc, entry, err := a.resolveAttachment(fileID)
 	if err != nil {
 		return err
 	}
-	sm := api.AgentSessionManager()
-	if sm == nil {
-		return fmt.Errorf("agent session manager not initialized")
-	}
-	sess, ok := sm.GetSession(sessionID)
-	if !ok {
-		return fmt.Errorf("session %s not found", sessionID)
-	}
-	if sess.AttachmentDir == "" {
-		return fmt.Errorf("session has no attachment dir")
-	}
-
-	src, err := locateSessionAttachment(sess.AttachmentDir, fileID)
-	if err != nil {
-		return fmt.Errorf("attachment %s not found in session", fileID)
-	}
-	in, err := os.Open(src)
-	if err != nil {
-		return fmt.Errorf("open src: %w", err)
-	}
-	defer in.Close()
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o700); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -376,54 +300,67 @@ func (a *App) DownloadActiveSessionAttachment(fileID, destPath string) error {
 		return fmt.Errorf("open dest: %w", err)
 	}
 	defer out.Close()
-	if _, err := io.Copy(out, in); err != nil {
-		return fmt.Errorf("copy: %w", err)
-	}
-	return nil
+
+	ctx, cancel := a.attachmentContext()
+	defer cancel()
+	return a.writeAttachment(ctx, sc, entry, out)
 }
 
-// AttachmentInlineBytes returns the plaintext bytes for an inline attachment
-// the agent emitted. The frontend uses this to render images / preview
-// content directly in the chat timeline without exposing the on-disk path.
-//
-// Returns at most maxBytes; the rest is truncated. Pass 0 for no limit.
+// AttachmentInlineBytes returns the plaintext bytes for an attachment so the
+// frontend can render image previews / inline content in the chat timeline.
+// For inline-tier attachments this is a cache read; for object-store-tier it
+// streams the bytes through SDK's HTTP relay into memory. maxBytes caps the
+// returned slice; 0 means no limit.
 func (a *App) AttachmentInlineBytes(fileID string, maxBytes int64) ([]byte, error) {
-	a.agentMu.Lock()
-	sessionID := a.agentSessionID
-	a.agentMu.Unlock()
-	if sessionID == "" {
-		return nil, fmt.Errorf("no active agent session")
-	}
-	api, err := a.requireAPI()
+	sc, entry, err := a.resolveAttachment(fileID)
 	if err != nil {
 		return nil, err
 	}
-	sm := api.AgentSessionManager()
-	sess, ok := sm.GetSession(sessionID)
-	if !ok {
-		return nil, fmt.Errorf("session not found")
+	if entry.Bytes != nil {
+		if maxBytes > 0 && int64(len(entry.Bytes)) > maxBytes {
+			return entry.Bytes[:maxBytes], nil
+		}
+		return entry.Bytes, nil
 	}
-	src, err := locateSessionAttachment(sess.AttachmentDir, fileID)
-	if err != nil {
-		return nil, fmt.Errorf("attachment %s not found", fileID)
+
+	// Object-store tier: stream into a capped buffer.
+	ctx, cancel := a.attachmentContext()
+	defer cancel()
+	buf := newLimitedBuffer(maxBytes)
+	if err := sc.DownloadAttachment(ctx, fileID, buf); err != nil {
+		return nil, fmt.Errorf("download attachment: %w", err)
 	}
-	f, err := os.Open(src)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	var buf bytes.Buffer
-	if maxBytes > 0 {
-		_, err = io.Copy(&buf, io.LimitReader(f, maxBytes))
-	} else {
-		_, err = io.Copy(&buf, f)
-	}
-	if err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return buf.bytes, nil
 }
 
-func sha256Short(b []byte) string {
-	return hex.EncodeToString(b[:8])
+// limitedBuffer is an io.Writer that stores up to max bytes (0 = unlimited).
+// Used by AttachmentInlineBytes to bound previews of large object-store
+// attachments without buffering the entire payload in memory.
+type limitedBuffer struct {
+	bytes []byte
+	max   int64
+}
+
+func newLimitedBuffer(max int64) *limitedBuffer {
+	b := &limitedBuffer{max: max}
+	if max > 0 {
+		b.bytes = make([]byte, 0, max)
+	}
+	return b
+}
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	n := len(p)
+	if b.max > 0 {
+		remaining := b.max - int64(len(b.bytes))
+		if remaining <= 0 {
+			return n, nil // discard but report consumed so the SDK keeps streaming
+		}
+		if int64(n) > remaining {
+			b.bytes = append(b.bytes, p[:remaining]...)
+			return n, nil
+		}
+	}
+	b.bytes = append(b.bytes, p...)
+	return n, nil
 }

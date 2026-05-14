@@ -4,21 +4,26 @@ import { Brain, ChevronDown, Loader2, Search } from 'lucide-react';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
-import type { EndpointInfo } from '@/stores/appStore';
+// Minimal contract — works with both local EndpointInfo and hub NetworkAgentInfo.
+export interface SelectableModel {
+  slug: string;
+  name: string;
+  description: string;
+}
 
-interface ModelSelectorProps {
-  selectedModel: EndpointInfo | null;
-  onModelSelect: (model: EndpointInfo) => void;
-  models: EndpointInfo[];
+interface ModelSelectorProps<T extends SelectableModel> {
+  selectedModel: T | null;
+  onModelSelect: (model: T) => void;
+  models: T[];
   isLoading?: boolean;
 }
 
-export function ModelSelector({
+export function ModelSelector<T extends SelectableModel>({
   selectedModel,
   onModelSelect,
   models,
   isLoading = false
-}: Readonly<ModelSelectorProps>) {
+}: Readonly<ModelSelectorProps<T>>) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputReference = useRef<HTMLInputElement>(null);
@@ -46,7 +51,7 @@ export function ModelSelector({
   }, []);
 
   const handleSelect = useCallback(
-    (model: EndpointInfo) => {
+    (model: T) => {
       onModelSelect(model);
       setIsOpen(false);
       setSearchQuery('');

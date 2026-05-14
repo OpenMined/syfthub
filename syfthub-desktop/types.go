@@ -41,6 +41,22 @@ type EndpointInfo struct {
 	RuntimeState string           `json:"runtimeState,omitempty"`
 }
 
+// NetworkAgentInfo represents a remote agent endpoint discovered via the
+// SyftHub hub (public endpoints across the network). These are NOT installed
+// locally — invoking them goes through the hub/aggregator path, not the local
+// runner. Kept distinct from EndpointInfo so the frontend can render and route
+// them differently.
+type NetworkAgentInfo struct {
+	Slug          string   `json:"slug"`
+	Name          string   `json:"name"`
+	Description   string   `json:"description"`
+	OwnerUsername string   `json:"ownerUsername"`
+	Version       string   `json:"version,omitempty"`
+	Tags          []string `json:"tags,omitempty"`
+	StarsCount    int      `json:"starsCount"`
+	UpdatedAt     string   `json:"updatedAt,omitempty"` // RFC3339
+}
+
 // SetupStatusInfo represents the computed setup status for display.
 type SetupStatusInfo struct {
 	IsComplete   bool     `json:"isComplete"`

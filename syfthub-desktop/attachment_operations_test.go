@@ -1,34 +1,14 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
 )
 
-func TestSha256ShortIsDeterministic(t *testing.T) {
-	body := []byte("hello world")
-	sum := sha256.Sum256(body)
-	short := sha256Short(sum[:])
-	if len(short) != 16 { // 8 bytes hex-encoded
-		t.Fatalf("expected 16 hex chars, got %d", len(short))
-	}
-	// Recompute to confirm determinism.
-	if short != sha256Short(sum[:]) {
-		t.Fatal("sha256Short not deterministic")
-	}
-	// Confirm the prefix matches sha256(body) exactly.
-	if short != hex.EncodeToString(sum[:8]) {
-		t.Fatal("sha256Short does not match first 8 bytes of full digest")
-	}
-}
-
 func TestAttachToActiveSessionWithoutSessionReturnsError(t *testing.T) {
 	app := NewApp()
-	// agentSessionID is empty by default — no active session.
+	// agentSession is nil by default — no active session.
 	tmp, err := os.CreateTemp("", "syft-att-test-*.bin")
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +43,6 @@ func TestUniqueDestPathReturnsOriginalWhenNoCollision(t *testing.T) {
 
 func TestUniqueDestPathAppendsCounterOnCollision(t *testing.T) {
 	dir := t.TempDir()
-	// Pre-create two collisions so the helper has to step past them.
 	for _, name := range []string{"foo.txt", "foo (1).txt"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
@@ -88,67 +67,33 @@ func TestUniqueDestPathHandlesNoExtension(t *testing.T) {
 	}
 }
 
-func TestMaterializeAgentInlineAttachmentWritesFile(t *testing.T) {
-	dir := t.TempDir()
-	body := []byte("hello agent")
-	sum := sha256.Sum256(body)
-	data := map[string]any{
-		"transport":        "inline",
-		"file_id":          "att-abc",
-		"name":             "Makefile.pt",
-		"size_bytes":       float64(len(body)),
-		"plaintext_sha256": hex.EncodeToString(sum[:]),
-		"inline_data_b64":  base64Encode(body),
+func TestLimitedBufferRespectsCap(t *testing.T) {
+	b := &limitedBuffer{max: 3}
+	n, err := b.Write([]byte("hello"))
+	if err != nil || n != 5 {
+		t.Fatalf("Write should consume all input: n=%d err=%v", n, err)
 	}
-	if err := materializeAgentInlineAttachment(dir, data); err != nil {
-		t.Fatal(err)
+	if string(b.bytes) != "hel" {
+		t.Fatalf("expected truncation to first 3 bytes, got %q", string(b.bytes))
 	}
-	dest := filepath.Join(dir, "att-abc.pt")
-	got, err := os.ReadFile(dest)
-	if err != nil {
-		t.Fatal(err)
+	// Subsequent writes after cap is hit are discarded but still consumed.
+	n2, err := b.Write([]byte("more"))
+	if err != nil || n2 != 4 {
+		t.Fatalf("post-cap Write should still consume: n=%d err=%v", n2, err)
 	}
-	if string(got) != string(body) {
-		t.Fatalf("contents drift: %q vs %q", got, body)
+	if string(b.bytes) != "hel" {
+		t.Fatalf("buffer should not grow past cap: %q", string(b.bytes))
 	}
 }
 
-func TestMaterializeAgentInlineAttachmentRejectsSizeMismatch(t *testing.T) {
-	dir := t.TempDir()
-	body := []byte("hello")
-	data := map[string]any{
-		"transport":       "inline",
-		"file_id":         "att-x",
-		"name":            "x.bin",
-		"size_bytes":      float64(999),
-		"inline_data_b64": base64Encode(body),
+func TestLimitedBufferUnlimited(t *testing.T) {
+	b := &limitedBuffer{}
+	for _, chunk := range []string{"hello ", "agent ", "world"} {
+		if _, err := b.Write([]byte(chunk)); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := materializeAgentInlineAttachment(dir, data); err == nil {
-		t.Fatal("expected size mismatch error")
+	if string(b.bytes) != "hello agent world" {
+		t.Fatalf("unexpected buffer: %q", string(b.bytes))
 	}
-}
-
-func TestMaterializeAgentInlineAttachmentNoOpWhenNotInline(t *testing.T) {
-	dir := t.TempDir()
-	data := map[string]any{
-		"transport": "object_store",
-		"file_id":   "att-os",
-		"name":      "x.bin",
-	}
-	if err := materializeAgentInlineAttachment(dir, data); err != nil {
-		t.Fatalf("expected no-op, got %v", err)
-	}
-	// Nothing should have been written.
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 0 {
-		t.Fatalf("expected empty dir, got %d entries", len(entries))
-	}
-}
-
-// base64Encode is a tiny helper for the test fixtures above.
-func base64Encode(b []byte) string {
-	return base64.StdEncoding.EncodeToString(b)
 }

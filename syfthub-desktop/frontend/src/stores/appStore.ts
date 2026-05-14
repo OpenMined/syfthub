@@ -7,6 +7,7 @@ import {
   GetEndpoints,
   GetConfig,
   GetAggregatorURL,
+  ListNetworkAgents,
   Start,
   Stop,
   ReloadEndpoints,
@@ -49,6 +50,7 @@ export type LibraryPackage = main.LibraryPackage;
 export type SetupStatusInfo = main.SetupStatusInfo;
 export type SetupSpecInfo = main.SetupSpecInfo;
 export type SetupStepInfo = main.SetupStepInfo;
+export type NetworkAgentInfo = main.NetworkAgentInfo;
 
 // TS-only UI label set by the setupflow:complete listener. Not a Go wire value.
 export const SETUP_COMPLETE_STATUS = 'Setup complete' as const;
@@ -151,10 +153,18 @@ interface AppState {
   isDeleteDialogOpen: boolean;
   isDeletingEndpoint: boolean;
 
-  // Chat state
-  chatSelectedModel: EndpointInfo | null;
+  // Chat state — the agent dropdown is sourced from the hub browse list, so the
+  // selected agent is a NetworkAgentInfo, not a local EndpointInfo. Data-source
+  // selections still come from local endpoints.
+  chatSelectedModel: NetworkAgentInfo | null;
   chatSelectedSources: EndpointInfo[];
   aggregatorURL: string | null;
+
+  // Network agents (public agents discovered via the hub — NOT locally installed).
+  // Kept separate from `endpoints` because invoking a network agent must go
+  // through the hub/aggregator path, not the local runner.
+  networkAgents: NetworkAgentInfo[];
+  networkAgentsLoading: boolean;
 
   // Library state
   libraryPackages: LibraryPackage[];
@@ -225,10 +235,11 @@ interface AppState {
   deleteEndpoint: () => Promise<void>;
 
   // Actions - Chat
-  setChatSelectedModel: (model: EndpointInfo | null) => void;
+  setChatSelectedModel: (model: NetworkAgentInfo | null) => void;
   setChatSelectedSources: (sources: EndpointInfo[]) => void;
   toggleChatSource: (source: EndpointInfo) => void;
   refreshAggregatorURL: () => Promise<void>;
+  fetchNetworkAgents: () => Promise<void>;
 
   // Actions - Library
   fetchLibraryPackages: () => Promise<void>;
@@ -253,14 +264,16 @@ const initialStatus: StatusInfo = {
 
 let logStatsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-/** Build the state patch that removes `slug` from endpoint-related selections. */
+/** Build the state patch that removes `slug` from endpoint-related selections.
+ * Note: chatSelectedModel is intentionally not touched here — it now points at
+ * a hub-discovered NetworkAgentInfo, not a local endpoint.
+ */
 function removedSlugPatch(
-  state: Pick<AppState, 'endpoints' | 'chatSelectedModel' | 'chatSelectedSources'>,
+  state: Pick<AppState, 'endpoints' | 'chatSelectedSources'>,
   slug: string,
-): Pick<AppState, 'endpoints' | 'chatSelectedModel' | 'chatSelectedSources'> {
+): Pick<AppState, 'endpoints' | 'chatSelectedSources'> {
   return {
     endpoints: state.endpoints.filter(ep => ep.slug !== slug),
-    chatSelectedModel: state.chatSelectedModel?.slug === slug ? null : state.chatSelectedModel,
     chatSelectedSources: state.chatSelectedSources.filter(ep => ep.slug !== slug),
   };
 }
@@ -307,6 +320,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   chatSelectedModel: null,
   chatSelectedSources: [],
   aggregatorURL: null,
+  networkAgents: [],
+  networkAgentsLoading: false,
 
   // Library initial state
   libraryPackages: [],
@@ -376,11 +391,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         get().fetchEndpoints(),
         get().fetchConfig(),
         get().refreshAggregatorURL(),
+        get().fetchNetworkAgents(),
       ]);
 
       // Deregister any previous listeners before re-registering so multiple
       // initialize() calls (e.g. reconnect, re-login) don't stack handlers.
       EventsOff(
+        'app:config-ready',
         'app:endpoints-changed',
         'app:new-log',
         'setupflow:started',
@@ -394,11 +411,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       );
 
       {
+        // Refetch the hub agent list whenever auth state changes. The backend
+        // emits app:config-ready every time initSyftClient runs — at boot, on
+        // first login, and on any settings update — so this catches the case
+        // where the initial fetch ran with syftClient still nil.
+        EventsOn('app:config-ready', () => {
+          void get().fetchNetworkAgents();
+        });
+
         // The file watcher is the ground truth. When it fires, the emitted list
         // is exactly what exists on disk — replace state unconditionally.
         EventsOn('app:endpoints-changed', (incomingEndpoints: EndpointInfo[]) => {
-          // TODO(AGENT_ONLY): Filter incoming endpoints to agent-only.
-          // To restore all types, remove the agentOnly filter and use incomingEndpoints directly.
           const agentOnly = (incomingEndpoints || []).filter((ep: EndpointInfo) => ep.type === 'agent');
 
           // Skip no-op updates so Zustand doesn't re-render when the list hasn't changed.
@@ -408,10 +431,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           if (currentKey === incomingKey) return;
 
           const slugSet = new Set(agentOnly.map(ep => ep.slug));
-          const { chatSelectedModel, chatSelectedSources } = get();
+          const { chatSelectedSources } = get();
           set({
             endpoints: agentOnly,
-            chatSelectedModel: chatSelectedModel && slugSet.has(chatSelectedModel.slug) ? chatSelectedModel : null,
             chatSelectedSources: chatSelectedSources.filter(ep => slugSet.has(ep.slug)),
           });
         });
@@ -479,8 +501,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   fetchEndpoints: async () => {
     try {
       const allEndpoints = await GetEndpoints();
-      // TODO(AGENT_ONLY): Filter to agent-only endpoints for display.
-      // To restore all types, replace the line below with: set({ endpoints: allEndpoints });
       const endpoints = allEndpoints.filter((ep: EndpointInfo) => ep.type === 'agent');
       set({ endpoints });
     } catch (err) {
@@ -953,7 +973,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   // Chat actions
-  setChatSelectedModel: (model: EndpointInfo | null) => {
+  setChatSelectedModel: (model: NetworkAgentInfo | null) => {
+    if (get().chatSelectedModel === model) return;
     set({ chatSelectedModel: model });
   },
 
@@ -974,6 +995,18 @@ export const useAppStore = create<AppState>((set, get) => ({
   refreshAggregatorURL: async () => {
     const url = await GetAggregatorURL().catch(() => '');
     set({ aggregatorURL: url || null });
+  },
+
+  fetchNetworkAgents: async () => {
+    set({ networkAgentsLoading: true });
+    try {
+      const agents = await ListNetworkAgents();
+      set({ networkAgents: agents || [], networkAgentsLoading: false });
+    } catch (err) {
+      // Swallow: the network list is supplementary; the local agent list still
+      // works when the hub is unreachable, so don't surface to the error banner.
+      set({ networkAgentsLoading: false });
+    }
   },
 
   // Delete endpoint actions
@@ -1008,7 +1041,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({
         error: `Failed to delete endpoint: ${err}`,
         endpoints: state.endpoints,
-        chatSelectedModel: state.chatSelectedModel,
         chatSelectedSources: state.chatSelectedSources,
       });
       throw err;
@@ -1065,7 +1097,6 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({
         error: `Failed to uninstall package: ${err}`,
         endpoints: state.endpoints,
-        chatSelectedModel: state.chatSelectedModel,
         chatSelectedSources: state.chatSelectedSources,
       });
     } finally {

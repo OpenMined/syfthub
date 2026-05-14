@@ -6,19 +6,21 @@ import {
 } from '../../wailsjs/go/main/App';
 
 // AttachmentSummary mirrors the Go struct returned by AttachToActiveSession.
+// The bytes live on the host's side of the tunnel — no local_path exists on
+// the client.
 export interface AttachmentSummary {
   file_id: string;
   name: string;
   mime: string;
   size_bytes: number;
   sha256: string;
-  local_path: string;
 }
 
 /**
  * useAttachments tracks the list of files the user has staged for the
- * currently-running agent session. Each staged file is materialized into the
- * session's AttachmentDir via AttachToActiveSession (Wails binding).
+ * currently-running agent session. Each staged file is sent to the agent via
+ * the hub WebSocket (inline) or aggregator HTTP relay (object-store) — the
+ * AttachToActiveSession Wails binding picks the transport based on size.
  *
  * See docs/architecture/attachments.md.
  */

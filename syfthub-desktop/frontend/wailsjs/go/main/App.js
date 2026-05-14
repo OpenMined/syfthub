@@ -26,16 +26,16 @@ export function BrowseForSkillFile(arg1) {
   return window['go']['main']['App']['BrowseForSkillFile'](arg1);
 }
 
+export function CancelDownload() {
+  return window['go']['main']['App']['CancelDownload']();
+}
+
 export function CancelSetup() {
   return window['go']['main']['App']['CancelSetup']();
 }
 
 export function CheckEndpointExists(arg1) {
   return window['go']['main']['App']['CheckEndpointExists'](arg1);
-}
-
-export function CancelDownload() {
-  return window['go']['main']['App']['CancelDownload']();
 }
 
 export function CheckForUpdatesNow() {
@@ -66,16 +66,16 @@ export function DeleteLogs(arg1) {
   return window['go']['main']['App']['DeleteLogs'](arg1);
 }
 
-export function DownloadUpdate() {
-  return window['go']['main']['App']['DownloadUpdate']();
-}
-
 export function DeletePolicyFile(arg1, arg2) {
   return window['go']['main']['App']['DeletePolicyFile'](arg1, arg2);
 }
 
 export function DownloadActiveSessionAttachment(arg1, arg2) {
   return window['go']['main']['App']['DownloadActiveSessionAttachment'](arg1, arg2);
+}
+
+export function DownloadUpdate() {
+  return window['go']['main']['App']['DownloadUpdate']();
 }
 
 export function GetAggregatorURL() {
@@ -94,6 +94,10 @@ export function GetDependencies(arg1) {
   return window['go']['main']['App']['GetDependencies'](arg1);
 }
 
+export function GetDownloadState() {
+  return window['go']['main']['App']['GetDownloadState']();
+}
+
 export function GetEndpointDetail(arg1) {
   return window['go']['main']['App']['GetEndpointDetail'](arg1);
 }
@@ -104,6 +108,10 @@ export function GetEndpoints() {
 
 export function GetEnvironment(arg1) {
   return window['go']['main']['App']['GetEnvironment'](arg1);
+}
+
+export function GetInstallState() {
+  return window['go']['main']['App']['GetInstallState']();
 }
 
 export function GetLibraryPackages() {
@@ -170,12 +178,16 @@ export function InstallLibraryPackage(arg1, arg2, arg3) {
   return window['go']['main']['App']['InstallLibraryPackage'](arg1, arg2, arg3);
 }
 
+export function InstallSkillFromPaths(arg1, arg2) {
+  return window['go']['main']['App']['InstallSkillFromPaths'](arg1, arg2);
+}
+
 export function InstallUpdate() {
   return window['go']['main']['App']['InstallUpdate']();
 }
 
-export function InstallSkillFromPaths(arg1, arg2) {
-  return window['go']['main']['App']['InstallSkillFromPaths'](arg1, arg2);
+export function ListNetworkAgents() {
+  return window['go']['main']['App']['ListNetworkAgents']();
 }
 
 export function ListPolicyFiles(arg1) {
@@ -214,10 +226,6 @@ export function ReloadEndpoints() {
   return window['go']['main']['App']['ReloadEndpoints']();
 }
 
-export function RevealDownloadedUpdate(arg1) {
-  return window['go']['main']['App']['RevealDownloadedUpdate'](arg1);
-}
-
 export function RemoveSkill(arg1, arg2) {
   return window['go']['main']['App']['RemoveSkill'](arg1, arg2);
 }
@@ -232,6 +240,10 @@ export function RespondToSetupPrompt(arg1) {
 
 export function RespondToSetupSelect(arg1) {
   return window['go']['main']['App']['RespondToSetupSelect'](arg1);
+}
+
+export function RevealDownloadedUpdate(arg1) {
+  return window['go']['main']['App']['RevealDownloadedUpdate'](arg1);
 }
 
 export function RunEndpointSetup(arg1, arg2) {
@@ -258,12 +270,12 @@ export function SaveSettingsData(arg1, arg2, arg3) {
   return window['go']['main']['App']['SaveSettingsData'](arg1, arg2, arg3);
 }
 
-export function SetAutoCheckEnabled(arg1) {
-  return window['go']['main']['App']['SetAutoCheckEnabled'](arg1);
-}
-
 export function SendAgentMessage(arg1) {
   return window['go']['main']['App']['SendAgentMessage'](arg1);
+}
+
+export function SetAutoCheckEnabled(arg1) {
+  return window['go']['main']['App']['SetAutoCheckEnabled'](arg1);
 }
 
 export function SetContainerEnabled(arg1) {

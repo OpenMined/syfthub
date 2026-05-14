@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-// TODO(AGENT_ONLY): WifiOff removed from import — only used by ChatModeContent empty state.
-// To restore, add WifiOff back to this import.
 import { ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, Copy, Loader2, Paperclip, Square, Upload } from 'lucide-react';
 import { OnFileDrop, OnFileDropOff } from '../../wailsjs/runtime/runtime';
 import {
@@ -31,18 +29,9 @@ import { Tool, type ToolPart } from '@/components/prompt-kit/tool';
 
 import { MarkdownMessage } from '@/components/chat/markdown-message';
 import { ModelSelector } from '@/components/chat/model-selector';
-// TODO(AGENT_ONLY): Imports below hidden — only used by ChatModeContent (standard chat).
-// To restore, uncomment these imports and re-enable ChatModeContent in ChatView().
-// import { SourceSelector } from '@/components/chat/source-selector';
-// import { SourcesSection } from '@/components/chat/sources-section';
-// import { StatusIndicator } from '@/components/chat/status-indicator';
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 
 import { useCopyToClipboard } from '@/components/tool-ui/shared/use-copy-to-clipboard';
-// TODO(AGENT_ONLY): useChatWorkflow import hidden — only used by ChatModeContent.
-// To restore, uncomment:
-// import { useChatWorkflow } from '@/hooks/use-chat-workflow';
-// import type { AssistantMessage } from '@/hooks/use-chat-workflow';
 import { useAgentWorkflow } from '@/hooks/use-agent-workflow';
 import type { AgentEntry } from '@/hooks/use-agent-workflow';
 import { useAppStore } from '@/stores/appStore';
@@ -285,20 +274,16 @@ function ChatInputArea({
   attachmentError,
   attachmentsDisabled,
 }: Readonly<ChatInputAreaProps>) {
-  const endpoints = useAppStore((s) => s.endpoints);
+  const networkAgents = useAppStore((s) => s.networkAgents);
+  const networkAgentsLoading = useAppStore((s) => s.networkAgentsLoading);
   const chatSelectedModel = useAppStore((s) => s.chatSelectedModel);
   const chatSelectedSources = useAppStore((s) => s.chatSelectedSources);
   const setChatSelectedModel = useAppStore((s) => s.setChatSelectedModel);
   const toggleChatSource = useAppStore((s) => s.toggleChatSource);
 
-  // TODO(AGENT_ONLY): Store already filters to agent-only. To restore, change filter back to:
-  //   (e) => e.type === 'model' || e.type === 'agent'
-  const modelEndpoints = endpoints;
-  // TODO(AGENT_ONLY): Data source endpoints hidden. To restore, uncomment:
-  // const dataSourceEndpoints = useMemo(
-  //   () => endpoints.filter((e) => e.type === 'data_source'),
-  //   [endpoints],
-  // );
+  // Agent dropdown is sourced from the hub browse list (network-wide), not
+  // local endpoints — see appStore.fetchNetworkAgents.
+  const modelEndpoints = networkAgents;
 
   const showAttachmentButton = onPickAttachment !== undefined;
   const stagedFiles = staged ?? [];
@@ -387,7 +372,7 @@ function ChatInputArea({
                 models={modelEndpoints}
                 selectedModel={chatSelectedModel}
                 onModelSelect={setChatSelectedModel}
-                isLoading={false}
+                isLoading={networkAgentsLoading}
               />
               {isActive ? (
                 <PromptInputAction tooltip={stopTooltip}>
@@ -479,7 +464,7 @@ function AgentChatContent() {
     sendInput,
     stopSession,
   } = useAgentWorkflow({
-    endpointSlug: chatSelectedModel?.slug ?? null,
+    endpointPath: chatSelectedModel ? `${chatSelectedModel.ownerUsername}/${chatSelectedModel.slug}` : null,
   });
 
   const { copiedId, copy: handleCopy } = useCopyToClipboard();
@@ -875,187 +860,6 @@ function AgentChatContent() {
   );
 }
 
-/* TODO(AGENT_ONLY): Entire ChatModeContent component commented out — only agent mode is active.
-   To restore:
-   1. Uncomment this entire function
-   2. Uncomment the SourceSelector, SourcesSection, StatusIndicator, useChatWorkflow, AssistantMessage imports above
-   3. Add WifiOff back to the lucide-react import
-   4. In ChatView(), restore the isAgent conditional: if (isAgent) return <AgentChatContent />; return <ChatModeContent />;
-
-function ChatModeContent() {
-  const aggregatorURL = useAppStore((s) => s.aggregatorURL);
-  const chatSelectedModel = useAppStore((s) => s.chatSelectedModel);
-  const chatSelectedSources = useAppStore((s) => s.chatSelectedSources);
-
-  const {
-    messages,
-    workflowState,
-    sendMessage,
-    stopStream,
-    clearMessages,
-    isStreaming,
-  } = useChatWorkflow({
-    selectedModel: chatSelectedModel,
-    selectedSources: chatSelectedSources,
-  });
-
-  const { copiedId, copy: handleCopy } = useCopyToClipboard();
-  const [inputValue, setInputValue] = useState('');
-
-  const hasAggregator = Boolean(aggregatorURL);
-  const isActive = isStreaming;
-
-  const handleSubmit = useCallback(async () => {
-    const prompt = inputValue.trim();
-    if (!prompt || !chatSelectedModel) return;
-    if (isStreaming) return;
-    setInputValue('');
-    await sendMessage(prompt);
-  }, [inputValue, chatSelectedModel, isStreaming, sendMessage]);
-
-  const handleStop = useCallback(async () => {
-    await stopStream();
-  }, [stopStream]);
-
-  const handleNewChat = useCallback(() => {
-    clearMessages();
-  }, [clearMessages]);
-
-  const canSubmit = Boolean(inputValue.trim()) && Boolean(chatSelectedModel) && !isStreaming;
-
-  return (
-    <div className='flex h-full flex-col'>
-      <div className='border-border flex shrink-0 items-center justify-between border-b px-4 py-2'>
-        <span className='text-foreground text-sm font-semibold'>Chat</span>
-        {messages.length > 0 ? (
-          <button
-            type='button'
-            onClick={handleNewChat}
-            className='text-muted-foreground hover:text-foreground flex items-center gap-1 text-xs transition-colors'
-            title='New chat'
-          >
-            <MessageSquarePlus className='h-3.5 w-3.5' />
-            <span>New chat</span>
-          </button>
-        ) : null}
-      </div>
-
-      <div className='relative min-h-0 flex-1'>
-        <ChatContainerRoot className='h-full'>
-          <ChatContainerContent className='mx-auto w-full max-w-4xl space-y-8 px-6 py-8'>
-            {messages.length === 0 ? (
-              <EmptyState hasAggregator={hasAggregator} isAgent={false} />
-            ) : (
-              <>
-                {messages.map((msg) => {
-                  if (msg.role === 'user') {
-                    return <UserBubble key={msg.id} id={msg.id} content={msg.content} />;
-                  }
-
-                  const assistant = msg as AssistantMessage;
-                  const showLoader = assistant.isStreaming && assistant.content.length === 0;
-
-                  return (
-                    <Message key={msg.id} className='group/message max-w-3xl items-start'>
-                      <AssistantAvatar />
-                      <div className='flex min-w-0 flex-1 flex-col'>
-                        {showLoader ? (
-                          <div className='flex min-w-0 flex-1 flex-col gap-3'>
-                            <Loader variant='typing' size='sm' />
-                            {workflowState.processingStatus && (
-                              <StatusIndicator status={workflowState.processingStatus} />
-                            )}
-                          </div>
-                        ) : (
-                          <MarkdownMessage
-                            content={assistant.content}
-                            annotatedContent={
-                              assistant.isStreaming ? undefined : assistant.annotatedResponse
-                            }
-                          />
-                        )}
-                        {!assistant.isStreaming &&
-                          assistant.sources &&
-                          Object.keys(assistant.sources).length > 0 && (
-                            <div className='mt-4'>
-                              <SourcesSection sources={assistant.sources} />
-                            </div>
-                          )}
-                        {!assistant.isStreaming && assistant.content && (
-                          <MessageActions className='mt-2 opacity-0 transition-opacity group-hover/message:opacity-100'>
-                            <MessageAction tooltip='Copy message'>
-                              <button
-                                type='button'
-                                aria-label='Copy message'
-                                onClick={() => {
-                                  handleCopy(assistant.content, msg.id);
-                                }}
-                                className='hover:text-foreground text-muted-foreground rounded p-1 transition-colors'
-                              >
-                                {copiedId === msg.id ? (
-                                  <Check className='h-3.5 w-3.5 text-green-500' />
-                                ) : (
-                                  <Copy className='h-3.5 w-3.5' />
-                                )}
-                              </button>
-                            </MessageAction>
-                          </MessageActions>
-                        )}
-                      </div>
-                    </Message>
-                  );
-                })}
-              </>
-            )}
-          </ChatContainerContent>
-
-          <ScrollButton className='absolute bottom-4 right-4' />
-        </ChatContainerRoot>
-      </div>
-
-      <ChatInputArea
-        isLoading={isActive}
-        inputDisabled={!hasAggregator}
-        value={inputValue}
-        onValueChange={setInputValue}
-        onSubmit={handleSubmit}
-        onStop={handleStop}
-        canSubmit={canSubmit}
-        placeholder={
-          !hasAggregator
-            ? 'Chat unavailable — aggregator not configured'
-            : !chatSelectedModel
-              ? 'Select a model to start chatting…'
-              : 'Ask a question…'
-        }
-        stopTooltip='Stop generation'
-        sendTooltip='Send message (Enter)'
-        isActive={isActive}
-        promptInputDisabled={!hasAggregator}
-        footer={chatSelectedModel ? (
-          <p className='text-muted-foreground mt-1.5 text-center text-[10px]'>
-            Using <span className='font-medium'>{chatSelectedModel.name}</span>
-            {chatSelectedSources.length > 0
-              ? ` · ${chatSelectedSources.length} source${chatSelectedSources.length === 1 ? '' : 's'}`
-              : ''}
-          </p>
-        ) : undefined}
-      />
-    </div>
-  );
-}
-*/
-
-// =============================================================================
-// Main Component (thin wrapper — conditionally renders one mode)
-// =============================================================================
-
 export function ChatView() {
-  // TODO(AGENT_ONLY): Always render AgentChatContent — standard chat mode hidden.
-  // To restore, uncomment the isAgent check and ChatModeContent fallback below:
-  //   const chatSelectedModel = useAppStore((s) => s.chatSelectedModel);
-  //   const isAgent = chatSelectedModel?.type === 'agent';
-  //   if (isAgent) return <AgentChatContent />;
-  //   return <ChatModeContent />;
   return <AgentChatContent />;
 }

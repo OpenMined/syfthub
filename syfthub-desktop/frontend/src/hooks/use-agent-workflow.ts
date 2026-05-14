@@ -43,10 +43,10 @@ export interface AttachmentMeta {
 // =============================================================================
 
 interface UseAgentWorkflowProps {
-  endpointSlug: string | null;
+  endpointPath: string | null;
 }
 
-export function useAgentWorkflow({ endpointSlug }: UseAgentWorkflowProps) {
+export function useAgentWorkflow({ endpointPath }: UseAgentWorkflowProps) {
   const [entries, setEntries] = useState<AgentEntry[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [awaitingInput, setAwaitingInput] = useState(false);
@@ -100,6 +100,23 @@ export function useAgentWorkflow({ endpointSlug }: UseAgentWorkflowProps) {
   const scheduleFlush = () => {
     if (flushTimerRef.current !== null) return;
     flushTimerRef.current = requestAnimationFrame(flushTokens);
+  };
+
+  // Append a terminal entry, flush any pending tokens, and mark the session done.
+  // Used for session.completed / session.cancelled / session.failed.
+  const finalizeSession = (kind: AgentEntry['kind'], content: string) => {
+    flushTokens();
+    streamingContentRef.current = '';
+    hasTokenEntryRef.current = false;
+    setEntries(prev => [...prev, {
+      id: makeId(),
+      kind,
+      content,
+      timestamp: Date.now(),
+    }]);
+    setIsRunning(false);
+    setAwaitingInput(false);
+    sessionIdRef.current = null;
   };
 
   // Listen for agent events
@@ -206,53 +223,18 @@ export function useAgentWorkflow({ endpointSlug }: UseAgentWorkflowProps) {
           break;
 
         case 'session.completed':
-          // Flush any pending batched tokens before completing
-          flushTokens();
-          streamingContentRef.current = '';
-          hasTokenEntryRef.current = false;
-          setEntries(prev => [...prev, {
-            id: makeId(),
-            kind: 'completed',
-            content: 'Session completed',
-            timestamp: Date.now(),
-          }]);
-          setIsRunning(false);
-          setAwaitingInput(false);
-          sessionIdRef.current = null;
+          finalizeSession('completed', 'Session completed');
           break;
 
         case 'session.cancelled':
-          // User-initiated stop. Backend rewrites the misleading subprocess
-          // "signal: killed" failure into this event so the UI treats it as a
-          // graceful termination rather than an error.
-          flushTokens();
-          streamingContentRef.current = '';
-          hasTokenEntryRef.current = false;
-          setEntries(prev => [...prev, {
-            id: makeId(),
-            kind: 'cancelled',
-            content: 'Session stopped',
-            timestamp: Date.now(),
-          }]);
-          setIsRunning(false);
-          setAwaitingInput(false);
-          sessionIdRef.current = null;
+          // Backend rewrites a user-initiated stop's misleading subprocess
+          // "signal: killed" failure into this event so the UI treats it as
+          // a graceful termination rather than an error.
+          finalizeSession('cancelled', 'Session stopped');
           break;
 
         case 'session.failed':
-          // Flush any pending batched tokens before reporting failure
-          flushTokens();
-          streamingContentRef.current = '';
-          hasTokenEntryRef.current = false;
-          setEntries(prev => [...prev, {
-            id: makeId(),
-            kind: 'error',
-            content: String(data.error ?? 'Session failed'),
-            timestamp: Date.now(),
-          }]);
-          setIsRunning(false);
-          setAwaitingInput(false);
-          sessionIdRef.current = null;
+          finalizeSession('error', String(data.error ?? 'Session failed'));
           break;
       }
     });
@@ -273,7 +255,7 @@ export function useAgentWorkflow({ endpointSlug }: UseAgentWorkflowProps) {
   }, []);
 
   const startSession = useCallback(async (prompt: string) => {
-    if (!endpointSlug || isRunning) return;
+    if (!endpointPath || isRunning) return;
 
     // Reset state
     if (flushTimerRef.current !== null) {
@@ -293,7 +275,7 @@ export function useAgentWorkflow({ endpointSlug }: UseAgentWorkflowProps) {
     setAwaitingInput(false);
 
     try {
-      const sessionId = await StartAgentSession(endpointSlug, prompt);
+      const sessionId = await StartAgentSession(endpointPath, prompt);
       sessionIdRef.current = sessionId;
     } catch (err) {
       setEntries(prev => [...prev, {
@@ -304,7 +286,7 @@ export function useAgentWorkflow({ endpointSlug }: UseAgentWorkflowProps) {
       }]);
       setIsRunning(false);
     }
-  }, [endpointSlug, isRunning]);
+  }, [endpointPath, isRunning]);
 
   const sendInput = useCallback(async (content: string) => {
     if (!isRunning) return;

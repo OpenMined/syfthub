@@ -45,7 +45,7 @@ type App struct {
 	state            AppState                    // Current app state
 	stateErr         string                      // Error message if state is StateError
 	startTime        time.Time                   // When the app started running
-	mu               sync.RWMutex                // Protects state, stateErr, startTime, settings, syftClient, username, authenticatedUser, setupStatusCache
+	mu               sync.RWMutex                // Protects state, stateErr, startTime, settings, syftClient, username, setupStatusCache
 	cancel           context.CancelFunc          // Cancels the background Run() goroutine
 	runDone          chan struct{}               // Signals when Run() goroutine completes
 	chatCancel       context.CancelFunc          // Cancels the in-flight StreamChat goroutine
@@ -53,14 +53,15 @@ type App struct {
 	chatMu           sync.Mutex                  // Protects chatCancel and chatStreamID
 	syftClient       *syfthub.Client             // Hub API client; nil if not configured
 	username         string                      // Authenticated user's username (set after login)
-	authenticatedUser *syfthubapi.UserContext    // Full user context for the authenticated user (set after login)
 	setup            setupState                  // Tracks the currently running setup flow
 	runtimeStates    map[string]string           // Transient lifecycle states per endpoint slug
 	runtimeMu        sync.RWMutex                // Protects runtimeStates; separate from mu so GetEndpoints() doesn't hold mu during the endpoint loop
 	setupStatusCache map[string]*SetupStatusInfo // Cached per-endpoint setup status; protected by mu
-	agentSessionID    string     // ID of active agent session (empty if none); SessionManager owns the session
-	agentCancelledID  string     // Session ID that the user explicitly stopped; consumed by the event drain goroutine to suppress the misleading "signal: killed" session.failed event
-	agentMu           sync.Mutex // Protects agentSessionID and agentCancelledID
+	// Chat agent session — routed through the hub aggregator + NATS via the syfthub SDK.
+	agentSession      *syfthub.AgentSessionClient // Active hub session client, or nil
+	agentCancelledID  string                      // Session ID explicitly stopped by the user; drain goroutine rewrites the terminal event to session.cancelled
+	agentAttachments  map[string]*agentAttachment // Inbound attachment cache for the active session (fileID → decoded inline bytes or object-store metadata); nil between sessions
+	agentMu           sync.Mutex                  // Protects agentSession, agentCancelledID, agentAttachments
 	libraryClient    *nodeops.MarketplaceClient // Cached library client; protected by mu
 	libraryClientURL string                     // URL the cached client was created for
 	updater          *updater.Checker           // Auto-update checker; nil until startup completes
@@ -177,12 +178,9 @@ func (a *App) initSyftClient(ctx context.Context, syfthubURL, apiKey string) {
 	if err != nil {
 		runtime.LogWarning(ctx, fmt.Sprintf("Could not fetch user info: %v", err))
 		// Store the client even if user info failed — aggregator URL still works.
-		// Clear stale identity from a prior session so currentUserContext() doesn't
-		// return the old user's context.
 		a.mu.Lock()
 		a.syftClient = client
 		a.username = ""
-		a.authenticatedUser = nil
 		a.mu.Unlock()
 		return
 	}
@@ -193,30 +191,9 @@ func (a *App) initSyftClient(ctx context.Context, syfthubURL, apiKey string) {
 	a.mu.Lock()
 	a.syftClient = client
 	a.username = user.Username
-	a.authenticatedUser = &syfthubapi.UserContext{
-		Sub:      fmt.Sprintf("%d", user.ID),
-		Username: user.Username,
-		Email:    user.Email,
-		Role:     string(user.Role),
-	}
 	a.mu.Unlock()
 
 	runtime.LogInfo(ctx, fmt.Sprintf("Authenticated as %s, using tunnel mode", user.Username))
-}
-
-// currentUserContext returns the authenticated user's full context.
-// Falls back to a username-only context if full info is not yet available,
-// and to "local" if the user has not authenticated at all.
-func (a *App) currentUserContext() *syfthubapi.UserContext {
-	a.mu.RLock()
-	defer a.mu.RUnlock()
-	if a.authenticatedUser != nil {
-		return a.authenticatedUser
-	}
-	if a.username != "" {
-		return &syfthubapi.UserContext{Username: a.username}
-	}
-	return &syfthubapi.UserContext{Username: "local"}
 }
 
 // shutdown is called when the Wails app is closing.
@@ -927,6 +904,62 @@ func (a *App) GetAggregatorURL() string {
 	url := a.syftClient.AggregatorURL()
 	runtime.LogDebug(a.ctx, fmt.Sprintf("[aggregator] GetAggregatorURL: %q", url))
 	return url
+}
+
+// ListNetworkAgents returns all public agent endpoints discovered via the
+// SyftHub hub. Pages are fetched lazily by the SDK and collected into a single
+// slice; the type filter is applied client-side because /api/v1/endpoints/public
+// has no server-side type query parameter.
+//
+// Returns an empty slice (not an error) when the hub client is not yet
+// initialized, so the frontend can render "no network agents" rather than an
+// error banner during pre-auth states.
+func (a *App) ListNetworkAgents() ([]NetworkAgentInfo, error) {
+	a.mu.RLock()
+	client := a.syftClient
+	a.mu.RUnlock()
+
+	hubURL := os.Getenv("SYFTHUB_URL")
+	if client == nil {
+		runtime.LogWarning(a.ctx, fmt.Sprintf("[hub] ListNetworkAgents: syftClient is nil (hub url=%q) — not authenticated yet", hubURL))
+		return []NetworkAgentInfo{}, nil
+	}
+
+	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
+	defer cancel()
+
+	endpoints, err := client.Hub.Browse(ctx).All(ctx)
+	if err != nil {
+		runtime.LogWarning(a.ctx, fmt.Sprintf("[hub] Browse failed: %v (hub url=%q)", err, hubURL))
+		return nil, fmt.Errorf("hub browse failed: %w", err)
+	}
+
+	// Type distribution helps diagnose "nothing in dropdown" reports: it tells
+	// us whether Browse actually returned anything and whether the wire type
+	// strings match EndpointTypeAgent ("agent").
+	typeCounts := map[string]int{}
+	result := make([]NetworkAgentInfo, 0, len(endpoints))
+	for _, ep := range endpoints {
+		typeCounts[string(ep.Type)]++
+		if ep.Type != syfthub.EndpointTypeAgent {
+			continue
+		}
+		info := NetworkAgentInfo{
+			Slug:          ep.Slug,
+			Name:          ep.Name,
+			Description:   ep.Description,
+			OwnerUsername: ep.OwnerUsername,
+			Version:       ep.Version,
+			Tags:          ep.Tags,
+			StarsCount:    ep.StarsCount,
+		}
+		if !ep.UpdatedAt.IsZero() {
+			info.UpdatedAt = ep.UpdatedAt.Format(time.RFC3339)
+		}
+		result = append(result, info)
+	}
+	runtime.LogInfo(a.ctx, fmt.Sprintf("[hub] Browse returned %d endpoint(s) (hub=%q types=%v); %d agent(s) after type filter", len(endpoints), hubURL, typeCounts, len(result)))
+	return result, nil
 }
 
 // StreamChat starts a streaming chat session via the syfthub SDK.

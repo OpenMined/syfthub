@@ -15,11 +15,11 @@ export function BrowseForFolder(arg1:string):Promise<string>;
 
 export function BrowseForSkillFile(arg1:string):Promise<string>;
 
+export function CancelDownload():Promise<void>;
+
 export function CancelSetup():Promise<void>;
 
 export function CheckEndpointExists(arg1:string):Promise<string|boolean>;
-
-export function CancelDownload():Promise<void>;
 
 export function CheckForUpdatesNow():Promise<void>;
 
@@ -35,11 +35,11 @@ export function DeleteEnvironment(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteLogs(arg1:string):Promise<void>;
 
-export function DownloadUpdate():Promise<void>;
-
 export function DeletePolicyFile(arg1:string,arg2:string):Promise<void>;
 
 export function DownloadActiveSessionAttachment(arg1:string,arg2:string):Promise<void>;
+
+export function DownloadUpdate():Promise<void>;
 
 export function GetAggregatorURL():Promise<string>;
 
@@ -49,11 +49,15 @@ export function GetDefaultEndpointsPath():Promise<string>;
 
 export function GetDependencies(arg1:string):Promise<Array<main.Dependency>>;
 
+export function GetDownloadState():Promise<updater.DownloadState>;
+
 export function GetEndpointDetail(arg1:string):Promise<main.EndpointDetail>;
 
 export function GetEndpoints():Promise<Array<main.EndpointInfo>>;
 
 export function GetEnvironment(arg1:string):Promise<Array<main.EnvVar>>;
+
+export function GetInstallState():Promise<updater.InstallState>;
 
 export function GetLibraryPackages():Promise<Array<main.LibraryPackage>>;
 
@@ -87,9 +91,11 @@ export function HasSettings():Promise<boolean>;
 
 export function InstallLibraryPackage(arg1:string,arg2:string,arg3:Record<string, string>):Promise<void>;
 
+export function InstallSkillFromPaths(arg1:string,arg2:Array<string>):Promise<void>;
+
 export function InstallUpdate():Promise<void>;
 
-export function InstallSkillFromPaths(arg1:string,arg2:Array<string>):Promise<void>;
+export function ListNetworkAgents():Promise<Array<main.NetworkAgentInfo>>;
 
 export function ListPolicyFiles(arg1:string):Promise<Array<main.PolicyFileInfo>>;
 
@@ -109,8 +115,6 @@ export function ReadSkill(arg1:string,arg2:string):Promise<string>;
 
 export function ReloadEndpoints():Promise<void>;
 
-export function RevealDownloadedUpdate(arg1:string):Promise<void>;
-
 export function RemoveSkill(arg1:string,arg2:string):Promise<void>;
 
 export function RespondToSetupConfirm(arg1:boolean):Promise<void>;
@@ -118,6 +122,8 @@ export function RespondToSetupConfirm(arg1:boolean):Promise<void>;
 export function RespondToSetupPrompt(arg1:string):Promise<void>;
 
 export function RespondToSetupSelect(arg1:string):Promise<void>;
+
+export function RevealDownloadedUpdate(arg1:string):Promise<void>;
 
 export function RunEndpointSetup(arg1:string,arg2:boolean):Promise<void>;
 
@@ -131,9 +137,9 @@ export function SaveRunnerCode(arg1:string,arg2:string):Promise<void>;
 
 export function SaveSettingsData(arg1:string,arg2:string,arg3:string):Promise<void>;
 
-export function SetAutoCheckEnabled(arg1:boolean):Promise<void>;
-
 export function SendAgentMessage(arg1:string):Promise<void>;
+
+export function SetAutoCheckEnabled(arg1:boolean):Promise<void>;
 
 export function SetContainerEnabled(arg1:boolean):Promise<void>;
 
