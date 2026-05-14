@@ -264,8 +264,49 @@ class NATSSessionTransport:
         try:
             data = json.loads(msg.data)
 
-            # Only process agent_event messages for this session
             msg_type = data.get("type", "")
+
+            # Tunnel error responses (type="endpoint_response", status="error")
+            # are how the host surfaces failures that happen BEFORE the agent
+            # session is constructed: policy denial, auth failure, endpoint not
+            # found, invalid payload, payment required. They arrive on the same
+            # peer channel as agent_event messages but use the request/response
+            # envelope rather than the event envelope, and the error fields are
+            # in the unencrypted top-level (encrypted_payload is just `null`).
+            #
+            # Without this branch the error would be silently dropped here and
+            # the client's WebSocket would stall on session.created indefinitely
+            # — the aggregator already sent session.created optimistically
+            # before hearing back from the host (see agent.py).
+            if msg_type == "endpoint_response" and data.get("status") == "error":
+                error_info = data.get("error") or {}
+                code = error_info.get("code", "EXECUTION_FAILED")
+                message = error_info.get("message", "session failed")
+                # Reuse session.failed so the relay's existing terminal-state
+                # handling (session_manager.relay_space_to_frontend) breaks out
+                # cleanly and the client SDK's drain emits the same event the
+                # frontend's switch already handles.
+                synthetic = {
+                    "event_type": "session.failed",
+                    "session_id": self._session_id,
+                    "data": {
+                        "error": message,
+                        "reason": code,
+                        "details": error_info.get("details") or {},
+                    },
+                }
+                logger.info(
+                    "Translating tunnel error to session.failed",
+                    extra={
+                        "session_id": self._session_id,
+                        "code": code,
+                        "message": message,
+                    },
+                )
+                await self._message_queue.put(synthetic)
+                return
+
+            # Only process agent_event messages for this session
             if msg_type != "agent_event":
                 return
 
