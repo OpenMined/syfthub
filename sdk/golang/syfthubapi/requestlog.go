@@ -49,7 +49,7 @@ type RequestLog struct {
 	// Status is the lifecycle state of the request this entry describes.
 	// For agent sessions, multiple snapshots may be emitted with the same ID
 	// as the session progresses: LogStatusRunning while in flight, then one
-	// terminal value (LogStatusCompleted, LogStatusFailed, LogStatusCancelled)
+	// terminal value (LogStatusCompleted, LogStatusFailed, LogStatusTerminated)
 	// when the session ends. Old entries written before this field existed
 	// decode as "" — readers should treat empty as terminal.
 	Status string `json:"status,omitempty"`
@@ -57,11 +57,14 @@ type RequestLog struct {
 
 // Lifecycle values for RequestLog.Status. Empty string is treated as terminal
 // by readers (back-compat with logs written before this field existed).
+// LogStatusTerminated is the state for a session ended by an external actor
+// (user Stop, manager shutdown) — distinct from LogStatusCompleted (handler
+// returned nil) and LogStatusFailed (handler returned an error).
 const (
-	LogStatusRunning   = "running"
-	LogStatusCompleted = "completed"
-	LogStatusFailed    = "failed"
-	LogStatusCancelled = "cancelled"
+	LogStatusRunning    = "running"
+	LogStatusCompleted  = "completed"
+	LogStatusFailed     = "failed"
+	LogStatusTerminated = "terminated"
 )
 
 // PaymentLog captures on-chain payment metadata for a request that flowed

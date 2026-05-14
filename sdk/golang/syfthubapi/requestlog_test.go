@@ -861,10 +861,10 @@ func TestBuildRequestLog_StampsStatus(t *testing.T) {
 // upsert handler.
 func TestLogStatusConstants(t *testing.T) {
 	cases := map[string]string{
-		LogStatusRunning:   "running",
-		LogStatusCompleted: "completed",
-		LogStatusFailed:    "failed",
-		LogStatusCancelled: "cancelled",
+		LogStatusRunning:    "running",
+		LogStatusCompleted:  "completed",
+		LogStatusFailed:     "failed",
+		LogStatusTerminated: "terminated",
 	}
 	for got, want := range cases {
 		if got != want {

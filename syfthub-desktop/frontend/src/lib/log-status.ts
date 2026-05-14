@@ -6,7 +6,7 @@ export const LogStatus = {
   Running: 'running',
   Completed: 'completed',
   Failed: 'failed',
-  Cancelled: 'cancelled',
+  Terminated: 'terminated',
 } as const;
 
 export type LogStatus = typeof LogStatus[keyof typeof LogStatus];

@@ -317,7 +317,7 @@ func (b *agentNATSBridge) setLogHook(h syfthubapi.RequestLogHook) {
 // must be reused across every snapshot of a single session so downstream
 // stores can upsert on it; `status` controls whether the entry is treated as
 // in-flight (LogStatusRunning) or terminal (LogStatusCompleted /
-// LogStatusFailed / LogStatusCancelled).
+// LogStatusFailed / LogStatusTerminated).
 //
 // For terminal-success entries, Response.Content is derived from the
 // assistant-role messages already present in `transcript` (recorded by
@@ -384,7 +384,7 @@ func (b *agentNATSBridge) emitSessionLog(
 		log.Response.Content = content
 		log.Response.ContentTruncated = truncated
 	default:
-		// LogStatusFailed / LogStatusCancelled / unknown — record any error
+		// LogStatusFailed / LogStatusTerminated / unknown — record any error
 		// message but no synthetic success content.
 		log.Response.Success = false
 		log.Response.Error = failError
@@ -521,7 +521,7 @@ func (b *agentNATSBridge) relayEvents(session *syfthubapi.AgentSession, replyTo 
 	// filemode subprocess executor) call session.Cancel() after cmd.Wait
 	// regardless of whether the subprocess exited cleanly — so ctx.Err() is
 	// context.Canceled on every normal completion. We have to observe the
-	// terminal event ourselves to disambiguate completed / failed / cancelled.
+	// terminal event ourselves to disambiguate completed / failed / terminated.
 	var sawCompleted, sawFailed bool
 
 	for event := range session.SendCh() {
@@ -611,13 +611,13 @@ func (b *agentNATSBridge) relayEvents(session *syfthubapi.AgentSession, replyTo 
 func decideTerminalStatus(session *syfthubapi.AgentSession, sawCompleted, sawFailed bool, failErrorIn string) (status, failError string) {
 	switch {
 	case session.ExternalCancelled():
-		return syfthubapi.LogStatusCancelled, ""
+		return syfthubapi.LogStatusTerminated, ""
 	case sawCompleted:
 		return syfthubapi.LogStatusCompleted, ""
 	case sawFailed:
 		return syfthubapi.LogStatusFailed, failErrorIn
 	case errors.Is(session.Context().Err(), context.Canceled):
-		return syfthubapi.LogStatusCancelled, ""
+		return syfthubapi.LogStatusTerminated, ""
 	default:
 		if failErrorIn == "" {
 			failErrorIn = "session ended without a terminal event"

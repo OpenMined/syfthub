@@ -53,7 +53,7 @@ function formatDuration(ms: number): string {
 // Status badge component. The agent-session lifecycle introduces lifecycle
 // values beyond plain success/failure: "running" while the session is in
 // flight, "completed" when the handler returned nil, "failed" when it
-// errored, "cancelled" when the user (or a teardown) stopped the session.
+// errored, "terminated" when the user (or a teardown) stopped the session.
 // Empty status falls back to the legacy success/error binary so logs written
 // before the lifecycle field existed still render correctly.
 function StatusBadge({ success, status }: { success: boolean; status?: string }) {
@@ -68,13 +68,13 @@ function StatusBadge({ success, status }: { success: boolean; status?: string })
       </span>
     );
   }
-  if (status === LogStatus.Cancelled) {
+  if (status === LogStatus.Terminated) {
     return (
       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-muted text-muted-foreground">
         <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
         </svg>
-        Cancelled
+        Terminated
       </span>
     );
   }
@@ -160,18 +160,18 @@ function PolicyBadge({ policy }: { policy: { evaluated: boolean; allowed: boolea
 
 // ResponseBody renders the contents of the Response panel. The previous
 // inline gate keyed solely off response.success, which mis-rendered every
-// in-flight ("running") and cancelled snapshot as a destructive Error block
+// in-flight ("running") and terminated snapshot as a destructive Error block
 // — running entries deliberately keep success=false until finalized.
 function ResponseBody({ log }: { log: RequestLogEntry }) {
   const resp = log.response;
   if (!resp) return null;
 
   const isRunning = log.status === LogStatus.Running;
-  const isCancelled = log.status === LogStatus.Cancelled;
+  const isTerminated = log.status === LogStatus.Terminated;
   const hasContent = !!resp.content;
   const hasErrorInfo = !!(resp.error || resp.errorCode || resp.errorType);
 
-  if (hasContent && (resp.success || isRunning || isCancelled)) {
+  if (hasContent && (resp.success || isRunning || isTerminated)) {
     return (
       <pre className="text-sm text-foreground whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
         {resp.content}
@@ -185,8 +185,8 @@ function ResponseBody({ log }: { log: RequestLogEntry }) {
   if (isRunning) {
     return <p className="text-sm text-muted-foreground italic">Streaming…</p>;
   }
-  if (isCancelled) {
-    return <p className="text-sm text-muted-foreground italic">Cancelled before any output.</p>;
+  if (isTerminated) {
+    return <p className="text-sm text-muted-foreground italic">Terminated before any output.</p>;
   }
   if (hasErrorInfo) {
     return (
