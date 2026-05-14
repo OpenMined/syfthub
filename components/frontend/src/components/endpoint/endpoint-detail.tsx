@@ -19,70 +19,35 @@ import { useEndpointByPath } from '@/hooks/use-endpoint-queries';
 import { getEndpointTypeBadgeStyles, getEndpointTypeLabel } from '@/lib/endpoint-utils';
 
 import { AccessPoliciesCard } from './access-policies-card';
+import { ApiTab } from './api-tab';
 import { UptimeTab } from './uptime-tab';
 
-type EndpointTabId = 'overview' | 'uptime';
+type EndpointTabId = 'overview' | 'uptime' | 'api';
 
 function parseTab(raw: string | null): EndpointTabId {
-  return raw === 'uptime' ? 'uptime' : 'overview';
+  if (raw === 'uptime') return 'uptime';
+  if (raw === 'api') return 'api';
+  return 'overview';
 }
 
-type EndpointStatus = 'active' | 'warning' | 'inactive';
+const TAB_TRIGGER_CLASS =
+  'font-inter focus-visible:ring-ring data-[state=active]:border-primary data-[state=active]:text-foreground text-muted-foreground hover:text-foreground relative inline-flex h-12 items-center justify-center rounded-none border-b-2 border-transparent bg-transparent px-4 text-sm font-medium shadow-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-0 data-[state=active]:shadow-none';
 
-// Helper functions moved outside component for consistent-function-scoping
+type EndpointStatus = 'active' | 'inactive';
+
 function getStatusBadgeColor(status: EndpointStatus) {
-  switch (status) {
-    case 'active': {
-      return 'bg-green-100 text-green-800 border-green-200 hover:bg-green-200';
-    }
-    case 'warning': {
-      return 'bg-yellow-100 text-yellow-800 border-yellow-200 hover:bg-yellow-200';
-    }
-    case 'inactive': {
-      return 'bg-red-100 text-red-800 border-red-200 hover:bg-red-200';
-    }
-    default: {
-      return 'bg-muted text-foreground border-border';
-    }
-  }
+  return status === 'active'
+    ? 'bg-green-100 text-green-800 border-green-200 hover:bg-green-200'
+    : 'bg-muted text-muted-foreground border-border';
 }
 
 function getStatusDotColor(status: EndpointStatus) {
-  switch (status) {
-    case 'active': {
-      return 'bg-green-500';
-    }
-    case 'warning': {
-      return 'bg-yellow-500';
-    }
-    case 'inactive': {
-      return 'bg-red-500';
-    }
-    default: {
-      return 'bg-muted-foreground';
-    }
-  }
+  return status === 'active' ? 'bg-green-500' : 'bg-muted-foreground';
 }
 
 function getStatusLabel(status: EndpointStatus) {
-  switch (status) {
-    case 'active': {
-      return 'Active';
-    }
-    case 'warning': {
-      return 'Needs Update';
-    }
-    case 'inactive': {
-      return 'Inactive';
-    }
-    default: {
-      return status;
-    }
-  }
+  return status === 'active' ? 'Active' : 'Inactive';
 }
-
-// getTypeStyles and getTypeLabel are now centralized in @/lib/endpoint-utils
-// as getEndpointTypeBadgeStyles and getEndpointTypeLabel respectively.
 
 // Skeleton loading state that mirrors the real page layout
 function EndpointDetailSkeleton() {
@@ -148,15 +113,17 @@ export const EndpointDetail = memo(function EndpointDetail({
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = parseTab(searchParams.get('tab'));
 
-  // Lazy-mount tracker: keep the uptime tab unmounted until the user has
-  // activated it at least once. After that, keep it mounted so the React
-  // Query cache survives further tab toggling without re-fetching.
+  // Lazy-mount tracker: keep heavy tabs unmounted until the user has
+  // activated them at least once. After that, keep them mounted so the React
+  // Query / shiki state survives further tab toggling without redoing work.
   const [uptimeOpened, setUptimeOpened] = useState(activeTab === 'uptime');
+  const [apiOpened, setApiOpened] = useState(activeTab === 'api');
 
   const handleTabChange = useCallback(
     (next: string) => {
       const nextTab = parseTab(next);
       if (nextTab === 'uptime') setUptimeOpened(true);
+      if (nextTab === 'api') setApiOpened(true);
       setSearchParams(
         (previous) => {
           const params = new URLSearchParams(previous);
@@ -343,17 +310,14 @@ export const EndpointDetail = memo(function EndpointDetail({
 
           {/* Tab strip — sits flush with the header's bottom border via -mb-px */}
           <TabsList className='-mb-px flex h-12 w-full justify-start gap-1 rounded-none bg-transparent p-0'>
-            <TabsTrigger
-              value='overview'
-              className='font-inter focus-visible:ring-ring data-[state=active]:border-primary data-[state=active]:text-foreground text-muted-foreground hover:text-foreground relative inline-flex h-12 items-center justify-center rounded-none border-b-2 border-transparent bg-transparent px-4 text-sm font-medium shadow-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-0 data-[state=active]:shadow-none'
-            >
+            <TabsTrigger value='overview' className={TAB_TRIGGER_CLASS}>
               Overview
             </TabsTrigger>
-            <TabsTrigger
-              value='uptime'
-              className='font-inter focus-visible:ring-ring data-[state=active]:border-primary data-[state=active]:text-foreground text-muted-foreground hover:text-foreground relative inline-flex h-12 items-center justify-center rounded-none border-b-2 border-transparent bg-transparent px-4 text-sm font-medium shadow-none transition-colors focus-visible:ring-2 focus-visible:ring-offset-0 data-[state=active]:shadow-none'
-            >
+            <TabsTrigger value='uptime' className={TAB_TRIGGER_CLASS}>
               Uptime
+            </TabsTrigger>
+            <TabsTrigger value='api' className={TAB_TRIGGER_CLASS}>
+              API
             </TabsTrigger>
           </TabsList>
         </div>
@@ -472,6 +436,15 @@ export const EndpointDetail = memo(function EndpointDetail({
               Query cache survives toggling. */}
           {uptimeOpened ? (
             <UptimeTab owner={endpoint.owner_username ?? owner ?? undefined} slug={endpoint.slug} />
+          ) : null}
+        </TabsContent>
+
+        <TabsContent value='api' className='mt-0 focus-visible:outline-none'>
+          {apiOpened ? (
+            <ApiTab
+              endpointPath={endpoint.full_path ?? endpoint.slug}
+              endpointType={endpoint.type}
+            />
           ) : null}
         </TabsContent>
       </div>

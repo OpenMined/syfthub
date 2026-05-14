@@ -517,8 +517,11 @@ async def get_endpoint_uptime(
     window_hours: int = Query(
         24,
         ge=1,
-        le=168,
-        description="Rolling time window (max 7 days)",
+        le=2160,
+        description=(
+            "Rolling time window in hours. Max 2160 (90 days), matching "
+            "``settings.uptime_retention_days``."
+        ),
     ),
 ) -> EndpointUptimeResponse:
     """Get bucketed uptime + latency time series for one endpoint."""

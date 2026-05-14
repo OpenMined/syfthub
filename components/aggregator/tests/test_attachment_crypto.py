@@ -12,6 +12,7 @@ import pathlib
 import secrets
 
 import pytest
+from cryptography.exceptions import InvalidTag
 
 from aggregator.attachment_crypto import (
     BASE_NONCE_SIZE,
@@ -117,7 +118,7 @@ def test_wrap_unwrap_file_key() -> None:
     fk = generate_file_key()
     ct, nonce = enc.wrap_file_key("att-w", fk)
     assert enc.unwrap_file_key("att-w", ct, nonce) == fk
-    with pytest.raises(Exception):
+    with pytest.raises(InvalidTag):
         enc.unwrap_file_key("att-other", ct, nonce)
 
 
@@ -136,7 +137,7 @@ def test_decrypt_tamper_rejected() -> None:
     enc.encrypt_stream(file_key, base_nonce, "att-t", io.BytesIO(pt), ct)
     blob = bytearray(ct.getvalue())
     blob[3] ^= 0xFF
-    with pytest.raises(Exception):
+    with pytest.raises(InvalidTag):
         enc.decrypt_stream(
             file_key, base_nonce, "att-t", len(pt), io.BytesIO(bytes(blob)), io.BytesIO()
         )
