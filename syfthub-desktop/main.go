@@ -74,20 +74,19 @@ func main() {
 	// Create an instance of the app structure
 	app := NewApp()
 
-	// Sidebar color: bg-card/30 over slate-900 background
-	// slate-900 = RGB(15, 23, 42), slate-800 = RGB(30, 41, 59)
-	// Effective color at 30% opacity ≈ RGB(20, 28, 47)
-	sidebarColor := windows.RGB(20, 28, 47)
-	sidebarColorInactive := windows.RGB(15, 23, 42) // Slightly darker when inactive
+	// Title-bar color: bg-card/30 over slate-900 background.
+	// slate-900 = RGB(15, 23, 42); effective tint ≈ RGB(20, 28, 47).
+	titleBarColor := windows.RGB(20, 28, 47)
+	titleBarColorInactive := windows.RGB(15, 23, 42)
 
-	// Create application with options
+	// Create application with options. The window uses the native OS title
+	// bar on every platform — no Frameless, no custom in-app traffic lights.
 	err := wails.Run(&options.App{
 		Title:           "SyftHub Desktop",
 		Width:           1280,
 		Height:          800,
 		MinWidth:        800,
 		MinHeight:       600,
-		Frameless:       true,
 		CSSDragProperty: "--wails-draggable",
 		CSSDragValue:    "drag",
 		// Enable Wails native file drop so dropped files arrive as absolute
@@ -107,19 +106,24 @@ func main() {
 		Bind: []interface{}{
 			app,
 		},
-		// Windows: Custom title bar color to match sidebar
+		// Windows: native title bar, themed to match the app's dark surface.
 		Windows: &windows.Options{
 			Theme: windows.Dark,
 			CustomTheme: &windows.ThemeSettings{
-				DarkModeTitleBar:          sidebarColor,
-				DarkModeTitleBarInactive:  sidebarColorInactive,
+				DarkModeTitleBar:          titleBarColor,
+				DarkModeTitleBarInactive:  titleBarColorInactive,
 				DarkModeTitleText:         windows.RGB(246, 248, 250), // slate-100
 				DarkModeTitleTextInactive: windows.RGB(148, 163, 184), // slate-400
-				DarkModeBorder:            sidebarColor,
-				DarkModeBorderInactive:    sidebarColorInactive,
+				DarkModeBorder:            titleBarColor,
+				DarkModeBorderInactive:    titleBarColorInactive,
 			},
 		},
-		// macOS: Transparent title bar that blends with app content
+		// macOS: native .titled window so the system draws rounded corners
+		// and provides real close / minimize / zoom controls (with their
+		// standard hover icons). The title bar itself is transparent and
+		// the webview extends under it (FullSizeContent), letting our own
+		// dark top bar serve as the visible title bar with the traffic
+		// lights overlaid on its left.
 		Mac: &mac.Options{
 			TitleBar: &mac.TitleBar{
 				TitlebarAppearsTransparent: true,
