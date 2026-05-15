@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { AnimatePresence } from 'framer-motion';
 import { ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, Copy, Loader2, Paperclip, Square, Upload } from 'lucide-react';
 import { OnFileDrop, OnFileDropOff } from '../../wailsjs/runtime/runtime';
 import {
@@ -11,7 +12,6 @@ import { AttachmentChip } from '@/components/chat/AttachmentChip';
 import { useAttachments, type AttachmentSummary } from '@/hooks/use-attachments';
 
 import { ChatContainerContent, ChatContainerRoot } from '@/components/prompt-kit/chat-container';
-import { Loader } from '@/components/prompt-kit/loader';
 import {
   Message,
   MessageAction,
@@ -29,6 +29,7 @@ import { Tool, type ToolPart } from '@/components/prompt-kit/tool';
 
 import { MarkdownMessage } from '@/components/chat/markdown-message';
 import { ModelSelector } from '@/components/chat/model-selector';
+import { ThinkingIndicator } from '@/components/chat/thinking-indicator';
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 
 import { useCopyToClipboard } from '@/components/tool-ui/shared/use-copy-to-clipboard';
@@ -614,6 +615,35 @@ function AgentChatContent() {
     return entries.reduce((last, e, i) => e.kind === 'status' ? i : last, -1);
   }, [entries]);
 
+  // ── Thinking indicator (debounced) ─────────────────────────────────────────
+  // The trailing "Thinking…" indicator fills genuine silent gaps while the
+  // agent works. It must NOT flash for the few ms between a final message and
+  // the session.completed event. So it is held back briefly after every new
+  // entry (and on session start); if the session settles — a terminal event
+  // arrives, or a token starts streaming — within the grace window, it never
+  // appears at all.
+  const lastEntry = entries[entries.length - 1];
+  const lastEntryId = lastEntry?.id;
+  const thinkingEligible =
+    isRunning &&
+    !awaitingInput &&
+    lastEntry != null &&
+    lastEntry.kind !== 'token' &&
+    lastEntry.kind !== 'request_input';
+
+  const [showThinking, setShowThinking] = useState(false);
+  useEffect(() => {
+    if (!thinkingEligible) {
+      setShowThinking(false);
+      return;
+    }
+    setShowThinking(false);
+    const timer = window.setTimeout(() => setShowThinking(true), 500);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [thinkingEligible, lastEntryId]);
+
   // Suggestion-chip handler — populates the textarea so the user can edit
   // before sending. Auto-send would feel surprising.
   const handleSelectPrompt = useCallback((p: string) => {
@@ -798,13 +828,9 @@ function AgentChatContent() {
                 return null;
               })}
 
-            {isRunning && !awaitingInput && entries.length > 0 &&
-              entries[entries.length - 1]?.kind !== 'token' &&
-              entries[entries.length - 1]?.kind !== 'request_input' && (
-              <div className='ml-10'>
-                <Loader variant='typing' size='sm' />
-              </div>
-            )}
+            <AnimatePresence>
+              {showThinking ? <ThinkingIndicator key='thinking' /> : null}
+            </AnimatePresence>
           </ChatContainerContent>
           <ScrollButton className='absolute bottom-6 right-6' />
         </ChatContainerRoot>

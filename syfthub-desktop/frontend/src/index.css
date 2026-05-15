@@ -390,6 +390,41 @@
   50% { opacity: 1; }
 }
 
+/* Assistant "thinking" indicator — soft breathing halo behind the avatar
+   plus a slow light sweep across the label. Calm, deliberate motion that
+   replaces the old blinking-dots loader. */
+@keyframes thinking-halo {
+  0%, 100% { opacity: 0.25; transform: scale(0.95); }
+  50% { opacity: 0.6; transform: scale(1.1); }
+}
+
+@keyframes thinking-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+.thinking-shimmer {
+  background: linear-gradient(
+    120deg,
+    var(--muted-foreground) 40%,
+    var(--foreground) 50%,
+    var(--muted-foreground) 60%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: thinking-shimmer 2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-shimmer {
+    animation: none;
+    background: none;
+    -webkit-text-fill-color: var(--muted-foreground);
+  }
+}
+
 /* =============================================================================
    Citation highlighting — rendered by MarkdownMessage with buildCitedMarkdown()
    <mark class="cite-highlight"> wraps the cited sentence span
