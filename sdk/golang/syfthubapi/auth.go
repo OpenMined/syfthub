@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 )
 
@@ -13,11 +14,11 @@ type HubClient struct {
 	httpClient *http.Client
 	baseURL    string
 	apiKey     string
-	logger     Logger
+	logger     *slog.Logger
 }
 
 // NewHubClient creates a new hub client.
-func NewHubClient(baseURL, apiKey string, logger Logger) *HubClient {
+func NewHubClient(baseURL, apiKey string, logger *slog.Logger) *HubClient {
 	return &HubClient{
 		httpClient: &http.Client{Timeout: DefaultHTTPTimeout},
 		baseURL:    baseURL,
@@ -37,12 +38,12 @@ func (c *HubClient) doJSON(ctx context.Context, method, path string, reqBody, re
 // VerifyToken verifies a satellite token and returns the user context.
 func (c *HubClient) VerifyToken(ctx context.Context, token string) (*UserContext, error) {
 	if token == "" {
-		return nil, &AuthenticationError{Message: "missing token"}
+		return nil, fmt.Errorf("authentication: missing token")
 	}
 
 	var resp VerifyTokenResponse
 	if err := c.doJSON(ctx, "POST", "/api/v1/verify", VerifyTokenRequest{Token: token}, &resp); err != nil {
-		return nil, &AuthenticationError{Message: "token verification failed", Cause: err}
+		return nil, fmt.Errorf("authentication: token verification failed: %w", err)
 	}
 
 	if !resp.Valid {
@@ -50,12 +51,12 @@ func (c *HubClient) VerifyToken(ctx context.Context, token string) (*UserContext
 		if resp.Message != "" {
 			msg = resp.Message
 		}
-		return nil, &AuthenticationError{Message: msg}
+		return nil, fmt.Errorf("authentication: %s", msg)
 	}
 
 	userCtx := resp.ToUserContext()
 	if userCtx == nil {
-		return nil, &AuthenticationError{Message: "token valid but user context missing"}
+		return nil, fmt.Errorf("authentication: token valid but user context missing")
 	}
 
 	return userCtx, nil
@@ -65,7 +66,7 @@ func (c *HubClient) VerifyToken(ctx context.Context, token string) (*UserContext
 func (c *HubClient) GetMe(ctx context.Context) (*UserContext, error) {
 	var user UserContext
 	if err := c.doJSON(ctx, "GET", "/api/v1/auth/me", nil, &user); err != nil {
-		return nil, &AuthenticationError{Message: "failed to get user info", Cause: err}
+		return nil, fmt.Errorf("authentication: failed to get user info: %w", err)
 	}
 	return &user, nil
 }
@@ -76,12 +77,12 @@ func (c *HubClient) GetNATSCredentials(ctx context.Context, username string) (*N
 		NATSAuthToken string `json:"nats_auth_token"`
 	}
 	if err := c.doJSON(ctx, "GET", "/api/v1/nats/credentials", nil, &credsResp); err != nil {
-		return nil, &AuthenticationError{Message: "failed to get NATS credentials", Cause: err}
+		return nil, fmt.Errorf("authentication: failed to get NATS credentials: %w", err)
 	}
 
 	natsURL, err := DeriveNATSWebSocketURL(c.baseURL)
 	if err != nil {
-		return nil, &AuthenticationError{Message: "failed to derive NATS URL", Cause: err}
+		return nil, fmt.Errorf("authentication: failed to derive NATS URL: %w", err)
 	}
 
 	return &NATSCredentials{
@@ -94,7 +95,7 @@ func (c *HubClient) GetNATSCredentials(ctx context.Context, username string) (*N
 // RegisterEncryptionPublicKey registers the space's X25519 public key with the hub.
 func (c *HubClient) RegisterEncryptionPublicKey(ctx context.Context, publicKeyB64 string) error {
 	if err := c.doJSON(ctx, "PUT", "/api/v1/nats/encryption-key", map[string]string{"encryption_public_key": publicKeyB64}, nil); err != nil {
-		return &AuthenticationError{Message: "failed to register encryption key", Cause: err}
+		return fmt.Errorf("authentication: failed to register encryption key: %w", err)
 	}
 	return nil
 }
@@ -105,9 +106,9 @@ func (c *HubClient) SyncEndpoints(ctx context.Context, endpoints []EndpointInfo)
 	if err := c.doJSON(ctx, "POST", "/api/v1/endpoints/sync", SyncEndpointsRequest{Endpoints: endpoints}, &resp); err != nil {
 		var apiErr *HubAPIError
 		if errors.As(err, &apiErr) {
-			return nil, &SyncError{Message: fmt.Sprintf("sync failed: %s", apiErr.Body), StatusCode: apiErr.StatusCode}
+			return nil, fmt.Errorf("sync failed (status %d): %s", apiErr.StatusCode, apiErr.Body)
 		}
-		return nil, &SyncError{Message: "sync failed", Cause: err}
+		return nil, fmt.Errorf("sync failed: %w", err)
 	}
 
 	if c.logger != nil {
@@ -121,9 +122,9 @@ func (c *HubClient) UpdateDomain(ctx context.Context, domain string) error {
 	if err := c.doJSON(ctx, "PUT", "/api/v1/users/me", map[string]string{"domain": domain}, nil); err != nil {
 		var apiErr *HubAPIError
 		if errors.As(err, &apiErr) {
-			return &SyncError{Message: fmt.Sprintf("failed to update domain: %s", apiErr.Body), StatusCode: apiErr.StatusCode}
+			return fmt.Errorf("failed to update domain (status %d): %s", apiErr.StatusCode, apiErr.Body)
 		}
-		return &SyncError{Message: "failed to update domain", Cause: err}
+		return fmt.Errorf("failed to update domain: %w", err)
 	}
 	return nil
 }

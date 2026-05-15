@@ -154,16 +154,11 @@ type AgentSession struct {
 	transcriptMu sync.Mutex
 }
 
-// HasCapability returns true if the session advertised the named capability.
-func (s *AgentSession) HasCapability(cap string) bool {
-	return slices.Contains(s.Capabilities, cap)
-}
-
 // AttachmentsEnabled reports whether the attachments capability is active
 // for this session AND a tempdir is configured. Handlers SHOULD gate calls
 // to attachment helpers on this.
 func (s *AgentSession) AttachmentsEnabled() bool {
-	return s.AttachmentDir != "" && s.HasCapability(AttachmentCapability)
+	return s.AttachmentDir != "" && slices.Contains(s.Capabilities, AttachmentCapability)
 }
 
 // AttachmentCh returns the channel of inbound user attachments. Returns nil
@@ -379,74 +374,6 @@ func (s *AgentSession) recordOutboundEvent(event AgentEventPayload) {
 	s.appendTranscript(Message{Role: "assistant", Content: payload.Content})
 }
 
-// SendThinking sends a thinking/reasoning event.
-func (s *AgentSession) SendThinking(content string) error {
-	data, err := json.Marshal(map[string]any{
-		"content":      content,
-		"is_streaming": false,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal thinking event: %w", err)
-	}
-	return s.Send(AgentEventPayload{
-		EventType: EventTypeAgentThinking,
-		Data:      data,
-	})
-}
-
-// SendToolCall sends a tool call event.
-func (s *AgentSession) SendToolCall(tc ToolCall) error {
-	data, err := json.Marshal(tc)
-	if err != nil {
-		return fmt.Errorf("marshal tool call event: %w", err)
-	}
-	return s.Send(AgentEventPayload{
-		EventType: EventTypeAgentToolCall,
-		Data:      data,
-	})
-}
-
-// SendToolResult sends a tool result event.
-func (s *AgentSession) SendToolResult(tr ToolResult) error {
-	data, err := json.Marshal(tr)
-	if err != nil {
-		return fmt.Errorf("marshal tool result event: %w", err)
-	}
-	return s.Send(AgentEventPayload{
-		EventType: EventTypeAgentToolResult,
-		Data:      data,
-	})
-}
-
-// SendMessage sends a message event to the user.
-func (s *AgentSession) SendMessage(content string) error {
-	data, err := json.Marshal(map[string]any{
-		"content":     content,
-		"is_complete": true,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal message event: %w", err)
-	}
-	return s.Send(AgentEventPayload{
-		EventType: EventTypeAgentMessage,
-		Data:      data,
-	})
-}
-
-// SendToken sends a streaming token event.
-func (s *AgentSession) SendToken(token string) error {
-	data, err := json.Marshal(map[string]any{
-		"token": token,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal token event: %w", err)
-	}
-	return s.Send(AgentEventPayload{
-		EventType: EventTypeAgentToken,
-		Data:      data,
-	})
-}
-
 // SendPolicyDenied sends an agent.policy_denied event mid-session. Used by
 // the session manager when a per-message policy check rejects a user
 // follow-up. Caller is expected to cancel the session after this returns.
@@ -484,21 +411,6 @@ func (s *AgentSession) SendPaymentRequired(policyName, challenge string, details
 	}
 	return s.Send(AgentEventPayload{
 		EventType: EventTypeAgentPaymentRequired,
-		Data:      data,
-	})
-}
-
-// SendStatus sends a status update event.
-func (s *AgentSession) SendStatus(status, detail string) error {
-	data, err := json.Marshal(map[string]any{
-		"status": status,
-		"detail": detail,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal status event: %w", err)
-	}
-	return s.Send(AgentEventPayload{
-		EventType: EventTypeAgentStatus,
 		Data:      data,
 	})
 }
@@ -575,50 +487,6 @@ func (s *AgentSession) emitAttachmentEvent(info AttachmentInfo) error {
 		EventType: EventTypeAgentAttachment,
 		Data:      data,
 	})
-}
-
-// SendAttachmentBytes is a convenience for SendAttachment with a []byte source.
-func (s *AgentSession) SendAttachmentBytes(b []byte, name, mime string) (string, error) {
-	return s.SendAttachment(bytes.NewReader(b), name, mime)
-}
-
-// RequestInput sends an agent.request_input event, then blocks for user response.
-func (s *AgentSession) RequestInput(prompt string) (UserMessage, error) {
-	data, err := json.Marshal(map[string]any{
-		"prompt": prompt,
-	})
-	if err != nil {
-		return UserMessage{}, fmt.Errorf("marshal request_input event: %w", err)
-	}
-	if err := s.Send(AgentEventPayload{
-		EventType: EventTypeAgentRequestInput,
-		Data:      data,
-	}); err != nil {
-		return UserMessage{}, err
-	}
-	return s.Receive()
-}
-
-// RequestConfirmation sends a tool_call with requires_confirmation=true,
-// then blocks for a user_confirm or user_deny response.
-// Returns true if confirmed, false if denied.
-func (s *AgentSession) RequestConfirmation(action string, args map[string]any) (bool, error) {
-	tc := ToolCall{
-		ID:                   fmt.Sprintf("confirm-%d", s.sequence.Load()+1),
-		Name:                 action,
-		Arguments:            args,
-		RequiresConfirmation: true,
-	}
-	if err := s.SendToolCall(tc); err != nil {
-		return false, err
-	}
-
-	msg, err := s.Receive()
-	if err != nil {
-		return false, err
-	}
-
-	return msg.Type == UserMessageTypeConfirm, nil
 }
 
 // UserMessage represents a message from the user during an agent session.

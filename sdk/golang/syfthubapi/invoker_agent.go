@@ -40,10 +40,7 @@ func (a *AgentOneShotInvoker) Invoke(ctx context.Context, input any, reqCtx *Req
 		if policyResult != nil {
 			reqCtx.PolicyResult = policyResult
 			if !policyResult.Allowed {
-				return nil, &ExecutionError{
-					Endpoint: a.slug,
-					Message:  fmt.Sprintf("access denied by policy %q: %s", policyResult.PolicyName, policyResult.Reason),
-				}
+				return nil, fmt.Errorf("endpoint %q: access denied by policy %q: %s", a.slug, policyResult.PolicyName, policyResult.Reason)
 			}
 		}
 	}

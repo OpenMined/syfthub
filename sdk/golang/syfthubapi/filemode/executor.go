@@ -182,10 +182,7 @@ func (e *SubprocessExecutor) Execute(ctx context.Context, input *syfthubapi.Exec
 	// Check for timeout
 	if ctx.Err() == context.DeadlineExceeded {
 		e.logger.Error("[POLICY-EXEC] Execution timed out", "timeout", e.timeout.String())
-		return nil, &syfthubapi.TimeoutError{
-			Operation: "handler execution",
-			Duration:  e.timeout.String(),
-		}
+		return nil, fmt.Errorf("handler execution timed out after %s", e.timeout)
 	}
 
 	if stderr.Len() > 0 {

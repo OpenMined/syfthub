@@ -30,7 +30,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"log/slog"
 	"os"
 	"time"
 
@@ -78,12 +77,8 @@ func main() {
 		OnReload: func(endpoints []*syfthubapi.Endpoint) {
 			log.Printf("Endpoints reloaded: %d endpoints", len(endpoints))
 			app.Registry().ReplaceFileBased(endpoints)
-			// Re-sync endpoints with SyftHub after hot-reload
-			if err := app.SyncEndpoints(context.Background()); err != nil {
-				log.Printf("Failed to re-sync endpoints: %v", err)
-			} else {
-				log.Printf("Endpoints re-synced with SyftHub")
-			}
+			// Re-sync endpoints with SyftHub after hot-reload (errors logged inside)
+			app.SyncEndpointsAsync()
 		},
 	})
 	if err != nil {
@@ -111,7 +106,7 @@ func main() {
 		log.Println("Setting up NATS transport...")
 
 		// Create hub client to get NATS credentials
-		hubClient := syfthubapi.NewHubClient(config.SyftHubURL, config.APIKey, &slogAdapter{logger})
+		hubClient := syfthubapi.NewHubClient(config.SyftHubURL, config.APIKey, logger)
 
 		natsCreds, err := hubClient.GetNATSCredentials(context.Background(), config.GetTunnelUsername())
 		if err != nil {
@@ -203,25 +198,4 @@ func getEnvOrDefault(key, defaultVal string) string {
 		return val
 	}
 	return defaultVal
-}
-
-// slogAdapter adapts slog.Logger to the Logger interface
-type slogAdapter struct {
-	*slog.Logger
-}
-
-func (s *slogAdapter) Debug(msg string, args ...any) {
-	s.Logger.Debug(msg, args...)
-}
-
-func (s *slogAdapter) Info(msg string, args ...any) {
-	s.Logger.Info(msg, args...)
-}
-
-func (s *slogAdapter) Warn(msg string, args ...any) {
-	s.Logger.Warn(msg, args...)
-}
-
-func (s *slogAdapter) Error(msg string, args ...any) {
-	s.Logger.Error(msg, args...)
 }

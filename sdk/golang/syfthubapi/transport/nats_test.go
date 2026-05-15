@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -41,13 +42,8 @@ func TestNewNATSTransport(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
-
-		var configErr *syfthubapi.ConfigurationError
-		if !isConfigurationError(err, &configErr) {
-			t.Errorf("expected ConfigurationError, got %T", err)
-		}
-		if configErr != nil && configErr.Field != "NATSCredentials" {
-			t.Errorf("Field = %q", configErr.Field)
+		if !strings.Contains(err.Error(), "NATSCredentials") {
+			t.Errorf("expected error to mention NATSCredentials, got: %v", err)
 		}
 	})
 
@@ -74,15 +70,6 @@ func TestNewNATSTransport(t *testing.T) {
 			t.Fatal("transport is nil")
 		}
 	})
-}
-
-// isConfigurationError checks if error is a ConfigurationError and assigns it
-func isConfigurationError(err error, target **syfthubapi.ConfigurationError) bool {
-	if ce, ok := err.(*syfthubapi.ConfigurationError); ok {
-		*target = ce
-		return true
-	}
-	return false
 }
 
 func TestNATSTransportSetRequestHandler(t *testing.T) {

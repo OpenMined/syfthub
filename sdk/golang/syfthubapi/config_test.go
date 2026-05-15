@@ -1,7 +1,6 @@
 package syfthubapi
 
 import (
-	"errors"
 	"testing"
 	"time"
 )
@@ -188,9 +187,6 @@ func TestConfigValidate(t *testing.T) {
 		err := cfg.Validate()
 		if err == nil {
 			t.Error("expected error for missing SyftHubURL")
-		}
-		if !errors.Is(err, ErrConfiguration) {
-			t.Error("expected ConfigurationError")
 		}
 	})
 
@@ -508,48 +504,12 @@ func TestOptionFunctions(t *testing.T) {
 		}
 	})
 
-	t.Run("WithServerHost", func(t *testing.T) {
-		cfg := DefaultConfig()
-		opt := WithServerHost("127.0.0.1")
-		opt(cfg)
-		if cfg.ServerHost != "127.0.0.1" {
-			t.Errorf("expected %q, got %q", "127.0.0.1", cfg.ServerHost)
-		}
-	})
-
 	t.Run("WithServerPort", func(t *testing.T) {
 		cfg := DefaultConfig()
 		opt := WithServerPort(9000)
 		opt(cfg)
 		if cfg.ServerPort != 9000 {
 			t.Errorf("expected %d, got %d", 9000, cfg.ServerPort)
-		}
-	})
-
-	t.Run("WithHeartbeatEnabled", func(t *testing.T) {
-		cfg := DefaultConfig()
-		opt := WithHeartbeatEnabled(false)
-		opt(cfg)
-		if cfg.HeartbeatEnabled {
-			t.Error("expected false")
-		}
-	})
-
-	t.Run("WithHeartbeatTTL", func(t *testing.T) {
-		cfg := DefaultConfig()
-		opt := WithHeartbeatTTL(600)
-		opt(cfg)
-		if cfg.HeartbeatTTLSeconds != 600 {
-			t.Errorf("expected %d, got %d", 600, cfg.HeartbeatTTLSeconds)
-		}
-	})
-
-	t.Run("WithHeartbeatIntervalMultiplier", func(t *testing.T) {
-		cfg := DefaultConfig()
-		opt := WithHeartbeatIntervalMultiplier(0.5)
-		opt(cfg)
-		if cfg.HeartbeatIntervalMultiplier != 0.5 {
-			t.Errorf("expected %f, got %f", 0.5, cfg.HeartbeatIntervalMultiplier)
 		}
 	})
 
@@ -884,50 +844,6 @@ func TestContainerOptionFunctions(t *testing.T) {
 		}
 	})
 
-	t.Run("WithContainerCPUs", func(t *testing.T) {
-		cfg := DefaultConfig()
-		opt := WithContainerCPUs(4.0)
-		opt(cfg)
-		if cfg.Container.CPUs != 4.0 {
-			t.Errorf("expected %f, got %f", 4.0, cfg.Container.CPUs)
-		}
-	})
-
-	t.Run("WithContainerMemoryMB", func(t *testing.T) {
-		cfg := DefaultConfig()
-		opt := WithContainerMemoryMB(2048)
-		opt(cfg)
-		if cfg.Container.MemoryMB != 2048 {
-			t.Errorf("expected %d, got %d", 2048, cfg.Container.MemoryMB)
-		}
-	})
-
-	t.Run("WithContainerNetwork", func(t *testing.T) {
-		cfg := DefaultConfig()
-		opt := WithContainerNetwork("host")
-		opt(cfg)
-		if cfg.Container.Network != "host" {
-			t.Errorf("expected %q, got %q", "host", cfg.Container.Network)
-		}
-	})
-
-	t.Run("WithContainerGPU", func(t *testing.T) {
-		cfg := DefaultConfig()
-		opt := WithContainerGPU("all")
-		opt(cfg)
-		if cfg.Container.GPU != "all" {
-			t.Errorf("expected %q, got %q", "all", cfg.Container.GPU)
-		}
-	})
-
-	t.Run("WithContainerStartTimeout", func(t *testing.T) {
-		cfg := DefaultConfig()
-		opt := WithContainerStartTimeout(120 * time.Second)
-		opt(cfg)
-		if cfg.Container.StartTimeout != 120*time.Second {
-			t.Errorf("expected %v, got %v", 120*time.Second, cfg.Container.StartTimeout)
-		}
-	})
 }
 
 func TestContainerOptionChaining(t *testing.T) {
@@ -936,11 +852,6 @@ func TestContainerOptionChaining(t *testing.T) {
 		WithContainerEnabled(true),
 		WithContainerRuntime("docker"),
 		WithContainerImage("custom:latest"),
-		WithContainerCPUs(2.0),
-		WithContainerMemoryMB(1024),
-		WithContainerNetwork("none"),
-		WithContainerGPU("device=0"),
-		WithContainerStartTimeout(30 * time.Second),
 	}
 
 	for _, opt := range options {
@@ -955,21 +866,6 @@ func TestContainerOptionChaining(t *testing.T) {
 	}
 	if cfg.Container.Image != "custom:latest" {
 		t.Error("Container.Image not set correctly")
-	}
-	if cfg.Container.CPUs != 2.0 {
-		t.Error("Container.CPUs not set correctly")
-	}
-	if cfg.Container.MemoryMB != 1024 {
-		t.Error("Container.MemoryMB not set correctly")
-	}
-	if cfg.Container.Network != "none" {
-		t.Error("Container.Network not set correctly")
-	}
-	if cfg.Container.GPU != "device=0" {
-		t.Error("Container.GPU not set correctly")
-	}
-	if cfg.Container.StartTimeout != 30*time.Second {
-		t.Error("Container.StartTimeout not set correctly")
 	}
 }
 

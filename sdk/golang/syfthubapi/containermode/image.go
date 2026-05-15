@@ -172,12 +172,7 @@ func resolveRegistryImage(ctx context.Context, rt syfthubapi.ContainerRuntime, i
 
 	logger.Info("pulling custom endpoint image", "image", image)
 	if err := cli.PullImage(ctx, image); err != nil {
-		return "", &syfthubapi.ContainerError{
-			Operation: "pull",
-			Image:     image,
-			Message:   "failed to pull custom endpoint image",
-			Cause:     err,
-		}
+		return "", fmt.Errorf("container image %s: failed to pull: %w", image, err)
 	}
 
 	logger.Info("custom endpoint image pulled successfully", "image", image)
@@ -198,12 +193,7 @@ func resolveDockerfileImage(ctx context.Context, rt syfthubapi.ContainerRuntime,
 	dockerfilePath := filepath.Join(endpointDir, "Dockerfile")
 	dockerfileContent, err := os.ReadFile(dockerfilePath)
 	if err != nil {
-		return "", &syfthubapi.ContainerError{
-			Operation: "build",
-			Image:     imageName,
-			Message:   "failed to read Dockerfile",
-			Cause:     err,
-		}
+		return "", fmt.Errorf("container image %s: failed to read Dockerfile: %w", imageName, err)
 	}
 
 	currentHash := nodeops.HashString(string(dockerfileContent))
@@ -235,12 +225,7 @@ func resolveDockerfileImage(ctx context.Context, rt syfthubapi.ContainerRuntime,
 	)
 
 	if err := buildEndpointImage(buildCtx, cli.binary, imageName, endpointDir, currentHash, logger); err != nil {
-		return "", &syfthubapi.ContainerError{
-			Operation: "build",
-			Image:     imageName,
-			Message:   "failed to build custom endpoint image",
-			Cause:     err,
-		}
+		return "", fmt.Errorf("container image %s: failed to build: %w", imageName, err)
 	}
 
 	logger.Info("custom endpoint image built successfully", "image", imageName)

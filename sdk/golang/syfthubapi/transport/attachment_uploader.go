@@ -38,7 +38,7 @@ func NewObjectStoreUploader(
 	if err != nil {
 		return nil, err
 	}
-	bucket := BucketNameForSession(sessionID)
+	bucket := bucketNameForSession(sessionID)
 	if err := store.EnsureBucket(ctx, bucket, DefaultAttachmentBucketTTL); err != nil {
 		return nil, fmt.Errorf("ensure bucket %s: %w", bucket, err)
 	}

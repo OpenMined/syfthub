@@ -71,99 +71,6 @@ func TestNew(t *testing.T) {
 	})
 }
 
-func TestAPIDataSource(t *testing.T) {
-	api := New()
-
-	t.Run("creates builder with valid slug", func(t *testing.T) {
-		builder := api.DataSource("valid-slug")
-
-		if builder == nil {
-			t.Fatal("builder is nil")
-		}
-		if builder.endpoint.Slug != "valid-slug" {
-			t.Errorf("Slug = %q", builder.endpoint.Slug)
-		}
-		if builder.endpoint.Type != EndpointTypeDataSource {
-			t.Errorf("Type = %q", builder.endpoint.Type)
-		}
-		if !builder.endpoint.Enabled {
-			t.Error("Enabled should default to true")
-		}
-	})
-
-	t.Run("captures invalid slug error", func(t *testing.T) {
-		builder := api.DataSource("INVALID-SLUG")
-
-		if builder.err == nil {
-			t.Error("expected error for invalid slug")
-		}
-	})
-}
-
-func TestAPIModel(t *testing.T) {
-	api := New()
-
-	t.Run("creates builder with valid slug", func(t *testing.T) {
-		builder := api.Model("valid-slug")
-
-		if builder == nil {
-			t.Fatal("builder is nil")
-		}
-		if builder.endpoint.Slug != "valid-slug" {
-			t.Errorf("Slug = %q", builder.endpoint.Slug)
-		}
-		if builder.endpoint.Type != EndpointTypeModel {
-			t.Errorf("Type = %q", builder.endpoint.Type)
-		}
-	})
-
-	t.Run("captures invalid slug error", func(t *testing.T) {
-		builder := api.Model("")
-
-		if builder.err == nil {
-			t.Error("expected error for empty slug")
-		}
-	})
-}
-
-func TestAPIRegisterEndpoint(t *testing.T) {
-	api := New()
-
-	err := api.DataSource("my-ds").
-		Name("My Data Source").
-		Description("A test data source").
-		Handler(func(ctx context.Context, query string, reqCtx *RequestContext) ([]Document, error) {
-			return nil, nil
-		})
-
-	if err != nil {
-		t.Fatalf("registration failed: %v", err)
-	}
-
-	// Verify endpoint was registered
-	ep, ok := api.GetEndpoint("my-ds")
-	if !ok {
-		t.Fatal("endpoint not found")
-	}
-	if ep.Name != "My Data Source" {
-		t.Errorf("Name = %q", ep.Name)
-	}
-}
-
-func TestAPIUse(t *testing.T) {
-	api := New()
-
-	mw1 := func(next RequestHandler) RequestHandler { return next }
-	mw2 := func(next RequestHandler) RequestHandler { return next }
-
-	api.Use(mw1)
-	api.Use(mw2)
-
-	if len(api.middleware) != 2 {
-		t.Errorf("expected 2 middleware, got %d", len(api.middleware))
-	}
-}
-
 func TestAPIOnStartup(t *testing.T) {
 	api := New()
 
@@ -211,58 +118,6 @@ func TestAPILogger(t *testing.T) {
 	if logger == nil {
 		t.Fatal("logger is nil")
 	}
-}
-
-func TestAPIEndpoints(t *testing.T) {
-	api := New()
-
-	api.DataSource("ds1").
-		Name("DS1").
-		Description("Data Source 1").
-		Handler(func(ctx context.Context, query string, reqCtx *RequestContext) ([]Document, error) {
-			return nil, nil
-		})
-
-	api.Model("model1").
-		Name("Model1").
-		Description("Model 1").
-		Handler(func(ctx context.Context, messages []Message, reqCtx *RequestContext) (string, error) {
-			return "", nil
-		})
-
-	endpoints := api.Endpoints()
-
-	if len(endpoints) != 2 {
-		t.Errorf("expected 2 endpoints, got %d", len(endpoints))
-	}
-}
-
-func TestAPIGetEndpoint(t *testing.T) {
-	api := New()
-
-	api.Model("test-model").
-		Name("Test").
-		Description("Test model").
-		Handler(func(ctx context.Context, messages []Message, reqCtx *RequestContext) (string, error) {
-			return "", nil
-		})
-
-	t.Run("found", func(t *testing.T) {
-		ep, ok := api.GetEndpoint("test-model")
-		if !ok {
-			t.Fatal("endpoint not found")
-		}
-		if ep.Name != "Test" {
-			t.Errorf("Name = %q", ep.Name)
-		}
-	})
-
-	t.Run("not found", func(t *testing.T) {
-		_, ok := api.GetEndpoint("nonexistent")
-		if ok {
-			t.Error("should not find nonexistent endpoint")
-		}
-	})
 }
 
 func TestAPISetTransport(t *testing.T) {
@@ -324,37 +179,6 @@ func TestAPIRegistry(t *testing.T) {
 	}
 }
 
-func TestAPISyncEndpoints(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/api/v1/users/me":
-			w.WriteHeader(http.StatusOK)
-		case "/api/v1/endpoints/sync":
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(SyncEndpointsResponse{Synced: 1})
-		}
-	}))
-	defer server.Close()
-
-	api := New(
-		WithSyftHubURL(server.URL),
-		WithAPIKey("test-key"),
-		WithSpaceURL("https://space.example.com"),
-	)
-
-	api.Model("test-model").
-		Name("Test").
-		Description("Test").
-		Handler(func(ctx context.Context, messages []Message, reqCtx *RequestContext) (string, error) {
-			return "", nil
-		})
-
-	err := api.SyncEndpoints(context.Background())
-	if err != nil {
-		t.Fatalf("SyncEndpoints failed: %v", err)
-	}
-}
-
 func TestAPISyncEndpointsAsync(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -394,12 +218,11 @@ func TestAPIProcessRequest(t *testing.T) {
 		WithSpaceURL("https://space.example.com"),
 	)
 
-	api.Model("test-model").
-		Name("Test").
-		Description("Test model").
-		Handler(func(ctx context.Context, messages []Message, reqCtx *RequestContext) (string, error) {
-			return "Hello!", nil
-		})
+	ep := &Endpoint{Slug: "test-model", Type: EndpointTypeModel, Enabled: true}
+	ep.SetHandler(EndpointHandlerConfig{})
+	if err := api.Registry().Register(ep); err != nil {
+		t.Fatalf("Register failed: %v", err)
+	}
 
 	payload, _ := json.Marshal(ModelQueryRequest{
 		Messages: []Message{{Role: "user", Content: "Hi"}},
@@ -411,12 +234,15 @@ func TestAPIProcessRequest(t *testing.T) {
 		Payload:        payload,
 	}
 
+	// Without an executor wired, Process should still verify the token and
+	// reach the invoker, which surfaces a "no handler registered" error in
+	// the tunnel response (Process itself returns nil) rather than panicking.
 	resp, err := api.processor.Process(context.Background(), req)
 	if err != nil {
-		t.Fatalf("Process error: %v", err)
+		t.Fatalf("Process returned unexpected error: %v", err)
 	}
-	if resp.Status != "success" {
-		t.Errorf("Status = %q", resp.Status)
+	if resp == nil || resp.Status != TunnelStatusError {
+		t.Errorf("expected error response, got %+v", resp)
 	}
 }
 
@@ -916,13 +742,9 @@ func BenchmarkRegisterEndpoint(b *testing.B) {
 	api := New()
 
 	for i := 0; i < b.N; i++ {
-		// Create unique slug for each iteration
 		slug := "test-" + string(rune('a'+i%26))
-		api.Model(slug).
-			Name("Test").
-			Description("Test").
-			Handler(func(ctx context.Context, messages []Message, reqCtx *RequestContext) (string, error) {
-				return "", nil
-			})
+		ep := &Endpoint{Slug: slug, Type: EndpointTypeModel, Enabled: true}
+		ep.SetHandler(EndpointHandlerConfig{})
+		_ = api.Registry().Register(ep)
 	}
 }

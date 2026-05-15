@@ -74,9 +74,6 @@ type SyftAPI struct {
 	// agentSessionManager manages active agent sessions (Space-side).
 	agentSessionManager *AgentSessionManager
 
-	// middleware chain.
-	middleware []Middleware
-
 	// lifecycle hooks.
 	startupHooks  []LifecycleHook
 	shutdownHooks []LifecycleHook
@@ -209,58 +206,6 @@ func New(opts ...Option) *SyftAPI {
 	}
 }
 
-// newBaseBuilder creates a baseEndpointBuilder with the given slug and endpoint type.
-func (api *SyftAPI) newBaseBuilder(slug string, endpointType EndpointType) baseEndpointBuilder {
-	b := baseEndpointBuilder{
-		api: api,
-		endpoint: &Endpoint{
-			Slug:    slug,
-			Type:    endpointType,
-			Enabled: true,
-		},
-	}
-	b.err = validateSlug(slug)
-	return b
-}
-
-// DataSource starts building a data source endpoint.
-func (api *SyftAPI) DataSource(slug string) *DataSourceBuilder {
-	return &DataSourceBuilder{
-		baseEndpointBuilder: api.newBaseBuilder(slug, EndpointTypeDataSource),
-	}
-}
-
-// Model starts building a model endpoint.
-func (api *SyftAPI) Model(slug string) *ModelBuilder {
-	return &ModelBuilder{
-		baseEndpointBuilder: api.newBaseBuilder(slug, EndpointTypeModel),
-	}
-}
-
-// Agent starts building an agent endpoint.
-func (api *SyftAPI) Agent(slug string) *AgentBuilder {
-	return &AgentBuilder{
-		baseEndpointBuilder: api.newBaseBuilder(slug, EndpointTypeAgent),
-	}
-}
-
-// registerEndpoint registers an endpoint with the API.
-func (api *SyftAPI) registerEndpoint(endpoint *Endpoint) error {
-	api.logger.Info("registering endpoint",
-		"slug", endpoint.Slug,
-		"type", endpoint.Type,
-		"name", endpoint.Name,
-	)
-	return api.registry.Register(endpoint)
-}
-
-// Use adds middleware to the processing chain.
-func (api *SyftAPI) Use(mw Middleware) {
-	api.mu.Lock()
-	defer api.mu.Unlock()
-	api.middleware = append(api.middleware, mw)
-}
-
 // OnStartup registers a startup hook.
 func (api *SyftAPI) OnStartup(hook LifecycleHook) {
 	api.mu.Lock()
@@ -283,16 +228,6 @@ func (api *SyftAPI) Config() *Config {
 // Logger returns the logger.
 func (api *SyftAPI) Logger() *slog.Logger {
 	return api.logger
-}
-
-// Endpoints returns all registered endpoints.
-func (api *SyftAPI) Endpoints() []*Endpoint {
-	return api.registry.List()
-}
-
-// GetEndpoint retrieves an endpoint by slug.
-func (api *SyftAPI) GetEndpoint(slug string) (*Endpoint, bool) {
-	return api.registry.Get(slug)
 }
 
 // Run starts the SyftAPI server and blocks until shutdown.
@@ -401,19 +336,10 @@ func (api *SyftAPI) loadFileEndpoints() error {
 // initTransport configures the transport layer and agent session manager.
 func (api *SyftAPI) initTransport(ctx context.Context) error {
 	if api.transport == nil {
-		return &ConfigurationError{
-			Field:   "transport",
-			Message: "transport not configured — call SetTransport() before Run()",
-		}
+		return fmt.Errorf("transport not configured — call SetTransport() before Run()")
 	}
 
-	// Compose middleware → processor pipeline
-	handler := RequestHandler(api.processor.Process)
-	if len(api.middleware) > 0 {
-		chain := NewMiddlewareChain(api.middleware...)
-		handler = chain.Then(handler)
-	}
-	api.transport.SetRequestHandler(handler)
+	api.transport.SetRequestHandler(api.processor.Process)
 
 	// Initialize agent session manager unconditionally. Agent endpoints may be
 	// registered dynamically after startup (e.g., via the desktop app's CreateEndpoint).
@@ -619,12 +545,6 @@ func (api *SyftAPI) SetLogHook(hook RequestLogHook) {
 	if tt, ok := api.transport.(TunnelTransport); ok {
 		tt.SetAgentLogHook(hook)
 	}
-}
-
-// SyncEndpoints triggers a re-sync of all endpoints with SyftHub.
-// This should be called after endpoints are modified (e.g., after hot-reload).
-func (api *SyftAPI) SyncEndpoints(ctx context.Context) error {
-	return api.syncEndpoints(ctx)
 }
 
 // SyncEndpointsAsync triggers a re-sync in a background goroutine.

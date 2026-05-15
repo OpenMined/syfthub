@@ -2,6 +2,8 @@
 package transport
 
 import (
+	"log/slog"
+
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 )
 
@@ -26,7 +28,7 @@ type Config struct {
 	Port int
 
 	// Logger is the logger to use.
-	Logger syfthubapi.Logger
+	Logger *slog.Logger
 
 	// NATSCredentials are the NATS credentials (for tunnel mode).
 	NATSCredentials *syfthubapi.NATSCredentials

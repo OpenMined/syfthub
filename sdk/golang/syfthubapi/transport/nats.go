@@ -696,18 +696,13 @@ func (t *NATSTransport) getAttachmentObjectStore() (AttachmentObjectStore, error
 // Call PublicKeyB64() to retrieve the public key, then register it with the hub
 // via APIAuthenticator.RegisterEncryptionPublicKey before starting the transport.
 func NewNATSTransport(cfg *Config) (*NATSTransport, error) {
-	logger := slog.Default()
-	if cfg.Logger != nil {
-		if l, ok := cfg.Logger.(*slog.Logger); ok {
-			logger = l
-		}
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.Default()
 	}
 
 	if cfg.NATSCredentials == nil {
-		return nil, &syfthubapi.ConfigurationError{
-			Field:   "NATSCredentials",
-			Message: "required for tunnel mode",
-		}
+		return nil, fmt.Errorf("config: NATSCredentials is required for tunnel mode")
 	}
 
 	var privateKey *ecdh.PrivateKey
@@ -718,10 +713,7 @@ func NewNATSTransport(cfg *Config) (*NATSTransport, error) {
 		privateKey, err = GenerateX25519Keypair()
 	}
 	if err != nil {
-		return nil, &syfthubapi.ConfigurationError{
-			Field:   "encryption_keypair",
-			Message: fmt.Sprintf("failed to load or generate X25519 keypair: %v", err),
-		}
+		return nil, fmt.Errorf("config: failed to load or generate X25519 keypair: %w", err)
 	}
 
 	return &NATSTransport{
@@ -790,11 +782,7 @@ func (t *NATSTransport) Start(ctx context.Context) error {
 		}),
 	)
 	if err != nil {
-		return &syfthubapi.TransportError{
-			Transport: "nats",
-			Message:   "failed to connect",
-			Cause:     err,
-		}
+		return fmt.Errorf("nats transport: failed to connect: %w", err)
 	}
 	t.conn = conn
 
@@ -804,11 +792,7 @@ func (t *NATSTransport) Start(ctx context.Context) error {
 	sub, err := conn.Subscribe(creds.Subject, t.handleMessage)
 	if err != nil {
 		conn.Close()
-		return &syfthubapi.TransportError{
-			Transport: "nats",
-			Message:   "failed to subscribe",
-			Cause:     err,
-		}
+		return fmt.Errorf("nats transport: failed to subscribe: %w", err)
 	}
 	t.sub = sub
 
@@ -952,7 +936,8 @@ func (t *NATSTransport) handleMessage(msg *nats.Msg) {
 	switch req.Type {
 	case syfthubapi.MsgTypeAgentSessionStart,
 		syfthubapi.MsgTypeAgentUserMessage,
-		syfthubapi.MsgTypeAgentSessionCancel:
+		syfthubapi.MsgTypeAgentSessionCancel,
+		syfthubapi.MsgTypeAgentUserAttachment:
 		if t.agentBridge == nil {
 			t.sendErrorResponse(msg, &req, syfthubapi.TunnelErrorCodeInvalidRequest, "agent sessions not supported")
 			return

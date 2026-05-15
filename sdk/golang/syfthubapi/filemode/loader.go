@@ -101,11 +101,7 @@ func NewLoader(basePath string, logger *slog.Logger) *Loader {
 func (l *Loader) LoadAll() ([]*LoadedEndpoint, error) {
 	entries, err := os.ReadDir(l.basePath)
 	if err != nil {
-		return nil, &syfthubapi.FileLoadError{
-			Path:    l.basePath,
-			Message: "failed to read directory",
-			Cause:   err,
-		}
+		return nil, fmt.Errorf("file load %s: failed to read directory: %w", l.basePath, err)
 	}
 
 	var endpoints []*LoadedEndpoint
@@ -159,16 +155,9 @@ func (l *Loader) LoadEndpoint(dir string) (*LoadedEndpoint, error) {
 	// Verify runner.py exists (read it to avoid TOCTOU; the file is small).
 	if _, err := os.ReadFile(runnerPath); err != nil {
 		if os.IsNotExist(err) {
-			return nil, &syfthubapi.FileLoadError{
-				Path:    dir,
-				Message: "runner.py not found",
-			}
+			return nil, fmt.Errorf("file load %s: runner.py not found", dir)
 		}
-		return nil, &syfthubapi.FileLoadError{
-			Path:    dir,
-			Message: "failed to read runner.py",
-			Cause:   err,
-		}
+		return nil, fmt.Errorf("file load %s: failed to read runner.py: %w", dir, err)
 	}
 
 	// Parse README.md frontmatter and body (parseReadme opens the file directly,
@@ -254,49 +243,29 @@ func (l *Loader) LoadEndpoint(dir string) (*LoadedEndpoint, error) {
 func (l *Loader) parseReadme(path string) (*EndpointConfig, string, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return nil, "", &syfthubapi.FileLoadError{
-			Path:    path,
-			Message: "failed to open file",
-			Cause:   err,
-		}
+		return nil, "", fmt.Errorf("file load %s: failed to open file: %w", path, err)
 	}
 	defer file.Close()
 
 	yamlBytes, body, err := nodeops.SplitFrontmatter(file)
 	if err != nil {
-		return nil, "", &syfthubapi.FileLoadError{
-			Path:    path,
-			Message: err.Error(),
-		}
+		return nil, "", fmt.Errorf("file load %s: %w", path, err)
 	}
 
 	var config EndpointConfig
 	if err := yaml.Unmarshal(yamlBytes, &config); err != nil {
-		return nil, "", &syfthubapi.FileLoadError{
-			Path:    path,
-			Message: "invalid YAML frontmatter",
-			Cause:   err,
-		}
+		return nil, "", fmt.Errorf("file load %s: invalid YAML frontmatter: %w", path, err)
 	}
 
 	// Validate required fields
 	if config.Name == "" {
-		return nil, "", &syfthubapi.FileLoadError{
-			Path:    path,
-			Message: "missing required field: name",
-		}
+		return nil, "", fmt.Errorf("file load %s: missing required field: name", path)
 	}
 	if config.Type == "" {
-		return nil, "", &syfthubapi.FileLoadError{
-			Path:    path,
-			Message: "missing required field: type",
-		}
+		return nil, "", fmt.Errorf("file load %s: missing required field: type", path)
 	}
 	if !syfthubapi.IsValidEndpointType(config.Type) {
-		return nil, "", &syfthubapi.FileLoadError{
-			Path:    path,
-			Message: fmt.Sprintf("invalid type: %s (must be one of: %v)", config.Type, syfthubapi.ValidEndpointTypes),
-		}
+		return nil, "", fmt.Errorf("file load %s: invalid type: %s (must be one of: %v)", path, config.Type, syfthubapi.ValidEndpointTypes)
 	}
 
 	return &config, body, nil
@@ -306,19 +275,13 @@ func (l *Loader) parseReadme(path string) (*EndpointConfig, string, error) {
 func (l *Loader) loadEnvVars(dir string, envConfig *EnvConfig) ([]string, error) {
 	envVars := []string{}
 
-	// Load from .env file if exists
+	// Load from .env file (loadDotEnv returns an empty slice if absent).
 	envPath := filepath.Join(dir, ".env")
-	if _, err := os.Stat(envPath); err == nil {
-		vars, err := loadDotEnv(envPath)
-		if err != nil {
-			return nil, &syfthubapi.FileLoadError{
-				Path:    envPath,
-				Message: "failed to load .env file",
-				Cause:   err,
-			}
-		}
-		envVars = append(envVars, vars...)
+	vars, err := loadDotEnv(envPath)
+	if err != nil {
+		return nil, fmt.Errorf("file load %s: failed to load .env file: %w", envPath, err)
 	}
+	envVars = append(envVars, vars...)
 
 	// Check required variables. Convert "KEY=value" strings into structured
 	// EnvVar entries so nodeops.EnvVarsToMap can index them.
@@ -333,10 +296,7 @@ func (l *Loader) loadEnvVars(dir string, envConfig *EnvConfig) ([]string, error)
 		// Check endpoint .env first, then system env
 		if _, ok := envMap[req]; !ok {
 			if os.Getenv(req) == "" {
-				return nil, &syfthubapi.FileLoadError{
-					Path:    dir,
-					Message: fmt.Sprintf("missing required environment variable: %s", req),
-				}
+				return nil, fmt.Errorf("file load %s: missing required environment variable: %s", dir, req)
 			}
 			// Add from system env
 			envVars = append(envVars, fmt.Sprintf("%s=%s", req, os.Getenv(req)))
@@ -379,11 +339,7 @@ func (l *Loader) loadPolicies(dir string) ([]syfthubapi.PolicyConfig, *syfthubap
 			"path", policyDir,
 			"error", err,
 		)
-		return nil, nil, &syfthubapi.FileLoadError{
-			Path:    policyDir,
-			Message: "failed to read policy directory",
-			Cause:   err,
-		}
+		return nil, nil, fmt.Errorf("file load %s: failed to read policy directory: %w", policyDir, err)
 	}
 
 	var policies []syfthubapi.PolicyConfig
@@ -449,11 +405,7 @@ func (l *Loader) loadPolicies(dir string) ([]syfthubapi.PolicyConfig, *syfthubap
 			"path", policyDir,
 			"error", err,
 		)
-		return nil, nil, &syfthubapi.FileLoadError{
-			Path:    policyDir,
-			Message: "policy validation failed",
-			Cause:   err,
-		}
+		return nil, nil, fmt.Errorf("file load %s: policy validation failed: %w", policyDir, err)
 	}
 
 	l.logger.Info("[POLICY-LOAD] All policies from directory validated successfully",

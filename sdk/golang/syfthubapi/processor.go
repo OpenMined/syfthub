@@ -210,7 +210,7 @@ func (p *RequestProcessor) enrichLogFallback(log *RequestLog, req *TunnelRequest
 // verifyToken verifies a satellite token and returns the user context.
 func (p *RequestProcessor) verifyToken(ctx context.Context, token string) (*UserContext, error) {
 	if p.authClient == nil {
-		return nil, &AuthenticationError{Message: "auth client not initialized"}
+		return nil, fmt.Errorf("authentication: auth client not initialized")
 	}
 	return p.authClient.VerifyToken(ctx, token)
 }

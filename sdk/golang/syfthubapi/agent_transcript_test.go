@@ -120,18 +120,23 @@ func TestAgentSessionTranscript(t *testing.T) {
 			}
 		}()
 
-		if err := s.SendMessage("first assistant reply"); err != nil {
+		send := func(eventType, content string) {
+			t.Helper()
+			data, _ := json.Marshal(map[string]any{"content": content})
+			if err := s.Send(AgentEventPayload{EventType: eventType, Data: data}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		send(EventTypeAgentMessage, "first assistant reply")
+		tokenData, _ := json.Marshal(map[string]any{"token": "partial"})
+		if err := s.Send(AgentEventPayload{EventType: EventTypeAgentToken, Data: tokenData}); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.SendToken("partial"); err != nil {
+		thinkingData, _ := json.Marshal(map[string]any{"content": "…", "is_streaming": false})
+		if err := s.Send(AgentEventPayload{EventType: EventTypeAgentThinking, Data: thinkingData}); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.SendThinking("…"); err != nil {
-			t.Fatal(err)
-		}
-		if err := s.SendMessage("second assistant reply"); err != nil {
-			t.Fatal(err)
-		}
+		send(EventTypeAgentMessage, "second assistant reply")
 
 		<-drained
 
