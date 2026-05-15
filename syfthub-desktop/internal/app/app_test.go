@@ -212,20 +212,6 @@ func TestEndpointInfoHasPolicies(t *testing.T) {
 	}
 }
 
-func TestSlogAdapterMethods(t *testing.T) {
-	// Test that slogAdapter implements the required interface methods
-	// Note: We can't easily test the actual logging without mocking slog.Logger
-	// This is mainly a compile-time check that the adapter has the right methods
-
-	// Just verify the struct exists and has the right methods
-	var _ interface {
-		Debug(msg string, args ...any)
-		Info(msg string, args ...any)
-		Warn(msg string, args ...any)
-		Error(msg string, args ...any)
-	} = (*slogAdapter)(nil)
-}
-
 // Helper to set or unset env var
 func setEnvOrUnset(key, value string) {
 	if value == "" {

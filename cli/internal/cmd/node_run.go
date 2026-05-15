@@ -107,9 +107,7 @@ func runNodeRun(cmd *cobra.Command, args []string) error {
 		OnReload: func(endpoints []*syfthubapi.Endpoint) {
 			logger.Info("endpoints reloaded", "count", len(endpoints))
 			api.Registry().ReplaceFileBased(endpoints)
-			if err := api.SyncEndpoints(context.Background()); err != nil {
-				logger.Error("failed to sync endpoints", "error", err)
-			}
+			api.SyncEndpointsAsync()
 		},
 	})
 	if err != nil {
@@ -138,7 +136,7 @@ func runNodeRun(cmd *cobra.Command, args []string) error {
 	}
 
 	// Setup NATS transport (always tunnel mode)
-	apiHubClient := syfthubapi.NewHubClient(apiConfig.SyftHubURL, apiConfig.APIKey, newSlogAdapter(logger))
+	apiHubClient := syfthubapi.NewHubClient(apiConfig.SyftHubURL, apiConfig.APIKey, logger)
 	natsCreds, err := apiHubClient.GetNATSCredentials(context.Background(), user.Username)
 	if err != nil {
 		return fmt.Errorf("failed to get NATS credentials: %w", err)
@@ -274,13 +272,4 @@ func writeRequestLog(logsDir string, entry *syfthubapi.RequestLog, logger *slog.
 	if err := f.Close(); err != nil {
 		logger.Warn("failed to close log file", "path", filename, "error", err)
 	}
-}
-
-// slogAdapter adapts slog.Logger to the syfthubapi Logger interface.
-type slogAdapter struct {
-	*slog.Logger
-}
-
-func newSlogAdapter(l *slog.Logger) *slogAdapter {
-	return &slogAdapter{l}
 }

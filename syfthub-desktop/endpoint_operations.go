@@ -20,6 +20,24 @@ import (
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
+// reloadAfterEndpointMutation forces a fresh load of endpoints after a file
+// mutation that should take effect immediately (policy changes, etc.). Errors
+// are logged but not propagated — the mutation itself already succeeded, and
+// the fallback file-watcher reload should still kick in. Notifies the frontend
+// so the UI can refresh derived state. Safe to call when core is not yet wired.
+func (a *App) reloadAfterEndpointMutation(slug string) {
+	a.mu.RLock()
+	core := a.core
+	a.mu.RUnlock()
+	if core == nil {
+		return
+	}
+	if err := core.ReloadEndpoints(); err != nil {
+		runtime.LogWarning(a.ctx, fmt.Sprintf("Failed to reload endpoints after mutation (slug=%s): %v", slug, err))
+	}
+	a.notifyEndpointsChanged()
+}
+
 // EndpointDetail provides full endpoint information for the detail view.
 type EndpointDetail struct {
 	Slug            string           `json:"slug"`
@@ -895,6 +913,13 @@ func (a *App) SavePolicyFileYaml(slug, filename, content string) error {
 	}
 
 	runtime.LogInfo(a.ctx, fmt.Sprintf("Saved policy file '%s' for endpoint: %s", filename, slug))
+
+	// Trigger reload directly so the new policy takes effect on the next
+	// session/message without waiting for the file watcher's debounce. The
+	// watcher would normally pick this up, but explicit reload makes the
+	// behavior deterministic and matches the pattern used by setup/library.
+	a.reloadAfterEndpointMutation(slug)
+
 	return nil
 }
 
@@ -921,6 +946,7 @@ func (a *App) DeletePolicyFile(slug, filename string) error {
 	}
 
 	runtime.LogInfo(a.ctx, fmt.Sprintf("Deleted policy file '%s' from endpoint: %s", filename, slug))
+	a.reloadAfterEndpointMutation(slug)
 	return nil
 }
 
@@ -1145,6 +1171,7 @@ func (a *App) CreatePolicyFile(slug string, req NewPolicyRequest) error {
 	}
 
 	runtime.LogInfo(a.ctx, fmt.Sprintf("Created policy file '%s' (type: %s) for endpoint: %s", filename, req.Type, slug))
+	a.reloadAfterEndpointMutation(slug)
 	return nil
 }
 

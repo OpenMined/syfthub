@@ -374,11 +374,9 @@ func (a *App) handleReload(endpoints []*syfthubapi.Endpoint) {
 	a.logger.Info("endpoints reloaded", "count", len(endpoints))
 	a.api.Registry().ReplaceFileBased(endpoints)
 
-	// Re-sync with SyftHub. The SDK logs the success path with synced/deleted
-	// counts; we only log the failure path here.
-	if err := a.api.SyncEndpoints(context.Background()); err != nil {
-		a.logger.Error("failed to re-sync endpoints", "error", err)
-	}
+	// Re-sync with SyftHub. The SDK logs both success (synced/deleted counts)
+	// and failure paths inside SyncEndpointsAsync.
+	a.api.SyncEndpointsAsync()
 
 	// Notify external listeners (Wails GUI)
 	if a.onEndpointsChanged != nil {
@@ -399,7 +397,7 @@ func (a *App) setupNATSTransport(ctx context.Context, cfg *syfthubapi.Config) (s
 	a.logger.Info("setting up NATS transport")
 
 	// Get NATS credentials from SyftHub
-	hubClient := syfthubapi.NewHubClient(cfg.SyftHubURL, cfg.APIKey, &slogAdapter{a.logger})
+	hubClient := syfthubapi.NewHubClient(cfg.SyftHubURL, cfg.APIKey, a.logger)
 
 	natsCreds, err := hubClient.GetNATSCredentials(ctx, cfg.GetTunnelUsername())
 	if err != nil {
@@ -453,16 +451,6 @@ func (a *App) getModeString(cfg *syfthubapi.Config) string {
 	}
 	return fmt.Sprintf("HTTP (port: %d)", cfg.ServerPort)
 }
-
-// slogAdapter adapts slog.Logger to the Logger interface.
-type slogAdapter struct {
-	*slog.Logger
-}
-
-func (s *slogAdapter) Debug(msg string, args ...any) { s.Logger.Debug(msg, args...) }
-func (s *slogAdapter) Info(msg string, args ...any)  { s.Logger.Info(msg, args...) }
-func (s *slogAdapter) Warn(msg string, args ...any)  { s.Logger.Warn(msg, args...) }
-func (s *slogAdapter) Error(msg string, args ...any) { s.Logger.Error(msg, args...) }
 
 func getEnvOrDefault(key, defaultVal string) string {
 	if val := os.Getenv(key); val != "" {
@@ -529,10 +517,8 @@ func (a *App) ReloadEndpoints() error {
 	a.api.Registry().ReplaceFileBased(endpoints)
 	a.logger.Info("endpoints reloaded", "count", len(endpoints))
 
-	// Re-sync with SyftHub
-	if err := a.api.SyncEndpoints(context.Background()); err != nil {
-		a.logger.Warn("failed to sync endpoints", "error", err)
-	}
+	// Re-sync with SyftHub (errors logged inside the async helper).
+	a.api.SyncEndpointsAsync()
 
 	return nil
 }
