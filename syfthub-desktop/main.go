@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	goruntime "runtime"
 
 	"github.com/openmined/syfthub-desktop-gui/internal/updater"
 	"github.com/wailsapp/wails/v2"
@@ -74,19 +75,18 @@ func main() {
 	// Create an instance of the app structure
 	app := NewApp()
 
-	// Title-bar color: bg-card/30 over slate-900 background.
-	// slate-900 = RGB(15, 23, 42); effective tint ≈ RGB(20, 28, 47).
-	titleBarColor := windows.RGB(20, 28, 47)
-	titleBarColorInactive := windows.RGB(15, 23, 42)
+	// macOS uses a native titled window (transparent title bar + FullSizeContent
+	// so the webview extends under the traffic lights). Windows and Linux use a
+	// frameless window with custom in-app window controls instead.
+	frameless := goruntime.GOOS != "darwin"
 
-	// Create application with options. The window uses the native OS title
-	// bar on every platform — no Frameless, no custom in-app traffic lights.
 	err := wails.Run(&options.App{
 		Title:           "SyftHub Desktop",
 		Width:           1280,
 		Height:          800,
 		MinWidth:        800,
 		MinHeight:       600,
+		Frameless:       frameless,
 		CSSDragProperty: "--wails-draggable",
 		CSSDragValue:    "drag",
 		// Enable Wails native file drop so dropped files arrive as absolute
@@ -106,17 +106,9 @@ func main() {
 		Bind: []interface{}{
 			app,
 		},
-		// Windows: native title bar, themed to match the app's dark surface.
+		// Windows: frameless window — title bar is drawn by the app.
 		Windows: &windows.Options{
 			Theme: windows.Dark,
-			CustomTheme: &windows.ThemeSettings{
-				DarkModeTitleBar:          titleBarColor,
-				DarkModeTitleBarInactive:  titleBarColorInactive,
-				DarkModeTitleText:         windows.RGB(246, 248, 250), // slate-100
-				DarkModeTitleTextInactive: windows.RGB(148, 163, 184), // slate-400
-				DarkModeBorder:            titleBarColor,
-				DarkModeBorderInactive:    titleBarColorInactive,
-			},
 		},
 		// macOS: native .titled window so the system draws rounded corners
 		// and provides real close / minimize / zoom controls (with their

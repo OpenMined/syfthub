@@ -14,7 +14,10 @@ import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 import { useSettings } from '@/contexts/SettingsContext';
 import { extractErrorMessage, isValidUrl } from '@/lib/utils';
 import { BrowseForFolder } from '../../wailsjs/go/main/App';
+import { WindowControls } from '@/components/ui/window-controls';
 import { ErrorBanner } from '@/components/ui/error-banner';
+
+const isMac = navigator.userAgent.includes('Macintosh');
 
 type WizardStep = 'connect' | 'complete';
 
@@ -67,12 +70,20 @@ export function OnboardingWizard() {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-gradient-to-br from-background via-card to-background text-foreground">
-      {/* Dark title bar (matches AppShell). Left pad reserves space for the
-         macOS traffic lights that float in this region. */}
-      <div className="wails-drag h-9 flex-shrink-0 border-b border-border/30 bg-background flex items-center justify-center px-3 pl-[80px]">
-        <span className="text-xs text-muted-foreground">SyftHub Desktop</span>
-      </div>
+    <div className={`h-screen flex flex-col bg-gradient-to-br from-background via-card to-background text-foreground ${!isMac ? 'rounded-xl overflow-hidden shadow-2xl' : ''}`}>
+      {isMac ? (
+        <div className="wails-drag h-9 flex-shrink-0 border-b border-border/30 bg-background flex items-center justify-center px-3 pl-[80px]">
+          <span className="text-xs text-muted-foreground">SyftHub Desktop</span>
+        </div>
+      ) : (
+        <div className="wails-drag h-9 flex-shrink-0 border-b border-border/30 bg-card/30 flex items-center px-3">
+          <WindowControls />
+          <div className="flex-1 flex items-center justify-center">
+            <span className="text-xs text-muted-foreground">SyftHub Desktop</span>
+          </div>
+          <div className="w-32" />
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto flex items-center justify-center p-6">
         <div className="w-full max-w-md">
