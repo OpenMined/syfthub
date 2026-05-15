@@ -288,12 +288,12 @@
     text-wrap: pretty;
   }
 
-  /* macOS title bar drag region */
+  /* Custom title-bar drag region.
+     The bar is draggable so the window can be moved; interactive children
+     opt out so clicks still register. */
   .wails-drag {
     --wails-draggable: drag;
   }
-
-  /* No drag for interactive elements inside drag regions */
   .wails-drag button,
   .wails-drag input,
   .wails-drag select,
