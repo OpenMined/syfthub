@@ -88,6 +88,12 @@ type MessagePolicyNotice struct {
 	Phase      string `json:"phase,omitempty"` // "pre" | "post"
 	PolicyName string `json:"policy_name,omitempty"`
 	Reason     string `json:"reason,omitempty"`
+	// ReviewID is the manual-review handle (a 12-hex id) carried on a pending
+	// notice when a manual_review policy held the turn. It is the durable,
+	// machine-readable reference a client uses to track the held request.
+	// Empty for blocks and for pending notices that are not a manual-review
+	// hold.
+	ReviewID string `json:"review_id,omitempty"`
 }
 
 // AgentTokenEvent represents a streaming token.

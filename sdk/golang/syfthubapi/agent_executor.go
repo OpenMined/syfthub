@@ -274,6 +274,7 @@ func (a *AgentExecutor) handleReply(
 			Phase:      PolicyPhasePost,
 			PolicyName: out.PolicyResult.PolicyName,
 			Reason:     delivered,
+			ReviewID:   metadataString(out.PolicyResult.Metadata, metadataReviewIDKey),
 		})
 		return
 	}
@@ -356,7 +357,17 @@ type policyNotice struct {
 	Phase      string `json:"phase,omitempty"` // PolicyPhasePre | PolicyPhasePost
 	PolicyName string `json:"policy_name,omitempty"`
 	Reason     string `json:"reason,omitempty"`
+	// ReviewID is the manual-review handle the caller can use to track a held
+	// request — the 12-hex id manual_review records in its manual_reviews
+	// table. It originates in PolicyResult.metadata; see metadataReviewIDKey.
+	// Empty for blocks and for pending notices that are not a manual-review
+	// hold (e.g. a payment challenge surfaces as agent.payment_required).
+	ReviewID string `json:"review_id,omitempty"`
 }
+
+// metadataReviewIDKey is the PolicyResult.metadata key under which
+// manual_review (policy_manager) reports the held request's identifier.
+const metadataReviewIDKey = "review_id"
 
 // applyVerdict acts on a pre-check verdict. Returns true when the turn may
 // proceed; on deny/pending it emits the appropriate notice and returns false.
@@ -391,6 +402,7 @@ func (a *AgentExecutor) emitPending(outer *AgentSession, phase string, v *Policy
 		Phase:      phase,
 		PolicyName: v.PolicyName,
 		Reason:     v.Reason,
+		ReviewID:   metadataString(v.Metadata, metadataReviewIDKey),
 	})
 }
 
@@ -439,6 +451,14 @@ func (a *AgentExecutor) reprompt(outer *AgentSession) {
 }
 
 // ── helpers ──────────────────────────────────────────────────
+
+// metadataString returns the string at key in a PolicyResult metadata map, or
+// "" when the map is nil, the key is absent, or the value is not a string.
+// PolicyResultOutput.Metadata is free-form (decoded from the runner's JSON).
+func metadataString(m map[string]any, key string) string {
+	s, _ := m[key].(string)
+	return s
+}
 
 // contentOfMessage extracts the content field of an agent.message event.
 func contentOfMessage(ev AgentEventPayload) string {

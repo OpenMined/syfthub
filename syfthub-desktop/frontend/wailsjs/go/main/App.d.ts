@@ -77,6 +77,8 @@ export function GetReadme(arg1:string):Promise<string>;
 
 export function GetRunnerCode(arg1:string):Promise<string>;
 
+export function GetSentReviews(arg1:string):Promise<Array<main.SentReviewEntry>>;
+
 export function GetSettings():Promise<main.Settings>;
 
 export function GetSettingsDir():Promise<string>;
@@ -117,6 +119,8 @@ export function OpenReleaseNotes(arg1:string):Promise<void>;
 
 export function ReadSkill(arg1:string,arg2:string):Promise<string>;
 
+export function RecordSentReview(arg1:main.SentReviewInput):Promise<void>;
+
 export function RejectManualReview(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function ReloadEndpoints():Promise<void>;
@@ -150,6 +154,10 @@ export function SetAutoCheckEnabled(arg1:boolean):Promise<void>;
 export function SetContainerEnabled(arg1:boolean):Promise<void>;
 
 export function SetEnvironment(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function SetSentReviewNote(arg1:string,arg2:string):Promise<void>;
+
+export function SetSentReviewStatus(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function Start():Promise<void>;
 

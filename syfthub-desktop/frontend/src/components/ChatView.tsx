@@ -30,6 +30,7 @@ import { Tool, type ToolPart } from '@/components/prompt-kit/tool';
 import { MarkdownMessage } from '@/components/chat/markdown-message';
 import { ModelSelector } from '@/components/chat/model-selector';
 import { PolicyNotice } from '@/components/chat/policy-notice';
+import { SentReviewsView } from '@/components/chat/SentReviewsView';
 import { ThinkingIndicator } from '@/components/chat/thinking-indicator';
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 
@@ -460,6 +461,7 @@ function UserBubble({
 function AgentChatContent() {
   const chatSelectedModel = useAppStore((s) => s.chatSelectedModel);
   const fetchNetworkAgents = useAppStore((s) => s.fetchNetworkAgents);
+  const setChatSubView = useAppStore((s) => s.setChatSubView);
 
   // Refresh the hub catalog on entering the chat view; the hub has no push
   // signal, so the dropdown would otherwise show whatever was cached at boot.
@@ -477,6 +479,7 @@ function AgentChatContent() {
     stopSession,
   } = useAgentWorkflow({
     endpointPath: chatSelectedModel ? `${chatSelectedModel.ownerUsername}/${chatSelectedModel.slug}` : null,
+    endpointName: chatSelectedModel?.name ?? '',
   });
 
   const { copiedId, copy: handleCopy } = useCopyToClipboard();
@@ -758,6 +761,10 @@ function AgentChatContent() {
                   const d = entry.data ?? {};
                   const status = d.status === 'pending' ? 'pending' : 'blocked';
                   const phase = d.phase === 'pre' || d.phase === 'post' ? d.phase : undefined;
+                  // A pending notice carrying a review_id is a manual-review
+                  // hold — it was durably captured, so offer a jump to the
+                  // "Sent for Review" ledger where it lives on after the chat.
+                  const tracked = status === 'pending' && typeof d.review_id === 'string' && Boolean(d.review_id);
                   return (
                     <PolicyNotice
                       key={entry.id}
@@ -765,6 +772,8 @@ function AgentChatContent() {
                       phase={phase}
                       policyName={d.policy_name ? String(d.policy_name) : undefined}
                       reason={d.reason ? String(d.reason) : undefined}
+                      tracked={tracked}
+                      onOpenTracking={() => setChatSubView('reviews')}
                     />
                   );
                 }
@@ -915,6 +924,59 @@ function AgentChatContent() {
   );
 }
 
+// =============================================================================
+// Chat surface — Chat / Sent for Review sub-views
+// =============================================================================
+
+const CHAT_TABS = [
+  ['chat', 'Chat'],
+  ['reviews', 'Sent for Review'],
+] as const;
+
+function ChatSurfaceTabs({
+  active,
+  onChange,
+}: Readonly<{
+  active: 'chat' | 'reviews';
+  onChange: (v: 'chat' | 'reviews') => void;
+}>) {
+  return (
+    <div className='flex shrink-0 items-center gap-1 border-b border-border/50 px-4 py-2'>
+      {CHAT_TABS.map(([key, label]) => (
+        <button
+          key={key}
+          type='button'
+          onClick={() => onChange(key)}
+          aria-current={active === key ? 'page' : undefined}
+          className={cn(
+            'rounded-md px-3 py-1 text-xs font-medium transition-colors',
+            active === key
+              ? 'bg-muted text-foreground'
+              : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function ChatView() {
-  return <AgentChatContent />;
+  const chatSubView = useAppStore((s) => s.chatSubView);
+  const setChatSubView = useAppStore((s) => s.setChatSubView);
+
+  return (
+    <div className='flex h-full flex-col'>
+      <ChatSurfaceTabs active={chatSubView} onChange={setChatSubView} />
+      <div className='min-h-0 flex-1'>
+        {/* AgentChatContent stays mounted across the toggle so opening the
+            review ledger never tears down a live agent session. */}
+        <div className={cn('h-full', chatSubView !== 'chat' && 'hidden')}>
+          <AgentChatContent />
+        </div>
+        {chatSubView === 'reviews' && <SentReviewsView />}
+      </div>
+    </div>
+  );
 }

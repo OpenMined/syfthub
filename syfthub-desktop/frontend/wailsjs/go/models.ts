@@ -793,6 +793,110 @@ export namespace main {
 	    }
 	}
 
+	export class SentReviewEntry {
+	    reviewId: string;
+	    identity: string;
+	    endpointPath: string;
+	    endpointOwner: string;
+	    endpointSlug: string;
+	    endpointName: string;
+	    endpointType: string;
+	    policyName?: string;
+	    requestMessages?: ChatMessage[];
+	    placeholder?: string;
+	    submittedAt: string;
+	    status: string;
+	    statusSource: string;
+	    resolvedAt?: string;
+	    rejectReason?: string;
+	    responseText?: string;
+	    userNote?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new SentReviewEntry(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.reviewId = source["reviewId"];
+	        this.identity = source["identity"];
+	        this.endpointPath = source["endpointPath"];
+	        this.endpointOwner = source["endpointOwner"];
+	        this.endpointSlug = source["endpointSlug"];
+	        this.endpointName = source["endpointName"];
+	        this.endpointType = source["endpointType"];
+	        this.policyName = source["policyName"];
+	        this.requestMessages = this.convertValues(source["requestMessages"], ChatMessage);
+	        this.placeholder = source["placeholder"];
+	        this.submittedAt = source["submittedAt"];
+	        this.status = source["status"];
+	        this.statusSource = source["statusSource"];
+	        this.resolvedAt = source["resolvedAt"];
+	        this.rejectReason = source["rejectReason"];
+	        this.responseText = source["responseText"];
+	        this.userNote = source["userNote"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SentReviewInput {
+	    reviewId: string;
+	    endpointPath: string;
+	    endpointName: string;
+	    endpointType: string;
+	    policyName: string;
+	    requestMessages: ChatMessage[];
+	    placeholder: string;
+
+	    static createFrom(source: any = {}) {
+	        return new SentReviewInput(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.reviewId = source["reviewId"];
+	        this.endpointPath = source["endpointPath"];
+	        this.endpointName = source["endpointName"];
+	        this.endpointType = source["endpointType"];
+	        this.policyName = source["policyName"];
+	        this.requestMessages = this.convertValues(source["requestMessages"], ChatMessage);
+	        this.placeholder = source["placeholder"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class Settings {
 	    hub_url: string;
 	    api_token?: string;

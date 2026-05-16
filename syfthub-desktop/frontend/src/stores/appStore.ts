@@ -27,6 +27,9 @@ import {
   GetManualReviews,
   ApproveManualReview,
   RejectManualReview,
+  GetSentReviews,
+  SetSentReviewStatus,
+  SetSentReviewNote,
   CreateEndpoint,
   CheckEndpointExists,
   DeleteEndpoint,
@@ -49,6 +52,7 @@ export type RequestLogEntry = main.RequestLogEntry;
 export type LogQueryResult = main.LogQueryResult;
 export type LogStats = main.LogStats;
 export type ManualReviewEntry = main.ManualReviewEntry;
+export type SentReviewEntry = main.SentReviewEntry;
 export type CreateEndpointRequest = main.CreateEndpointRequest;
 export type ChatRequest = main.ChatRequest;
 export type LibraryPackage = main.LibraryPackage;
@@ -140,6 +144,9 @@ interface AppState {
   activeTab: 'settings' | 'code' | 'docs' | 'logs' | 'requests';
   settingsSection: 'overview' | 'environment' | 'dependencies' | 'policies' | 'skills';
   mainView: 'endpoints' | 'chat';
+  // Which sub-view the chat surface shows: the live chat, or the cross-endpoint
+  // "Sent for Review" ledger of manual-review holds the user submitted.
+  chatSubView: 'chat' | 'reviews';
   showLibrary: boolean;
 
   // Logs state
@@ -155,6 +162,14 @@ interface AppState {
   manualReviewsLoading: boolean;
   selectedReview: ManualReviewEntry | null;
   reviewsStatusFilter: string;
+
+  // Sent-for-review state — the client's own ledger of manual-review holds it
+  // submitted (cross-endpoint, identity-scoped). Distinct from manualReviews,
+  // which is the endpoint owner's view of holds against an endpoint they own.
+  sentReviews: SentReviewEntry[];
+  sentReviewsLoading: boolean;
+  selectedSentReview: SentReviewEntry | null;
+  sentReviewsFilter: string;
 
   // Create endpoint state
   isCreateDialogOpen: boolean;
@@ -201,6 +216,7 @@ interface AppState {
   setActiveTab: (tab: 'settings' | 'code' | 'docs' | 'logs' | 'requests') => void;
   setSettingsSection: (section: 'overview' | 'environment' | 'dependencies' | 'policies' | 'skills') => void;
   setMainView: (view: 'endpoints' | 'chat') => void;
+  setChatSubView: (view: 'chat' | 'reviews') => void;
   setShowLibrary: (show: boolean) => void;
 
   // Actions - Logs
@@ -217,6 +233,13 @@ interface AppState {
   setReviewsStatusFilter: (status: string) => void;
   approveManualReview: (reviewId: string) => Promise<void>;
   rejectManualReview: (reviewId: string, reason: string) => Promise<void>;
+
+  // Actions - Sent reviews (the client's own manual-review ledger)
+  fetchSentReviews: (status?: string) => Promise<void>;
+  setSelectedSentReview: (review: SentReviewEntry | null) => void;
+  setSentReviewsFilter: (status: string) => void;
+  markSentReviewStatus: (reviewId: string, status: 'approved' | 'rejected', reason: string) => Promise<void>;
+  saveSentReviewNote: (reviewId: string, note: string) => Promise<void>;
 
   // Actions - Code
   setRunnerCode: (code: string) => void;
@@ -317,6 +340,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeTab: 'settings',
   settingsSection: 'overview',
   mainView: 'endpoints',
+  chatSubView: 'chat',
   showLibrary: false,
 
   // Logs initial state
@@ -332,6 +356,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   manualReviewsLoading: false,
   selectedReview: null,
   reviewsStatusFilter: 'pending',
+
+  // Sent review initial state
+  sentReviews: [],
+  sentReviewsLoading: false,
+  selectedSentReview: null,
+  sentReviewsFilter: 'pending',
 
   // Create endpoint initial state
   isCreateDialogOpen: false,
@@ -695,6 +725,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ mainView: view, showLibrary: false });
   },
 
+  setChatSubView: (view) => {
+    set({ chatSubView: view });
+  },
+
   setShowLibrary: (show) => {
     if (show) {
       set({ showLibrary: true, selectedEndpointSlug: null, selectedEndpointDetail: null });
@@ -1004,6 +1038,55 @@ export const useAppStore = create<AppState>((set, get) => ({
       await get().fetchManualReviews();
     } catch (err) {
       set({ error: `Failed to reject request: ${err}` });
+      throw err;
+    }
+  },
+
+  // Sent-for-review actions — the client's own manual-review ledger. Unlike
+  // manual reviews these are cross-endpoint and identity-scoped (the Go
+  // backend filters by the logged-in user), so there is no endpoint guard.
+  fetchSentReviews: async (status?: string) => {
+    try {
+      set({ sentReviewsLoading: true });
+      const statusFilter = status ?? get().sentReviewsFilter;
+      const result = await GetSentReviews(statusFilter === 'all' ? '' : statusFilter);
+      set({ sentReviews: result || [] });
+    } catch (err) {
+      set({ error: `Failed to fetch sent reviews: ${err}` });
+    } finally {
+      set({ sentReviewsLoading: false });
+    }
+  },
+
+  setSelectedSentReview: (review: SentReviewEntry | null) => {
+    set({ selectedSentReview: review });
+  },
+
+  setSentReviewsFilter: (status: string) => {
+    set({ sentReviewsFilter: status });
+    get().fetchSentReviews(status);
+  },
+
+  markSentReviewStatus: async (reviewId: string, status: 'approved' | 'rejected', reason: string) => {
+    try {
+      await SetSentReviewStatus(reviewId, status, reason);
+      // The entry's status changed — refresh so it leaves the current filter.
+      await get().fetchSentReviews();
+    } catch (err) {
+      set({ error: `Failed to update review: ${err}` });
+      throw err;
+    }
+  },
+
+  saveSentReviewNote: async (reviewId: string, note: string) => {
+    try {
+      await SetSentReviewNote(reviewId, note);
+      await get().fetchSentReviews();
+      // Keep an open detail panel in step with the saved note.
+      const refreshed = get().sentReviews.find((r) => r.reviewId === reviewId);
+      if (refreshed) set({ selectedSentReview: refreshed });
+    } catch (err) {
+      set({ error: `Failed to save note: ${err}` });
       throw err;
     }
   },

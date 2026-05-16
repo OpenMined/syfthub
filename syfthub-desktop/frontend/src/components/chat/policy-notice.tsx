@@ -1,4 +1,4 @@
-import { Clock, ShieldX } from 'lucide-react';
+import { ArrowRight, Clock, ShieldX } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 
@@ -12,6 +12,13 @@ export interface PolicyNoticeData {
   phase?: 'pre' | 'post';
   policy_name?: string;
   reason?: string;
+  /**
+   * review_id is the manual-review handle (a 12-hex id) present on a pending
+   * notice when a manual_review policy held the turn — the durable reference
+   * used to track the held request in "Sent for Review". Absent for blocks
+   * and for pending notices that are not a manual-review hold.
+   */
+  review_id?: string;
 }
 
 const VARIANTS = {
@@ -48,11 +55,20 @@ export function PolicyNotice({
   phase,
   policyName,
   reason,
+  tracked,
+  onOpenTracking,
 }: Readonly<{
   status: 'blocked' | 'pending';
   phase?: 'pre' | 'post';
   policyName?: string;
   reason?: string;
+  /**
+   * tracked marks a manual-review hold that was durably recorded in the
+   * "Sent for Review" ledger — it renders a jump to that view, so the user
+   * learns the record outlives the in-memory transcript.
+   */
+  tracked?: boolean;
+  onOpenTracking?: () => void;
 }>) {
   const variant = VARIANTS[status];
   const Icon = variant.icon;
@@ -81,6 +97,16 @@ export function PolicyNotice({
       </div>
       {reason && (
         <p className='text-muted-foreground mt-1.5 text-[13px] leading-relaxed'>{reason}</p>
+      )}
+      {tracked && (
+        <button
+          type='button'
+          onClick={onOpenTracking}
+          className='text-primary mt-2 inline-flex items-center gap-1 text-[11px] font-medium hover:underline'
+        >
+          Tracked in Sent for Review
+          <ArrowRight className='h-3 w-3' aria-hidden='true' />
+        </button>
       )}
     </div>
   );

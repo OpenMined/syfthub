@@ -150,6 +150,10 @@ export function GetRunnerCode(arg1) {
   return window['go']['main']['App']['GetRunnerCode'](arg1);
 }
 
+export function GetSentReviews(arg1) {
+  return window['go']['main']['App']['GetSentReviews'](arg1);
+}
+
 export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
@@ -230,6 +234,10 @@ export function ReadSkill(arg1, arg2) {
   return window['go']['main']['App']['ReadSkill'](arg1, arg2);
 }
 
+export function RecordSentReview(arg1) {
+  return window['go']['main']['App']['RecordSentReview'](arg1);
+}
+
 export function RejectManualReview(arg1, arg2, arg3) {
   return window['go']['main']['App']['RejectManualReview'](arg1, arg2, arg3);
 }
@@ -296,6 +304,14 @@ export function SetContainerEnabled(arg1) {
 
 export function SetEnvironment(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetEnvironment'](arg1, arg2, arg3);
+}
+
+export function SetSentReviewNote(arg1, arg2) {
+  return window['go']['main']['App']['SetSentReviewNote'](arg1, arg2);
+}
+
+export function SetSentReviewStatus(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetSentReviewStatus'](arg1, arg2, arg3);
 }
 
 export function Start() {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { StartAgentSession, SendAgentMessage, StopAgentSession } from '../../wailsjs/go/main/App';
+import { StartAgentSession, SendAgentMessage, StopAgentSession, RecordSentReview } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
+import { main } from '../../wailsjs/go/models';
 
 // =============================================================================
 // Agent Event Types
@@ -44,9 +45,10 @@ export interface AttachmentMeta {
 
 interface UseAgentWorkflowProps {
   endpointPath: string | null;
+  endpointName: string;
 }
 
-export function useAgentWorkflow({ endpointPath }: UseAgentWorkflowProps) {
+export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflowProps) {
   const [entries, setEntries] = useState<AgentEntry[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [awaitingInput, setAwaitingInput] = useState(false);
@@ -59,6 +61,13 @@ export function useAgentWorkflow({ endpointPath }: UseAgentWorkflowProps) {
   const flushTimerRef = useRef<number | null>(null);
   // Track whether we've already created a token entry for the current stream
   const hasTokenEntryRef = useRef(false);
+
+  // The endpoint a held request is attributed to — captured at session start
+  // so it stays stable even if the user later changes the agent dropdown.
+  const sessionEndpointRef = useRef<{ path: string; name: string }>({ path: '', name: '' });
+  // The prompt of the turn currently in flight — used to record what the user
+  // actually asked when a manual-review hold arrives for that turn.
+  const lastUserPromptRef = useRef('');
 
   const makeId = () => {
     entryCounterRef.current += 1;
@@ -206,6 +215,37 @@ export function useAgentWorkflow({ endpointPath }: UseAgentWorkflowProps) {
             data: policy,
             timestamp: Date.now(),
           }]);
+
+          // A manual-review hold (a pending policy notice carrying a review_id)
+          // is durably recorded so the user can track it in "Sent for Review" —
+          // the chat transcript itself is in-memory and lost on restart. The
+          // review_id discriminates a manual-review hold from a payment hold
+          // (which arrives as agent.payment_required) or any other pending
+          // notice. Capture is idempotent on review_id and fire-and-forget so
+          // a ledger write never blocks or breaks the transcript.
+          if (
+            policy &&
+            policy.status === 'pending' &&
+            typeof policy.review_id === 'string' &&
+            policy.review_id
+          ) {
+            const ep = sessionEndpointRef.current;
+            void RecordSentReview(main.SentReviewInput.createFrom({
+              reviewId: policy.review_id,
+              endpointPath: ep.path,
+              endpointName: ep.name,
+              endpointType: 'agent',
+              policyName: typeof policy.policy_name === 'string' ? policy.policy_name : '',
+              requestMessages: lastUserPromptRef.current
+                ? [{ role: 'user', content: lastUserPromptRef.current }]
+                : [],
+              // policy.reason carries the placeholder text the caller received;
+              // content is the human-readable fallback sentence.
+              placeholder: typeof policy.reason === 'string' ? policy.reason : content,
+            })).catch(() => {
+              /* best-effort — the pending notice still renders if this fails */
+            });
+          }
           break;
         }
 
@@ -295,6 +335,10 @@ export function useAgentWorkflow({ endpointPath }: UseAgentWorkflowProps) {
     streamingContentRef.current = '';
     hasTokenEntryRef.current = false;
     entryCounterRef.current = 0;
+    // Pin the endpoint + opening prompt for this session so a held request is
+    // attributed correctly even if the agent dropdown changes mid-session.
+    sessionEndpointRef.current = { path: endpointPath, name: endpointName };
+    lastUserPromptRef.current = prompt;
     setEntries([{
       id: 'user-0',
       kind: 'user',
@@ -316,11 +360,15 @@ export function useAgentWorkflow({ endpointPath }: UseAgentWorkflowProps) {
       }]);
       setIsRunning(false);
     }
-  }, [endpointPath, isRunning]);
+  }, [endpointPath, endpointName, isRunning]);
 
   const sendInput = useCallback(async (content: string) => {
     if (!isRunning) return;
     setAwaitingInput(false);
+
+    // Track the in-flight turn's prompt so a manual-review hold on the reply
+    // records what the user actually asked.
+    lastUserPromptRef.current = content;
 
     // Add user message to entries
     setEntries(prev => [...prev, {

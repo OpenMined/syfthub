@@ -119,7 +119,12 @@ func TestAgentExecutor_PostSubstitutionBecomesPendingNotice(t *testing.T) {
 				Result:  json.RawMessage(`"Request submitted to manual review"`),
 				// Allowed, and Pending intentionally NOT set — detection must
 				// fall back to the body no longer matching the agent's reply.
-				PolicyResult: &PolicyResultOutput{Allowed: true},
+				// metadata carries the manual-review handle (as policy_manager
+				// reports it) so the notice can surface a trackable review_id.
+				PolicyResult: &PolicyResultOutput{
+					Allowed:  true,
+					Metadata: map[string]any{"review_id": "fab1cef00d12"},
+				},
 			}
 		},
 	}
@@ -137,6 +142,9 @@ func TestAgentExecutor_PostSubstitutionBecomesPendingNotice(t *testing.T) {
 	}
 	if n.Reason != "Request submitted to manual review" {
 		t.Errorf("notice reason = %q, want the substituted text", n.Reason)
+	}
+	if n.ReviewID != "fab1cef00d12" {
+		t.Errorf("notice review_id = %q, want it plumbed from PolicyResult.metadata", n.ReviewID)
 	}
 	if got := firstContent(evs, EventTypeAgentMessage); strings.Contains(got, "the real reply") {
 		t.Errorf("the real agent reply leaked: %q", got)
@@ -362,6 +370,7 @@ func TestAgentExecutor_PendingReplyCarriesPolicyNotice(t *testing.T) {
 				Result:  json.RawMessage(`"Submitted for manual review"`),
 				PolicyResult: &PolicyResultOutput{
 					Allowed: true, Pending: true, PolicyName: "manual_review",
+					Metadata: map[string]any{"review_id": "0a1b2c3d4e5f", "status": "pending"},
 				},
 			}
 		},
@@ -380,6 +389,9 @@ func TestAgentExecutor_PendingReplyCarriesPolicyNotice(t *testing.T) {
 	}
 	if n.PolicyName != "manual_review" {
 		t.Errorf("notice policy_name = %q, want %q", n.PolicyName, "manual_review")
+	}
+	if n.ReviewID != "0a1b2c3d4e5f" {
+		t.Errorf("notice review_id = %q, want it plumbed from PolicyResult.metadata", n.ReviewID)
 	}
 	if got := firstContent(evs, EventTypeAgentMessage); strings.Contains(got, "the real reply") {
 		t.Errorf("the real reply leaked into a pending notice: %q", got)
