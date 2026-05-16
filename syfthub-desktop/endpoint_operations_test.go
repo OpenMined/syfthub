@@ -105,7 +105,7 @@ func TestGeneratePolicyYAML(t *testing.T) {
 		{
 			name:         "ManualReviewPolicy",
 			req:          NewPolicyRequest{Name: "review", Type: "ManualReviewPolicy"},
-			wantContains: []string{"type: ManualReviewPolicy", "timeout_seconds:"},
+			wantContains: []string{"type: ManualReviewPolicy", "placeholder_message:"},
 		},
 		{
 			name:         "TransactionPolicy",

@@ -1035,14 +1035,16 @@ func generatePolicyYAML(req NewPolicyRequest) string {
 		)
 
 	case "ManualReviewPolicy":
+		// placeholder_message is the only YAML-expressible knob ManualReviewPolicy
+		// accepts (alongside name). The runner's policy factory silently drops
+		// unknown config keys, so emitting anything else would be dead config.
 		type manualReviewConfig struct {
-			TimeoutSeconds int    `yaml:"timeout_seconds"`
-			WebhookURL     string `yaml:"webhook_url"`
+			PlaceholderMessage string `yaml:"placeholder_message"`
 		}
 		return marshalPolicyYAML(
-			"# Manual Review Policy\n# Requires manual approval for requests\n",
+			"# Manual Review Policy\n# Holds endpoint responses for manual review before delivery\n",
 			policyDef{Type: "ManualReviewPolicy", Name: req.Name, Config: manualReviewConfig{
-				TimeoutSeconds: 3600, WebhookURL: "",
+				PlaceholderMessage: "Request submitted to manual review",
 			}},
 		)
 

@@ -39,6 +39,22 @@ export function extractErrorMessage(err: unknown, fallback: string): string {
   return err instanceof Error ? err.message : fallback;
 }
 
+/** Format an ISO timestamp as a full, human-readable date-time. Returns the
+ *  input unchanged when it is not a parseable date. */
+export function formatFullTimestamp(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+}
+
 /** Format a byte count in human-readable units (B/KB/MB/GB). */
 export function formatBytes(n?: number): string {
   if (!n || n <= 0) return '0 B';

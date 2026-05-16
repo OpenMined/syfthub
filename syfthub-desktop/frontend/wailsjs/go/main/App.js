@@ -6,6 +6,10 @@ export function AddDependency(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddDependency'](arg1, arg2, arg3);
 }
 
+export function ApproveManualReview(arg1, arg2) {
+  return window['go']['main']['App']['ApproveManualReview'](arg1, arg2);
+}
+
 export function AttachToActiveSession(arg1) {
   return window['go']['main']['App']['AttachToActiveSession'](arg1);
 }
@@ -130,6 +134,10 @@ export function GetLogs(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['GetLogs'](arg1, arg2, arg3, arg4);
 }
 
+export function GetManualReviews(arg1, arg2) {
+  return window['go']['main']['App']['GetManualReviews'](arg1, arg2);
+}
+
 export function GetPolicyFileYaml(arg1, arg2) {
   return window['go']['main']['App']['GetPolicyFileYaml'](arg1, arg2);
 }
@@ -220,6 +228,10 @@ export function OpenReleaseNotes(arg1) {
 
 export function ReadSkill(arg1, arg2) {
   return window['go']['main']['App']['ReadSkill'](arg1, arg2);
+}
+
+export function RejectManualReview(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RejectManualReview'](arg1, arg2, arg3);
 }
 
 export function ReloadEndpoints() {

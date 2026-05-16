@@ -14,12 +14,14 @@ import {
 import { CodeTab } from './tabs/CodeTab';
 import { DocsTab } from './tabs/DocsTab';
 import { LogsTab } from './tabs/LogsTab';
+import { RequestsTab } from './tabs/RequestsTab';
 
 type Section =
   | 'overview'
   | 'environment'
   | 'dependencies'
   | 'policies'
+  | 'requests'
   | 'code'
   | 'docs'
   | 'logs';
@@ -31,6 +33,7 @@ const NAV_GROUPS: { label: string; items: { id: Section; label: string }[] }[] =
       { id: 'overview', label: 'Overview' },
       { id: 'docs', label: 'Docs' },
       { id: 'policies', label: 'Policies' },
+      { id: 'requests', label: 'Requests' },
     ],
   },
   {
@@ -117,7 +120,7 @@ export function EndpointDetail() {
     rawSection === 'skills' ? 'overview' : (rawSection as Section);
 
   const navigate = (s: Section) => {
-    if (s === 'code' || s === 'docs' || s === 'logs') {
+    if (s === 'code' || s === 'docs' || s === 'logs' || s === 'requests') {
       setActiveTab(s);
     } else {
       setActiveTab('settings');
@@ -183,6 +186,7 @@ export function EndpointDetail() {
           {section === 'environment' && <ScrollPane><EnvironmentSection /></ScrollPane>}
           {section === 'dependencies' && <ScrollPane><DependenciesSection /></ScrollPane>}
           {section === 'policies' && <ScrollPane><PoliciesSection /></ScrollPane>}
+          {section === 'requests' && <RequestsTab />}
           {section === 'code' && <CodeTab />}
           {section === 'docs' && <DocsTab />}
           {section === 'logs' && <LogsTab />}

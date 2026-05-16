@@ -5,6 +5,8 @@ import {updater} from '../models';
 
 export function AddDependency(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function ApproveManualReview(arg1:string,arg2:string):Promise<void>;
+
 export function AttachToActiveSession(arg1:string):Promise<main.AttachmentSummary>;
 
 export function AttachmentInlineBytes(arg1:string,arg2:number):Promise<Array<number>>;
@@ -67,6 +69,8 @@ export function GetLogStats(arg1:string):Promise<main.LogStats>;
 
 export function GetLogs(arg1:string,arg2:number,arg3:number,arg4:string):Promise<main.LogQueryResult>;
 
+export function GetManualReviews(arg1:string,arg2:string):Promise<Array<main.ManualReviewEntry>>;
+
 export function GetPolicyFileYaml(arg1:string,arg2:string):Promise<string>;
 
 export function GetReadme(arg1:string):Promise<string>;
@@ -112,6 +116,8 @@ export function OpenInDefaultApp(arg1:string):Promise<void>;
 export function OpenReleaseNotes(arg1:string):Promise<void>;
 
 export function ReadSkill(arg1:string,arg2:string):Promise<string>;
+
+export function RejectManualReview(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function ReloadEndpoints():Promise<void>;
 

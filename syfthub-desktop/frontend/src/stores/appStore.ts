@@ -24,6 +24,9 @@ import {
   GetLogStats,
   GetLogDetail,
   DeleteLogs,
+  GetManualReviews,
+  ApproveManualReview,
+  RejectManualReview,
   CreateEndpoint,
   CheckEndpointExists,
   DeleteEndpoint,
@@ -45,6 +48,7 @@ export type EnvVar = main.EnvVar;
 export type RequestLogEntry = main.RequestLogEntry;
 export type LogQueryResult = main.LogQueryResult;
 export type LogStats = main.LogStats;
+export type ManualReviewEntry = main.ManualReviewEntry;
 export type CreateEndpointRequest = main.CreateEndpointRequest;
 export type ChatRequest = main.ChatRequest;
 export type LibraryPackage = main.LibraryPackage;
@@ -133,7 +137,7 @@ interface AppState {
   isLoading: boolean;
   isSaving: boolean;
   error: string | null;
-  activeTab: 'settings' | 'code' | 'docs' | 'logs';
+  activeTab: 'settings' | 'code' | 'docs' | 'logs' | 'requests';
   settingsSection: 'overview' | 'environment' | 'dependencies' | 'policies' | 'skills';
   mainView: 'endpoints' | 'chat';
   showLibrary: boolean;
@@ -145,6 +149,12 @@ interface AppState {
   logsHasMore: boolean;
   selectedLog: RequestLogEntry | null;
   logsStatusFilter: string;
+
+  // Manual review state — held requests read from the endpoint's policy store.
+  manualReviews: ManualReviewEntry[];
+  manualReviewsLoading: boolean;
+  selectedReview: ManualReviewEntry | null;
+  reviewsStatusFilter: string;
 
   // Create endpoint state
   isCreateDialogOpen: boolean;
@@ -188,7 +198,7 @@ interface AppState {
 
   // Actions - Selection
   selectEndpoint: (slug: string | null) => Promise<void>;
-  setActiveTab: (tab: 'settings' | 'code' | 'docs' | 'logs') => void;
+  setActiveTab: (tab: 'settings' | 'code' | 'docs' | 'logs' | 'requests') => void;
   setSettingsSection: (section: 'overview' | 'environment' | 'dependencies' | 'policies' | 'skills') => void;
   setMainView: (view: 'endpoints' | 'chat') => void;
   setShowLibrary: (show: boolean) => void;
@@ -200,6 +210,13 @@ interface AppState {
   setSelectedLog: (log: RequestLogEntry | null) => void;
   setLogsStatusFilter: (status: string) => void;
   deleteLogs: () => Promise<void>;
+
+  // Actions - Manual reviews
+  fetchManualReviews: (status?: string) => Promise<void>;
+  setSelectedReview: (review: ManualReviewEntry | null) => void;
+  setReviewsStatusFilter: (status: string) => void;
+  approveManualReview: (reviewId: string) => Promise<void>;
+  rejectManualReview: (reviewId: string, reason: string) => Promise<void>;
 
   // Actions - Code
   setRunnerCode: (code: string) => void;
@@ -309,6 +326,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   logsHasMore: false,
   selectedLog: null,
   logsStatusFilter: 'all',
+
+  // Manual review initial state
+  manualReviews: [],
+  manualReviewsLoading: false,
+  selectedReview: null,
+  reviewsStatusFilter: 'pending',
 
   // Create endpoint initial state
   isCreateDialogOpen: false,
@@ -606,6 +629,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         logStats: null,
         logsHasMore: false,
         selectedLog: null,
+        // Clear manual review state
+        manualReviews: [],
+        selectedReview: null,
       });
       return;
     }
@@ -645,6 +671,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         logsHasMore: false,
         selectedLog: null,
         logsStatusFilter: 'all',
+        // Reset manual review state for new endpoint
+        manualReviews: [],
+        selectedReview: null,
+        reviewsStatusFilter: 'pending',
       });
     } catch (err) {
       set({ error: `Failed to load endpoint: ${err}` });
@@ -921,6 +951,60 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ error: `Failed to delete logs: ${err}` });
     } finally {
       set({ logsLoading: false });
+    }
+  },
+
+  // Manual review actions
+  fetchManualReviews: async (status?: string) => {
+    const { selectedEndpointSlug } = get();
+    if (!selectedEndpointSlug) return;
+
+    try {
+      set({ manualReviewsLoading: true });
+      const statusFilter = status ?? get().reviewsStatusFilter;
+      const result = await GetManualReviews(
+        selectedEndpointSlug,
+        statusFilter === 'all' ? '' : statusFilter,
+      );
+      set({ manualReviews: result || [] });
+    } catch (err) {
+      set({ error: `Failed to fetch manual reviews: ${err}` });
+    } finally {
+      set({ manualReviewsLoading: false });
+    }
+  },
+
+  setSelectedReview: (review: ManualReviewEntry | null) => {
+    set({ selectedReview: review });
+  },
+
+  setReviewsStatusFilter: (status: string) => {
+    set({ reviewsStatusFilter: status });
+    get().fetchManualReviews(status);
+  },
+
+  approveManualReview: async (reviewId: string) => {
+    const { selectedEndpointSlug } = get();
+    if (!selectedEndpointSlug) return;
+    try {
+      await ApproveManualReview(selectedEndpointSlug, reviewId);
+      // The row's status changed — refresh so it leaves the current filter.
+      await get().fetchManualReviews();
+    } catch (err) {
+      set({ error: `Failed to approve request: ${err}` });
+      throw err;
+    }
+  },
+
+  rejectManualReview: async (reviewId: string, reason: string) => {
+    const { selectedEndpointSlug } = get();
+    if (!selectedEndpointSlug) return;
+    try {
+      await RejectManualReview(selectedEndpointSlug, reviewId, reason);
+      await get().fetchManualReviews();
+    } catch (err) {
+      set({ error: `Failed to reject request: ${err}` });
+      throw err;
     }
   },
 
