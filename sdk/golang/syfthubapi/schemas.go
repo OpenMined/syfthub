@@ -48,13 +48,6 @@ const (
 	EventTypeAgentStatus       = "agent.status"
 	EventTypeAgentRequestInput = "agent.request_input"
 
-	// EventTypeAgentPolicyDenied is emitted mid-session when a per-message
-	// policy check rejects a user follow-up message (access_group revoked,
-	// rate-limit exhausted, prompt_filter match, etc.). The session is
-	// terminated after this event is published. Data shape:
-	// {policy_name: string, reason: string}.
-	EventTypeAgentPolicyDenied = "agent.policy_denied"
-
 	// EventTypeAgentPaymentRequired is emitted mid-session when a
 	// transaction-style policy returns a payment challenge for a user
 	// follow-up message. The session is terminated after this event so the
@@ -561,6 +554,13 @@ func (r *VerifyTokenResponse) ToUserContext() *UserContext {
 	}
 }
 
+// ExecutorInput.PolicyPhase values. When set, the executor evaluates only
+// that policy phase without invoking a handler.
+const (
+	PolicyPhasePre  = "pre"
+	PolicyPhasePost = "post"
+)
+
 // ExecutorInput is the input format for subprocess execution.
 // This matches the Python policy_manager.runner.schema.RunnerInput.
 type ExecutorInput struct {
@@ -597,11 +597,15 @@ type ExecutorInput struct {
 	// runner can verify payment before executing the handler.
 	PaymentCredential string `json:"payment_credential,omitempty"`
 
-	// PolicyCheckOnly instructs the executor to evaluate policies and return the
-	// result without invoking the endpoint handler. Used by AgentOneShotInvoker
-	// to run a pre-session policy gate against a container executor where there
-	// is no dedicated noop handler (unlike subprocess mode).
-	PolicyCheckOnly bool `json:"policy_check_only,omitempty"`
+	// PolicyPhase, when set (PolicyPhasePre or PolicyPhasePost), evaluates
+	// only that policy phase against the supplied input/output without
+	// invoking a handler. AgentExecutor uses this to gate each agent turn:
+	// "pre" on the inbound user message, "post" on the agent's reply.
+	PolicyPhase string `json:"policy_phase,omitempty"`
+
+	// Output is the pre-produced handler output (e.g. an agent turn's reply)
+	// evaluated by the post-execution policy chain when PolicyPhase == "post".
+	Output json.RawMessage `json:"output,omitempty"`
 }
 
 // ExecutorOutput is the output format from subprocess execution.

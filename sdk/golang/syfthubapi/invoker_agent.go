@@ -15,8 +15,10 @@ import (
 // For persistent interactive sessions, the AgentSessionManager is used directly
 // via the NATS transport; this invoker is only for the synchronous request/response flow.
 type AgentOneShotInvoker struct {
-	codec          EndpointCodec // ModelCodec — agents parse/format like models
-	handler        AgentHandler
+	codec   EndpointCodec // ModelCodec — agents parse/format like models
+	handler AgentHandler
+	// policyExecutor is retained only so Close() can release it. Policy
+	// evaluation itself is woven into `handler` by AgentExecutor.
 	policyExecutor Executor
 	slug           string
 	logger         *slog.Logger
@@ -30,21 +32,9 @@ func (a *AgentOneShotInvoker) Invoke(ctx context.Context, input any, reqCtx *Req
 	messages := input.([]Message)
 	prompt := lastUserContent(messages)
 
-	// Enforce policies before starting agent handler. Pass the latest user
-	// content so prompt_filter / token_limit see real input.
-	if a.policyExecutor != nil {
-		policyResult, err := a.checkPolicies(ctx, reqCtx, prompt)
-		if err != nil {
-			return nil, fmt.Errorf("policy check failed: %w", err)
-		}
-		if policyResult != nil {
-			reqCtx.PolicyResult = policyResult
-			if !policyResult.Allowed {
-				return nil, fmt.Errorf("endpoint %q: access denied by policy %q: %s", a.slug, policyResult.PolicyName, policyResult.Reason)
-			}
-		}
-	}
-
+	// Policy enforcement is woven into the handler by AgentExecutor (when the
+	// endpoint declares policies) — see Endpoint.SetHandler. The invoker just
+	// runs the handler; a policy denial arrives as an event in the stream.
 	if a.handler == nil {
 		return nil, errNoHandler(a.slug)
 	}
@@ -109,34 +99,9 @@ func (a *AgentOneShotInvoker) Close() error {
 	return nil
 }
 
-// checkPolicies runs policy evaluation without executing the endpoint handler.
-// userContent is the actual user message to evaluate; when empty a placeholder
-// is used so existing call sites that don't carry message content still work.
-// Passing real content lets prompt_filter / token_limit policies inspect input
-// rather than the placeholder.
-func (a *AgentOneShotInvoker) checkPolicies(ctx context.Context, reqCtx *RequestContext, userContent string) (*PolicyResultOutput, error) {
-	input := buildExecutorInput(string(EndpointTypeAgent), a.slug, EndpointTypeAgent, reqCtx)
-	content := userContent
-	if content == "" {
-		content = "policy_check"
-	}
-	input.Messages = []Message{{Role: "user", Content: content}}
-	// Signal the executor to skip handler invocation. Required for container
-	// mode where the real handler is always loaded (no separate noop handler
-	// file exists unlike subprocess mode).
-	input.PolicyCheckOnly = true
-
-	output, err := a.policyExecutor.Execute(ctx, input)
-	if err != nil {
-		return nil, fmt.Errorf("policy check failed: %w", err)
-	}
-	return output.PolicyResult, nil
-}
-
 // lastUserContent returns the Content of the most recent user message in
-// messages, or "" if there is none. Used by both the one-shot Invoke path
-// (to extract the prompt) and the policy gate (to pass real input to
-// prompt_filter / token_limit).
+// messages, or "" if there is none. Used by the one-shot Invoke path to
+// extract the prompt for the temporary session.
 func lastUserContent(messages []Message) string {
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == "user" {

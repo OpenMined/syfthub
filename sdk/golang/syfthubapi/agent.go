@@ -365,30 +365,11 @@ func (s *AgentSession) recordOutboundEvent(event AgentEventPayload) {
 	if event.EventType != EventTypeAgentMessage {
 		return
 	}
-	var payload struct {
-		Content string `json:"content"`
-	}
-	if err := json.Unmarshal(event.Data, &payload); err != nil || payload.Content == "" {
+	content := contentOfMessage(event)
+	if content == "" {
 		return
 	}
-	s.appendTranscript(Message{Role: "assistant", Content: payload.Content})
-}
-
-// SendPolicyDenied sends an agent.policy_denied event mid-session. Used by
-// the session manager when a per-message policy check rejects a user
-// follow-up. Caller is expected to cancel the session after this returns.
-func (s *AgentSession) SendPolicyDenied(policyName, reason string) error {
-	data, err := json.Marshal(map[string]any{
-		"policy_name": policyName,
-		"reason":      reason,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal policy_denied event: %w", err)
-	}
-	return s.Send(AgentEventPayload{
-		EventType: EventTypeAgentPolicyDenied,
-		Data:      data,
-	})
+	s.appendTranscript(Message{Role: "assistant", Content: content})
 }
 
 // SendPaymentRequired sends an agent.payment_required event mid-session.

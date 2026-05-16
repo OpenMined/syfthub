@@ -202,9 +202,17 @@ func (e *Endpoint) SetHandler(cfg EndpointHandlerConfig) {
 	e.isFileBased = true
 	switch e.Type {
 	case EndpointTypeAgent:
+		// Weave per-turn policy enforcement into the agent handler. Both the
+		// one-shot (AgentOneShotInvoker) and persistent (AgentSessionManager)
+		// paths run this handler, so each inherits pre/post policy without
+		// path-specific code.
+		handler := cfg.AgentHandler
+		if cfg.PolicyExecutor != nil {
+			handler = NewAgentExecutor(handler, cfg.PolicyExecutor, e.Slug, cfg.Logger).Handler()
+		}
 		e.invoker = &AgentOneShotInvoker{
 			codec:          ModelCodec{},
-			handler:        cfg.AgentHandler,
+			handler:        handler,
 			policyExecutor: cfg.PolicyExecutor,
 			slug:           e.Slug,
 			logger:         cfg.Logger,
@@ -269,28 +277,6 @@ func (e *Endpoint) GetAgentHandler() (AgentHandler, error) {
 		return inv.handler, nil
 	}
 	return nil, fmt.Errorf("endpoint %q: no agent handler registered", e.Slug)
-}
-
-// HasPolicyExecutor reports whether the endpoint has a configured policy
-// executor. Used by hot paths (e.g. per-message session routing) to skip
-// allocating policy-check request state when no policies are wired up.
-func (e *Endpoint) HasPolicyExecutor() bool {
-	inv, ok := e.invoker.(*AgentOneShotInvoker)
-	return ok && inv.policyExecutor != nil
-}
-
-// CheckPolicies runs policy evaluation without executing the endpoint handler.
-// userContent, when non-empty, is the actual user message text to evaluate so
-// stateful policies (rate_limit, token_limit) decrement on the right input and
-// prompt_filter can inspect it. Pass "" if no content is available — a
-// placeholder is used in that case.
-//
-// Returns nil PolicyResultOutput if no policy executor is configured.
-func (e *Endpoint) CheckPolicies(ctx context.Context, reqCtx *RequestContext, userContent string) (*PolicyResultOutput, error) {
-	if inv, ok := e.invoker.(*AgentOneShotInvoker); ok && inv.policyExecutor != nil {
-		return inv.checkPolicies(ctx, reqCtx, userContent)
-	}
-	return nil, nil
 }
 
 // EndpointRegistry manages registered endpoints.
