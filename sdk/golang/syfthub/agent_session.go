@@ -71,9 +71,24 @@ func (e *ToolResultEvent) EventType() string { return "agent.tool_result" }
 type MessageEvent struct {
 	Content    string `json:"content"`
 	IsComplete bool   `json:"is_complete"`
+
+	// Policy, when set, marks this message as a policy notice — the agent's
+	// reply was blocked, or is pending review — rather than a normal reply.
+	// Clients should render it as a distinct notice; Content is the
+	// human-readable fallback.
+	Policy *MessagePolicyNotice `json:"policy,omitempty"`
 }
 
 func (e *MessageEvent) EventType() string { return "agent.message" }
+
+// MessagePolicyNotice is the structured policy outcome carried by a
+// policy-notice MessageEvent.
+type MessagePolicyNotice struct {
+	Status     string `json:"status"`          // "blocked" | "pending"
+	Phase      string `json:"phase,omitempty"` // "pre" | "post"
+	PolicyName string `json:"policy_name,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
 
 // AgentTokenEvent represents a streaming token.
 type AgentTokenEvent struct {

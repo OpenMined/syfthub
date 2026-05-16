@@ -125,8 +125,11 @@ func (a *AgentExecutor) gateTurn(ctx context.Context, outer *AgentSession, userT
 		// Fail closed and tell the user — a broken policy check must not
 		// silently let the request through or end with no message.
 		a.logger.Error("[AGENT-POLICY] pre-check failed", "slug", a.slug, "error", err)
-		a.sendDenial(outer, "Request blocked", "",
-			"the policy check could not be completed — check the endpoint's policy configuration")
+		a.sendPolicyNotice(outer, policyNotice{
+			Status: policyStatusBlocked,
+			Phase:  PolicyPhasePre,
+			Reason: "the policy check could not be completed — check the endpoint's policy configuration",
+		})
 		return false
 	}
 	return a.applyVerdict(outer, verdict)
@@ -227,8 +230,11 @@ func (a *AgentExecutor) handleReply(
 		// Fail closed: a failed or verdict-less policy check must not deliver
 		// an un-reviewed reply.
 		a.logger.Error("[AGENT-POLICY] post-check failed", "slug", a.slug, "error", err)
-		a.sendDenial(outer, "The agent's response was blocked", "",
-			"the policy check could not be completed — check the endpoint's policy configuration")
+		a.sendPolicyNotice(outer, policyNotice{
+			Status: policyStatusBlocked,
+			Phase:  PolicyPhasePost,
+			Reason: "the policy check could not be completed — check the endpoint's policy configuration",
+		})
 		return
 	}
 
@@ -237,10 +243,14 @@ func (a *AgentExecutor) handleReply(
 			"slug", a.slug, "policy", out.PolicyResult.PolicyName,
 			"pending", out.PolicyResult.Pending)
 		if out.PolicyResult.Pending {
-			a.emitPending(outer, "The agent's response was blocked", out.PolicyResult)
+			a.emitPending(outer, PolicyPhasePost, out.PolicyResult)
 		} else {
-			a.sendDenial(outer, "The agent's response was blocked",
-				out.PolicyResult.PolicyName, out.PolicyResult.Reason)
+			a.sendPolicyNotice(outer, policyNotice{
+				Status:     policyStatusBlocked,
+				Phase:      PolicyPhasePost,
+				PolicyName: out.PolicyResult.PolicyName,
+				Reason:     out.PolicyResult.Reason,
+			})
 		}
 		return
 	}
@@ -248,6 +258,26 @@ func (a *AgentExecutor) handleReply(
 	// Deliver the reply the post chain produced — unchanged when policies
 	// passed, or a placeholder when a policy (e.g. manual_review) substituted.
 	delivered := extractContent(out.Result, reply)
+
+	// A policy can allow the turn yet replace the agent's answer — e.g.
+	// manual_review swaps in a "submitted for review" placeholder. Detect that
+	// two ways: the explicit Pending flag, and — as a fallback, since not every
+	// such policy sets the flag — the delivered body no longer matching the
+	// agent's actual reply. Either way the user is not seeing the agent's own
+	// answer, so surface it as a pending notice rather than a plain reply.
+	if out.PolicyResult.Pending || delivered != reply {
+		a.logger.Info("[AGENT-POLICY] reply withheld pending policy resolution",
+			"slug", a.slug, "policy", out.PolicyResult.PolicyName,
+			"pending_flag", out.PolicyResult.Pending)
+		a.sendPolicyNotice(outer, policyNotice{
+			Status:     policyStatusPending,
+			Phase:      PolicyPhasePost,
+			PolicyName: out.PolicyResult.PolicyName,
+			Reason:     delivered,
+		})
+		return
+	}
+
 	if err := outer.Send(agentMessageEvent(delivered)); err != nil {
 		a.logger.Error("[AGENT-POLICY] failed to forward reply to caller",
 			"slug", a.slug, "error", err)
@@ -312,50 +342,94 @@ func (a *AgentExecutor) baseInput(outer *AgentSession) *ExecutorInput {
 	)
 }
 
+// policyStatus values carried by a policyNotice.
+const (
+	policyStatusBlocked = "blocked"
+	policyStatusPending = "pending"
+)
+
+// policyNotice is the structured policy outcome attached to an agent.message
+// event. It lets a client render a distinct blocked/pending notice instead of
+// a normal agent reply; the message Content remains a human-readable fallback.
+type policyNotice struct {
+	Status     string `json:"status"`          // policyStatusBlocked | policyStatusPending
+	Phase      string `json:"phase,omitempty"` // PolicyPhasePre | PolicyPhasePost
+	PolicyName string `json:"policy_name,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+}
+
 // applyVerdict acts on a pre-check verdict. Returns true when the turn may
-// proceed; on deny/pending it emits the appropriate event and returns false.
+// proceed; on deny/pending it emits the appropriate notice and returns false.
 func (a *AgentExecutor) applyVerdict(outer *AgentSession, v *PolicyResultOutput) bool {
 	if v == nil || v.Allowed {
 		return true
 	}
 	if v.Pending {
-		a.emitPending(outer, "Request blocked", v)
+		a.emitPending(outer, PolicyPhasePre, v)
 		return false
 	}
-	a.sendDenial(outer, "Request blocked", v.PolicyName, v.Reason)
+	a.sendPolicyNotice(outer, policyNotice{
+		Status:     policyStatusBlocked,
+		Phase:      PolicyPhasePre,
+		PolicyName: v.PolicyName,
+		Reason:     v.Reason,
+	})
 	return false
 }
 
-// emitPending surfaces a pending policy result — a payment challenge when one
-// is present, otherwise a plain block message so the user sees why the turn
-// did not proceed.
-func (a *AgentExecutor) emitPending(outer *AgentSession, subject string, v *PolicyResultOutput) {
+// emitPending surfaces a pending policy verdict. A pending result carrying a
+// payment challenge becomes an agent.payment_required event; otherwise it is a
+// pending policy notice (e.g. manual_review without payment) so the user sees
+// why the turn did not produce a normal reply.
+func (a *AgentExecutor) emitPending(outer *AgentSession, phase string, v *PolicyResultOutput) {
 	if challenge, ok := PaymentChallengeFromMetadata(v.Metadata); ok {
 		_ = outer.SendPaymentRequired(v.PolicyName, challenge, CopyPaymentMetadata(v.Metadata))
 		return
 	}
-	a.sendDenial(outer, subject, v.PolicyName, v.Reason)
+	a.sendPolicyNotice(outer, policyNotice{
+		Status:     policyStatusPending,
+		Phase:      phase,
+		PolicyName: v.PolicyName,
+		Reason:     v.Reason,
+	})
 }
 
-// sendDenial surfaces a policy block to the user as an agent.message. The
-// reason travels this way — not via agent.policy_denied — because the desktop
-// client renders agent.message but silently drops agent.policy_denied, so a
-// blocked request would otherwise end with no explanation. The message is
-// also recorded in the session transcript/log.
-func (a *AgentExecutor) sendDenial(outer *AgentSession, subject, policyName, reason string) {
-	text := subject
-	if policyName != "" {
-		text += ` by the "` + policyName + `" policy`
-	}
-	if reason != "" {
-		text += ": " + reason
-	}
-	a.logger.Info("[AGENT-POLICY] surfacing policy block to caller",
-		"slug", a.slug, "policy", policyName, "reason", reason)
-	if err := outer.Send(agentMessageEvent(text + ".")); err != nil {
-		a.logger.Error("[AGENT-POLICY] failed to deliver policy block message",
+// sendPolicyNotice surfaces a policy outcome (a hard block or a pending
+// verdict) to the caller as an agent.message carrying a structured policy
+// notice. It rides on agent.message — not a dedicated event — because that is
+// the one event type rendered end-to-end and recorded in the session
+// transcript: a modern client renders the `policy` object as a distinct notice
+// card, while the Content sentence remains a fallback for everything else.
+func (a *AgentExecutor) sendPolicyNotice(outer *AgentSession, n policyNotice) {
+	a.logger.Info("[AGENT-POLICY] surfacing policy notice to caller",
+		"slug", a.slug, "status", n.Status, "phase", n.Phase,
+		"policy", n.PolicyName, "reason", n.Reason)
+	if err := outer.Send(policyNoticeEvent(policyNoticeText(n), n)); err != nil {
+		a.logger.Error("[AGENT-POLICY] failed to deliver policy notice",
 			"slug", a.slug, "error", err)
 	}
+}
+
+// policyNoticeText renders the human-readable fallback sentence for a notice —
+// shown by clients that don't render the structured `policy` object, and
+// recorded in the session transcript.
+func policyNoticeText(n policyNotice) string {
+	subject := "Request blocked"
+	switch {
+	case n.Status == policyStatusPending && n.Phase == PolicyPhasePost:
+		subject = "The agent's response is pending review"
+	case n.Status == policyStatusPending:
+		subject = "Your request is pending review"
+	case n.Phase == PolicyPhasePost:
+		subject = "The agent's response was blocked"
+	}
+	if n.PolicyName != "" {
+		subject += ` by the "` + n.PolicyName + `" policy`
+	}
+	if n.Reason != "" {
+		subject += ": " + n.Reason
+	}
+	return subject + "."
 }
 
 // reprompt re-emits agent.request_input so the user can retry after a denial.
@@ -401,6 +475,18 @@ func extractContent(raw json.RawMessage, fallback string) string {
 // agentMessageEvent builds a complete agent.message event from reply text.
 func agentMessageEvent(content string) AgentEventPayload {
 	data, _ := json.Marshal(map[string]any{"content": content, "is_complete": true})
+	return AgentEventPayload{EventType: EventTypeAgentMessage, Data: data}
+}
+
+// policyNoticeEvent builds an agent.message event carrying a structured policy
+// notice. content is the human-readable fallback; the `policy` object lets a
+// client render a distinct blocked/pending notice instead of a plain reply.
+func policyNoticeEvent(content string, n policyNotice) AgentEventPayload {
+	data, _ := json.Marshal(map[string]any{
+		"content":     content,
+		"is_complete": true,
+		"policy":      n,
+	})
 	return AgentEventPayload{EventType: EventTypeAgentMessage, Data: data}
 }
 

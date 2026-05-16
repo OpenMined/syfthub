@@ -29,6 +29,7 @@ import { Tool, type ToolPart } from '@/components/prompt-kit/tool';
 
 import { MarkdownMessage } from '@/components/chat/markdown-message';
 import { ModelSelector } from '@/components/chat/model-selector';
+import { PolicyNotice } from '@/components/chat/policy-notice';
 import { ThinkingIndicator } from '@/components/chat/thinking-indicator';
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 
@@ -747,6 +748,24 @@ function AgentChatContent() {
                         />
                       </div>
                     </Message>
+                  );
+                }
+
+                if (entry.kind === 'policy') {
+                  // A policy outcome — the agent's reply was blocked, or is
+                  // pending review. Rendered as a distinct callout, not a
+                  // message bubble. `data` carries the structured notice.
+                  const d = entry.data ?? {};
+                  const status = d.status === 'pending' ? 'pending' : 'blocked';
+                  const phase = d.phase === 'pre' || d.phase === 'post' ? d.phase : undefined;
+                  return (
+                    <PolicyNotice
+                      key={entry.id}
+                      status={status}
+                      phase={phase}
+                      policyName={d.policy_name ? String(d.policy_name) : undefined}
+                      reason={d.reason ? String(d.reason) : undefined}
+                    />
                   );
                 }
 

@@ -15,7 +15,7 @@ export interface AgentStreamEvent {
 // Each entry in the agent conversation
 export interface AgentEntry {
   id: string;
-  kind: 'user' | 'thinking' | 'status' | 'tool_call' | 'tool_result' | 'message' | 'token' | 'request_input' | 'error' | 'completed' | 'cancelled' | 'attachment';
+  kind: 'user' | 'thinking' | 'status' | 'tool_call' | 'tool_result' | 'message' | 'token' | 'request_input' | 'error' | 'completed' | 'cancelled' | 'attachment' | 'policy';
   content: string;
   data?: Record<string, unknown>;
   timestamp: number;
@@ -102,12 +102,19 @@ export function useAgentWorkflow({ endpointPath }: UseAgentWorkflowProps) {
     flushTimerRef.current = requestAnimationFrame(flushTokens);
   };
 
-  // Append a terminal entry, flush any pending tokens, and mark the session done.
-  // Used for session.completed / session.cancelled / session.failed.
-  const finalizeSession = (kind: AgentEntry['kind'], content: string) => {
+  // Flush any pending batched tokens, then clear the streaming accumulator so
+  // the next token stream starts fresh. Called before appending any non-token
+  // entry (a message, policy notice, input request, or terminal entry).
+  const resetStreaming = () => {
     flushTokens();
     streamingContentRef.current = '';
     hasTokenEntryRef.current = false;
+  };
+
+  // Append a terminal entry, flush any pending tokens, and mark the session done.
+  // Used for session.completed / session.cancelled / session.failed.
+  const finalizeSession = (kind: AgentEntry['kind'], content: string) => {
+    resetStreaming();
     setEntries(prev => [...prev, {
       id: makeId(),
       kind,
@@ -186,15 +193,41 @@ export function useAgentWorkflow({ endpointPath }: UseAgentWorkflowProps) {
         }
 
         case 'agent.message': {
-          // Flush any pending batched tokens before adding the message
-          flushTokens();
-          streamingContentRef.current = '';
-          hasTokenEntryRef.current = false;
+          resetStreaming();
           const content = String(data.content ?? '');
+          // A `policy` object marks this message as a policy notice (the reply
+          // was blocked, or is pending review) — render it as a distinct card
+          // rather than a normal agent reply.
+          const policy = data.policy as Record<string, unknown> | undefined;
           setEntries(prev => [...prev, {
             id: makeId(),
-            kind: 'message',
+            kind: policy ? 'policy' : 'message',
             content,
+            data: policy,
+            timestamp: Date.now(),
+          }]);
+          break;
+        }
+
+        case 'agent.payment_required': {
+          // A transaction-style policy holds the turn until the user settles
+          // a charge. Surface it as a pending policy notice. (The full payment
+          // flow is not wired up yet — this just stops the turn vanishing
+          // silently.)
+          resetStreaming();
+          const amount = String(data.amount ?? '').trim();
+          const currency = String(data.currency ?? '').trim();
+          const priced = amount ? `${amount}${currency ? ` ${currency}` : ''}` : '';
+          setEntries(prev => [...prev, {
+            id: makeId(),
+            kind: 'policy',
+            content: '',
+            data: {
+              status: 'pending',
+              reason: priced
+                ? `This request requires a payment of ${priced} to continue.`
+                : 'This request requires a payment to continue.',
+            },
             timestamp: Date.now(),
           }]);
           break;
@@ -209,10 +242,7 @@ export function useAgentWorkflow({ endpointPath }: UseAgentWorkflowProps) {
         }
 
         case 'agent.request_input':
-          // Flush any pending batched tokens before processing input request
-          flushTokens();
-          streamingContentRef.current = '';
-          hasTokenEntryRef.current = false;
+          resetStreaming();
           setAwaitingInput(true);
           setEntries(prev => [...prev, {
             id: makeId(),

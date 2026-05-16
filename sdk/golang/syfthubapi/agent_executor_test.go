@@ -73,6 +73,23 @@ func firstContent(evs []AgentEventPayload, eventType string) string {
 	return ""
 }
 
+// firstPolicyNotice returns the structured `policy` object of the first
+// agent.message event that carries one, or nil if none do.
+func firstPolicyNotice(evs []AgentEventPayload) *policyNotice {
+	for _, ev := range evs {
+		if ev.EventType != EventTypeAgentMessage {
+			continue
+		}
+		var d struct {
+			Policy *policyNotice `json:"policy"`
+		}
+		if json.Unmarshal(ev.Data, &d) == nil && d.Policy != nil {
+			return d.Policy
+		}
+	}
+	return nil
+}
+
 // A — policies pass: the agent's reply is delivered unchanged.
 func TestAgentExecutor_AllowsReplyThrough(t *testing.T) {
 	fe := &fakeExecutor{pre: &PolicyResultOutput{Allowed: true}, post: allowPost}
@@ -89,14 +106,19 @@ func TestAgentExecutor_AllowsReplyThrough(t *testing.T) {
 	}
 }
 
-// B — a post policy substitutes the reply body.
-func TestAgentExecutor_PostSubstitutesReply(t *testing.T) {
+// B — a post policy that substitutes the reply body WITHOUT setting the
+// pending flag is still surfaced as a pending notice: the user is no longer
+// seeing the agent's own answer, and the real reply must not leak. This is the
+// manual_review case where the policy runner does not set Pending.
+func TestAgentExecutor_PostSubstitutionBecomesPendingNotice(t *testing.T) {
 	fe := &fakeExecutor{
 		pre: &PolicyResultOutput{Allowed: true},
 		post: func(_ *ExecutorInput) *ExecutorOutput {
 			return &ExecutorOutput{
-				Success:      true,
-				Result:       json.RawMessage(`"Request submitted to manual review"`),
+				Success: true,
+				Result:  json.RawMessage(`"Request submitted to manual review"`),
+				// Allowed, and Pending intentionally NOT set — detection must
+				// fall back to the body no longer matching the agent's reply.
 				PolicyResult: &PolicyResultOutput{Allowed: true},
 			}
 		},
@@ -106,8 +128,18 @@ func TestAgentExecutor_PostSubstitutesReply(t *testing.T) {
 	}
 	evs := runExecutor(t, fe, inner, "hello")
 
-	if got := firstContent(evs, EventTypeAgentMessage); got != "Request submitted to manual review" {
-		t.Errorf("agent.message content = %q, want the substituted placeholder", got)
+	n := firstPolicyNotice(evs)
+	if n == nil {
+		t.Fatal("a substituted reply must surface a structured policy notice")
+	}
+	if n.Status != policyStatusPending {
+		t.Errorf("notice status = %q, want %q", n.Status, policyStatusPending)
+	}
+	if n.Reason != "Request submitted to manual review" {
+		t.Errorf("notice reason = %q, want the substituted text", n.Reason)
+	}
+	if got := firstContent(evs, EventTypeAgentMessage); strings.Contains(got, "the real reply") {
+		t.Errorf("the real agent reply leaked: %q", got)
 	}
 }
 
@@ -258,5 +290,98 @@ func TestAgentExecutor_PreRunnerErrorSurfaced(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(msg), "blocked") {
 		t.Errorf("block message = %q, should explain the request was blocked", msg)
+	}
+}
+
+// I — a pre-check denial carries a structured `policy` notice so the client
+// can render a distinct blocked card rather than a plain agent reply.
+func TestAgentExecutor_PreDenyCarriesPolicyNotice(t *testing.T) {
+	fe := &fakeExecutor{
+		pre:  &PolicyResultOutput{Allowed: false, PolicyName: "access group", Reason: "not a member"},
+		post: allowPost,
+	}
+	inner := func(_ context.Context, s *AgentSession) error {
+		return s.Send(agentMessageEvent("never"))
+	}
+	evs := runExecutor(t, fe, inner, "hello")
+
+	n := firstPolicyNotice(evs)
+	if n == nil {
+		t.Fatal("expected a structured policy notice on the agent.message event")
+	}
+	if n.Status != policyStatusBlocked {
+		t.Errorf("notice status = %q, want %q", n.Status, policyStatusBlocked)
+	}
+	if n.Phase != PolicyPhasePre {
+		t.Errorf("notice phase = %q, want %q", n.Phase, PolicyPhasePre)
+	}
+	if n.PolicyName != "access group" {
+		t.Errorf("notice policy_name = %q, want %q", n.PolicyName, "access group")
+	}
+	if n.Reason != "not a member" {
+		t.Errorf("notice reason = %q, want %q", n.Reason, "not a member")
+	}
+}
+
+// J — a post-check denial carries a `blocked` policy notice tagged to the
+// post phase.
+func TestAgentExecutor_PostDenyCarriesPolicyNotice(t *testing.T) {
+	fe := &fakeExecutor{
+		pre: &PolicyResultOutput{Allowed: true},
+		post: func(_ *ExecutorInput) *ExecutorOutput {
+			return &ExecutorOutput{
+				Success: false,
+				PolicyResult: &PolicyResultOutput{
+					Allowed: false, PolicyName: "pf", Reason: "matched a forbidden pattern",
+				},
+			}
+		},
+	}
+	inner := func(_ context.Context, s *AgentSession) error {
+		return s.Send(agentMessageEvent("blocked reply"))
+	}
+	evs := runExecutor(t, fe, inner, "hello")
+
+	n := firstPolicyNotice(evs)
+	if n == nil {
+		t.Fatal("expected a structured policy notice on the agent.message event")
+	}
+	if n.Status != policyStatusBlocked || n.Phase != PolicyPhasePost {
+		t.Errorf("notice = %+v, want blocked/post", n)
+	}
+}
+
+// K — a policy that allows the turn but flags it pending (manual_review)
+// carries a `pending` notice, and the agent's real reply never leaks.
+func TestAgentExecutor_PendingReplyCarriesPolicyNotice(t *testing.T) {
+	fe := &fakeExecutor{
+		pre: &PolicyResultOutput{Allowed: true},
+		post: func(_ *ExecutorInput) *ExecutorOutput {
+			return &ExecutorOutput{
+				Success: true,
+				Result:  json.RawMessage(`"Submitted for manual review"`),
+				PolicyResult: &PolicyResultOutput{
+					Allowed: true, Pending: true, PolicyName: "manual_review",
+				},
+			}
+		},
+	}
+	inner := func(_ context.Context, s *AgentSession) error {
+		return s.Send(agentMessageEvent("the real reply"))
+	}
+	evs := runExecutor(t, fe, inner, "hello")
+
+	n := firstPolicyNotice(evs)
+	if n == nil {
+		t.Fatal("expected a structured policy notice on the agent.message event")
+	}
+	if n.Status != policyStatusPending {
+		t.Errorf("notice status = %q, want %q", n.Status, policyStatusPending)
+	}
+	if n.PolicyName != "manual_review" {
+		t.Errorf("notice policy_name = %q, want %q", n.PolicyName, "manual_review")
+	}
+	if got := firstContent(evs, EventTypeAgentMessage); strings.Contains(got, "the real reply") {
+		t.Errorf("the real reply leaked into a pending notice: %q", got)
 	}
 }
