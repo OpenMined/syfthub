@@ -1,9 +1,11 @@
 import { memo, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 
 import type { Components } from 'react-markdown';
 
 import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left';
 import Calendar from 'lucide-react/dist/esm/icons/calendar';
+import CheckCircle from 'lucide-react/dist/esm/icons/check-circle';
 import ExternalLink from 'lucide-react/dist/esm/icons/external-link';
 import Package from 'lucide-react/dist/esm/icons/package';
 import Star from 'lucide-react/dist/esm/icons/star';
@@ -15,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useEndpointByPath } from '@/hooks/use-endpoint-queries';
 import { getEndpointTypeBadgeStyles, getEndpointTypeLabel } from '@/lib/endpoint-utils';
+import { getEndpointCollective } from '@/lib/mock-data/collectives';
 
 import { AccessPoliciesCard } from './access-policies-card';
 
@@ -252,6 +255,9 @@ export const EndpointDetail = memo(function EndpointDetail({
     );
   }
 
+  // Get collective information for this endpoint
+  const endpointCollective = getEndpointCollective(endpoint?.owner_username || owner || '');
+
   return (
     <div className='bg-background min-h-screen'>
       {/* Header */}
@@ -301,6 +307,20 @@ export const EndpointDetail = memo(function EndpointDetail({
                   <Calendar className='mr-1 h-3 w-3' />
                   Updated {endpoint.updated}
                 </Badge>
+                {endpointCollective && (
+                  <Link to={`/c/${endpointCollective.slug}`}>
+                    <Badge 
+                      variant='secondary' 
+                      className='hover:bg-primary/10 transition-colors cursor-pointer'
+                    >
+                      <Users className='mr-1 h-3 w-3' />
+                      {endpointCollective.name}
+                      {endpointCollective.isVerified && (
+                        <CheckCircle className='ml-1 h-3 w-3 text-green-500' />
+                      )}
+                    </Badge>
+                  </Link>
+                )}
               </div>
             </div>
           </div>

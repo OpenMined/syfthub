@@ -3,17 +3,20 @@ import { useState } from 'react';
 import type { PublicUserProfile } from '@/lib/types';
 
 import Check from 'lucide-react/dist/esm/icons/check';
+import CheckCircle from 'lucide-react/dist/esm/icons/check-circle';
 import Copy from 'lucide-react/dist/esm/icons/copy';
 import ExternalLink from 'lucide-react/dist/esm/icons/external-link';
 import Globe from 'lucide-react/dist/esm/icons/globe';
 import Mail from 'lucide-react/dist/esm/icons/mail';
 import Pencil from 'lucide-react/dist/esm/icons/pencil';
 import UserIcon from 'lucide-react/dist/esm/icons/user';
+import Users from 'lucide-react/dist/esm/icons/users';
 import { Link } from 'react-router-dom';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatDateLong } from '@/lib/date-utils';
+import { getUserCollectivesByUsername } from '@/lib/mock-data/collectives';
 
 interface ProfileHeroProps {
   username: string;
@@ -43,6 +46,7 @@ export function ProfileHero({ username, profile, isOwnProfile }: Readonly<Profil
   const memberSince = profile?.created_at ? formatDateLong(profile.created_at) : null;
   const showEmail = Boolean(profile?.email);
   const showDomain = Boolean(profile?.domain);
+  const userCollectives = getUserCollectivesByUsername(username);
 
   const handleCopyEmail = () => {
     if (!profile?.email) return;
@@ -158,6 +162,36 @@ export function ProfileHero({ username, profile, isOwnProfile }: Readonly<Profil
                     <span className='font-inter'>Joined {memberSince}</span>
                   </div>
                 ) : null}
+              </div>
+            )}
+
+            {/* Collective badges */}
+            {userCollectives.length > 0 && (
+              <div className='mt-4 flex flex-wrap items-center gap-2'>
+                <div className='flex items-center gap-1.5 text-muted-foreground'>
+                  <Users className='h-3.5 w-3.5' />
+                  <span className='text-sm'>Member of:</span>
+                </div>
+                {userCollectives.map((membership) => (
+                  <Link
+                    key={membership.collective.id}
+                    to={`/c/${membership.collective.slug}`}
+                    className='inline-flex'
+                  >
+                    <Badge 
+                      variant='secondary' 
+                      className='hover:bg-primary/10 transition-colors cursor-pointer'
+                    >
+                      {membership.collective.name}
+                      {membership.collective.verified && (
+                        <CheckCircle className='ml-1 h-3 w-3 text-green-500' />
+                      )}
+                      {membership.role !== 'member' && (
+                        <span className='ml-1.5 text-xs opacity-60'>({membership.role})</span>
+                      )}
+                    </Badge>
+                  </Link>
+                ))}
               </div>
             )}
 

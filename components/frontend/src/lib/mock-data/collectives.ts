@@ -56,6 +56,18 @@ export interface CollectivePolicy {
   config: any;
 }
 
+// User's collective membership
+export interface UserCollectiveMembership {
+  collective: {
+    id: string;
+    name: string;
+    slug: string;
+    verified: boolean;
+  };
+  role: 'owner' | 'admin' | 'member';
+  joinedAt: string;
+}
+
 export interface Collective {
   id: string;
   name: string;
@@ -636,3 +648,70 @@ export const currentUserCollectives = [
     joinedAt: '2024-05-20',
   },
 ];
+
+// Get collectives for a specific username
+export const getUserCollectivesByUsername = (username: string): UserCollectiveMembership[] => {
+  // Mock mapping of usernames to their collective memberships
+  const userCollectivesMap: Record<string, UserCollectiveMembership[]> = {
+    'dr-sarah-chen': [
+      {
+        collective: {
+          id: 'collective-1',
+          name: 'Harvard Medical',
+          slug: 'harvard-medical',
+          verified: true,
+        },
+        role: 'member',
+        joinedAt: '2024-03-15',
+      }
+    ],
+    'mass-general': [
+      {
+        collective: {
+          id: 'collective-1', 
+          name: 'Harvard Medical',
+          slug: 'harvard-medical',
+          verified: true,
+        },
+        role: 'admin',
+        joinedAt: '2024-01-10',
+      }
+    ],
+    'noaa-satellite': [
+      {
+        collective: {
+          id: 'collective-2',
+          name: 'Climate Alliance',
+          slug: 'climate-alliance', 
+          verified: true,
+        },
+        role: 'member',
+        joinedAt: '2024-02-20',
+      }
+    ],
+    'cambridge-press-oa': [
+      {
+        collective: {
+          id: 'collective-4',
+          name: 'Open Science',
+          slug: 'open-science',
+          verified: false,
+        },
+        role: 'member', 
+        joinedAt: '2024-04-01',
+      },
+      {
+        collective: {
+          id: 'collective-5',
+          name: 'Academic Publishers',
+          slug: 'academic-publishers',
+          verified: true,
+        },
+        role: 'admin',
+        joinedAt: '2023-11-15',
+      }
+    ],
+  };
+  
+  return userCollectivesMap[username] || [];
+};
