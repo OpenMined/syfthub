@@ -30,25 +30,38 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+# SQLite does not persist foreign-key constraint names, so a batch-mode
+# recreate reflects the organization_id FK as anonymous. This naming
+# convention re-derives the PostgreSQL-style name Alembic created in
+# 001_initial (``endpoints_organization_id_fkey``) so it can be dropped by
+# name on SQLite as well.
+_FK_NAMING_CONVENTION = {"fk": "%(table_name)s_%(column_0_name)s_fkey"}
+
+
 def upgrade() -> None:
     # Delete organization-owned endpoints before dropping the column.
     op.execute("DELETE FROM endpoints WHERE organization_id IS NOT NULL")
 
-    # Drop the single-owner check constraint (references organization_id).
-    op.drop_constraint("ck_endpoints_single_owner", "endpoints", type_="check")
+    # Batch mode so the endpoints changes work on SQLite (used by the test
+    # suite) as well as PostgreSQL. SQLite cannot ALTER constraints or columns
+    # in place; batch mode recreates the table via copy-and-move, while on
+    # PostgreSQL it emits direct ALTER statements.
+    with op.batch_alter_table(
+        "endpoints", schema=None, naming_convention=_FK_NAMING_CONVENTION
+    ) as batch_op:
+        # Drop the single-owner check constraint (references organization_id).
+        batch_op.drop_constraint("ck_endpoints_single_owner", type_="check")
 
-    # Drop the foreign key and indexes tied to organization_id.
-    op.drop_constraint(
-        "endpoints_organization_id_fkey", "endpoints", type_="foreignkey"
-    )
-    op.drop_index("idx_endpoints_org_slug", table_name="endpoints")
-    op.drop_index("idx_endpoints_organization_id", table_name="endpoints")
+        # Drop the foreign key and indexes tied to organization_id.
+        batch_op.drop_constraint("endpoints_organization_id_fkey", type_="foreignkey")
+        batch_op.drop_index("idx_endpoints_org_slug")
+        batch_op.drop_index("idx_endpoints_organization_id")
 
-    # Every remaining endpoint is user-owned; enforce it at the schema level.
-    op.alter_column("endpoints", "user_id", existing_type=sa.Integer(), nullable=False)
+        # Every remaining endpoint is user-owned; enforce it at the schema level.
+        batch_op.alter_column("user_id", existing_type=sa.Integer(), nullable=False)
 
-    # Drop the organization_id column.
-    op.drop_column("endpoints", "organization_id")
+        # Drop the organization_id column.
+        batch_op.drop_column("organization_id")
 
     # Drop organization tables (organization_members first — FK to organizations).
     op.drop_table("organization_members")
@@ -110,28 +123,24 @@ def downgrade() -> None:
         unique=True,
     )
 
-    # Restore the organization_id column on endpoints.
-    op.add_column(
-        "endpoints",
-        sa.Column("organization_id", sa.Integer(), nullable=True),
-    )
-    op.alter_column("endpoints", "user_id", existing_type=sa.Integer(), nullable=True)
-    op.create_foreign_key(
-        "endpoints_organization_id_fkey",
-        "endpoints",
-        "organizations",
-        ["organization_id"],
-        ["id"],
-    )
-    op.create_index("idx_endpoints_organization_id", "endpoints", ["organization_id"])
-    op.create_index(
-        "idx_endpoints_org_slug",
-        "endpoints",
-        ["organization_id", "slug"],
-        unique=True,
-    )
-    op.create_check_constraint(
-        "ck_endpoints_single_owner",
-        "endpoints",
-        "(user_id IS NULL) != (organization_id IS NULL)",
-    )
+    # Restore the organization_id column on endpoints. Batch mode keeps this
+    # SQLite-compatible (see upgrade() for the rationale).
+    with op.batch_alter_table("endpoints", schema=None) as batch_op:
+        batch_op.add_column(sa.Column("organization_id", sa.Integer(), nullable=True))
+        batch_op.alter_column("user_id", existing_type=sa.Integer(), nullable=True)
+        batch_op.create_foreign_key(
+            "endpoints_organization_id_fkey",
+            "organizations",
+            ["organization_id"],
+            ["id"],
+        )
+        batch_op.create_index("idx_endpoints_organization_id", ["organization_id"])
+        batch_op.create_index(
+            "idx_endpoints_org_slug",
+            ["organization_id", "slug"],
+            unique=True,
+        )
+        batch_op.create_check_constraint(
+            "ck_endpoints_single_owner",
+            "(user_id IS NULL) != (organization_id IS NULL)",
+        )
