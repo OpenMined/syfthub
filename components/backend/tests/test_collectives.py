@@ -469,3 +469,110 @@ def test_remove_member_by_endpoint_owner(
     )
     assert removed.status_code == 204
     assert client.get(f"{API}/collectives/{cid}").json()["member_count"] == 0
+
+
+# ----------------------------------------------------------------------
+# Invitation notification emails
+# ----------------------------------------------------------------------
+
+
+def test_invite_sends_notification_email(
+    client: TestClient,
+    owner_headers: dict,
+    member_headers: dict,
+    monkeypatch,
+) -> None:
+    """Inviting an endpoint schedules a notification email to its owner."""
+    sent: list = []
+    monkeypatch.setattr(
+        "syfthub.api.endpoints.collectives.send_collective_invitation_email",
+        lambda ctx: sent.append(ctx),
+    )
+    collective = _create_collective(client, owner_headers, name="ML Models")
+    endpoint_id = _create_endpoint(client, member_headers, "invited-model")
+
+    resp = client.post(
+        f"{API}/collectives/{collective['id']}/invitations",
+        json={"endpoint_id": endpoint_id},
+        headers=owner_headers,
+    )
+    assert resp.status_code == 201
+
+    assert len(sent) == 1
+    ctx = sent[0]
+    assert ctx.to_email == "member@example.com"
+    assert ctx.collective_slug == collective["slug"]
+    assert ctx.endpoint_id == endpoint_id
+    assert ctx.endpoint_name == "invited-model"
+
+
+def test_invite_approving_join_request_sends_no_email(
+    client: TestClient,
+    owner_headers: dict,
+    member_headers: dict,
+    monkeypatch,
+) -> None:
+    """When an invite only approves a standing join request, no email is sent."""
+    sent: list = []
+    monkeypatch.setattr(
+        "syfthub.api.endpoints.collectives.send_collective_invitation_email",
+        lambda ctx: sent.append(ctx),
+    )
+    collective = _create_collective(client, owner_headers, auto_approve=False)
+    cid = collective["id"]
+    endpoint_id = _create_endpoint(client, member_headers, "my-model")
+    # The endpoint requests to join first -> pending.
+    client.post(
+        f"{API}/collectives/{cid}/members",
+        json={"endpoint_id": endpoint_id},
+        headers=member_headers,
+    )
+    # Owner invites that same endpoint -> approves it, no invitation email.
+    resp = client.post(
+        f"{API}/collectives/{cid}/invitations",
+        json={"endpoint_id": endpoint_id},
+        headers=owner_headers,
+    )
+    assert resp.status_code == 201
+    assert resp.json()["status"] == "approved"
+    assert sent == []
+
+
+def test_invite_own_endpoint_sends_no_email(
+    client: TestClient, owner_headers: dict, monkeypatch
+) -> None:
+    """Inviting an endpoint you own yourself does not email you."""
+    sent: list = []
+    monkeypatch.setattr(
+        "syfthub.api.endpoints.collectives.send_collective_invitation_email",
+        lambda ctx: sent.append(ctx),
+    )
+    collective = _create_collective(client, owner_headers)
+    endpoint_id = _create_endpoint(client, owner_headers, "my-own-model")
+
+    resp = client.post(
+        f"{API}/collectives/{collective['id']}/invitations",
+        json={"endpoint_id": endpoint_id},
+        headers=owner_headers,
+    )
+    assert resp.status_code == 201
+    assert resp.json()["status"] == "invited"
+    assert sent == []
+
+
+def test_invitation_email_template_renders_accept_link() -> None:
+    """The invitation email template embeds the accept/decline link and names."""
+    from syfthub.services.email_service import _invitation_template
+
+    url = "https://hub.example.com/collectives/ml-models/invitations/7"
+    html = _invitation_template.render(
+        recipient_name="Dev User",
+        inviter_name="Admin User",
+        collective_name="ML Models",
+        endpoint_name="my-model",
+        invite_url=url,
+    )
+    assert url in html
+    assert "Admin User" in html
+    assert "ML Models" in html
+    assert "my-model" in html

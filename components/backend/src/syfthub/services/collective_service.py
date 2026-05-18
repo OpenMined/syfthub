@@ -19,6 +19,7 @@ from syfthub.repositories.collective import (
     CollectiveRepository,
 )
 from syfthub.repositories.endpoint import EndpointRepository
+from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.collective import (
     CollectiveCreate,
@@ -26,6 +27,7 @@ from syfthub.schemas.collective import (
     CollectiveResponse,
     CollectiveUpdate,
     InvitationDecision,
+    InvitationEmailContext,
     MembershipStatus,
     ReviewDecision,
     slugify_collective_name,
@@ -48,6 +50,7 @@ class CollectiveService(BaseService):
         self.collective_repo = CollectiveRepository(session)
         self.member_repo = CollectiveMemberRepository(session)
         self.endpoint_repo = EndpointRepository(session)
+        self.user_repo = UserRepository(session)
 
     # ------------------------------------------------------------------
     # Collective CRUD
@@ -195,20 +198,29 @@ class CollectiveService(BaseService):
 
     def invite_endpoint(
         self, collective_id: int, endpoint_id: int, current_user: User
-    ) -> CollectiveMemberResponse:
+    ) -> tuple[CollectiveMemberResponse, Optional[InvitationEmailContext]]:
         """Invite an endpoint into a collective (collective owner action).
 
         The invited endpoint's owner must accept before the membership becomes
         active. If the endpoint had already requested to join, the invitation
         is treated as an approval.
+
+        Returns the membership plus, when an invitation is (re)issued, the
+        context for the notification email the caller should send. The email
+        context is ``None`` when no invitation email is warranted — e.g. the
+        invite approved a standing join request, or the endpoint has no
+        individual owner to notify.
         """
         collective = self._get_collective_or_404(collective_id)
         self._require_owner(collective, current_user)
         # The owner need not own the endpoint to invite it — just confirm it exists.
-        self._get_endpoint_or_404(endpoint_id)
+        endpoint = self._get_endpoint_or_404(endpoint_id)
 
         existing = self.member_repo.get_membership(collective_id, endpoint_id)
         now = datetime.now(timezone.utc)
+        email_context = self._build_invitation_context(
+            collective, endpoint, current_user
+        )
 
         if existing is not None:
             if existing.status == MembershipStatus.APPROVED:
@@ -217,31 +229,34 @@ class CollectiveService(BaseService):
                     detail="Endpoint is already a member of this collective",
                 )
             if existing.status == MembershipStatus.INVITED:
-                # Idempotent — an invitation is already outstanding.
-                return existing
+                # Idempotent — re-notify so the owner gets a fresh link.
+                return existing, email_context
             if existing.status == MembershipStatus.PENDING:
-                # The endpoint already asked to join — inviting it approves it.
-                return self._apply(
+                # The endpoint already asked to join — inviting it approves it,
+                # so no invitation email is warranted.
+                approved = self._apply(
                     existing.id,
                     MembershipStatus.APPROVED,
                     responded_at=now,
                     reviewed_by_user_id=current_user.id,
                 )
+                return approved, None
             # rejected -> reissue the invitation.
-            return self._apply(
+            reissued = self._apply(
                 existing.id,
                 MembershipStatus.INVITED,
                 requested_at=now,
                 responded_at=None,
                 reviewed_by_user_id=None,
             )
+            return reissued, email_context
 
         member = self.member_repo.create_membership(
             collective_id=collective_id,
             endpoint_id=endpoint_id,
             status=MembershipStatus.INVITED.value,
         )
-        return self._member_response(member)
+        return self._member_response(member), email_context
 
     # ------------------------------------------------------------------
     # Membership — review / response / removal
@@ -493,6 +508,33 @@ class CollectiveService(BaseService):
                 detail="Failed to update membership",
             )
         return member
+
+    def _build_invitation_context(
+        self,
+        collective: CollectiveResponse,
+        endpoint: Endpoint,
+        inviter: User,
+    ) -> Optional[InvitationEmailContext]:
+        """Build the notification-email context for an invited endpoint.
+
+        Returns ``None`` when there is nobody to notify: an endpoint with no
+        individual owner (e.g. org-owned), an owner with no email on file, or
+        an inviter who owns the endpoint themselves.
+        """
+        if endpoint.user_id is None or endpoint.user_id == inviter.id:
+            return None
+        owner = self.user_repo.get_by_id(endpoint.user_id)
+        if owner is None or not owner.email:
+            return None
+        return InvitationEmailContext(
+            to_email=owner.email,
+            recipient_name=owner.full_name or owner.username,
+            inviter_name=inviter.full_name or inviter.username,
+            collective_name=collective.name,
+            collective_slug=collective.slug,
+            endpoint_name=endpoint.name,
+            endpoint_id=endpoint.id,
+        )
 
     def _resolve_slug(self, data: CollectiveCreate) -> str:
         """Determine a unique slug for a new collective."""

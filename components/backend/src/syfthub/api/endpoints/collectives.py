@@ -8,7 +8,7 @@ membership state machine.
 
 from typing import Annotated, List, Optional
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, status
 
 from syfthub.auth.db_dependencies import (
     get_current_active_user,
@@ -27,6 +27,7 @@ from syfthub.schemas.collective import (
 )
 from syfthub.schemas.user import User
 from syfthub.services.collective_service import CollectiveService
+from syfthub.services.email_service import send_collective_invitation_email
 
 router = APIRouter()
 
@@ -174,9 +175,19 @@ async def invite_endpoint(
     data: CollectiveMemberRequest,
     current_user: Annotated[User, Depends(get_current_active_user)],
     service: Annotated[CollectiveService, Depends(get_collective_service)],
+    background_tasks: BackgroundTasks,
 ) -> CollectiveMemberResponse:
-    """Invite an endpoint into a collective. Collective owner only."""
-    return service.invite_endpoint(collective_id, data.endpoint_id, current_user)
+    """Invite an endpoint into a collective. Collective owner only.
+
+    When an invitation is (re)issued, the endpoint owner is emailed a link to
+    the accept/decline page.
+    """
+    membership, email_context = service.invite_endpoint(
+        collective_id, data.endpoint_id, current_user
+    )
+    if email_context is not None:
+        background_tasks.add_task(send_collective_invitation_email, email_context)
+    return membership
 
 
 @router.post(

@@ -223,3 +223,19 @@ class CollectiveMemberResponse(BaseModel):
     )
 
     model_config = {"from_attributes": True}
+
+
+class InvitationEmailContext(BaseModel):
+    """Context for the collective-invitation notification email.
+
+    Internal service -> router payload (passed to a background email task);
+    not part of the public API surface.
+    """
+
+    to_email: str = Field(..., description="Endpoint owner's email address")
+    recipient_name: str = Field(..., description="Endpoint owner's display name")
+    inviter_name: str = Field(..., description="Display name of the inviting user")
+    collective_name: str = Field(..., description="Name of the collective")
+    collective_slug: str = Field(..., description="Slug of the collective")
+    endpoint_name: str = Field(..., description="Name of the invited endpoint")
+    endpoint_id: int = Field(..., description="ID of the invited endpoint")

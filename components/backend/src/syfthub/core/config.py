@@ -245,6 +245,13 @@ class Settings(BaseSettings):
         description="From display name for outgoing emails",
     )
 
+    # Public base URL of the frontend SPA, used to build links in outgoing
+    # emails (e.g. collective invitation accept/decline links).
+    frontend_url: str = Field(
+        default="http://localhost:3000",
+        description="Public base URL of the frontend, used in email links",
+    )
+
     @property
     def resend_configured(self) -> bool:
         """Check if Resend API is configured."""
