@@ -163,9 +163,8 @@ export default function CreateCollectivePage() {
             </div>
 
             <div>
-              <Label htmlFor="slug">URL Slug *</Label>
+              <Label htmlFor="slug">Subdomain *</Label>
               <div className="flex items-center gap-2 mt-1">
-                <span className="text-sm text-muted-foreground">syfthub.ai/c/</span>
                 <Input
                   id="slug"
                   value={formData.slug}
@@ -173,6 +172,7 @@ export default function CreateCollectivePage() {
                   placeholder="harvard-medical"
                   className="flex-1"
                 />
+                <span className="text-sm text-muted-foreground">.syfthub.openmined.org</span>
               </div>
               <p className="text-xs text-muted-foreground mt-1">
                 This cannot be changed later
@@ -278,7 +278,7 @@ export default function CreateCollectivePage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">URL:</span>
-                    <span className="font-medium">syfthub.ai/c/{formData.slug || '...'}</span>
+                    <span className="font-medium">{formData.slug || '...'}.syfthub.openmined.org</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Membership:</span>
