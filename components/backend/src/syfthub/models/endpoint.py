@@ -99,15 +99,12 @@ class EndpointModel(BaseModel, TimestampMixin):
     )
 
     # Relationships
-    user: Mapped[Optional["UserModel"]] = relationship(
-        "UserModel", back_populates="endpoints"
-    )
+    user: Mapped["UserModel"] = relationship("UserModel", back_populates="endpoints")
     collective_memberships: Mapped[List["CollectiveMemberModel"]] = relationship(
         "CollectiveMemberModel",
         back_populates="endpoint",
         cascade="all, delete-orphan",
     )
-    user: Mapped["UserModel"] = relationship("UserModel", back_populates="endpoints")
 
     # Indexes for performance - slug uniqueness is per-user
     __table_args__ = (

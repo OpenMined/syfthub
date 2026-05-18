@@ -517,11 +517,10 @@ class CollectiveService(BaseService):
     ) -> Optional[InvitationEmailContext]:
         """Build the notification-email context for an invited endpoint.
 
-        Returns ``None`` when there is nobody to notify: an endpoint with no
-        individual owner (e.g. org-owned), an owner with no email on file, or
-        an inviter who owns the endpoint themselves.
+        Returns ``None`` when there is nobody to notify: an inviter who owns
+        the endpoint themselves, or an owner with no email on file.
         """
-        if endpoint.user_id is None or endpoint.user_id == inviter.id:
+        if endpoint.user_id == inviter.id:
             return None
         owner = self.user_repo.get_by_id(endpoint.user_id)
         if owner is None or not owner.email:

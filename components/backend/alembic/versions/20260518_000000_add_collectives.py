@@ -6,7 +6,7 @@ associative table linking endpoints to collectives, carrying the join/invite
 workflow status (pending / invited / approved / rejected).
 
 Revision ID: 015_collectives
-Revises: 014_drop_uptime_latency
+Revises: 015_remove_organizations
 Create Date: 2026-05-18 00:00:00.000000+00:00
 """
 
@@ -17,7 +17,7 @@ from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
 revision: str = "015_collectives"
-down_revision: str | None = "014_drop_uptime_latency"
+down_revision: str | None = "015_remove_organizations"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
