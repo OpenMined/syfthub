@@ -212,22 +212,8 @@ export default function CreateCollectivePage() {
                 placeholder="e.g., Harvard Medical Collective"
                 className="mt-1"
               />
-            </div>
-
-            <div>
-              <Label htmlFor="slug">Subdomain *</Label>
-              <div className="flex items-center gap-2 mt-1">
-                <Input
-                  id="slug"
-                  value={formData.slug}
-                  onChange={(e) => updateFormData({ slug: e.target.value })}
-                  placeholder="harvard-medical"
-                  className="flex-1"
-                />
-                <span className="text-sm text-muted-foreground">.syfthub.openmined.org</span>
-              </div>
               <p className="text-xs text-muted-foreground mt-1">
-                This cannot be changed later
+                URL will be: {formData.slug || '...'}.syfthub.openmined.org
               </p>
             </div>
 
@@ -477,7 +463,7 @@ export default function CreateCollectivePage() {
           <Button 
             onClick={handleNext}
             disabled={
-              (currentStep === 1 && (!formData.name || !formData.slug || !formData.description))
+              (currentStep === 1 && (!formData.name || !formData.description))
             }
           >
             Next
