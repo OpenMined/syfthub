@@ -5,9 +5,7 @@ import ArrowRight from 'lucide-react/dist/esm/icons/arrow-right';
 import Users from 'lucide-react/dist/esm/icons/users';
 import Check from 'lucide-react/dist/esm/icons/check';
 import Globe from 'lucide-react/dist/esm/icons/globe';
-import DollarSign from 'lucide-react/dist/esm/icons/dollar-sign';
 import Shield from 'lucide-react/dist/esm/icons/shield';
-import Settings from 'lucide-react/dist/esm/icons/settings';
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -29,42 +27,10 @@ interface CollectiveFormData {
   // Membership
   membershipVisibility: 'open' | 'request' | 'invite-only';
   
-  // Capabilities
-  capabilities: {
-    unifiedEndpoint: boolean;
-    sharedPricing: boolean;
-    memberHosting: boolean;
-    collectivePolicies: boolean;
-    memberVetting: boolean;
-  };
-  
-  // Initial Pricing
-  pricingPreset: 'free' | 'simple' | 'tiered' | 'custom';
+  // Hosting
+  supportsHosting: boolean;
 }
 
-const capabilityPresets = {
-  basic: {
-    unifiedEndpoint: true,
-    sharedPricing: false,
-    memberHosting: false,
-    collectivePolicies: false,
-    memberVetting: false,
-  },
-  managed: {
-    unifiedEndpoint: true,
-    sharedPricing: true,
-    memberHosting: false,
-    collectivePolicies: true,
-    memberVetting: true,
-  },
-  fullService: {
-    unifiedEndpoint: true,
-    sharedPricing: true,
-    memberHosting: true,
-    collectivePolicies: true,
-    memberVetting: true,
-  },
-};
 
 export default function CreateCollectivePage() {
   const navigate = useNavigate();
@@ -74,16 +40,13 @@ export default function CreateCollectivePage() {
     slug: '',
     description: '',
     membershipVisibility: 'request',
-    capabilities: capabilityPresets.managed,
-    pricingPreset: 'tiered',
+    supportsHosting: false,
   });
 
   const steps = [
     { id: 1, name: 'Basic Information', icon: Users },
-    { id: 2, name: 'Capabilities', icon: Settings },
-    { id: 3, name: 'Membership', icon: Shield },
-    { id: 4, name: 'Pricing', icon: DollarSign },
-    { id: 5, name: 'Review', icon: Check },
+    { id: 2, name: 'Membership', icon: Shield },
+    { id: 3, name: 'Review', icon: Check },
   ];
 
   const handleNext = () => {
@@ -110,7 +73,11 @@ export default function CreateCollectivePage() {
   };
 
   const generateSlug = (name: string) => {
-    return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    return name.toLowerCase()
+      .replace(/\s+/g, '-')  // Replace spaces with hyphens
+      .replace(/[^a-z0-9-]/g, '')  // Remove non-alphanumeric characters except hyphens
+      .replace(/-+/g, '-')  // Replace multiple hyphens with single hyphen
+      .replace(/^-|-$/g, '');  // Remove leading and trailing hyphens
   };
 
   return (
@@ -213,15 +180,18 @@ export default function CreateCollectivePage() {
             </div>
 
             <div>
-              <Label htmlFor="description">Description *</Label>
+              <Label htmlFor="description">README *</Label>
               <Textarea
                 id="description"
                 value={formData.description}
                 onChange={(e) => updateFormData({ description: e.target.value })}
-                placeholder="Describe your collective's mission and what types of data you'll share..."
-                rows={4}
-                className="mt-1"
+                placeholder="# About Our Collective\n\nDescribe your collective's mission and what types of data you'll share...\n\n## Members\n\n## Data Types\n\n## How to Join"
+                rows={10}
+                className="mt-1 font-mono text-sm"
               />
+              <p className="text-xs text-muted-foreground mt-1">
+                Supports markdown formatting for rich documentation
+              </p>
             </div>
 
             <div>
@@ -234,70 +204,24 @@ export default function CreateCollectivePage() {
                 className="mt-1"
               />
             </div>
+            
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <Label htmlFor="hosting">Supports hosting for members</Label>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Enable if your collective will provide infrastructure and hosting services for member endpoints
+                </p>
+              </div>
+              <Switch
+                id="hosting"
+                checked={formData.supportsHosting}
+                onCheckedChange={(checked) => updateFormData({ supportsHosting: checked })}
+              />
+            </div>
           </div>
         )}
 
         {currentStep === 2 && (
-          <div className="space-y-6">
-            <h2 className="text-lg font-semibold mb-4">Capabilities</h2>
-            
-            <div className="space-y-3">
-              <Label>Choose a preset or customize</Label>
-              <div className="grid grid-cols-3 gap-3">
-                {Object.entries(capabilityPresets).map(([preset, capabilities]) => (
-                  <Card
-                    key={preset}
-                    className={cn(
-                      "p-4 cursor-pointer transition-colors",
-                      JSON.stringify(formData.capabilities) === JSON.stringify(capabilities) &&
-                      "ring-2 ring-primary"
-                    )}
-                    onClick={() => updateFormData({ capabilities })}
-                  >
-                    <h4 className="font-medium capitalize mb-1">
-                      {preset.replace(/([A-Z])/g, ' $1').trim()}
-                    </h4>
-                    <p className="text-xs text-muted-foreground">
-                      {preset === 'basic' && 'Essential features only'}
-                      {preset === 'managed' && 'Shared policies & vetting'}
-                      {preset === 'fullService' && 'Complete infrastructure'}
-                    </p>
-                  </Card>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <Label>Individual Capabilities</Label>
-              {Object.entries(formData.capabilities).map(([key, enabled]) => (
-                <div key={key} className="flex items-center justify-between">
-                  <div className="flex-1">
-                    <p className="font-medium">
-                      {key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {key === 'unifiedEndpoint' && 'Single API to query all member endpoints'}
-                      {key === 'sharedPricing' && 'Members can adopt collective pricing tiers'}
-                      {key === 'memberHosting' && 'Host infrastructure for members'}
-                      {key === 'collectivePolicies' && 'Define shared access and usage policies'}
-                      {key === 'memberVetting' && 'Review and approve membership requests'}
-                    </p>
-                  </div>
-                  <Switch
-                    checked={enabled}
-                    onCheckedChange={(checked) =>
-                      updateFormData({
-                        capabilities: { ...formData.capabilities, [key]: checked }
-                      })
-                    }
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {currentStep === 3 && (
           <div className="space-y-6">
             <h2 className="text-lg font-semibold mb-4">Membership Settings</h2>
             
@@ -340,40 +264,7 @@ export default function CreateCollectivePage() {
           </div>
         )}
 
-        {currentStep === 4 && (
-          <div className="space-y-6">
-            <h2 className="text-lg font-semibold mb-4">Initial Pricing</h2>
-            
-            <div>
-              <Label>Choose a pricing model to start with</Label>
-              <div className="grid grid-cols-2 gap-3 mt-3">
-                {(['free', 'simple', 'tiered', 'custom'] as const).map((preset) => (
-                  <Card
-                    key={preset}
-                    className={cn(
-                      "p-4 cursor-pointer transition-colors",
-                      formData.pricingPreset === preset && "ring-2 ring-primary"
-                    )}
-                    onClick={() => updateFormData({ pricingPreset: preset })}
-                  >
-                    <h4 className="font-medium capitalize mb-1">{preset}</h4>
-                    <p className="text-sm text-muted-foreground">
-                      {preset === 'free' && 'No charges, open access'}
-                      {preset === 'simple' && 'Single flat rate for all'}
-                      {preset === 'tiered' && 'Multiple pricing tiers'}
-                      {preset === 'custom' && 'Define your own structure'}
-                    </p>
-                  </Card>
-                ))}
-              </div>
-              <p className="text-sm text-muted-foreground mt-3">
-                You can always change pricing later from the admin dashboard
-              </p>
-            </div>
-          </div>
-        )}
-
-        {currentStep === 5 && (
+        {currentStep === 3 && (
           <div className="space-y-6">
             <h2 className="text-lg font-semibold mb-4">Review & Create</h2>
             
@@ -397,23 +288,13 @@ export default function CreateCollectivePage() {
               </div>
 
               <div className="p-4 bg-muted/50 rounded-lg">
-                <h3 className="font-medium mb-3">Enabled Capabilities</h3>
-                <div className="flex flex-wrap gap-2">
-                  {Object.entries(formData.capabilities)
-                    .filter(([_, enabled]) => enabled)
-                    .map(([key]) => (
-                      <Badge key={key} variant="secondary">
-                        {key.replace(/([A-Z])/g, ' $1').trim()}
-                      </Badge>
-                    ))}
+                <h3 className="font-medium mb-3">Hosting</h3>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Supports member hosting:</span>
+                  <Badge variant={formData.supportsHosting ? "default" : "outline"}>
+                    {formData.supportsHosting ? 'Yes' : 'No'}
+                  </Badge>
                 </div>
-              </div>
-
-              <div className="p-4 bg-muted/50 rounded-lg">
-                <h3 className="font-medium mb-3">Initial Pricing</h3>
-                <Badge variant="outline" className="capitalize">
-                  {formData.pricingPreset} pricing model
-                </Badge>
               </div>
             </div>
 
