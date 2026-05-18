@@ -6,6 +6,9 @@ import Users from 'lucide-react/dist/esm/icons/users';
 import Check from 'lucide-react/dist/esm/icons/check';
 import Globe from 'lucide-react/dist/esm/icons/globe';
 import Shield from 'lucide-react/dist/esm/icons/shield';
+import X from 'lucide-react/dist/esm/icons/x';
+import UserPlus from 'lucide-react/dist/esm/icons/user-plus';
+import Mail from 'lucide-react/dist/esm/icons/mail';
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -15,6 +18,13 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+
+interface InvitedMember {
+  id: string;
+  value: string; // username or email
+  type: 'user' | 'email';
+  displayName?: string;
+}
 
 interface CollectiveFormData {
   // Basic Info
@@ -26,6 +36,7 @@ interface CollectiveFormData {
   
   // Membership
   membershipVisibility: 'open' | 'request' | 'invite-only';
+  invitedMembers: InvitedMember[];
   
   // Hosting
   supportsHosting: boolean;
@@ -35,11 +46,13 @@ interface CollectiveFormData {
 export default function CreateCollectivePage() {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(1);
+  const [inviteInput, setInviteInput] = useState('');
   const [formData, setFormData] = useState<CollectiveFormData>({
     name: '',
     slug: '',
     description: '',
     membershipVisibility: 'request',
+    invitedMembers: [],
     supportsHosting: false,
   });
 
@@ -78,6 +91,36 @@ export default function CreateCollectivePage() {
       .replace(/[^a-z0-9-]/g, '')  // Remove non-alphanumeric characters except hyphens
       .replace(/-+/g, '-')  // Replace multiple hyphens with single hyphen
       .replace(/^-|-$/g, '');  // Remove leading and trailing hyphens
+  };
+
+  const handleAddInvite = () => {
+    if (!inviteInput.trim()) return;
+    
+    const trimmedInput = inviteInput.trim();
+    const isEmail = trimmedInput.includes('@');
+    
+    // Check if already added
+    if (formData.invitedMembers.some(m => m.value === trimmedInput)) {
+      return;
+    }
+    
+    const newMember: InvitedMember = {
+      id: Date.now().toString(),
+      value: trimmedInput,
+      type: isEmail ? 'email' : 'user',
+      displayName: isEmail ? trimmedInput : `@${trimmedInput}`
+    };
+    
+    updateFormData({
+      invitedMembers: [...formData.invitedMembers, newMember]
+    });
+    setInviteInput('');
+  };
+
+  const handleRemoveInvite = (id: string) => {
+    updateFormData({
+      invitedMembers: formData.invitedMembers.filter(m => m.id !== id)
+    });
   };
 
   return (
@@ -261,6 +304,77 @@ export default function CreateCollectivePage() {
                 ))}
               </div>
             </div>
+
+            {/* Invite Members Section */}
+            <div className="space-y-3">
+              <div>
+                <Label htmlFor="invite">Invite Initial Members</Label>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Add SyftHub usernames or email addresses to invite as founding members
+                </p>
+              </div>
+              
+              <div className="flex gap-2">
+                <Input
+                  id="invite"
+                  value={inviteInput}
+                  onChange={(e) => setInviteInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddInvite();
+                    }
+                  }}
+                  placeholder="Enter username (e.g., dr-sarah-chen) or email"
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleAddInvite}
+                  disabled={!inviteInput.trim()}
+                >
+                  <UserPlus className="w-4 h-4 mr-2" />
+                  Add
+                </Button>
+              </div>
+
+              {formData.invitedMembers.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    {formData.invitedMembers.length} member{formData.invitedMembers.length !== 1 ? 's' : ''} will be invited:
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {formData.invitedMembers.map((member) => (
+                      <Badge
+                        key={member.id}
+                        variant="secondary"
+                        className="pl-2 pr-1 py-1 flex items-center gap-1"
+                      >
+                        {member.type === 'email' ? (
+                          <Mail className="w-3 h-3 mr-1" />
+                        ) : (
+                          <Users className="w-3 h-3 mr-1" />
+                        )}
+                        <span>{member.displayName}</span>
+                        {member.type === 'email' && (
+                          <span className="text-xs opacity-60 ml-1">(invited)</span>
+                        )}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleRemoveInvite(member.id)}
+                          className="h-4 w-4 p-0 ml-1 hover:bg-destructive/20"
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -285,6 +399,32 @@ export default function CreateCollectivePage() {
                     <Badge variant="outline">{formData.membershipVisibility}</Badge>
                   </div>
                 </div>
+              </div>
+
+              <div className="p-4 bg-muted/50 rounded-lg">
+                <h3 className="font-medium mb-3">Invited Members</h3>
+                {formData.invitedMembers.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {formData.invitedMembers.map((member) => (
+                      <Badge key={member.id} variant="secondary">
+                        {member.type === 'email' ? (
+                          <>
+                            <Mail className="w-3 h-3 mr-1" />
+                            {member.value}
+                            <span className="text-xs opacity-60 ml-1">(invited)</span>
+                          </>
+                        ) : (
+                          <>
+                            <Users className="w-3 h-3 mr-1" />
+                            @{member.value}
+                          </>
+                        )}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">No members invited</p>
+                )}
               </div>
 
               <div className="p-4 bg-muted/50 rounded-lg">
