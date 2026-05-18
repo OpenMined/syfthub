@@ -65,7 +65,12 @@ export interface Collective {
   bannerUrl?: string;
   domain?: string;
   isVerified: boolean;
+  verified?: boolean; // Alias for isVerified for compatibility
   membershipVisibility: 'open' | 'invite-only' | 'request';
+  governance?: 'democratic' | 'representative' | 'corporate';
+  hasLegalEntity?: boolean;
+  hasInsurance?: boolean;
+  established?: string;
   capabilities: {
     unifiedEndpoint: boolean;
     sharedPricing: boolean;
@@ -99,6 +104,11 @@ const harvardMedical: Collective = {
   bannerUrl: 'https://images.unsplash.com/photo-1559757148-5c350d0d3c56?w=1600&h=400&fit=crop',
   domain: 'harvard.syfthub.ai',
   isVerified: true,
+  verified: true,
+  governance: 'democratic',
+  hasLegalEntity: true,
+  hasInsurance: true,
+  established: '2020-03-15',
   membershipVisibility: 'request',
   capabilities: {
     unifiedEndpoint: true,
@@ -271,6 +281,11 @@ const climateAlliance: Collective = {
   bannerUrl: 'https://images.unsplash.com/photo-1569163139394-de4798aa62b6?w=1600&h=400&fit=crop',
   domain: 'climate.syfthub.ai',
   isVerified: true,
+  verified: true,
+  governance: 'representative',
+  hasLegalEntity: true,
+  hasInsurance: false,
+  established: '2021-06-01',
   membershipVisibility: 'open',
   capabilities: {
     unifiedEndpoint: true,
@@ -374,6 +389,11 @@ const fintechConsortium: Collective = {
   avatarUrl: 'https://ui-avatars.com/api/?name=FinTech&background=7c3aed&color=fff',
   bannerUrl: 'https://images.unsplash.com/photo-1639762681485-074b7f938ba0?w=1600&h=400&fit=crop',
   isVerified: true,
+  verified: true,
+  governance: 'corporate',
+  hasLegalEntity: true,
+  hasInsurance: true,
+  established: '2019-11-10',
   membershipVisibility: 'invite-only',
   capabilities: {
     unifiedEndpoint: true,
@@ -482,6 +502,11 @@ const openScience: Collective = {
   avatarUrl: 'https://ui-avatars.com/api/?name=Open+Science&background=f59e0b&color=fff',
   bannerUrl: 'https://images.unsplash.com/photo-1532094349884-543bc11b234d?w=1600&h=400&fit=crop',
   isVerified: false,
+  verified: false,
+  governance: 'democratic',
+  hasLegalEntity: false,
+  hasInsurance: false,
+  established: '2022-09-01',
   membershipVisibility: 'open',
   capabilities: {
     unifiedEndpoint: true,

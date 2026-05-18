@@ -30,6 +30,7 @@ const EndpointDetailPage = lazyWithRetry(() => import('./pages/endpoint-detail')
 const UserProfilePage = lazyWithRetry(() => import('./pages/user-profile'));
 // Collectives pages
 const CollectivesPage = lazyWithRetry(() => import('./pages/collectives'));
+const BrowseCollectivesPage = lazyWithRetry(() => import('./pages/browse-collectives'));
 const CollectiveDetailPage = lazyWithRetry(() => import('./pages/collective-detail'));
 const CollectiveAdminPage = lazyWithRetry(() => import('./pages/collective-admin'));
 const CreateCollectivePage = lazyWithRetry(() => import('./pages/create-collective'));
@@ -144,13 +145,19 @@ export default function App() {
                         }
                       />
                       <Route
+                        path='collectives/browse'
+                        element={
+                          <RouteBoundary>
+                            <BrowseCollectivesPage />
+                          </RouteBoundary>
+                        }
+                      />
+                      <Route
                         path='collectives/create'
                         element={
-                          <ProtectedRoute>
-                            <RouteBoundary>
-                              <CreateCollectivePage />
-                            </RouteBoundary>
-                          </ProtectedRoute>
+                          <RouteBoundary>
+                            <CreateCollectivePage />
+                          </RouteBoundary>
                         }
                       />
                       <Route
