@@ -92,7 +92,7 @@ const POLICY_TYPE_CONFIG: Record<
     color: 'text-indigo-600 dark:text-indigo-400',
     bgColor: 'bg-indigo-50 dark:bg-indigo-950/30',
     borderColor: 'border-indigo-200 dark:border-indigo-800',
-    description: 'Only accessible within the organization'
+    description: 'Only accessible to the owner'
   },
   // Rate limiting and quotas
   rate_limit: {

@@ -26,8 +26,7 @@ export interface Connection {
  */
 export interface Endpoint {
   readonly id: number;
-  readonly userId: number | null;
-  readonly organizationId: number | null;
+  readonly userId: number;
   readonly name: string;
   readonly slug: string;
   readonly description: string;
@@ -153,16 +152,6 @@ export interface EndpointUpdateInput {
   policies?: Policy[];
   connect?: Connection[];
   contributors?: number[];
-}
-
-/**
- * Get the owner type for an endpoint.
- *
- * @param endpoint - The endpoint to check
- * @returns 'user' if user-owned, 'organization' if org-owned
- */
-export function getEndpointOwnerType(endpoint: Endpoint): 'user' | 'organization' {
-  return endpoint.organizationId !== null ? 'organization' : 'user';
 }
 
 /**

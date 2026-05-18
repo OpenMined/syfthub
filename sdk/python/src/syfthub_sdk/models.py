@@ -34,14 +34,6 @@ class UserRole(str, Enum):
     GUEST = "guest"
 
 
-class OrganizationRole(str, Enum):
-    """Role within an organization."""
-
-    OWNER = "owner"
-    ADMIN = "admin"
-    MEMBER = "member"
-
-
 class User(BaseModel):
     """User model returned from API."""
 
@@ -155,8 +147,7 @@ class Endpoint(BaseModel):
     """Full endpoint model (for user's own endpoints)."""
 
     id: int
-    user_id: int | None = None
-    organization_id: int | None = None
+    user_id: int
     name: str
     slug: str
     description: str = ""
@@ -174,13 +165,6 @@ class Endpoint(BaseModel):
     updated_at: datetime
 
     model_config = {"frozen": True}
-
-    @property
-    def owner_type(self) -> str:
-        """Return 'user' or 'organization' based on ownership."""
-        if self.user_id is not None:
-            return "user"
-        return "organization"
 
 
 class EndpointPublic(BaseModel):

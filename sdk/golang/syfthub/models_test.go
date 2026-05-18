@@ -63,25 +63,6 @@ func TestUserRoleEnum(t *testing.T) {
 	}
 }
 
-func TestOrganizationRoleEnum(t *testing.T) {
-	testCases := []struct {
-		value OrganizationRole
-		str   string
-	}{
-		{OrganizationRoleOwner, "owner"},
-		{OrganizationRoleAdmin, "admin"},
-		{OrganizationRoleMember, "member"},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.str, func(t *testing.T) {
-			if string(tc.value) != tc.str {
-				t.Errorf("OrganizationRole = %q, want %q", string(tc.value), tc.str)
-			}
-		})
-	}
-}
-
 func TestTransactionStatusEnum(t *testing.T) {
 	testCases := []struct {
 		value TransactionStatus
@@ -203,24 +184,6 @@ func TestUserJSON(t *testing.T) {
 	if decoded.AvatarURL == nil || *decoded.AvatarURL != avatar {
 		t.Errorf("AvatarURL = %v", decoded.AvatarURL)
 	}
-}
-
-func TestEndpointOwnerType(t *testing.T) {
-	t.Run("user owned", func(t *testing.T) {
-		userID := 1
-		ep := Endpoint{UserID: &userID}
-		if ep.OwnerType() != "user" {
-			t.Errorf("OwnerType = %q, want user", ep.OwnerType())
-		}
-	})
-
-	t.Run("organization owned", func(t *testing.T) {
-		orgID := 1
-		ep := Endpoint{OrganizationID: &orgID}
-		if ep.OwnerType() != "organization" {
-			t.Errorf("OwnerType = %q, want organization", ep.OwnerType())
-		}
-	})
 }
 
 func TestEndpointPublicPath(t *testing.T) {

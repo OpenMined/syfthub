@@ -15,7 +15,7 @@ class EndpointVisibility(str, Enum):
 
     PUBLIC = "public"  # Anyone can view
     PRIVATE = "private"  # Only owner (and future collaborators) can view
-    INTERNAL = "internal"  # Only organization members can view (or owner for user-owned endpoints)
+    INTERNAL = "internal"  # Only the owner can view (behaves like private)
 
 
 class EndpointType(str, Enum):
@@ -304,7 +304,6 @@ class EndpointCreate(EndpointBase):
         default_factory=list,
         description="List of contributor user IDs (will be validated)",
     )
-    # organization_id removed - should be passed separately to the service method
 
     @field_validator("slug")
     @classmethod
@@ -418,12 +417,7 @@ class Endpoint(BaseModel):
 
     # Server-managed fields
     id: int = Field(..., description="Endpoint's unique identifier")
-    user_id: Optional[int] = Field(
-        None, description="ID of the user who owns this endpoint"
-    )
-    organization_id: Optional[int] = Field(
-        None, description="ID of the organization that owns this endpoint"
-    )
+    user_id: int = Field(..., description="ID of the user who owns this endpoint")
     slug: str = Field(
         ..., min_length=3, max_length=63, description="URL-safe identifier"
     )
@@ -453,12 +447,7 @@ class EndpointResponse(BaseModel):
     """Schema for endpoint response - includes all fields."""
 
     id: int = Field(..., description="Endpoint's unique identifier")
-    user_id: Optional[int] = Field(
-        None, description="ID of the user who owns this endpoint"
-    )
-    organization_id: Optional[int] = Field(
-        None, description="ID of the organization that owns this endpoint"
-    )
+    user_id: int = Field(..., description="ID of the user who owns this endpoint")
     name: str = Field(..., description="Display name of the endpoint")
     slug: str = Field(..., description="URL-safe identifier")
     description: str = Field(..., description="Description of the endpoint")
@@ -562,8 +551,6 @@ class SyncEndpointsRequest(BaseModel):
 
     This operation replaces ALL user-owned endpoints with the provided list.
     It is atomic: either all endpoints are synced, or none are (on validation failure).
-
-    Organization endpoints are NOT affected by this operation.
     """
 
     endpoints: List[EndpointCreate] = Field(
@@ -632,10 +619,10 @@ class OwnerSummary(BaseModel):
     """Summary of an owner's endpoints for directory listing.
 
     Lightweight response for listing owners without fetching full endpoint data.
-    Used by CLI `syft ls` command to efficiently list available users/orgs.
+    Used by CLI `syft ls` command to efficiently list available users.
     """
 
-    username: str = Field(..., description="Username or organization slug")
+    username: str = Field(..., description="Username")
     endpoint_count: int = Field(
         ..., ge=0, description="Total number of public endpoints"
     )
@@ -814,7 +801,7 @@ class EndpointUptimeResponse(BaseModel):
     """Bucketed uptime series for a single endpoint."""
 
     endpoint_id: int = Field(..., description="Endpoint ID the series belongs to")
-    owner_username: str = Field(..., description="Owner's username (user or org slug)")
+    owner_username: str = Field(..., description="Owner's username")
     slug: str = Field(..., description="Endpoint slug")
     bucket_seconds: int = Field(..., ge=1, description="Size of each bucket in seconds")
     window_hours: int = Field(

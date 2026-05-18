@@ -239,7 +239,6 @@ func (e *MyEndpointsResource) Delete(ctx context.Context, path string) error {
 //  3. Is ATOMIC: either all endpoints sync successfully, or none do
 //
 // Important Notes:
-//   - Organization endpoints are NOT affected
 //   - Stars on existing endpoints will be lost (reset to 0)
 //   - Endpoint IDs will change (new IDs assigned)
 //   - Maximum 100 endpoints per sync request
