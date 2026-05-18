@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '@/context/auth-context';
 import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left';
 import ArrowRight from 'lucide-react/dist/esm/icons/arrow-right';
 import Users from 'lucide-react/dist/esm/icons/users';
@@ -45,6 +46,7 @@ interface CollectiveFormData {
 
 export default function CreateCollectivePage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [currentStep, setCurrentStep] = useState(1);
   const [inviteInput, setInviteInput] = useState('');
   const [formData, setFormData] = useState<CollectiveFormData>({
@@ -77,8 +79,15 @@ export default function CreateCollectivePage() {
   const handleCreate = () => {
     console.log('Creating collective:', formData);
     // In real implementation, this would create the collective in the backend
-    // For now, just redirect to the admin page
-    navigate(`/c/${formData.slug}/admin`);
+    
+    // Navigate to admin page if authenticated, otherwise to public page
+    if (user) {
+      console.log('User authenticated, navigating to admin page');
+      navigate(`/c/${formData.slug}/admin`);
+    } else {
+      console.log('User not authenticated, navigating to public collective page');
+      navigate(`/c/${formData.slug}`);
+    }
   };
 
   const updateFormData = (updates: Partial<CollectiveFormData>) => {
@@ -440,7 +449,11 @@ export default function CreateCollectivePage() {
 
             <div className="p-4 bg-green-500/10 text-green-600 rounded-lg">
               <p className="text-sm">
-                ✓ Your collective will be created and you'll be redirected to the admin dashboard
+                {user ? (
+                  <>✓ Your collective will be created and you'll be redirected to the admin dashboard</>
+                ) : (
+                  <>✓ Your collective will be created. Log in to access admin features.</>
+                )}
               </p>
             </div>
           </div>
