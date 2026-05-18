@@ -96,7 +96,6 @@ def get_endpoint_service(
     return EndpointService(session)
 
 
-
 def get_collective_service(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> CollectiveService:
