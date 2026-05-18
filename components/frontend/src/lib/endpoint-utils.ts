@@ -269,7 +269,6 @@ export function mapSdkEndpointToResponse(
   return {
     id: endpoint.id,
     user_id: endpoint.userId ?? undefined,
-    organization_id: endpoint.organizationId ?? undefined,
     name: endpoint.name,
     slug: endpoint.slug,
     description: endpoint.description,
@@ -500,7 +499,7 @@ export async function getPublicEndpointOwners(): Promise<OwnerInfo[]> {
  * list of endpoints for an owner, not just those present in the local 100-item
  * cache. Used by the @mention autocomplete to populate the slug phase dropdown.
  *
- * @param owner - The username or organization slug
+ * @param owner - The username
  * @returns Array of ChatSource objects for all the owner's public endpoints
  */
 export async function getPublicEndpointsByOwner(owner: string): Promise<ChatSource[]> {
@@ -744,30 +743,25 @@ export async function getEndpointByPath(path: string): Promise<EndpointResponse>
  * Create a new endpoint.
  *
  * @param endpointData - Endpoint creation data
- * @param organizationId - Optional organization ID for org-owned endpoints
  * @param ownerUsername - Username of the owner (for response path)
  * @returns Created EndpointResponse
  */
 export async function createEndpoint(
   endpointData: EndpointCreate,
-  organizationId?: number,
   ownerUsername?: string
 ): Promise<EndpointResponse> {
-  const endpoint = await syftClient.myEndpoints.create(
-    {
-      name: endpointData.name,
-      type: endpointData.type,
-      visibility: endpointData.visibility,
-      description: endpointData.description,
-      slug: endpointData.slug,
-      version: endpointData.version,
-      readme: endpointData.readme,
-      policies: endpointData.policies,
-      connect: endpointData.connect,
-      contributors: endpointData.contributors
-    },
-    organizationId
-  );
+  const endpoint = await syftClient.myEndpoints.create({
+    name: endpointData.name,
+    type: endpointData.type,
+    visibility: endpointData.visibility,
+    description: endpointData.description,
+    slug: endpointData.slug,
+    version: endpointData.version,
+    readme: endpointData.readme,
+    policies: endpointData.policies,
+    connect: endpointData.connect,
+    contributors: endpointData.contributors
+  });
 
   return mapSdkEndpointToResponse(endpoint, ownerUsername);
 }

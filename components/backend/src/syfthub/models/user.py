@@ -10,7 +10,6 @@ from syfthub.models.base import BaseModel, TimestampMixin
 
 if TYPE_CHECKING:
     from syfthub.models.endpoint import EndpointModel
-    from syfthub.models.organization import OrganizationMemberModel
     from syfthub.models.user_aggregator import UserAggregatorModel
 
 
@@ -88,9 +87,6 @@ class UserModel(BaseModel, TimestampMixin):
     # Relationships
     endpoints: Mapped[List["EndpointModel"]] = relationship(
         "EndpointModel", back_populates="user", cascade="all, delete-orphan"
-    )
-    organization_memberships: Mapped[List["OrganizationMemberModel"]] = relationship(
-        "OrganizationMemberModel", back_populates="user", cascade="all, delete-orphan"
     )
     aggregators: Mapped[List["UserAggregatorModel"]] = relationship(
         "UserAggregatorModel", back_populates="user", cascade="all, delete-orphan"

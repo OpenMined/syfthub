@@ -52,14 +52,14 @@ class TestEndpointHealthInfo:
             connect=[],
             owner_domain="https://test.com",
             owner_id=20,
-            owner_type="organization",
+            owner_type="user",
             heartbeat_expires_at=None,
         )
         assert info.id == 2
         assert info.slug == "inactive-endpoint"
         assert info.endpoint_type == "data_source"
         assert info.is_active is False
-        assert info.owner_type == "organization"
+        assert info.owner_type == "user"
 
     def test_creation_with_health_fields(self):
         """Test EndpointHealthInfo with per-endpoint health fields."""
@@ -214,7 +214,7 @@ class TestGetEndpointsForHealthCheck:
         endpoints = monitor._get_endpoints_for_health_check(mock_session)
 
         assert endpoints == []
-        assert mock_session.execute.call_count == 2  # user and org queries
+        assert mock_session.execute.call_count == 1  # single user query
 
     def test_get_endpoints_user_owned(self, monitor):
         """Test getting user-owned endpoints."""
@@ -250,9 +250,8 @@ class TestGetEndpointsForHealthCheck:
                 300,
             ),
         ]
-        org_results = []
 
-        mock_session.execute.return_value.all.side_effect = [user_results, org_results]
+        mock_session.execute.return_value.all.return_value = user_results
 
         endpoints = monitor._get_endpoints_for_health_check(mock_session)
 
@@ -268,84 +267,6 @@ class TestGetEndpointsForHealthCheck:
         assert endpoints[1].id == 2
         assert endpoints[1].health_status == "healthy"
         assert endpoints[1].health_ttl_seconds == 300
-
-    def test_get_endpoints_org_owned(self, monitor):
-        """Test getting organization-owned endpoints."""
-        mock_session = MagicMock()
-
-        user_results = []
-        org_results = [
-            (
-                3,
-                "org-endpoint",
-                "model",
-                True,
-                [{"type": "rest_api", "config": {"url": "/api"}}],
-                "https://org.com",
-                100,
-                None,
-                None,
-                None,
-                None,
-            ),
-        ]
-
-        mock_session.execute.return_value.all.side_effect = [user_results, org_results]
-
-        endpoints = monitor._get_endpoints_for_health_check(mock_session)
-
-        assert len(endpoints) == 1
-        assert endpoints[0].id == 3
-        assert endpoints[0].slug == "org-endpoint"
-        assert endpoints[0].endpoint_type == "model"
-        assert endpoints[0].owner_domain == "https://org.com"
-        assert endpoints[0].owner_type == "organization"
-        assert endpoints[0].heartbeat_expires_at is None
-
-    def test_get_endpoints_mixed(self, monitor):
-        """Test getting both user and org owned endpoints."""
-        mock_session = MagicMock()
-
-        user_results = [
-            (
-                1,
-                "user-model",
-                "model",
-                True,
-                [{"type": "rest_api", "config": {"url": "/user"}}],
-                "https://user.com",
-                10,
-                None,
-                None,
-                None,
-                None,
-            ),
-        ]
-        org_results = [
-            (
-                2,
-                "org-dataset",
-                "data_source",
-                True,
-                [{"type": "rest_api", "config": {"url": "/org"}}],
-                "https://org.com",
-                100,
-                None,
-                None,
-                None,
-                None,
-            ),
-        ]
-
-        mock_session.execute.return_value.all.side_effect = [user_results, org_results]
-
-        endpoints = monitor._get_endpoints_for_health_check(mock_session)
-
-        assert len(endpoints) == 2
-        assert endpoints[0].owner_type == "user"
-        assert endpoints[0].endpoint_type == "model"
-        assert endpoints[1].owner_type == "organization"
-        assert endpoints[1].endpoint_type == "data_source"
 
     def test_get_endpoints_filters_no_connect(self, monitor):
         """Test that endpoints without connect config are filtered out."""
@@ -395,9 +316,8 @@ class TestGetEndpointsForHealthCheck:
                 None,
             ),
         ]
-        org_results = []
 
-        mock_session.execute.return_value.all.side_effect = [user_results, org_results]
+        mock_session.execute.return_value.all.return_value = user_results
 
         endpoints = monitor._get_endpoints_for_health_check(mock_session)
 
@@ -453,9 +373,8 @@ class TestGetEndpointsForHealthCheck:
                 None,
             ),
         ]
-        org_results = []
 
-        mock_session.execute.return_value.all.side_effect = [user_results, org_results]
+        mock_session.execute.return_value.all.return_value = user_results
 
         endpoints = monitor._get_endpoints_for_health_check(mock_session)
 

@@ -31,8 +31,6 @@ from syfthub.core.url_builder import (
 from syfthub.database.connection import create_tables
 from syfthub.database.dependencies import (
     get_endpoint_repository,
-    get_organization_member_repository,
-    get_organization_repository,
     get_user_repository,
 )
 from syfthub.jobs.health_monitor import EndpointHealthMonitor
@@ -45,10 +43,6 @@ from syfthub.observability import (
 )
 from syfthub.observability.handlers import register_exception_handlers
 from syfthub.repositories.endpoint import EndpointRepository
-from syfthub.repositories.organization import (
-    OrganizationMemberRepository,
-    OrganizationRepository,
-)
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.endpoint import (
@@ -58,7 +52,6 @@ from syfthub.schemas.endpoint import (
     EndpointType,
     EndpointVisibility,
 )
-from syfthub.schemas.organization import Organization
 from syfthub.schemas.user import User
 
 # Configure structured logging
@@ -78,7 +71,7 @@ PROXY_TIMEOUT_MODEL = 120.0
 
 
 def build_invocation_url(
-    owner: Union[User, Organization],
+    owner: User,
     connections: list[dict[str, Any]],
     endpoint_slug: str,
     endpoint_path: str,
@@ -86,7 +79,7 @@ def build_invocation_url(
     """Build the invocation URL from owner domain and connection config.
 
     Args:
-        owner: The endpoint owner (User or Organization)
+        owner: The endpoint owner
         connections: List of connection configurations from the endpoint
         endpoint_slug: The endpoint's slug for building the query path
         endpoint_path: Path identifier for error messages (e.g., "owner/endpoint")
@@ -157,68 +150,30 @@ def can_access_endpoint(endpoint: Endpoint, current_user: Optional[User]) -> boo
     return current_user.role == UserRole.ADMIN
 
 
-def is_organization_member(
-    org_id: int, user_id: int, member_repo: OrganizationMemberRepository
-) -> bool:
-    """Check if user is member of organization."""
-    return member_repo.is_member(org_id, user_id)
-
-
-def resolve_owner(
-    owner_slug: str, user_repo: UserRepository, org_repo: OrganizationRepository
-) -> tuple[Optional[Union[User, Organization]], str]:
-    """Resolve owner slug to either user or organization.
-
-    Returns:
-        Tuple of (owner_object, owner_type) where owner_type is 'user' or 'organization'
-    """
-    # Try to find user first
-    user = user_repo.get_by_username(owner_slug.lower())
-    if user:
-        return user, "user"
-
-    # Try to find organization
-    organization = org_repo.get_by_slug(owner_slug.lower())
-    if organization and organization.is_active:
-        return organization, "organization"
-
-    return None, ""
+def resolve_owner(owner_slug: str, user_repo: UserRepository) -> Optional[User]:
+    """Resolve an owner slug to a user."""
+    return user_repo.get_by_username(owner_slug.lower())
 
 
 def get_owner_endpoints(
-    owner: Union[User, Organization], owner_type: str, endpoint_repo: EndpointRepository
+    owner: User, endpoint_repo: EndpointRepository
 ) -> list[Endpoint]:
-    """Get endpoints for an owner (user or organization)."""
-    if owner_type == "user":
-        # Get user's endpoints
-        return endpoint_repo.get_user_endpoints(owner.id)
-    elif owner_type == "organization":
-        # Get organization's endpoints
-        return endpoint_repo.get_organization_endpoints(owner.id)
-    return []
+    """Get endpoints for an owner."""
+    return endpoint_repo.get_user_endpoints(owner.id)
 
 
 def get_endpoint_by_owner_and_slug(
-    owner: Union[User, Organization],
-    owner_type: str,
+    owner: User,
     slug: str,
     endpoint_repo: EndpointRepository,
 ) -> Optional[Endpoint]:
     """Get endpoint by owner and slug."""
-    if owner_type == "user":
-        return endpoint_repo.get_by_user_and_slug(owner.id, slug)
-    elif owner_type == "organization":
-        return endpoint_repo.get_by_organization_and_slug(owner.id, slug)
-    return None
+    return endpoint_repo.get_by_user_and_slug(owner.id, slug)
 
 
-def get_owner_username(owner: Union[User, Organization], owner_type: str) -> str:
-    """Return the public username/slug for an owner."""
-    if owner_type == "user" and isinstance(owner, User):
-        return owner.username
-    if owner_type == "organization" and isinstance(owner, Organization):
-        return owner.slug
-    return ""
+def get_owner_username(owner: User) -> str:
+    """Return the public username for an owner."""
+    return owner.username
 
 
 def is_browser_request(request: Request) -> bool:
@@ -233,47 +188,6 @@ def is_browser_request(request: Request) -> bool:
     # Check if it's a browser user agent
     browser_indicators = ["Mozilla", "Chrome", "Safari", "Firefox", "Edge"]
     return any(indicator in user_agent for indicator in browser_indicators)
-
-
-def can_access_endpoint_with_org(
-    endpoint: Endpoint,
-    current_user: Optional[User],
-    owner_type: str,
-    member_repo: Optional[OrganizationMemberRepository] = None,
-) -> bool:
-    """Check if user can access endpoint, considering organization membership."""
-    # Public endpoints are always accessible
-    if endpoint.visibility == EndpointVisibility.PUBLIC:
-        return True
-
-    # Unauthenticated users can only see public endpoints
-    if current_user is None:
-        return False
-
-    # Admin can access everything
-    if current_user.role == UserRole.ADMIN:
-        return True
-
-    # For user-owned endpoints, use existing logic
-    if owner_type == "user" and endpoint.user_id:
-        return can_access_endpoint(endpoint, current_user)
-
-    # For organization-owned endpoints
-    if owner_type == "organization" and endpoint.organization_id:
-        # If no member_repo provided, cannot check organization membership
-        if member_repo is None:
-            return False
-
-        # INTERNAL and PRIVATE org endpoints require membership
-        if endpoint.visibility in (
-            EndpointVisibility.INTERNAL,
-            EndpointVisibility.PRIVATE,
-        ):
-            return is_organization_member(
-                endpoint.organization_id, current_user.id, member_repo
-            )
-
-    return False
 
 
 logger = get_logger(__name__)
@@ -468,23 +382,19 @@ async def list_owner_public_endpoints(
     current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
     endpoint_repo: Annotated[EndpointRepository, Depends(get_endpoint_repository)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
-    org_repo: Annotated[OrganizationRepository, Depends(get_organization_repository)],
-    member_repo: Annotated[
-        OrganizationMemberRepository, Depends(get_organization_member_repository)
-    ],
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
 ) -> list[EndpointPublicResponse]:
-    """List an owner's (user or organization) public endpoints."""
-    # Resolve owner (user or organization)
-    owner, owner_type = resolve_owner(owner_slug, user_repo, org_repo)
+    """List an owner's public endpoints."""
+    # Resolve owner
+    owner = resolve_owner(owner_slug, user_repo)
     if not owner:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"'{owner_slug}' not found"
         )
 
     # Get owner's endpoints
-    owner_endpoints = get_owner_endpoints(owner, owner_type, endpoint_repo)
+    owner_endpoints = get_owner_endpoints(owner, endpoint_repo)
 
     # Filter to only show endpoints the current user can access
     accessible_endpoints = []
@@ -493,23 +403,12 @@ async def list_owner_public_endpoints(
             continue
 
         # Check access permissions
-        if can_access_endpoint_with_org(
-            endpoint, current_user, owner_type, member_repo
-        ):
+        if can_access_endpoint(endpoint, current_user):
             # For public listing, show different levels based on access
             if endpoint.visibility == EndpointVisibility.PUBLIC:
                 accessible_endpoints.append(endpoint)
-            elif current_user and (
-                (owner_type == "user" and current_user.id == endpoint.user_id)
-                or (
-                    owner_type == "organization"
-                    and endpoint.organization_id is not None
-                    and is_organization_member(
-                        endpoint.organization_id, current_user.id, member_repo
-                    )
-                )
-            ):
-                # Allow owner/members to see their own endpoints in public listing
+            elif current_user and current_user.id == endpoint.user_id:
+                # Allow the owner to see their own endpoints in public listing
                 accessible_endpoints.append(endpoint)
 
     # Sort by most recent first
@@ -536,7 +435,7 @@ async def list_owner_public_endpoints(
         # Calculate contributors_count from contributors array (privacy: don't expose user IDs)
         ds_dict["contributors_count"] = len(ds_dict.pop("contributors", []) or [])
 
-        ds_dict["owner_username"] = get_owner_username(owner, owner_type)
+        ds_dict["owner_username"] = get_owner_username(owner)
         response_list.append(EndpointPublicResponse.model_validate(ds_dict))
 
     return response_list
@@ -550,14 +449,10 @@ async def get_owner_endpoint(
     current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
     endpoint_repo: Annotated[EndpointRepository, Depends(get_endpoint_repository)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
-    org_repo: Annotated[OrganizationRepository, Depends(get_organization_repository)],
-    member_repo: Annotated[
-        OrganizationMemberRepository, Depends(get_organization_member_repository)
-    ],
 ) -> Union[HTMLResponse, EndpointResponse, EndpointPublicResponse]:
     """Get a specific endpoint by owner and slug."""
-    # Resolve owner (user or organization)
-    owner, owner_type = resolve_owner(owner_slug, user_repo, org_repo)
+    # Resolve owner
+    owner = resolve_owner(owner_slug, user_repo)
     if not owner:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Owner or endpoint not found"
@@ -565,7 +460,7 @@ async def get_owner_endpoint(
 
     # Get endpoint by owner and slug
     endpoint = get_endpoint_by_owner_and_slug(
-        owner, owner_type, endpoint_slug.lower(), endpoint_repo
+        owner, endpoint_slug.lower(), endpoint_repo
     )
     if not endpoint or not endpoint.is_active:
         raise HTTPException(
@@ -573,9 +468,7 @@ async def get_owner_endpoint(
         )
 
     # Check access permissions
-    if not can_access_endpoint_with_org(
-        endpoint, current_user, owner_type, member_repo
-    ):
+    if not can_access_endpoint(endpoint, current_user):
         if current_user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -589,29 +482,16 @@ async def get_owner_endpoint(
                 detail="Owner or endpoint not found",
             )
 
-    # Return full details if user is owner/admin/org member, public details otherwise
-    can_see_full_details = False
-    if current_user:
-        if current_user.role == UserRole.ADMIN or (
-            owner_type == "user" and current_user.id == endpoint.user_id
-        ):
-            can_see_full_details = True
-        elif owner_type == "organization" and endpoint.organization_id:
-            can_see_full_details = is_organization_member(
-                endpoint.organization_id, current_user.id, member_repo
-            )
+    # Return full details if user is owner/admin, public details otherwise
+    can_see_full_details = bool(
+        current_user
+        and (current_user.role == UserRole.ADMIN or current_user.id == endpoint.user_id)
+    )
 
     # Check if this is a browser request (wants HTML) or API request (wants JSON)
     if is_browser_request(request):
         # Render HTML template for browsers
-        if owner_type == "user":
-            from syfthub.schemas.user import User
-
-            owner_name = owner.username if isinstance(owner, User) else ""
-        else:
-            from syfthub.schemas.organization import Organization
-
-            owner_name = owner.name if isinstance(owner, Organization) else ""
+        owner_name = owner.username
 
         # Convert README markdown to HTML and sanitize to prevent XSS
         readme_html = ""
@@ -655,7 +535,7 @@ async def get_owner_endpoint(
                 endpoint_dict.pop("contributors", []) or []
             )
 
-            endpoint_dict["owner_username"] = get_owner_username(owner, owner_type)
+            endpoint_dict["owner_username"] = get_owner_username(owner)
             return EndpointPublicResponse.model_validate(endpoint_dict)
 
 
@@ -667,18 +547,14 @@ async def invoke_owner_endpoint(
     current_user: Annotated[Optional[User], Depends(get_optional_current_user)],
     endpoint_repo: Annotated[EndpointRepository, Depends(get_endpoint_repository)],
     user_repo: Annotated[UserRepository, Depends(get_user_repository)],
-    org_repo: Annotated[OrganizationRepository, Depends(get_organization_repository)],
-    member_repo: Annotated[
-        OrganizationMemberRepository, Depends(get_organization_member_repository)
-    ],
 ) -> JSONResponse:
     """Invoke a specific endpoint by owner and slug.
 
     This endpoint handles POST requests to /{owner_slug}/{endpoint_slug} for
     invoking/executing the endpoint's functionality.
     """
-    # Resolve owner (user or organization)
-    owner, owner_type = resolve_owner(owner_slug, user_repo, org_repo)
+    # Resolve owner
+    owner = resolve_owner(owner_slug, user_repo)
     if not owner:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Owner or endpoint not found"
@@ -686,7 +562,7 @@ async def invoke_owner_endpoint(
 
     # Get endpoint by owner and slug
     endpoint = get_endpoint_by_owner_and_slug(
-        owner, owner_type, endpoint_slug.lower(), endpoint_repo
+        owner, endpoint_slug.lower(), endpoint_repo
     )
     if not endpoint or not endpoint.is_active:
         raise HTTPException(
@@ -694,9 +570,7 @@ async def invoke_owner_endpoint(
         )
 
     # Check access permissions
-    if not can_access_endpoint_with_org(
-        endpoint, current_user, owner_type, member_repo
-    ):
+    if not can_access_endpoint(endpoint, current_user):
         if current_user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

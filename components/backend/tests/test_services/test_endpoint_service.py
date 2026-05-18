@@ -77,7 +77,6 @@ def sample_endpoint():
         archived=False,
         contributors=[],
         user_id=1,
-        organization_id=None,
         stars_count=0,
         created_at=datetime.fromisoformat("2023-01-01T00:00:00"),
         updated_at=datetime.fromisoformat("2023-01-01T00:00:00"),
@@ -114,9 +113,7 @@ class TestEndpointServiceCreate:
                 return_value=sample_endpoint,
             ),
         ):
-            result = endpoint_service.create_endpoint(
-                endpoint_data, 1, is_organization=False
-            )
+            result = endpoint_service.create_endpoint(endpoint_data, 1)
 
             assert isinstance(result, EndpointResponse)
             assert result.name == "Test Endpoint"
@@ -141,65 +138,10 @@ class TestEndpointServiceCreate:
             return_value=True,
         ):
             with pytest.raises(HTTPException) as exc_info:
-                endpoint_service.create_endpoint(
-                    endpoint_data, 1, is_organization=False
-                )
+                endpoint_service.create_endpoint(endpoint_data, 1)
 
             assert exc_info.value.status_code == 400
             assert "slug already exists" in str(exc_info.value.detail)
-
-    def test_create_organization_endpoint_not_member(
-        self, endpoint_service, sample_user
-    ):
-        """Test organization endpoint creation without membership."""
-        endpoint_data = EndpointCreate(
-            name="Test Endpoint",
-            slug="test-endpoint",
-            description="A test endpoint",
-            type=EndpointType.MODEL,
-        )
-
-        with patch.object(
-            endpoint_service.org_member_repository, "is_member", return_value=False
-        ):
-            with pytest.raises(HTTPException) as exc_info:
-                endpoint_service.create_endpoint(
-                    endpoint_data, 1, is_organization=True, current_user=sample_user
-                )
-
-            assert exc_info.value.status_code == 403
-            assert "not a member of organization" in str(exc_info.value.detail)
-
-    def test_create_organization_endpoint_slug_exists(
-        self, endpoint_service, sample_user
-    ):
-        """Test organization endpoint creation with existing slug."""
-        endpoint_data = EndpointCreate(
-            name="Test Endpoint",
-            slug="existing-slug",
-            description="A test endpoint",
-            type=EndpointType.MODEL,
-        )
-
-        with (
-            patch.object(
-                endpoint_service.org_member_repository, "is_member", return_value=True
-            ),
-            patch.object(
-                endpoint_service.endpoint_repository,
-                "slug_exists_for_organization",
-                return_value=True,
-            ),
-        ):
-            with pytest.raises(HTTPException) as exc_info:
-                endpoint_service.create_endpoint(
-                    endpoint_data, 1, is_organization=True, current_user=sample_user
-                )
-
-            assert exc_info.value.status_code == 400
-            assert "slug already exists for this organization" in str(
-                exc_info.value.detail
-            )
 
     def test_create_endpoint_failure(
         self,
@@ -227,9 +169,7 @@ class TestEndpointServiceCreate:
             ),
         ):
             with pytest.raises(HTTPException) as exc_info:
-                endpoint_service.create_endpoint(
-                    endpoint_data, 1, is_organization=False
-                )
+                endpoint_service.create_endpoint(endpoint_data, 1)
 
             assert exc_info.value.status_code == 500
             assert "Failed to create endpoint" in str(exc_info.value.detail)
@@ -257,28 +197,6 @@ class TestEndpointServiceGet:
             return_value=None,
         ):
             result = endpoint_service.get_endpoint_by_user_and_slug(1, "nonexistent")
-
-            assert result is None
-
-    def test_get_endpoint_by_org_and_slug(self, endpoint_service, sample_endpoint):
-        """Test getting endpoint by organization and slug."""
-        with patch.object(
-            endpoint_service.endpoint_repository,
-            "get_by_organization_and_slug",
-            return_value=sample_endpoint,
-        ):
-            result = endpoint_service.get_endpoint_by_org_and_slug(1, "test-endpoint")
-
-            assert result == sample_endpoint
-
-    def test_get_endpoint_by_org_and_slug_not_found(self, endpoint_service):
-        """Test getting non-existent endpoint by organization and slug."""
-        with patch.object(
-            endpoint_service.endpoint_repository,
-            "get_by_organization_and_slug",
-            return_value=None,
-        ):
-            result = endpoint_service.get_endpoint_by_org_and_slug(1, "nonexistent")
 
             assert result is None
 
@@ -436,56 +354,6 @@ class TestEndpointServiceLists:
             patch.object(endpoint_service, "_can_access_endpoint", return_value=False),
         ):
             result = endpoint_service.get_user_endpoints(1, current_user=sample_user)
-
-            assert len(result) == 0
-
-    def test_get_organization_endpoints_basic(
-        self, endpoint_service, sample_endpoint, sample_user
-    ):
-        """Test getting organization endpoints."""
-        endpoint_dict = sample_endpoint.model_dump()
-        endpoint_dict.update(
-            {"is_organization_owned": True, "organization_id": 1, "user_id": None}
-        )
-        org_endpoint = Endpoint(**endpoint_dict)
-
-        with (
-            patch.object(
-                endpoint_service.endpoint_repository,
-                "get_organization_endpoints",
-                return_value=[org_endpoint],
-            ),
-            patch.object(endpoint_service, "_can_access_endpoint", return_value=True),
-            patch.object(endpoint_service, "_can_see_full_details", return_value=True),
-        ):
-            result = endpoint_service.get_organization_endpoints(
-                1, current_user=sample_user
-            )
-
-            assert len(result) == 1
-            assert result[0].name == "Test Endpoint"
-
-    def test_get_organization_endpoints_no_access(
-        self, endpoint_service, sample_endpoint, sample_user
-    ):
-        """Test getting organization endpoints with no access."""
-        endpoint_dict = sample_endpoint.model_dump()
-        endpoint_dict.update(
-            {"is_organization_owned": True, "organization_id": 1, "user_id": None}
-        )
-        org_endpoint = Endpoint(**endpoint_dict)
-
-        with (
-            patch.object(
-                endpoint_service.endpoint_repository,
-                "get_organization_endpoints",
-                return_value=[org_endpoint],
-            ),
-            patch.object(endpoint_service, "_can_access_endpoint", return_value=False),
-        ):
-            result = endpoint_service.get_organization_endpoints(
-                1, current_user=sample_user
-            )
 
             assert len(result) == 0
 
@@ -760,7 +628,7 @@ class TestEndpointServicePermissions:
         """Test access to public endpoint."""
         sample_endpoint.visibility = EndpointVisibility.PUBLIC
 
-        result = endpoint_service._can_access_endpoint(sample_endpoint, None, "user")
+        result = endpoint_service._can_access_endpoint(sample_endpoint, None)
         assert result is True
 
     def test_can_access_endpoint_unauthenticated_private(
@@ -769,7 +637,7 @@ class TestEndpointServicePermissions:
         """Test unauthenticated access to private endpoint."""
         sample_endpoint.visibility = EndpointVisibility.PRIVATE
 
-        result = endpoint_service._can_access_endpoint(sample_endpoint, None, "user")
+        result = endpoint_service._can_access_endpoint(sample_endpoint, None)
         assert result is False
 
     def test_can_access_endpoint_admin(
@@ -781,9 +649,7 @@ class TestEndpointServicePermissions:
         admin_user_data.update({"id": 2, "role": "admin"})
         admin_user = User(**admin_user_data)
 
-        result = endpoint_service._can_access_endpoint(
-            sample_endpoint, admin_user, "user"
-        )
+        result = endpoint_service._can_access_endpoint(sample_endpoint, admin_user)
         assert result is True
 
     def test_can_access_user_endpoint_owner(
@@ -793,42 +659,8 @@ class TestEndpointServicePermissions:
         sample_endpoint.visibility = EndpointVisibility.PRIVATE
         sample_endpoint.user_id = sample_user.id
 
-        result = endpoint_service._can_access_endpoint(
-            sample_endpoint, sample_user, "user"
-        )
+        result = endpoint_service._can_access_endpoint(sample_endpoint, sample_user)
         assert result is True
-
-    def test_can_access_org_endpoint_member(
-        self, endpoint_service, sample_endpoint, sample_user
-    ):
-        """Test organization member access to org endpoint."""
-        sample_endpoint.visibility = EndpointVisibility.INTERNAL
-        sample_endpoint.organization_id = 1
-        sample_endpoint.user_id = None
-
-        with patch.object(
-            endpoint_service.org_member_repository, "is_member", return_value=True
-        ):
-            result = endpoint_service._can_access_endpoint(
-                sample_endpoint, sample_user, "organization"
-            )
-            assert result is True
-
-    def test_can_access_org_endpoint_non_member(
-        self, endpoint_service, sample_endpoint, sample_user
-    ):
-        """Test non-member access to org endpoint."""
-        sample_endpoint.visibility = EndpointVisibility.PRIVATE
-        sample_endpoint.organization_id = 1
-        sample_endpoint.user_id = None
-
-        with patch.object(
-            endpoint_service.org_member_repository, "is_member", return_value=False
-        ):
-            result = endpoint_service._can_access_endpoint(
-                sample_endpoint, sample_user, "organization"
-            )
-            assert result is False
 
     def test_can_see_full_details_public_unauthenticated(
         self, endpoint_service, sample_endpoint
@@ -836,7 +668,7 @@ class TestEndpointServicePermissions:
         """Test unauthenticated user seeing public endpoint details."""
         sample_endpoint.visibility = EndpointVisibility.PUBLIC
 
-        result = endpoint_service._can_see_full_details(sample_endpoint, None, "user")
+        result = endpoint_service._can_see_full_details(sample_endpoint, None)
         assert result is True
 
     def test_can_see_full_details_admin(
@@ -847,9 +679,7 @@ class TestEndpointServicePermissions:
         admin_user_data.update({"id": 2, "role": "admin"})
         admin_user = User(**admin_user_data)
 
-        result = endpoint_service._can_see_full_details(
-            sample_endpoint, admin_user, "user"
-        )
+        result = endpoint_service._can_see_full_details(sample_endpoint, admin_user)
         assert result is True
 
     def test_can_see_full_details_owner(
@@ -858,25 +688,8 @@ class TestEndpointServicePermissions:
         """Test owner seeing their endpoint details."""
         sample_endpoint.user_id = sample_user.id
 
-        result = endpoint_service._can_see_full_details(
-            sample_endpoint, sample_user, "user"
-        )
+        result = endpoint_service._can_see_full_details(sample_endpoint, sample_user)
         assert result is True
-
-    def test_can_see_full_details_org_member(
-        self, endpoint_service, sample_endpoint, sample_user
-    ):
-        """Test organization member seeing org endpoint details."""
-        sample_endpoint.organization_id = 1
-        sample_endpoint.user_id = None
-
-        with patch.object(
-            endpoint_service.org_member_repository, "is_member", return_value=True
-        ):
-            result = endpoint_service._can_see_full_details(
-                sample_endpoint, sample_user, "organization"
-            )
-            assert result is True
 
     def test_can_see_full_details_non_owner_user_endpoint(
         self, endpoint_service, sample_endpoint, sample_user
@@ -885,22 +698,8 @@ class TestEndpointServicePermissions:
         sample_endpoint.visibility = EndpointVisibility.PRIVATE
         sample_endpoint.user_id = 999  # Different user
 
-        result = endpoint_service._can_see_full_details(
-            sample_endpoint, sample_user, "user"
-        )
+        result = endpoint_service._can_see_full_details(sample_endpoint, sample_user)
         assert result is False  # User endpoints require ownership
-
-    def test_can_see_full_details_fallback_public_orphaned(
-        self, endpoint_service, sample_endpoint, sample_user
-    ):
-        """Test fallback to public visibility for orphaned endpoint."""
-        sample_endpoint.visibility = EndpointVisibility.PUBLIC
-        sample_endpoint.user_id = None  # Orphaned endpoint
-
-        result = endpoint_service._can_see_full_details(
-            sample_endpoint, sample_user, "user"
-        )
-        assert result is True  # Falls back to public visibility check
 
     def test_can_modify_endpoint_admin(
         self, endpoint_service, sample_endpoint, sample_user
@@ -922,63 +721,11 @@ class TestEndpointServicePermissions:
         result = endpoint_service._can_modify_endpoint(sample_endpoint, sample_user)
         assert result is True
 
-    def test_can_modify_endpoint_org_owner(
-        self, endpoint_service, sample_endpoint, sample_user
-    ):
-        """Test organization owner can modify org endpoint."""
-        sample_endpoint.organization_id = 1
-        sample_endpoint.user_id = None
-
-        from syfthub.schemas.organization import OrganizationRole
-
-        with patch.object(
-            endpoint_service.org_member_repository,
-            "get_member_role",
-            return_value=OrganizationRole.OWNER,
-        ):
-            result = endpoint_service._can_modify_endpoint(sample_endpoint, sample_user)
-            assert result is True
-
-    def test_can_modify_endpoint_org_admin(
-        self, endpoint_service, sample_endpoint, sample_user
-    ):
-        """Test organization admin can modify org endpoint."""
-        sample_endpoint.organization_id = 1
-        sample_endpoint.user_id = None
-
-        from syfthub.schemas.organization import OrganizationRole
-
-        with patch.object(
-            endpoint_service.org_member_repository,
-            "get_member_role",
-            return_value=OrganizationRole.ADMIN,
-        ):
-            result = endpoint_service._can_modify_endpoint(sample_endpoint, sample_user)
-            assert result is True
-
-    def test_can_modify_endpoint_org_member_cannot(
-        self, endpoint_service, sample_endpoint, sample_user
-    ):
-        """Test organization member cannot modify org endpoint."""
-        sample_endpoint.organization_id = 1
-        sample_endpoint.user_id = None
-
-        from syfthub.schemas.organization import OrganizationRole
-
-        with patch.object(
-            endpoint_service.org_member_repository,
-            "get_member_role",
-            return_value=OrganizationRole.MEMBER,
-        ):
-            result = endpoint_service._can_modify_endpoint(sample_endpoint, sample_user)
-            assert result is False
-
     def test_can_modify_endpoint_no_permissions(
         self, endpoint_service, sample_endpoint, sample_user
     ):
         """Test user with no permissions cannot modify endpoint."""
         sample_endpoint.user_id = 999  # Different user
-        sample_endpoint.organization_id = None
 
         result = endpoint_service._can_modify_endpoint(sample_endpoint, sample_user)
         assert result is False
@@ -1394,21 +1141,11 @@ class TestReportEndpointHealth:
             )
         ]
 
-        # Mock org membership (no orgs)
-        mock_org = MagicMock()
-        mock_org.id = 100
         with (
-            patch.object(
-                endpoint_service.org_member_repository,
-                "get_user_organizations",
-                return_value=[],
-            ),
             patch.object(
                 endpoint_service.endpoint_repository,
                 "get_endpoints_by_slugs_for_health",
-                return_value=[
-                    MagicMock(slug="my-endpoint", id=1, organization_id=None)
-                ],
+                return_value=[MagicMock(slug="my-endpoint", id=1)],
             ),
             patch.object(
                 endpoint_service.endpoint_repository,
@@ -1441,11 +1178,6 @@ class TestReportEndpointHealth:
         ]
 
         with (
-            patch.object(
-                endpoint_service.org_member_repository,
-                "get_user_organizations",
-                return_value=[],
-            ),
             patch.object(
                 endpoint_service.endpoint_repository,
                 "get_endpoints_by_slugs_for_health",
@@ -1496,11 +1228,6 @@ class TestReportEndpointHealth:
 
         with (
             patch.object(
-                endpoint_service.org_member_repository,
-                "get_user_organizations",
-                return_value=[],
-            ),
-            patch.object(
                 endpoint_service.endpoint_repository,
                 "get_endpoints_by_slugs_for_health",
                 return_value=[],
@@ -1518,54 +1245,6 @@ class TestReportEndpointHealth:
         assert result.updated == 0
         assert result.ignored == 1
 
-    def test_report_health_updates_org_heartbeat(self, endpoint_service, sample_user):
-        """Test that org heartbeats are updated for matched org-owned endpoints."""
-        now = datetime.now(timezone.utc)
-        items = [
-            EndpointHealthItem(
-                slug="org-endpoint",
-                status=EndpointHealthStatus.HEALTHY,
-                checked_at=now,
-            )
-        ]
-
-        mock_org = MagicMock()
-        mock_org.id = 100
-        mock_endpoint = MagicMock(slug="org-endpoint", id=5, organization_id=100)
-
-        with (
-            patch.object(
-                endpoint_service.org_member_repository,
-                "get_user_organizations",
-                return_value=[mock_org],
-            ),
-            patch.object(
-                endpoint_service.endpoint_repository,
-                "get_endpoints_by_slugs_for_health",
-                return_value=[mock_endpoint],
-            ),
-            patch.object(
-                endpoint_service.endpoint_repository,
-                "bulk_update_health_status",
-                return_value=1,
-            ),
-            patch.object(
-                endpoint_service.user_repository, "update_heartbeat", return_value=True
-            ),
-            patch.object(
-                endpoint_service.org_repository, "update_heartbeat", return_value=True
-            ) as mock_org_heartbeat,
-        ):
-            result = endpoint_service.report_endpoint_health(
-                endpoints_health=items,
-                url="https://example.com",
-                current_user=sample_user,
-                ttl_seconds=300,
-            )
-
-        assert result.updated == 1
-        mock_org_heartbeat.assert_called_once()
-
     def test_report_health_commit_failure(self, endpoint_service, sample_user):
         """Test that commit failure raises HTTPException."""
         now = datetime.now(timezone.utc)
@@ -1580,11 +1259,6 @@ class TestReportEndpointHealth:
         endpoint_service.session.commit.side_effect = Exception("DB error")
 
         with (
-            patch.object(
-                endpoint_service.org_member_repository,
-                "get_user_organizations",
-                return_value=[],
-            ),
             patch.object(
                 endpoint_service.endpoint_repository,
                 "get_endpoints_by_slugs_for_health",
@@ -1635,7 +1309,6 @@ class TestGetEndpointUptime:
         ep.id = overrides.get("id", 42)
         ep.slug = overrides.get("slug", "ep")
         ep.user_id = overrides.get("user_id", 1)
-        ep.organization_id = overrides.get("organization_id")
         ep.visibility = overrides.get("visibility", EndpointVisibility.PUBLIC)
         return ep
 
@@ -1689,51 +1362,10 @@ class TestGetEndpointUptime:
         assert b.healthy_samples == 60
         assert b.uptime_pct == 100.0
 
-    def test_uptime_falls_back_to_org_lookup(self, endpoint_service, sample_user):
-        org = MagicMock(id=99, slug="acme")
-        endpoint = self._endpoint(
-            id=7,
-            slug="bar",
-            user_id=None,
-            organization_id=99,
-            visibility=EndpointVisibility.PUBLIC,
-        )
-
-        with (
-            patch.object(
-                endpoint_service.user_repository, "get_by_username", return_value=None
-            ),
-            patch.object(
-                endpoint_service.org_repository, "get_by_slug", return_value=org
-            ),
-            patch.object(
-                endpoint_service.endpoint_repository,
-                "get_by_owner_and_slug_any_state",
-                return_value=endpoint,
-            ),
-            patch.object(
-                endpoint_service.endpoint_repository,
-                "get_uptime_samples",
-                return_value=[],
-            ),
-        ):
-            result = endpoint_service.get_endpoint_uptime(
-                owner_username="acme",
-                slug="bar",
-                window_hours=12,
-                current_user=sample_user,
-            )
-
-        assert result.endpoint_id == 7
-        assert result.buckets == []
-
     def test_uptime_not_found_returns_404(self, endpoint_service, sample_user):
         with (
             patch.object(
                 endpoint_service.user_repository, "get_by_username", return_value=None
-            ),
-            patch.object(
-                endpoint_service.org_repository, "get_by_slug", return_value=None
             ),
             pytest.raises(HTTPException) as exc,
         ):
