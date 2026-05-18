@@ -12,10 +12,6 @@ from fastapi import HTTPException, status
 from syfthub.core.config import settings
 from syfthub.core.url_builder import transform_connection_urls
 from syfthub.repositories.endpoint import EndpointRepository, EndpointStarRepository
-from syfthub.repositories.organization import (
-    OrganizationMemberRepository,
-    OrganizationRepository,
-)
 from syfthub.repositories.user import UserRepository
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.endpoint import (
@@ -65,20 +61,13 @@ class EndpointService(BaseService):
         super().__init__(session)
         self.endpoint_repository = EndpointRepository(session)
         self.star_repository = EndpointStarRepository(session)
-        self.org_member_repository = OrganizationMemberRepository(session)
-        self.org_repository = OrganizationRepository(session)
         self.user_repository = UserRepository(session)
         self.rag_service: RAGService = get_rag_service()
 
     def _get_owner_domain(self, endpoint: Endpoint) -> str | None:
-        """Get the domain for an endpoint's owner (user or organization)."""
-        if endpoint.user_id:
-            user = self.user_repository.get_by_id(endpoint.user_id)
-            return user.domain if user else None
-        elif endpoint.organization_id:
-            org = self.org_repository.get_by_id(endpoint.organization_id)
-            return org.domain if org else None
-        return None
+        """Get the domain for an endpoint's owner."""
+        user = self.user_repository.get_by_id(endpoint.user_id)
+        return user.domain if user else None
 
     def _to_response_with_urls(
         self,
@@ -136,35 +125,20 @@ class EndpointService(BaseService):
         self,
         name: str,
         owner_id: int,
-        is_organization: bool = False,
     ) -> str:
-        """Generate a unique slug for a user or organization."""
+        """Generate a unique slug for a user."""
         base_slug = generate_slug_from_name(name)
 
         # Check if base slug is available
-        if is_organization:
-            slug_available = not self.endpoint_repository.slug_exists_for_organization(
-                owner_id, base_slug
-            )
-        else:
-            slug_available = self._is_slug_available(base_slug, owner_id)
-
-        if slug_available:
+        if self._is_slug_available(base_slug, owner_id):
             return base_slug
 
         # If base slug is taken, append numbers
         counter = 1
         while counter < 1000:  # Prevent infinite loops
             new_slug = f"{base_slug}-{counter}"
-            if len(new_slug) <= 63:
-                if is_organization:
-                    if not self.endpoint_repository.slug_exists_for_organization(
-                        owner_id, new_slug
-                    ):
-                        return new_slug
-                else:
-                    if self._is_slug_available(new_slug, owner_id):
-                        return new_slug
+            if len(new_slug) <= 63 and self._is_slug_available(new_slug, owner_id):
+                return new_slug
             counter += 1
 
         # Fallback: use timestamp
@@ -212,21 +186,9 @@ class EndpointService(BaseService):
         self,
         endpoint_data: EndpointCreate,
         owner_id: int,
-        is_organization: bool = False,
         current_user: Optional[User] = None,
     ) -> EndpointResponse:
         """Create a new endpoint."""
-        # Validate permissions for organization endpoints
-        if (
-            is_organization
-            and current_user
-            and not self.org_member_repository.is_member(owner_id, current_user.id)
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Permission denied: not a member of organization",
-            )
-
         # Validate and sanitize contributors
         valid_contributors = self._validate_contributors(endpoint_data.contributors)
 
@@ -238,24 +200,13 @@ class EndpointService(BaseService):
         # Auto-generate slug if not provided
         final_slug = endpoint_data.slug
         if final_slug is None:
-            final_slug = self._generate_unique_slug(
-                endpoint_data.name, owner_id, is_organization
-            )
+            final_slug = self._generate_unique_slug(endpoint_data.name, owner_id)
 
-        if is_organization:
-            if self.endpoint_repository.slug_exists_for_organization(
-                owner_id, final_slug
-            ):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Endpoint slug already exists for this organization",
-                )
-        else:
-            if self.endpoint_repository.slug_exists_for_user(owner_id, final_slug):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="slug already exists - already taken",
-                )
+        if self.endpoint_repository.slug_exists_for_user(owner_id, final_slug):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="slug already exists - already taken",
+            )
 
         final_tags = self._inject_prepaid_tag(
             endpoint_data.tags, endpoint_data.policies
@@ -285,9 +236,7 @@ class EndpointService(BaseService):
         )
 
         # Create endpoint with validated data
-        endpoint = self.endpoint_repository.create_endpoint(
-            validated_data, owner_id, is_organization
-        )
+        endpoint = self.endpoint_repository.create_endpoint(validated_data, owner_id)
 
         if not endpoint:
             raise HTTPException(
@@ -312,12 +261,6 @@ class EndpointService(BaseService):
         endpoint = self.endpoint_repository.get_by_user_and_slug(current_user.id, slug)
         return endpoint is not None
 
-    def get_endpoint_by_org_and_slug(
-        self, org_id: int, slug: str
-    ) -> Optional[Endpoint]:
-        """Get endpoint by organization and slug."""
-        return self.endpoint_repository.get_by_organization_and_slug(org_id, slug)
-
     def get_user_endpoints(
         self,
         user_id: int,
@@ -338,41 +281,11 @@ class EndpointService(BaseService):
 
         accessible_endpoints = []
         for endpoint in endpoints:
-            if self._can_access_endpoint(endpoint, current_user, "user"):
+            if self._can_access_endpoint(endpoint, current_user):
                 accessible_endpoints.append(
                     self._to_response_with_urls(
                         endpoint,
                         owner_domain=user_domain,
-                        current_user=current_user,
-                    )
-                )
-
-        return accessible_endpoints
-
-    def get_organization_endpoints(
-        self,
-        org_id: int,
-        skip: int = 0,
-        limit: int = 10,
-        visibility: Optional[EndpointVisibility] = None,
-        current_user: Optional[User] = None,
-    ) -> List[EndpointResponse]:
-        """Get organization's endpoints with proper access control and transformed URLs."""
-        endpoints = self.endpoint_repository.get_organization_endpoints(
-            org_id, skip, limit, visibility
-        )
-
-        # Look up org domain once for all endpoints (avoids N+1)
-        org = self.org_repository.get_by_id(org_id)
-        org_domain = org.domain if org else None
-
-        accessible_endpoints = []
-        for endpoint in endpoints:
-            if self._can_access_endpoint(endpoint, current_user, "organization"):
-                accessible_endpoints.append(
-                    self._to_response_with_urls(
-                        endpoint,
-                        owner_domain=org_domain,
                         current_user=current_user,
                     )
                 )
@@ -409,14 +322,9 @@ class EndpointService(BaseService):
         # Validate contributors if they are being updated
         if endpoint_data.contributors is not None:
             valid_contributors = self._validate_contributors(endpoint_data.contributors)
-            # Ensure at least one contributor exists (the user performing the update)
-            # For user-owned endpoints, the owner should always be included
-            # For org-owned endpoints, ensure the updating user is included if list would be empty
-            if endpoint.user_id and endpoint.user_id not in valid_contributors:
+            # Ensure the owner is always included as a contributor
+            if endpoint.user_id not in valid_contributors:
                 valid_contributors.append(endpoint.user_id)
-            elif not endpoint.user_id and current_user.id not in valid_contributors:
-                # Org-owned endpoint: ensure at least the updating user is a contributor
-                valid_contributors.append(current_user.id)
             endpoint_data.contributors = valid_contributors
 
         if endpoint_data.policies is not None:
@@ -565,7 +473,7 @@ class EndpointService(BaseService):
         """List public endpoints for a specific owner.
 
         Args:
-            owner_slug: The username or organization slug.
+            owner_slug: The username.
             skip: Number of endpoints to skip (for pagination).
             limit: Maximum number of endpoints to return.
 
@@ -916,11 +824,8 @@ class EndpointService(BaseService):
                 detail="Endpoint not found",
             )
 
-        # Determine owner type
-        owner_type = "organization" if endpoint.organization_id else "user"
-
         # Check permissions
-        if not self._can_access_endpoint(endpoint, current_user, owner_type):
+        if not self._can_access_endpoint(endpoint, current_user):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,  # Hide existence for security
                 detail="Endpoint not found",
@@ -995,8 +900,7 @@ class EndpointService(BaseService):
                 detail="Endpoint not found",
             )
 
-        owner_type = "organization" if endpoint.organization_id else "user"
-        if not self._can_access_endpoint(endpoint, current_user, owner_type):
+        if not self._can_access_endpoint(endpoint, current_user):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Endpoint not found",
@@ -1022,7 +926,7 @@ class EndpointService(BaseService):
         return self.star_repository.is_starred(current_user.id, endpoint_id)
 
     def _can_access_endpoint(
-        self, endpoint: Endpoint, current_user: Optional[User], owner_type: str
+        self, endpoint: Endpoint, current_user: Optional[User]
     ) -> bool:
         """Check if user can access endpoint."""
         # Public endpoints are always accessible
@@ -1037,27 +941,12 @@ class EndpointService(BaseService):
         if current_user.role == UserRole.ADMIN:
             return True
 
-        # For user-owned endpoints
-        if owner_type == "user" and endpoint.user_id:
-            # Owner can access; non-owners cannot — INTERNAL behaves like PRIVATE
-            # for user accounts (no "members" concept)
-            return endpoint.user_id == current_user.id
-
-        # For organization-owned endpoints
-        if (
-            owner_type == "organization"
-            and endpoint.organization_id
-            and endpoint.visibility
-            in (EndpointVisibility.INTERNAL, EndpointVisibility.PRIVATE)
-        ):
-            return self.org_member_repository.is_member(
-                endpoint.organization_id, current_user.id
-            )
-
-        return False
+        # Owner can access; non-owners cannot — INTERNAL behaves like PRIVATE
+        # for user accounts (no "members" concept)
+        return endpoint.user_id == current_user.id
 
     def _can_see_full_details(
-        self, endpoint: Endpoint, current_user: Optional[User], owner_type: str
+        self, endpoint: Endpoint, current_user: Optional[User]
     ) -> bool:
         """Check if user can see full endpoint details."""
         if current_user is None:
@@ -1066,15 +955,8 @@ class EndpointService(BaseService):
         if current_user.role == UserRole.ADMIN:
             return True
 
-        # For user-owned endpoints
-        if owner_type == "user" and endpoint.user_id:
-            return endpoint.user_id == current_user.id
-
-        # For organization-owned endpoints
-        if owner_type == "organization" and endpoint.organization_id:
-            return self.org_member_repository.is_member(
-                endpoint.organization_id, current_user.id
-            )
+        if endpoint.user_id == current_user.id:
+            return True
 
         return endpoint.visibility == EndpointVisibility.PUBLIC
 
@@ -1082,21 +964,7 @@ class EndpointService(BaseService):
         """Check if user can modify endpoint."""
         if current_user.role == UserRole.ADMIN:
             return True
-
-        # For user-owned endpoints
-        if endpoint.user_id:
-            return endpoint.user_id == current_user.id
-
-        # For organization-owned endpoints
-        if endpoint.organization_id:
-            member_role = self.org_member_repository.get_member_role(
-                endpoint.organization_id, current_user.id
-            )
-            from syfthub.schemas.organization import OrganizationRole
-
-            return member_role in [OrganizationRole.OWNER, OrganizationRole.ADMIN]
-
-        return False
+        return endpoint.user_id == current_user.id
 
     # ===========================================
     # SYNC OPERATIONS
@@ -1241,8 +1109,6 @@ class EndpointService(BaseService):
         This operation is ATOMIC: either all endpoints are synced, or none are.
         It replaces ALL user-owned endpoints with the provided list.
 
-        Organization endpoints are NOT affected.
-
         Flow:
         1. Validate all endpoints in the batch (no DB changes)
         2. If validation fails, return 400 with ALL errors
@@ -1369,14 +1235,13 @@ class EndpointService(BaseService):
         domain: str,
         expires_at: datetime,
         now: datetime,
-        org_ids_to_update: set[int],
     ) -> None:
-        """Update heartbeat fields on user and organization owners.
+        """Update heartbeat fields on the user owner.
 
         .. deprecated::
             This method updates the legacy heartbeat fields (last_heartbeat_at,
-            heartbeat_expires_at) on user and organization records. It exists to
-            maintain backward compatibility while clients migrate from the deprecated
+            heartbeat_expires_at) on the user record. It exists to maintain
+            backward compatibility while clients migrate from the deprecated
             heartbeat endpoints to ``POST /endpoints/health``.
 
             When the deprecated heartbeat endpoints are fully removed and
@@ -1385,22 +1250,12 @@ class EndpointService(BaseService):
 
         Does NOT commit — caller manages the transaction.
         """
-        # Update user heartbeat
         self.user_repository.update_heartbeat(
             user_id=user_id,
             domain=domain,
             last_heartbeat_at=now,
             heartbeat_expires_at=expires_at,
         )
-
-        # Update org heartbeats for orgs that had matching endpoints
-        for org_id in org_ids_to_update:
-            self.org_repository.update_heartbeat(
-                org_id=org_id,
-                domain=domain,
-                last_heartbeat_at=now,
-                heartbeat_expires_at=expires_at,
-            )
 
     def report_endpoint_health(
         self,
@@ -1413,9 +1268,9 @@ class EndpointService(BaseService):
 
         This method:
         1. Extracts domain from URL and caps TTL at server max
-        2. Matches slugs against user-owned and org-owned endpoints
+        2. Matches slugs against the user's endpoints
         3. Updates health_status, health_checked_at, health_ttl_seconds per endpoint
-        4. Updates owner heartbeats (deprecated — backward compat with heartbeat fallback)
+        4. Updates owner heartbeat (deprecated — backward compat with heartbeat fallback)
 
         Args:
             endpoints_health: List of EndpointHealthItem with slug, status, checked_at
@@ -1448,24 +1303,18 @@ class EndpointService(BaseService):
 
         expires_at = now + timedelta(seconds=effective_ttl)
 
-        # --- Get orgs the user belongs to ---
-        user_orgs = self.org_member_repository.get_user_organizations(current_user.id)
-        org_ids = [org.id for org in user_orgs]
-
         # --- Bulk slug match (single query, no is_active filter) ---
         slugs = [item.slug for item in endpoints_health]
         matched_endpoints = self.endpoint_repository.get_endpoints_by_slugs_for_health(
             user_id=current_user.id,
-            org_ids=org_ids,
             slugs=slugs,
         )
 
         # Build slug -> endpoint model mapping
         slug_to_endpoint = {ep.slug: ep for ep in matched_endpoints}
 
-        # --- Build health updates and track which orgs need heartbeat update ---
+        # --- Build health updates ---
         health_updates = []
-        orgs_to_update_heartbeat: set[int] = set()
 
         for item in endpoints_health:
             slug = item.slug.lower()
@@ -1482,9 +1331,6 @@ class EndpointService(BaseService):
                 }
             )
 
-            if endpoint.organization_id:
-                orgs_to_update_heartbeat.add(endpoint.organization_id)
-
         # --- Bulk update per-endpoint health status ---
         updated = 0
         if health_updates:
@@ -1492,13 +1338,12 @@ class EndpointService(BaseService):
 
         ignored = len(endpoints_health) - updated
 
-        # --- Update owner heartbeats (deprecated — remove with heartbeat system) ---
+        # --- Update owner heartbeat (deprecated — remove with heartbeat system) ---
         self._update_owner_heartbeats(
             user_id=current_user.id,
             domain=domain,
             expires_at=expires_at,
             now=now,
-            org_ids_to_update=orgs_to_update_heartbeat,
         )
 
         # --- Commit all changes ---
@@ -1541,11 +1386,10 @@ class EndpointService(BaseService):
 
         Visibility mirrors the rest of the endpoint read path:
         - Public endpoints are readable by anyone (including guests)
-        - INTERNAL/PRIVATE endpoints require the viewer to be the owner or,
-          for org-owned endpoints, a member of the org.
+        - INTERNAL/PRIVATE endpoints require the viewer to be the owner.
 
         Args:
-            owner_username: User username or org slug
+            owner_username: User username
             slug: Endpoint slug
             window_hours: Rolling window in hours (1..2160 enforced at route)
             current_user: Authenticated viewer (optional for public reads)
@@ -1558,28 +1402,16 @@ class EndpointService(BaseService):
         """
         normalized_slug = slug.lower()
 
-        # Resolve owner — try user first, then organization. Use the
-        # any-state lookup so a chart can be rendered even when the health
-        # monitor has flipped the endpoint to is_active=False.
+        # Resolve owner. Use the any-state lookup so a chart can be rendered
+        # even when the health monitor has flipped the endpoint to
+        # is_active=False.
         owner_user = self.user_repository.get_by_username(owner_username)
         endpoint_model = None
         if owner_user is not None:
             endpoint_model = self.endpoint_repository.get_by_owner_and_slug_any_state(
                 user_id=owner_user.id,
-                organization_id=None,
                 slug=normalized_slug,
             )
-
-        if endpoint_model is None:
-            owner_org = self.org_repository.get_by_slug(owner_username)
-            if owner_org is not None:
-                endpoint_model = (
-                    self.endpoint_repository.get_by_owner_and_slug_any_state(
-                        user_id=None,
-                        organization_id=owner_org.id,
-                        slug=normalized_slug,
-                    )
-                )
 
         if endpoint_model is None:
             raise HTTPException(
@@ -1587,8 +1419,7 @@ class EndpointService(BaseService):
                 detail="Endpoint not found",
             )
 
-        owner_type = "organization" if endpoint_model.organization_id else "user"
-        if not self._can_access_endpoint(endpoint_model, current_user, owner_type):
+        if not self._can_access_endpoint(endpoint_model, current_user):
             # Hide existence for security
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

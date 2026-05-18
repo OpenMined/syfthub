@@ -96,7 +96,6 @@ export function DangerZoneTab() {
             </p>
             <ul className='text-muted-foreground mt-2 text-xs'>
               <li>All your endpoints will be deleted</li>
-              <li>Your organization memberships will be removed</li>
               <li>Your profile information will be permanently erased</li>
             </ul>
           </div>

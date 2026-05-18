@@ -7,7 +7,6 @@ from syfthub.repositories.collective import (
     CollectiveRepository,
 )
 from syfthub.repositories.endpoint import EndpointRepository
-from syfthub.repositories.organization import OrganizationRepository
 from syfthub.repositories.user import UserRepository
 from syfthub.repositories.xendit_subscription import UserXenditSubscriptionRepository
 
@@ -17,7 +16,6 @@ __all__ = [
     "CollectiveMemberRepository",
     "CollectiveRepository",
     "EndpointRepository",
-    "OrganizationRepository",
     "UserRepository",
     "UserXenditSubscriptionRepository",
 ]

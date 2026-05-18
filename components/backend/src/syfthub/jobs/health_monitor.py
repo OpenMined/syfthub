@@ -14,9 +14,8 @@ to False. If the endpoint becomes healthy again, is_active is restored.
 
 Deprecation path:
     Tier 2 (heartbeat fallback) exists for backward compatibility with clients
-    that still use the deprecated ``POST /users/me/heartbeat`` and
-    ``POST /organizations/{org_id}/heartbeat`` endpoints. Once all clients
-    migrate to ``POST /endpoints/health``, remove:
+    that still use the deprecated ``POST /users/me/heartbeat`` endpoint. Once
+    all clients migrate to ``POST /endpoints/health``, remove:
     - ``_check_heartbeat_health()`` method
     - The tier 2 call in ``_check_endpoint_health()``
     - ``heartbeat_expires_at`` from ``EndpointHealthInfo`` dataclass
@@ -47,7 +46,6 @@ from sqlalchemy.sql.expression import literal
 
 from syfthub.database.connection import db_manager
 from syfthub.models.endpoint import EndpointModel
-from syfthub.models.organization import OrganizationModel
 from syfthub.models.user import UserModel
 
 if TYPE_CHECKING:
@@ -73,8 +71,8 @@ class EndpointHealthInfo:
     is_active: bool
     connect: list[dict[str, Any]]
     owner_domain: Optional[str]  # None if owner has no domain configured
-    owner_id: int  # ID of the owner (user or organization)
-    owner_type: str  # "user" or "organization"
+    owner_id: int  # ID of the owning user
+    owner_type: str  # Always "user"
     heartbeat_expires_at: Optional[datetime]  # Deprecated: remove with heartbeat system
     # Per-endpoint health fields (reported by client via POST /endpoints/health)
     health_status: Optional[str] = None
@@ -157,12 +155,11 @@ class EndpointHealthMonitor:
     ) -> list[EndpointHealthInfo]:
         """Query all endpoints with their owner's domain and heartbeat info.
 
-        This method performs a query that joins endpoints with their owners
-        (either users or organizations) to get the domain and heartbeat
-        information needed for hybrid health checking.
+        This method joins endpoints with their owning user to get the domain
+        and heartbeat information needed for hybrid health checking.
 
-        For user-owned endpoints, heartbeat_expires_at is included to enable
-        skipping HTTP checks when heartbeat is fresh.
+        heartbeat_expires_at is included to enable skipping HTTP checks when
+        the heartbeat is fresh.
 
         Endpoints without owner domains are included and will be marked as
         unhealthy (is_active=False) during the health check cycle.
@@ -174,7 +171,7 @@ class EndpointHealthMonitor:
             List of EndpointHealthInfo objects containing endpoint data,
             owner domain, and heartbeat information
         """
-        # Query endpoints with user domain and heartbeat info (user-owned endpoints)
+        # Query endpoints joined with their owning user
         user_endpoints_stmt = select(
             EndpointModel.id,
             EndpointModel.slug,
@@ -189,24 +186,8 @@ class EndpointHealthMonitor:
             EndpointModel.health_ttl_seconds,
         ).join(UserModel, EndpointModel.user_id == UserModel.id)
 
-        # Query endpoints with organization domain (org-owned endpoints)
-        org_endpoints_stmt = select(
-            EndpointModel.id,
-            EndpointModel.slug,
-            EndpointModel.type,
-            EndpointModel.is_active,
-            EndpointModel.connect,
-            OrganizationModel.domain,
-            label("owner_id", OrganizationModel.id),
-            OrganizationModel.heartbeat_expires_at,
-            EndpointModel.health_status,
-            EndpointModel.health_checked_at,
-            EndpointModel.health_ttl_seconds,
-        ).join(OrganizationModel, EndpointModel.organization_id == OrganizationModel.id)
-
         endpoints: list[EndpointHealthInfo] = []
 
-        # Execute user endpoints query
         user_results = session.execute(user_endpoints_stmt).all()
         for row in user_results:
             (
@@ -235,42 +216,6 @@ class EndpointHealthMonitor:
                         owner_domain=domain,  # May be None
                         owner_id=owner_id,
                         owner_type="user",
-                        heartbeat_expires_at=heartbeat_expires_at,
-                        health_status=health_status,
-                        health_checked_at=health_checked_at,
-                        health_ttl_seconds=health_ttl_seconds,
-                    )
-                )
-
-        # Execute organization endpoints query
-        org_results = session.execute(org_endpoints_stmt).all()
-        for row in org_results:
-            (
-                endpoint_id,
-                slug,
-                endpoint_type,
-                is_active,
-                connect,
-                domain,
-                owner_id,
-                heartbeat_expires_at,
-                health_status,
-                health_checked_at,
-                health_ttl_seconds,
-            ) = row
-            # Include endpoints with connections (even if domain is None)
-            # Endpoints without domain will be marked unhealthy in health check
-            if connect:
-                endpoints.append(
-                    EndpointHealthInfo(
-                        id=endpoint_id,
-                        slug=slug,
-                        endpoint_type=endpoint_type,
-                        is_active=is_active,
-                        connect=connect,
-                        owner_domain=domain,  # May be None
-                        owner_id=owner_id,
-                        owner_type="organization",
                         heartbeat_expires_at=heartbeat_expires_at,
                         health_status=health_status,
                         health_checked_at=health_checked_at,

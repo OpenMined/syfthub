@@ -223,7 +223,6 @@ export interface EndpointUpdate {
 export interface Endpoint extends EndpointBase {
   id: number;
   user_id?: number;
-  organization_id?: number;
   slug: string;
   is_active: boolean;
   contributors: number[];
@@ -304,51 +303,6 @@ export interface ChatSource {
   policies?: Policy[]; // Access policies for the endpoint
 }
 
-// Organization types
-export type OrganizationRole = 'owner' | 'admin' | 'member';
-
-export interface Organization {
-  id: number;
-  name: string;
-  slug: string;
-  description: string;
-  avatar_url?: string;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface OrganizationCreate {
-  name: string;
-  description: string;
-  avatar_url?: string;
-}
-
-export interface OrganizationUpdate {
-  name?: string;
-  description?: string;
-  avatar_url?: string;
-  is_active?: boolean;
-}
-
-export interface OrganizationMember {
-  id: number;
-  organization_id: number;
-  user_id: number;
-  role: OrganizationRole;
-  joined_at: string;
-  user?: UserResponse; // Populated in responses
-}
-
-export interface OrganizationMemberCreate {
-  user_id: number;
-  role: OrganizationRole;
-}
-
-export interface OrganizationMemberUpdate {
-  role?: OrganizationRole;
-}
-
 // API Error interface
 export interface APIErrorResponse {
   detail: string;
@@ -374,11 +328,6 @@ export interface SearchParams extends PaginationParams {
 export interface EndpointFilters extends SearchParams {
   visibility?: EndpointVisibility;
   min_stars?: number;
-}
-
-// Organization filters
-export interface OrganizationFilters extends SearchParams {
-  role?: OrganizationRole;
 }
 
 // =============================================================================

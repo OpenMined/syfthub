@@ -40,25 +40,13 @@ async def create_endpoint(
     endpoint_data: EndpointCreate,
     current_user: Annotated[User, Depends(get_current_active_user)],
     endpoint_service: Annotated[EndpointService, Depends(get_endpoint_service)],
-    organization_id: Optional[int] = Query(
-        None, description="Organization ID if creating endpoint for organization"
-    ),
 ) -> EndpointResponse:
-    """Create a new endpoint for the current user or an organization they belong to."""
-    if organization_id:
-        return endpoint_service.create_endpoint(
-            endpoint_data=endpoint_data,
-            owner_id=organization_id,
-            is_organization=True,
-            current_user=current_user,
-        )
-    else:
-        return endpoint_service.create_endpoint(
-            endpoint_data=endpoint_data,
-            owner_id=current_user.id,
-            is_organization=False,
-            current_user=current_user,
-        )
+    """Create a new endpoint for the current user."""
+    return endpoint_service.create_endpoint(
+        endpoint_data=endpoint_data,
+        owner_id=current_user.id,
+        current_user=current_user,
+    )
 
 
 @router.get("", response_model=list[EndpointResponse])
@@ -107,7 +95,7 @@ async def list_public_endpoints(
     response_model=GroupedEndpointsResponse,
     summary="List Public Endpoints Grouped by Owner",
     description="""
-List public endpoints grouped by their owner (user or organization).
+List public endpoints grouped by their owner.
 
 **No Authentication Required** - This endpoint is public.
 
@@ -151,7 +139,7 @@ async def list_public_endpoints_grouped(
     response_model=OwnersListResponse,
     summary="List Endpoint Owners",
     description="""
-List all owners (users/organizations) that have public endpoints, with endpoint counts.
+List all owners that have public endpoints, with endpoint counts.
 
 **No Authentication Required** - This endpoint is public.
 
@@ -162,7 +150,7 @@ This prevents performance issues when a single owner has hundreds of endpoints.
 
 **Response Format:**
 Returns a list of owners, where each owner has:
-- `username`: The username or organization slug
+- `username`: The username
 - `endpoint_count`: Total number of public endpoints
 - `model_count`: Number of model endpoints
 - `data_source_count`: Number of data source endpoints
@@ -194,7 +182,7 @@ async def list_public_endpoint_owners(
     response_model=list[EndpointPublicResponse],
     summary="List Public Endpoints by Owner",
     description="""
-List all public endpoints for a specific owner (user or organization).
+List all public endpoints for a specific owner.
 
 **No Authentication Required** - This endpoint is public.
 
@@ -226,7 +214,7 @@ async def list_public_endpoints_by_owner(
 ) -> list[EndpointPublicResponse]:
     """List public endpoints for a specific owner.
 
-    Returns all public, active endpoints belonging to the given user or organization.
+    Returns all public, active endpoints belonging to the given user.
     """
     return endpoint_service.list_public_endpoints_by_owner(
         owner_slug=owner_slug, skip=skip, limit=limit, current_user=current_user
@@ -423,7 +411,6 @@ Synchronize user's endpoints with the provided list.
 3. Is ATOMIC: either all endpoints sync successfully, or none do
 
 **Important Notes:**
-- Organization endpoints are NOT affected
 - Stars on existing endpoints will be lost (reset to 0)
 - Endpoint IDs will change (new IDs assigned)
 - Maximum 100 endpoints per sync request
@@ -460,8 +447,7 @@ Report per-endpoint health status from the client.
 **Authentication Required** - Bearer token (JWT or API token).
 
 **Behavior:**
-- Matches endpoint slugs against the user's own endpoints and endpoints of
-  organizations the user belongs to
+- Matches endpoint slugs against the user's own endpoints
 - Updates per-endpoint health fields (health_status, health_checked_at, health_ttl_seconds)
 - Also updates the owner's heartbeat (subsumes POST /users/me/heartbeat)
 - Slugs that don't match any accessible endpoint are counted as 'ignored'
@@ -504,8 +490,7 @@ configured ``uptime_bucket_seconds`` window (default 30 minutes, matching
 - ``samples`` / ``healthy_samples`` — raw counters for client-side aggregation
 
 Public endpoints are readable by anyone, including unauthenticated viewers.
-INTERNAL / PRIVATE endpoints require the viewer to be the owner or, for
-organization endpoints, a member of the org.
+INTERNAL / PRIVATE endpoints require the viewer to be the owner.
 """,
     responses={404: {"description": "Endpoint not found"}},
 )

@@ -8,7 +8,6 @@ from syfthub.models.endpoint import (
     EndpointStarModel,
     EndpointUptimeSampleModel,
 )
-from syfthub.models.organization import OrganizationMemberModel, OrganizationModel
 from syfthub.models.otp import OTPCodeModel
 from syfthub.models.user import UserModel
 from syfthub.models.user_aggregator import UserAggregatorModel
@@ -26,8 +25,6 @@ __all__ = [
     "EndpointUptimeSampleModel",
     "ErrorLogModel",
     "OTPCodeModel",
-    "OrganizationMemberModel",
-    "OrganizationModel",
     "TimestampMixin",
     "UserAggregatorModel",
     "UserModel",

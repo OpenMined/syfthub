@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, List, Optional
 from sqlalchemy import (
     JSON,
     Boolean,
-    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -25,7 +24,6 @@ JSONType = JSON().with_variant(JSONB(), "postgresql")  # type: ignore[no-untyped
 
 if TYPE_CHECKING:
     from syfthub.models.collective import CollectiveMemberModel
-    from syfthub.models.organization import OrganizationModel
     from syfthub.models.user import UserModel
 
 
@@ -44,12 +42,9 @@ class EndpointModel(BaseModel, TimestampMixin):
         default=lambda: datetime.now(timezone.utc),
     )
 
-    # Owner fields (exactly one of user_id or organization_id must be set)
-    user_id: Mapped[Optional[int]] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
-    )
-    organization_id: Mapped[Optional[int]] = mapped_column(
-        Integer, ForeignKey("organizations.id"), nullable=True
+    # Owner field - every endpoint is owned by exactly one user
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=False
     )
 
     # Endpoint fields
@@ -107,29 +102,19 @@ class EndpointModel(BaseModel, TimestampMixin):
     user: Mapped[Optional["UserModel"]] = relationship(
         "UserModel", back_populates="endpoints"
     )
-    organization: Mapped[Optional["OrganizationModel"]] = relationship(
-        "OrganizationModel", back_populates="endpoints"
-    )
     collective_memberships: Mapped[List["CollectiveMemberModel"]] = relationship(
         "CollectiveMemberModel",
         back_populates="endpoint",
         cascade="all, delete-orphan",
     )
+    user: Mapped["UserModel"] = relationship("UserModel", back_populates="endpoints")
 
-    # Indexes for performance - slug uniqueness is per-owner (user or organization)
+    # Indexes for performance - slug uniqueness is per-user
     __table_args__ = (
-        # Ensure exactly one owner (user_id XOR organization_id)
-        CheckConstraint(
-            "(user_id IS NULL) != (organization_id IS NULL)",
-            name="ck_endpoints_single_owner",
-        ),
         Index("idx_endpoints_user_id", "user_id"),
-        Index("idx_endpoints_organization_id", "organization_id"),
         Index("idx_endpoints_slug", "slug"),
-        # Unique slug per user (nulls ignored in unique constraints)
+        # Unique slug per user
         Index("idx_endpoints_user_slug", "user_id", "slug", unique=True),
-        # Unique slug per organization (nulls ignored in unique constraints)
-        Index("idx_endpoints_org_slug", "organization_id", "slug", unique=True),
         Index("idx_endpoints_type", "type"),
         Index("idx_endpoints_visibility", "visibility"),
         Index("idx_endpoints_is_active", "is_active"),
@@ -141,10 +126,7 @@ class EndpointModel(BaseModel, TimestampMixin):
 
     def __repr__(self) -> str:
         """String representation of Endpoint."""
-        owner = (
-            f"user={self.user_id}" if self.user_id else f"org={self.organization_id}"
-        )
-        return f"<Endpoint(id={self.id}, slug='{self.slug}', {owner})>"
+        return f"<Endpoint(id={self.id}, slug='{self.slug}', user={self.user_id})>"
 
 
 class EndpointStarModel(BaseModel):

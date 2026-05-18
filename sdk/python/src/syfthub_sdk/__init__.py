@@ -83,7 +83,6 @@ from syfthub_sdk.models import (
     HeartbeatResponse,
     Message,
     NatsCredentials,
-    OrganizationRole,
     PeerTokenResponse,
     Policy,
     SatelliteTokenResponse,
@@ -109,7 +108,6 @@ __all__ = [
     # Core models
     "User",
     "UserRole",
-    "OrganizationRole",
     "Endpoint",
     "EndpointPublic",
     "EndpointSearchResult",

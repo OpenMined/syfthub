@@ -344,7 +344,6 @@ class TestUserServiceStats:
             assert result["username"] == "testuser"
             assert result["is_active"] is True
             assert "endpoints_count" in result
-            assert "organizations_count" in result
 
     def test_get_user_stats_not_found(self, user_service):
         """Test getting stats for non-existent user."""

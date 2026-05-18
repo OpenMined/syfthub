@@ -132,7 +132,6 @@ class MyEndpointsResource:
         | builtins.list[dict[str, Any]]
         | None = None,
         contributors: builtins.list[int] | None = None,
-        organization_id: int | None = None,
     ) -> Endpoint:
         """Create a new endpoint.
 
@@ -148,8 +147,6 @@ class MyEndpointsResource:
             policies: List of policy configurations
             connect: List of connection configurations
             contributors: List of contributor user IDs
-            organization_id: ID of organization to create endpoint under (optional).
-                            If not provided, endpoint belongs to the authenticated user.
 
         Returns:
             The created Endpoint
@@ -190,9 +187,6 @@ class MyEndpointsResource:
 
         if contributors is not None:
             payload["contributors"] = contributors
-
-        if organization_id is not None:
-            payload["organization_id"] = organization_id
 
         response = self._http.post("/api/v1/endpoints", json=payload)
         data = response if isinstance(response, dict) else {}
@@ -334,7 +328,6 @@ class MyEndpointsResource:
         3. Is ATOMIC: either all endpoints sync successfully, or none do
 
         Important Notes:
-        - Organization endpoints are NOT affected
         - Stars on existing endpoints will be lost (reset to 0)
         - Endpoint IDs will change (new IDs assigned)
         - Maximum 100 endpoints per sync request
