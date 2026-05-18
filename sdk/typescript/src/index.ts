@@ -75,7 +75,6 @@ export {
   Visibility,
   EndpointType,
   UserRole,
-  OrganizationRole,
 } from './models/index.js';
 
 // Models - Types
@@ -141,7 +140,6 @@ export type {
 
 // Model helpers
 export {
-  getEndpointOwnerType,
   getEndpointPublicPath,
 } from './models/index.js';
 

@@ -1,7 +1,7 @@
 """Test main FastAPI application."""
 
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
@@ -12,7 +12,7 @@ from syfthub.main import (
     PROXY_TIMEOUT_MODEL,
     app,
     build_invocation_url,
-    can_access_endpoint_with_org,
+    can_access_endpoint,
     get_endpoint_by_owner_and_slug,
     get_owner_endpoints,
     main,
@@ -20,7 +20,6 @@ from syfthub.main import (
 )
 from syfthub.schemas.auth import UserRole
 from syfthub.schemas.endpoint import Endpoint, EndpointType, EndpointVisibility
-from syfthub.schemas.organization import Organization
 from syfthub.schemas.user import User
 
 
@@ -84,89 +83,28 @@ class TestUtilityFunctions:
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
-        # Create mock repositories
+        # Create mock repository
         mock_user_repo = Mock()
-        mock_org_repo = Mock()
         mock_user_repo.get_by_username.return_value = test_user
-        mock_org_repo.get_by_slug.return_value = None
 
         # Test
-        owner, owner_type = resolve_owner("testuser", mock_user_repo, mock_org_repo)
+        owner = resolve_owner("testuser", mock_user_repo)
 
         # Verify
         assert owner == test_user
-        assert owner_type == "user"
         mock_user_repo.get_by_username.assert_called_once_with("testuser")
 
-    def test_resolve_owner_organization_found(self):
-        """Test resolving owner when organization exists."""
-        # Setup
-        test_org = Organization(
-            id=1,
-            name="Test Org",
-            slug="test-org",
-            description="A test org",
-            avatar_url="",
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
-
-        # Create mock repositories
-        mock_user_repo = Mock()
-        mock_org_repo = Mock()
-        mock_user_repo.get_by_username.return_value = None
-        mock_org_repo.get_by_slug.return_value = test_org
-
-        # Test
-        owner, owner_type = resolve_owner("test-org", mock_user_repo, mock_org_repo)
-
-        # Verify
-        assert owner == test_org
-        assert owner_type == "organization"
-        mock_user_repo.get_by_username.assert_called_once_with("test-org")
-        mock_org_repo.get_by_slug.assert_called_once_with("test-org")
-
-    def test_resolve_owner_organization_inactive(self):
-        """Test resolving owner when organization exists but is inactive."""
-        # Setup
-        test_org = Organization(
-            id=1,
-            name="Test Org",
-            slug="test-org",
-            description="A test org",
-            avatar_url="",
-            is_active=False,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
-        # Create mock repositories
-        mock_user_repo = Mock()
-        mock_org_repo = Mock()
-        mock_user_repo.get_by_username.return_value = None
-        mock_org_repo.get_by_slug.return_value = test_org
-
-        # Test
-        owner, owner_type = resolve_owner("test-org", mock_user_repo, mock_org_repo)
-
-        # Verify
-        assert owner is None
-        assert owner_type == ""
-
     def test_resolve_owner_not_found(self):
-        """Test resolving owner when neither user nor org exists."""
+        """Test resolving owner when user does not exist."""
         # Setup
         mock_user_repo = Mock()
-        mock_org_repo = Mock()
         mock_user_repo.get_by_username.return_value = None
-        mock_org_repo.get_by_slug.return_value = None
 
         # Test
-        owner, owner_type = resolve_owner("nonexistent", mock_user_repo, mock_org_repo)
+        owner = resolve_owner("nonexistent", mock_user_repo)
 
         # Verify
         assert owner is None
-        assert owner_type == ""
 
     def test_get_owner_endpoints_user(self):
         """Test getting endpoints for a user owner."""
@@ -211,82 +149,12 @@ class TestUtilityFunctions:
         mock_endpoint_repo.get_user_endpoints.return_value = [endpoint1]
 
         # Test
-        endpoints = get_owner_endpoints(test_user, "user", mock_endpoint_repo)
+        endpoints = get_owner_endpoints(test_user, mock_endpoint_repo)
 
         # Verify
         assert len(endpoints) == 1
         assert endpoints[0].id == 101
         mock_endpoint_repo.get_user_endpoints.assert_called_once_with(1)
-
-    def test_get_owner_endpoints_organization(self):
-        """Test getting endpoints for an organization owner."""
-        # Setup organization
-        test_org = Organization(
-            id=1,
-            name="Test Org",
-            slug="test-org",
-            description="A test org",
-            avatar_url="",
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
-
-        # Setup endpoint
-        endpoint1 = Endpoint(
-            id=101,
-            user_id=None,
-            organization_id=1,
-            name="Org Endpoint",
-            slug="org-endpoint",
-            description="Test org endpoint",
-            type=EndpointType.MODEL,
-            visibility=EndpointVisibility.PUBLIC,
-            is_active=True,
-            archived=False,
-            contributors=[],
-            version="1.0.0",
-            readme="",
-            tags=[],
-            stars_count=0,
-            policies=[],
-            connect=[],
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
-
-        # Create mock repository
-        mock_endpoint_repo = Mock()
-        mock_endpoint_repo.get_organization_endpoints.return_value = [endpoint1]
-
-        # Test
-        endpoints = get_owner_endpoints(test_org, "organization", mock_endpoint_repo)
-
-        # Verify
-        assert len(endpoints) == 1
-        assert endpoints[0].id == 101
-        mock_endpoint_repo.get_organization_endpoints.assert_called_once_with(1)
-
-    def test_get_owner_endpoints_invalid_type(self):
-        """Test getting endpoints with invalid owner type."""
-        test_user = User(
-            id=1,
-            username="testuser",
-            email="test@example.com",
-            full_name="Test User",
-            age=30,
-            role=UserRole.USER,
-            password_hash="hash",
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
-
-        # Create mock repository
-        mock_endpoint_repo = Mock()
-
-        endpoints = get_owner_endpoints(test_user, "invalid", mock_endpoint_repo)
-        assert endpoints == []
 
     def test_get_endpoint_by_owner_and_slug_user(self):
         """Test getting endpoint by user owner and slug."""
@@ -331,7 +199,7 @@ class TestUtilityFunctions:
 
         # Test
         result = get_endpoint_by_owner_and_slug(
-            test_user, "user", "test-endpoint", mock_endpoint_repo
+            test_user, "test-endpoint", mock_endpoint_repo
         )
 
         # Verify
@@ -340,81 +208,7 @@ class TestUtilityFunctions:
             1, "test-endpoint"
         )
 
-    def test_get_endpoint_by_owner_and_slug_organization(self):
-        """Test getting endpoint by organization owner and slug."""
-        # Setup
-        test_org = Organization(
-            id=1,
-            name="Test Org",
-            slug="test-org",
-            description="A test org",
-            avatar_url="",
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
-
-        test_endpoint = Endpoint(
-            id=101,
-            user_id=None,
-            organization_id=1,
-            name="Org Endpoint",
-            slug="test-endpoint",
-            description="Test org endpoint",
-            type=EndpointType.MODEL,
-            visibility=EndpointVisibility.PUBLIC,
-            is_active=True,
-            archived=False,
-            contributors=[],
-            version="1.0.0",
-            readme="",
-            tags=[],
-            stars_count=0,
-            policies=[],
-            connect=[],
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
-
-        # Create mock repository
-        mock_endpoint_repo = Mock()
-        mock_endpoint_repo.get_by_organization_and_slug.return_value = test_endpoint
-
-        # Test
-        result = get_endpoint_by_owner_and_slug(
-            test_org, "organization", "test-endpoint", mock_endpoint_repo
-        )
-
-        # Verify
-        assert result == test_endpoint
-        mock_endpoint_repo.get_by_organization_and_slug.assert_called_once_with(
-            1, "test-endpoint"
-        )
-
-    def test_get_endpoint_by_owner_and_slug_invalid_type(self):
-        """Test getting endpoint with invalid owner type."""
-        test_user = User(
-            id=1,
-            username="testuser",
-            email="test@example.com",
-            full_name="Test User",
-            age=30,
-            role=UserRole.USER,
-            password_hash="hash",
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
-
-        # Create mock repository
-        mock_endpoint_repo = Mock()
-
-        result = get_endpoint_by_owner_and_slug(
-            test_user, "invalid", "test-endpoint", mock_endpoint_repo
-        )
-        assert result is None
-
-    def test_can_access_endpoint_with_org_public(self):
+    def test_can_access_endpoint_public(self):
         """Test access to public endpoint."""
         endpoint = Endpoint(
             id=101,
@@ -438,7 +232,7 @@ class TestUtilityFunctions:
         )
 
         # Test with no user
-        assert can_access_endpoint_with_org(endpoint, None, "user") is True
+        assert can_access_endpoint(endpoint, None) is True
 
         # Test with user
         test_user = User(
@@ -453,9 +247,9 @@ class TestUtilityFunctions:
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
-        assert can_access_endpoint_with_org(endpoint, test_user, "user") is True
+        assert can_access_endpoint(endpoint, test_user) is True
 
-    def test_can_access_endpoint_with_org_unauthenticated_private(self):
+    def test_can_access_endpoint_unauthenticated_private(self):
         """Test unauthenticated access to private endpoint."""
         endpoint = Endpoint(
             id=101,
@@ -478,9 +272,9 @@ class TestUtilityFunctions:
             updated_at=datetime.now(timezone.utc),
         )
 
-        assert can_access_endpoint_with_org(endpoint, None, "user") is False
+        assert can_access_endpoint(endpoint, None) is False
 
-    def test_can_access_endpoint_with_org_admin_access(self):
+    def test_can_access_endpoint_admin_access(self):
         """Test admin access to any endpoint."""
         endpoint = Endpoint(
             id=101,
@@ -516,14 +310,13 @@ class TestUtilityFunctions:
             updated_at=datetime.now(timezone.utc),
         )
 
-        assert can_access_endpoint_with_org(endpoint, admin_user, "user") is True
+        assert can_access_endpoint(endpoint, admin_user) is True
 
-    @patch("syfthub.main.can_access_endpoint")
-    def test_can_access_endpoint_with_org_user_owned(self, mock_can_access):
-        """Test access to user-owned endpoint."""
+    def test_can_access_endpoint_user_owned(self):
+        """Test access to user-owned private endpoint by its owner."""
         endpoint = Endpoint(
             id=101,
-            user_id=1,
+            user_id=2,
             name="User Endpoint",
             slug="user-endpoint",
             description="A user endpoint",
@@ -555,108 +348,7 @@ class TestUtilityFunctions:
             updated_at=datetime.now(timezone.utc),
         )
 
-        mock_can_access.return_value = True
-
-        result = can_access_endpoint_with_org(endpoint, test_user, "user")
-
-        assert result is True
-        mock_can_access.assert_called_once_with(endpoint, test_user)
-
-    @patch("syfthub.main.is_organization_member")
-    def test_can_access_endpoint_with_org_org_internal(self, mock_is_member):
-        """Test access to organization internal endpoint."""
-        endpoint = Endpoint(
-            id=101,
-            user_id=None,
-            organization_id=1,
-            name="Org Endpoint",
-            slug="org-endpoint",
-            description="An org endpoint",
-            type=EndpointType.MODEL,
-            visibility=EndpointVisibility.INTERNAL,
-            is_active=True,
-            archived=False,
-            contributors=[],
-            version="1.0.0",
-            readme="",
-            tags=[],
-            stars_count=0,
-            policies=[],
-            connect=[],
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
-
-        test_user = User(
-            id=2,
-            username="testuser",
-            email="test@example.com",
-            full_name="Test User",
-            age=30,
-            role=UserRole.USER,
-            password_hash="hash",
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
-
-        mock_is_member.return_value = True
-        mock_member_repo = MagicMock()
-
-        result = can_access_endpoint_with_org(
-            endpoint, test_user, "organization", mock_member_repo
-        )
-
-        assert result is True
-        mock_is_member.assert_called_once_with(1, 2, mock_member_repo)
-
-    @patch("syfthub.main.is_organization_member")
-    def test_can_access_endpoint_with_org_org_private(self, mock_is_member):
-        """Test access to organization private endpoint."""
-        endpoint = Endpoint(
-            id=101,
-            user_id=None,
-            organization_id=1,
-            name="Org Endpoint",
-            slug="org-endpoint",
-            description="An org endpoint",
-            type=EndpointType.MODEL,
-            visibility=EndpointVisibility.PRIVATE,
-            is_active=True,
-            archived=False,
-            contributors=[],
-            version="1.0.0",
-            readme="",
-            tags=[],
-            stars_count=0,
-            policies=[],
-            connect=[],
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
-
-        test_user = User(
-            id=2,
-            username="testuser",
-            email="test@example.com",
-            full_name="Test User",
-            age=30,
-            role=UserRole.USER,
-            password_hash="hash",
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
-
-        mock_is_member.return_value = False
-        mock_member_repo = MagicMock()
-
-        result = can_access_endpoint_with_org(
-            endpoint, test_user, "organization", mock_member_repo
-        )
-
-        assert result is False
-        mock_is_member.assert_called_once_with(1, 2, mock_member_repo)
+        assert can_access_endpoint(endpoint, test_user) is True
 
 
 class TestBuildInvocationUrl:
@@ -696,21 +388,6 @@ class TestBuildInvocationUrl:
             updated_at=datetime.now(timezone.utc),
         )
 
-    @pytest.fixture
-    def org_with_domain(self):
-        """Create a test organization with domain configured."""
-        return Organization(
-            id=1,
-            name="Test Org",
-            slug="test-org",
-            description="A test org",
-            avatar_url="",
-            is_active=True,
-            domain="https://api.testorg.com",
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        )
-
     def test_build_url_from_user_with_domain(self, user_with_domain):
         """Test building URL from user owner with domain."""
         connections = [
@@ -724,22 +401,6 @@ class TestBuildInvocationUrl:
             user_with_domain, connections, "my-endpoint", "testuser/my-endpoint"
         )
         assert result == "https://api.example.com/v1/api/v1/endpoints/my-endpoint/query"
-
-    def test_build_url_from_org_with_domain(self, org_with_domain):
-        """Test building URL from organization owner with domain."""
-        connections = [
-            {
-                "type": "http",
-                "enabled": True,
-                "config": {"url": "api"},
-            }
-        ]
-        result = build_invocation_url(
-            org_with_domain, connections, "org-endpoint", "test-org/org-endpoint"
-        )
-        assert (
-            result == "https://api.testorg.com/api/api/v1/endpoints/org-endpoint/query"
-        )
 
     def test_build_url_skips_disabled_connections(self, user_with_domain):
         """Test that disabled connections are skipped."""
@@ -998,7 +659,7 @@ class TestInvokeOwnerEndpoint:
         """Test successful endpoint invocation."""
         # Setup mocks
         mock_get_user.return_value = None  # Public endpoint, no auth needed
-        mock_resolve.return_value = (mock_user, "user")
+        mock_resolve.return_value = mock_user
         mock_get_endpoint.return_value = mock_endpoint_with_connection
 
         # Setup httpx mock response on shared http_client
@@ -1027,7 +688,7 @@ class TestInvokeOwnerEndpoint:
     def test_invoke_endpoint_owner_not_found(self, mock_get_user, mock_resolve, client):
         """Test endpoint invocation with non-existent owner."""
         mock_get_user.return_value = None
-        mock_resolve.return_value = (None, "")
+        mock_resolve.return_value = None
 
         response = client.post(
             "/nonexistent/test-model",
@@ -1045,7 +706,7 @@ class TestInvokeOwnerEndpoint:
     ):
         """Test endpoint invocation with non-existent endpoint."""
         mock_get_user.return_value = None
-        mock_resolve.return_value = (mock_user, "user")
+        mock_resolve.return_value = mock_user
         mock_get_endpoint.return_value = None
 
         response = client.post(
@@ -1084,7 +745,7 @@ class TestInvokeOwnerEndpoint:
         )
 
         mock_get_user.return_value = None
-        mock_resolve.return_value = (mock_user, "user")
+        mock_resolve.return_value = mock_user
         mock_get_endpoint.return_value = endpoint_no_connection
 
         response = client.post(
@@ -1122,7 +783,7 @@ class TestInvokeOwnerEndpoint:
         )
 
         mock_get_user.return_value = None
-        mock_resolve.return_value = (user_without_domain, "user")
+        mock_resolve.return_value = user_without_domain
         mock_get_endpoint.return_value = mock_endpoint_with_connection
 
         response = client.post(
@@ -1149,7 +810,7 @@ class TestInvokeOwnerEndpoint:
     ):
         """Test endpoint invocation with timeout."""
         mock_get_user.return_value = None
-        mock_resolve.return_value = (mock_user, "user")
+        mock_resolve.return_value = mock_user
         mock_get_endpoint.return_value = mock_endpoint_with_connection
 
         # Simulate timeout on shared http_client
@@ -1179,7 +840,7 @@ class TestInvokeOwnerEndpoint:
     ):
         """Test endpoint invocation with connection error."""
         mock_get_user.return_value = None
-        mock_resolve.return_value = (mock_user, "user")
+        mock_resolve.return_value = mock_user
         mock_get_endpoint.return_value = mock_endpoint_with_connection
 
         # Simulate connection error on shared http_client
@@ -1211,7 +872,7 @@ class TestInvokeOwnerEndpoint:
     ):
         """Test endpoint invocation with 403 from target."""
         mock_get_user.return_value = None
-        mock_resolve.return_value = (mock_user, "user")
+        mock_resolve.return_value = mock_user
         mock_get_endpoint.return_value = mock_endpoint_with_connection
 
         # Simulate 403 response on shared http_client
@@ -1244,7 +905,7 @@ class TestInvokeOwnerEndpoint:
     ):
         """Test endpoint invocation with error from target."""
         mock_get_user.return_value = None
-        mock_resolve.return_value = (mock_user, "user")
+        mock_resolve.return_value = mock_user
         mock_get_endpoint.return_value = mock_endpoint_with_connection
 
         # Simulate 500 response on shared http_client
@@ -1278,7 +939,7 @@ class TestInvokeOwnerEndpoint:
     ):
         """Test endpoint invocation with invalid JSON body."""
         mock_get_user.return_value = None
-        mock_resolve.return_value = (mock_user, "user")
+        mock_resolve.return_value = mock_user
         mock_get_endpoint.return_value = mock_endpoint_with_connection
 
         response = client.post(

@@ -267,10 +267,9 @@ class HeartbeatRequest(BaseModel):
     """Request schema for heartbeat endpoint.
 
     .. deprecated::
-        Used by the deprecated ``POST /users/me/heartbeat`` and
-        ``POST /organizations/{org_id}/heartbeat`` endpoints.
+        Used by the deprecated ``POST /users/me/heartbeat`` endpoint.
         Use ``EndpointHealthRequest`` (from ``syfthub.schemas.endpoint``) instead.
-        Remove this schema when the heartbeat API routes are removed.
+        Remove this schema when the heartbeat API route is removed.
     """
 
     url: str = Field(

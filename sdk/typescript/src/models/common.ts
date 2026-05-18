@@ -6,7 +6,7 @@ export const Visibility = {
   PUBLIC: 'public',
   /** Only visible to the owner and collaborators */
   PRIVATE: 'private',
-  /** Visible to authenticated users within the organization */
+  /** Behaves like private — only visible to the owner */
   INTERNAL: 'internal',
 } as const;
 
@@ -41,17 +41,3 @@ export const UserRole = {
 } as const;
 
 export type UserRole = (typeof UserRole)[keyof typeof UserRole];
-
-/**
- * Organization member roles.
- */
-export const OrganizationRole = {
-  /** Organization owner with full control */
-  OWNER: 'owner',
-  /** Administrator with management privileges */
-  ADMIN: 'admin',
-  /** Regular member */
-  MEMBER: 'member',
-} as const;
-
-export type OrganizationRole = (typeof OrganizationRole)[keyof typeof OrganizationRole];

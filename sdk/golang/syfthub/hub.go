@@ -165,7 +165,7 @@ func WithByOwnerLimit(limit int) ByOwnerOption {
 	}
 }
 
-// ByOwner returns all public endpoints for a specific owner (user or organization).
+// ByOwner returns all public endpoints for a specific owner.
 //
 // This uses the API route GET /api/v1/endpoints/public/by-owner/{owner_slug}
 // which is more efficient than browsing all endpoints and filtering by owner.

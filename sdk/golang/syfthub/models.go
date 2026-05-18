@@ -36,15 +36,6 @@ const (
 	UserRoleGuest UserRole = "guest"
 )
 
-// OrganizationRole represents role within an organization.
-type OrganizationRole string
-
-const (
-	OrganizationRoleOwner  OrganizationRole = "owner"
-	OrganizationRoleAdmin  OrganizationRole = "admin"
-	OrganizationRoleMember OrganizationRole = "member"
-)
-
 // TransactionStatus represents transaction status in the accounting service.
 type TransactionStatus string
 
@@ -144,32 +135,23 @@ type Connection struct {
 
 // Endpoint represents the full endpoint model (for user's own endpoints).
 type Endpoint struct {
-	ID             int          `json:"id"`
-	UserID         *int         `json:"user_id,omitempty"`
-	OrganizationID *int         `json:"organization_id,omitempty"`
-	Name           string       `json:"name"`
-	Slug           string       `json:"slug"`
-	Description    string       `json:"description"`
-	Type           EndpointType `json:"type"`
-	Visibility     Visibility   `json:"visibility"`
-	IsActive       bool         `json:"is_active"`
-	Contributors   []int        `json:"contributors"`
-	Version        string       `json:"version"`
-	Readme         string       `json:"readme"`
-	Tags           []string     `json:"tags"`
-	StarsCount     int          `json:"stars_count"`
-	Policies       []Policy     `json:"policies"`
-	Connect        []Connection `json:"connect"`
-	CreatedAt      time.Time    `json:"created_at"`
-	UpdatedAt      time.Time    `json:"updated_at"`
-}
-
-// OwnerType returns "user" or "organization" based on ownership.
-func (e *Endpoint) OwnerType() string {
-	if e.UserID != nil {
-		return "user"
-	}
-	return "organization"
+	ID           int          `json:"id"`
+	UserID       int          `json:"user_id"`
+	Name         string       `json:"name"`
+	Slug         string       `json:"slug"`
+	Description  string       `json:"description"`
+	Type         EndpointType `json:"type"`
+	Visibility   Visibility   `json:"visibility"`
+	IsActive     bool         `json:"is_active"`
+	Contributors []int        `json:"contributors"`
+	Version      string       `json:"version"`
+	Readme       string       `json:"readme"`
+	Tags         []string     `json:"tags"`
+	StarsCount   int          `json:"stars_count"`
+	Policies     []Policy     `json:"policies"`
+	Connect      []Connection `json:"connect"`
+	CreatedAt    time.Time    `json:"created_at"`
+	UpdatedAt    time.Time    `json:"updated_at"`
 }
 
 // EndpointPublic represents the public endpoint model (for hub browsing).
