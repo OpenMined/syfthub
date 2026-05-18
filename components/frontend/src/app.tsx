@@ -161,14 +161,6 @@ export default function App() {
                         }
                       />
                       <Route
-                        path='c/:slug'
-                        element={
-                          <RouteBoundary>
-                            <CollectiveDetailPage />
-                          </RouteBoundary>
-                        }
-                      />
-                      <Route
                         path='c/:slug/admin'
                         element={
                           <ProtectedRoute>
@@ -176,6 +168,14 @@ export default function App() {
                               <CollectiveAdminPage />
                             </RouteBoundary>
                           </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path='c/:slug'
+                        element={
+                          <RouteBoundary>
+                            <CollectiveDetailPage />
+                          </RouteBoundary>
                         }
                       />
 
