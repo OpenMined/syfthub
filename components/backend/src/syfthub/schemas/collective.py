@@ -176,6 +176,10 @@ class CollectiveResponse(BaseModel):
     )
     icon_url: Optional[str] = Field(None, description="URL to the collective's icon")
     tags: List[str] = Field(..., description="Tags for categorization")
+    verified: bool = Field(
+        False,
+        description="Whether the collective has been verified by the platform",
+    )
     member_count: int = Field(0, description="Number of approved endpoint members")
     created_at: datetime = Field(..., description="When the collective was created")
     updated_at: datetime = Field(
@@ -220,6 +224,21 @@ class CollectiveMemberResponse(BaseModel):
     )
     reviewed_by_user_id: Optional[int] = Field(
         None, description="User who approved/accepted the membership, if any"
+    )
+    # Endpoint identity, populated by the service layer so callers can render a
+    # membership without a second round-trip. None when the endpoint has since
+    # been removed.
+    endpoint_name: Optional[str] = Field(
+        None, description="Display name of the member endpoint"
+    )
+    endpoint_slug: Optional[str] = Field(
+        None, description="URL slug of the member endpoint"
+    )
+    endpoint_owner_username: Optional[str] = Field(
+        None, description="Username of the member endpoint's owner"
+    )
+    endpoint_type: Optional[str] = Field(
+        None, description="Type of the member endpoint (model / data_source)"
     )
 
     model_config = {"from_attributes": True}

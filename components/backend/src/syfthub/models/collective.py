@@ -54,6 +54,9 @@ class CollectiveModel(BaseModel, TimestampMixin):
     tags: Mapped[List[str]] = mapped_column(
         JSONType, nullable=False, default=lambda: []
     )
+    # Platform-granted trust signal. Not user-settable through the API — it
+    # defaults to False and is toggled out-of-band (admin/ops).
+    verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # Relationships
     owner: Mapped["UserModel"] = relationship("UserModel", back_populates="collectives")

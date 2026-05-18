@@ -167,7 +167,7 @@ class CollectiveService(BaseService):
                 )
             if existing.status == MembershipStatus.PENDING:
                 # Idempotent — a request is already awaiting review.
-                return existing
+                return self._enrich(existing)
             if existing.status == MembershipStatus.INVITED:
                 # The owner already invited this endpoint; requesting to join
                 # accepts that standing invitation.
@@ -230,7 +230,7 @@ class CollectiveService(BaseService):
                 )
             if existing.status == MembershipStatus.INVITED:
                 # Idempotent — re-notify so the owner gets a fresh link.
-                return existing, email_context
+                return self._enrich(existing), email_context
             if existing.status == MembershipStatus.PENDING:
                 # The endpoint already asked to join — inviting it approves it,
                 # so no invitation email is warranted.
@@ -397,7 +397,7 @@ class CollectiveService(BaseService):
 
         memberships = self.member_repo.list_members(collective_id, statuses)
         if is_manager:
-            return memberships
+            return self._enrich_many(memberships)
 
         # Non-managers must not learn that a private/internal endpoint exists.
         # NOTE: one endpoint lookup per member — acceptable at current scale;
@@ -413,7 +413,7 @@ class CollectiveService(BaseService):
                 or endpoint.user_id == viewer_id
             ):
                 visible.append(membership)
-        return visible
+        return self._enrich_many(visible)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -497,17 +497,55 @@ class CollectiveService(BaseService):
         )
         return collective
 
-    @staticmethod
     def _member_response(
+        self,
         member: Optional[CollectiveMemberResponse],
     ) -> CollectiveMemberResponse:
-        """Return the membership response, or raise 500 if the write failed."""
+        """Return the enriched membership response, or raise 500 if the write failed."""
         if member is None:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to update membership",
             )
-        return member
+        return self._enrich(member)
+
+    def _enrich(self, member: CollectiveMemberResponse) -> CollectiveMemberResponse:
+        """Populate a single membership with its endpoint's identity."""
+        return self._enrich_many([member])[0]
+
+    def _enrich_many(
+        self, members: List[CollectiveMemberResponse]
+    ) -> List[CollectiveMemberResponse]:
+        """Populate memberships with endpoint name/slug/owner/type in bulk.
+
+        Endpoint lookups are still one-per-member (no batch fetch on the
+        endpoint repository); owner usernames are resolved in a single query.
+        Acceptable at current scale — revisit with a join if collectives grow.
+        """
+        if not members:
+            return members
+        endpoints = {}
+        for endpoint_id in {m.endpoint_id for m in members}:
+            endpoint = self.endpoint_repo.get_by_id(endpoint_id)
+            if endpoint is not None:
+                endpoints[endpoint_id] = endpoint
+        owners = {
+            owner.id: owner
+            for owner in self.user_repo.get_by_ids(
+                list({ep.user_id for ep in endpoints.values()})
+            )
+        }
+        for member in members:
+            endpoint = endpoints.get(member.endpoint_id)
+            if endpoint is None:
+                continue  # endpoint removed since the membership was created
+            member.endpoint_name = endpoint.name
+            member.endpoint_slug = endpoint.slug
+            member.endpoint_type = endpoint.type.value
+            owner = owners.get(endpoint.user_id)
+            if owner is not None:
+                member.endpoint_owner_username = owner.username
+        return members
 
     def _build_invitation_context(
         self,

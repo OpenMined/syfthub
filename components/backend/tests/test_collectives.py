@@ -99,6 +99,8 @@ def test_create_collective(client: TestClient, owner_headers: dict) -> None:
     assert body["auto_approve"] is False
     assert body["member_count"] == 0
     assert sorted(body["tags"]) == ["nlp", "vision"]
+    # Verification is a platform-granted trust signal — never set on creation.
+    assert body["verified"] is False
 
 
 def test_create_collective_requires_auth(client: TestClient) -> None:
@@ -212,7 +214,12 @@ def test_request_join_pending_when_triaged(
         headers=member_headers,
     )
     assert resp.status_code == 201, resp.text
-    assert resp.json()["status"] == "pending"
+    body = resp.json()
+    assert body["status"] == "pending"
+    # The membership response carries the endpoint's identity for the UI.
+    assert body["endpoint_slug"] == "my-model"
+    assert body["endpoint_name"]
+    assert body["endpoint_owner_username"]
 
 
 def test_request_join_auto_approved(

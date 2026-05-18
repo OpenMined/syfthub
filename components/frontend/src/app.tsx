@@ -28,6 +28,12 @@ const ProfilePage = lazyWithRetry(() => import('./pages/profile'));
 const EndpointsPage = lazyWithRetry(() => import('./pages/endpoints'));
 const EndpointDetailPage = lazyWithRetry(() => import('./pages/endpoint-detail'));
 const UserProfilePage = lazyWithRetry(() => import('./pages/user-profile'));
+// Collectives — user-owned groupings of endpoints
+const CollectivesPage = lazyWithRetry(() => import('./pages/collectives'));
+const BrowseCollectivesPage = lazyWithRetry(() => import('./pages/browse-collectives'));
+const CollectiveDetailPage = lazyWithRetry(() => import('./pages/collective-detail'));
+const CollectiveAdminPage = lazyWithRetry(() => import('./pages/collective-admin'));
+const CreateCollectivePage = lazyWithRetry(() => import('./pages/create-collective'));
 // TODO(agent-feature): Uncomment when agent endpoint UI is re-enabled
 // const AgentPage = lazyWithRetry(() => import('./pages/agent'));
 const NotFoundPage = lazyWithRetry(() => import('./pages/not-found'));
@@ -125,6 +131,52 @@ export default function App() {
                         element={
                           <RouteBoundary>
                             <AboutPage />
+                          </RouteBoundary>
+                        }
+                      />
+
+                      {/* Collectives — public discovery + protected create/admin */}
+                      <Route
+                        path='collectives'
+                        element={
+                          <RouteBoundary>
+                            <CollectivesPage />
+                          </RouteBoundary>
+                        }
+                      />
+                      <Route
+                        path='collectives/browse'
+                        element={
+                          <RouteBoundary>
+                            <BrowseCollectivesPage />
+                          </RouteBoundary>
+                        }
+                      />
+                      <Route
+                        path='collectives/create'
+                        element={
+                          <ProtectedRoute>
+                            <RouteBoundary>
+                              <CreateCollectivePage />
+                            </RouteBoundary>
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path='c/:slug/admin'
+                        element={
+                          <ProtectedRoute>
+                            <RouteBoundary>
+                              <CollectiveAdminPage />
+                            </RouteBoundary>
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path='c/:slug'
+                        element={
+                          <RouteBoundary>
+                            <CollectiveDetailPage />
                           </RouteBoundary>
                         }
                       />

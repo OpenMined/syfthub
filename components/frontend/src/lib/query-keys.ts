@@ -47,3 +47,11 @@ export const walletKeys = {
   subscriptionBalance: (creditsUrl: string) =>
     [...walletKeys.all, 'subscriptions', 'balance', creditsUrl] as const
 };
+
+export const collectiveKeys = {
+  all: ['collectives'] as const,
+  list: (ownerId?: number) => [...collectiveKeys.all, 'list', ownerId ?? 'all'] as const,
+  detail: (slug: string) => [...collectiveKeys.all, 'detail', slug] as const,
+  members: (collectiveId: number, status?: string) =>
+    [...collectiveKeys.all, 'members', collectiveId, status ?? 'all'] as const
+};
