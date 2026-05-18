@@ -24,6 +24,7 @@ from syfthub.models.base import Base, BaseModel, TimestampMixin
 JSONType = JSON().with_variant(JSONB(), "postgresql")  # type: ignore[no-untyped-call]
 
 if TYPE_CHECKING:
+    from syfthub.models.collective import CollectiveMemberModel
     from syfthub.models.organization import OrganizationModel
     from syfthub.models.user import UserModel
 
@@ -108,6 +109,11 @@ class EndpointModel(BaseModel, TimestampMixin):
     )
     organization: Mapped[Optional["OrganizationModel"]] = relationship(
         "OrganizationModel", back_populates="endpoints"
+    )
+    collective_memberships: Mapped[List["CollectiveMemberModel"]] = relationship(
+        "CollectiveMemberModel",
+        back_populates="endpoint",
+        cascade="all, delete-orphan",
     )
 
     # Indexes for performance - slug uniqueness is per-owner (user or organization)

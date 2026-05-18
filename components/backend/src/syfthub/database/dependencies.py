@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from syfthub.database.connection import get_db_session
 from syfthub.repositories import (
     APITokenRepository,
+    CollectiveMemberRepository,
+    CollectiveRepository,
     EndpointRepository,
     OrganizationRepository,
     UserRepository,
@@ -17,6 +19,7 @@ from syfthub.repositories.endpoint import EndpointStarRepository
 from syfthub.repositories.organization import OrganizationMemberRepository
 from syfthub.services.api_token_service import APITokenService
 from syfthub.services.auth_service import AuthService
+from syfthub.services.collective_service import CollectiveService
 from syfthub.services.endpoint_service import EndpointService
 from syfthub.services.organization_service import OrganizationService
 from syfthub.services.otp_service import OTPService
@@ -67,6 +70,20 @@ def get_endpoint_star_repository(
     return EndpointStarRepository(session)
 
 
+def get_collective_repository(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> CollectiveRepository:
+    """Get CollectiveRepository dependency."""
+    return CollectiveRepository(session)
+
+
+def get_collective_member_repository(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> CollectiveMemberRepository:
+    """Get CollectiveMemberRepository dependency."""
+    return CollectiveMemberRepository(session)
+
+
 def get_user_xendit_subscription_repository(
     session: Annotated[Session, Depends(get_db_session)],
 ) -> UserXenditSubscriptionRepository:
@@ -101,6 +118,13 @@ def get_organization_service(
 ) -> OrganizationService:
     """Get OrganizationService dependency."""
     return OrganizationService(session)
+
+
+def get_collective_service(
+    session: Annotated[Session, Depends(get_db_session)],
+) -> CollectiveService:
+    """Get CollectiveService dependency."""
+    return CollectiveService(session)
 
 
 def get_otp_service(

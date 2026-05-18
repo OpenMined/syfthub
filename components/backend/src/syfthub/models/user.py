@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from syfthub.models.base import BaseModel, TimestampMixin
 
 if TYPE_CHECKING:
+    from syfthub.models.collective import CollectiveModel
     from syfthub.models.endpoint import EndpointModel
     from syfthub.models.organization import OrganizationMemberModel
     from syfthub.models.user_aggregator import UserAggregatorModel
@@ -94,6 +95,9 @@ class UserModel(BaseModel, TimestampMixin):
     )
     aggregators: Mapped[List["UserAggregatorModel"]] = relationship(
         "UserAggregatorModel", back_populates="user", cascade="all, delete-orphan"
+    )
+    collectives: Mapped[List["CollectiveModel"]] = relationship(
+        "CollectiveModel", back_populates="owner", cascade="all, delete-orphan"
     )
 
     # Indexes for performance
