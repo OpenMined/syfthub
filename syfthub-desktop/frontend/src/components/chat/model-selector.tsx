@@ -9,6 +9,15 @@ export interface SelectableModel {
   slug: string;
   name: string;
   description: string;
+  /** Hub owner username. When set, the dropdown shows the fully qualified
+   *  "owner/slug" identifier instead of the bare slug. */
+  ownerUsername?: string;
+}
+
+/** Fully qualified identifier: "owner/slug" when the owner is known,
+ *  otherwise the bare slug (e.g. for local endpoints with no hub owner). */
+function qualifiedId(model: SelectableModel): string {
+  return model.ownerUsername ? `${model.ownerUsername}/${model.slug}` : model.slug;
 }
 
 interface ModelSelectorProps<T extends SelectableModel> {
@@ -38,7 +47,7 @@ export function ModelSelector<T extends SelectableModel>({
       (model) =>
         model.name.toLowerCase().includes(query) ||
         model.description.toLowerCase().includes(query) ||
-        model.slug.toLowerCase().includes(query)
+        qualifiedId(model).toLowerCase().includes(query)
     );
   }, [models, searchQuery]);
 
@@ -168,7 +177,7 @@ export function ModelSelector<T extends SelectableModel>({
                       ) : null}
 
                       <span className='text-muted-foreground font-mono text-[11px]'>
-                        {model.slug}
+                        {qualifiedId(model)}
                       </span>
                     </div>
                   </button>
