@@ -58,6 +58,12 @@
   "publishConfig": {
     "access": "public"
   },
+  "dependencies": {
+    "@noble/ciphers": "^1.2.1",
+    "@noble/curves": "^1.8.1",
+    "@noble/hashes": "^1.7.1",
+    "nats.ws": "^1.30.2"
+  },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
     "@types/node": "^20.17.10",

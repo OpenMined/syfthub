@@ -218,7 +218,8 @@ export class SyftHubClient {
   }
 
   /**
-   * Agent resource for bidirectional agent sessions via WebSocket.
+   * Agent resource for bidirectional agent sessions over direct peer-to-peer
+   * NATS (the aggregator is not in the agent path).
    *
    * @example
    * const session = await client.agent.startSession({
@@ -232,7 +233,7 @@ export class SyftHubClient {
    */
   get agent(): AgentResource {
     if (!this._agent) {
-      this._agent = new AgentResource(this.auth, this.aggregatorUrl);
+      this._agent = new AgentResource(this.auth);
     }
     return this._agent;
   }

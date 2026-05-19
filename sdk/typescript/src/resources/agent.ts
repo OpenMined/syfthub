@@ -1,5 +1,14 @@
 /**
- * Agent resource for bidirectional agent sessions via WebSocket.
+ * Agent resource — direct peer-to-peer agent sessions over NATS (protocol v2).
+ *
+ * The browser dials an agent host directly: it connects to NATS with a
+ * short-lived peer token, publishes an end-to-end-encrypted agent_session_start
+ * to the host's space subject, and receives encrypted agent events on its
+ * private peer channel. The aggregator is no longer in the agent path.
+ *
+ * This mirrors the Go `transport.AgentDialer` / `AgentClientSession` in
+ * `sdk/golang/syfthubapi/transport/agent_dial.go`. See
+ * syfthub-desktop/docs/p2p-agent-direct-nats-design.md.
  *
  * @example
  * const session = await client.agent.startSession({
@@ -8,26 +17,39 @@
  * });
  *
  * for await (const event of session.events()) {
- *   switch (event.type) {
- *     case 'agent.message':
- *       console.log(event.payload.content);
- *       break;
- *     case 'agent.tool_call':
- *       if (event.payload.requires_confirmation) {
- *         await session.confirm(event.payload.tool_call_id);
- *       }
- *       break;
+ *   if (event.type === 'agent.message') {
+ *     console.log(event.payload.content);
  *   }
  * }
  */
+import { connect } from 'nats.ws';
+import type { NatsConnection, Subscription } from 'nats.ws';
 
+import { SessionCipher, b64urlEncode, generateIdentityKeyPair } from '../crypto.js';
 import { SyftHubError } from '../errors.js';
-import type {
-  AgentEvent,
-  AgentSessionOptions,
-  AgentSessionState,
-} from '../models/agent.js';
+import type { AgentEvent, AgentSessionOptions, AgentSessionState } from '../models/agent.js';
 import type { AuthResource } from './auth.js';
+
+/** Protocol tag carried by every v2 NATS message (see Go `AgentProtocolV2`). */
+const PROTOCOL_V2 = 'syfthub-agent/v2';
+
+/** NATS subject prefixes — client→host on spaces, host→client on peer. */
+const SPACE_SUBJECT_PREFIX = 'syfthub.spaces.';
+const PEER_SUBJECT_PREFIX = 'syfthub.peer.';
+
+/** v2 envelope message types (see Go `MsgType*`). */
+const MSG_SESSION_START = 'agent_session_start';
+const MSG_USER_MESSAGE = 'agent_user_message';
+const MSG_SESSION_CANCEL = 'agent_session_cancel';
+const MSG_AGENT_EVENT = 'agent_event';
+
+/** agent_user_message sub-types (see Go `UserMessageType*`). */
+const USER_MSG_MESSAGE = 'user_message';
+const USER_MSG_CONFIRM = 'user_confirm';
+const USER_MSG_DENY = 'user_deny';
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
 
 /**
  * Error thrown during agent session operations.
@@ -43,155 +65,159 @@ export class AgentSessionError extends SyftHubError {
 }
 
 /**
- * AgentResource manages agent session lifecycle.
+ * The plaintext v2 NATS message wrapper (see Go `AgentEnvelope` in
+ * `sdk/golang/syfthubapi/agentwire.go`). The wrapper fields are plaintext so
+ * the recipient can derive the session key; `encrypted_payload` is the
+ * AES-256-GCM ciphertext of the message-type-specific payload.
+ */
+interface AgentEnvelope {
+  protocol: string;
+  type: string;
+  correlation_id: string;
+  session_id: string;
+  reply_to?: string;
+  satellite_token?: string;
+  sender_public_key: string;
+  nonce: string;
+  encrypted_payload: string;
+}
+
+/** Decrypted payload of an agent_event message (see Go `AgentEventPayload`). */
+interface AgentEventPayload {
+  session_id: string;
+  event_type: string;
+  sequence: number;
+  data: unknown;
+}
+
+/**
+ * AgentResource opens direct peer-to-peer agent sessions.
  */
 export class AgentResource {
-  constructor(
-    private readonly auth: AuthResource,
-    private readonly aggregatorUrl: string
-  ) {}
+  constructor(private readonly auth: AuthResource) {}
 
   /**
-   * Start a new agent session.
+   * Start a new agent session against a remote host.
    *
    * @param options - Session options including prompt, endpoint, and config
    * @returns An AgentSessionClient for interacting with the session
    */
   async startSession(options: AgentSessionOptions): Promise<AgentSessionClient> {
-    // Parse endpoint
-    let owner: string;
-    let slug: string;
-    if (typeof options.endpoint === 'string') {
-      const parts = options.endpoint.split('/');
-      if (parts.length !== 2) {
-        throw new AgentSessionError(
-          `Endpoint must be in 'owner/slug' format, got: ${options.endpoint}`
-        );
-      }
-      owner = parts[0]!;
-      slug = parts[1]!;
-    } else {
-      owner = options.endpoint.owner;
-      slug = options.endpoint.slug;
+    const { owner, slug } = parseEndpoint(options.endpoint);
+
+    // The browser holds no long-term key — it uses a per-session ephemeral
+    // identity keypair. The host derives the session cipher from the public
+    // half carried in every envelope.
+    const identity = generateIdentityKeyPair();
+    const sessionId = crypto.randomUUID();
+
+    // Resolve the host's identity key, a satellite token (proof of identity),
+    // and a peer channel + NATS credential — in parallel.
+    const [satellite, peer, hostKey] = await Promise.all([
+      this.auth.getSatelliteToken(owner),
+      this.auth.getPeerToken([owner]),
+      this.auth.getEncryptionPublicKey(owner),
+    ]);
+
+    if (!hostKey.encryptionPublicKey) {
+      throw new AgentSessionError(
+        `Host "${owner}" has not registered an encryption key; cannot open an agent session.`
+      );
     }
 
-    // Fetch satellite token
-    const satResponse = await this.auth.getSatelliteToken(owner);
+    const cipher = new SessionCipher(
+      identity.privateKey,
+      hostKey.encryptionPublicKey,
+      sessionId
+    );
 
-    // Fetch peer token for tunneling
-    const peerResponse = await this.auth.getPeerToken([owner]);
+    // Connect to NATS with the short-lived peer token. The auth-callout service
+    // resolves the token and scopes the connection to this peer channel plus
+    // the target space subject.
+    let nc: NatsConnection;
+    try {
+      nc = await connect({
+        servers: peer.natsUrl,
+        token: peer.peerToken,
+        name: `syfthub-web-agent-${sessionId}`,
+      });
+    } catch (error) {
+      throw new AgentSessionError(
+        `Failed to connect to NATS: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
 
-    // Build WebSocket URL
-    const wsUrl =
-      this.aggregatorUrl.replace(/^http/, 'ws') + '/agent/session';
+    // Subscribe to the reply channel before publishing so no early event is
+    // missed.
+    const subscription = nc.subscribe(PEER_SUBJECT_PREFIX + peer.peerChannel);
 
-    // Create WebSocket
-    const ws = new WebSocket(wsUrl);
+    const session = new AgentSessionClient(
+      nc,
+      subscription,
+      cipher,
+      sessionId,
+      SPACE_SUBJECT_PREFIX + owner,
+      b64urlEncode(identity.publicKey)
+    );
 
-    // Wait for connection
-    await new Promise<void>((resolve, reject) => {
-      const onOpen = () => {
-        ws.removeEventListener('error', onError);
-        resolve();
-      };
-      const onError = (_e: Event) => {
-        ws.removeEventListener('open', onOpen);
-        reject(new AgentSessionError('Failed to connect to agent WebSocket'));
-      };
-      ws.addEventListener('open', onOpen, { once: true });
-      ws.addEventListener('error', onError, { once: true });
-
-      // Handle abort signal
-      if (options.signal) {
-        options.signal.addEventListener('abort', () => {
-          ws.close();
-          reject(new AgentSessionError('Session start aborted'));
-        }, { once: true });
-      }
-    });
-
-    // Send session.start
+    // Publish the encrypted agent_session_start.
     const startPayload: Record<string, unknown> = {
+      session_id: sessionId,
       prompt: options.prompt,
-      endpoint: { owner, slug },
-      satellite_token: satResponse.targetToken,
-      peer_token: peerResponse.peerToken,
-      peer_channel: peerResponse.peerChannel,
+      endpoint_slug: slug,
+      config: options.config ? toWireConfig(options.config) : {},
     };
-    if (options.config) {
-      startPayload.config = options.config;
-    }
     if (options.messages) {
       startPayload.messages = options.messages;
     }
 
-    ws.send(JSON.stringify({
-      type: 'session.start',
-      payload: startPayload,
-    }));
+    try {
+      session.publishRequest(
+        MSG_SESSION_START,
+        startPayload,
+        satellite.targetToken,
+        peer.peerChannel
+      );
+    } catch (error) {
+      await session.close();
+      throw error;
+    }
 
-    // Wait for session.created response
-    const response = await new Promise<{ session_id: string }>((resolve, reject) => {
-      const onMessage = (event: MessageEvent) => {
-        try {
-          const data = JSON.parse(event.data as string);
-          if (data.type === 'session.created') {
-            ws.removeEventListener('message', onMessage);
-            resolve({
-              session_id: data.session_id || data.payload?.session_id,
-            });
-          } else if (data.type === 'agent.error') {
-            ws.removeEventListener('message', onMessage);
-            reject(new AgentSessionError(
-              data.payload?.message || 'Session start failed',
-              data.payload?.code
-            ));
-          }
-        } catch {
-          reject(new AgentSessionError('Failed to parse session response'));
-        }
-      };
-      ws.addEventListener('message', onMessage);
-    });
+    if (options.signal) {
+      options.signal.addEventListener('abort', () => void session.close(), { once: true });
+    }
 
-    return new AgentSessionClient(ws, response.session_id);
+    return session;
   }
 }
 
 /**
- * Client for an active agent session.
- * Provides both async iterable and callback-based APIs for receiving events.
+ * Client for an active peer-to-peer agent session.
  */
 export class AgentSessionClient {
   private _state: AgentSessionState = 'running';
-  private _sequenceCounter = 0;
-  private _messageQueue: AgentEvent[] = [];
-  private _messageResolvers: Array<(value: AgentEvent | null) => void> = [];
   private _closed = false;
+  private readonly _queue: AgentEvent[] = [];
+  private readonly _resolvers: Array<(value: AgentEvent | null) => void> = [];
 
   constructor(
-    private readonly ws: WebSocket,
-    public readonly sessionId: string
+    private readonly nc: NatsConnection,
+    private readonly subscription: Subscription,
+    private readonly cipher: SessionCipher,
+    public readonly sessionId: string,
+    private readonly targetSubject: string,
+    private readonly senderPublicKey: string
   ) {
-    this.ws.addEventListener('message', (event: MessageEvent) => {
-      this._handleMessage(event);
-    });
-    this.ws.addEventListener('close', () => {
-      this._handleClose();
-    });
-    this.ws.addEventListener('error', () => {
-      this._state = 'error';
-      this._handleClose();
-    });
+    void this._readLoop();
   }
 
-  /** Current session state */
+  /** Current session state. */
   get state(): AgentSessionState {
     return this._state;
   }
 
   /**
-   * Async generator yielding agent events.
+   * Async generator yielding agent events until the session ends.
    *
    * @example
    * for await (const event of session.events()) {
@@ -199,150 +225,235 @@ export class AgentSessionClient {
    * }
    */
   async *events(): AsyncGenerator<AgentEvent> {
-    while (!this._closed) {
-      const event = await this._nextEvent();
+    while (!this._closed || this._queue.length > 0) {
+      const event = await this._next();
       if (event === null) break;
       yield event;
     }
   }
 
-  /**
-   * Register an event handler.
-   *
-   * @param eventType - The event type to listen for, or '*' for all events
-   * @param handler - Callback function
-   */
-  on(eventType: string, handler: (event: AgentEvent) => void): void {
-    this.ws.addEventListener('message', (msgEvent: MessageEvent) => {
-      try {
-        const data = JSON.parse(msgEvent.data as string) as AgentEvent;
-        if (eventType === '*' || data.type === eventType) {
-          handler(data);
-        }
-      } catch {
-        // Ignore parse errors
-      }
-    });
-  }
-
-  /** Send a user message to the agent */
+  /** Send a follow-up user message to the agent. */
   sendMessage(content: string): void {
-    this._send({
-      type: 'user.message',
-      payload: { content },
+    this.publishRequest(MSG_USER_MESSAGE, {
+      session_id: this.sessionId,
+      message: { type: USER_MSG_MESSAGE, content },
     });
   }
 
-  /** Confirm a tool call */
+  /** Confirm a tool call awaiting confirmation. */
   confirm(toolCallId: string): void {
-    this._send({
-      type: 'user.confirm',
-      payload: { tool_call_id: toolCallId },
+    this.publishRequest(MSG_USER_MESSAGE, {
+      session_id: this.sessionId,
+      message: { type: USER_MSG_CONFIRM, tool_call_id: toolCallId },
     });
   }
 
-  /** Deny a tool call */
+  /** Deny a tool call awaiting confirmation. */
   deny(toolCallId: string, reason?: string): void {
-    this._send({
-      type: 'user.deny',
-      payload: { tool_call_id: toolCallId, reason },
+    this.publishRequest(MSG_USER_MESSAGE, {
+      session_id: this.sessionId,
+      message: { type: USER_MSG_DENY, tool_call_id: toolCallId, reason: reason ?? '' },
     });
   }
 
-  /** Cancel the session */
+  /** Ask the host to end the session, then close locally. */
   cancel(): void {
     this._state = 'cancelled';
-    this._send({ type: 'user.cancel' });
+    try {
+      this.publishRequest(MSG_SESSION_CANCEL, { session_id: this.sessionId });
+    } catch {
+      // Best-effort — the host may already be gone.
+    }
+    void this.close();
   }
 
-  /** Close the session and WebSocket */
-  close(): void {
-    if (this._closed) return;
-    this._send({ type: 'session.close' });
-    this.ws.close();
-    this._handleClose();
+  /** Close the session: unsubscribe and drop the NATS connection. */
+  async close(): Promise<void> {
+    if (this._closed) {
+      return;
+    }
+    this._closed = true;
+    try {
+      this.subscription.unsubscribe();
+    } catch {
+      // ignore
+    }
+    try {
+      await this.nc.close();
+    } catch {
+      // ignore
+    }
+    for (const resolve of this._resolvers.splice(0)) {
+      resolve(null);
+    }
+  }
+
+  /**
+   * Encrypt `payload` for the request direction and publish it as a v2
+   * envelope to the host's space subject. Public so AgentResource can send the
+   * initial agent_session_start.
+   */
+  publishRequest(
+    msgType: string,
+    payload: unknown,
+    satelliteToken?: string,
+    replyTo?: string
+  ): void {
+    if (this._closed && msgType !== MSG_SESSION_CANCEL) {
+      throw new AgentSessionError(`agent session ${this.sessionId} is closed`);
+    }
+    const correlationId = crypto.randomUUID();
+    const plaintext = encoder.encode(JSON.stringify(payload));
+    const { nonce, ciphertext } = this.cipher.encryptRequest(plaintext, correlationId);
+
+    const envelope: AgentEnvelope = {
+      protocol: PROTOCOL_V2,
+      type: msgType,
+      correlation_id: correlationId,
+      session_id: this.sessionId,
+      sender_public_key: this.senderPublicKey,
+      nonce,
+      encrypted_payload: ciphertext,
+    };
+    if (replyTo) {
+      envelope.reply_to = replyTo;
+    }
+    if (satelliteToken) {
+      envelope.satellite_token = satelliteToken;
+    }
+    this.nc.publish(this.targetSubject, encoder.encode(JSON.stringify(envelope)));
   }
 
   // ---- Internal ----
 
-  private _send(msg: Record<string, unknown>): void {
-    if (this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(msg));
-    }
-  }
-
-  private _handleMessage(event: MessageEvent): void {
+  /** Drains the subscription, decrypting and delivering events. */
+  private async _readLoop(): Promise<void> {
     try {
-      const data = JSON.parse(event.data as string) as AgentEvent & {
-        session_id?: string;
-        sequence?: number;
-      };
-      this._sequenceCounter++;
-
-      // Update state based on event type
-      switch (data.type) {
-        case 'agent.request_input':
-          this._state = 'awaiting_input';
+      for await (const msg of this.subscription) {
+        const event = this._decodeEvent(msg.data);
+        if (event === null) {
+          continue;
+        }
+        this._applyState(event);
+        this._deliver(event);
+        if (event.type === 'session.completed' || event.type === 'session.failed') {
           break;
-        case 'session.completed':
-          this._state = 'completed';
-          break;
-        case 'session.failed':
-          this._state = 'failed';
-          break;
-        case 'agent.error':
-          if (!(data as { payload: { recoverable: boolean } }).payload.recoverable) {
-            this._state = 'error';
-          }
-          break;
-        default:
-          if (this._state === 'awaiting_input' || this._state === 'connecting') {
-            this._state = 'running';
-          }
-      }
-
-      // Deliver to async generator or queue
-      if (this._messageResolvers.length > 0) {
-        const resolve = this._messageResolvers.shift()!;
-        resolve(data);
-      } else {
-        this._messageQueue.push(data);
-      }
-
-      // Handle terminal states
-      if (data.type === 'session.completed' || data.type === 'session.failed') {
-        this._handleClose();
+        }
       }
     } catch {
-      // Ignore parse errors
+      // Subscription closed or errored — fall through to close().
+    } finally {
+      await this.close();
     }
   }
 
-  private _handleClose(): void {
-    if (this._closed) return;
-    this._closed = true;
-
-    // Resolve all pending waiters with null
-    for (const resolve of this._messageResolvers) {
-      resolve(null);
+  /** Decode one NATS message into a typed event, or null to skip it. */
+  private _decodeEvent(raw: Uint8Array): AgentEvent | null {
+    let envelope: AgentEnvelope;
+    try {
+      envelope = JSON.parse(decoder.decode(raw)) as AgentEnvelope;
+    } catch {
+      return null;
     }
-    this._messageResolvers = [];
+    if (envelope.type !== MSG_AGENT_EVENT) {
+      return null;
+    }
+    try {
+      const plaintext = this.cipher.decryptResponse(
+        envelope.nonce,
+        envelope.encrypted_payload,
+        envelope.correlation_id
+      );
+      const payload = JSON.parse(decoder.decode(plaintext)) as AgentEventPayload;
+      return { type: payload.event_type, payload: payload.data } as AgentEvent;
+    } catch {
+      // Drop malformed / undecryptable events rather than tearing down.
+      return null;
+    }
   }
 
-  private _nextEvent(): Promise<AgentEvent | null> {
-    // Return queued event if available
-    if (this._messageQueue.length > 0) {
-      return Promise.resolve(this._messageQueue.shift()!);
+  private _applyState(event: AgentEvent): void {
+    switch (event.type) {
+      case 'agent.request_input': {
+        this._state = 'awaiting_input';
+        break;
+      }
+      case 'session.completed': {
+        this._state = 'completed';
+        break;
+      }
+      case 'session.failed': {
+        this._state = 'failed';
+        break;
+      }
+      case 'agent.error': {
+        if (!event.payload.recoverable) {
+          this._state = 'error';
+        }
+        break;
+      }
+      default: {
+        if (this._state === 'awaiting_input') {
+          this._state = 'running';
+        }
+      }
     }
+  }
 
-    // If closed, return null
+  private _deliver(event: AgentEvent): void {
+    const resolve = this._resolvers.shift();
+    if (resolve) {
+      resolve(event);
+    } else {
+      this._queue.push(event);
+    }
+  }
+
+  private _next(): Promise<AgentEvent | null> {
+    if (this._queue.length > 0) {
+      return Promise.resolve(this._queue.shift()!);
+    }
     if (this._closed) {
       return Promise.resolve(null);
     }
-
-    // Wait for next event
     return new Promise<AgentEvent | null>((resolve) => {
-      this._messageResolvers.push(resolve);
+      this._resolvers.push(resolve);
     });
   }
+}
+
+/** Parse an endpoint given as "owner/slug" or { owner, slug }. */
+function parseEndpoint(
+  endpoint: AgentSessionOptions['endpoint']
+): { owner: string; slug: string } {
+  if (typeof endpoint === 'string') {
+    const parts = endpoint.split('/');
+    if (parts.length !== 2 || !parts[0] || !parts[1]) {
+      throw new AgentSessionError(
+        `Endpoint must be in 'owner/slug' format, got: ${endpoint}`
+      );
+    }
+    return { owner: parts[0], slug: parts[1] };
+  }
+  return { owner: endpoint.owner, slug: endpoint.slug };
+}
+
+/** Map the camelCase SDK AgentConfig to the snake_case wire shape. */
+function toWireConfig(
+  config: NonNullable<AgentSessionOptions['config']>
+): Record<string, unknown> {
+  const wire: Record<string, unknown> = {};
+  if (config.maxTokens !== undefined) {
+    wire.max_tokens = config.maxTokens;
+  }
+  if (config.temperature !== undefined) {
+    wire.temperature = config.temperature;
+  }
+  if (config.systemPrompt !== undefined) {
+    wire.system_prompt = config.systemPrompt;
+  }
+  if (config.metadata !== undefined) {
+    wire.metadata = config.metadata;
+  }
+  return wire;
 }
