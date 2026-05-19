@@ -58,12 +58,25 @@ def member_headers(client: TestClient) -> dict:
 
 
 def _create_endpoint(
-    client: TestClient, headers: dict, name: str, visibility: str = "public"
+    client: TestClient,
+    headers: dict,
+    name: str,
+    visibility: str = "public",
+    endpoint_type: str = "data_source",
 ) -> int:
-    """Create an endpoint and return its ID."""
+    """Create an endpoint and return its ID.
+
+    Defaults to ``data_source`` because only data-source endpoints are eligible
+    to join a collective — most membership tests need a joinable endpoint.
+    """
     resp = client.post(
         f"{API}/endpoints",
-        json={"name": name, "type": "model", "visibility": visibility},
+        json={
+            "name": name,
+            "type": endpoint_type,
+            "visibility": visibility,
+            "description": f"{name} description",
+        },
         headers=headers,
     )
     assert resp.status_code == 201, resp.text
@@ -92,12 +105,17 @@ def test_create_collective(client: TestClient, owner_headers: dict) -> None:
         owner_headers,
         name="ML Models",
         description="Curated models",
+        about="# ML Models\n\nLong-form markdown docs.",
         tags=["nlp", "vision"],
     )
     assert body["slug"] == "ml-models"
+    # The shared-endpoint path is the unique 'collective/<slug>' identifier.
+    assert body["shared_endpoint_path"] == "collective/ml-models"
     assert body["description"] == "Curated models"
+    assert body["about"] == "# ML Models\n\nLong-form markdown docs."
     assert body["auto_approve"] is False
     assert body["member_count"] == 0
+    assert body["owner_count"] == 0
     assert sorted(body["tags"]) == ["nlp", "vision"]
     # Verification is a platform-granted trust signal — never set on creation.
     assert body["verified"] is False
@@ -146,6 +164,50 @@ def test_get_and_list_and_by_slug(client: TestClient, owner_headers: dict) -> No
     assert listing.status_code == 200
     assert created["id"] in [c["id"] for c in listing.json()]
 
+    # The shared-endpoint path survives every read path (id, slug, list).
+    expected_path = f"collective/{created['slug']}"
+    assert by_id.json()["shared_endpoint_path"] == expected_path
+    assert by_slug.json()["shared_endpoint_path"] == expected_path
+    listed = next(c for c in listing.json() if c["id"] == created["id"])
+    assert listed["shared_endpoint_path"] == expected_path
+
+
+def test_list_collectives_search(client: TestClient, owner_headers: dict) -> None:
+    """The list endpoint filters by name, description and tags via ``search``."""
+    genomics = _create_collective(
+        client,
+        owner_headers,
+        name="Genomics Research",
+        description="Sequencing data",
+        tags=["healthcare", "dna"],
+    )
+    weather = _create_collective(
+        client,
+        owner_headers,
+        name="Weather Models",
+        description="Climate forecasting",
+        tags=["climate"],
+    )
+
+    # Match by name.
+    by_name = client.get(f"{API}/collectives", params={"search": "genomics"})
+    assert by_name.status_code == 200
+    ids = [c["id"] for c in by_name.json()]
+    assert genomics["id"] in ids
+    assert weather["id"] not in ids
+
+    # Match by description.
+    by_desc = client.get(f"{API}/collectives", params={"search": "forecasting"})
+    assert [c["id"] for c in by_desc.json()] == [weather["id"]]
+
+    # Match by tag.
+    by_tag = client.get(f"{API}/collectives", params={"search": "healthcare"})
+    assert genomics["id"] in [c["id"] for c in by_tag.json()]
+
+    # A non-matching query returns no rows.
+    none = client.get(f"{API}/collectives", params={"search": "nonexistent-xyz"})
+    assert none.json() == []
+
 
 def test_get_missing_collective_404(client: TestClient) -> None:
     """An unknown collective ID yields 404."""
@@ -167,11 +229,16 @@ def test_update_collective_owner_only(
 
     ok = client.patch(
         f"{API}/collectives/{collective['id']}",
-        json={"description": "updated", "auto_approve": True},
+        json={
+            "description": "updated",
+            "about": "## Updated docs",
+            "auto_approve": True,
+        },
         headers=owner_headers,
     )
     assert ok.status_code == 200
     assert ok.json()["description"] == "updated"
+    assert ok.json()["about"] == "## Updated docs"
     assert ok.json()["auto_approve"] is True
 
 
@@ -219,7 +286,9 @@ def test_request_join_pending_when_triaged(
     # The membership response carries the endpoint's identity for the UI.
     assert body["endpoint_slug"] == "my-model"
     assert body["endpoint_name"]
-    assert body["endpoint_owner_username"]
+    assert body["endpoint_description"] == "my-model description"
+    assert body["endpoint_owner_username"] == "member"
+    assert body["endpoint_owner_full_name"] == "Member User"
 
 
 def test_request_join_auto_approved(
@@ -239,6 +308,7 @@ def test_request_join_auto_approved(
 
     detail = client.get(f"{API}/collectives/{collective['id']}")
     assert detail.json()["member_count"] == 1
+    assert detail.json()["owner_count"] == 1
 
 
 def test_cannot_request_join_with_others_endpoint(
@@ -397,6 +467,128 @@ def test_only_endpoint_owner_responds_to_invitation(
         headers=owner_headers,
     )
     assert resp.status_code == 403
+
+
+# ----------------------------------------------------------------------
+# Membership — endpoint type eligibility (data sources only)
+# ----------------------------------------------------------------------
+
+
+def test_model_endpoint_cannot_request_join(
+    client: TestClient, owner_headers: dict, member_headers: dict
+) -> None:
+    """A model-only endpoint is rejected from joining; no membership is created."""
+    collective = _create_collective(client, owner_headers, auto_approve=True)
+    cid = collective["id"]
+    endpoint_id = _create_endpoint(
+        client, member_headers, "a-model", endpoint_type="model"
+    )
+
+    resp = client.post(
+        f"{API}/collectives/{cid}/members",
+        json={"endpoint_id": endpoint_id},
+        headers=member_headers,
+    )
+    assert resp.status_code == 400, resp.text
+    assert "data source" in resp.json()["detail"].lower()
+
+    # The rejected request must not leave a membership row behind.
+    assert client.get(f"{API}/collectives/{cid}").json()["member_count"] == 0
+    owner_view = client.get(f"{API}/collectives/{cid}/members", headers=owner_headers)
+    assert owner_view.json() == []
+
+
+def test_agent_endpoint_cannot_request_join(
+    client: TestClient, owner_headers: dict, member_headers: dict
+) -> None:
+    """An agent endpoint cannot join a collective."""
+    collective = _create_collective(client, owner_headers, auto_approve=True)
+    endpoint_id = _create_endpoint(
+        client, member_headers, "an-agent", endpoint_type="agent"
+    )
+
+    resp = client.post(
+        f"{API}/collectives/{collective['id']}/members",
+        json={"endpoint_id": endpoint_id},
+        headers=member_headers,
+    )
+    assert resp.status_code == 400, resp.text
+
+
+def test_data_source_endpoint_can_request_join(
+    client: TestClient, owner_headers: dict, member_headers: dict
+) -> None:
+    """A plain data_source endpoint is eligible to join."""
+    collective = _create_collective(client, owner_headers, auto_approve=True)
+    endpoint_id = _create_endpoint(
+        client, member_headers, "a-data-source", endpoint_type="data_source"
+    )
+
+    resp = client.post(
+        f"{API}/collectives/{collective['id']}/members",
+        json={"endpoint_id": endpoint_id},
+        headers=member_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["status"] == "approved"
+
+
+def test_model_data_source_endpoint_can_request_join(
+    client: TestClient, owner_headers: dict, member_headers: dict
+) -> None:
+    """A model_data_source endpoint is eligible — it also exposes a data source."""
+    collective = _create_collective(client, owner_headers, auto_approve=True)
+    endpoint_id = _create_endpoint(
+        client, member_headers, "hybrid", endpoint_type="model_data_source"
+    )
+
+    resp = client.post(
+        f"{API}/collectives/{collective['id']}/members",
+        json={"endpoint_id": endpoint_id},
+        headers=member_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["status"] == "approved"
+
+
+def test_model_endpoint_cannot_be_invited(
+    client: TestClient, owner_headers: dict, member_headers: dict
+) -> None:
+    """A collective owner cannot invite a model-only endpoint."""
+    collective = _create_collective(client, owner_headers)
+    cid = collective["id"]
+    endpoint_id = _create_endpoint(
+        client, member_headers, "a-model", endpoint_type="model"
+    )
+
+    resp = client.post(
+        f"{API}/collectives/{cid}/invitations",
+        json={"endpoint_id": endpoint_id},
+        headers=owner_headers,
+    )
+    assert resp.status_code == 400, resp.text
+    assert "data source" in resp.json()["detail"].lower()
+
+    # No invitation row, so the endpoint owner has nothing to respond to.
+    owner_view = client.get(f"{API}/collectives/{cid}/members", headers=owner_headers)
+    assert owner_view.json() == []
+
+
+def test_agent_endpoint_cannot_be_invited(
+    client: TestClient, owner_headers: dict, member_headers: dict
+) -> None:
+    """A collective owner cannot invite an agent endpoint."""
+    collective = _create_collective(client, owner_headers)
+    endpoint_id = _create_endpoint(
+        client, member_headers, "an-agent", endpoint_type="agent"
+    )
+
+    resp = client.post(
+        f"{API}/collectives/{collective['id']}/invitations",
+        json={"endpoint_id": endpoint_id},
+        headers=owner_headers,
+    )
+    assert resp.status_code == 400, resp.text
 
 
 # ----------------------------------------------------------------------
@@ -583,3 +775,100 @@ def test_invitation_email_template_renders_accept_link() -> None:
     assert "Admin User" in html
     assert "ML Models" in html
     assert "my-model" in html
+
+
+# ----------------------------------------------------------------------
+# Endpoint paths
+# ----------------------------------------------------------------------
+
+
+def test_get_collective_endpoint_paths_not_found(client: TestClient) -> None:
+    """A missing collective slug returns 404 from the endpoint-paths route."""
+    resp = client.get(f"{API}/collectives/by-slug/no-such-slug/endpoint-paths")
+    assert resp.status_code == 404, resp.text
+
+
+def test_get_collective_endpoint_paths_empty(
+    client: TestClient, owner_headers: dict
+) -> None:
+    """A collective with no members returns an empty list of endpoint paths."""
+    collective = _create_collective(client, owner_headers, auto_approve=True)
+    slug = collective["slug"]
+
+    resp = client.get(f"{API}/collectives/by-slug/{slug}/endpoint-paths")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == [], f"Expected [] but got {resp.json()}"
+
+
+def test_get_collective_endpoint_paths_approved_only(
+    client: TestClient, owner_headers: dict
+) -> None:
+    """Only approved memberships appear in the endpoint-paths response."""
+    contributor_headers = _register_and_login(client, "contributor")
+    collective = _create_collective(client, owner_headers, auto_approve=False)
+    cid = collective["id"]
+    slug = collective["slug"]
+
+    ep_approved = _create_endpoint(client, contributor_headers, "approved-ds")
+    ep_pending = _create_endpoint(client, contributor_headers, "pending-ds")
+    ep_rejected = _create_endpoint(client, contributor_headers, "rejected-ds")
+
+    # All three request to join.
+    for ep_id in (ep_approved, ep_pending, ep_rejected):
+        client.post(
+            f"{API}/collectives/{cid}/members",
+            json={"endpoint_id": ep_id},
+            headers=contributor_headers,
+        )
+
+    # Owner approves one and rejects one; pending-ds is left untouched.
+    client.post(
+        f"{API}/collectives/{cid}/members/{ep_approved}/review",
+        json={"decision": "approve"},
+        headers=owner_headers,
+    )
+    client.post(
+        f"{API}/collectives/{cid}/members/{ep_rejected}/review",
+        json={"decision": "reject"},
+        headers=owner_headers,
+    )
+
+    resp = client.get(f"{API}/collectives/by-slug/{slug}/endpoint-paths")
+    assert resp.status_code == 200, resp.text
+    paths = resp.json()
+    assert paths == ["contributor/approved-ds"], (
+        f"Expected only the approved path but got {paths}"
+    )
+
+
+def test_get_collective_endpoint_paths_format(
+    client: TestClient, owner_headers: dict, member_headers: dict
+) -> None:
+    """Approved members are returned as 'owner/slug' strings in any order."""
+    collective = _create_collective(client, owner_headers, auto_approve=True)
+    cid = collective["id"]
+    slug = collective["slug"]
+
+    ep_one = _create_endpoint(client, member_headers, "source-one")
+    ep_two = _create_endpoint(client, member_headers, "source-two")
+
+    for ep_id in (ep_one, ep_two):
+        client.post(
+            f"{API}/collectives/{cid}/members",
+            json={"endpoint_id": ep_id},
+            headers=member_headers,
+        )
+
+    resp = client.get(f"{API}/collectives/by-slug/{slug}/endpoint-paths")
+    assert resp.status_code == 200, resp.text
+    paths = resp.json()
+
+    assert "member/source-one" in paths, f"'member/source-one' missing from {paths}"
+    assert "member/source-two" in paths, f"'member/source-two' missing from {paths}"
+
+    # Every item must match the "owner/slug" format.
+    for path in paths:
+        parts = path.split("/")
+        assert len(parts) == 2 and all(parts), (
+            f"Path {path!r} does not match 'owner/slug' format"
+        )

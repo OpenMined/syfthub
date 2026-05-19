@@ -32,13 +32,26 @@ from syfthub.schemas.collective import (
     ReviewDecision,
     slugify_collective_name,
 )
-from syfthub.schemas.endpoint import Endpoint, EndpointVisibility
+from syfthub.schemas.endpoint import (
+    Endpoint,
+    EndpointType,
+    EndpointVisibility,
+    get_matching_types,
+)
 from syfthub.services.base import BaseService
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from syfthub.schemas.user import User
+
+
+# Endpoint types eligible for collective membership. A collective groups data
+# sources, so model-only and agent endpoints cannot join; ``model_data_source``
+# qualifies because it also exposes a data source.
+_JOINABLE_ENDPOINT_TYPES: frozenset[str] = frozenset(
+    get_matching_types(EndpointType.DATA_SOURCE)
+)
 
 
 class CollectiveService(BaseService):
@@ -66,6 +79,7 @@ class CollectiveService(BaseService):
             name=data.name,
             slug=slug,
             description=data.description,
+            about=data.about,
             auto_approve=data.auto_approve,
             icon_url=data.icon_url,
             tags=data.tags,
@@ -75,11 +89,11 @@ class CollectiveService(BaseService):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to create collective",
             )
-        return self._with_member_count(collective)
+        return self._with_counts(collective)
 
     def get_collective(self, collective_id: int) -> CollectiveResponse:
         """Get a collective by ID. Collectives are publicly viewable."""
-        return self._with_member_count(self._get_collective_or_404(collective_id))
+        return self._with_counts(self._get_collective_or_404(collective_id))
 
     def get_collective_by_slug(self, slug: str) -> CollectiveResponse:
         """Get a collective by slug. Collectives are publicly viewable."""
@@ -89,22 +103,53 @@ class CollectiveService(BaseService):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Collective not found",
             )
-        return self._with_member_count(collective)
+        return self._with_counts(collective)
+
+    def get_collective_endpoint_paths(self, slug: str) -> List[str]:
+        """Return owner/slug paths of all approved member endpoints.
+
+        Called by the SDK's collective-resolution step to expand a
+        ``collective/<slug>`` path into the individual endpoint paths that
+        participate in the aggregator request.
+        """
+        collective = self.collective_repo.get_by_slug(slug)
+        if collective is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Collective not found",
+            )
+        memberships = self.member_repo.list_members(
+            collective.id, [MembershipStatus.APPROVED.value]
+        )
+        enriched = self._enrich_many(memberships)
+        return [
+            f"{m.endpoint_owner_username}/{m.endpoint_slug}"
+            for m in enriched
+            if m.endpoint_owner_username and m.endpoint_slug
+        ]
 
     def list_collectives(
         self,
         skip: int = 0,
         limit: int = 50,
         owner_id: Optional[int] = None,
+        search: Optional[str] = None,
     ) -> List[CollectiveResponse]:
-        """List collectives, newest first, optionally filtered by owner."""
-        collectives = self.collective_repo.list_collectives(skip, limit, owner_id)
-        # One grouped query for all member counts instead of N per-row queries.
-        counts = self.member_repo.count_members_bulk(
-            [c.id for c in collectives], MembershipStatus.APPROVED.value
+        """List collectives, newest first.
+
+        Optionally filtered by ``owner_id`` and/or a ``search`` string.
+        """
+        collectives = self.collective_repo.list_collectives(
+            skip, limit, owner_id, search
         )
+        # Grouped queries for all counts instead of N per-row queries.
+        ids = [c.id for c in collectives]
+        approved = MembershipStatus.APPROVED.value
+        member_counts = self.member_repo.count_members_bulk(ids, approved)
+        owner_counts = self.member_repo.count_owners_bulk(ids, approved)
         for collective in collectives:
-            collective.member_count = counts.get(collective.id, 0)
+            collective.member_count = member_counts.get(collective.id, 0)
+            collective.owner_count = owner_counts.get(collective.id, 0)
         return collectives
 
     def update_collective(
@@ -123,7 +168,7 @@ class CollectiveService(BaseService):
                     detail="Failed to update collective",
                 )
             collective = updated
-        return self._with_member_count(collective)
+        return self._with_counts(collective)
 
     def delete_collective(self, collective_id: int, current_user: User) -> None:
         """Delete a collective and all its memberships. Owner (or admin) only."""
@@ -146,10 +191,14 @@ class CollectiveService(BaseService):
 
         With ``auto_approve`` the membership is approved immediately; otherwise
         it lands as ``pending`` for the collective owner to review.
+
+        Only data-source endpoints (``data_source`` / ``model_data_source``)
+        are eligible; a model-only or agent endpoint is rejected with 400.
         """
         collective = self._get_collective_or_404(collective_id)
         endpoint = self._get_endpoint_or_404(endpoint_id)
         self._require_endpoint_owner(endpoint, current_user)
+        self._require_joinable_endpoint(endpoint)
         if endpoint.archived:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -210,11 +259,16 @@ class CollectiveService(BaseService):
         context is ``None`` when no invitation email is warranted — e.g. the
         invite approved a standing join request, or the endpoint has no
         individual owner to notify.
+
+        Only data-source endpoints (``data_source`` / ``model_data_source``)
+        are eligible; inviting a model-only or agent endpoint is rejected
+        with 400.
         """
         collective = self._get_collective_or_404(collective_id)
         self._require_owner(collective, current_user)
         # The owner need not own the endpoint to invite it — just confirm it exists.
         endpoint = self._get_endpoint_or_404(endpoint_id)
+        self._require_joinable_endpoint(endpoint)
 
         existing = self.member_repo.get_membership(collective_id, endpoint_id)
         now = datetime.now(timezone.utc)
@@ -400,12 +454,18 @@ class CollectiveService(BaseService):
             return self._enrich_many(memberships)
 
         # Non-managers must not learn that a private/internal endpoint exists.
-        # NOTE: one endpoint lookup per member — acceptable at current scale;
-        # revisit with a join if collectives grow large.
+        # Batch-fetch all endpoints once — used for both visibility filtering
+        # and enrichment so each endpoint is fetched at most once.
         viewer_id = current_user.id if current_user is not None else None
+        endpoint_map = {
+            ep.id: ep
+            for ep in self.endpoint_repo.get_by_ids(
+                list({m.endpoint_id for m in memberships})
+            )
+        }
         visible: List[CollectiveMemberResponse] = []
         for membership in memberships:
-            endpoint = self.endpoint_repo.get_by_id(membership.endpoint_id)
+            endpoint = endpoint_map.get(membership.endpoint_id)
             if endpoint is None:
                 continue  # endpoint deactivated or removed
             if (
@@ -413,7 +473,7 @@ class CollectiveService(BaseService):
                 or endpoint.user_id == viewer_id
             ):
                 visible.append(membership)
-        return self._enrich_many(visible)
+        return self._enrich_many(visible, endpoints=endpoint_map)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -461,6 +521,24 @@ class CollectiveService(BaseService):
             )
 
     @staticmethod
+    def _require_joinable_endpoint(endpoint: Endpoint) -> None:
+        """Raise 400 unless the endpoint type is eligible for a collective.
+
+        Collectives group data sources, so model-only and agent endpoints
+        cannot join. ``model_data_source`` qualifies because it also exposes a
+        data source. This is the single guard for both membership entry points
+        (``request_join`` and ``invite_endpoint``) — together they are the only
+        paths that create a membership row, so an ineligible endpoint can never
+        become (or be invited to become) a member.
+        """
+        if endpoint.type.value not in _JOINABLE_ENDPOINT_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only data source endpoints can join a collective; "
+                "model and agent endpoints are not eligible",
+            )
+
+    @staticmethod
     def _join_outcome(
         collective: CollectiveResponse, now: datetime
     ) -> tuple[MembershipStatus, Optional[datetime]]:
@@ -490,11 +568,13 @@ class CollectiveService(BaseService):
             self.member_repo.update_membership(membership_id, **fields)
         )
 
-    def _with_member_count(self, collective: CollectiveResponse) -> CollectiveResponse:
-        """Populate a collective's approved-member count."""
+    def _with_counts(self, collective: CollectiveResponse) -> CollectiveResponse:
+        """Populate a collective's approved-member and distinct-owner counts."""
+        approved = MembershipStatus.APPROVED.value
         collective.member_count = self.member_repo.count_members(
-            collective.id, MembershipStatus.APPROVED.value
+            collective.id, approved
         )
+        collective.owner_count = self.member_repo.count_owners(collective.id, approved)
         return collective
 
     def _member_response(
@@ -514,38 +594,42 @@ class CollectiveService(BaseService):
         return self._enrich_many([member])[0]
 
     def _enrich_many(
-        self, members: List[CollectiveMemberResponse]
+        self,
+        members: List[CollectiveMemberResponse],
+        endpoints: Optional[dict[int, Endpoint]] = None,
     ) -> List[CollectiveMemberResponse]:
-        """Populate memberships with endpoint name/slug/owner/type in bulk.
-
-        Endpoint lookups are still one-per-member (no batch fetch on the
-        endpoint repository); owner usernames are resolved in a single query.
-        Acceptable at current scale — revisit with a join if collectives grow.
-        """
+        """Populate memberships with endpoint name/slug/owner/type in bulk."""
         if not members:
             return members
-        endpoints = {}
-        for endpoint_id in {m.endpoint_id for m in members}:
-            endpoint = self.endpoint_repo.get_by_id(endpoint_id)
-            if endpoint is not None:
-                endpoints[endpoint_id] = endpoint
+        if endpoints is None:
+            endpoint_list = self.endpoint_repo.get_by_ids(
+                list({m.endpoint_id for m in members})
+            )
+            endpoints = {ep.id: ep for ep in endpoint_list}
         owners = {
             owner.id: owner
             for owner in self.user_repo.get_by_ids(
                 list({ep.user_id for ep in endpoints.values()})
             )
         }
+        result: List[CollectiveMemberResponse] = []
         for member in members:
             endpoint = endpoints.get(member.endpoint_id)
             if endpoint is None:
+                result.append(member)
                 continue  # endpoint removed since the membership was created
-            member.endpoint_name = endpoint.name
-            member.endpoint_slug = endpoint.slug
-            member.endpoint_type = endpoint.type.value
+            update: dict[str, str | None] = {
+                "endpoint_name": endpoint.name,
+                "endpoint_description": endpoint.description,
+                "endpoint_slug": endpoint.slug,
+                "endpoint_type": endpoint.type.value,
+            }
             owner = owners.get(endpoint.user_id)
             if owner is not None:
-                member.endpoint_owner_username = owner.username
-        return members
+                update["endpoint_owner_username"] = owner.username
+                update["endpoint_owner_full_name"] = owner.full_name
+            result.append(member.model_copy(update=update))
+        return result
 
     def _build_invitation_context(
         self,

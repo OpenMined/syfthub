@@ -11,7 +11,7 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from syfthub.schemas.endpoint import _validate_and_normalize_tags
 
@@ -109,7 +109,12 @@ class CollectiveBase(BaseModel):
         ..., min_length=1, max_length=100, description="Display name of the collective"
     )
     description: str = Field(
-        "", max_length=500, description="Description of the collective"
+        "", max_length=500, description="Short description of the collective"
+    )
+    about: str = Field(
+        "",
+        max_length=50000,
+        description="Long-form markdown 'about' / README for the collective",
     )
     auto_approve: bool = Field(
         default=False,
@@ -152,6 +157,7 @@ class CollectiveUpdate(BaseModel):
 
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
+    about: Optional[str] = Field(None, max_length=50000)
     auto_approve: Optional[bool] = None
     icon_url: Optional[str] = Field(None, max_length=500)
     tags: Optional[List[str]] = None
@@ -170,7 +176,18 @@ class CollectiveResponse(BaseModel):
     owner_id: int = Field(..., description="ID of the user who owns this collective")
     name: str = Field(..., description="Display name of the collective")
     slug: str = Field(..., description="URL-safe identifier")
-    description: str = Field(..., description="Description of the collective")
+    shared_endpoint_path: str = Field(
+        "",
+        description=(
+            "Unique shared-endpoint path for the collective, of the form "
+            "'collective/<slug>'. Derived from the (unique) slug; addresses "
+            "every member endpoint through a single API. Read-only."
+        ),
+    )
+    description: str = Field(..., description="Short description of the collective")
+    about: str = Field(
+        "", description="Long-form markdown 'about' / README for the collective"
+    )
     auto_approve: bool = Field(
         ..., description="Whether join requests are auto-accepted"
     )
@@ -181,12 +198,27 @@ class CollectiveResponse(BaseModel):
         description="Whether the collective has been verified by the platform",
     )
     member_count: int = Field(0, description="Number of approved endpoint members")
+    owner_count: int = Field(
+        0,
+        description="Number of distinct users who own the approved member endpoints",
+    )
     created_at: datetime = Field(..., description="When the collective was created")
     updated_at: datetime = Field(
         ..., description="When the collective was last updated"
     )
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="after")
+    def _derive_shared_endpoint_path(self) -> CollectiveResponse:
+        """Derive the shared-endpoint path from the collective's unique slug.
+
+        Runs on every construction (including the repository's
+        ``model_validate``), so the path is always consistent with ``slug``
+        and never needs to be persisted or set by callers.
+        """
+        self.shared_endpoint_path = f"collective/{self.slug}"
+        return self
 
 
 class CollectiveMemberRequest(BaseModel):
@@ -231,11 +263,17 @@ class CollectiveMemberResponse(BaseModel):
     endpoint_name: Optional[str] = Field(
         None, description="Display name of the member endpoint"
     )
+    endpoint_description: Optional[str] = Field(
+        None, description="Short description of the member endpoint"
+    )
     endpoint_slug: Optional[str] = Field(
         None, description="URL slug of the member endpoint"
     )
     endpoint_owner_username: Optional[str] = Field(
         None, description="Username of the member endpoint's owner"
+    )
+    endpoint_owner_full_name: Optional[str] = Field(
+        None, description="Full name of the member endpoint's owner"
     )
     endpoint_type: Optional[str] = Field(
         None, description="Type of the member endpoint (model / data_source)"

@@ -2,7 +2,9 @@
 
 A Collective is a lightweight, user-owned grouping of endpoints. Unlike an
 organization (which groups *users*), a collective groups *endpoints* — its
-members are endpoint routes that opted in.
+members are endpoint routes that opted in. Only data-source endpoints
+(``data_source`` / ``model_data_source``) are eligible for membership; the
+``CollectiveService`` enforces this on both join and invite.
 
 Membership lives in the ``collective_members`` join table. It is an
 associative entity, not a plain link row: it carries its own ``status``
@@ -47,6 +49,8 @@ class CollectiveModel(BaseModel, TimestampMixin):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     slug: Mapped[str] = mapped_column(String(63), unique=True, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # Long-form markdown "about" / README shown on the collective detail page.
+    about: Mapped[str] = mapped_column(Text, nullable=False, default="")
     # When True, join requests are accepted immediately; when False the owner
     # must approve each request (see CollectiveMemberModel.status).
     auto_approve: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -54,8 +58,7 @@ class CollectiveModel(BaseModel, TimestampMixin):
     tags: Mapped[List[str]] = mapped_column(
         JSONType, nullable=False, default=lambda: []
     )
-    # Platform-granted trust signal. Not user-settable through the API — it
-    # defaults to False and is toggled out-of-band (admin/ops).
+    # Toggled out-of-band by ops; not exposed as a user-settable API field.
     verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # Relationships

@@ -53,9 +53,17 @@ async def list_collectives(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     owner_id: Optional[int] = Query(None, description="Filter by owning user ID"),
+    search: Optional[str] = Query(
+        None,
+        min_length=1,
+        max_length=200,
+        description="Search by name, description, or tags",
+    ),
 ) -> List[CollectiveResponse]:
     """List collectives, newest first. Collectives are publicly viewable."""
-    return service.list_collectives(skip=skip, limit=limit, owner_id=owner_id)
+    return service.list_collectives(
+        skip=skip, limit=limit, owner_id=owner_id, search=search
+    )
 
 
 @router.get("/by-slug/{slug}", response_model=CollectiveResponse)
@@ -65,6 +73,20 @@ async def get_collective_by_slug(
 ) -> CollectiveResponse:
     """Get a collective by its slug."""
     return service.get_collective_by_slug(slug)
+
+
+@router.get("/by-slug/{slug}/endpoint-paths", response_model=List[str])
+async def get_collective_endpoint_paths(
+    slug: str,
+    service: Annotated[CollectiveService, Depends(get_collective_service)],
+) -> List[str]:
+    """Return the owner/slug paths of all approved member endpoints.
+
+    Used by the TypeScript SDK to resolve a collective path (``collective/<slug>``)
+    into the constituent endpoint paths before building the aggregator request.
+    Returns an empty list when the collective exists but has no approved members.
+    """
+    return service.get_collective_endpoint_paths(slug)
 
 
 @router.get("/{collective_id}", response_model=CollectiveResponse)
