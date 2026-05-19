@@ -393,7 +393,9 @@ services:
       - NATS_AUTH_SERVICE_PASSWORD=${NATS_AUTH_SERVICE_PASSWORD}
       - NATS_CALLOUT_ACCOUNT_SEED=${NATS_CALLOUT_ACCOUNT_SEED}
       - NATS_CALLOUT_ACCOUNT=SYFTHUB
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      # Must match the backend's Redis credentials — Redis runs with
+      # requirepass, so the host/peer token lookups fail without the password.
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - NATS_AUTH_SERVICE_TOKEN=${NATS_AUTH_TOKEN}
     networks:
       - syfthub-network
