@@ -606,12 +606,16 @@ jobs:
           LINEAR_TEAM_ID: ${{ secrets.LINEAR_TEAM_ID }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           MARKETPLACE_ADMIN_TOKEN: ${{ secrets.MARKETPLACE_ADMIN_TOKEN }}
+          NATS_AUTH_SERVICE_USER: ${{ secrets.NATS_AUTH_SERVICE_USER }}
+          NATS_AUTH_SERVICE_PASSWORD: ${{ secrets.NATS_AUTH_SERVICE_PASSWORD }}
+          NATS_CALLOUT_ISSUER: ${{ secrets.NATS_CALLOUT_ISSUER }}
+          NATS_CALLOUT_ACCOUNT_SEED: ${{ secrets.NATS_CALLOUT_ACCOUNT_SEED }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          envs: IMAGE_TAG,GITHUB_REPOSITORY,GHCR_TOKEN,MEILI_MASTER_KEY,NGROK_API_KEY,LINEAR_API_KEY,LINEAR_TEAM_ID,RESEND_API_KEY,MARKETPLACE_ADMIN_TOKEN
+          envs: IMAGE_TAG,GITHUB_REPOSITORY,GHCR_TOKEN,MEILI_MASTER_KEY,NGROK_API_KEY,LINEAR_API_KEY,LINEAR_TEAM_ID,RESEND_API_KEY,MARKETPLACE_ADMIN_TOKEN,NATS_AUTH_SERVICE_USER,NATS_AUTH_SERVICE_PASSWORD,NATS_CALLOUT_ISSUER,NATS_CALLOUT_ACCOUNT_SEED
           script: |
             set -e
             cd /opt/syfthub
@@ -676,6 +680,17 @@ jobs:
                 echo "Added RESEND_API_KEY to .env"
               fi
             fi
+
+            # Ensure NATS auth-callout secrets are persisted in .env for docker-compose
+            for nats_var in NATS_AUTH_SERVICE_USER NATS_AUTH_SERVICE_PASSWORD NATS_CALLOUT_ISSUER NATS_CALLOUT_ACCOUNT_SEED; do
+              eval "nats_val=\${$nats_var}"
+              if grep -q "^${nats_var}=" .env 2>/dev/null; then
+                sed -i "s|^${nats_var}=.*|${nats_var}=${nats_val}|" .env
+              else
+                echo "${nats_var}=${nats_val}" >> .env
+                echo "Added ${nats_var} to .env"
+              fi
+            done
 
             # Export for docker-compose
             export IMAGE_TAG
@@ -847,12 +862,16 @@ jobs:
           LINEAR_TEAM_ID: ${{ secrets.LINEAR_TEAM_ID }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           MARKETPLACE_ADMIN_TOKEN: ${{ secrets.MARKETPLACE_ADMIN_TOKEN }}
+          NATS_AUTH_SERVICE_USER: ${{ secrets.NATS_AUTH_SERVICE_USER }}
+          NATS_AUTH_SERVICE_PASSWORD: ${{ secrets.NATS_AUTH_SERVICE_PASSWORD }}
+          NATS_CALLOUT_ISSUER: ${{ secrets.NATS_CALLOUT_ISSUER }}
+          NATS_CALLOUT_ACCOUNT_SEED: ${{ secrets.NATS_CALLOUT_ACCOUNT_SEED }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
-          envs: IMAGE_TAG,GITHUB_REPOSITORY,GHCR_TOKEN,MEILI_MASTER_KEY,NGROK_API_KEY,LINEAR_API_KEY,LINEAR_TEAM_ID,RESEND_API_KEY,MARKETPLACE_ADMIN_TOKEN
+          envs: IMAGE_TAG,GITHUB_REPOSITORY,GHCR_TOKEN,MEILI_MASTER_KEY,NGROK_API_KEY,LINEAR_API_KEY,LINEAR_TEAM_ID,RESEND_API_KEY,MARKETPLACE_ADMIN_TOKEN,NATS_AUTH_SERVICE_USER,NATS_AUTH_SERVICE_PASSWORD,NATS_CALLOUT_ISSUER,NATS_CALLOUT_ACCOUNT_SEED
           script: |
             set -e
             cd /opt/syfthub
@@ -917,6 +936,17 @@ jobs:
                 echo "Added RESEND_API_KEY to .env"
               fi
             fi
+
+            # Ensure NATS auth-callout secrets are persisted in .env for docker-compose
+            for nats_var in NATS_AUTH_SERVICE_USER NATS_AUTH_SERVICE_PASSWORD NATS_CALLOUT_ISSUER NATS_CALLOUT_ACCOUNT_SEED; do
+              eval "nats_val=\${$nats_var}"
+              if grep -q "^${nats_var}=" .env 2>/dev/null; then
+                sed -i "s|^${nats_var}=.*|${nats_var}=${nats_val}|" .env
+              else
+                echo "${nats_var}=${nats_val}" >> .env
+                echo "Added ${nats_var} to .env"
+              fi
+            done
 
             # Export for docker-compose
             export IMAGE_TAG
