@@ -66,12 +66,7 @@ func NewContainerExecutor(ctx context.Context, cfg *ContainerExecutorConfig) (*C
 		// Cleanup on failure
 		_ = runtime.Stop(ctx, containerID)
 		_ = runtime.Remove(ctx, containerID)
-		return nil, &syfthubapi.ContainerError{
-			Operation: "create",
-			Container: containerID,
-			Message:   "failed to get host port",
-			Cause:     err,
-		}
+		return nil, fmt.Errorf("container %s: failed to get host port: %w", containerID, err)
 	}
 
 	baseURL := fmt.Sprintf("http://localhost:%s", hostPort)
@@ -81,14 +76,7 @@ func NewContainerExecutor(ctx context.Context, cfg *ContainerExecutorConfig) (*C
 		logs, _ := runtime.Logs(ctx, containerID, 50)
 		_ = runtime.Stop(ctx, containerID)
 		_ = runtime.Remove(ctx, containerID)
-		return nil, &syfthubapi.ContainerError{
-			Operation: "health_check",
-			Container: containerID,
-			Image:     spec.Image,
-			Message:   "container failed health check",
-			Cause:     err,
-			Logs:      logs,
-		}
+		return nil, fmt.Errorf("container %s (image %s) failed health check: %w (logs: %s)", containerID, spec.Image, err, logs)
 	}
 
 	logger.Info("container executor ready",
@@ -117,7 +105,7 @@ func (e *ContainerExecutor) Execute(ctx context.Context, input *syfthubapi.Execu
 	e.mu.RLock()
 	if e.closed {
 		e.mu.RUnlock()
-		return nil, &syfthubapi.ContainerError{Operation: "execute", Message: "executor is closed"}
+		return nil, fmt.Errorf("container executor closed")
 	}
 	baseURL := e.baseURL
 	e.mu.RUnlock()
@@ -147,29 +135,14 @@ func (e *ContainerExecutor) Execute(ctx context.Context, input *syfthubapi.Execu
 		// whether the container is still running.
 		var apiErr *syfthubapi.HubAPIError
 		if errors.As(err, &apiErr) {
-			return nil, &syfthubapi.ContainerError{
-				Operation: "execute",
-				Container: e.containerID,
-				Message:   fmt.Sprintf("request failed: HTTP %d", apiErr.StatusCode),
-				Cause:     err,
-			}
+			return nil, fmt.Errorf("container %s execute failed (HTTP %d): %w", e.containerID, apiErr.StatusCode, err)
 		}
 
 		info, inspectErr := e.runtime.Inspect(ctx, e.containerID)
 		if inspectErr == nil && !info.Running {
-			return nil, &syfthubapi.ContainerError{
-				Operation: "execute",
-				Container: e.containerID,
-				Message:   "container is no longer running",
-				Cause:     err,
-			}
+			return nil, fmt.Errorf("container %s is no longer running: %w", e.containerID, err)
 		}
-		return nil, &syfthubapi.ContainerError{
-			Operation: "execute",
-			Container: e.containerID,
-			Message:   "request failed",
-			Cause:     err,
-		}
+		return nil, fmt.Errorf("container %s execute failed: %w", e.containerID, err)
 	}
 
 	return &output, nil
@@ -205,7 +178,7 @@ func (e *ContainerExecutor) Restart(ctx context.Context, timeout time.Duration) 
 	defer e.mu.Unlock()
 
 	if e.closed {
-		return &syfthubapi.ContainerError{Operation: "restart", Message: "executor is closed"}
+		return fmt.Errorf("container executor closed")
 	}
 
 	// Stop old container (best-effort)
@@ -221,25 +194,14 @@ func (e *ContainerExecutor) Restart(ctx context.Context, timeout time.Duration) 
 	if err != nil {
 		_ = e.runtime.Stop(ctx, containerID)
 		_ = e.runtime.Remove(ctx, containerID)
-		return &syfthubapi.ContainerError{
-			Operation: "restart",
-			Container: containerID,
-			Message:   "failed to get host port",
-			Cause:     err,
-		}
+		return fmt.Errorf("container %s restart failed to get host port: %w", containerID, err)
 	}
 
 	baseURL := fmt.Sprintf("http://localhost:%s", hostPort)
 	if err := WaitForHealth(ctx, baseURL, timeout, e.logger); err != nil {
 		logs, _ := e.runtime.Logs(ctx, containerID, 50)
 		_ = e.runtime.Stop(ctx, containerID)
-		return &syfthubapi.ContainerError{
-			Operation: "restart",
-			Container: containerID,
-			Message:   "restarted container failed health check",
-			Cause:     err,
-			Logs:      logs,
-		}
+		return fmt.Errorf("container %s restarted but failed health check: %w (logs: %s)", containerID, err, logs)
 	}
 
 	e.containerID = containerID

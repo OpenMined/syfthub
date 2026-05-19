@@ -23,11 +23,9 @@ type HTTPTransport struct {
 
 // NewHTTPTransport creates a new HTTP transport.
 func NewHTTPTransport(cfg *Config) (*HTTPTransport, error) {
-	logger := slog.Default()
-	if cfg.Logger != nil {
-		if l, ok := cfg.Logger.(*slog.Logger); ok {
-			logger = l
-		}
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.Default()
 	}
 
 	return &HTTPTransport{
@@ -71,11 +69,7 @@ func (t *HTTPTransport) Start(ctx context.Context) error {
 	case <-ctx.Done():
 		return nil
 	case err := <-errCh:
-		return &syfthubapi.TransportError{
-			Transport: "http",
-			Message:   "server error",
-			Cause:     err,
-		}
+		return fmt.Errorf("http transport: server error: %w", err)
 	}
 }
 

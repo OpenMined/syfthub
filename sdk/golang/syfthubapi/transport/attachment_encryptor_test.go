@@ -215,7 +215,7 @@ func TestMemoryObjectStoreRoundTrip(t *testing.T) {
 }
 
 func TestBucketNameForSession(t *testing.T) {
-	if got := BucketNameForSession("sess-42"); got != "syft-att-sess-42" {
+	if got := bucketNameForSession("sess-42"); got != "syft-att-sess-42" {
 		t.Fatalf("unexpected bucket name: %s", got)
 	}
 }
@@ -229,7 +229,7 @@ func TestEndToEndEncryptedUploadDownload(t *testing.T) {
 	aggrEnc, _ := NewAttachmentEncryptor(sessionKey) // aggregator derives the same session key
 
 	fileID := "att-final"
-	bucket := BucketNameForSession("sess-roundtrip")
+	bucket := bucketNameForSession("sess-roundtrip")
 	store := NewMemoryAttachmentObjectStore()
 	if err := store.EnsureBucket(ctx, bucket, 0); err != nil {
 		t.Fatal(err)

@@ -6,15 +6,20 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/OpenMined/syfthub/cli/internal/clientutil"
 	"github.com/OpenMined/syfthub/cli/internal/config"
 	"github.com/OpenMined/syfthub/cli/internal/output"
+	"github.com/openmined/syfthub/sdk/golang/agenttypes"
 	"github.com/openmined/syfthub/sdk/golang/syfthub"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/transport"
 )
 
 var (
@@ -32,8 +37,10 @@ Opens a bidirectional session where the agent can think, call tools,
 request input, and send messages. You can send follow-up messages
 when the agent pauses for input.
 
-The session runs through the full SyftHub pipeline:
-  CLI → Hub → Aggregator → NATS → Node → Agent Handler
+The session is a direct peer-to-peer connection over NATS:
+  CLI → NATS → host → agent handler
+The hub mints the session tokens; no aggregator relays the traffic, so
+the prompt and the agent's replies are end-to-end encrypted.
 
 Tool results are collapsed by default. Type /expand to see the full
 output of the last tool call, or /expand N to expand tool call #N.
@@ -41,15 +48,14 @@ output of the last tool call, or /expand N to expand tool call #N.
 Examples:
 
     syft agent alice/research-agent "Summarize recent ML papers"
-    syft agent bob/code-assistant "Help me refactor this function"
-    syft agent alice/agent --aggregator local "Hello"`,
+    syft agent bob/code-assistant "Help me refactor this function"`,
 	Args: cobra.ExactArgs(2),
 	RunE: runAgent,
 }
 
 func init() {
-	agentCmd.Flags().StringVarP(&agentAggregator, "aggregator", "a", "", "Aggregator alias or URL to use")
-	agentCmd.Flags().StringSliceVar(&agentAttachPaths, "attach", nil, "File(s) to attach to the prompt (repeat or comma-separate). Files <=64 KiB ride inline; larger uses Object Store.")
+	agentCmd.Flags().StringVarP(&agentAggregator, "aggregator", "a", "", "Aggregator alias or URL (unused for agent sessions; kept for compatibility)")
+	agentCmd.Flags().StringSliceVar(&agentAttachPaths, "attach", nil, "File(s) to attach to the prompt (repeat or comma-separate). Files up to 64 KiB ride inline; larger files are not yet supported on the direct path.")
 	agentCmd.Flags().StringVar(&agentSaveAttachmentsTo, "save-attachments-to", "", "Directory to save inbound agent attachments (defaults to current dir)")
 }
 
@@ -113,17 +119,26 @@ func (t *toolEntry) printFull() {
 
 // ── Main ───────────────────────────────────────────────────────────────────
 
-func runAgent(cmd *cobra.Command, args []string) error {
+func runAgent(_ *cobra.Command, args []string) error {
 	endpoint := args[0]
 	prompt := args[1]
 
+	parts := strings.SplitN(endpoint, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return fmt.Errorf("endpoint must be in 'owner/slug' format, got: %s", endpoint)
+	}
+	owner, slug := parts[0], parts[1]
+
 	cfg := config.Load()
-	aggregatorURL := cfg.GetAggregatorURL(agentAggregator)
+
+	fail := func(msg string, err error) error {
+		output.Error("%s: %v", msg, err)
+		return err
+	}
 
 	client, err := clientutil.NewClient(cfg, agentAggregator, 0)
 	if err != nil {
-		output.Error("Failed to create client: %v", err)
-		return err
+		return fail("Failed to create client", err)
 	}
 	defer client.Close()
 
@@ -132,24 +147,67 @@ func runAgent(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Connecting to %s...\n", endpoint)
 
-	startReq := &syfthub.AgentSessionRequest{
-		Prompt:   prompt,
-		Endpoint: endpoint,
+	// Load (or generate) this CLI's persistent X25519 identity key — the host
+	// encrypts the agent's reply stream to it.
+	identityKey, err := transport.LoadOrGenerateKey(filepath.Join(config.ConfigDir, "identity.key"))
+	if err != nil {
+		return fail("Failed to load identity key", err)
+	}
+
+	// Resolve the credentials the direct dial needs: NATS connection details,
+	// the reply channel, the satellite token, and the host's encryption key.
+	// The four hub lookups are independent, so fan them out concurrently.
+	var (
+		natsCreds *syfthub.NatsCredentials
+		peerResp  *syfthub.PeerTokenResponse
+		satResp   *syfthub.SatelliteTokenResponse
+		hostKey   string
+	)
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() (err error) { natsCreds, err = client.Users.GetNatsCredentials(gctx); return })
+	g.Go(func() (err error) { peerResp, err = client.Auth.GetPeerToken(gctx, []string{owner}); return })
+	g.Go(func() (err error) { satResp, err = client.Auth.GetSatelliteToken(gctx, owner); return })
+	g.Go(func() (err error) { hostKey, err = client.Auth.GetEncryptionPublicKey(gctx, owner); return })
+	if err := g.Wait(); err != nil {
+		return fail("Failed to resolve session credentials", err)
+	}
+
+	// Connect directly to NATS and dial the host — no aggregator in the path.
+	natsConn, err := transport.NewNATSConn(&syfthubapi.NATSCredentials{
+		URL:   peerResp.NatsURL,
+		Token: natsCreds.NatsAuthToken,
+	}, "syft-cli-agent", nil)
+	if err != nil {
+		return fail("Failed to connect to NATS", err)
+	}
+	defer natsConn.Close()
+
+	dialer, err := transport.NewAgentDialer(natsConn, identityKey, nil)
+	if err != nil {
+		return fail("Failed to create agent dialer", err)
+	}
+
+	dialParams := transport.DialParams{
+		TargetUsername:   owner,
+		HostPublicKeyB64: hostKey,
+		PeerChannel:      peerResp.PeerChannel,
+		SatelliteToken:   satResp.TargetToken,
+		Prompt:           prompt,
+		EndpointSlug:     slug,
 	}
 	if len(agentAttachPaths) > 0 {
-		startReq.Capabilities = append(startReq.Capabilities, syfthub.AttachmentCapability)
+		dialParams.Capabilities = append(dialParams.Capabilities, agenttypes.AttachmentCapability)
 	}
-	session, err := client.Agent().StartSession(ctx, startReq)
+
+	session, err := dialer.Dial(ctx, dialParams)
 	if err != nil {
-		output.Error("Failed to start session: %v", err)
-		return err
+		return fail("Failed to start session", err)
 	}
 	defer session.Close()
 
 	fmt.Printf("Session %s started\n\n", session.SessionID)
 
-	// Stage attachments up-front so the agent sees them before processing
-	// the prompt. Each file rides as a user.attachment WS frame.
+	// Stage attachments up-front so the agent sees them before the prompt.
 	for _, p := range agentAttachPaths {
 		if err := uploadAgentAttachment(ctx, session, p); err != nil {
 			output.Error("Failed to attach %s: %v", p, err)
@@ -178,10 +236,10 @@ func runAgent(cmd *cobra.Command, args []string) error {
 				return nil
 			}
 			switch e := event.(type) {
-			case *syfthub.ThinkingEvent:
+			case *agenttypes.ThinkingEvent:
 				fmt.Printf("\033[2m💭 %s\033[0m\n", e.Content)
 
-			case *syfthub.ToolCallEvent:
+			case *agenttypes.ToolCallEvent:
 				idx := len(tools) + 1
 				argsStr := ""
 				if len(e.Arguments) > 0 {
@@ -198,10 +256,8 @@ func runAgent(cmd *cobra.Command, args []string) error {
 					args:  argsStr,
 				}
 
-				// Show tool call header
 				fmt.Printf("\033[33m🔧 #%d %s\033[0m", idx, e.Name)
 				if argsStr != "" {
-					// Truncate long args
 					display := argsStr
 					if len(display) > 80 {
 						display = display[:77] + "..."
@@ -210,7 +266,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 				}
 				fmt.Println()
 
-			case *syfthub.ToolResultEvent:
+			case *agenttypes.ToolResultEvent:
 				statusIcon := "\033[32m✓\033[0m"
 				if e.Status == "error" {
 					statusIcon = "\033[31m✗\033[0m"
@@ -223,7 +279,6 @@ func runAgent(cmd *cobra.Command, args []string) error {
 					pendingTool.result = resultStr
 					tools = append(tools, *pendingTool)
 
-					// Show collapsed preview
 					preview := pendingTool.formatPreview()
 					for _, line := range strings.Split(preview, "\n") {
 						fmt.Printf("   %s %s\n", statusIcon, line)
@@ -232,76 +287,50 @@ func runAgent(cmd *cobra.Command, args []string) error {
 
 					pendingTool = nil
 				} else {
-					// Standalone result without a preceding tool_call
 					fmt.Printf("   %s %s\n", statusIcon, truncate(resultStr, previewWidth))
 				}
 
-			case *syfthub.MessageEvent:
+			case *agenttypes.MessageEvent:
 				fmt.Printf("\n\033[1m%s\033[0m\n", e.Content)
 				fmt.Print("\033[96m> \033[0m")
 
-			case *syfthub.AgentTokenEvent:
+			case *agenttypes.AgentTokenEvent:
 				fmt.Print(e.Token)
 
-			case *syfthub.AgentStatusEvent:
+			case *agenttypes.AgentStatusEvent:
 				fmt.Printf("\033[2m⏳ %s\033[0m\n", e.Detail)
 
-			case *syfthub.RequestInputEvent:
+			case *agenttypes.RequestInputEvent:
 				fmt.Printf("\n\033[96m%s\033[0m\n", e.Prompt)
 				fmt.Print("\033[96m> \033[0m")
 
-			case *syfthub.SessionCompletedEvent:
+			case *agenttypes.SessionCompletedEvent:
 				fmt.Println("\n✓ Session completed.")
 				return nil
 
-			case *syfthub.SessionFailedEvent:
+			case *agenttypes.SessionFailedEvent:
 				fmt.Printf("\n✗ Session failed: %s\n", e.Error)
 				return fmt.Errorf("session failed: %s", e.Error)
 
-			case *syfthub.AgentErrorEvent:
+			case *agenttypes.AgentErrorEvent:
 				fmt.Printf("\n⚠ Error [%s]: %s\n", e.Code, e.Message)
 				if !e.Recoverable {
 					return fmt.Errorf("agent error: %s", e.Message)
 				}
 
-			case *syfthub.AttachmentEvent:
+			case *agenttypes.AttachmentEvent:
 				if err := saveAgentAttachment(session, e); err != nil {
 					fmt.Printf("\n⚠ Attachment %s (%s): %v\n", e.Name, e.FileID, err)
 				}
 
-			case *syfthub.AgentPaymentRequiredEvent:
-				// Bridge SDK event to CLI handler. The agent flow may emit
-				// payment_required at session start (only once); the handler
-				// is called once and the session continues.
-				// See unit 9 of the transaction-policy plan
-				// (nifty-skipping-rainbow.md).
-				cliEvent := PaymentRequiredEvent{
-					ChatSessionID: e.ChatSessionID,
-					EndpointSlug:  e.EndpointSlug,
-					Challenge:     e.Challenge,
-					Amount:        e.Amount,
-					Currency:      e.Currency,
-					Recipient:     e.Recipient,
-					ChallengeID:   e.ChallengeID,
-					Intent:        e.Intent,
-					RPCURL:        e.RPCURL,
-				}
-				sessionID := e.ChatSessionID
-				if sessionID == "" {
-					sessionID = session.SessionID
-				}
-				if err := HandlePaymentRequired(
-					ctx,
-					false, // agent command has no --json flag today
-					aggregatorURL,
-					cfg.APIToken,
-					sessionID,
-					cfg.TempoRPCURL,
-					cliEvent,
-				); err != nil {
-					output.Error("%v", err)
-					session.Cancel(context.Background())
-					return err
+			case *agenttypes.AgentPaymentRequiredEvent:
+				// Payment cannot be completed on the direct peer-to-peer path;
+				// the host follows this with a terminal session.failed event.
+				priced := strings.TrimSpace(e.Amount + " " + e.Currency)
+				if priced != "" {
+					fmt.Printf("\n⚠ This agent requires a payment of %s to start; payment is not supported on the direct peer-to-peer path.\n", priced)
+				} else {
+					fmt.Print("\n⚠ This agent requires a payment to start; payment is not supported on the direct peer-to-peer path.\n")
 				}
 			}
 
@@ -336,7 +365,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 				continue
 			}
 
-			if err := session.SendMessage(ctx, text); err != nil {
+			if err := session.SendMessage(text); err != nil {
 				output.Error("Failed to send message: %v", err)
 			}
 
@@ -348,7 +377,7 @@ func runAgent(cmd *cobra.Command, args []string) error {
 
 		case <-ctx.Done():
 			fmt.Println("\nCancelling session...")
-			session.Cancel(context.Background())
+			_ = session.Cancel()
 			return nil
 		}
 	}

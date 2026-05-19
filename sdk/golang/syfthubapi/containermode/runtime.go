@@ -103,12 +103,7 @@ func (r *CLIRuntime) Create(ctx context.Context, spec any) (string, error) {
 	args := r.buildRunArgs(cs)
 	out, err := r.execCommand(ctx, args...)
 	if err != nil {
-		return "", &syfthubapi.ContainerError{
-			Operation: "create",
-			Image:     cs.Image,
-			Message:   "failed to create container",
-			Cause:     err,
-		}
+		return "", fmt.Errorf("container image %s: failed to create container: %w", cs.Image, err)
 	}
 
 	containerID := strings.TrimSpace(out)

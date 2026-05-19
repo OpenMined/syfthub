@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ecdh"
 	"crypto/rand"
@@ -33,10 +32,10 @@ func GenerateX25519Keypair() (*ecdh.PrivateKey, error) {
 	return ecdh.X25519().GenerateKey(rand.Reader)
 }
 
-// loadOrGenerateKey loads an X25519 private key from keyPath, or generates a new
+// LoadOrGenerateKey loads an X25519 private key from keyPath, or generates a new
 // one and saves it if the file does not exist. The key file stores the raw 32-byte
 // seed with mode 0600. Uses O_CREATE|O_EXCL for atomic creation to avoid TOCTOU races.
-func loadOrGenerateKey(keyPath string) (*ecdh.PrivateKey, error) {
+func LoadOrGenerateKey(keyPath string) (*ecdh.PrivateKey, error) {
 	data, err := os.ReadFile(keyPath)
 	if err == nil {
 		// File exists — parse the raw seed.
@@ -109,13 +108,9 @@ func deriveKey(privateKey *ecdh.PrivateKey, peerPublicKeyBytes []byte, info []by
 // encryptPayload encrypts plaintext with AES-256-GCM using a random nonce.
 // Returns (nonce, ciphertext_with_tag).
 func encryptPayload(plaintext, aesKey, aad []byte) (nonce, ciphertext []byte, err error) {
-	block, err := aes.NewCipher(aesKey)
+	gcm, err := newAESGCM(aesKey)
 	if err != nil {
-		return nil, nil, fmt.Errorf("AES cipher creation failed: %w", err)
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, nil, fmt.Errorf("GCM creation failed: %w", err)
+		return nil, nil, err
 	}
 
 	nonce = make([]byte, nonceSize)
@@ -130,13 +125,9 @@ func encryptPayload(plaintext, aesKey, aad []byte) (nonce, ciphertext []byte, er
 // decryptPayload decrypts AES-256-GCM ciphertext (which includes the 16-byte GCM tag).
 // Returns an error if decryption or authentication fails.
 func decryptPayload(ciphertextWithTag, aesKey, nonce, aad []byte) ([]byte, error) {
-	block, err := aes.NewCipher(aesKey)
+	gcm, err := newAESGCM(aesKey)
 	if err != nil {
-		return nil, fmt.Errorf("AES cipher creation failed: %w", err)
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("GCM creation failed: %w", err)
+		return nil, err
 	}
 
 	plaintext, err := gcm.Open(nil, nonce, ciphertextWithTag, aad)
@@ -316,13 +307,9 @@ func NewSessionEncryptor(requestEphemeralPubKeyB64 string) (*SessionEncryptor, e
 		return nil, err
 	}
 
-	block, err := aes.NewCipher(aesKey)
+	gcm, err := newAESGCM(aesKey)
 	if err != nil {
-		return nil, fmt.Errorf("AES cipher creation failed: %w", err)
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("GCM creation failed: %w", err)
+		return nil, err
 	}
 
 	return &SessionEncryptor{

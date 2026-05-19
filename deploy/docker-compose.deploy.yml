@@ -354,7 +354,11 @@ services:
       - ./nats/nats.prod.conf:/etc/nats/nats.conf:ro
       - nats_data:/data/jetstream
     environment:
-      - NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN}
+      # Auth-callout configuration — see components/nats-auth/ and
+      # deploy/nats/nats.prod.conf.
+      - NATS_AUTH_SERVICE_USER=${NATS_AUTH_SERVICE_USER}
+      - NATS_AUTH_SERVICE_PASSWORD=${NATS_AUTH_SERVICE_PASSWORD}
+      - NATS_CALLOUT_ISSUER=${NATS_CALLOUT_ISSUER}
     command: ["--config", "/etc/nats/nats.conf"]
     networks:
       - syfthub-network
@@ -371,6 +375,33 @@ services:
           memory: 512M
         reservations:
           cpus: '0.25'
+          memory: 128M
+
+  # NATS auth-callout service — authorizes every NATS connection by validating
+  # the presented service / host / peer token and signing a subject-scoped
+  # user JWT. See components/nats-auth/.
+  nats-auth:
+    build:
+      context: ../components/nats-auth
+    container_name: syfthub-nats-auth
+    restart: unless-stopped
+    depends_on:
+      - nats
+      - redis
+    environment:
+      - NATS_URL=nats://nats:4222
+      - NATS_AUTH_SERVICE_USER=${NATS_AUTH_SERVICE_USER}
+      - NATS_AUTH_SERVICE_PASSWORD=${NATS_AUTH_SERVICE_PASSWORD}
+      - NATS_CALLOUT_ACCOUNT_SEED=${NATS_CALLOUT_ACCOUNT_SEED}
+      - NATS_CALLOUT_ACCOUNT=SYFTHUB
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - NATS_AUTH_SERVICE_TOKEN=${NATS_AUTH_TOKEN}
+    networks:
+      - syfthub-network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
           memory: 128M
 
   # ==========================================================================

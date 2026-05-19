@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -38,9 +37,6 @@ func TestHubClientVerifyToken(t *testing.T) {
 		_, err := client.VerifyToken(context.Background(), "")
 		if err == nil {
 			t.Fatal("expected error for empty token")
-		}
-		if !errors.Is(err, ErrAuthentication) {
-			t.Error("should be AuthenticationError")
 		}
 	})
 
@@ -292,14 +288,6 @@ func TestHubClientSyncEndpoints(t *testing.T) {
 		_, err := client.SyncEndpoints(context.Background(), nil)
 		if err == nil {
 			t.Fatal("expected error")
-		}
-
-		var syncErr *SyncError
-		if !errors.As(err, &syncErr) {
-			t.Error("should be SyncError")
-		}
-		if syncErr.StatusCode != http.StatusServiceUnavailable {
-			t.Errorf("StatusCode = %d", syncErr.StatusCode)
 		}
 	})
 }

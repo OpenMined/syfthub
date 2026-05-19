@@ -2,6 +2,8 @@
 package transport
 
 import (
+	"log/slog"
+
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 )
 
@@ -26,7 +28,7 @@ type Config struct {
 	Port int
 
 	// Logger is the logger to use.
-	Logger syfthubapi.Logger
+	Logger *slog.Logger
 
 	// NATSCredentials are the NATS credentials (for tunnel mode).
 	NATSCredentials *syfthubapi.NATSCredentials
@@ -37,10 +39,25 @@ type Config struct {
 	KeyFilePath string
 }
 
-// New creates a new transport based on the configuration.
+// New creates a transport from the configuration. For tunnel mode it dials a
+// dedicated NATS connection that the returned transport owns and closes on
+// Stop. Callers that need to share the connection — e.g. a desktop that also
+// runs an outbound AgentDialer — should create a NATSConn explicitly and call
+// NewNATSTransport.
 func New(cfg *Config) (Transport, error) {
 	if syfthubapi.IsTunnelMode(cfg.SpaceURL) {
-		return NewNATSTransport(cfg)
+		name := "syfthub-space-" + syfthubapi.GetTunnelUsername(cfg.SpaceURL)
+		natsConn, err := NewNATSConn(cfg.NATSCredentials, name, cfg.Logger)
+		if err != nil {
+			return nil, err
+		}
+		t, err := NewNATSTransport(natsConn, cfg)
+		if err != nil {
+			natsConn.Close()
+			return nil, err
+		}
+		t.ownsConn = true
+		return t, nil
 	}
 	return NewHTTPTransport(cfg)
 }

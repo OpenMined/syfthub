@@ -2,6 +2,7 @@ package syfthub
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"sync"
 )
@@ -423,6 +424,23 @@ func (a *AuthResource) GetPeerToken(ctx context.Context, targetUsernames []strin
 		return nil, err
 	}
 	return &response, nil
+}
+
+// GetEncryptionPublicKey returns the X25519 identity public key (base64url)
+// that the given user's space has registered. A direct peer-to-peer agent
+// session encrypts its requests to this key. No authentication is required —
+// the encryption key is public.
+func (a *AuthResource) GetEncryptionPublicKey(ctx context.Context, username string) (string, error) {
+	var response struct {
+		EncryptionPublicKey string `json:"encryption_public_key"`
+	}
+	if err := a.http.Get(ctx, "/api/v1/nats/encryption-key/"+username, &response, WithoutAuth()); err != nil {
+		return "", err
+	}
+	if response.EncryptionPublicKey == "" {
+		return "", fmt.Errorf("user %q has not registered an encryption key", username)
+	}
+	return response.EncryptionPublicKey, nil
 }
 
 // GetGuestPeerToken gets a peer token for NATS communication without authentication.

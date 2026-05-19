@@ -130,6 +130,18 @@ type AgentSession struct {
 	// sequence is a monotonically increasing event counter.
 	sequence atomic.Int64
 
+	// externalCancelled is set when something outside the handler asks the
+	// session to stop — user clicked Stop, NATS user.cancel arrived,
+	// AgentSessionManager.CancelAllSessions during shutdown, etc. The handler
+	// may also call s.cancel() as part of its own cleanup (e.g. the filemode
+	// executor cancels after cmd.Wait so the writer goroutine unblocks); that
+	// internal cancel must NOT be treated as a user cancel because the
+	// resulting cmd.Wait "signal: killed" error would otherwise be reported
+	// as Cancelled instead of Completed. The relay reads this flag to decide
+	// whether a SessionFailed event is a real failure or a side-effect of a
+	// requested cancel.
+	externalCancelled atomic.Bool
+
 	// transcript records the conversational messages (user + assistant)
 	// exchanged during the session, in chronological order. Populated
 	// automatically by NewAgentSession (initial Messages + Prompt),
@@ -142,16 +154,11 @@ type AgentSession struct {
 	transcriptMu sync.Mutex
 }
 
-// HasCapability returns true if the session advertised the named capability.
-func (s *AgentSession) HasCapability(cap string) bool {
-	return slices.Contains(s.Capabilities, cap)
-}
-
 // AttachmentsEnabled reports whether the attachments capability is active
 // for this session AND a tempdir is configured. Handlers SHOULD gate calls
 // to attachment helpers on this.
 func (s *AgentSession) AttachmentsEnabled() bool {
-	return s.AttachmentDir != "" && s.HasCapability(AttachmentCapability)
+	return s.AttachmentDir != "" && slices.Contains(s.Capabilities, AttachmentCapability)
 }
 
 // AttachmentCh returns the channel of inbound user attachments. Returns nil
@@ -279,9 +286,28 @@ func (s *AgentSession) Context() context.Context {
 	return s.ctx
 }
 
-// Cancel cancels the session context, causing the handler to return.
+// Cancel cancels the session context, causing the handler to return. This is
+// the "internal" cancellation entry point used by handlers (e.g. filemode's
+// agent_executor after cmd.Wait) to unblock their own goroutines; it does
+// NOT mark the session as user-cancelled.
 func (s *AgentSession) Cancel() {
 	s.cancel()
+}
+
+// CancelByUser marks the session as cancelled by an external actor (user
+// Stop button, NATS user.cancel, manager shutdown) and then cancels the
+// context. The relay uses ExternalCancelled() to distinguish a
+// SessionFailed-from-killed-subprocess that resulted from this cancel
+// (report as Cancelled) from a genuine handler failure (report as Failed).
+func (s *AgentSession) CancelByUser() {
+	s.externalCancelled.Store(true)
+	s.cancel()
+}
+
+// ExternalCancelled reports whether the session was cancelled by an external
+// actor via CancelByUser.
+func (s *AgentSession) ExternalCancelled() bool {
+	return s.externalCancelled.Load()
 }
 
 // Done returns a channel that is closed when the handler goroutine returns.
@@ -303,7 +329,7 @@ func (s *AgentSession) SendCh() <-chan AgentEventPayload {
 func (s *AgentSession) DeliverMessage(msg UserMessage) bool {
 	select {
 	case s.recvCh <- msg:
-		if msg.Type == "user_message" && msg.Content != "" {
+		if msg.Type == UserMessageTypeMessage && msg.Content != "" {
 			s.appendTranscript(Message{Role: "user", Content: msg.Content})
 		}
 		return true
@@ -339,94 +365,33 @@ func (s *AgentSession) recordOutboundEvent(event AgentEventPayload) {
 	if event.EventType != EventTypeAgentMessage {
 		return
 	}
-	var payload struct {
-		Content string `json:"content"`
-	}
-	if err := json.Unmarshal(event.Data, &payload); err != nil || payload.Content == "" {
+	content := contentOfMessage(event)
+	if content == "" {
 		return
 	}
-	s.appendTranscript(Message{Role: "assistant", Content: payload.Content})
+	s.appendTranscript(Message{Role: "assistant", Content: content})
 }
 
-// SendThinking sends a thinking/reasoning event.
-func (s *AgentSession) SendThinking(content string) error {
-	data, err := json.Marshal(map[string]any{
-		"content":      content,
-		"is_streaming": false,
-	})
+// SendPaymentRequired sends an agent.payment_required event mid-session.
+// challenge is the WWW-Authenticate-style Payment challenge string; details
+// is the safe metadata projection from the policy result. Caller is expected
+// to cancel the session after this returns.
+func (s *AgentSession) SendPaymentRequired(policyName, challenge string, details map[string]any) error {
+	payload := map[string]any{
+		"policy_name": policyName,
+	}
+	if challenge != "" {
+		payload["challenge"] = challenge
+	}
+	if len(details) > 0 {
+		payload["details"] = details
+	}
+	data, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal thinking event: %w", err)
+		return fmt.Errorf("marshal payment_required event: %w", err)
 	}
 	return s.Send(AgentEventPayload{
-		EventType: EventTypeAgentThinking,
-		Data:      data,
-	})
-}
-
-// SendToolCall sends a tool call event.
-func (s *AgentSession) SendToolCall(tc ToolCall) error {
-	data, err := json.Marshal(tc)
-	if err != nil {
-		return fmt.Errorf("marshal tool call event: %w", err)
-	}
-	return s.Send(AgentEventPayload{
-		EventType: EventTypeAgentToolCall,
-		Data:      data,
-	})
-}
-
-// SendToolResult sends a tool result event.
-func (s *AgentSession) SendToolResult(tr ToolResult) error {
-	data, err := json.Marshal(tr)
-	if err != nil {
-		return fmt.Errorf("marshal tool result event: %w", err)
-	}
-	return s.Send(AgentEventPayload{
-		EventType: EventTypeAgentToolResult,
-		Data:      data,
-	})
-}
-
-// SendMessage sends a message event to the user.
-func (s *AgentSession) SendMessage(content string) error {
-	data, err := json.Marshal(map[string]any{
-		"content":     content,
-		"is_complete": true,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal message event: %w", err)
-	}
-	return s.Send(AgentEventPayload{
-		EventType: EventTypeAgentMessage,
-		Data:      data,
-	})
-}
-
-// SendToken sends a streaming token event.
-func (s *AgentSession) SendToken(token string) error {
-	data, err := json.Marshal(map[string]any{
-		"token": token,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal token event: %w", err)
-	}
-	return s.Send(AgentEventPayload{
-		EventType: EventTypeAgentToken,
-		Data:      data,
-	})
-}
-
-// SendStatus sends a status update event.
-func (s *AgentSession) SendStatus(status, detail string) error {
-	data, err := json.Marshal(map[string]any{
-		"status": status,
-		"detail": detail,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal status event: %w", err)
-	}
-	return s.Send(AgentEventPayload{
-		EventType: EventTypeAgentStatus,
+		EventType: EventTypeAgentPaymentRequired,
 		Data:      data,
 	})
 }
@@ -503,50 +468,6 @@ func (s *AgentSession) emitAttachmentEvent(info AttachmentInfo) error {
 		EventType: EventTypeAgentAttachment,
 		Data:      data,
 	})
-}
-
-// SendAttachmentBytes is a convenience for SendAttachment with a []byte source.
-func (s *AgentSession) SendAttachmentBytes(b []byte, name, mime string) (string, error) {
-	return s.SendAttachment(bytes.NewReader(b), name, mime)
-}
-
-// RequestInput sends an agent.request_input event, then blocks for user response.
-func (s *AgentSession) RequestInput(prompt string) (UserMessage, error) {
-	data, err := json.Marshal(map[string]any{
-		"prompt": prompt,
-	})
-	if err != nil {
-		return UserMessage{}, fmt.Errorf("marshal request_input event: %w", err)
-	}
-	if err := s.Send(AgentEventPayload{
-		EventType: EventTypeAgentRequestInput,
-		Data:      data,
-	}); err != nil {
-		return UserMessage{}, err
-	}
-	return s.Receive()
-}
-
-// RequestConfirmation sends a tool_call with requires_confirmation=true,
-// then blocks for a user_confirm or user_deny response.
-// Returns true if confirmed, false if denied.
-func (s *AgentSession) RequestConfirmation(action string, args map[string]any) (bool, error) {
-	tc := ToolCall{
-		ID:                   fmt.Sprintf("confirm-%d", s.sequence.Load()+1),
-		Name:                 action,
-		Arguments:            args,
-		RequiresConfirmation: true,
-	}
-	if err := s.SendToolCall(tc); err != nil {
-		return false, err
-	}
-
-	msg, err := s.Receive()
-	if err != nil {
-		return false, err
-	}
-
-	return msg.Type == "user_confirm", nil
 }
 
 // UserMessage represents a message from the user during an agent session.

@@ -14,7 +14,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from syfthub.auth.db_dependencies import get_current_active_user
+from syfthub.auth.peer_tokens import create_host_token
 from syfthub.core.config import get_settings
+from syfthub.core.redis_client import get_redis_client
 from syfthub.database.dependencies import get_db_session
 from syfthub.models.user import UserModel
 from syfthub.schemas.nats import (
@@ -51,15 +53,20 @@ auth token, which they use to connect to the NATS server via WebSocket.
 """,
 )
 async def get_nats_credentials(
-    _current_user: Annotated[User, Depends(get_current_active_user)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> NatsCredentialsResponse:
-    """Return the NATS auth token for the authenticated user.
+    """Mint and return a host NATS token for the authenticated space.
+
+    The token (``ht_…``) is presented as the NATS connection token; the
+    nats-auth callout service resolves it to this user and grants a JWT scoped
+    to the space's own subjects. It is returned in the ``nats_auth_token``
+    field for wire compatibility with existing SDK clients.
 
     Args:
         current_user: Authenticated user from session token.
 
     Returns:
-        NatsCredentialsResponse with the NATS auth token.
+        NatsCredentialsResponse with the minted host token.
     """
     settings = get_settings()
 
@@ -69,7 +76,9 @@ async def get_nats_credentials(
             detail="NATS service is not configured.",
         )
 
-    return NatsCredentialsResponse(nats_auth_token=settings.nats_auth_token)
+    redis = await get_redis_client()
+    host_token = await create_host_token(current_user.username, redis)
+    return NatsCredentialsResponse(nats_auth_token=host_token)
 
 
 @router.put(

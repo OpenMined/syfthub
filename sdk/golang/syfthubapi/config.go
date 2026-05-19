@@ -228,95 +228,60 @@ func (c *Config) LoadFromEnv() error {
 // Validate checks that required configuration is present and valid.
 func (c *Config) Validate() error {
 	if c.SyftHubURL == "" {
-		return &ConfigurationError{Field: "SyftHubURL", Message: "required but not set"}
+		return fmt.Errorf("config: SyftHubURL is required but not set")
 	}
 
 	if c.APIKey == "" {
-		return &ConfigurationError{Field: "APIKey", Message: "required but not set"}
+		return fmt.Errorf("config: APIKey is required but not set")
 	}
 
 	if c.SpaceURL == "" {
-		return &ConfigurationError{Field: "SpaceURL", Message: "required but not set"}
+		return fmt.Errorf("config: SpaceURL is required but not set")
 	}
 
-	// Validate SpaceURL format
 	if !strings.HasPrefix(c.SpaceURL, "http://") &&
 		!strings.HasPrefix(c.SpaceURL, "https://") &&
 		!strings.HasPrefix(c.SpaceURL, "tunneling:") {
-		return &ConfigurationError{
-			Field:   "SpaceURL",
-			Message: "must start with http://, https://, or tunneling:",
-		}
+		return fmt.Errorf("config: SpaceURL must start with http://, https://, or tunneling:")
 	}
 
-	// Validate log level
 	validLogLevels := map[string]bool{
 		"DEBUG": true, "INFO": true, "WARNING": true, "WARN": true, "ERROR": true,
 	}
 	if !validLogLevels[strings.ToUpper(c.LogLevel)] {
-		return &ConfigurationError{
-			Field:   "LogLevel",
-			Message: "must be one of: DEBUG, INFO, WARNING, ERROR",
-		}
+		return fmt.Errorf("config: LogLevel must be one of: DEBUG, INFO, WARNING, ERROR")
 	}
 
-	// Validate heartbeat TTL
 	if c.HeartbeatTTLSeconds < 1 || c.HeartbeatTTLSeconds > 3600 {
-		return &ConfigurationError{
-			Field:   "HeartbeatTTLSeconds",
-			Message: "must be between 1 and 3600",
-		}
+		return fmt.Errorf("config: HeartbeatTTLSeconds must be between 1 and 3600")
 	}
 
-	// Validate heartbeat interval multiplier
 	if c.HeartbeatIntervalMultiplier <= 0 || c.HeartbeatIntervalMultiplier > 1 {
-		return &ConfigurationError{
-			Field:   "HeartbeatIntervalMultiplier",
-			Message: "must be between 0 and 1 (exclusive)",
-		}
+		return fmt.Errorf("config: HeartbeatIntervalMultiplier must be between 0 and 1 (exclusive)")
 	}
 
-	// Validate container config only when enabled
 	if c.Container.Enabled {
 		switch c.Container.Runtime {
 		case "docker", "podman", "auto":
 		default:
-			return &ConfigurationError{
-				Field:   "Container.Runtime",
-				Message: "must be one of: docker, podman, auto",
-			}
+			return fmt.Errorf("config: Container.Runtime must be one of: docker, podman, auto")
 		}
 		if c.Container.Image == "" {
-			return &ConfigurationError{
-				Field:   "Container.Image",
-				Message: "required when container mode is enabled",
-			}
+			return fmt.Errorf("config: Container.Image is required when container mode is enabled")
 		}
 		if c.Container.CPUs <= 0 {
-			return &ConfigurationError{
-				Field:   "Container.CPUs",
-				Message: "must be greater than 0",
-			}
+			return fmt.Errorf("config: Container.CPUs must be greater than 0")
 		}
 		if c.Container.MemoryMB < 64 {
-			return &ConfigurationError{
-				Field:   "Container.MemoryMB",
-				Message: "must be at least 64",
-			}
+			return fmt.Errorf("config: Container.MemoryMB must be at least 64")
 		}
 		switch c.Container.Network {
 		case "bridge", "none", "host":
 		default:
-			return &ConfigurationError{
-				Field:   "Container.Network",
-				Message: "must be one of: bridge, none, host",
-			}
+			return fmt.Errorf("config: Container.Network must be one of: bridge, none, host")
 		}
 		if c.Container.StartTimeout <= 0 {
-			return &ConfigurationError{
-				Field:   "Container.StartTimeout",
-				Message: "must be greater than 0",
-			}
+			return fmt.Errorf("config: Container.StartTimeout must be greater than 0")
 		}
 	}
 
@@ -414,38 +379,10 @@ func WithLogLevel(level string) Option {
 	}
 }
 
-// WithServerHost sets the HTTP server host.
-func WithServerHost(host string) Option {
-	return func(c *Config) {
-		c.ServerHost = host
-	}
-}
-
 // WithServerPort sets the HTTP server port.
 func WithServerPort(port int) Option {
 	return func(c *Config) {
 		c.ServerPort = port
-	}
-}
-
-// WithHeartbeatEnabled enables or disables heartbeat.
-func WithHeartbeatEnabled(enabled bool) Option {
-	return func(c *Config) {
-		c.HeartbeatEnabled = enabled
-	}
-}
-
-// WithHeartbeatTTL sets the heartbeat TTL in seconds.
-func WithHeartbeatTTL(seconds int) Option {
-	return func(c *Config) {
-		c.HeartbeatTTLSeconds = seconds
-	}
-}
-
-// WithHeartbeatIntervalMultiplier sets the heartbeat interval multiplier.
-func WithHeartbeatIntervalMultiplier(multiplier float64) Option {
-	return func(c *Config) {
-		c.HeartbeatIntervalMultiplier = multiplier
 	}
 }
 
@@ -495,40 +432,5 @@ func WithContainerRuntime(runtime string) Option {
 func WithContainerImage(image string) Option {
 	return func(c *Config) {
 		c.Container.Image = image
-	}
-}
-
-// WithContainerCPUs sets the CPU limit for containers.
-func WithContainerCPUs(cpus float64) Option {
-	return func(c *Config) {
-		c.Container.CPUs = cpus
-	}
-}
-
-// WithContainerMemoryMB sets the memory limit in megabytes.
-func WithContainerMemoryMB(mb int) Option {
-	return func(c *Config) {
-		c.Container.MemoryMB = mb
-	}
-}
-
-// WithContainerNetwork sets the container network mode.
-func WithContainerNetwork(network string) Option {
-	return func(c *Config) {
-		c.Container.Network = network
-	}
-}
-
-// WithContainerGPU sets the GPU device specification.
-func WithContainerGPU(gpu string) Option {
-	return func(c *Config) {
-		c.Container.GPU = gpu
-	}
-}
-
-// WithContainerStartTimeout sets the container startup timeout.
-func WithContainerStartTimeout(timeout time.Duration) Option {
-	return func(c *Config) {
-		c.Container.StartTimeout = timeout
 	}
 }

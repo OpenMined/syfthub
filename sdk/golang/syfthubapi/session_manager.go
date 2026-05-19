@@ -140,46 +140,9 @@ func (m *AgentSessionManager) StartSession(
 		return nil, fmt.Errorf("endpoint %s is not an agent endpoint", payload.EndpointSlug)
 	}
 
-	// Enforce policies before starting session.
-	reqCtx := &RequestContext{
-		User:              user,
-		EndpointSlug:      payload.EndpointSlug,
-		EndpointType:      EndpointTypeAgent,
-		PaymentCredential: payload.PaymentCredential,
-	}
-	policyResult, err := ep.CheckPolicies(context.Background(), reqCtx)
-	if err != nil {
-		return nil, fmt.Errorf("policy check failed: %w", err)
-	}
-	if policyResult != nil {
-		// A "pending" result with a payment_challenge means a transaction-style
-		// policy is asking the caller to obtain a payment credential and retry.
-		// Surface this as a typed error so the NATS bridge can emit a
-		// PAYMENT_REQUIRED tunnel response with the challenge details.
-		if policyResult.Pending {
-			if challenge, ok := PaymentChallengeFromMetadata(policyResult.Metadata); ok {
-				m.logger.Info("[AGENT] Session pending payment",
-					"endpoint", payload.EndpointSlug,
-					"user", user.Username,
-					"policy_name", policyResult.PolicyName,
-				)
-				return nil, &PaymentRequiredError{
-					Challenge: challenge,
-					Details:   CopyPaymentMetadata(policyResult.Metadata),
-				}
-			}
-		}
-		if !policyResult.Allowed {
-			m.logger.Warn("[AGENT] Session denied by policy",
-				"endpoint", payload.EndpointSlug,
-				"user", user.Username,
-				"policy_name", policyResult.PolicyName,
-				"reason", policyResult.Reason,
-			)
-			return nil, fmt.Errorf("access denied by policy %q: %s", policyResult.PolicyName, policyResult.Reason)
-		}
-	}
-
+	// Per-turn policy enforcement (pre on each user message, post on each
+	// reply) is woven into the agent handler by AgentExecutor — see
+	// Endpoint.SetHandler. The session manager just runs the handler.
 	handler, err := ep.GetAgentHandler()
 	if err != nil {
 		return nil, err
@@ -275,6 +238,24 @@ func (m *AgentSessionManager) StartSession(
 }
 
 // RouteMessage routes an incoming user message to the correct session's recvCh.
+//
+// For conversational user messages (Type == "user_message") it first re-runs
+// policy enforcement against the endpoint as it currently exists in the
+// registry. Re-resolving the endpoint per call (rather than caching it at
+// StartSession time) is what gives mid-session policy updates effect: when
+// the file-mode reload swaps a new Endpoint pointer into the registry, the
+// next user message hits the new policy_executor with the new policyConfigs.
+// Stateful policies (rate_limit, token_limit) decrement on every call because
+// their SQLite store persists across executor recreation.
+//
+// Control signals (user_confirm / user_deny / user_cancel) bypass the gate —
+// they don't carry new prompt content and shouldn't trip rate limits.
+//
+// Denial outcomes:
+//   - Allowed=false  → emit agent.policy_denied, then cancel the session.
+//   - Pending+payment → emit agent.payment_required, then cancel the session.
+//   - executor error → log and drop the message; do NOT cancel the session
+//     (a transient runner failure shouldn't tear down a healthy chat).
 func (m *AgentSessionManager) RouteMessage(payload AgentUserMessagePayload) error {
 	m.mu.RLock()
 	session, ok := m.sessions[payload.SessionID]
@@ -304,7 +285,7 @@ func (m *AgentSessionManager) CancelSession(sessionID string) error {
 	}
 
 	m.logger.Info("[AGENT] Cancelling session", "session_id", sessionID)
-	session.Cancel()
+	session.CancelByUser()
 	return nil
 }
 
@@ -365,7 +346,7 @@ func (m *AgentSessionManager) CancelAllSessions() {
 	defer m.mu.Unlock()
 
 	for id, session := range m.sessions {
-		session.Cancel()
+		session.CancelByUser()
 		m.deregisterSession(id)
 		delete(m.sessions, id)
 	}

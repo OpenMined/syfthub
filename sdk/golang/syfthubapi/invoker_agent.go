@@ -15,8 +15,10 @@ import (
 // For persistent interactive sessions, the AgentSessionManager is used directly
 // via the NATS transport; this invoker is only for the synchronous request/response flow.
 type AgentOneShotInvoker struct {
-	codec          EndpointCodec // ModelCodec — agents parse/format like models
-	handler        AgentHandler
+	codec   EndpointCodec // ModelCodec — agents parse/format like models
+	handler AgentHandler
+	// policyExecutor is retained only so Close() can release it. Policy
+	// evaluation itself is woven into `handler` by AgentExecutor.
 	policyExecutor Executor
 	slug           string
 	logger         *slog.Logger
@@ -28,35 +30,13 @@ func (a *AgentOneShotInvoker) ParseRequest(payload json.RawMessage) (any, error)
 
 func (a *AgentOneShotInvoker) Invoke(ctx context.Context, input any, reqCtx *RequestContext) (any, error) {
 	messages := input.([]Message)
+	prompt := lastUserContent(messages)
 
-	// Enforce policies before starting agent handler.
-	if a.policyExecutor != nil {
-		policyResult, err := a.checkPolicies(ctx, reqCtx)
-		if err != nil {
-			return nil, fmt.Errorf("policy check failed: %w", err)
-		}
-		if policyResult != nil {
-			reqCtx.PolicyResult = policyResult
-			if !policyResult.Allowed {
-				return nil, &ExecutionError{
-					Endpoint: a.slug,
-					Message:  fmt.Sprintf("access denied by policy %q: %s", policyResult.PolicyName, policyResult.Reason),
-				}
-			}
-		}
-	}
-
+	// Policy enforcement is woven into the handler by AgentExecutor (when the
+	// endpoint declares policies) — see Endpoint.SetHandler. The invoker just
+	// runs the handler; a policy denial arrives as an event in the stream.
 	if a.handler == nil {
 		return nil, errNoHandler(a.slug)
-	}
-
-	// Extract prompt from last user message
-	prompt := ""
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "user" {
-			prompt = messages[i].Content
-			break
-		}
 	}
 
 	// Create a temporary session for one-shot invocation.
@@ -119,20 +99,16 @@ func (a *AgentOneShotInvoker) Close() error {
 	return nil
 }
 
-// checkPolicies runs policy evaluation without executing the endpoint handler.
-func (a *AgentOneShotInvoker) checkPolicies(ctx context.Context, reqCtx *RequestContext) (*PolicyResultOutput, error) {
-	input := buildExecutorInput(string(EndpointTypeAgent), a.slug, EndpointTypeAgent, reqCtx)
-	input.Messages = []Message{{Role: "user", Content: "policy_check"}}
-	// Signal the executor to skip handler invocation. Required for container
-	// mode where the real handler is always loaded (no separate noop handler
-	// file exists unlike subprocess mode).
-	input.PolicyCheckOnly = true
-
-	output, err := a.policyExecutor.Execute(ctx, input)
-	if err != nil {
-		return nil, fmt.Errorf("policy check failed: %w", err)
+// lastUserContent returns the Content of the most recent user message in
+// messages, or "" if there is none. Used by the one-shot Invoke path to
+// extract the prompt for the temporary session.
+func lastUserContent(messages []Message) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "user" {
+			return messages[i].Content
+		}
 	}
-	return output.PolicyResult, nil
+	return ""
 }
 
 // Ensure AgentOneShotInvoker implements the interface at compile time.

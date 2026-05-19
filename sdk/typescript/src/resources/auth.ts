@@ -444,6 +444,26 @@ export class AuthResource {
     const tokens = this.http.getTokens();
     return tokens?.accessToken ?? null;
   }
+
+  /**
+   * Look up a space's registered X25519 public key for E2E tunnel encryption.
+   *
+   * The agent client calls this before dialing a host to derive the v2 session
+   * cipher. No authentication is required — public keys are safe to expose.
+   *
+   * @param username - The host space's username
+   * @returns The base64url X25519 public key, or null if none is registered
+   *
+   * @example
+   * const { encryptionPublicKey } = await client.auth.getEncryptionPublicKey('alice');
+   */
+  async getEncryptionPublicKey(username: string): Promise<EncryptionKeyResponse> {
+    return this.http.get<EncryptionKeyResponse>(
+      `/api/v1/nats/encryption-key/${encodeURIComponent(username)}`,
+      undefined,
+      { includeAuth: false }
+    );
+  }
 }
 
 /**
@@ -468,6 +488,14 @@ export interface SatelliteTokenResponse {
   targetToken: string;
   /** Seconds until the token expires */
   expiresIn: number;
+}
+
+/**
+ * Response from the space encryption-key lookup endpoint.
+ */
+export interface EncryptionKeyResponse {
+  /** Base64url X25519 public key, or null if the space registered none */
+  encryptionPublicKey: string | null;
 }
 
 // TransactionTokensResponse is imported from models/accounting.ts

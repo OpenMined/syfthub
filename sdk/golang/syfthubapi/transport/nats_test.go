@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,7 +22,7 @@ func TestNewNATSTransport(t *testing.T) {
 			},
 		}
 
-		transport, err := NewNATSTransport(cfg)
+		transport, err := NewNATSTransport(&NATSConn{}, cfg)
 		if err != nil {
 			t.Fatalf("NewNATSTransport error: %v", err)
 		}
@@ -37,17 +38,12 @@ func TestNewNATSTransport(t *testing.T) {
 			// No NATSCredentials
 		}
 
-		_, err := NewNATSTransport(cfg)
+		_, err := NewNATSTransport(&NATSConn{}, cfg)
 		if err == nil {
 			t.Fatal("expected error for missing credentials")
 		}
-
-		var configErr *syfthubapi.ConfigurationError
-		if !isConfigurationError(err, &configErr) {
-			t.Errorf("expected ConfigurationError, got %T", err)
-		}
-		if configErr != nil && configErr.Field != "NATSCredentials" {
-			t.Errorf("Field = %q", configErr.Field)
+		if !strings.Contains(err.Error(), "NATSCredentials") {
+			t.Errorf("expected error to mention NATSCredentials, got: %v", err)
 		}
 	})
 
@@ -65,7 +61,7 @@ func TestNewNATSTransport(t *testing.T) {
 			Logger: logger,
 		}
 
-		transport, err := NewNATSTransport(cfg)
+		transport, err := NewNATSTransport(&NATSConn{}, cfg)
 		if err != nil {
 			t.Fatalf("NewNATSTransport error: %v", err)
 		}
@@ -74,15 +70,6 @@ func TestNewNATSTransport(t *testing.T) {
 			t.Fatal("transport is nil")
 		}
 	})
-}
-
-// isConfigurationError checks if error is a ConfigurationError and assigns it
-func isConfigurationError(err error, target **syfthubapi.ConfigurationError) bool {
-	if ce, ok := err.(*syfthubapi.ConfigurationError); ok {
-		*target = ce
-		return true
-	}
-	return false
 }
 
 func TestNATSTransportSetRequestHandler(t *testing.T) {
@@ -94,7 +81,7 @@ func TestNATSTransportSetRequestHandler(t *testing.T) {
 		},
 	}
 
-	transport, _ := NewNATSTransport(cfg)
+	transport, _ := NewNATSTransport(&NATSConn{}, cfg)
 
 	transport.SetRequestHandler(func(ctx context.Context, req *syfthubapi.TunnelRequest) (*syfthubapi.TunnelResponse, error) {
 		return &syfthubapi.TunnelResponse{Status: "success"}, nil
@@ -114,7 +101,7 @@ func TestNATSTransportStopWhenNotRunning(t *testing.T) {
 		},
 	}
 
-	transport, _ := NewNATSTransport(cfg)
+	transport, _ := NewNATSTransport(&NATSConn{}, cfg)
 
 	// Stop without starting should not error
 	err := transport.Stop(context.Background())
@@ -133,7 +120,7 @@ func TestNATSTransportDoubleStart(t *testing.T) {
 		},
 	}
 
-	transport, _ := NewNATSTransport(cfg)
+	transport, _ := NewNATSTransport(&NATSConn{}, cfg)
 
 	// Manually set running to true to simulate already started
 	transport.mu.Lock()
@@ -160,7 +147,7 @@ func TestNATSTransportStartContextCancel(t *testing.T) {
 		},
 	}
 
-	transport, _ := NewNATSTransport(cfg)
+	transport, _ := NewNATSTransport(&NATSConn{}, cfg)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
@@ -212,7 +199,7 @@ func TestNATSTransportConfigValidation(t *testing.T) {
 				NATSCredentials: tt.credentials,
 			}
 
-			_, err := NewNATSTransport(cfg)
+			_, err := NewNATSTransport(&NATSConn{}, cfg)
 			if tt.expectError && err == nil {
 				t.Error("expected error")
 			}
@@ -232,7 +219,7 @@ func TestNATSTransportStopAfterStopCalled(t *testing.T) {
 		},
 	}
 
-	transport, _ := NewNATSTransport(cfg)
+	transport, _ := NewNATSTransport(&NATSConn{}, cfg)
 
 	// First stop (not running, should be no-op)
 	err := transport.Stop(context.Background())
@@ -259,7 +246,7 @@ func BenchmarkNewNATSTransport(b *testing.B) {
 	}
 
 	for i := 0; i < b.N; i++ {
-		NewNATSTransport(cfg)
+		NewNATSTransport(&NATSConn{}, cfg)
 	}
 }
 
@@ -272,7 +259,7 @@ func BenchmarkSetRequestHandler(b *testing.B) {
 		},
 	}
 
-	transport, _ := NewNATSTransport(cfg)
+	transport, _ := NewNATSTransport(&NATSConn{}, cfg)
 	handler := func(ctx context.Context, req *syfthubapi.TunnelRequest) (*syfthubapi.TunnelResponse, error) {
 		return &syfthubapi.TunnelResponse{Status: "success"}, nil
 	}

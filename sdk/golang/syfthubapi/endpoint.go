@@ -2,6 +2,7 @@ package syfthubapi
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -12,12 +13,6 @@ import (
 
 // Slug validation regex: 1-64 chars, lowercase alphanumeric with hyphens/underscores.
 var slugRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
-
-// DataSourceHandler is the function signature for data source endpoints.
-type DataSourceHandler func(ctx context.Context, query string, reqCtx *RequestContext) ([]Document, error)
-
-// ModelHandler is the function signature for model endpoints.
-type ModelHandler func(ctx context.Context, messages []Message, reqCtx *RequestContext) (string, error)
 
 // Endpoint represents a registered endpoint.
 type Endpoint struct {
@@ -207,9 +202,17 @@ func (e *Endpoint) SetHandler(cfg EndpointHandlerConfig) {
 	e.isFileBased = true
 	switch e.Type {
 	case EndpointTypeAgent:
+		// Weave per-turn policy enforcement into the agent handler. Both the
+		// one-shot (AgentOneShotInvoker) and persistent (AgentSessionManager)
+		// paths run this handler, so each inherits pre/post policy without
+		// path-specific code.
+		handler := cfg.AgentHandler
+		if cfg.PolicyExecutor != nil {
+			handler = NewAgentExecutor(handler, cfg.PolicyExecutor, e.Slug, cfg.Logger).Handler()
+		}
 		e.invoker = &AgentOneShotInvoker{
 			codec:          ModelCodec{},
-			handler:        cfg.AgentHandler,
+			handler:        handler,
 			policyExecutor: cfg.PolicyExecutor,
 			slug:           e.Slug,
 			logger:         cfg.Logger,
@@ -230,10 +233,10 @@ func (e *Endpoint) IsFileBased() bool {
 // typeErrMsg is the message used when the endpoint type doesn't match expectedType.
 func (e *Endpoint) invokeGuarded(ctx context.Context, expectedType EndpointType, typeErrMsg string, input any, reqCtx *RequestContext) (any, error) {
 	if e.Type != expectedType {
-		return nil, &ExecutionError{Endpoint: e.Slug, Message: typeErrMsg}
+		return nil, fmt.Errorf("endpoint %q: %s", e.Slug, typeErrMsg)
 	}
 	if e.invoker == nil {
-		return nil, &ExecutionError{Endpoint: e.Slug, Message: "no handler registered"}
+		return nil, errNoHandler(e.Slug)
 	}
 	return e.invoker.Invoke(ctx, input, reqCtx)
 }
@@ -246,7 +249,7 @@ func (e *Endpoint) InvokeDataSource(ctx context.Context, query string, reqCtx *R
 	}
 	docs, ok := result.([]Document)
 	if !ok {
-		return nil, &ExecutionError{Endpoint: e.Slug, Message: "unexpected result type from invoker"}
+		return nil, fmt.Errorf("endpoint %q: unexpected result type from invoker", e.Slug)
 	}
 	return docs, nil
 }
@@ -259,7 +262,7 @@ func (e *Endpoint) InvokeModel(ctx context.Context, messages []Message, reqCtx *
 	}
 	s, ok := result.(string)
 	if !ok {
-		return "", &ExecutionError{Endpoint: e.Slug, Message: "unexpected result type from invoker"}
+		return "", fmt.Errorf("endpoint %q: unexpected result type from invoker", e.Slug)
 	}
 	return s, nil
 }
@@ -268,27 +271,12 @@ func (e *Endpoint) InvokeModel(ctx context.Context, messages []Message, reqCtx *
 // Returns an error if the endpoint is not an agent type or has no handler.
 func (e *Endpoint) GetAgentHandler() (AgentHandler, error) {
 	if e.Type != EndpointTypeAgent {
-		return nil, &ExecutionError{
-			Endpoint: e.Slug,
-			Message:  "endpoint is not an agent",
-		}
+		return nil, fmt.Errorf("endpoint %q: endpoint is not an agent", e.Slug)
 	}
 	if inv, ok := e.invoker.(*AgentOneShotInvoker); ok && inv.handler != nil {
 		return inv.handler, nil
 	}
-	return nil, &ExecutionError{
-		Endpoint: e.Slug,
-		Message:  "no agent handler registered",
-	}
-}
-
-// CheckPolicies runs policy evaluation without executing the endpoint handler.
-// Returns nil PolicyResultOutput if no policy executor is configured.
-func (e *Endpoint) CheckPolicies(ctx context.Context, reqCtx *RequestContext) (*PolicyResultOutput, error) {
-	if inv, ok := e.invoker.(*AgentOneShotInvoker); ok && inv.policyExecutor != nil {
-		return inv.checkPolicies(ctx, reqCtx)
-	}
-	return nil, nil
+	return nil, fmt.Errorf("endpoint %q: no agent handler registered", e.Slug)
 }
 
 // EndpointRegistry manages registered endpoints.
@@ -310,11 +298,7 @@ func (r *EndpointRegistry) Register(endpoint *Endpoint) error {
 	defer r.mu.Unlock()
 
 	if _, exists := r.endpoints[endpoint.Slug]; exists {
-		return &EndpointRegistrationError{
-			Slug:    endpoint.Slug,
-			Field:   "slug",
-			Message: "endpoint already registered",
-		}
+		return fmt.Errorf("endpoint %q: already registered", endpoint.Slug)
 	}
 
 	r.endpoints[endpoint.Slug] = endpoint
@@ -416,204 +400,13 @@ func (r *EndpointRegistry) SetEnabled(slug string, enabled bool) bool {
 	return false
 }
 
-// baseEndpointBuilder holds the fields and logic shared by all endpoint builders.
-type baseEndpointBuilder struct {
-	api      *SyftAPI
-	endpoint *Endpoint
-	err      error
-}
-
-// setName validates and sets the endpoint display name.
-func (b *baseEndpointBuilder) setName(name string) {
-	if b.err != nil {
-		return
-	}
-	if name == "" {
-		b.err = &EndpointRegistrationError{
-			Slug:    b.endpoint.Slug,
-			Field:   "name",
-			Message: "name is required",
-		}
-		return
-	}
-	b.endpoint.Name = name
-}
-
-// setDescription validates and sets the endpoint description.
-func (b *baseEndpointBuilder) setDescription(description string) {
-	if b.err != nil {
-		return
-	}
-	if description == "" {
-		b.err = &EndpointRegistrationError{
-			Slug:    b.endpoint.Slug,
-			Field:   "description",
-			Message: "description is required",
-		}
-		return
-	}
-	b.endpoint.Description = description
-}
-
-// setVersion sets the endpoint version.
-func (b *baseEndpointBuilder) setVersion(version string) {
-	if b.err != nil {
-		return
-	}
-	b.endpoint.Version = version
-}
-
-// setEnabled sets whether the endpoint is enabled.
-func (b *baseEndpointBuilder) setEnabled(enabled bool) {
-	if b.err != nil {
-		return
-	}
-	b.endpoint.Enabled = enabled
-}
-
-// validateForRegistration checks common preconditions before registering an endpoint.
-func (b *baseEndpointBuilder) validateForRegistration() error {
-	if b.err != nil {
-		return b.err
-	}
-	if b.endpoint.Name == "" {
-		return &EndpointRegistrationError{
-			Slug:    b.endpoint.Slug,
-			Field:   "name",
-			Message: "name is required",
-		}
-	}
-	if b.endpoint.Description == "" {
-		return &EndpointRegistrationError{
-			Slug:    b.endpoint.Slug,
-			Field:   "description",
-			Message: "description is required",
-		}
-	}
-	return nil
-}
-
-// DataSourceBuilder builds data source endpoints using the builder pattern.
-type DataSourceBuilder struct {
-	baseEndpointBuilder
-}
-
-// Name sets the endpoint display name.
-func (b *DataSourceBuilder) Name(name string) *DataSourceBuilder {
-	b.setName(name)
-	return b
-}
-
-// Description sets the endpoint description.
-func (b *DataSourceBuilder) Description(description string) *DataSourceBuilder {
-	b.setDescription(description)
-	return b
-}
-
-// Version sets the endpoint version.
-func (b *DataSourceBuilder) Version(version string) *DataSourceBuilder {
-	b.setVersion(version)
-	return b
-}
-
-// Enabled sets whether the endpoint is enabled.
-func (b *DataSourceBuilder) Enabled(enabled bool) *DataSourceBuilder {
-	b.setEnabled(enabled)
-	return b
-}
-
-// Handler sets the data source handler and registers the endpoint.
-func (b *DataSourceBuilder) Handler(handler DataSourceHandler) error {
-	if err := b.validateForRegistration(); err != nil {
-		return err
-	}
-	if handler == nil {
-		return &EndpointRegistrationError{
-			Slug:    b.endpoint.Slug,
-			Field:   "handler",
-			Message: "handler is required",
-		}
-	}
-
-	b.endpoint.invoker = &UnifiedInvoker{
-		codec:  DataSourceCodec{},
-		slug:   b.endpoint.Slug,
-		epType: EndpointTypeDataSource,
-		handler: func(ctx context.Context, input any, reqCtx *RequestContext) (any, error) {
-			return handler(ctx, input.(string), reqCtx)
-		},
-	}
-	return b.api.registerEndpoint(b.endpoint)
-}
-
-// ModelBuilder builds model endpoints using the builder pattern.
-type ModelBuilder struct {
-	baseEndpointBuilder
-}
-
-// Name sets the endpoint display name.
-func (b *ModelBuilder) Name(name string) *ModelBuilder {
-	b.setName(name)
-	return b
-}
-
-// Description sets the endpoint description.
-func (b *ModelBuilder) Description(description string) *ModelBuilder {
-	b.setDescription(description)
-	return b
-}
-
-// Version sets the endpoint version.
-func (b *ModelBuilder) Version(version string) *ModelBuilder {
-	b.setVersion(version)
-	return b
-}
-
-// Enabled sets whether the endpoint is enabled.
-func (b *ModelBuilder) Enabled(enabled bool) *ModelBuilder {
-	b.setEnabled(enabled)
-	return b
-}
-
-// Handler sets the model handler and registers the endpoint.
-func (b *ModelBuilder) Handler(handler ModelHandler) error {
-	if err := b.validateForRegistration(); err != nil {
-		return err
-	}
-	if handler == nil {
-		return &EndpointRegistrationError{
-			Slug:    b.endpoint.Slug,
-			Field:   "handler",
-			Message: "handler is required",
-		}
-	}
-
-	b.endpoint.invoker = &UnifiedInvoker{
-		codec:  ModelCodec{},
-		slug:   b.endpoint.Slug,
-		epType: EndpointTypeModel,
-		handler: func(ctx context.Context, input any, reqCtx *RequestContext) (any, error) {
-			return handler(ctx, input.([]Message), reqCtx)
-		},
-	}
-	return b.api.registerEndpoint(b.endpoint)
-}
-
 // validateSlug validates an endpoint slug.
 func validateSlug(slug string) error {
 	if slug == "" {
-		return &EndpointRegistrationError{
-			Slug:    slug,
-			Field:   "slug",
-			Message: "slug is required",
-		}
+		return fmt.Errorf("endpoint slug is required")
 	}
 	if !slugRegex.MatchString(slug) {
-		return &EndpointRegistrationError{
-			Slug:    slug,
-			Field:   "slug",
-			Message: "slug must be 1-64 lowercase alphanumeric characters with hyphens or underscores",
-		}
+		return fmt.Errorf("endpoint slug %q must be 1-64 lowercase alphanumeric characters with hyphens or underscores", slug)
 	}
 	return nil
 }

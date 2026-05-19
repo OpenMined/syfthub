@@ -361,15 +361,7 @@ def handler(messages, context):
 			t.Fatal("expected timeout error")
 		}
 
-		// Check it's a TimeoutError
-		if timeoutErr, ok := err.(*syfthubapi.TimeoutError); ok {
-			if timeoutErr.Operation != "handler execution" {
-				t.Errorf("Operation = %q", timeoutErr.Operation)
-			}
-		} else {
-			// Could be other error type but should contain timeout info
-			t.Logf("error type: %T, error: %v", err, err)
-		}
+		t.Logf("error: %v", err)
 	})
 
 	t.Run("context cancellation", func(t *testing.T) {

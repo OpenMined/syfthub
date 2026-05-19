@@ -34,11 +34,7 @@ type EndpointInvoker interface {
 func executeViaExecutor(ctx context.Context, exec Executor, input *ExecutorInput, reqCtx *RequestContext, slug string) (json.RawMessage, error) {
 	output, err := exec.Execute(ctx, input)
 	if err != nil {
-		return nil, &ExecutionError{
-			Endpoint: slug,
-			Message:  "subprocess execution failed",
-			Cause:    err,
-		}
+		return nil, fmt.Errorf("endpoint %q: subprocess execution failed: %w", slug, err)
 	}
 
 	// Capture policy result in request context for logging
@@ -47,11 +43,10 @@ func executeViaExecutor(ctx context.Context, exec Executor, input *ExecutorInput
 	}
 
 	if !output.Success {
-		return nil, &ExecutionError{
-			Endpoint:  slug,
-			Message:   output.Error,
-			ErrorType: output.ErrorType,
+		if output.ErrorType != "" {
+			return nil, fmt.Errorf("endpoint %q: %s (%s)", slug, output.Error, output.ErrorType)
 		}
+		return nil, fmt.Errorf("endpoint %q: %s", slug, output.Error)
 	}
 
 	return output.Result, nil
@@ -80,10 +75,7 @@ func buildExecutorInput(inputType string, slug string, endpointType EndpointType
 
 // errNoHandler returns a standard error for endpoints with no registered handler.
 func errNoHandler(slug string) error {
-	return &ExecutionError{
-		Endpoint: slug,
-		Message:  "no handler registered",
-	}
+	return fmt.Errorf("endpoint %q: no handler registered", slug)
 }
 
 // errInvalidPayload wraps a JSON unmarshal error.

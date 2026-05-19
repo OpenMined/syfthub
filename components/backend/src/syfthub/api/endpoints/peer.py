@@ -84,6 +84,7 @@ async def generate_peer_token(
 
     token_data = await create_peer_token(
         user_id=current_user.id,
+        username=current_user.username,
         target_usernames=request.target_usernames,
         redis=redis,
     )

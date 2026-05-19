@@ -302,7 +302,7 @@ func TestDomainSeparation(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestNATSTransportPublicKeyB64(t *testing.T) {
-	transport, err := NewNATSTransport(natsCfg())
+	transport, err := NewNATSTransport(&NATSConn{}, natsCfg())
 	if err != nil {
 		t.Fatalf("NewNATSTransport error: %v", err)
 	}
@@ -322,8 +322,8 @@ func TestNATSTransportPublicKeyB64(t *testing.T) {
 }
 
 func TestNATSTransportPublicKeyB64UniquePerInstance(t *testing.T) {
-	t1, _ := NewNATSTransport(natsCfg())
-	t2, _ := NewNATSTransport(natsCfg())
+	t1, _ := NewNATSTransport(&NATSConn{}, natsCfg())
+	t2, _ := NewNATSTransport(&NATSConn{}, natsCfg())
 
 	if t1.PublicKeyB64() == t2.PublicKeyB64() {
 		t.Fatal("two NATSTransport instances should have different X25519 keypairs")

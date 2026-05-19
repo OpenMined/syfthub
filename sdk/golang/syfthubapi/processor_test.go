@@ -141,6 +141,7 @@ func TestRequestProcessorProcess(t *testing.T) {
 	t.Run("data source success", func(t *testing.T) {
 		proc, registry := setup()
 
+		docsJSON, _ := json.Marshal([]Document{{DocumentID: "doc1", Content: "content1"}})
 		registry.Register(&Endpoint{
 			Slug:    "ds-ep",
 			Name:    "Data Source",
@@ -150,10 +151,10 @@ func TestRequestProcessorProcess(t *testing.T) {
 				codec:  DataSourceCodec{},
 				slug:   "ds-ep",
 				epType: EndpointTypeDataSource,
-				handler: func(ctx context.Context, input any, reqCtx *RequestContext) (any, error) {
-					return []Document{
-						{DocumentID: "doc1", Content: "content1"},
-					}, nil
+				executor: &mockExecutor{
+					executeFunc: func(ctx context.Context, input *ExecutorInput) (*ExecutorOutput, error) {
+						return &ExecutorOutput{Success: true, Result: docsJSON}, nil
+					},
 				},
 			},
 		})
@@ -181,6 +182,7 @@ func TestRequestProcessorProcess(t *testing.T) {
 	t.Run("model success", func(t *testing.T) {
 		proc, registry := setup()
 
+		respJSON, _ := json.Marshal("Hello!")
 		registry.Register(&Endpoint{
 			Slug:    "model-ep",
 			Name:    "Model",
@@ -190,8 +192,10 @@ func TestRequestProcessorProcess(t *testing.T) {
 				codec:  ModelCodec{},
 				slug:   "model-ep",
 				epType: EndpointTypeModel,
-				handler: func(ctx context.Context, input any, reqCtx *RequestContext) (any, error) {
-					return "Hello!", nil
+				executor: &mockExecutor{
+					executeFunc: func(ctx context.Context, input *ExecutorInput) (*ExecutorOutput, error) {
+						return &ExecutorOutput{Success: true, Result: respJSON}, nil
+					},
 				},
 			},
 		})
@@ -236,8 +240,10 @@ func TestRequestProcessorProcess(t *testing.T) {
 				codec:  ModelCodec{},
 				slug:   "failing-ep",
 				epType: EndpointTypeModel,
-				handler: func(ctx context.Context, input any, reqCtx *RequestContext) (any, error) {
-					return "", errors.New("handler crashed")
+				executor: &mockExecutor{
+					executeFunc: func(ctx context.Context, input *ExecutorInput) (*ExecutorOutput, error) {
+						return nil, errors.New("handler crashed")
+					},
 				},
 			},
 		})
@@ -317,6 +323,7 @@ func TestRequestProcessorProcess(t *testing.T) {
 			capturedLog = log
 		})
 
+		respJSON, _ := json.Marshal("response")
 		registry.Register(&Endpoint{
 			Slug:    "logged-ep",
 			Name:    "Logged",
@@ -326,8 +333,10 @@ func TestRequestProcessorProcess(t *testing.T) {
 				codec:  ModelCodec{},
 				slug:   "logged-ep",
 				epType: EndpointTypeModel,
-				handler: func(ctx context.Context, input any, reqCtx *RequestContext) (any, error) {
-					return "response", nil
+				executor: &mockExecutor{
+					executeFunc: func(ctx context.Context, input *ExecutorInput) (*ExecutorOutput, error) {
+						return &ExecutorOutput{Success: true, Result: respJSON}, nil
+					},
 				},
 			},
 		})

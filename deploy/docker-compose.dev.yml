@@ -316,7 +316,11 @@ services:
       - ./nats/nats.dev.conf:/etc/nats/nats.conf:ro
       - nats_data:/data/jetstream
     environment:
-      - NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN:-dev-nats-token}
+      # Auth-callout configuration — see components/nats-auth/ and
+      # deploy/nats/nats.dev.conf. NATS no longer uses a shared connection token.
+      - NATS_AUTH_SERVICE_USER=${NATS_AUTH_SERVICE_USER:-auth_service}
+      - NATS_AUTH_SERVICE_PASSWORD=${NATS_AUTH_SERVICE_PASSWORD:-dev-auth-service-pw}
+      - NATS_CALLOUT_ISSUER=${NATS_CALLOUT_ISSUER:-ADKJUBVEDWMH5MFCDYVT5BNYEWS6VXRRBOW3OIHCZZE2JQR3SOGRTSVP}
     command: ["--config", "/etc/nats/nats.conf"]
     networks:
       - syfthub-network
@@ -326,6 +330,29 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+
+  # NATS auth-callout service — the authorization decision point for every
+  # NATS connection. Validates service / host / peer tokens against Redis and
+  # signs subject-scoped user JWTs. See components/nats-auth/.
+  nats-auth:
+    build:
+      context: ../components/nats-auth
+    container_name: syfthub-nats-auth-dev
+    depends_on:
+      - nats
+      - redis
+    environment:
+      - NATS_URL=nats://nats:4222
+      - NATS_AUTH_SERVICE_USER=${NATS_AUTH_SERVICE_USER:-auth_service}
+      - NATS_AUTH_SERVICE_PASSWORD=${NATS_AUTH_SERVICE_PASSWORD:-dev-auth-service-pw}
+      - NATS_CALLOUT_ACCOUNT_SEED=${NATS_CALLOUT_ACCOUNT_SEED:-SAAN4WJBYCDB2GPRJPC5D7SG5ZTTCJKXG5FTGBXL4ZRPCCSWBUB7FSS4F4}
+      - NATS_CALLOUT_ACCOUNT=SYFTHUB
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      # Trusted server components present this token; it equals NATS_AUTH_TOKEN
+      # so the backend and aggregator keep their existing credential.
+      - NATS_AUTH_SERVICE_TOKEN=${NATS_AUTH_TOKEN:-dev-nats-token}
+    networks:
+      - syfthub-network
 
 networks:
   syfthub-network:

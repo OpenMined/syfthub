@@ -38,9 +38,15 @@ class PeerTokenData:
     nats_auth_token: str
 
 
-def _generate_peer_channel() -> str:
-    """Generate a unique peer channel ID."""
-    return f"peer_{uuid.uuid4().hex}"
+def _generate_peer_channel(namespace: str) -> str:
+    """Generate a unique peer channel ID, namespaced by the requesting user.
+
+    Namespacing (``{namespace}.{uuid}``) lets a host's NATS credential be
+    subscribe-scoped to ``syfthub.peer.{namespace}.>`` — so a symmetric desktop
+    (host + client over one connection) can receive its own client sessions'
+    replies without being able to read anyone else's peer channels.
+    """
+    return f"{namespace}.{uuid.uuid4().hex}"
 
 
 def _generate_peer_token() -> str:
@@ -48,8 +54,14 @@ def _generate_peer_token() -> str:
     return f"pt_{secrets.token_urlsafe(32)}"
 
 
+def _generate_host_token() -> str:
+    """Generate a cryptographically secure host token string."""
+    return f"ht_{secrets.token_urlsafe(32)}"
+
+
 async def create_peer_token(
     user_id: int,
+    username: str,
     target_usernames: List[str],
     redis: Redis,
 ) -> PeerTokenData:
@@ -57,6 +69,7 @@ async def create_peer_token(
 
     Args:
         user_id: ID of the authenticated user requesting the token.
+        username: Username of the requesting user; namespaces the peer channel.
         target_usernames: Usernames of tunneling spaces to communicate with.
         redis: Async Redis client.
 
@@ -66,7 +79,7 @@ async def create_peer_token(
     settings = get_settings()
 
     token = _generate_peer_token()
-    peer_channel = _generate_peer_channel()
+    peer_channel = _generate_peer_channel(username)
     expires_in = settings.peer_token_expire_seconds
 
     # Store token data in Redis with TTL
@@ -111,7 +124,7 @@ async def create_guest_peer_token(
     settings = get_settings()
 
     token = _generate_peer_token()
-    peer_channel = _generate_peer_channel()
+    peer_channel = _generate_peer_channel("guest")
     expires_in = settings.guest_peer_token_expire_seconds
 
     # Store token data in Redis with TTL
@@ -187,3 +200,33 @@ async def revoke_peer_token(token: str, redis: Redis) -> bool:
     redis_key = f"nats:peer:{token}"
     deleted: int = await redis.delete(redis_key)
     return deleted > 0
+
+
+# Host tokens are long-lived NATS credentials for a space serving agent
+# endpoints. The space presents the token as its NATS connection token; the
+# nats-auth callout service resolves nats:host:{token} -> username and grants
+# the connection a JWT scoped to that space's own subjects.
+#
+# A long-running host that suffers a reconnect after the token's TTL has
+# elapsed must re-fetch GET /api/v1/nats/credentials; see the design doc.
+_HOST_TOKEN_EXPIRE_SECONDS = 86400
+
+
+async def create_host_token(username: str, redis: Redis) -> str:
+    """Mint a host token for a tunneling space and store it in Redis.
+
+    Args:
+        username: The space's username.
+        redis: Async Redis client.
+
+    Returns:
+        The ``ht_…`` host token string, presented as the NATS connection token.
+    """
+    token = _generate_host_token()
+    redis_key = f"nats:host:{token}"
+    await redis.set(
+        redis_key,
+        json.dumps({"username": username}),
+        ex=_HOST_TOKEN_EXPIRE_SECONDS,
+    )
+    return token

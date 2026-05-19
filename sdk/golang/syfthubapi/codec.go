@@ -3,6 +3,7 @@ package syfthubapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 )
 
 // EndpointCodec handles type-specific serialization for an endpoint type.
@@ -99,7 +100,6 @@ func (DataSourceCodec) UnmarshalResult(raw json.RawMessage) (any, error) {
 // It replaces the separate ModelInvoker and DataSourceInvoker.
 type UnifiedInvoker struct {
 	codec    EndpointCodec
-	handler  func(ctx context.Context, input any, reqCtx *RequestContext) (any, error)
 	executor Executor
 	slug     string
 	epType   EndpointType
@@ -110,13 +110,10 @@ func (u *UnifiedInvoker) ParseRequest(payload json.RawMessage) (any, error) {
 }
 
 func (u *UnifiedInvoker) Invoke(ctx context.Context, input any, reqCtx *RequestContext) (any, error) {
-	if u.executor != nil {
-		return u.executeViaSubprocess(ctx, input, reqCtx)
-	}
-	if u.handler == nil {
+	if u.executor == nil {
 		return nil, errNoHandler(u.slug)
 	}
-	return u.handler(ctx, input, reqCtx)
+	return u.executeViaSubprocess(ctx, input, reqCtx)
 }
 
 func (u *UnifiedInvoker) FormatResponse(result any) (any, error) {
@@ -145,11 +142,7 @@ func (u *UnifiedInvoker) executeViaSubprocess(ctx context.Context, input any, re
 
 	result, err := u.codec.UnmarshalResult(raw)
 	if err != nil {
-		return nil, &ExecutionError{
-			Endpoint: u.slug,
-			Message:  "failed to parse handler result",
-			Cause:    err,
-		}
+		return nil, fmt.Errorf("endpoint %q: failed to parse handler result: %w", u.slug, err)
 	}
 	return result, nil
 }

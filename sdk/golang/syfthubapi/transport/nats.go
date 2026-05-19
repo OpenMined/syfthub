@@ -15,11 +15,19 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/openmined/syfthub/sdk/golang/agenttypes"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 )
+
+// agentLogSnapshotInterval is how often, at most, an in-flight agent session
+// emits a "running" RequestLog snapshot via the configured log hook. A
+// dedicated goroutine ticks at this rate and only emits when the event stream
+// has produced something since the previous tick.
+const agentLogSnapshotInterval = 1500 * time.Millisecond
 
 // TokenVerifier is a callback that verifies a satellite token and returns
 // the authenticated user context. It mirrors the signature of
@@ -41,46 +49,60 @@ type agentNATSBridge struct {
 	logMu   sync.Mutex // protects logHook against concurrent SetLogHook + emit
 }
 
-// handleAgentMessage decrypts an agent NATS message and delegates to the session handler.
-func (b *agentNATSBridge) handleAgentMessage(msg *nats.Msg, req *syfthubapi.TunnelRequest, privateKey *ecdh.PrivateKey) {
-	// All agent messages must be encrypted
-	if req.EncryptionInfo == nil || req.EncryptedPayload == "" {
-		b.logger.Error("[AGENT] agent message missing encryption fields",
-			"correlation_id", req.CorrelationID, "type", req.Type)
-		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeDecryptionFailed, "agent messages must be encrypted")
+// handleAgentMessage decrypts a v2 agent envelope and dispatches it. The
+// session cipher is derived from the sender's identity public key (carried in
+// the plaintext wrapper) and the session id; the identical derivation on both
+// peers yields matching keys.
+func (b *agentNATSBridge) handleAgentMessage(env *syfthubapi.AgentEnvelope) {
+	if env.SenderPublicKey == "" || env.EncryptedPayload == "" || env.SessionID == "" {
+		b.logger.Error("[AGENT] v2 agent message missing required fields",
+			"correlation_id", env.CorrelationID, "type", env.Type)
 		return
 	}
 
-	plaintext, err := DecryptTunnelRequest(req.EncryptedPayload, req.EncryptionInfo, privateKey, req.CorrelationID)
+	cipher, err := NewSessionCipher(b.transport.privateKey, env.SenderPublicKey, env.SessionID)
+	if err != nil {
+		b.logger.Error("[AGENT] failed to derive session cipher",
+			"correlation_id", env.CorrelationID, "error", err)
+		return
+	}
+
+	plaintext, err := cipher.DecryptRequest(env.Nonce, env.EncryptedPayload, env.CorrelationID)
 	if err != nil {
 		b.logger.Error("[AGENT] failed to decrypt agent message",
-			"correlation_id", req.CorrelationID, "error", err)
-		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeDecryptionFailed, "failed to decrypt agent message")
+			"correlation_id", env.CorrelationID, "type", env.Type, "error", err)
+		// The cipher derived fine, so a session_start decryption failure can
+		// still be reported — otherwise the client would wait forever.
+		if env.Type == syfthubapi.MsgTypeAgentSessionStart {
+			b.sendAgentEvent(env.ReplyTo, cipher, env.SessionID, syfthubapi.EventTypeSessionFailed,
+				agenttypes.SessionFailedEvent{Error: "failed to decrypt session start", Reason: string(syfthubapi.TunnelErrorCodeDecryptionFailed)})
+		}
 		return
 	}
 
-	switch req.Type {
+	switch env.Type {
 	case syfthubapi.MsgTypeAgentSessionStart:
-		b.handleSessionStart(msg, req, plaintext)
+		b.handleSessionStart(env, cipher, plaintext)
 	case syfthubapi.MsgTypeAgentUserMessage:
 		b.handleUserMessage(plaintext)
 	case syfthubapi.MsgTypeAgentSessionCancel:
 		b.handleSessionCancel(plaintext)
 	case syfthubapi.MsgTypeAgentUserAttachment:
-		b.handleUserAttachment(msg, req, plaintext)
+		b.handleUserAttachment(env, cipher, plaintext)
 	}
 }
 
 // handleUserAttachment decrypts an attachment delivery and routes it to the
 // session. Inline-tier payloads are materialized to a tempfile under the
-// session's AttachmentDir; the session's runner is then notified via
-// AgentSession.DeliverAttachment. Object-store tier delegates to the
-// session's AttachmentDownloader.
-func (b *agentNATSBridge) handleUserAttachment(msg *nats.Msg, req *syfthubapi.TunnelRequest, payload []byte) {
+// session's AttachmentDir; object-store tier delegates to the session's
+// AttachmentDownloader. Delivery failures surface as a recoverable agent.error
+// event so the session itself continues.
+func (b *agentNATSBridge) handleUserAttachment(env *syfthubapi.AgentEnvelope, cipher *SessionCipher, payload []byte) {
 	var attachPayload syfthubapi.AgentUserAttachmentPayload
 	if err := json.Unmarshal(payload, &attachPayload); err != nil {
 		b.logger.Error("[AGENT] failed to parse user attachment payload", "error", err)
-		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAttachmentInvalidMetadata, "invalid attachment metadata")
+		b.sendAgentEvent(env.ReplyTo, cipher, env.SessionID, syfthubapi.EventTypeAgentError,
+			agenttypes.AgentErrorEvent{Code: string(syfthubapi.TunnelErrorCodeAttachmentInvalidMetadata), Message: "invalid attachment metadata", Recoverable: true})
 		return
 	}
 
@@ -89,29 +111,25 @@ func (b *agentNATSBridge) handleUserAttachment(msg *nats.Msg, req *syfthubapi.Tu
 	if !ok {
 		b.logger.Warn("[AGENT] attachment for unknown session",
 			"session_id", attachPayload.SessionID, "file_id", info.FileID)
-		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAttachmentNotFound, "session not found")
+		b.sendAgentEvent(env.ReplyTo, cipher, env.SessionID, syfthubapi.EventTypeAgentError,
+			agenttypes.AgentErrorEvent{Code: string(syfthubapi.TunnelErrorCodeAttachmentNotFound), Message: "session not found", Recoverable: true})
 		return
 	}
 
 	if !sess.AttachmentsEnabled() {
 		b.logger.Warn("[AGENT] attachment delivered to session without attachments enabled",
 			"session_id", sess.ID, "file_id", info.FileID)
-		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAttachmentNotAccepted, "endpoint does not accept attachments")
+		b.sendAgentEvent(env.ReplyTo, cipher, env.SessionID, syfthubapi.EventTypeAgentError,
+			agenttypes.AgentErrorEvent{Code: string(syfthubapi.TunnelErrorCodeAttachmentNotAccepted), Message: "endpoint does not accept attachments", Recoverable: true})
 		return
 	}
 
 	downloader := sess.AttachmentDownloader()
-	if err := MaterializeAttachment(context.Background(), sess.AttachmentDir, &info, downloader); err != nil {
+	if err := MaterializeAttachment(sess.Context(), sess.AttachmentDir, &info, downloader); err != nil {
 		b.logger.Error("[AGENT] failed to materialize attachment",
 			"session_id", sess.ID, "file_id", info.FileID, "transport", info.Transport, "error", err)
-		// Object-store failures may be transient (missing bucket/key, etc.);
-		// surface a distinct error code so the aggregator can decide whether
-		// to retry.
-		errCode := syfthubapi.TunnelErrorCodeAttachmentIntegrity
-		if info.Transport == syfthubapi.AttachmentTransportObjectStore {
-			errCode = syfthubapi.TunnelErrorCodeAttachmentNotFound
-		}
-		b.transport.sendErrorResponse(msg, req, errCode, err.Error())
+		b.sendAgentEvent(env.ReplyTo, cipher, env.SessionID, syfthubapi.EventTypeAgentError,
+			agenttypes.AgentErrorEvent{Code: string(syfthubapi.TunnelErrorCodeAttachmentIntegrity), Message: err.Error(), Recoverable: true})
 		return
 	}
 
@@ -159,41 +177,79 @@ func materializeInlineAttachment(dir string, info *syfthubapi.AttachmentInfo) er
 	return nil
 }
 
-func (b *agentNATSBridge) handleSessionStart(msg *nats.Msg, req *syfthubapi.TunnelRequest, payload []byte) {
+// bindObjectStoreAttachments wires a session's object-store attachment
+// uploader/downloader from the client-supplied session_attachment_key. Every
+// failure is non-fatal: it is logged and the session falls back to inline-only
+// attachments.
+func (b *agentNATSBridge) bindObjectStoreAttachments(session *syfthubapi.AgentSession, key string) {
+	if !session.AttachmentsEnabled() || key == "" {
+		return
+	}
+	keyBytes, err := base64.StdEncoding.DecodeString(key)
+	if err != nil || len(keyBytes) != 32 {
+		b.logger.Warn("[AGENT] invalid session_attachment_key — attachments will be inline-only",
+			"session_id", session.ID, "decode_err", err, "len", len(keyBytes))
+		return
+	}
+	store, err := b.transport.getAttachmentObjectStore()
+	if err != nil {
+		b.logger.Warn("[AGENT] failed to init attachment Object Store — attachments will be inline-only",
+			"session_id", session.ID, "error", err)
+		return
+	}
+	if uploader, err := NewObjectStoreUploader(context.Background(), keyBytes, store, session.ID); err != nil {
+		b.logger.Warn("[AGENT] failed to bind ObjectStoreUploader",
+			"session_id", session.ID, "error", err)
+	} else {
+		session.AttachmentUploader = uploader
+	}
+	if dl, err := NewObjectStoreDownloader(context.Background(), keyBytes, store); err != nil {
+		b.logger.Warn("[AGENT] failed to bind ObjectStoreDownloader",
+			"session_id", session.ID, "error", err)
+	} else {
+		session.SetAttachmentDownloader(dl)
+	}
+}
+
+func (b *agentNATSBridge) handleSessionStart(env *syfthubapi.AgentEnvelope, cipher *SessionCipher, payload []byte) {
 	startTime := time.Now()
+
+	// fail ends the session before it starts by emitting a terminal
+	// session.failed event to the client's peer channel.
+	fail := func(errMsg string, code syfthubapi.TunnelErrorCode) {
+		b.sendAgentEvent(env.ReplyTo, cipher, env.SessionID, syfthubapi.EventTypeSessionFailed,
+			agenttypes.SessionFailedEvent{Error: errMsg, Reason: string(code)})
+	}
+
 	var startPayload syfthubapi.AgentSessionStartPayload
 	if err := json.Unmarshal(payload, &startPayload); err != nil {
 		b.logger.Error("[AGENT] failed to parse session start payload", "error", err)
-		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeInvalidRequest, "failed to parse session start payload")
+		fail("invalid session start payload", syfthubapi.TunnelErrorCodeInvalidRequest)
 		return
 	}
 
-	// Verify satellite token to get real user identity
+	// Verify the satellite token to obtain the real user identity.
 	if b.tokenVerifier == nil {
 		b.logger.Error("[AGENT] token verifier not configured — cannot authenticate agent session",
 			"endpoint", startPayload.EndpointSlug)
-		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAuthFailed,
-			"agent session authentication not configured")
+		fail("agent session authentication not configured", syfthubapi.TunnelErrorCodeAuthFailed)
 		return
 	}
-
-	if req.SatelliteToken == "" {
+	if env.SatelliteToken == "" {
 		b.logger.Warn("[AGENT] agent session start missing satellite token",
 			"endpoint", startPayload.EndpointSlug)
-		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAuthFailed,
-			"missing satellite token")
+		fail("missing satellite token", syfthubapi.TunnelErrorCodeAuthFailed)
 		return
 	}
 
 	verifyCtx, verifyCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer verifyCancel()
 
-	user, err := b.tokenVerifier(verifyCtx, req.SatelliteToken)
+	user, err := b.tokenVerifier(verifyCtx, env.SatelliteToken)
 	if err != nil {
 		b.logger.Warn("[AGENT] agent session token verification failed",
 			"endpoint", startPayload.EndpointSlug, "error", err)
-		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeAuthFailed,
-			"agent session authentication failed")
+		fail("agent session authentication failed", syfthubapi.TunnelErrorCodeAuthFailed)
 		return
 	}
 
@@ -202,44 +258,21 @@ func (b *agentNATSBridge) handleSessionStart(msg *nats.Msg, req *syfthubapi.Tunn
 		"user_sub", user.Sub, "username", user.Username)
 
 	session, err := b.handler.StartSession(startPayload, user)
-	if err == nil && session != nil && session.AttachmentsEnabled() && startPayload.SessionAttachmentKey != "" {
-		keyBytes, decErr := base64.StdEncoding.DecodeString(startPayload.SessionAttachmentKey)
-		if decErr != nil || len(keyBytes) != 32 {
-			b.logger.Warn("[AGENT] invalid session_attachment_key — attachments will be inline-only",
-				"session_id", session.ID, "decode_err", decErr, "len", len(keyBytes))
-		} else {
-			store, osErr := b.transport.getAttachmentObjectStore()
-			if osErr != nil {
-				b.logger.Warn("[AGENT] failed to init attachment Object Store — attachments will be inline-only",
-					"session_id", session.ID, "error", osErr)
-			} else {
-				uploader, upErr := NewObjectStoreUploader(context.Background(), keyBytes, store, session.ID)
-				if upErr != nil {
-					b.logger.Warn("[AGENT] failed to bind ObjectStoreUploader",
-						"session_id", session.ID, "error", upErr)
-				} else {
-					session.AttachmentUploader = uploader
-				}
-				dl, dlErr := NewObjectStoreDownloader(context.Background(), keyBytes, store)
-				if dlErr != nil {
-					b.logger.Warn("[AGENT] failed to bind ObjectStoreDownloader",
-						"session_id", session.ID, "error", dlErr)
-				} else {
-					session.SetAttachmentDownloader(dl)
-				}
-			}
-		}
+	if err == nil && session != nil {
+		b.bindObjectStoreAttachments(session, startPayload.SessionAttachmentKey)
 	}
 	if err != nil {
-		// Transaction-style policies surface a typed PaymentRequiredError so we
-		// can emit a structured PAYMENT_REQUIRED tunnel response carrying the
-		// payment challenge and amount/recipient details.
+		// Transaction-style policies surface a typed PaymentRequiredError; relay
+		// the payment challenge to the client as an agent.payment_required event.
 		var payErr *syfthubapi.PaymentRequiredError
 		if errors.As(err, &payErr) {
 			b.logger.Info("[AGENT] session pending payment",
 				"endpoint", startPayload.EndpointSlug,
 				"user_sub", user.Sub, "username", user.Username)
-			b.transport.sendPaymentRequiredResponse(msg, req, payErr.Details)
+			b.sendAgentEvent(env.ReplyTo, cipher, env.SessionID, syfthubapi.EventTypeAgentPaymentRequired, payErr.Details)
+			// The direct peer-to-peer path cannot complete a payment challenge,
+			// so the session cannot proceed — end it with a terminal event.
+			fail("payment is required to start this session", syfthubapi.TunnelErrorCodePaymentRequired)
 			return
 		}
 		b.logger.Error("[AGENT] failed to start session",
@@ -247,25 +280,26 @@ func (b *agentNATSBridge) handleSessionStart(msg *nats.Msg, req *syfthubapi.Tunn
 		// Pre-session failures (policy denial, auth) have no transcript yet —
 		// synthesize one from the prompt so the log shows what was rejected.
 		b.emitSessionLog(
+			syfthubapi.NewRequestLogID(),
 			startPayload.SessionID,
 			startPayload.EndpointSlug,
 			user,
 			[]syfthubapi.Message{{Role: "user", Content: startPayload.Prompt}},
 			len(startPayload.Prompt),
+			syfthubapi.LogStatusFailed,
 			err.Error(),
 			startTime,
 		)
-		b.transport.sendErrorResponse(msg, req, syfthubapi.TunnelErrorCodeExecutionFailed,
-			fmt.Sprintf("failed to start agent session: %v", err))
+		fail(fmt.Sprintf("failed to start agent session: %v", err), syfthubapi.TunnelErrorCodeExecutionFailed)
 		return
 	}
 
-	// Start relay goroutine: read from session.sendCh and publish encrypted events to peer channel
-	go b.relayEvents(session, req.ReplyTo, req.EncryptionInfo.EphemeralPublicKey, startTime)
+	// Relay the session's events to the client's peer channel.
+	go b.relayEvents(session, env.ReplyTo, cipher, startTime)
 
 	b.logger.Info("[AGENT] session started successfully",
 		"session_id", session.ID, "endpoint", startPayload.EndpointSlug,
-		"user_sub", user.Sub, "username", user.Username, "reply_to", req.ReplyTo)
+		"user_sub", user.Sub, "username", user.Username, "reply_to", env.ReplyTo)
 }
 
 func (b *agentNATSBridge) handleUserMessage(payload []byte) {
@@ -294,6 +328,61 @@ func (b *agentNATSBridge) handleSessionCancel(payload []byte) {
 	}
 }
 
+// publishAgentEvent encrypts an already-serialized AgentEventPayload with the
+// session cipher and publishes it as a v2 agent_event envelope to subject.
+// senderPubB64 is the host's identity public key; relayEvents passes it cached
+// so the hot token-streaming path stays allocation-free. Errors are logged.
+func (b *agentNATSBridge) publishAgentEvent(subject, senderPubB64, sessionID, correlationID string, cipher *SessionCipher, payloadJSON []byte) {
+	nonce, encPayload, err := cipher.EncryptResponse(payloadJSON, correlationID)
+	if err != nil {
+		b.logger.Error("[AGENT] failed to encrypt event", "session_id", sessionID, "error", err)
+		return
+	}
+	envelope, err := json.Marshal(syfthubapi.AgentEnvelope{
+		Protocol:         syfthubapi.AgentProtocolV2,
+		Type:             syfthubapi.MsgTypeAgentEvent,
+		CorrelationID:    correlationID,
+		SessionID:        sessionID,
+		SenderPublicKey:  senderPubB64,
+		Nonce:            nonce,
+		EncryptedPayload: encPayload,
+	})
+	if err != nil {
+		b.logger.Error("[AGENT] failed to marshal event envelope", "session_id", sessionID, "error", err)
+		return
+	}
+	if err := b.transport.conn.Publish(subject, envelope); err != nil {
+		b.logger.Error("[AGENT] failed to publish event", "session_id", sessionID, "error", err)
+	}
+}
+
+// sendAgentEvent encrypts a single agent event and publishes it to the
+// client's peer channel. It is used for pre-session failures and mid-session
+// attachment errors; the live event stream itself is published by relayEvents.
+func (b *agentNATSBridge) sendAgentEvent(replyTo string, cipher *SessionCipher, sessionID, eventType string, data any) {
+	if replyTo == "" {
+		b.logger.Warn("[AGENT] cannot send event — no reply channel",
+			"session_id", sessionID, "event_type", eventType)
+		return
+	}
+	dataJSON, err := json.Marshal(data)
+	if err != nil {
+		b.logger.Error("[AGENT] failed to marshal event data", "event_type", eventType, "error", err)
+		return
+	}
+	payloadJSON, err := json.Marshal(syfthubapi.AgentEventPayload{
+		SessionID: sessionID,
+		EventType: eventType,
+		Data:      dataJSON,
+	})
+	if err != nil {
+		b.logger.Error("[AGENT] failed to marshal event payload", "event_type", eventType, "error", err)
+		return
+	}
+	b.publishAgentEvent(peerSubjectPrefix+replyTo, b.transport.PublicKeyB64(),
+		sessionID, sessionID+"-"+eventType, cipher, payloadJSON)
+}
+
 // setLogHook stores the per-session log hook (concurrent-safe with emitSessionLog).
 func (b *agentNATSBridge) setLogHook(h syfthubapi.RequestLogHook) {
 	b.logMu.Lock()
@@ -301,18 +390,23 @@ func (b *agentNATSBridge) setLogHook(h syfthubapi.RequestLogHook) {
 	b.logMu.Unlock()
 }
 
-// emitSessionLog builds a RequestLog for an agent session and invokes the
-// configured hook. Safe to call with a nil hook (no-op). Used by both the
-// pre-session start-failure paths and the relay's terminal-event finalizer.
+// emitSessionLog builds a RequestLog snapshot for an agent session and invokes
+// the configured hook. Safe to call with a nil hook (no-op). The same logID
+// must be reused across every snapshot of a single session so downstream
+// stores can upsert on it; `status` controls whether the entry is treated as
+// in-flight (LogStatusRunning) or terminal (LogStatusCompleted /
+// LogStatusFailed / LogStatusTerminated).
 //
-// On success, Response.Content is derived from the assistant-role messages
-// already present in `transcript` (recorded by AgentSession.Send). Pass a
-// non-empty `failError` to record a failure.
+// For terminal-success entries, Response.Content is derived from the
+// assistant-role messages already present in `transcript` (recorded by
+// AgentSession.Send). `failError` is recorded on failure / cancellation paths
+// (cancellation typically passes "" because the cancel is the expected outcome).
 func (b *agentNATSBridge) emitSessionLog(
-	sessionID, endpointSlug string,
+	logID, sessionID, endpointSlug string,
 	user *syfthubapi.UserContext,
 	transcript []syfthubapi.Message,
 	rawSize int,
+	status string,
 	failError string,
 	startTime time.Time,
 ) {
@@ -325,11 +419,12 @@ func (b *agentNATSBridge) emitSessionLog(
 
 	processedAt := time.Now()
 	log := &syfthubapi.RequestLog{
-		ID:            syfthubapi.NewRequestLogID(),
+		ID:            logID,
 		Timestamp:     startTime,
 		CorrelationID: sessionID,
 		EndpointSlug:  endpointSlug,
 		EndpointType:  string(syfthubapi.EndpointTypeAgent),
+		Status:        status,
 		Request: &syfthubapi.LogRequest{
 			Type:     string(syfthubapi.EndpointTypeAgent),
 			Messages: transcript,
@@ -352,14 +447,25 @@ func (b *agentNATSBridge) emitSessionLog(
 		}
 	}
 
-	if failError != "" {
-		log.Response.Success = false
-		log.Response.Error = failError
-	} else {
+	switch status {
+	case syfthubapi.LogStatusCompleted:
 		log.Response.Success = true
 		content, truncated := syfthubapi.TruncateForLog(joinAssistantContent(transcript))
 		log.Response.Content = content
 		log.Response.ContentTruncated = truncated
+	case syfthubapi.LogStatusRunning:
+		// In-flight snapshot: surface whatever assistant content has been
+		// produced so far so the operator sees the transcript grow. Success
+		// stays false because the session has not finalized yet.
+		log.Response.Success = false
+		content, truncated := syfthubapi.TruncateForLog(joinAssistantContent(transcript))
+		log.Response.Content = content
+		log.Response.ContentTruncated = truncated
+	default:
+		// LogStatusFailed / LogStatusTerminated / unknown — record any error
+		// message but no synthetic success content.
+		log.Response.Success = false
+		log.Response.Error = failError
 	}
 
 	hook(context.Background(), log)
@@ -391,35 +497,66 @@ func joinAssistantContent(transcript []syfthubapi.Message) string {
 }
 
 // relayEvents reads events from the agent session's sendCh and publishes them
-// as encrypted agent_event messages to the peer channel via NATS.
+// as encrypted v2 agent_event envelopes to the client's peer channel.
 //
-// The expensive X25519 keypair generation + ECDH + HKDF key derivation is
-// performed once at the start via SessionEncryptor. Each event is then encrypted
-// with the pre-derived AES-256-GCM key using a unique random nonce.
-//
-// Optimizations for high-frequency token streaming:
-//   - AgentEventPayload JSON is built manually via appendEventJSON, avoiding
-//     encoding/json reflection overhead. Since Data is already json.RawMessage,
-//     it is spliced in verbatim — no re-serialization.
-//   - Correlation IDs use string concatenation + strconv instead of fmt.Sprintf.
-//   - A reusable bytes.Buffer reduces per-event heap allocations for the event JSON.
-func (b *agentNATSBridge) relayEvents(session *syfthubapi.AgentSession, replyTo string, requestEphPubKeyB64 string, startTime time.Time) {
-	subject := "syfthub.peer." + replyTo
+// The session cipher (X25519 ECDH + HKDF) was derived once by handleAgentMessage
+// and is reused for every event. AgentEventPayload JSON is built manually via
+// appendEventJSON — Data is already json.RawMessage, so it is spliced verbatim
+// with no encoding/json reflection cost on the hot token-streaming path.
+func (b *agentNATSBridge) relayEvents(session *syfthubapi.AgentSession, replyTo string, cipher *SessionCipher, startTime time.Time) {
+	subject := peerSubjectPrefix + replyTo
+	hostPub := b.transport.PublicKeyB64()
 	// failError is captured from the (at most one) terminal session.failed event
 	// so it can be reported in the per-session RequestLog after the loop exits.
 	var failError string
 
-	// Pre-compute the session encryption context: one ephemeral keypair + ECDH + HKDF
-	// for the entire event stream. Individual events get unique random nonces.
-	encryptor, err := NewSessionEncryptor(requestEphPubKeyB64)
-	if err != nil {
-		b.logger.Error("[AGENT] failed to initialize session encryptor — cannot relay events",
-			"session_id", session.ID, "error", err)
-		// Drain the channel to avoid blocking the session goroutine
-		for range session.SendCh() {
-		}
-		return
+	// Single stable log ID for every snapshot of this session so the log store
+	// upserts in place instead of producing duplicate rows.
+	logID := syfthubapi.NewRequestLogID()
+	emit := func(status, errMsg string) {
+		b.emitSessionLog(
+			logID,
+			session.ID,
+			session.EndpointSlug,
+			session.User,
+			session.Transcript(),
+			len(session.InitialPrompt),
+			status,
+			errMsg,
+			startTime,
+		)
 	}
+
+	emit(syfthubapi.LogStatusRunning, "")
+
+	// Coalesced snapshot ticker. The relay can fire hundreds of events/sec on
+	// a streaming model; emitting per-event would saturate the log pipeline.
+	// Tokens don't mutate the loggable transcript, so the dirty flag is only
+	// set for transcript-changing events (see EventTypeAgentMessage branch
+	// in the loop below).
+	var dirty atomic.Bool
+	tickerDone := make(chan struct{})
+	tickerStopped := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(agentLogSnapshotInterval)
+		defer ticker.Stop()
+		defer close(tickerStopped)
+		for {
+			select {
+			case <-tickerDone:
+				return
+			case <-ticker.C:
+				if !dirty.Swap(false) {
+					continue
+				}
+				emit(syfthubapi.LogStatusRunning, "")
+			}
+		}
+	}()
+	defer func() {
+		close(tickerDone)
+		<-tickerStopped
+	}()
 
 	// Pre-encode the session ID JSON string once; reused in every event.
 	sessionIDJSON, _ := json.Marshal(session.ID)
@@ -427,16 +564,28 @@ func (b *agentNATSBridge) relayEvents(session *syfthubapi.AgentSession, replyTo 
 	// Reusable buffer for building event JSON without per-event allocation.
 	var buf bytes.Buffer
 
-	// Pre-allocate the NATS message and header map once for the entire session.
-	// Per-event we only reassign Data and header values, avoiding repeated
-	// map + slice allocations on the hot token-streaming path.
-	msg := nats.NewMsg(subject)
-	msg.Header.Set("Syft-Session-Id", session.ID)
+	// The terminal outcome is decided by which event RunHandler put on the
+	// channel, NOT by the session context. Some agent runners (notably the
+	// filemode subprocess executor) call session.Cancel() after cmd.Wait
+	// regardless of whether the subprocess exited cleanly — so ctx.Err() is
+	// context.Canceled on every normal completion. We have to observe the
+	// terminal event ourselves to disambiguate completed / failed / terminated.
+	var sawCompleted, sawFailed bool
 
 	for event := range session.SendCh() {
-		// session.failed is terminal (at most once per session) so the small
-		// best-effort decode here doesn't impact the high-frequency token path.
-		if event.EventType == syfthubapi.EventTypeSessionFailed {
+		switch event.EventType {
+		case syfthubapi.EventTypeAgentMessage:
+			// Assistant message appended to the session transcript — the
+			// next ticker fire should emit a fresh snapshot. Tokens, status,
+			// tool calls, etc. don't change the loggable Content so they
+			// intentionally don't trip dirty.
+			dirty.Store(true)
+		case syfthubapi.EventTypeSessionCompleted:
+			sawCompleted = true
+		case syfthubapi.EventTypeSessionFailed:
+			sawFailed = true
+			// Best-effort failure-reason decode; safe outside the hot
+			// token-stream path because session.failed is terminal.
 			var failData struct {
 				Error string `json:"error"`
 			}
@@ -450,63 +599,46 @@ func (b *agentNATSBridge) relayEvents(session *syfthubapi.AgentSession, replyTo 
 		// instead of paying encoding/json reflection cost per event.
 		buf.Reset()
 		appendEventJSON(&buf, sessionIDJSON, event)
-		eventJSON := buf.Bytes()
 
 		// Build correlation ID without fmt.Sprintf overhead.
 		correlationID := session.ID + "-" + strconv.Itoa(event.Sequence)
 
-		// Encrypt with the pre-derived key; each event gets a unique random nonce
-		encInfo, encPayload, err := encryptor.Encrypt(eventJSON, correlationID)
-		if err != nil {
-			b.logger.Error("[AGENT] failed to encrypt event", "session_id", session.ID, "error", err)
-			continue
-		}
-
-		response := syfthubapi.TunnelResponse{
-			Protocol:         syfthubapi.TunnelProtocolV1,
-			Type:             syfthubapi.MsgTypeAgentEvent,
-			CorrelationID:    correlationID,
-			SessionID:        session.ID,
-			EndpointSlug:     session.EndpointSlug,
-			Status:           syfthubapi.TunnelStatusSuccess,
-			EncryptionInfo:   encInfo,
-			EncryptedPayload: encPayload,
-		}
-
-		respJSON, err := json.Marshal(response)
-		if err != nil {
-			b.logger.Error("[AGENT] failed to marshal response", "session_id", session.ID, "error", err)
-			continue
-		}
-
-		// Reuse the pre-allocated msg — only update per-event fields.
-		msg.Header.Set("Syft-Msg-Type", event.EventType)
-		msg.Header.Set("Syft-Sequence", strconv.Itoa(event.Sequence))
-		msg.Data = respJSON
-		if err := b.transport.PublishMsg(msg); err != nil {
-			b.logger.Error("[AGENT] failed to publish event", "session_id", session.ID, "error", err)
-		}
+		b.publishAgentEvent(subject, hostPub, session.ID, correlationID, cipher, buf.Bytes())
 	}
 
 	b.logger.Info("[AGENT] event relay stopped", "session_id", session.ID)
 
-	// A user-initiated cancel terminates the subprocess, which the runtime
-	// surfaces as session.failed with "signal: killed". That isn't a real
-	// failure — it's the expected outcome of pressing Stop, and the session's
-	// own context carries that signal authoritatively.
-	if errors.Is(session.Context().Err(), context.Canceled) {
-		failError = ""
-	}
+	// Decide the terminal status from the events we observed plus the
+	// external-cancel flag. ctx.Err() alone is unreliable here: handlers like
+	// the filemode subprocess bridge call session.Cancel() as cleanup after
+	// cmd.Wait, so ctx is Canceled after every normal completion AND after
+	// every user-requested stop. ExternalCancelled() is the authoritative
+	// signal for "the user pressed Stop".
+	terminalStatus, failError := decideTerminalStatus(session, sawCompleted, sawFailed, failError)
+	emit(terminalStatus, failError)
+}
 
-	b.emitSessionLog(
-		session.ID,
-		session.EndpointSlug,
-		session.User,
-		session.Transcript(),
-		len(session.InitialPrompt),
-		failError,
-		startTime,
-	)
+// decideTerminalStatus picks the final log status for an agent session from
+// the terminal events the relay observed plus whether the session was
+// cancelled externally. failErrorIn may be cleared (e.g. cancellation is not
+// a real error) — the returned failError is what the terminal log should
+// record.
+func decideTerminalStatus(session *syfthubapi.AgentSession, sawCompleted, sawFailed bool, failErrorIn string) (status, failError string) {
+	switch {
+	case session.ExternalCancelled():
+		return syfthubapi.LogStatusTerminated, ""
+	case sawCompleted:
+		return syfthubapi.LogStatusCompleted, ""
+	case sawFailed:
+		return syfthubapi.LogStatusFailed, failErrorIn
+	case errors.Is(session.Context().Err(), context.Canceled):
+		return syfthubapi.LogStatusTerminated, ""
+	default:
+		if failErrorIn == "" {
+			failErrorIn = "session ended without a terminal event"
+		}
+		return syfthubapi.LogStatusFailed, failErrorIn
+	}
 }
 
 // appendEventJSON writes the JSON encoding of an AgentEventPayload to buf
@@ -536,7 +668,15 @@ func appendEventJSON(buf *bytes.Buffer, sessionIDJSON []byte, event syfthubapi.A
 
 // NATSTransport implements Transport for NATS tunnel mode.
 type NATSTransport struct {
-	conn        *nats.Conn
+	// natsConn is the shared NATS connection; conn caches natsConn.Conn().
+	natsConn *NATSConn
+	conn     *nats.Conn
+	// ownsConn is true when this transport dialed the connection itself (via
+	// New) and must close it on Stop. When the connection is injected via
+	// NewNATSTransport it is shared — e.g. with an outbound AgentDialer — and
+	// the owner closes it.
+	ownsConn bool
+
 	sub         *nats.Subscription
 	handler     RequestHandler
 	agentBridge *agentNATSBridge
@@ -572,42 +712,43 @@ func (t *NATSTransport) getAttachmentObjectStore() (AttachmentObjectStore, error
 	return store, nil
 }
 
-// NewNATSTransport creates a new NATS transport.
-// If cfg.KeyFilePath is set, the X25519 keypair is loaded from (or generated and
-// saved to) that file so the key survives restarts. Otherwise a fresh ephemeral
-// keypair is generated.
-// Call PublicKeyB64() to retrieve the public key, then register it with the hub
-// via APIAuthenticator.RegisterEncryptionPublicKey before starting the transport.
-func NewNATSTransport(cfg *Config) (*NATSTransport, error) {
-	logger := slog.Default()
-	if cfg.Logger != nil {
-		if l, ok := cfg.Logger.(*slog.Logger); ok {
-			logger = l
-		}
+// NewNATSTransport creates a NATS transport over an existing, caller-owned
+// NATSConn. The connection is shared — Stop does not close it; the caller
+// (which may also attach an outbound AgentDialer to the same NATSConn) owns
+// its lifecycle. Use New for the host-only case where the transport owns the
+// connection.
+//
+// If cfg.KeyFilePath is set, the X25519 keypair is loaded from (or generated
+// and saved to) that file so the key survives restarts. Otherwise a fresh
+// ephemeral keypair is generated. Call PublicKeyB64() to retrieve the public
+// key, then register it with the hub before starting the transport.
+func NewNATSTransport(natsConn *NATSConn, cfg *Config) (*NATSTransport, error) {
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.Default()
 	}
 
+	if natsConn == nil {
+		return nil, fmt.Errorf("config: NATSConn is required for tunnel mode")
+	}
 	if cfg.NATSCredentials == nil {
-		return nil, &syfthubapi.ConfigurationError{
-			Field:   "NATSCredentials",
-			Message: "required for tunnel mode",
-		}
+		return nil, fmt.Errorf("config: NATSCredentials is required for tunnel mode")
 	}
 
 	var privateKey *ecdh.PrivateKey
 	var err error
 	if cfg.KeyFilePath != "" {
-		privateKey, err = loadOrGenerateKey(cfg.KeyFilePath)
+		privateKey, err = LoadOrGenerateKey(cfg.KeyFilePath)
 	} else {
 		privateKey, err = GenerateX25519Keypair()
 	}
 	if err != nil {
-		return nil, &syfthubapi.ConfigurationError{
-			Field:   "encryption_keypair",
-			Message: fmt.Sprintf("failed to load or generate X25519 keypair: %v", err),
-		}
+		return nil, fmt.Errorf("config: failed to load or generate X25519 keypair: %w", err)
 	}
 
 	return &NATSTransport{
+		natsConn:   natsConn,
+		conn:       natsConn.Conn(),
 		config:     cfg,
 		logger:     logger,
 		privateKey: privateKey,
@@ -616,12 +757,15 @@ func NewNATSTransport(cfg *Config) (*NATSTransport, error) {
 }
 
 // PublicKeyB64 returns the base64url-encoded X25519 public key for this transport.
-// Register this with the hub so the aggregator can encrypt requests to this space.
+// Register this with the hub so peers can encrypt requests to this space — the
+// aggregator on the v1 model/data_source path, and direct clients on the v2
+// agent path.
 func (t *NATSTransport) PublicKeyB64() string {
 	return b64urlEncode(t.privateKey.PublicKey().Bytes())
 }
 
-// Start begins listening for NATS messages.
+// Start subscribes to the space subject on the shared NATS connection and
+// blocks until the context is cancelled or Stop is called.
 func (t *NATSTransport) Start(ctx context.Context) error {
 	t.mu.Lock()
 	if t.running {
@@ -633,78 +777,22 @@ func (t *NATSTransport) Start(ctx context.Context) error {
 	t.mu.Unlock()
 
 	creds := t.config.NATSCredentials
+	t.logger.Info("starting NATS transport", "subject", creds.Subject)
 
-	t.logger.Info("connecting to NATS",
-		"url", creds.URL,
-		"subject", creds.Subject,
-	)
-
-	tokenPreview := creds.Token
-	if len(tokenPreview) > 20 {
-		tokenPreview = tokenPreview[:20]
-	}
-	t.logger.Debug("connecting with token", "token_prefix", tokenPreview)
-
-	// Connect to NATS with token auth (exactly like Python: nats.connect(url, token=token, name=name))
-	// Note: ProxyPath("/nats") is required for nginx-proxied WebSocket connections
-	// See: https://github.com/nats-io/nats.go/issues/859
-	conn, err := nats.Connect(
-		creds.URL,
-		nats.Token(creds.Token),
-		nats.Name(fmt.Sprintf("syfthub-space-%s", syfthubapi.GetTunnelUsername(t.config.SpaceURL))),
-		nats.ProxyPath("/nats"),
-		nats.Timeout(30*time.Second),
-		nats.ReconnectWait(2*time.Second),
-		nats.MaxReconnects(-1),
-		nats.ConnectHandler(func(nc *nats.Conn) {
-			t.logger.Info("NATS connected successfully", "url", nc.ConnectedUrl())
-		}),
-		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
-			t.logger.Warn("NATS disconnected", "error", err)
-		}),
-		nats.ReconnectHandler(func(nc *nats.Conn) {
-			t.logger.Info("NATS reconnected", "url", nc.ConnectedUrl())
-		}),
-		nats.ErrorHandler(func(nc *nats.Conn, sub *nats.Subscription, err error) {
-			t.logger.Error("NATS error", "error", err)
-		}),
-		nats.ClosedHandler(func(nc *nats.Conn) {
-			t.logger.Info("NATS connection closed")
-		}),
-	)
+	sub, err := t.conn.Subscribe(creds.Subject, t.handleMessage)
 	if err != nil {
-		return &syfthubapi.TransportError{
-			Transport: "nats",
-			Message:   "failed to connect",
-			Cause:     err,
-		}
-	}
-	t.conn = conn
-
-	t.logger.Info("connected to NATS", "server", conn.ConnectedUrl())
-
-	// Subscribe to the space's subject
-	sub, err := conn.Subscribe(creds.Subject, t.handleMessage)
-	if err != nil {
-		conn.Close()
-		return &syfthubapi.TransportError{
-			Transport: "nats",
-			Message:   "failed to subscribe",
-			Cause:     err,
-		}
+		return fmt.Errorf("nats transport: failed to subscribe to %s: %w", creds.Subject, err)
 	}
 	t.sub = sub
-
 	t.logger.Info("subscribed to NATS subject", "subject", creds.Subject)
 
-	// Attempt to initialize JetStream KV session registry for agent sessions.
-	// Gracefully degrades if JetStream is not available on the server.
+	// Attempt to initialize the JetStream KV session registry for agent
+	// sessions. Gracefully degrades if JetStream is not available.
 	if t.agentBridge != nil {
-		registry, err := NewNATSSessionRegistry(conn, t.logger)
+		registry, err := NewNATSSessionRegistry(t.conn, t.logger)
 		if err != nil {
 			t.logger.Warn("JetStream KV session registry not available — continuing without it", "error", err)
 		} else {
-			// Wire registry to the session manager via the SessionRegistrar interface.
 			type registrarSetter interface {
 				SetRegistrar(r syfthubapi.SessionRegistrar)
 			}
@@ -715,7 +803,7 @@ func (t *NATSTransport) Start(ctx context.Context) error {
 		}
 	}
 
-	// Wait for context cancellation or stop signal
+	// Wait for context cancellation or stop signal.
 	select {
 	case <-ctx.Done():
 		return nil
@@ -724,7 +812,9 @@ func (t *NATSTransport) Start(ctx context.Context) error {
 	}
 }
 
-// Stop gracefully shuts down the NATS transport.
+// Stop gracefully shuts down the NATS transport. It unsubscribes from the
+// space subject; the NATS connection is closed only when this transport owns
+// it (created via New). A shared connection is closed by its owner.
 func (t *NATSTransport) Stop(ctx context.Context) error {
 	t.mu.Lock()
 	if !t.running {
@@ -737,19 +827,14 @@ func (t *NATSTransport) Stop(ctx context.Context) error {
 
 	t.logger.Info("stopping NATS transport")
 
-	// Unsubscribe
 	if t.sub != nil {
 		if err := t.sub.Unsubscribe(); err != nil {
 			t.logger.Warn("error unsubscribing", "error", err)
 		}
 	}
 
-	// Drain and close connection
-	if t.conn != nil {
-		if err := t.conn.Drain(); err != nil {
-			t.logger.Warn("error draining connection", "error", err)
-		}
-		t.conn.Close()
+	if t.ownsConn && t.natsConn != nil {
+		t.natsConn.Close()
 	}
 
 	t.logger.Info("NATS transport stopped")
@@ -790,16 +875,6 @@ func (t *NATSTransport) SetAgentLogHook(hook syfthubapi.RequestLogHook) {
 	}
 }
 
-// PublishMsg publishes a NATS message with headers to a subject.
-// Used by the agent event relay to attach session metadata headers
-// (Syft-Session-Id, Syft-Msg-Type, Syft-Sequence) for transport-level filtering.
-func (t *NATSTransport) PublishMsg(msg *nats.Msg) error {
-	if t.conn == nil {
-		return fmt.Errorf("NATS connection not established")
-	}
-	return t.conn.PublishMsg(msg)
-}
-
 // PrivateKey returns the transport's X25519 private key for agent message decryption.
 func (t *NATSTransport) PrivateKey() *ecdh.PrivateKey {
 	return t.privateKey
@@ -807,12 +882,39 @@ func (t *NATSTransport) PrivateKey() *ecdh.PrivateKey {
 
 // handleMessage processes an incoming NATS message.
 func (t *NATSTransport) handleMessage(msg *nats.Msg) {
-	if t.handler == nil {
-		t.logger.Error("no handler configured")
+	// Route v2 direct peer-to-peer agent sessions to the agent bridge; v1
+	// tunnel requests (model / data_source via the aggregator) fall through to
+	// the standard pipeline below.
+	var probe struct {
+		Protocol string `json:"protocol"`
+	}
+	if err := json.Unmarshal(msg.Data, &probe); err != nil {
+		t.logger.Error("failed to parse message", "error", err, "data", string(msg.Data))
 		return
 	}
 
-	// Parse the tunnel request envelope
+	if probe.Protocol == syfthubapi.AgentProtocolV2 {
+		if t.agentBridge == nil {
+			t.logger.Error("received a v2 agent message but agent sessions are not supported")
+			return
+		}
+		var env syfthubapi.AgentEnvelope
+		if err := json.Unmarshal(msg.Data, &env); err != nil {
+			t.logger.Error("failed to parse agent envelope", "error", err)
+			return
+		}
+		t.agentBridge.handleAgentMessage(&env)
+		return
+	}
+
+	// The v1 model / data_source path requires the request processor; the v2
+	// agent path above does not.
+	if t.handler == nil {
+		t.logger.Error("no request handler configured")
+		return
+	}
+
+	// Parse the v1 tunnel request envelope (model / data_source).
 	var req syfthubapi.TunnelRequest
 	if err := json.Unmarshal(msg.Data, &req); err != nil {
 		t.logger.Error("failed to parse request",
@@ -829,20 +931,6 @@ func (t *NATSTransport) handleMessage(msg *nats.Msg) {
 		"reply_to", req.ReplyTo,
 		"type", req.Type,
 	)
-
-	// Dispatch agent messages to the agent bridge before the standard pipeline.
-	// The bridge handles decryption, session management, and NATS event relay.
-	switch req.Type {
-	case syfthubapi.MsgTypeAgentSessionStart,
-		syfthubapi.MsgTypeAgentUserMessage,
-		syfthubapi.MsgTypeAgentSessionCancel:
-		if t.agentBridge == nil {
-			t.sendErrorResponse(msg, &req, syfthubapi.TunnelErrorCodeInvalidRequest, "agent sessions not supported")
-			return
-		}
-		t.agentBridge.handleAgentMessage(msg, &req, t.privateKey)
-		return
-	}
 
 	// Decrypt the request payload — all requests must be encrypted (no plaintext fallback).
 	if req.EncryptionInfo == nil || req.EncryptedPayload == "" {
@@ -993,32 +1081,6 @@ func (t *NATSTransport) sendErrorResponse(msg *nats.Msg, req *syfthubapi.TunnelR
 		Error: &syfthubapi.TunnelError{
 			Code:    code,
 			Message: message,
-		},
-	}
-	t.sendResponse(msg, req, resp)
-}
-
-// sendPaymentRequiredResponse sends a PAYMENT_REQUIRED tunnel response with
-// the supplied payment-challenge details placed on TunnelError.Details so the
-// caller (aggregator / client) can surface the challenge to the user.
-func (t *NATSTransport) sendPaymentRequiredResponse(msg *nats.Msg, req *syfthubapi.TunnelRequest, details map[string]any) {
-	correlationID := ""
-	endpointSlug := ""
-	if req != nil {
-		correlationID = req.CorrelationID
-		endpointSlug = req.Endpoint.Slug
-	}
-
-	resp := &syfthubapi.TunnelResponse{
-		Protocol:      syfthubapi.TunnelProtocolV1,
-		Type:          syfthubapi.TunnelTypeResponse,
-		CorrelationID: correlationID,
-		Status:        syfthubapi.TunnelStatusError,
-		EndpointSlug:  endpointSlug,
-		Error: &syfthubapi.TunnelError{
-			Code:    syfthubapi.TunnelErrorCodePaymentRequired,
-			Message: "payment required",
-			Details: details,
 		},
 	}
 	t.sendResponse(msg, req, resp)

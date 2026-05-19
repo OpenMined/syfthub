@@ -29,6 +29,15 @@ const (
 	MsgTypeAgentEvent         = "agent_event"
 )
 
+// UserMessage.Type values. UserMessageTypeMessage is the only one that
+// carries new prompt content; the others are control signals.
+const (
+	UserMessageTypeMessage = "user_message"
+	UserMessageTypeConfirm = "user_confirm"
+	UserMessageTypeDeny    = "user_deny"
+	UserMessageTypeCancel  = "user_cancel"
+)
+
 // Agent event type constants (the "event_type" field of AgentEventPayload).
 const (
 	EventTypeAgentThinking     = "agent.thinking"
@@ -38,6 +47,14 @@ const (
 	EventTypeAgentToken        = "agent.token"
 	EventTypeAgentStatus       = "agent.status"
 	EventTypeAgentRequestInput = "agent.request_input"
+	EventTypeAgentError        = "agent.error"
+
+	// EventTypeAgentPaymentRequired is emitted mid-session when a
+	// transaction-style policy returns a payment challenge for a user
+	// follow-up message. The session is terminated after this event so the
+	// caller can obtain a payment credential and start a new session.
+	// Data shape: {policy_name: string, challenge: string, details: map}.
+	EventTypeAgentPaymentRequired = "agent.payment_required"
 
 	// Terminal session events
 	EventTypeSessionCompleted     = "session.completed"
@@ -107,6 +124,16 @@ type UserContext struct {
 
 	// Role is the user's role (e.g., "admin", "user", "guest").
 	Role string `json:"role"`
+}
+
+// UsernameOrEmpty returns the username, or "" when the receiver is nil.
+// Useful for log fields and policy inputs built from possibly-anonymous
+// requests where the caller hasn't been authenticated yet.
+func (u *UserContext) UsernameOrEmpty() string {
+	if u == nil {
+		return ""
+	}
+	return u.Username
 }
 
 // RequestContext carries request metadata through the processing chain.
@@ -528,6 +555,13 @@ func (r *VerifyTokenResponse) ToUserContext() *UserContext {
 	}
 }
 
+// ExecutorInput.PolicyPhase values. When set, the executor evaluates only
+// that policy phase without invoking a handler.
+const (
+	PolicyPhasePre  = "pre"
+	PolicyPhasePost = "post"
+)
+
 // ExecutorInput is the input format for subprocess execution.
 // This matches the Python policy_manager.runner.schema.RunnerInput.
 type ExecutorInput struct {
@@ -564,11 +598,15 @@ type ExecutorInput struct {
 	// runner can verify payment before executing the handler.
 	PaymentCredential string `json:"payment_credential,omitempty"`
 
-	// PolicyCheckOnly instructs the executor to evaluate policies and return the
-	// result without invoking the endpoint handler. Used by AgentOneShotInvoker
-	// to run a pre-session policy gate against a container executor where there
-	// is no dedicated noop handler (unlike subprocess mode).
-	PolicyCheckOnly bool `json:"policy_check_only,omitempty"`
+	// PolicyPhase, when set (PolicyPhasePre or PolicyPhasePost), evaluates
+	// only that policy phase against the supplied input/output without
+	// invoking a handler. AgentExecutor uses this to gate each agent turn:
+	// "pre" on the inbound user message, "post" on the agent's reply.
+	PolicyPhase string `json:"policy_phase,omitempty"`
+
+	// Output is the pre-produced handler output (e.g. an agent turn's reply)
+	// evaluated by the post-execution policy chain when PolicyPhase == "post".
+	Output json.RawMessage `json:"output,omitempty"`
 }
 
 // ExecutorOutput is the output format from subprocess execution.
