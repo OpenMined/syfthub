@@ -18,7 +18,7 @@ import Zap from 'lucide-react/dist/esm/icons/zap';
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
-import { parseXenditConfig } from '@/lib/xendit-client';
+import { parseXenditConfig, UNIT_LABEL } from '@/lib/xendit-client';
 
 import { GenericPolicyContent } from './generic-policy-content';
 import { formatConfigKey, TransactionPolicyContent } from './transaction-policy-content';
@@ -190,9 +190,9 @@ export const PolicyItem = memo(function PolicyItem({
     () => (isXendit ? parseXenditConfig(policy.config) : null),
     [isXendit, policy.config]
   );
-  const xenditPricePerRequest =
-    xenditParsed && xenditParsed.pricePerRequest !== null && xenditParsed.pricePerRequest > 0
-      ? xenditParsed.pricePerRequest
+  const xenditPricePerUnit =
+    xenditParsed && xenditParsed.pricePerUnit !== null && xenditParsed.pricePerUnit > 0
+      ? xenditParsed.pricePerUnit
       : null;
 
   if (isXendit) {
@@ -255,9 +255,10 @@ export const PolicyItem = memo(function PolicyItem({
               {description && (
                 <p className='text-muted-foreground mt-2 text-xs leading-relaxed'>{description}</p>
               )}
-              {xenditParsed && xenditPricePerRequest !== null && (
+              {xenditParsed && xenditPricePerUnit !== null && (
                 <p className='text-muted-foreground mt-0.5 text-[11px] tabular-nums'>
-                  {xenditParsed.currency} {xenditPricePerRequest.toLocaleString()} per request
+                  {xenditParsed.currency} {xenditPricePerUnit.toLocaleString()} per{' '}
+                  {UNIT_LABEL[xenditParsed.unit].singular}
                 </p>
               )}
 

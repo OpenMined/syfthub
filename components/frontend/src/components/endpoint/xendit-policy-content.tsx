@@ -46,7 +46,7 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
   // Re-parse only when config identity changes — otherwise the bundles array
   // would get a fresh reference each render and re-fire the validation effect.
   const parsed = useMemo(() => parseXenditConfig(config), [config]);
-  const { bundles, currency, paymentUrl, creditsUrl, invoicesUrl, pricePerRequest } = parsed;
+  const { bundles, currency, paymentUrl, creditsUrl, invoicesUrl, pricePerUnit, unit } = parsed;
 
   const [subscription, setSubscription] = useState<SubscriptionState>({ state: 'loading' });
   const [purchase, setPurchase] = useState<PurchaseState>({ state: 'idle' });
@@ -237,7 +237,8 @@ export const XenditPolicyContent = memo(function XenditPolicyContent({
             value={selectedBundleName}
             onChange={setSelectedBundleName}
             disabled={isCreatingAny}
-            pricePerRequest={pricePerRequest}
+            pricePerUnit={pricePerUnit}
+            unit={unit}
           />
           <button
             type='button'
