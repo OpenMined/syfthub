@@ -141,7 +141,7 @@ func runNodeRun(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to get NATS credentials: %w", err)
 	}
-	t, err := transport.NewNATSTransport(&transport.Config{
+	t, err := transport.New(&transport.Config{
 		SpaceURL:        spaceURL,
 		NATSCredentials: natsCreds,
 		KeyFilePath:     nodeconfig.NodeKeyFile,

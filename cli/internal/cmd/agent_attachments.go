@@ -11,12 +11,13 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/openmined/syfthub/sdk/golang/syfthub"
+	"github.com/openmined/syfthub/sdk/golang/agenttypes"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/transport"
 )
 
-// uploadAgentAttachment reads a file from disk and uploads it as a
-// user.attachment WebSocket frame.
-func uploadAgentAttachment(ctx context.Context, session *syfthub.AgentSessionClient, path string) error {
+// uploadAgentAttachment reads a file from disk and sends it to the agent as an
+// inline attachment over the encrypted agent session.
+func uploadAgentAttachment(ctx context.Context, session *transport.AgentClientSession, path string) error {
 	st, err := os.Stat(path)
 	if err != nil {
 		return fmt.Errorf("stat: %w", err)
@@ -37,7 +38,7 @@ func uploadAgentAttachment(ctx context.Context, session *syfthub.AgentSessionCli
 		mimeType = "application/octet-stream"
 	}
 
-	fileID, err := session.SendAttachment(ctx, f, syfthub.AttachmentOpts{
+	fileID, err := session.SendAttachment(ctx, f, transport.AttachmentOpts{
 		Name: name,
 		MIME: mimeType,
 	})
@@ -54,7 +55,7 @@ func uploadAgentAttachment(ctx context.Context, session *syfthub.AgentSessionCli
 // Handles both transports:
 //   - inline: decode in-event base64 and verify SHA
 //   - object_store: stream via DownloadAttachment on the active session
-func saveAgentAttachment(session *syfthub.AgentSessionClient, e *syfthub.AttachmentEvent) error {
+func saveAgentAttachment(session *transport.AgentClientSession, e *agenttypes.AttachmentEvent) error {
 	dir := agentSaveAttachmentsTo
 	if dir == "" {
 		var err error
