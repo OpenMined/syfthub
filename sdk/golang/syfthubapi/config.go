@@ -242,7 +242,7 @@ func (c *Config) Validate() error {
 	if !strings.HasPrefix(c.SpaceURL, "http://") &&
 		!strings.HasPrefix(c.SpaceURL, "https://") &&
 		!strings.HasPrefix(c.SpaceURL, "tunneling:") {
-		return fmt.Errorf("config: SpaceURL must start with http://, https://, or tunneling:")
+		return fmt.Errorf("config: SpaceURL must start with http://, https://, or tunneling: prefix")
 	}
 
 	validLogLevels := map[string]bool{

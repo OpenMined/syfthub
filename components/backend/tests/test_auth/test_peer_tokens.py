@@ -19,14 +19,14 @@ class TestPeerTokenHelpers:
     """Tests for pure helper functions."""
 
     def test_generate_peer_channel_format(self):
-        """Channel ID starts with 'peer_' and has a hex suffix."""
-        channel = _generate_peer_channel()
-        assert channel.startswith("peer_")
-        assert len(channel) > len("peer_")
+        """Channel ID is namespaced by the caller and has a hex suffix."""
+        channel = _generate_peer_channel("alice")
+        assert channel.startswith("alice.")
+        assert len(channel) > len("alice.")
 
     def test_generate_peer_channel_unique(self):
         """Two calls produce different channel IDs."""
-        assert _generate_peer_channel() != _generate_peer_channel()
+        assert _generate_peer_channel("alice") != _generate_peer_channel("alice")
 
     def test_generate_peer_token_format(self):
         """Token starts with 'pt_'."""
@@ -55,13 +55,14 @@ class TestCreatePeerToken:
         with patch("syfthub.auth.peer_tokens.get_settings", return_value=mock_settings):
             result = await create_peer_token(
                 user_id=7,
+                username="myuser",
                 target_usernames=["alice", "bob"],
                 redis=redis,
             )
 
         assert isinstance(result, PeerTokenData)
         assert result.token.startswith("pt_")
-        assert result.peer_channel.startswith("peer_")
+        assert result.peer_channel.startswith("myuser.")
         assert result.user_id == 7
         assert result.target_usernames == ["alice", "bob"]
         assert result.expires_in == 300
@@ -82,6 +83,7 @@ class TestCreatePeerToken:
         with patch("syfthub.auth.peer_tokens.get_settings", return_value=mock_settings):
             result = await create_peer_token(
                 user_id=1,
+                username="bob",
                 target_usernames=["charlie"],
                 redis=redis,
             )
