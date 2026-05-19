@@ -347,7 +347,8 @@ services:
       - NATS_AUTH_SERVICE_PASSWORD=${NATS_AUTH_SERVICE_PASSWORD:-dev-auth-service-pw}
       - NATS_CALLOUT_ACCOUNT_SEED=${NATS_CALLOUT_ACCOUNT_SEED:-SAAN4WJBYCDB2GPRJPC5D7SG5ZTTCJKXG5FTGBXL4ZRPCCSWBUB7FSS4F4}
       - NATS_CALLOUT_ACCOUNT=SYFTHUB
-      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      # Keep in sync with the backend's REDIS_URL (dev Redis has no password).
+      - REDIS_URL=redis://redis:6379/0
       # Trusted server components present this token; it equals NATS_AUTH_TOKEN
       # so the backend and aggregator keep their existing credential.
       - NATS_AUTH_SERVICE_TOKEN=${NATS_AUTH_TOKEN:-dev-nats-token}

@@ -22,6 +22,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -274,7 +275,10 @@ func (a *authorizer) authorize(ctx context.Context, token string) (*perms, error
 	case strings.HasPrefix(token, "pt_"):
 		var rec peerTokenRecord
 		if err := a.lookup(ctx, "nats:peer:"+token, &rec); err != nil {
-			return nil, fmt.Errorf("unknown or expired peer token")
+			if errors.Is(err, redis.Nil) {
+				return nil, fmt.Errorf("unknown or expired peer token")
+			}
+			return nil, fmt.Errorf("peer token lookup failed: %w", err)
 		}
 		p := &perms{
 			kind: "peer",
@@ -289,7 +293,10 @@ func (a *authorizer) authorize(ctx context.Context, token string) (*perms, error
 	case strings.HasPrefix(token, "ht_"):
 		var rec hostTokenRecord
 		if err := a.lookup(ctx, "nats:host:"+token, &rec); err != nil {
-			return nil, fmt.Errorf("unknown or expired host token")
+			if errors.Is(err, redis.Nil) {
+				return nil, fmt.Errorf("unknown or expired host token")
+			}
+			return nil, fmt.Errorf("host token lookup failed: %w", err)
 		}
 		// A desktop is a symmetric peer: one connection serves both the host
 		// role (subscribe its own space, reply to any client's peer channel)
