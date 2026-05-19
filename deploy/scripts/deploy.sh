@@ -359,13 +359,17 @@ deploy_services() {
     done
     log INFO "NATS is healthy"
 
-    # Restart proxy (to pick up any nginx config changes)
+    # Bring up remaining services / clean up orphans. This (re)creates
+    # services not in the rolling-restart sequence above (e.g. marketplace),
+    # so it must run BEFORE the proxy restart.
+    docker compose $COMPOSE_ARGS up -d --remove-orphans
+
+    # Restart proxy LAST so nginx resolves every upstream's final IP.
+    # nginx caches upstream DNS at config-load; if the proxy starts before a
+    # service it routes to is (re)created, that route 502s until reload.
     log INFO "Restarting proxy..."
     docker compose $COMPOSE_ARGS up -d --no-deps --force-recreate proxy
     sleep 3
-
-    # Clean up orphaned containers
-    docker compose $COMPOSE_ARGS up -d --remove-orphans
 
     log INFO "All services deployed"
 }
