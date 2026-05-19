@@ -19,6 +19,7 @@ import (
 	syfthub "github.com/openmined/syfthub/sdk/golang/syfthub"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/transport"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -57,16 +58,16 @@ type App struct {
 	runtimeStates    map[string]string           // Transient lifecycle states per endpoint slug
 	runtimeMu        sync.RWMutex                // Protects runtimeStates; separate from mu so GetEndpoints() doesn't hold mu during the endpoint loop
 	setupStatusCache map[string]*SetupStatusInfo // Cached per-endpoint setup status; protected by mu
-	// Chat agent session — routed through the hub aggregator + NATS via the syfthub SDK.
-	agentSession      *syfthub.AgentSessionClient // Active hub session client, or nil
-	agentCancelledID  string                      // Session ID explicitly stopped by the user; drain goroutine rewrites the terminal event to session.cancelled
-	agentAttachments  map[string]*agentAttachment // Inbound attachment cache for the active session (fileID → decoded inline bytes or object-store metadata); nil between sessions
-	agentMu           sync.Mutex                  // Protects agentSession, agentCancelledID, agentAttachments
-	libraryClient    *nodeops.MarketplaceClient // Cached library client; protected by mu
-	libraryClientURL string                     // URL the cached client was created for
-	updater          *updater.Checker           // Auto-update checker; nil until startup completes
-	downloader       *updater.Downloader        // Update-artifact downloader; nil until startup completes
-	installer        *updater.Installer         // In-place binary installer; nil on macOS until Phase 4
+	// Chat agent session — a direct peer-to-peer NATS connection (no aggregator).
+	agentSession     *transport.AgentClientSession // Active P2P agent session, or nil
+	agentCancelledID string                        // Session ID explicitly stopped by the user; drain goroutine rewrites the terminal event to session.cancelled
+	agentAttachments map[string]*agentAttachment   // Inbound attachment cache for the active session (fileID → decoded inline bytes or object-store metadata); nil between sessions
+	agentMu          sync.Mutex                    // Protects agentSession, agentCancelledID, agentAttachments
+	libraryClient    *nodeops.MarketplaceClient    // Cached library client; protected by mu
+	libraryClientURL string                        // URL the cached client was created for
+	updater          *updater.Checker              // Auto-update checker; nil until startup completes
+	downloader       *updater.Downloader           // Update-artifact downloader; nil until startup completes
+	installer        *updater.Installer            // In-place binary installer; nil on macOS until Phase 4
 }
 
 // NewApp creates a new App application struct.

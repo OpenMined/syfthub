@@ -30,6 +30,8 @@ type App struct {
 	logger             *slog.Logger
 	config             *Config
 	logStore           *logs.FileLogStore
+	natsConn           *transport.NATSConn          // Shared NATS connection (tunnel mode); nil in HTTP mode
+	agentDialer        *transport.AgentDialer       // Outbound P2P agent dialer (tunnel mode); nil in HTTP mode
 	onEndpointsChanged func()                       // External notification callback for file watcher events
 	onNewLog           func(*syfthubapi.RequestLog) // External notification callback for new log entries
 }
@@ -366,7 +368,12 @@ func (a *App) Shutdown(ctx context.Context) error {
 			a.logger.Warn("error closing log store", "error", err)
 		}
 	}
-	return a.api.Shutdown(ctx)
+	err := a.api.Shutdown(ctx)
+	// Close the shared NATS connection after the API has stopped using it.
+	if a.natsConn != nil {
+		a.natsConn.Close()
+	}
+	return err
 }
 
 // handleReload is called when endpoints are reloaded.
@@ -421,12 +428,33 @@ func (a *App) setupNATSTransport(ctx context.Context, cfg *syfthubapi.Config) (s
 		a.logger.Warn("could not determine config dir for tunnel key, using ephemeral key", "error", err)
 	}
 
-	return transport.NewNATSTransport(&transport.Config{
+	// Create the single shared NATS connection. The host transport and (once
+	// wired) the outbound AgentDialer both run over this one connection.
+	natsConn, err := transport.NewNATSConn(natsCreds, "syfthub-desktop-"+cfg.GetTunnelUsername(), a.logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
+	}
+	a.natsConn = natsConn
+
+	hostTransport, err := transport.NewNATSTransport(natsConn, &transport.Config{
 		SpaceURL:        cfg.SpaceURL,
 		NATSCredentials: natsCreds,
 		Logger:          a.logger,
 		KeyFilePath:     keyFilePath,
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Build the outbound agent dialer over the same connection, reusing the
+	// host's X25519 identity key — the desktop is a symmetric peer.
+	dialer, err := transport.NewAgentDialer(natsConn, hostTransport.PrivateKey(), a.logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create agent dialer: %w", err)
+	}
+	a.agentDialer = dialer
+
+	return hostTransport, nil
 }
 
 // setupHTTPTransport creates an HTTP transport.
@@ -557,4 +585,11 @@ func (a *App) RemoveEndpoint(slug string) {
 // API returns the underlying SyftAPI instance.
 func (a *App) API() *syfthubapi.SyftAPI {
 	return a.api
+}
+
+// AgentDialer returns the outbound P2P agent dialer, or nil when the app is
+// not running in NATS tunnel mode. The Wails layer uses it to open agent
+// sessions against remote hosts.
+func (a *App) AgentDialer() *transport.AgentDialer {
+	return a.agentDialer
 }
