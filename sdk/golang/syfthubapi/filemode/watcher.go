@@ -231,6 +231,20 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 			w.watcher.Add(event.Name)
 		}
 	}
+
+	// On Rename, drop the stale watch for the old path. inotify is inode-based,
+	// so when a watched directory is renamed fsnotify keeps the underlying
+	// watch alive with its recorded path stuck at the old name — and a later
+	// Add() for the new path is a no-op (fsnotify returns the existing watch
+	// unchanged when the inode is already known, backend_inotify.go:269-271).
+	// IN_MOVE_SELF then drops the watch entirely. Without this Remove(), every
+	// later event for the renamed directory would either arrive labelled with
+	// the old path or never arrive at all, and selective reload would chase a
+	// directory that no longer exists. By Remove'ing on Rename, the matching
+	// Create event for the new path is free to install a fresh watch.
+	if event.Op&fsnotify.Rename != 0 {
+		_ = w.watcher.Remove(event.Name)
+	}
 }
 
 // processDebounced processes pending changes after debounce delay.
