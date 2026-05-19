@@ -3,6 +3,8 @@ package syfthubapi
 import (
 	"encoding/json"
 	"io"
+
+	"github.com/openmined/syfthub/sdk/golang/agenttypes"
 )
 
 // Spec version: see docs/architecture/attachments.md
@@ -33,12 +35,14 @@ const (
 )
 
 // InlineMaxBytes is the maximum plaintext size for the inline transport.
-// Larger files MUST use the object_store transport.
-const InlineMaxBytes = 64 * 1024 // 64 KiB
+// Larger files MUST use the object_store transport. It re-exports the
+// canonical definition in the dependency-free agenttypes package.
+const InlineMaxBytes = agenttypes.InlineAttachmentMaxBytes
 
 // AttachmentCapability is the capabilities[] string clients/hosts declare in
-// session.start to opt into the attachments protocol.
-const AttachmentCapability = "attachments"
+// session.start to opt into the attachments protocol. It re-exports the
+// canonical definition in the dependency-free agenttypes package.
+const AttachmentCapability = agenttypes.AttachmentCapability
 
 // AttachmentInfo metadata is the JSON shape carried in the event Data field
 // for both EventTypeUserAttachment and EventTypeAgentAttachment.

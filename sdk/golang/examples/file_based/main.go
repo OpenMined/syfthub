@@ -126,7 +126,7 @@ func main() {
 		}
 		log.Printf("NATS Token: %s", tokenPreview)
 
-		natsTransport, err := transport.NewNATSTransport(&transport.Config{
+		natsTransport, err := transport.New(&transport.Config{
 			SpaceURL:        config.SpaceURL,
 			NATSCredentials: natsCreds,
 			Logger:          logger,

@@ -47,6 +47,7 @@ const (
 	EventTypeAgentToken        = "agent.token"
 	EventTypeAgentStatus       = "agent.status"
 	EventTypeAgentRequestInput = "agent.request_input"
+	EventTypeAgentError        = "agent.error"
 
 	// EventTypeAgentPaymentRequired is emitted mid-session when a
 	// transaction-style policy returns a payment challenge for a user
