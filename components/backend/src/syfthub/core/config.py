@@ -348,9 +348,9 @@ class Settings(BaseSettings):
     # ===========================================
     # HEARTBEAT SETTINGS (Deprecated)
     # ===========================================
-    # These settings are used by the deprecated heartbeat endpoints
-    # (POST /users/me/heartbeat, POST /organizations/{org_id}/heartbeat)
-    # and also by POST /endpoints/health for TTL capping.
+    # These settings are used by the deprecated heartbeat endpoint
+    # (POST /users/me/heartbeat) and also by POST /endpoints/health
+    # for TTL capping.
     #
     # When the deprecated heartbeat endpoints are removed, rename these
     # to generic TTL settings (e.g., health_max_ttl_seconds) or inline

@@ -26,8 +26,6 @@ from syfthub.models import (
     EndpointModel,
     EndpointStarModel,
     ErrorLogModel,
-    OrganizationMemberModel,
-    OrganizationModel,
     UserAggregatorModel,
     UserModel,
 )
@@ -37,8 +35,6 @@ _models = [
     EndpointModel,
     EndpointStarModel,
     ErrorLogModel,
-    OrganizationMemberModel,
-    OrganizationModel,
     UserAggregatorModel,
     UserModel,
 ]

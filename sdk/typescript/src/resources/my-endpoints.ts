@@ -93,14 +93,12 @@ export class MyEndpointsResource {
    * Create a new endpoint.
    *
    * @param input - Endpoint creation details
-   * @param organizationId - Optional organization ID (for org-owned endpoints)
    * @returns The created Endpoint
    * @throws {AuthenticationError} If not authenticated
    * @throws {ValidationError} If input validation fails
    */
-  async create(input: EndpointCreateInput, organizationId?: number): Promise<Endpoint> {
-    const body = organizationId !== undefined ? { ...input, organizationId } : input;
-    return this.http.post<Endpoint>('/api/v1/endpoints', body);
+  async create(input: EndpointCreateInput): Promise<Endpoint> {
+    return this.http.post<Endpoint>('/api/v1/endpoints', input);
   }
 
   /**
@@ -173,7 +171,6 @@ export class MyEndpointsResource {
    * 3. Is ATOMIC: either all endpoints sync successfully, or none do
    *
    * Important Notes:
-   * - Organization endpoints are NOT affected
    * - Stars on existing endpoints will be lost (reset to 0)
    * - Endpoint IDs will change (new IDs assigned)
    * - Maximum 100 endpoints per sync request

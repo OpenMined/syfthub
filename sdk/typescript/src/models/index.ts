@@ -1,5 +1,5 @@
 // Enums and constants
-export { Visibility, EndpointType, UserRole, OrganizationRole } from './common.js';
+export { Visibility, EndpointType, UserRole } from './common.js';
 
 // API Token types
 export type {
@@ -47,7 +47,7 @@ export type {
 } from './endpoint.js';
 
 // Endpoint helpers
-export { getEndpointOwnerType, getEndpointPublicPath, getSearchResultPath } from './endpoint.js';
+export { getEndpointPublicPath, getSearchResultPath } from './endpoint.js';
 
 // Accounting / Wallet types
 export type {

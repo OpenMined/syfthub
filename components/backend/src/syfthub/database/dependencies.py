@@ -9,16 +9,13 @@ from syfthub.database.connection import get_db_session
 from syfthub.repositories import (
     APITokenRepository,
     EndpointRepository,
-    OrganizationRepository,
     UserRepository,
     UserXenditSubscriptionRepository,
 )
 from syfthub.repositories.endpoint import EndpointStarRepository
-from syfthub.repositories.organization import OrganizationMemberRepository
 from syfthub.services.api_token_service import APITokenService
 from syfthub.services.auth_service import AuthService
 from syfthub.services.endpoint_service import EndpointService
-from syfthub.services.organization_service import OrganizationService
 from syfthub.services.otp_service import OTPService
 from syfthub.services.user_service import UserService
 
@@ -44,20 +41,6 @@ def get_endpoint_repository(
 ) -> EndpointRepository:
     """Get EndpointRepository dependency."""
     return EndpointRepository(session)
-
-
-def get_organization_repository(
-    session: Annotated[Session, Depends(get_db_session)],
-) -> OrganizationRepository:
-    """Get OrganizationRepository dependency."""
-    return OrganizationRepository(session)
-
-
-def get_organization_member_repository(
-    session: Annotated[Session, Depends(get_db_session)],
-) -> OrganizationMemberRepository:
-    """Get OrganizationMemberRepository dependency."""
-    return OrganizationMemberRepository(session)
 
 
 def get_endpoint_star_repository(
@@ -94,13 +77,6 @@ def get_endpoint_service(
 ) -> EndpointService:
     """Get EndpointService dependency."""
     return EndpointService(session)
-
-
-def get_organization_service(
-    session: Annotated[Session, Depends(get_db_session)],
-) -> OrganizationService:
-    """Get OrganizationService dependency."""
-    return OrganizationService(session)
 
 
 def get_otp_service(

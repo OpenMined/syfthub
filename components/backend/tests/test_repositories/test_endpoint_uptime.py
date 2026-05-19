@@ -113,7 +113,6 @@ class TestGetByOwnerAndSlugAnyState:
         repo = EndpointRepository(test_session)
         found = repo.get_by_owner_and_slug_any_state(
             user_id=user.id,
-            organization_id=None,
             slug=endpoint.slug,
         )
         assert found is not None
@@ -128,35 +127,15 @@ class TestGetByOwnerAndSlugAnyState:
         repo = EndpointRepository(test_session)
         found = repo.get_by_owner_and_slug_any_state(
             user_id=user.id,
-            organization_id=None,
             slug=endpoint.slug,
         )
         assert found is not None
         assert found.id == endpoint.id
 
-    def test_rejects_both_owners_set(self, test_session):
-        repo = EndpointRepository(test_session)
-        assert (
-            repo.get_by_owner_and_slug_any_state(user_id=1, organization_id=2, slug="x")
-            is None
-        )
-
-    def test_rejects_neither_owner_set(self, test_session):
-        repo = EndpointRepository(test_session)
-        assert (
-            repo.get_by_owner_and_slug_any_state(
-                user_id=None, organization_id=None, slug="x"
-            )
-            is None
-        )
-
     def test_not_found(self, test_session, user):
         repo = EndpointRepository(test_session)
         assert (
-            repo.get_by_owner_and_slug_any_state(
-                user_id=user.id, organization_id=None, slug="nope"
-            )
-            is None
+            repo.get_by_owner_and_slug_any_state(user_id=user.id, slug="nope") is None
         )
 
 

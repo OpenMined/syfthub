@@ -199,7 +199,6 @@ class UserService(BaseService):
             "is_active": user.is_active,
             # These would be calculated by querying related tables
             "endpoints_count": 0,
-            "organizations_count": 0,
             "stars_given": 0,
         }
 

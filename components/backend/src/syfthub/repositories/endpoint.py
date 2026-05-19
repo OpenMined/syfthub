@@ -16,7 +16,6 @@ from syfthub.models.endpoint import (
     EndpointUptimeSampleModel,
     policies_require_payment,
 )
-from syfthub.models.organization import OrganizationModel
 from syfthub.models.user import UserModel
 from syfthub.repositories.base import BaseRepository
 from syfthub.schemas.endpoint import (
@@ -47,30 +46,18 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         super().__init__(session, EndpointModel)
 
     def _build_public_select(self):
-        """Build a SELECT statement that includes both user-owned and org-owned endpoints.
+        """Build a SELECT statement for endpoints joined with their owner.
 
         Returns a select() with columns:
             - EndpointModel (the endpoint)
-            - owner_username (user.username or org.slug)
-            - owner_domain (user.domain or org.domain)
-
-        Uses outerjoin to support both ownership types.
+            - owner_username (user.username)
+            - owner_domain (user.domain)
         """
-        owner_username = func.coalesce(
-            UserModel.username, OrganizationModel.slug
-        ).label("owner_username")
-        owner_domain = func.coalesce(UserModel.domain, OrganizationModel.domain).label(
-            "owner_domain"
-        )
-
-        return (
-            select(self.model, owner_username, owner_domain)
-            .outerjoin(UserModel, self.model.user_id == UserModel.id)
-            .outerjoin(
-                OrganizationModel,
-                self.model.organization_id == OrganizationModel.id,
-            )
-        )
+        return select(
+            self.model,
+            UserModel.username.label("owner_username"),
+            UserModel.domain.label("owner_domain"),
+        ).join(UserModel, self.model.user_id == UserModel.id)
 
     @staticmethod
     def _build_public_response(
@@ -141,27 +128,6 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         except SQLAlchemyError:
             return None
 
-    def get_by_organization_and_slug(
-        self, org_id: int, slug: str
-    ) -> Optional[Endpoint]:
-        """Get endpoint by organization ID and slug."""
-        try:
-            stmt = select(self.model).where(
-                and_(
-                    self.model.organization_id == org_id,
-                    self.model.slug == slug.lower(),
-                    self.model.is_active,
-                )
-            )
-            result = self.session.execute(stmt)
-            endpoint_model = result.scalar_one_or_none()
-
-            if endpoint_model:
-                return Endpoint.model_validate(endpoint_model)
-            return None
-        except SQLAlchemyError:
-            return None
-
     def get_user_endpoints(
         self,
         user_id: int,
@@ -198,34 +164,6 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         except SQLAlchemyError:
             return []
 
-    def get_organization_endpoints(
-        self,
-        org_id: int,
-        skip: int = 0,
-        limit: int = 10,
-        visibility: Optional[EndpointVisibility] = None,
-    ) -> List[Endpoint]:
-        """Get all endpoints for an organization.
-
-        Note: This returns ALL organization endpoints including inactive ones,
-        so members can always see and manage their org's endpoints regardless
-        of health status or soft-delete state.
-        """
-        try:
-            stmt = select(self.model).where(self.model.organization_id == org_id)
-
-            if visibility:
-                stmt = stmt.where(self.model.visibility == visibility.value)
-
-            stmt = stmt.order_by(self.model.updated_at.desc()).offset(skip).limit(limit)
-
-            result = self.session.execute(stmt)
-            endpoint_models = result.scalars().all()
-
-            return [Endpoint.model_validate(endpoint) for endpoint in endpoint_models]
-        except SQLAlchemyError:
-            return []
-
     def get_public_endpoints(
         self,
         skip: int = 0,
@@ -235,8 +173,6 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         viewer_email: Optional[str] = None,
     ) -> List[EndpointPublicResponse]:
         """Get all public endpoints with owner usernames and transformed URLs.
-
-        Includes both user-owned and organization-owned endpoints.
 
         Args:
             skip: Number of endpoints to skip (pagination)
@@ -268,10 +204,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                         self.model.description.ilike(search_pattern),
                         # Search within tags JSON array by casting to text
                         cast(self.model.tags, Text).ilike(search_pattern),
-                        # Search by owner username (covers both user and org ownership)
-                        func.coalesce(UserModel.username, OrganizationModel.slug).ilike(
-                            search_pattern
-                        ),
+                        # Search by owner username
+                        UserModel.username.ilike(search_pattern),
                     )
                 )
 
@@ -302,11 +236,11 @@ class EndpointRepository(BaseRepository[EndpointModel]):
     ) -> List[EndpointPublicResponse]:
         """Get all public endpoints for a specific owner.
 
-        Filters public endpoints by owner username (user or organization slug).
+        Filters public endpoints by owner username.
         This is more efficient than fetching all endpoints and filtering client-side.
 
         Args:
-            owner_slug: The username or organization slug to filter by.
+            owner_slug: The username to filter by.
             skip: Number of endpoints to skip (for pagination).
             limit: Maximum number of endpoints to return.
 
@@ -315,9 +249,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         """
         try:
             # Build the base query with owner join
-            owner_username_expr = func.coalesce(
-                UserModel.username, OrganizationModel.slug
-            )
+            owner_username_expr = UserModel.username
 
             stmt = self._build_public_select().where(
                 and_(
@@ -353,20 +285,18 @@ class EndpointRepository(BaseRepository[EndpointModel]):
     ) -> Optional[EndpointPublicResponse]:
         """Get a single public endpoint by owner username and slug.
 
-        Performs a direct lookup using the owner_username (user.username or
-        org.slug) and endpoint slug. Only returns public, active endpoints.
+        Performs a direct lookup using the owner_username (user.username) and
+        endpoint slug. Only returns public, active endpoints.
 
         Args:
-            owner_username: The username of the endpoint owner (user or org)
+            owner_username: The username of the endpoint owner
             slug: The endpoint slug
 
         Returns:
             EndpointPublicResponse if found, None otherwise
         """
         try:
-            owner_username_col = func.coalesce(
-                UserModel.username, OrganizationModel.slug
-            )
+            owner_username_col = UserModel.username
 
             stmt = (
                 self._build_public_select()
@@ -410,7 +340,6 @@ class EndpointRepository(BaseRepository[EndpointModel]):
 
         This method is optimized for RAG search results - it fetches endpoints
         by their IDs while preserving the input order (for ranking).
-        Includes both user-owned and organization-owned endpoints.
 
         Args:
             endpoint_ids: List of endpoint IDs to fetch (order is preserved).
@@ -465,8 +394,6 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         - Active (is_active=True)
         - Have no policies attached (policies is empty list)
 
-        Includes both user-owned and organization-owned endpoints.
-
         Args:
             skip: Number of endpoints to skip (pagination)
             limit: Maximum number of endpoints to return
@@ -514,10 +441,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         endpoint_type: Optional[EndpointType] = None,
         viewer_email: Optional[str] = None,
     ) -> List[EndpointPublicResponse]:
-        """Get trending public endpoints with owner usernames and transformed URLs, sorted by stars count.
-
-        Includes both user-owned and organization-owned endpoints.
-        """
+        """Get trending public endpoints with owner usernames and transformed URLs, sorted by stars count."""
         try:
             stmt = self._build_public_select().where(
                 and_(
@@ -573,12 +497,8 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         """
         try:
             # First, get the count per owner for ALL owners with public/active endpoints
-            owner_username_expr = func.coalesce(
-                UserModel.username, OrganizationModel.slug
-            )
-            owner_domain_expr = func.coalesce(
-                UserModel.domain, OrganizationModel.domain
-            )
+            owner_username_expr = UserModel.username
+            owner_domain_expr = UserModel.domain
 
             # Subquery to rank endpoints within each owner
             row_number = (
@@ -604,11 +524,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                     row_number,
                     count_per_owner,
                 )
-                .outerjoin(UserModel, self.model.user_id == UserModel.id)
-                .outerjoin(
-                    OrganizationModel,
-                    self.model.organization_id == OrganizationModel.id,
-                )
+                .join(UserModel, self.model.user_id == UserModel.id)
                 .where(
                     and_(
                         self.model.visibility == EndpointVisibility.PUBLIC.value,
@@ -695,9 +611,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         """
         try:
             # Build owner username expression
-            owner_username_expr = func.coalesce(
-                UserModel.username, OrganizationModel.slug
-            ).label("username")
+            owner_username_expr = UserModel.username.label("username")
 
             # Aggregate query: group by owner, count endpoints by type
             stmt = (
@@ -711,11 +625,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
                     .filter(self.model.type == "data_source")
                     .label("data_source_count"),
                 )
-                .outerjoin(UserModel, self.model.user_id == UserModel.id)
-                .outerjoin(
-                    OrganizationModel,
-                    self.model.organization_id == OrganizationModel.id,
-                )
+                .join(UserModel, self.model.user_id == UserModel.id)
                 .where(
                     and_(
                         self.model.visibility == EndpointVisibility.PUBLIC.value,
@@ -758,7 +668,6 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         self,
         endpoint_data: EndpointCreate,
         owner_id: int,
-        is_organization: bool = False,
     ) -> Optional[Endpoint]:
         """Create a new endpoint."""
         import logging
@@ -766,8 +675,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         logger = logging.getLogger(__name__)
         try:
             endpoint_model = EndpointModel(
-                user_id=owner_id if not is_organization else None,
-                organization_id=owner_id if is_organization else None,
+                user_id=owner_id,
                 name=endpoint_data.name,
                 slug=endpoint_data.slug.lower(),
                 description=endpoint_data.description,
@@ -927,7 +835,6 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         for data in endpoints_data:
             endpoint_model = EndpointModel(
                 user_id=user_id,
-                organization_id=None,
                 name=data["name"],
                 slug=data["slug"].lower(),
                 description=data.get("description", ""),
@@ -962,30 +869,6 @@ class EndpointRepository(BaseRepository[EndpointModel]):
             stmt = select(self.model).where(
                 and_(
                     self.model.user_id == user_id,
-                    self.model.slug == slug.lower(),
-                )
-            )
-
-            if exclude_endpoint_id:
-                stmt = stmt.where(self.model.id != exclude_endpoint_id)
-
-            result = self.session.execute(stmt.limit(1))
-            return result.scalar() is not None
-        except SQLAlchemyError:
-            return False
-
-    def slug_exists_for_organization(
-        self, org_id: int, slug: str, exclude_endpoint_id: Optional[int] = None
-    ) -> bool:
-        """Check if slug exists for a specific organization.
-
-        Note: This checks ALL endpoints (active and inactive) because the unique
-        index on (organization_id, slug) applies regardless of is_active status.
-        """
-        try:
-            stmt = select(self.model).where(
-                and_(
-                    self.model.organization_id == org_id,
                     self.model.slug == slug.lower(),
                 )
             )
@@ -1206,18 +1089,16 @@ class EndpointRepository(BaseRepository[EndpointModel]):
     def get_endpoints_by_slugs_for_health(
         self,
         user_id: int,
-        org_ids: list[int],
         slugs: list[str],
     ) -> list[EndpointModel]:
         """Get endpoints matching slugs for health reporting.
 
-        Looks up endpoints by slug, owned by user OR any of the given orgs.
+        Looks up endpoints by slug, owned by the given user.
         Does NOT filter by is_active — health reports should work for all
         endpoints so the health monitor can re-activate them.
 
         Args:
             user_id: The user ID to match user-owned endpoints
-            org_ids: List of organization IDs to match org-owned endpoints
             slugs: List of endpoint slugs to look up
 
         Returns:
@@ -1226,14 +1107,10 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         try:
             normalized_slugs = [s.lower() for s in slugs]
 
-            ownership_conditions = [self.model.user_id == user_id]
-            if org_ids:
-                ownership_conditions.append(self.model.organization_id.in_(org_ids))
-
             stmt = select(self.model).where(
                 and_(
                     self.model.slug.in_(normalized_slugs),
-                    or_(*ownership_conditions),
+                    self.model.user_id == user_id,
                 )
             )
             result = self.session.execute(stmt)
@@ -1285,8 +1162,7 @@ class EndpointRepository(BaseRepository[EndpointModel]):
 
     def get_by_owner_and_slug_any_state(
         self,
-        user_id: Optional[int],
-        organization_id: Optional[int],
+        user_id: int,
         slug: str,
     ) -> Optional[Endpoint]:
         """Look up an endpoint by owner + slug ignoring is_active.
@@ -1295,15 +1171,13 @@ class EndpointRepository(BaseRepository[EndpointModel]):
         be marked inactive by the health monitor (e.g. rendering the uptime
         chart for a down endpoint).
         """
-        if (user_id is None) == (organization_id is None):
-            return None
         try:
-            conditions = [self.model.slug == slug.lower()]
-            if user_id is not None:
-                conditions.append(self.model.user_id == user_id)
-            else:
-                conditions.append(self.model.organization_id == organization_id)
-            stmt = select(self.model).where(and_(*conditions))
+            stmt = select(self.model).where(
+                and_(
+                    self.model.slug == slug.lower(),
+                    self.model.user_id == user_id,
+                )
+            )
             endpoint_model = self.session.execute(stmt).scalar_one_or_none()
             if endpoint_model:
                 return Endpoint.model_validate(endpoint_model)
