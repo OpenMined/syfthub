@@ -250,6 +250,10 @@ export function RemoveSkill(arg1, arg2) {
   return window['go']['main']['App']['RemoveSkill'](arg1, arg2);
 }
 
+export function RenameEndpoint(arg1, arg2) {
+  return window['go']['main']['App']['RenameEndpoint'](arg1, arg2);
+}
+
 export function RespondToSetupConfirm(arg1) {
   return window['go']['main']['App']['RespondToSetupConfirm'](arg1);
 }

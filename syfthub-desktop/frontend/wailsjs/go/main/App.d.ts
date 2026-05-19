@@ -127,6 +127,8 @@ export function ReloadEndpoints():Promise<void>;
 
 export function RemoveSkill(arg1:string,arg2:string):Promise<void>;
 
+export function RenameEndpoint(arg1:string,arg2:string):Promise<string>;
+
 export function RespondToSetupConfirm(arg1:boolean):Promise<void>;
 
 export function RespondToSetupPrompt(arg1:string):Promise<void>;

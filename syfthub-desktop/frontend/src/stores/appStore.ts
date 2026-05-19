@@ -33,6 +33,7 @@ import {
   CreateEndpoint,
   CheckEndpointExists,
   DeleteEndpoint,
+  RenameEndpoint,
   GetLibraryPackages,
   InstallLibraryPackage,
   RunEndpointSetup,
@@ -179,6 +180,10 @@ interface AppState {
   isDeleteDialogOpen: boolean;
   isDeletingEndpoint: boolean;
 
+  // Rename endpoint state
+  isRenameDialogOpen: boolean;
+  isRenamingEndpoint: boolean;
+
   // Chat state — the agent dropdown is sourced from the hub browse list, so the
   // selected agent is a NetworkAgentInfo, not a local EndpointInfo. Data-source
   // selections still come from local endpoints.
@@ -276,6 +281,10 @@ interface AppState {
   setDeleteDialogOpen: (open: boolean) => void;
   deleteEndpoint: () => Promise<void>;
 
+  // Actions - Rename Endpoint
+  setRenameDialogOpen: (open: boolean) => void;
+  renameEndpoint: (newName: string) => Promise<string>;
+
   // Actions - Chat
   setChatSelectedModel: (model: NetworkAgentInfo | null) => void;
   setChatSelectedSources: (sources: EndpointInfo[]) => void;
@@ -370,6 +379,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Delete endpoint initial state
   isDeleteDialogOpen: false,
   isDeletingEndpoint: false,
+
+  // Rename endpoint initial state
+  isRenameDialogOpen: false,
+  isRenamingEndpoint: false,
 
   // Chat initial state
   chatSelectedModel: null,
@@ -1253,6 +1266,35 @@ export const useAppStore = create<AppState>((set, get) => ({
       throw err;
     } finally {
       set({ isDeletingEndpoint: false });
+    }
+  },
+
+  // Rename endpoint actions
+  setRenameDialogOpen: (open: boolean) => {
+    set({ isRenameDialogOpen: open });
+  },
+
+  renameEndpoint: async (newName: string) => {
+    const { selectedEndpointSlug } = get();
+    if (!selectedEndpointSlug) {
+      set({ error: 'No endpoint selected' });
+      throw new Error('No endpoint selected');
+    }
+
+    try {
+      set({ isRenamingEndpoint: true, error: null });
+      const newSlug = await RenameEndpoint(selectedEndpointSlug, newName);
+      // The folder (slug) changed: refresh the list and re-select the
+      // endpoint under its new slug so the detail view stays in sync.
+      await get().fetchEndpoints();
+      await get().selectEndpoint(newSlug);
+      set({ isRenameDialogOpen: false });
+      return newSlug;
+    } catch (err) {
+      set({ error: `Failed to rename endpoint: ${err}` });
+      throw err;
+    } finally {
+      set({ isRenamingEndpoint: false });
     }
   },
 

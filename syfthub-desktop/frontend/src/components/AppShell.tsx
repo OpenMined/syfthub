@@ -2,6 +2,7 @@ import { useEffect, ReactNode } from 'react';
 import { useAppStore } from '../stores/appStore';
 import { CreateEndpointDialog } from './CreateEndpointDialog';
 import { DeleteEndpointDialog } from './DeleteEndpointDialog';
+import { RenameEndpointDialog } from './RenameEndpointDialog';
 import { SetupFlowDialog } from './SetupFlowDialog';
 import { ChatView } from './ChatView';
 import { LibraryView } from './LibraryView';
@@ -111,6 +112,7 @@ export function AppShell({ sidebar, children }: AppShellProps) {
       {/* Dialogs */}
       <CreateEndpointDialog />
       <DeleteEndpointDialog />
+      <RenameEndpointDialog />
       <SetupFlowDialog />
     </div>
   );

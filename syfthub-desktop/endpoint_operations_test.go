@@ -1317,3 +1317,39 @@ func TestGetPolicyFileYamlNotFound(t *testing.T) {
 		t.Error("GetPolicyFileYaml should error for nonexistent file")
 	}
 }
+
+// ============================================================================
+// Rename Endpoint Tests
+// ============================================================================
+
+func TestRealignPyprojectName(t *testing.T) {
+	tempDir := t.TempDir()
+	pyprojectPath := filepath.Join(tempDir, "pyproject.toml")
+	os.WriteFile(pyprojectPath, []byte("[project]\nname = \"old-slug\"\nversion = \"1.0.0\"\ndependencies = []\n"), 0644)
+
+	a := &App{}
+	a.realignPyprojectName(pyprojectPath, "new-slug")
+
+	data, err := os.ReadFile(pyprojectPath)
+	if err != nil {
+		t.Fatalf("ReadFile error: %v", err)
+	}
+	got := string(data)
+	if !strings.Contains(got, `name = "new-slug"`) {
+		t.Errorf("expected [project].name rewritten to new-slug, got:\n%s", got)
+	}
+	if strings.Contains(got, "old-slug") {
+		t.Errorf("old slug should be gone, got:\n%s", got)
+	}
+	// Sibling fields must be preserved.
+	if !strings.Contains(got, `version = "1.0.0"`) || !strings.Contains(got, "dependencies = []") {
+		t.Errorf("other fields should be preserved, got:\n%s", got)
+	}
+}
+
+// realignPyprojectName must be a silent no-op when there is no pyproject.toml
+// (e.g. an endpoint that ships without one) — it must not panic.
+func TestRealignPyprojectNameMissingFile(t *testing.T) {
+	a := &App{}
+	a.realignPyprojectName(filepath.Join(t.TempDir(), "pyproject.toml"), "new-slug")
+}

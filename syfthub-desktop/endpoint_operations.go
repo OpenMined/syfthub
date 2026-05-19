@@ -1360,6 +1360,108 @@ Edit the runner.py file to implement your endpoint logic.
 	return slug, nil
 }
 
+// RenameEndpoint changes an endpoint's folder name (its slug).
+//
+// The slug is the endpoint's identity: the on-disk directory name, the `slug`
+// field in README.md frontmatter, and the key the hub stores the endpoint
+// under. This renames the directory, realigns the frontmatter slug (and the
+// pyproject.toml project name), then reloads so the in-memory registry and the
+// hub pick up the change.
+//
+// The hub keys endpoints by slug and has no slug-preserving update, so this
+// lands hub-side as a delete of the old slug plus a create of the new one —
+// the public URL /{owner}/{slug} changes accordingly.
+//
+// newName is run through the same slugify rules as CreateEndpoint; the
+// resulting slug is returned.
+func (a *App) RenameEndpoint(oldSlug, newName string) (string, error) {
+	if err := validateSlug(oldSlug); err != nil {
+		return "", err
+	}
+
+	newSlug := nodeops.Slugify(newName)
+	if newSlug == "" {
+		return "", fmt.Errorf("could not generate a valid folder name from %q", newName)
+	}
+	if newSlug == oldSlug {
+		return "", fmt.Errorf("endpoint folder is already named %q", newSlug)
+	}
+
+	config, err := a.getConfig()
+	if err != nil {
+		return "", err
+	}
+
+	oldDir := filepath.Join(config.EndpointsPath, oldSlug)
+	newDir := filepath.Join(config.EndpointsPath, newSlug)
+
+	if _, err := os.Stat(oldDir); err != nil {
+		return "", fmt.Errorf("endpoint %q not found", oldSlug)
+	}
+	if _, err := os.Stat(newDir); !os.IsNotExist(err) {
+		return "", fmt.Errorf("an endpoint folder named %q already exists", newSlug)
+	}
+
+	// Rename the directory on disk.
+	if err := os.Rename(oldDir, newDir); err != nil {
+		return "", fmt.Errorf("failed to rename endpoint folder: %w", err)
+	}
+
+	// Keep the README.md frontmatter slug consistent with the directory name.
+	// The SDK loader trusts the frontmatter slug, so a mismatch would desync
+	// the endpoint's in-memory identity from its folder. Roll the directory
+	// rename back if the frontmatter update fails.
+	readmePath := filepath.Join(newDir, "README.md")
+	if err := nodeops.UpdateReadmeFrontmatter(readmePath, map[string]interface{}{"slug": newSlug}); err != nil {
+		if rbErr := os.Rename(newDir, oldDir); rbErr != nil {
+			runtime.LogError(a.ctx, fmt.Sprintf("Rename rollback failed (%s -> %s): %v", newSlug, oldSlug, rbErr))
+		}
+		return "", fmt.Errorf("failed to update README.md frontmatter: %w", err)
+	}
+
+	// Best-effort: realign pyproject.toml [project].name (CreateEndpoint sets
+	// it to the slug). Not fatal — it is cosmetic and unrelated to identity.
+	a.realignPyprojectName(filepath.Join(newDir, "pyproject.toml"), newSlug)
+
+	runtime.LogInfo(a.ctx, fmt.Sprintf("Renamed endpoint %q -> %q", oldSlug, newSlug))
+
+	// Drop transient UI lifecycle state tracked under the old slug.
+	a.clearRuntimeState(oldSlug)
+
+	// Reload from disk so the registry drops the old slug, loads the new one,
+	// and re-syncs with the hub. ReloadEndpoints reconciles the whole set
+	// against the filesystem, so the stale old-slug executor is closed too.
+	a.reloadAfterEndpointMutation(newSlug)
+
+	return newSlug, nil
+}
+
+// realignPyprojectName best-effort rewrites the [project].name field in an
+// endpoint's pyproject.toml after a folder rename. Failures are logged, not
+// returned: the project name is cosmetic and unrelated to endpoint identity.
+func (a *App) realignPyprojectName(path, newName string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return // no pyproject.toml, or unreadable — nothing to realign
+	}
+	lines := strings.Split(string(data), "\n")
+	inProject := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			inProject = trimmed == "[project]"
+			continue
+		}
+		if inProject && strings.HasPrefix(trimmed, "name") && strings.Contains(trimmed, "=") {
+			lines[i] = fmt.Sprintf("name = %q", newName)
+			if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0644); err != nil {
+				runtime.LogWarning(a.ctx, fmt.Sprintf("Failed to realign pyproject.toml name: %v", err))
+			}
+			return
+		}
+	}
+}
+
 // ============================================================================
 // Skills bindings
 //
