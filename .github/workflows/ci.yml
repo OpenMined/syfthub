@@ -491,6 +491,10 @@ jobs:
             context: ./components/marketplace
             dockerfile: components/marketplace/Dockerfile
             target: ""
+          - image: nats-auth
+            context: ./components/nats-auth
+            dockerfile: components/nats-auth/Dockerfile
+            target: ""
     outputs:
       image_tag: ${{ steps.vars.outputs.sha_short }}
     steps:
@@ -745,6 +749,10 @@ jobs:
           - image: marketplace
             context: ./components/marketplace
             dockerfile: components/marketplace/Dockerfile
+            target: ""
+          - image: nats-auth
+            context: ./components/nats-auth
+            dockerfile: components/nats-auth/Dockerfile
             target: ""
     outputs:
       image_tag: ${{ steps.vars.outputs.sha_short }}-staging
