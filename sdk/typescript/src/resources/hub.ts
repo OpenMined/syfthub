@@ -326,6 +326,25 @@ export class HubResource {
   }
 
   /**
+   * Get the owner/slug paths of all approved member endpoints in a collective.
+   *
+   * Used by the chat resource to expand a `collective/<slug>` data-source
+   * reference into the individual endpoint paths before building the
+   * aggregator request.
+   *
+   * @param slug - The collective slug (e.g. "genomics-research")
+   * @returns Array of "owner/slug" path strings for approved members
+   * @throws {NotFoundError} If the collective does not exist
+   */
+  async getCollectiveEndpointPaths(slug: string): Promise<string[]> {
+    return this.http.get<string[]>(
+      `/api/v1/collectives/by-slug/${encodeURIComponent(slug)}/endpoint-paths`,
+      {},
+      { includeAuth: false }
+    );
+  }
+
+  /**
    * Check if you have starred an endpoint.
    *
    * @param path - Endpoint path in "owner/slug" format
