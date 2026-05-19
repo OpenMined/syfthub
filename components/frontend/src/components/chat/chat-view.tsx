@@ -27,6 +27,7 @@ import {
 } from '@/components/prompt-kit/message';
 import { ScrollButton } from '@/components/prompt-kit/scroll-button';
 import { useChatWorkflow } from '@/hooks/use-chat-workflow';
+import { useCollectives } from '@/hooks/use-collectives';
 import { useDataSources } from '@/hooks/use-data-sources';
 import { useModels } from '@/hooks/use-models';
 import { useSuggestedSources } from '@/hooks/use-suggested-sources';
@@ -88,6 +89,7 @@ export function ChatView({
     initialModel
   });
   const { sources, sourcesById, isLoading: isLoadingDataSources } = useDataSources();
+  const { data: collectives } = useCollectives();
   const showSourcesStep = useOnboardingStore((s) => s.showSourcesStep);
   const showQueryInputStep = useOnboardingStore((s) => s.showQueryInputStep);
 
@@ -657,6 +659,7 @@ export function ChatView({
         availableSources={sources}
         selectedSourceIds={new Set(contextStore.getSourcesArray().map((s) => s.id))}
         onConfirm={handleSourceModalConfirm}
+        availableCollectives={collectives ?? []}
       />
 
       {/* Onboarding welcome banner */}

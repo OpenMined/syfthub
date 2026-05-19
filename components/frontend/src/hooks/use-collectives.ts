@@ -4,6 +4,8 @@
  * Queries are cached by `collectiveKeys`; every mutation invalidates the
  * affected collective so lists, detail pages and member tables stay in sync.
  */
+import { useCallback } from 'react';
+
 import type {
   Collective,
   CollectiveCreateInput,
@@ -13,7 +15,7 @@ import type {
   ReviewDecision
 } from '@/lib/collectives-api';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
   createCollective,
@@ -21,6 +23,7 @@ import {
   getCollectiveBySlug,
   inviteEndpoint,
   listCollectives,
+  listCollectivesPaginated,
   listMembers,
   removeMember,
   requestJoin,
@@ -39,6 +42,18 @@ export function useCollectives(ownerId?: number) {
   return useQuery({
     queryKey: collectiveKeys.list(ownerId),
     queryFn: () => listCollectives({ ownerId, limit: 100 })
+  });
+}
+
+/**
+ * Paginated collectives with server-side search — backs the Collectives tab on
+ * the Browse page. Mirrors `usePaginatedPublicEndpoints`.
+ */
+export function usePaginatedCollectives(page: number, pageSize = 12, search?: string) {
+  return useQuery({
+    queryKey: collectiveKeys.paginated(page, pageSize, search),
+    queryFn: () => listCollectivesPaginated({ page, limit: pageSize, search }),
+    placeholderData: keepPreviousData
   });
 }
 
@@ -64,25 +79,41 @@ export function useCollectiveMembers(collectiveId: number | undefined, status?: 
 // Mutations
 // =============================================================================
 
+function useInvalidateAllCollectives() {
+  const queryClient = useQueryClient();
+  return useCallback(
+    () => void queryClient.invalidateQueries({ queryKey: collectiveKeys.all }),
+    [queryClient]
+  );
+}
+
+function useInvalidateMembers() {
+  const queryClient = useQueryClient();
+  return useCallback(
+    (collectiveId: number) =>
+      void queryClient.invalidateQueries({ queryKey: collectiveKeys.members(collectiveId) }),
+    [queryClient]
+  );
+}
+
 /** Create a collective. Invalidates collective lists on success. */
 export function useCreateCollective() {
-  const queryClient = useQueryClient();
+  const invalidate = useInvalidateAllCollectives();
   return useMutation({
     mutationFn: (input: CollectiveCreateInput) => createCollective(input),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: collectiveKeys.all });
-    }
+    onSuccess: invalidate
   });
 }
 
 /** Update a collective's settings. */
 export function useUpdateCollective() {
   const queryClient = useQueryClient();
+  const invalidate = useInvalidateAllCollectives();
   return useMutation({
     mutationFn: ({ id, input }: { id: number; input: CollectiveUpdateInput }) =>
       updateCollective(id, input),
     onSuccess: (collective: Collective) => {
-      void queryClient.invalidateQueries({ queryKey: collectiveKeys.all });
+      invalidate();
       queryClient.setQueryData(collectiveKeys.detail(collective.slug), collective);
     }
   });
@@ -90,30 +121,28 @@ export function useUpdateCollective() {
 
 /** Delete a collective. */
 export function useDeleteCollective() {
-  const queryClient = useQueryClient();
+  const invalidate = useInvalidateAllCollectives();
   return useMutation({
     mutationFn: (id: number) => deleteCollective(id),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: collectiveKeys.all });
-    }
+    onSuccess: invalidate
   });
 }
 
 /** Request that one of the current user's endpoints join a collective. */
 export function useRequestJoin() {
-  const queryClient = useQueryClient();
+  const invalidateMembers = useInvalidateMembers();
   return useMutation({
     mutationFn: ({ collectiveId, endpointId }: { collectiveId: number; endpointId: number }) =>
       requestJoin(collectiveId, endpointId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: collectiveKeys.all });
+    onSuccess: (_data, { collectiveId }) => {
+      invalidateMembers(collectiveId);
     }
   });
 }
 
 /** Approve or reject a pending join request (collective owner). */
 export function useReviewRequest() {
-  const queryClient = useQueryClient();
+  const invalidateMembers = useInvalidateMembers();
   return useMutation({
     mutationFn: ({
       collectiveId,
@@ -124,39 +153,39 @@ export function useReviewRequest() {
       endpointId: number;
       decision: ReviewDecision;
     }) => reviewRequest(collectiveId, endpointId, decision),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: collectiveKeys.all });
+    onSuccess: (_data, { collectiveId }) => {
+      invalidateMembers(collectiveId);
     }
   });
 }
 
 /** Remove an endpoint from a collective. */
 export function useRemoveMember() {
-  const queryClient = useQueryClient();
+  const invalidateMembers = useInvalidateMembers();
   return useMutation({
     mutationFn: ({ collectiveId, endpointId }: { collectiveId: number; endpointId: number }) =>
       removeMember(collectiveId, endpointId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: collectiveKeys.all });
+    onSuccess: (_data, { collectiveId }) => {
+      invalidateMembers(collectiveId);
     }
   });
 }
 
 /** Invite an endpoint into a collective (collective owner). */
 export function useInviteEndpoint() {
-  const queryClient = useQueryClient();
+  const invalidateMembers = useInvalidateMembers();
   return useMutation({
     mutationFn: ({ collectiveId, endpointId }: { collectiveId: number; endpointId: number }) =>
       inviteEndpoint(collectiveId, endpointId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: collectiveKeys.all });
+    onSuccess: (_data, { collectiveId }) => {
+      invalidateMembers(collectiveId);
     }
   });
 }
 
 /** Accept or decline a collective invitation (endpoint owner). */
 export function useRespondToInvitation() {
-  const queryClient = useQueryClient();
+  const invalidateMembers = useInvalidateMembers();
   return useMutation({
     mutationFn: ({
       collectiveId,
@@ -167,8 +196,8 @@ export function useRespondToInvitation() {
       endpointId: number;
       decision: InvitationDecision;
     }) => respondToInvitation(collectiveId, endpointId, decision),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: collectiveKeys.all });
+    onSuccess: (_data, { collectiveId }) => {
+      invalidateMembers(collectiveId);
     }
   });
 }

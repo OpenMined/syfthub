@@ -1,16 +1,21 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import type { EndpointType } from '@/lib/types';
 import type { ReactNode } from 'react';
 
-import { useQuery } from '@tanstack/react-query';
 import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left';
-import CheckCircle from 'lucide-react/dist/esm/icons/check-circle';
+import Check from 'lucide-react/dist/esm/icons/check';
+import Copy from 'lucide-react/dist/esm/icons/copy';
 import Database from 'lucide-react/dist/esm/icons/database';
 import Settings from 'lucide-react/dist/esm/icons/settings';
+import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check';
 import UserPlus from 'lucide-react/dist/esm/icons/user-plus';
 import Users from 'lucide-react/dist/esm/icons/users';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
+import { CollectiveAbout } from '@/components/collectives/collective-about';
+import { CollectiveIcon } from '@/components/collectives/collective-icon';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -18,8 +23,37 @@ import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/context/auth-context';
 import { useCollectiveBySlug, useCollectiveMembers, useRequestJoin } from '@/hooks/use-collectives';
-import { formatDateLong } from '@/lib/date-utils';
-import { getUserEndpoints } from '@/lib/endpoint-utils';
+import { useMyEndpoints } from '@/hooks/use-endpoint-queries';
+import { isJoinableEndpointType } from '@/lib/collectives-api';
+import { getEndpointTypeLabel } from '@/lib/endpoint-utils';
+
+/** Up-to-two-letter initials from a display name. */
+function getInitials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  return words
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase() ?? '')
+    .join('');
+}
+
+// Stable accent palette for owner avatars — picked by hashing the username.
+const AVATAR_COLORS = [
+  'bg-indigo-500/15 text-indigo-600',
+  'bg-emerald-500/15 text-emerald-600',
+  'bg-rose-500/15 text-rose-600',
+  'bg-amber-500/15 text-amber-600',
+  'bg-sky-500/15 text-sky-600',
+  'bg-violet-500/15 text-violet-600'
+];
+
+function avatarColor(seed: string): string {
+  let hash = 0;
+  for (const char of seed) {
+    hash = (hash * 31 + (char.codePointAt(0) ?? 0)) % 1_000_000_007;
+  }
+  return AVATAR_COLORS[hash % AVATAR_COLORS.length] ?? AVATAR_COLORS[0] ?? 'bg-muted';
+}
 
 /**
  * Public collective detail page (`/c/:slug`).
@@ -36,6 +70,32 @@ export default function CollectiveDetailPage() {
   const { data: members } = useCollectiveMembers(collective?.id, 'approved');
 
   const [showJoinModal, setShowJoinModal] = useState(false);
+  const [cardTab, setCardTab] = useState<'endpoints' | 'members'>('endpoints');
+
+  // The collective's "members" are the distinct owners of its endpoints —
+  // derived from each approved membership's endpoint_owner_username.
+  const owners = useMemo(() => {
+    const map = new Map<string, { fullName: string; endpointCount: number }>();
+    for (const membership of members ?? []) {
+      const username = membership.endpoint_owner_username;
+      if (!username) continue;
+      const existing = map.get(username);
+      if (existing) {
+        existing.endpointCount += 1;
+      } else {
+        const fullName = membership.endpoint_owner_full_name?.trim() ?? '';
+        map.set(username, {
+          fullName: fullName.length > 0 ? fullName : username,
+          endpointCount: 1
+        });
+      }
+    }
+    return [...map.entries()]
+      .map(([username, info]) => ({ username, ...info }))
+      .toSorted(
+        (a, b) => b.endpointCount - a.endpointCount || a.username.localeCompare(b.username)
+      );
+  }, [members]);
 
   if (isLoading) {
     return (
@@ -47,13 +107,15 @@ export default function CollectiveDetailPage() {
 
   if (isError || !collective) {
     return (
-      <div className='container mx-auto px-6 py-16 text-center'>
-        <h1 className='mb-4 text-2xl font-bold'>Collective not found</h1>
-        <p className='text-muted-foreground mb-6'>
+      <div className='mx-auto max-w-2xl px-6 py-16 text-center'>
+        <h1 className='font-rubik text-foreground mb-4 text-2xl font-semibold'>
+          Collective not found
+        </h1>
+        <p className='font-inter text-muted-foreground mb-6'>
           The collective you're looking for doesn't exist.
         </p>
         <Button asChild>
-          <Link to='/collectives/browse'>Browse collectives</Link>
+          <Link to='/browse?tab=collectives'>Browse collectives</Link>
         </Button>
       </div>
     );
@@ -70,36 +132,28 @@ export default function CollectiveDetailPage() {
           <Button
             variant='ghost'
             size='sm'
-            onClick={() => navigate('/collectives/browse')}
-            className='mb-4 -ml-2'
+            onClick={() => navigate('/browse?tab=collectives')}
+            className='text-muted-foreground hover:text-foreground mb-4 -ml-2'
           >
             <ArrowLeft className='mr-2 h-4 w-4' />
             Back to Collectives
           </Button>
 
           <div className='mb-4 flex items-start gap-4'>
-            {collective.icon_url ? (
-              <img
-                src={collective.icon_url}
-                alt={collective.name}
-                className='h-14 w-14 rounded-lg object-cover'
-              />
-            ) : (
-              <div className='from-primary/20 to-primary/10 flex h-14 w-14 items-center justify-center rounded-lg bg-gradient-to-br'>
-                <Users className='text-primary h-7 w-7' />
-              </div>
-            )}
+            <CollectiveIcon collective={collective} size='lg' />
             <div className='min-w-0 flex-1'>
               <div className='mb-1 flex items-center gap-2'>
-                <h1 className='text-2xl font-bold'>{collective.name}</h1>
+                <h1 className='font-rubik text-foreground text-3xl font-medium'>
+                  {collective.name}
+                </h1>
                 {collective.verified && (
-                  <CheckCircle
+                  <ShieldCheck
                     className='h-5 w-5 text-green-500'
                     aria-label='Verified collective'
                   />
                 )}
               </div>
-              <p className='text-muted-foreground'>
+              <p className='font-inter text-muted-foreground text-lg'>
                 {collective.description || 'No description provided.'}
               </p>
             </div>
@@ -111,9 +165,6 @@ export default function CollectiveDetailPage() {
                 {tag}
               </Badge>
             ))}
-            <Badge variant='outline'>
-              {collective.auto_approve ? 'Open — auto-approves' : 'Request to join'}
-            </Badge>
             {isOwner && (
               <Button asChild variant='outline' size='sm' className='ml-auto'>
                 <Link to={`/c/${collective.slug}/admin`}>
@@ -126,66 +177,141 @@ export default function CollectiveDetailPage() {
         </div>
       </div>
 
-      {/* Content */}
       <div className='mx-auto max-w-5xl px-6 py-8'>
         <div className='grid gap-8 lg:grid-cols-3'>
-          {/* Members */}
-          <div className='lg:col-span-2'>
-            <Card className='border-border bg-card rounded-xl border p-6'>
-              <h2 className='mb-4 flex items-center gap-2 text-lg font-semibold'>
-                <Database className='h-5 w-5' />
-                Endpoints
-                <span className='text-muted-foreground text-sm font-normal'>
-                  ({approvedMembers.length})
-                </span>
-              </h2>
+          {/* Main column */}
+          <div className='space-y-6 lg:col-span-2'>
+            {collective.about.trim() && <CollectiveAbout about={collective.about} />}
 
-              {approvedMembers.length > 0 ? (
-                <div className='space-y-3'>
-                  {approvedMembers.map((member) => {
-                    const href =
-                      member.endpoint_owner_username && member.endpoint_slug
-                        ? `/${member.endpoint_owner_username}/${member.endpoint_slug}`
-                        : null;
-                    const row = (
-                      <Card className='hover:border-primary/30 p-3 transition-all'>
-                        <div className='flex items-start justify-between gap-3'>
-                          <div className='min-w-0'>
-                            <h4 className='hover:text-primary truncate text-sm font-medium transition-colors'>
-                              {member.endpoint_name ?? `Endpoint #${member.endpoint_id}`}
-                            </h4>
-                            {member.endpoint_owner_username && (
-                              <p className='text-muted-foreground mt-0.5 text-xs'>
-                                by @{member.endpoint_owner_username}
-                              </p>
-                            )}
-                          </div>
-                          {member.endpoint_type && (
-                            <Badge variant='outline' className='shrink-0 text-xs'>
-                              {member.endpoint_type === 'model' ? 'model' : 'data'}
-                            </Badge>
-                          )}
-                        </div>
-                      </Card>
-                    );
-                    return href ? (
-                      <Link key={member.id} to={href} className='block'>
-                        {row}
-                      </Link>
+            {/* Endpoints & Members */}
+            <Card className='p-6'>
+              <div className='mb-4 flex gap-4 border-b'>
+                {(['endpoints', 'members'] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    type='button'
+                    onClick={() => {
+                      setCardTab(tab);
+                    }}
+                    className={`-mb-[2px] flex items-center gap-1.5 border-b-2 px-1 py-2 text-sm font-medium capitalize transition-colors ${
+                      cardTab === tab
+                        ? 'border-primary text-foreground'
+                        : 'text-muted-foreground hover:text-foreground border-transparent'
+                    }`}
+                  >
+                    {tab === 'endpoints' ? (
+                      <Database className='h-4 w-4' />
                     ) : (
-                      <div key={member.id}>{row}</div>
-                    );
-                  })}
+                      <Users className='h-4 w-4' />
+                    )}
+                    {tab}
+                    <span className='text-muted-foreground text-xs font-normal'>
+                      ({tab === 'endpoints' ? approvedMembers.length : owners.length})
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Endpoints tab */}
+              {cardTab === 'endpoints' && (
+                <div>
+                  {approvedMembers.length > 0 ? (
+                    // Caps the list at ~3 endpoint rows; scrolls when there are more.
+                    <div className='max-h-[22rem] space-y-3 overflow-y-auto pr-1'>
+                      {approvedMembers.map((member) => {
+                        const href =
+                          member.endpoint_owner_username && member.endpoint_slug
+                            ? `/${member.endpoint_owner_username}/${member.endpoint_slug}`
+                            : null;
+                        const row = (
+                          <Card className='hover:border-primary/30 p-3 transition-all'>
+                            <div className='flex items-start justify-between gap-3'>
+                              <div className='min-w-0'>
+                                <h4 className='hover:text-primary truncate text-sm font-medium transition-colors'>
+                                  {member.endpoint_name ?? `Endpoint #${member.endpoint_id}`}
+                                </h4>
+                                {member.endpoint_description && (
+                                  <p className='text-muted-foreground mt-1 line-clamp-2 text-xs'>
+                                    {member.endpoint_description}
+                                  </p>
+                                )}
+                                {member.endpoint_owner_username && (
+                                  <p className='text-muted-foreground mt-1 text-xs'>
+                                    by @{member.endpoint_owner_username}
+                                  </p>
+                                )}
+                              </div>
+                              {member.endpoint_type && (
+                                <Badge variant='outline' className='shrink-0 text-xs'>
+                                  {getEndpointTypeLabel(member.endpoint_type as EndpointType)}
+                                </Badge>
+                              )}
+                            </div>
+                          </Card>
+                        );
+                        return href ? (
+                          <Link key={member.id} to={href} className='block'>
+                            {row}
+                          </Link>
+                        ) : (
+                          <div key={member.id}>{row}</div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className='text-muted-foreground py-8 text-center text-sm'>
+                      No endpoints have joined this collective yet.
+                    </p>
+                  )}
                 </div>
-              ) : (
-                <p className='text-muted-foreground py-8 text-center text-sm'>
-                  No endpoints have joined this collective yet.
-                </p>
+              )}
+
+              {/* Members tab — distinct owners of the collective's endpoints */}
+              {cardTab === 'members' && (
+                <div>
+                  {owners.length > 0 ? (
+                    // Same capped, scrollable list height as the Endpoints tab.
+                    <div className='max-h-[22rem] space-y-3 overflow-y-auto pr-1'>
+                      {owners.map((owner) => (
+                        <Link key={owner.username} to={`/${owner.username}`} className='block'>
+                          <Card className='hover:border-primary/30 p-3 transition-all'>
+                            <div className='flex items-center justify-between gap-3'>
+                              <div className='flex min-w-0 items-center gap-3'>
+                                <Avatar className='h-9 w-9 shrink-0'>
+                                  <AvatarFallback
+                                    className={`font-medium ${avatarColor(owner.username)}`}
+                                  >
+                                    {getInitials(owner.fullName)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className='min-w-0'>
+                                  <p className='hover:text-primary truncate text-sm font-medium transition-colors'>
+                                    {owner.fullName}
+                                  </p>
+                                  <p className='text-muted-foreground truncate text-xs'>
+                                    @{owner.username}
+                                  </p>
+                                </div>
+                              </div>
+                              <span className='text-muted-foreground shrink-0 text-xs'>
+                                {owner.endpointCount}{' '}
+                                {owner.endpointCount === 1 ? 'endpoint' : 'endpoints'}
+                              </span>
+                            </div>
+                          </Card>
+                        </Link>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className='text-muted-foreground py-8 text-center text-sm'>
+                      No members yet.
+                    </p>
+                  )}
+                </div>
               )}
             </Card>
           </div>
 
-          {/* Sidebar */}
           <div className='space-y-6'>
             {!isOwner && user != null && (
               <Button
@@ -199,8 +325,15 @@ export default function CollectiveDetailPage() {
               </Button>
             )}
 
-            <Card className='border-border bg-card rounded-xl border p-6'>
+            <Card className='p-6'>
               <div className='space-y-4'>
+                <div>
+                  <div className='text-muted-foreground mb-1 flex items-center gap-2 text-sm'>
+                    <Users className='h-4 w-4' />
+                    Members
+                  </div>
+                  <div className='text-2xl font-semibold'>{collective.owner_count}</div>
+                </div>
                 <div>
                   <div className='text-muted-foreground mb-1 flex items-center gap-2 text-sm'>
                     <Database className='h-4 w-4' />
@@ -208,12 +341,13 @@ export default function CollectiveDetailPage() {
                   </div>
                   <div className='text-2xl font-semibold'>{collective.member_count}</div>
                 </div>
-                <div className='border-t pt-4 text-sm'>
-                  <span className='text-muted-foreground'>Created </span>
-                  {formatDateLong(collective.created_at)}
-                </div>
               </div>
             </Card>
+
+            <SharedEndpointCard
+              path={collective.shared_endpoint_path}
+              endpointCount={collective.member_count}
+            />
           </div>
         </div>
       </div>
@@ -230,6 +364,62 @@ export default function CollectiveDetailPage() {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Sidebar card showing the collective's unique shared-endpoint path
+ * (`collective/<slug>`) — the single identifier that addresses every member
+ * endpoint at once.
+ */
+function SharedEndpointCard({
+  path,
+  endpointCount
+}: Readonly<{ path: string; endpointCount: number }>) {
+  const [copied, setCopied] = useState(false);
+  const timerReference = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timerReference.current) clearTimeout(timerReference.current);
+    },
+    []
+  );
+
+  const handleCopy = useCallback(() => {
+    void navigator.clipboard.writeText(path);
+    setCopied(true);
+    if (timerReference.current) clearTimeout(timerReference.current);
+    timerReference.current = setTimeout(() => {
+      setCopied(false);
+    }, 2000);
+  }, [path]);
+
+  return (
+    <Card className='p-6'>
+      <h3 className='mb-1 text-sm leading-none font-semibold'>Shared Endpoint</h3>
+      <p className='text-muted-foreground mb-1.5 text-xs leading-none'>
+        Query all {endpointCount} {endpointCount === 1 ? 'endpoint' : 'endpoints'} through a single
+        API
+      </p>
+      <div className='border-border bg-muted/50 flex items-center gap-2 rounded-lg border px-3 py-2'>
+        <code className='text-muted-foreground min-w-0 flex-1 truncate font-mono text-xs'>
+          {path}
+        </code>
+        <button
+          type='button'
+          onClick={handleCopy}
+          aria-label={copied ? 'Shared endpoint path copied' : 'Copy shared endpoint path'}
+          className='text-muted-foreground hover:text-foreground shrink-0 transition-colors'
+        >
+          {copied ? (
+            <Check className='h-3.5 w-3.5 text-green-600' aria-hidden='true' />
+          ) : (
+            <Copy className='h-3.5 w-3.5' aria-hidden='true' />
+          )}
+        </button>
+      </div>
+    </Card>
   );
 }
 
@@ -256,11 +446,14 @@ function JoinCollectiveModal({
   const [selectedEndpointId, setSelectedEndpointId] = useState<number | null>(null);
   const requestJoin = useRequestJoin();
 
-  const { data: endpoints, isLoading } = useQuery({
-    queryKey: ['my-endpoints', username],
-    queryFn: () => getUserEndpoints({}, username),
-    enabled: isOpen
-  });
+  const { data: endpoints, isLoading } = useMyEndpoints(username, isOpen);
+
+  // Collectives group data sources — only data-source-capable endpoints may
+  // join, so model-only and agent endpoints are not offered for selection.
+  const joinableEndpoints = useMemo(
+    () => (endpoints ?? []).filter((endpoint) => isJoinableEndpointType(endpoint.type)),
+    [endpoints]
+  );
 
   const handleClose = () => {
     setSelectedEndpointId(null);
@@ -283,10 +476,10 @@ function JoinCollectiveModal({
         <LoadingSpinner />
       </div>
     );
-  } else if (endpoints && endpoints.length > 0) {
+  } else if (joinableEndpoints.length > 0) {
     endpointPicker = (
       <div className='max-h-64 space-y-2 overflow-y-auto'>
-        {endpoints.map((endpoint) => (
+        {joinableEndpoints.map((endpoint) => (
           <button
             key={endpoint.id}
             type='button'
@@ -310,7 +503,7 @@ function JoinCollectiveModal({
   } else {
     endpointPicker = (
       <p className='text-muted-foreground py-4 text-center text-sm'>
-        You have no endpoints to submit yet.
+        You have no data source endpoints to submit. Collectives only accept data source endpoints.
       </p>
     );
   }
@@ -319,7 +512,8 @@ function JoinCollectiveModal({
     <Modal isOpen={isOpen} onClose={handleClose} title={`Join ${collectiveName}`}>
       <div className='space-y-4'>
         <p className='text-muted-foreground text-sm'>
-          Choose one of your endpoints to submit to this collective.
+          Choose one of your data source endpoints to submit to this collective. Model and agent
+          endpoints aren't eligible to join.
         </p>
 
         {endpointPicker}

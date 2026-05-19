@@ -27,14 +27,7 @@ import Database from 'lucide-react/dist/esm/icons/database';
 import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
 
 import { formatRelativeTime } from './date-utils';
-import { getStoredAccessToken, syftClient } from './sdk-client';
-
-// Public endpoints optionally accept a bearer token to personalize policy
-// filtering (config.applied_to). Without it, only wildcard policies are returned.
-function buildAuthHeaders(): Record<string, string> {
-  const token = getStoredAccessToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+import { getAuthHeaders, syftClient } from './sdk-client';
 
 // ============================================================================
 // Type Matching Helpers
@@ -385,7 +378,7 @@ export async function getPublicEndpointsPaginated(
     }
 
     const response = await fetch(`/api/v1/endpoints/public?${queryParams.toString()}`, {
-      headers: buildAuthHeaders()
+      headers: getAuthHeaders()
     });
 
     if (!response.ok) {
@@ -429,7 +422,7 @@ export async function getPublicEndpointByPath(path: string): Promise<ChatSource 
   try {
     const response = await fetch(
       `/api/v1/endpoints/public/${encodeURIComponent(owner)}/${encodeURIComponent(slug)}`,
-      { headers: buildAuthHeaders() }
+      { headers: getAuthHeaders() }
     );
 
     if (!response.ok) {
@@ -502,7 +495,7 @@ export async function getPublicEndpointsByOwner(owner: string): Promise<ChatSour
   try {
     const response = await fetch(
       `/api/v1/endpoints/public/by-owner/${encodeURIComponent(owner)}?limit=500`,
-      { headers: buildAuthHeaders() }
+      { headers: getAuthHeaders() }
     );
 
     if (!response.ok) {
@@ -554,7 +547,7 @@ export async function getGroupedPublicEndpoints(
     });
 
     const response = await fetch(`/api/v1/endpoints/public/grouped?${queryParams.toString()}`, {
-      headers: buildAuthHeaders()
+      headers: getAuthHeaders()
     });
 
     if (!response.ok) {

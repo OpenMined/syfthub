@@ -6,7 +6,7 @@
  * endpoint routes, not people. See `components/backend/.../api/endpoints/collectives.py`.
  */
 
-import { getStoredAccessToken, persistTokens, syftClient } from '@/lib/sdk-client';
+import { getAuthHeaders, persistTokens, syftClient } from '@/lib/sdk-client';
 
 // =============================================================================
 // Types — mirror the backend Pydantic schemas (schemas/collective.py)
@@ -21,7 +21,15 @@ export interface Collective {
   owner_id: number;
   name: string;
   slug: string;
+  /**
+   * Unique shared-endpoint path, `collective/<slug>` — the single identifier
+   * that addresses every member endpoint. Backend-derived, read-only.
+   */
+  shared_endpoint_path: string;
+  /** Short summary, shown on cards and the detail header. */
   description: string;
+  /** Long-form markdown "about" / README, shown on the detail page. */
+  about: string;
   /** When true, join requests are approved immediately. */
   auto_approve: boolean;
   icon_url: string | null;
@@ -30,6 +38,8 @@ export interface Collective {
   verified: boolean;
   /** Number of approved endpoint members. */
   member_count: number;
+  /** Number of distinct users who own the approved member endpoints. */
+  owner_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -48,8 +58,10 @@ export interface CollectiveMember {
   responded_at: string | null;
   reviewed_by_user_id: number | null;
   endpoint_name: string | null;
+  endpoint_description: string | null;
   endpoint_slug: string | null;
   endpoint_owner_username: string | null;
+  endpoint_owner_full_name: string | null;
   endpoint_type: string | null;
 }
 
@@ -57,6 +69,7 @@ export interface CollectiveMember {
 export interface CollectiveCreateInput {
   name: string;
   description?: string;
+  about?: string;
   auto_approve?: boolean;
   icon_url?: string | null;
   tags?: string[];
@@ -68,6 +81,7 @@ export interface CollectiveCreateInput {
 export interface CollectiveUpdateInput {
   name?: string;
   description?: string;
+  about?: string;
   auto_approve?: boolean;
   icon_url?: string | null;
   tags?: string[];
@@ -79,18 +93,33 @@ export type ReviewDecision = 'approve' | 'reject';
 /** An endpoint owner's response to a collective invitation. */
 export type InvitationDecision = 'accept' | 'decline';
 
+/**
+ * Endpoint types eligible for collective membership. A collective groups data
+ * sources, so model-only and agent endpoints cannot join; `model_data_source`
+ * qualifies because it also exposes a data source. Mirrors the backend guard
+ * `CollectiveService._require_joinable_endpoint` — the backend is the source
+ * of truth; this is only for filtering the UI.
+ */
+export const JOINABLE_ENDPOINT_TYPES = ['data_source', 'model_data_source'] as const;
+
+/** Whether an endpoint of the given type may join a collective. */
+export function isJoinableEndpointType(type: string | null | undefined): boolean {
+  return type != null && (JOINABLE_ENDPOINT_TYPES as readonly string[]).includes(type);
+}
+
+/** Parse a comma-separated tag string into a trimmed, non-empty string array. */
+export function parseTags(csv: string): string[] {
+  return csv
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
 // =============================================================================
 // Request helper
 // =============================================================================
 
 const BASE = '/api/v1/collectives';
-
-function authHeaders(): Record<string, string> {
-  // Prefer the SDK client's in-memory token — it is the one kept current by
-  // the SDK's automatic refresh; fall back to the persisted token.
-  const token = syftClient.getTokens()?.accessToken ?? getStoredAccessToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 /** Extract a human-readable message from a FastAPI `{detail}` error body. */
 async function errorMessage(response: Response, fallback: string): Promise<string> {
@@ -125,7 +154,7 @@ function sendRequest(
 ): Promise<Response> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
-  if (auth) Object.assign(headers, authHeaders());
+  if (auth) Object.assign(headers, getAuthHeaders());
   return fetch(`${BASE}${path}`, {
     method,
     headers,
@@ -170,16 +199,42 @@ export interface ListCollectivesParams {
   skip?: number;
   limit?: number;
   ownerId?: number;
+  /** Server-side search over name, description and tags. */
+  search?: string;
 }
 
-/** List collectives, newest first. Optionally filter by owning user. */
+/** List collectives, newest first. Optionally filter by owning user / search. */
 export async function listCollectives(params: ListCollectivesParams = {}): Promise<Collective[]> {
   const query = new URLSearchParams();
   if (params.skip !== undefined) query.set('skip', String(params.skip));
   if (params.limit !== undefined) query.set('limit', String(params.limit));
   if (params.ownerId !== undefined) query.set('owner_id', String(params.ownerId));
+  if (params.search?.trim()) query.set('search', params.search.trim());
   const suffix = query.toString();
   return request<Collective[]>(suffix ? `?${suffix}` : '');
+}
+
+/** A page of collectives plus whether another page follows. */
+export interface PaginatedCollectivesResponse {
+  items: Collective[];
+  hasNextPage: boolean;
+}
+
+/**
+ * Fetch one page of collectives with optional server-side search.
+ *
+ * Mirrors `getPublicEndpointsPaginated`: the backend has no total-count
+ * endpoint, so we over-fetch by one row to detect whether a next page exists.
+ */
+export async function listCollectivesPaginated(
+  params: { page?: number; limit?: number; search?: string } = {}
+): Promise<PaginatedCollectivesResponse> {
+  const { page = 1, limit = 12, search } = params;
+  const skip = (page - 1) * limit;
+
+  const data = await listCollectives({ skip, limit: limit + 1, search });
+  const hasNextPage = data.length > limit;
+  return { items: data.slice(0, limit), hasNextPage };
 }
 
 /** Fetch a collective by slug. Returns `null` on 404 so callers can render a not-found state. */

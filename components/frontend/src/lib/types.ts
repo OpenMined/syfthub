@@ -285,7 +285,7 @@ export interface ChatSource {
   name: string;
   tags: string[]; // Tags for categorization
   description: string;
-  type: EndpointType; // Endpoint type (model or data_source)
+  type: EndpointType;
   updated: string; // Pre-formatted relative time, e.g. "2 days ago" (mapped from updated_at)
   updated_at: string; // Raw ISO 8601 timestamp — use this for sorting/comparisons
   status: 'active' | 'inactive'; // Active iff the endpoint has at least one enabled connection (reachable)

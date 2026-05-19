@@ -1,16 +1,58 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import type { Collective } from '@/lib/collectives-api';
 import type { ChatSource } from '@/lib/types';
 
 import Check from 'lucide-react/dist/esm/icons/check';
 import Database from 'lucide-react/dist/esm/icons/database';
 import ExternalLink from 'lucide-react/dist/esm/icons/external-link';
 import Search from 'lucide-react/dist/esm/icons/search';
+import Shield from 'lucide-react/dist/esm/icons/shield';
+import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check';
+import Users from 'lucide-react/dist/esm/icons/users';
 import { Link } from 'react-router-dom';
 
 import { OnboardingCallout } from '@/components/onboarding';
 import { Modal } from '@/components/ui/modal';
 import { getPublicEndpointsPaginated, isDataSourceEndpoint } from '@/lib/endpoint-utils';
+
+// ============================================================================
+// Helpers — map a Collective to a ChatSource for storage in the context store
+// ============================================================================
+
+/**
+ * Convert a Collective into the ChatSource shape expected by the context store
+ * and the chat workflow. The `full_path` is set to `collective/<slug>`, which
+ * the TypeScript SDK detects and resolves to individual endpoint paths before
+ * building the aggregator request.
+ */
+function collectiveToChatSource(collective: Collective): ChatSource {
+  return {
+    // The id prefix "collective:" makes it unique and avoids clashing with
+    // endpoint slugs (which use slug-only IDs). The full_path is what the
+    // TypeScript SDK inspects — it detects the "collective/" prefix and
+    // resolves it to individual member endpoint paths before the aggregator
+    // request is built.
+    id: `collective:${collective.slug}`,
+    name: collective.name,
+    tags: collective.tags,
+    description: collective.description,
+    // Using 'data_source' keeps ChatSource.type within its declared union
+    // while still correctly passing through the chat workflow (which only
+    // reads full_path, not type, when building the aggregator request).
+    type: 'data_source',
+    updated: '',
+    updated_at: collective.updated_at,
+    status: 'active',
+    slug: collective.slug,
+    stars_count: 0,
+    version: '',
+    readme: '',
+    contributors_count: 0,
+    owner_username: undefined,
+    full_path: collective.shared_endpoint_path // "collective/<slug>"
+  };
+}
 
 // ============================================================================
 // Sub-components
@@ -118,9 +160,108 @@ const SourceItem = memo(function SourceItem({
   );
 });
 
+interface CollectiveItemProps {
+  collective: Collective;
+  isSelected: boolean;
+  onToggle: () => void;
+}
+
+const CollectiveItem = memo(function CollectiveItem({
+  collective,
+  isSelected,
+  onToggle
+}: Readonly<CollectiveItemProps>) {
+  return (
+    <div
+      className={`group flex w-full items-start gap-3 rounded-lg border p-3 transition-all ${
+        isSelected
+          ? 'border-indigo-500 bg-indigo-50 dark:border-indigo-600 dark:bg-indigo-950/30'
+          : 'border-border bg-card hover:border-indigo-300 hover:bg-indigo-50/50 dark:hover:border-indigo-700 dark:hover:bg-indigo-950/20'
+      }`}
+    >
+      {/* Checkbox indicator */}
+      <button
+        type='button'
+        onClick={onToggle}
+        aria-pressed={isSelected}
+        className='mt-1 shrink-0 rounded focus-visible:ring-2 focus-visible:ring-indigo-500/50 focus-visible:outline-none'
+      >
+        <div
+          className={`flex h-5 w-5 items-center justify-center rounded border transition-colors ${
+            isSelected
+              ? 'border-indigo-500 bg-indigo-500 dark:border-indigo-600 dark:bg-indigo-600'
+              : 'border-input bg-background'
+          }`}
+          aria-hidden='true'
+        >
+          {isSelected && <Check className='h-3 w-3 text-white' />}
+        </div>
+      </button>
+
+      {/* Icon */}
+      <button
+        type='button'
+        onClick={onToggle}
+        className='flex shrink-0 items-start focus-visible:outline-none'
+        tabIndex={-1}
+      >
+        <div
+          className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
+            isSelected
+              ? 'bg-indigo-500 text-white'
+              : 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300'
+          }`}
+        >
+          <Users className='h-4 w-4' />
+        </div>
+      </button>
+
+      {/* Content */}
+      <button
+        type='button'
+        onClick={onToggle}
+        className='min-w-0 flex-1 text-left focus-visible:outline-none'
+        tabIndex={-1}
+      >
+        <span className='font-inter text-foreground flex items-center gap-1 truncate text-sm font-medium'>
+          {collective.name}
+          {collective.verified && (
+            <ShieldCheck className='h-3.5 w-3.5 shrink-0 text-green-500' aria-label='Verified' />
+          )}
+        </span>
+        <span className='font-inter text-muted-foreground block truncate text-xs'>
+          {collective.shared_endpoint_path} &middot; {collective.member_count}{' '}
+          {collective.member_count === 1 ? 'endpoint' : 'endpoints'}
+        </span>
+        {collective.description && (
+          <p className='font-inter text-muted-foreground mt-1 line-clamp-2 text-xs'>
+            {collective.description}
+          </p>
+        )}
+      </button>
+
+      {/* Collective page link */}
+      <Link
+        to={`/c/${collective.slug}`}
+        target='_blank'
+        rel='noopener noreferrer'
+        className='text-muted-foreground hover:text-foreground mt-1 shrink-0 transition-colors'
+        aria-label={`View ${collective.name} collective`}
+        onClick={(e) => {
+          e.stopPropagation();
+        }}
+      >
+        <ExternalLink className='h-4 w-4' />
+      </Link>
+    </div>
+  );
+});
+
 // ============================================================================
 // Main Component
 // ============================================================================
+
+type ActiveTab = 'endpoints' | 'collectives';
 
 export interface AddSourcesModalProps {
   isOpen: boolean;
@@ -128,6 +269,8 @@ export interface AddSourcesModalProps {
   availableSources: ChatSource[];
   selectedSourceIds: Set<string>;
   onConfirm: (selectedSources: ChatSource[]) => void;
+  /** Collectives to show in the Collectives tab. Pass an empty array to hide the tab. */
+  availableCollectives?: Collective[];
 }
 
 export const AddSourcesModal = memo(function AddSourcesModal({
@@ -135,8 +278,10 @@ export const AddSourcesModal = memo(function AddSourcesModal({
   onClose,
   availableSources,
   selectedSourceIds,
-  onConfirm
+  onConfirm,
+  availableCollectives = []
 }: Readonly<AddSourcesModalProps>) {
+  const [activeTab, setActiveTab] = useState<ActiveTab>('endpoints');
   // Local selection state — only committed on confirm
   const [localSelected, setLocalSelected] = useState<Set<string>>(new Set(selectedSourceIds));
   // Resolved source objects for all currently selected IDs (needed for search results not in availableSources)
@@ -145,6 +290,8 @@ export const AddSourcesModal = memo(function AddSourcesModal({
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<ChatSource[] | null>(null);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
+
+  const showCollectivesTab = availableCollectives.length > 0;
 
   // Sync local state when modal opens with new external selections
   const previousOpenReference = useRef(false);
@@ -158,13 +305,29 @@ export const AddSourcesModal = memo(function AddSourcesModal({
           initialMap.set(source.id, source);
         }
       }
+      // Also restore any selected collective sources
+      for (const collective of availableCollectives) {
+        const id = `collective:${collective.slug}`;
+        if (selectedSourceIds.has(id)) {
+          initialMap.set(id, collectiveToChatSource(collective));
+        }
+      }
       setResolvedSourcesMap(initialMap);
       setSearchQuery('');
       setDebouncedSearchQuery('');
       setSearchResults(null);
+      setActiveTab('endpoints');
     }
     previousOpenReference.current = isOpen;
-  }, [isOpen, selectedSourceIds, availableSources]);
+  }, [isOpen, selectedSourceIds, availableSources, availableCollectives]);
+
+  // Reset search when switching tabs
+  const handleTabChange = useCallback((tab: ActiveTab) => {
+    setActiveTab(tab);
+    setSearchQuery('');
+    setDebouncedSearchQuery('');
+    setSearchResults(null);
+  }, []);
 
   // Debounce searchQuery → debouncedSearchQuery (300ms, matching Browse page)
   useEffect(() => {
@@ -176,8 +339,9 @@ export const AddSourcesModal = memo(function AddSourcesModal({
     };
   }, [searchQuery]);
 
-  // Call server-side search when debouncedSearchQuery changes
+  // Server-side endpoint search (endpoints tab only)
   useEffect(() => {
+    if (activeTab !== 'endpoints') return;
     if (!debouncedSearchQuery.trim()) {
       setSearchResults(null);
       setIsSearchLoading(false);
@@ -201,7 +365,7 @@ export const AddSourcesModal = memo(function AddSourcesModal({
     return () => {
       cancelled = true;
     };
-  }, [debouncedSearchQuery]);
+  }, [debouncedSearchQuery, activeTab]);
 
   // Pre-loaded list filtered to data sources only (used when not searching)
   const dataSourceEndpoints = useMemo(
@@ -209,19 +373,41 @@ export const AddSourcesModal = memo(function AddSourcesModal({
     [availableSources]
   );
 
-  // Use server search results when a query is active, otherwise show pre-loaded list
-  const activeSources = searchResults ?? dataSourceEndpoints;
+  // Collectives filtered locally by search query
+  const filteredCollectives = useMemo(() => {
+    if (!debouncedSearchQuery.trim()) return availableCollectives;
+    const q = debouncedSearchQuery.toLowerCase();
+    return availableCollectives.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.description.toLowerCase().includes(q) ||
+        c.slug.toLowerCase().includes(q) ||
+        c.tags.some((t) => t.toLowerCase().includes(q))
+    );
+  }, [availableCollectives, debouncedSearchQuery]);
 
-  // Sort selected endpoints to appear at the top
+  // Sorted endpoints: selected bubble to top
   const sortedSources = useMemo(() => {
+    const activeSources = searchResults ?? dataSourceEndpoints;
     return activeSources.toSorted((a, b) => {
       const aSelected = localSelected.has(a.id) ? 0 : 1;
       const bSelected = localSelected.has(b.id) ? 0 : 1;
       return aSelected - bSelected;
     });
-  }, [activeSources, localSelected]);
+  }, [searchResults, dataSourceEndpoints, localSelected]);
 
-  const toggleLocal = useCallback((source: ChatSource) => {
+  // Sorted collectives: selected bubble to top
+  const sortedCollectives = useMemo(() => {
+    return filteredCollectives.toSorted((a, b) => {
+      const aId = `collective:${a.slug}`;
+      const bId = `collective:${b.slug}`;
+      const aSelected = localSelected.has(aId) ? 0 : 1;
+      const bSelected = localSelected.has(bId) ? 0 : 1;
+      return aSelected - bSelected;
+    });
+  }, [filteredCollectives, localSelected]);
+
+  const toggleEndpoint = useCallback((source: ChatSource) => {
     setLocalSelected((previous) => {
       const next = new Set(previous);
       if (next.has(source.id)) {
@@ -237,6 +423,29 @@ export const AddSourcesModal = memo(function AddSourcesModal({
         next.delete(source.id);
       } else {
         next.set(source.id, source);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleCollective = useCallback((collective: Collective) => {
+    const id = `collective:${collective.slug}`;
+    const chatSource = collectiveToChatSource(collective);
+    setLocalSelected((previous) => {
+      const next = new Set(previous);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+    setResolvedSourcesMap((previous) => {
+      const next = new Map(previous);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.set(id, chatSource);
       }
       return next;
     });
@@ -271,6 +480,40 @@ export const AddSourcesModal = memo(function AddSourcesModal({
         </div>
       </div>
 
+      {/* Tab switcher — only shown when there are collectives to display */}
+      {showCollectivesTab && (
+        <div className='mb-3 flex gap-1 rounded-lg border p-1'>
+          <button
+            type='button'
+            onClick={() => {
+              handleTabChange('endpoints');
+            }}
+            className={`font-inter flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              activeTab === 'endpoints'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Database className='h-3.5 w-3.5' />
+            Data Sources
+          </button>
+          <button
+            type='button'
+            onClick={() => {
+              handleTabChange('collectives');
+            }}
+            className={`font-inter flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+              activeTab === 'collectives'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Shield className='h-3.5 w-3.5' />
+            Collectives
+          </button>
+        </div>
+      )}
+
       {/* Search input */}
       <div className='relative mb-3'>
         <Search className='text-muted-foreground pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2' />
@@ -278,38 +521,59 @@ export const AddSourcesModal = memo(function AddSourcesModal({
           type='text'
           value={searchQuery}
           onChange={handleSearchChange}
-          placeholder='Search endpoints...'
+          placeholder={activeTab === 'collectives' ? 'Search collectives…' : 'Search endpoints...'}
           className='font-inter border-border bg-background placeholder:text-muted-foreground w-full rounded-lg border py-2 pr-4 pl-10 text-sm transition-colors focus:border-green-500 focus:ring-2 focus:ring-green-500/20 focus:outline-none'
           autoComplete='off'
         />
       </div>
 
       {/* Onboarding callout for source selection */}
-      <OnboardingCallout step='select-sources' position='bottom'>
-        <div />
-      </OnboardingCallout>
+      {activeTab === 'endpoints' && (
+        <OnboardingCallout step='select-sources' position='bottom'>
+          <div />
+        </OnboardingCallout>
+      )}
 
-      {/* Scrollable source list */}
+      {/* Scrollable list */}
       <div className='max-h-72 space-y-2 overflow-y-auto pr-1'>
-        {isSearchLoading ? (
-          <div className='py-8 text-center'>
-            <p className='font-inter text-muted-foreground text-sm'>Searching...</p>
-          </div>
-        ) : sortedSources.length > 0 ? (
-          sortedSources.map((source) => (
-            <SourceItem
-              key={source.id}
-              source={source}
-              isSelected={localSelected.has(source.id)}
+        {activeTab === 'endpoints' ? (
+          isSearchLoading ? (
+            <div className='py-8 text-center'>
+              <p className='font-inter text-muted-foreground text-sm'>Searching...</p>
+            </div>
+          ) : sortedSources.length > 0 ? (
+            sortedSources.map((source) => (
+              <SourceItem
+                key={source.id}
+                source={source}
+                isSelected={localSelected.has(source.id)}
+                onToggle={() => {
+                  toggleEndpoint(source);
+                }}
+              />
+            ))
+          ) : (
+            <div className='py-8 text-center'>
+              <p className='font-inter text-muted-foreground text-sm'>
+                {isSearching ? 'No matching data sources found' : 'No data sources available'}
+              </p>
+            </div>
+          )
+        ) : sortedCollectives.length > 0 ? (
+          sortedCollectives.map((collective) => (
+            <CollectiveItem
+              key={collective.slug}
+              collective={collective}
+              isSelected={localSelected.has(`collective:${collective.slug}`)}
               onToggle={() => {
-                toggleLocal(source);
+                toggleCollective(collective);
               }}
             />
           ))
         ) : (
           <div className='py-8 text-center'>
             <p className='font-inter text-muted-foreground text-sm'>
-              {isSearching ? 'No matching data sources found' : 'No data sources available'}
+              {isSearching ? 'No matching collectives found' : 'No collectives available'}
             </p>
           </div>
         )}

@@ -1,9 +1,10 @@
 import { useState } from 'react';
 
-import type { Collective } from '@/lib/collectives-api';
+import type { Collective, CollectiveMember } from '@/lib/collectives-api';
+import type { ReactNode } from 'react';
 
 import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left';
-import CheckCircle from 'lucide-react/dist/esm/icons/check-circle';
+import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check';
 import Trash2 from 'lucide-react/dist/esm/icons/trash-2';
 import UserCheck from 'lucide-react/dist/esm/icons/user-check';
 import UserX from 'lucide-react/dist/esm/icons/user-x';
@@ -28,6 +29,7 @@ import {
   useReviewRequest,
   useUpdateCollective
 } from '@/hooks/use-collectives';
+import { parseTags } from '@/lib/collectives-api';
 import { formatDate } from '@/lib/date-utils';
 
 type AdminTab = 'members' | 'requests' | 'settings';
@@ -51,10 +53,12 @@ export default function CollectiveAdminPage() {
 
   if (isError || !collective) {
     return (
-      <div className='container mx-auto px-6 py-16 text-center'>
-        <h1 className='mb-4 text-2xl font-bold'>Collective not found</h1>
+      <div className='mx-auto max-w-2xl px-6 py-16 text-center'>
+        <h1 className='font-rubik text-foreground mb-4 text-2xl font-semibold'>
+          Collective not found
+        </h1>
         <Button asChild>
-          <Link to='/collectives/browse'>Browse collectives</Link>
+          <Link to='/browse?tab=collectives'>Browse collectives</Link>
         </Button>
       </div>
     );
@@ -63,8 +67,8 @@ export default function CollectiveAdminPage() {
   const isOwner = user != null && Number(user.id) === collective.owner_id;
   if (!isOwner) {
     return (
-      <div className='container mx-auto px-6 py-16 text-center'>
-        <h1 className='mb-4 text-2xl font-bold'>Access denied</h1>
+      <div className='mx-auto max-w-2xl px-6 py-16 text-center'>
+        <h1 className='font-rubik text-foreground mb-4 text-2xl font-semibold'>Access denied</h1>
         <p className='text-muted-foreground mb-6'>
           You don't have permission to manage this collective.
         </p>
@@ -96,28 +100,30 @@ function CollectiveAdminContent({ collective }: Readonly<{ collective: Collectiv
   ];
 
   return (
-    <div className='container mx-auto max-w-5xl px-6 py-8'>
-      {/* Header */}
+    <div className='mx-auto max-w-5xl px-6 py-8'>
       <div className='mb-8'>
-        <Link
-          to={`/c/${collective.slug}`}
-          className='text-muted-foreground hover:text-foreground mb-4 inline-flex items-center gap-2 text-sm'
+        <Button
+          asChild
+          variant='ghost'
+          size='sm'
+          className='text-muted-foreground hover:text-foreground mb-4 -ml-2'
         >
-          <ArrowLeft className='h-4 w-4' />
-          Back to {collective.name}
-        </Link>
-        <h1 className='flex items-center gap-2 text-3xl font-bold'>
+          <Link to={`/c/${collective.slug}`}>
+            <ArrowLeft className='mr-2 h-4 w-4' />
+            Back to {collective.name}
+          </Link>
+        </Button>
+        <h1 className='font-rubik text-foreground flex items-center gap-2 text-3xl font-semibold'>
           Manage {collective.name}
           {collective.verified && (
-            <CheckCircle className='h-6 w-6 text-green-500' aria-label='Verified collective' />
+            <ShieldCheck className='h-6 w-6 text-green-500' aria-label='Verified collective' />
           )}
         </h1>
-        <p className='text-muted-foreground mt-1'>
+        <p className='font-inter text-muted-foreground mt-1'>
           Administer this collective's members, join requests and settings
         </p>
       </div>
 
-      {/* Quick stats */}
       <div className='mb-8 grid grid-cols-2 gap-4'>
         <Card className='p-4'>
           <div className='flex items-center gap-3'>
@@ -139,7 +145,6 @@ function CollectiveAdminContent({ collective }: Readonly<{ collective: Collectiv
         </Card>
       </div>
 
-      {/* Tabs */}
       <div className='mb-6 flex gap-4 border-b'>
         {tabs.map((tab) => (
           <button
@@ -163,24 +168,22 @@ function CollectiveAdminContent({ collective }: Readonly<{ collective: Collectiv
         ))}
       </div>
 
-      {/* Members */}
       {activeTab === 'members' && (
         <div className='space-y-3'>
           {members.length > 0 ? (
             members.map((member) => (
-              <Card key={member.id} className='p-4'>
-                <div className='flex items-center justify-between gap-3'>
-                  <div className='min-w-0'>
-                    <p className='truncate font-medium'>
-                      {member.endpoint_name ?? `Endpoint #${member.endpoint_id}`}
-                    </p>
-                    <p className='text-muted-foreground text-xs'>
-                      {member.endpoint_owner_username
-                        ? `@${member.endpoint_owner_username}`
-                        : 'owner unknown'}
-                      {member.endpoint_type ? ` · ${member.endpoint_type}` : ''}
-                    </p>
-                  </div>
+              <MemberRow
+                key={member.id}
+                member={member}
+                subtitle={
+                  <>
+                    {member.endpoint_owner_username
+                      ? `@${member.endpoint_owner_username}`
+                      : 'owner unknown'}
+                    {member.endpoint_type ? ` · ${member.endpoint_type}` : ''}
+                  </>
+                }
+                actions={
                   <Button
                     size='sm'
                     variant='ghost'
@@ -195,8 +198,8 @@ function CollectiveAdminContent({ collective }: Readonly<{ collective: Collectiv
                   >
                     <UserX className='h-4 w-4' />
                   </Button>
-                </div>
-              </Card>
+                }
+              />
             ))
           ) : (
             <Card className='text-muted-foreground p-12 text-center text-sm'>
@@ -206,24 +209,22 @@ function CollectiveAdminContent({ collective }: Readonly<{ collective: Collectiv
         </div>
       )}
 
-      {/* Requests */}
       {activeTab === 'requests' && (
         <div className='space-y-3'>
           {requests.length > 0 ? (
             requests.map((request) => (
-              <Card key={request.id} className='p-4'>
-                <div className='flex items-center justify-between gap-3'>
-                  <div className='min-w-0'>
-                    <p className='truncate font-medium'>
-                      {request.endpoint_name ?? `Endpoint #${request.endpoint_id}`}
-                    </p>
-                    <p className='text-muted-foreground text-xs'>
-                      {request.endpoint_owner_username
-                        ? `@${request.endpoint_owner_username}`
-                        : 'owner unknown'}{' '}
-                      · requested {formatDate(request.requested_at)}
-                    </p>
-                  </div>
+              <MemberRow
+                key={request.id}
+                member={request}
+                subtitle={
+                  <>
+                    {request.endpoint_owner_username
+                      ? `@${request.endpoint_owner_username}`
+                      : 'owner unknown'}{' '}
+                    · requested {formatDate(request.requested_at)}
+                  </>
+                }
+                actions={
                   <div className='flex shrink-0 gap-2'>
                     <Button
                       size='sm'
@@ -255,8 +256,8 @@ function CollectiveAdminContent({ collective }: Readonly<{ collective: Collectiv
                       Reject
                     </Button>
                   </div>
-                </div>
-              </Card>
+                }
+              />
             ))
           ) : (
             <Card className='text-muted-foreground p-12 text-center text-sm'>
@@ -266,9 +267,32 @@ function CollectiveAdminContent({ collective }: Readonly<{ collective: Collectiv
         </div>
       )}
 
-      {/* Settings */}
       {activeTab === 'settings' && <CollectiveSettingsForm collective={collective} />}
     </div>
+  );
+}
+
+function MemberRow({
+  member,
+  subtitle,
+  actions
+}: Readonly<{
+  member: CollectiveMember;
+  subtitle: ReactNode;
+  actions: ReactNode;
+}>) {
+  return (
+    <Card className='p-4'>
+      <div className='flex items-center justify-between gap-3'>
+        <div className='min-w-0'>
+          <p className='truncate font-medium'>
+            {member.endpoint_name ?? `Endpoint #${member.endpoint_id}`}
+          </p>
+          <p className='text-muted-foreground text-xs'>{subtitle}</p>
+        </div>
+        {actions}
+      </div>
+    </Card>
   );
 }
 
@@ -280,6 +304,7 @@ function CollectiveSettingsForm({ collective }: Readonly<{ collective: Collectiv
 
   const [name, setName] = useState(collective.name);
   const [description, setDescription] = useState(collective.description);
+  const [about, setAbout] = useState(collective.about);
   const [iconUrl, setIconUrl] = useState(collective.icon_url ?? '');
   const [tags, setTags] = useState(collective.tags.join(', '));
   const [autoApprove, setAutoApprove] = useState(collective.auto_approve);
@@ -291,12 +316,10 @@ function CollectiveSettingsForm({ collective }: Readonly<{ collective: Collectiv
       input: {
         name: name.trim(),
         description: description.trim(),
+        about: about.trim(),
         icon_url: iconUrl.trim() || null,
         auto_approve: autoApprove,
-        tags: tags
-          .split(',')
-          .map((t) => t.trim())
-          .filter(Boolean)
+        tags: parseTags(tags)
       }
     });
   };
@@ -304,7 +327,7 @@ function CollectiveSettingsForm({ collective }: Readonly<{ collective: Collectiv
   const handleDelete = () => {
     deleteCollective.mutate(collective.id, {
       onSuccess: () => {
-        void navigate('/collectives/browse');
+        void navigate('/browse?tab=collectives');
       }
     });
   };
@@ -336,6 +359,25 @@ function CollectiveSettingsForm({ collective }: Readonly<{ collective: Collectiv
               rows={3}
               className='mt-1'
             />
+            <p className='text-muted-foreground mt-1 text-xs'>
+              Short summary shown on cards and the detail header.
+            </p>
+          </div>
+          <div>
+            <Label htmlFor='about'>About</Label>
+            <Textarea
+              id='about'
+              value={about}
+              onChange={(e) => {
+                setAbout(e.target.value);
+              }}
+              rows={8}
+              placeholder='# About this collective&#10;&#10;Long-form description — supports markdown.'
+              className='mt-1 font-mono text-sm'
+            />
+            <p className='text-muted-foreground mt-1 text-xs'>
+              Long-form markdown, shown as the "About" card on the detail page.
+            </p>
           </div>
           <div>
             <Label htmlFor='icon'>Icon URL</Label>
@@ -382,7 +424,7 @@ function CollectiveSettingsForm({ collective }: Readonly<{ collective: Collectiv
           <span>Verification:</span>
           {collective.verified ? (
             <Badge variant='secondary' className='gap-1'>
-              <CheckCircle className='h-3 w-3 text-green-500' />
+              <ShieldCheck className='h-3 w-3 text-green-500' />
               Verified
             </Badge>
           ) : (

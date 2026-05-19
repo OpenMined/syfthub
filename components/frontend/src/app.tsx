@@ -1,6 +1,6 @@
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 
 import { ProtectedRoute } from './components/auth/protected-route';
 import RootProvider from './components/providers/root';
@@ -28,9 +28,7 @@ const ProfilePage = lazyWithRetry(() => import('./pages/profile'));
 const EndpointsPage = lazyWithRetry(() => import('./pages/endpoints'));
 const EndpointDetailPage = lazyWithRetry(() => import('./pages/endpoint-detail'));
 const UserProfilePage = lazyWithRetry(() => import('./pages/user-profile'));
-// Collectives — user-owned groupings of endpoints
 const CollectivesPage = lazyWithRetry(() => import('./pages/collectives'));
-const BrowseCollectivesPage = lazyWithRetry(() => import('./pages/browse-collectives'));
 const CollectiveDetailPage = lazyWithRetry(() => import('./pages/collective-detail'));
 const CollectiveAdminPage = lazyWithRetry(() => import('./pages/collective-admin'));
 const CreateCollectivePage = lazyWithRetry(() => import('./pages/create-collective'));
@@ -144,13 +142,12 @@ export default function App() {
                           </RouteBoundary>
                         }
                       />
+                      {/* Browsing collectives now lives in the unified
+                          /browse page as a tab; keep the old path as a
+                          redirect for existing links and bookmarks. */}
                       <Route
                         path='collectives/browse'
-                        element={
-                          <RouteBoundary>
-                            <BrowseCollectivesPage />
-                          </RouteBoundary>
-                        }
+                        element={<Navigate to='/browse?tab=collectives' replace />}
                       />
                       <Route
                         path='collectives/create'

@@ -164,6 +164,16 @@ export function getStoredAccessToken(): string | null {
   }
 }
 
+/**
+ * Return a Bearer Authorization header using the SDK's in-memory token
+ * (kept current by automatic refresh) or the persisted token as fallback.
+ * Returns an empty object when no token is available.
+ */
+export function getAuthHeaders(): Record<string, string> {
+  const token = syftClient.getTokens()?.accessToken ?? getStoredAccessToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 // Re-export commonly used SDK types for convenience
 export type { AuthTokens } from '@syfthub/sdk';
 export {

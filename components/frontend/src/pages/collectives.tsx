@@ -6,7 +6,7 @@ import Users from 'lucide-react/dist/esm/icons/users';
 import Zap from 'lucide-react/dist/esm/icons/zap';
 import { Link } from 'react-router-dom';
 
-import { Badge } from '@/components/ui/badge';
+import { CollectiveCard } from '@/components/collectives/collective-card';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
@@ -23,7 +23,7 @@ export default function CollectivesPage() {
   const { data: collectives, isLoading } = useCollectives();
 
   // Feature verified collectives first, then fall back to the newest few.
-  const featured = [...(collectives ?? [])]
+  const featured = (collectives ?? [])
     .toSorted((a, b) => Number(b.verified) - Number(a.verified))
     .slice(0, 3);
 
@@ -38,45 +38,7 @@ export default function CollectivesPage() {
     featuredView = (
       <div className='grid grid-cols-1 gap-6 md:grid-cols-3'>
         {featured.map((collective) => (
-          <Link key={collective.id} to={`/c/${collective.slug}`}>
-            <Card className='hover:border-primary/30 h-full p-5 transition-all hover:shadow-lg'>
-              <div className='mb-3 flex items-start gap-3'>
-                {collective.icon_url ? (
-                  <img
-                    src={collective.icon_url}
-                    alt={collective.name}
-                    className='h-12 w-12 rounded-lg object-cover'
-                  />
-                ) : (
-                  <div className='from-primary/20 to-primary/10 flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-br'>
-                    <Users className='text-primary h-6 w-6' />
-                  </div>
-                )}
-                <div className='min-w-0 flex-1'>
-                  <div className='flex items-center gap-1.5'>
-                    <h3 className='truncate text-sm font-semibold'>{collective.name}</h3>
-                    {collective.verified && (
-                      <CheckCircle className='h-4 w-4 shrink-0 text-green-500' />
-                    )}
-                  </div>
-                  <p className='text-muted-foreground mt-0.5 text-xs'>
-                    {collective.member_count}{' '}
-                    {collective.member_count === 1 ? 'endpoint' : 'endpoints'}
-                  </p>
-                </div>
-              </div>
-              <p className='text-muted-foreground mb-3 line-clamp-2 text-sm'>
-                {collective.description || 'No description provided.'}
-              </p>
-              <div className='flex flex-wrap gap-2'>
-                {collective.tags.slice(0, 2).map((tag) => (
-                  <Badge key={tag} variant='secondary' className='text-xs'>
-                    {tag}
-                  </Badge>
-                ))}
-              </div>
-            </Card>
-          </Link>
+          <CollectiveCard key={collective.id} collective={collective} />
         ))}
       </div>
     );
@@ -92,14 +54,13 @@ export default function CollectivesPage() {
     <>
       <PageHeader title='Collectives' path='~/collectives' />
 
-      <div className='mx-auto max-w-6xl px-6 py-6'>
-        {/* Hero */}
+      <div className='mx-auto max-w-6xl px-6 py-8'>
         <div className='mb-12'>
           <p className='text-muted-foreground mb-6 text-lg'>
             Trusted groups of endpoints. Better discovery, shared identity, collective leverage.
           </p>
           <Button asChild size='lg' className='px-8'>
-            <Link to='/collectives/browse'>Browse Collectives</Link>
+            <Link to='/browse?tab=collectives'>Browse Collectives</Link>
           </Button>
         </div>
 
@@ -108,7 +69,7 @@ export default function CollectivesPage() {
           <div className='mb-6 flex items-center justify-between'>
             <h2 className='text-lg font-semibold'>Active Collectives</h2>
             <Link
-              to='/collectives/browse'
+              to='/browse?tab=collectives'
               className='text-muted-foreground hover:text-primary text-sm transition-colors'
             >
               View all →
@@ -118,7 +79,6 @@ export default function CollectivesPage() {
           {featuredView}
         </div>
 
-        {/* Benefits */}
         <div className='bg-muted/30 mb-12 rounded-xl p-8'>
           <div className='grid gap-8 md:grid-cols-2'>
             <div>
@@ -162,7 +122,6 @@ export default function CollectivesPage() {
           </div>
         </div>
 
-        {/* Create CTA */}
         <div className='border-t py-12 text-center'>
           <h3 className='mb-3 text-lg font-semibold'>Curating a set of related endpoints?</h3>
           <p className='text-muted-foreground mx-auto mb-6 max-w-xl text-sm'>

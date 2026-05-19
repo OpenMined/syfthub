@@ -14,12 +14,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useCreateCollective } from '@/hooks/use-collectives';
+import { parseTags } from '@/lib/collectives-api';
 import { cn } from '@/lib/utils';
 
 /** Derive a URL-safe slug preview from a name (the backend re-validates). */
 function slugify(name: string): string {
-  // Collapse runs of non-alphanumerics to a single hyphen, then trim the
-  // (at most one) leading/trailing hyphen.
   return name
     .toLowerCase()
     .replaceAll(/[^a-z0-9]+/g, '-')
@@ -44,35 +43,27 @@ export default function CreateCollectivePage() {
 
   const [step, setStep] = useState(1);
   const [name, setName] = useState('');
-  const [slug, setSlug] = useState('');
-  const [slugEdited, setSlugEdited] = useState(false);
+  const [customSlug, setCustomSlug] = useState<string | null>(null);
   const [description, setDescription] = useState('');
+  const [about, setAbout] = useState('');
   const [iconUrl, setIconUrl] = useState('');
   const [tags, setTags] = useState('');
   const [autoApprove, setAutoApprove] = useState(false);
 
-  const slugPreview = slugEdited ? slug : slugify(name);
-
-  const handleNameChange = (value: string) => {
-    setName(value);
-    if (!slugEdited) setSlug(slugify(value));
-  };
+  const slugPreview = customSlug ?? slugify(name);
 
   const handleCreate = () => {
-    const tagList = tags
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean);
     createCollective.mutate(
       {
         name: name.trim(),
         description: description.trim(),
+        about: about.trim(),
         icon_url: iconUrl.trim() || null,
         auto_approve: autoApprove,
-        tags: tagList,
+        tags: parseTags(tags),
         // Send the slug only when the user customized it; otherwise let the
         // backend derive (and de-duplicate) one from the name.
-        ...(slugEdited && slug.trim() ? { slug: slug.trim() } : {})
+        ...(customSlug?.trim() ? { slug: customSlug.trim() } : {})
       },
       {
         onSuccess: (collective) => {
@@ -85,22 +76,25 @@ export default function CreateCollectivePage() {
   const canContinue = step !== 1 || name.trim().length > 0;
 
   return (
-    <div className='container mx-auto max-w-3xl px-6 py-8'>
+    <div className='mx-auto max-w-3xl px-6 py-8'>
       <div className='mb-8'>
-        <Link
-          to='/collectives'
-          className='text-muted-foreground hover:text-foreground mb-4 inline-flex items-center gap-2 text-sm'
+        <Button
+          asChild
+          variant='ghost'
+          size='sm'
+          className='text-muted-foreground hover:text-foreground mb-4 -ml-2'
         >
-          <ArrowLeft className='h-4 w-4' />
-          Back to Collectives
-        </Link>
-        <h1 className='text-3xl font-bold'>Create a Collective</h1>
-        <p className='text-muted-foreground mt-1'>
+          <Link to='/collectives'>
+            <ArrowLeft className='mr-2 h-4 w-4' />
+            Back to Collectives
+          </Link>
+        </Button>
+        <h1 className='font-rubik text-foreground text-3xl font-semibold'>Create a Collective</h1>
+        <p className='font-inter text-muted-foreground mt-1'>
           Group endpoints under one identity data buyers can discover and trust
         </p>
       </div>
 
-      {/* Stepper */}
       <div className='mb-8 flex items-center justify-between'>
         {STEPS.map((s, index) => {
           const Icon = s.icon;
@@ -137,7 +131,6 @@ export default function CreateCollectivePage() {
       </div>
 
       <Card className='p-6'>
-        {/* Step 1 — details */}
         {step === 1 && (
           <div className='space-y-6'>
             <h2 className='text-lg font-semibold'>Details</h2>
@@ -147,7 +140,7 @@ export default function CreateCollectivePage() {
                 id='name'
                 value={name}
                 onChange={(e) => {
-                  handleNameChange(e.target.value);
+                  setName(e.target.value);
                 }}
                 placeholder='e.g. Genomics Research Collective'
                 className='mt-1'
@@ -157,10 +150,9 @@ export default function CreateCollectivePage() {
               <Label htmlFor='slug'>URL slug</Label>
               <Input
                 id='slug'
-                value={slugEdited ? slug : slugPreview}
+                value={slugPreview}
                 onChange={(e) => {
-                  setSlug(e.target.value);
-                  setSlugEdited(true);
+                  setCustomSlug(e.target.value);
                 }}
                 placeholder='auto-generated from the name'
                 className='mt-1 font-mono text-sm'
@@ -178,9 +170,28 @@ export default function CreateCollectivePage() {
                   setDescription(e.target.value);
                 }}
                 placeholder="Describe the collective's focus and the kind of endpoints it groups..."
-                rows={5}
+                rows={3}
                 className='mt-1'
               />
+              <p className='text-muted-foreground mt-1 text-xs'>
+                Short summary shown on cards and the detail header.
+              </p>
+            </div>
+            <div>
+              <Label htmlFor='about'>About (optional)</Label>
+              <Textarea
+                id='about'
+                value={about}
+                onChange={(e) => {
+                  setAbout(e.target.value);
+                }}
+                placeholder='# About this collective&#10;&#10;Long-form description — supports markdown.'
+                rows={10}
+                className='mt-1 font-mono text-sm'
+              />
+              <p className='text-muted-foreground mt-1 text-xs'>
+                Long-form markdown, shown as the "About" card on the collective page.
+              </p>
             </div>
             <div>
               <Label htmlFor='icon'>Icon URL (optional)</Label>
@@ -212,7 +223,6 @@ export default function CreateCollectivePage() {
           </div>
         )}
 
-        {/* Step 2 — membership */}
         {step === 2 && (
           <div className='space-y-6'>
             <h2 className='text-lg font-semibold'>Membership</h2>
@@ -266,7 +276,6 @@ export default function CreateCollectivePage() {
           </div>
         )}
 
-        {/* Step 3 — review */}
         {step === 3 && (
           <div className='space-y-6'>
             <h2 className='text-lg font-semibold'>Review &amp; create</h2>
@@ -301,7 +310,6 @@ export default function CreateCollectivePage() {
         )}
       </Card>
 
-      {/* Navigation */}
       <div className='mt-6 flex justify-between'>
         {step > 1 ? (
           <Button

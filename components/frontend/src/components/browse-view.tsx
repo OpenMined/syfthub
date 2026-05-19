@@ -10,15 +10,15 @@ import Calendar from 'lucide-react/dist/esm/icons/calendar';
 import Check from 'lucide-react/dist/esm/icons/check';
 import ChevronRight from 'lucide-react/dist/esm/icons/chevron-right';
 import Database from 'lucide-react/dist/esm/icons/database';
-import Filter from 'lucide-react/dist/esm/icons/filter';
 import Globe from 'lucide-react/dist/esm/icons/globe';
 import Package from 'lucide-react/dist/esm/icons/package';
 import Plus from 'lucide-react/dist/esm/icons/plus';
 import Search from 'lucide-react/dist/esm/icons/search';
 import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
 import Star from 'lucide-react/dist/esm/icons/star';
+import Users from 'lucide-react/dist/esm/icons/users';
 import X from 'lucide-react/dist/esm/icons/x';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 
 import { usePaginatedPublicEndpoints } from '@/hooks/use-endpoint-queries';
 import { isDataSourceEndpoint } from '@/lib/endpoint-utils';
@@ -31,6 +31,8 @@ import {
   extractUniqueTags,
   hasActiveFilters
 } from './browse-filters-modal';
+import { BrowseSearchBar } from './browse-search-bar';
+import { CollectivesBrowse } from './collectives/collectives-browse';
 import { EndpointTypeIcon } from './endpoint-type-icon';
 import { Badge } from './ui/badge';
 import { LoadingSpinner } from './ui/loading-spinner';
@@ -55,22 +57,32 @@ const PAGE_SIZE = 12;
 // Tab types
 // ============================================================================
 
-// TODO(agent-feature): Add 'agents' back to BrowseTab and TAB_CONFIG when agent endpoint UI is re-enabled
-type BrowseTab = 'data_sources' | 'models';
+// TODO(agent-feature): add an 'agents' tab when agent endpoint UI is re-enabled.
+type EndpointBrowseTab = 'data_sources' | 'models';
+type BrowseTab = EndpointBrowseTab | 'collectives';
 
-const TAB_CONFIG: Record<
-  BrowseTab,
-  { endpointType: EndpointType; entityName: string; icon: LucideIcon; label: string }
+/** Per-tab config for the two endpoint tabs (the collectives tab is separate). */
+const ENDPOINT_TAB_CONFIG: Record<
+  EndpointBrowseTab,
+  { endpointType: EndpointType; entityName: string }
 > = {
-  data_sources: {
-    endpointType: 'data_source',
-    entityName: 'data sources',
-    icon: Database,
-    label: 'Data Sources'
-  },
-  models: { endpointType: 'model', entityName: 'models', icon: Sparkles, label: 'Models' }
-  // agents: { endpointType: 'agent', entityName: 'agents', icon: Bot, label: 'Agents' }
+  data_sources: { endpointType: 'data_source', entityName: 'data sources' },
+  models: { endpointType: 'model', entityName: 'models' }
 };
+
+/** Ordered tab strip — data sources, models, then collectives. */
+const TABS: { id: BrowseTab; label: string; icon: LucideIcon }[] = [
+  { id: 'data_sources', label: 'Data Sources', icon: Database },
+  { id: 'models', label: 'Models', icon: Sparkles },
+  { id: 'collectives', label: 'Collectives', icon: Users }
+];
+
+/** Parse the `?tab=` query param into a valid tab; defaults to data sources. */
+function parseTab(raw: string | null): BrowseTab {
+  if (raw === 'models') return 'models';
+  if (raw === 'collectives') return 'collectives';
+  return 'data_sources';
+}
 
 // ============================================================================
 // Main Component
@@ -84,9 +96,14 @@ interface BrowseViewProperties {
 const SEARCH_DEBOUNCE_MS = 300;
 
 export function BrowseView({ initialQuery = '' }: Readonly<BrowseViewProperties>) {
+  // The active tab lives in the URL (?tab=) so it is shareable and
+  // refresh-stable — e.g. /browse?tab=collectives.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = parseTab(searchParams.get('tab'));
+  const isCollectivesTab = activeTab === 'collectives';
+
   const [searchQuery, setSearchQuery] = useState(initialQuery);
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(initialQuery);
-  const [activeTab, setActiveTab] = useState<BrowseTab>('data_sources');
   const [page, setPage] = useState(1);
   const [isFiltersModalOpen, setIsFiltersModalOpen] = useState(false);
   const [filters, setFilters] = useState<BrowseFilters>(createDefaultFilters);
@@ -116,15 +133,21 @@ export function BrowseView({ initialQuery = '' }: Readonly<BrowseViewProperties>
   const toggleSource = useContextSelectionStore((s) => s.toggleSource);
   const selectedSources = useContextSelectionStore((s) => s.selectedSources);
 
-  // Map tab to endpoint type for server-side filtering
-  const endpointType = TAB_CONFIG[activeTab].endpointType;
+  // Map tab to endpoint type for server-side filtering. The collectives tab
+  // has no endpoint type; its query is disabled, so the value is unused.
+  const endpointType: EndpointType =
+    activeTab === 'collectives' ? 'data_source' : ENDPOINT_TAB_CONFIG[activeTab].endpointType;
+  const entityName =
+    activeTab === 'collectives' ? 'collectives' : ENDPOINT_TAB_CONFIG[activeTab].entityName;
 
-  // Fetch paginated endpoints using TanStack Query with server-side search
+  // Fetch paginated endpoints using TanStack Query with server-side search.
+  // Disabled on the collectives tab, which renders <CollectivesBrowse /> instead.
   const { data, isLoading, error, isFetching } = usePaginatedPublicEndpoints(
     page,
     PAGE_SIZE,
     endpointType,
-    debouncedSearchQuery || undefined // Pass undefined instead of empty string
+    debouncedSearchQuery || undefined, // Pass undefined instead of empty string
+    !isCollectivesTab
   );
 
   const endpoints = data?.items ?? [];
@@ -168,7 +191,6 @@ export function BrowseView({ initialQuery = '' }: Readonly<BrowseViewProperties>
 
   // Helper function to generate the "no results" message
   const getNoResultsMessage = () => {
-    const entityName = TAB_CONFIG[activeTab].entityName;
     const hasFilters = hasActiveFilters(filters);
     const hasSearch = debouncedSearchQuery.trim().length > 0;
 
@@ -200,10 +222,22 @@ export function BrowseView({ initialQuery = '' }: Readonly<BrowseViewProperties>
     }
   }, [hasNextPage]);
 
-  const handleTabChange = useCallback((tab: BrowseTab) => {
-    setActiveTab(tab);
-    // Search is cleared in the useEffect that reacts to activeTab changes
-  }, []);
+  const handleTabChange = useCallback(
+    (tab: BrowseTab) => {
+      // Write the tab to the URL; data_sources is the default and needs no
+      // param. Search is cleared by the useEffect that reacts to activeTab.
+      setSearchParams(
+        (previous) => {
+          const params = new URLSearchParams(previous);
+          if (tab === 'data_sources') params.delete('tab');
+          else params.set('tab', tab);
+          return params;
+        },
+        { replace: true }
+      );
+    },
+    [setSearchParams]
+  );
 
   const handleOpenFilters = useCallback(() => {
     setIsFiltersModalOpen(true);
@@ -237,7 +271,9 @@ export function BrowseView({ initialQuery = '' }: Readonly<BrowseViewProperties>
               Browse Library
             </h1>
             <p className='font-inter text-muted-foreground'>
-              Discover trusted data sources and AI models
+              {isCollectivesTab
+                ? 'Trusted groups of endpoints — discover and join'
+                : 'Discover trusted data sources and AI models'}
             </p>
           </div>
           <Tabs
@@ -247,16 +283,16 @@ export function BrowseView({ initialQuery = '' }: Readonly<BrowseViewProperties>
             }}
           >
             <TabsList className='gap-1 bg-transparent'>
-              {Object.entries(TAB_CONFIG).map(([key, config]) => {
-                const Icon = config.icon;
+              {TABS.map((tab) => {
+                const Icon = tab.icon;
                 return (
                   <TabsTrigger
-                    key={key}
-                    value={key}
+                    key={tab.id}
+                    value={tab.id}
                     className='font-inter data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=inactive]:text-muted-foreground data-[state=inactive]:hover:bg-muted data-[state=inactive]:hover:text-foreground flex items-center gap-2 rounded-md px-4 py-2 data-[state=active]:shadow-none'
                   >
                     <Icon className='h-4 w-4' aria-hidden='true' />
-                    {config.label}
+                    {tab.label}
                   </TabsTrigger>
                 );
               })}
@@ -264,313 +300,297 @@ export function BrowseView({ initialQuery = '' }: Readonly<BrowseViewProperties>
           </Tabs>
         </div>
 
-        {/* Search and Filter Bar */}
-        <div className='mb-8 flex gap-4'>
-          <div className='relative flex-1'>
-            <label htmlFor='endpoint-search' className='sr-only'>
-              Search endpoints
-            </label>
-            <Search
-              className='text-muted-foreground absolute top-1/2 left-3 h-5 w-5 -translate-y-1/2'
-              aria-hidden='true'
-            />
-            <input
-              id='endpoint-search'
-              type='search'
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-              }}
-              placeholder={`Search ${TAB_CONFIG[activeTab].entityName}…`}
-              className='font-inter border-border focus:border-primary focus:ring-ring/10 w-full rounded-lg border py-3 pr-4 pl-10 transition-colors transition-shadow focus:ring-2 focus:outline-none'
-            />
-          </div>
-          <button
-            type='button'
-            onClick={handleOpenFilters}
-            className={`font-inter flex items-center gap-2 rounded-lg border px-4 py-3 transition-colors ${
-              hasActiveFilters(filters)
-                ? 'border-primary bg-primary/5 text-primary'
-                : 'border-border text-muted-foreground hover:bg-muted'
-            }`}
-          >
-            <Filter className='h-5 w-5' aria-hidden='true' />
-            Filters
-            {activeFilterCount > 0 && (
-              <Badge variant='secondary' className='font-inter ml-1 text-xs'>
-                {activeFilterCount}
-              </Badge>
-            )}
-          </button>
-        </div>
-
-        {/* Active filters bar */}
-        {hasActiveFilters(filters) && (
-          <div className='mb-4 flex flex-wrap items-center gap-2'>
-            <span className='font-inter text-muted-foreground text-sm'>Active filters:</span>
-            {[...filters.tags].map((tag) => (
-              <Badge
-                key={tag}
-                variant='secondary'
-                className='font-inter flex items-center gap-1 text-xs'
-              >
-                {tag}
-                <button
-                  type='button'
-                  onClick={() => {
-                    setFilters((previous) => {
-                      const newTags = new Set(previous.tags);
-                      newTags.delete(tag);
-                      return { ...previous, tags: newTags };
-                    });
-                  }}
-                  className='hover:text-foreground ml-0.5'
-                  aria-label={`Remove ${tag} filter`}
-                >
-                  <X className='h-3 w-3' />
-                </button>
-              </Badge>
-            ))}
-            {[...filters.owners].map((owner) => (
-              <Badge
-                key={owner}
-                variant='secondary'
-                className='font-inter flex items-center gap-1 text-xs'
-              >
-                @{owner}
-                <button
-                  type='button'
-                  onClick={() => {
-                    setFilters((previous) => {
-                      const newOwners = new Set(previous.owners);
-                      newOwners.delete(owner);
-                      return { ...previous, owners: newOwners };
-                    });
-                  }}
-                  className='hover:text-foreground ml-0.5'
-                  aria-label={`Remove @${owner} filter`}
-                >
-                  <X className='h-3 w-3' />
-                </button>
-              </Badge>
-            ))}
-            <button
-              type='button'
-              onClick={handleClearFilters}
-              className='font-inter text-muted-foreground hover:text-foreground ml-2 text-sm underline transition-colors'
-            >
-              Clear all
-            </button>
-          </div>
-        )}
-
-        {/* Page info */}
-        {!isLoading && !error && filteredEndpoints.length > 0 && (
-          <div className='text-muted-foreground mb-4 flex items-center justify-between'>
-            <span className='font-inter text-sm'>
-              Page {page}
-              {isFetching && <span className='text-muted-foreground/60 ml-2'>(loading...)</span>}
-            </span>
-            <span className='font-inter text-sm'>
-              {filteredEndpoints.length} {filteredEndpoints.length === 1 ? 'result' : 'results'}
-              {debouncedSearchQuery && ' (search results)'}
-            </span>
-          </div>
-        )}
-
-        {/* Content */}
-        {isLoading ? (
-          <div className='py-16 text-center'>
-            <LoadingSpinner size='lg' message='Loading endpoints…' className='justify-center' />
-          </div>
-        ) : null}
-        {!isLoading && error ? (
-          <div className='py-16 text-center'>
-            <div className='mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-50'>
-              <Search className='h-8 w-8 text-red-500' />
-            </div>
-            <h3 className='font-inter text-foreground mb-2 text-lg font-medium'>
-              Error Loading Endpoints
-            </h3>
-            <p className='font-inter text-muted-foreground'>{error.message}</p>
-          </div>
-        ) : null}
-        {!isLoading && !error && filteredEndpoints.length === 0 ? (
-          <div className='py-16 text-center'>
-            <div className='bg-muted mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full'>
-              <Search className='text-muted-foreground h-8 w-8' />
-            </div>
-            <h3 className='font-inter text-foreground mb-2 text-lg font-medium'>
-              No Results Found
-            </h3>
-            <p className='font-inter text-muted-foreground'>{getNoResultsMessage()}</p>
-            {hasActiveFilters(filters) && (
-              <button
-                type='button'
-                onClick={handleClearFilters}
-                className='font-inter text-primary hover:text-primary/80 mt-4 text-sm underline transition-colors'
-              >
-                Clear all filters
-              </button>
-            )}
-          </div>
-        ) : null}
-        {!isLoading && !error && filteredEndpoints.length > 0 ? (
+        {isCollectivesTab ? (
+          <CollectivesBrowse />
+        ) : (
           <>
-            <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-3'>
-              {filteredEndpoints.map((endpoint) => {
-                const canAddToContext = isDataSourceEndpoint(endpoint.type);
-                const selected = canAddToContext && selectedSources.has(endpoint.id);
-                const detailHref = endpoint.owner_username
-                  ? `/${endpoint.owner_username}/${endpoint.slug}`
-                  : `/browse/${endpoint.slug}`;
+            {/* Search and Filter Bar */}
+            <BrowseSearchBar
+              searchId='endpoint-search'
+              searchValue={searchQuery}
+              onSearchChange={setSearchQuery}
+              searchLabel='Search endpoints'
+              searchPlaceholder={`Search ${entityName}…`}
+              onOpenFilters={handleOpenFilters}
+              filtersActive={hasActiveFilters(filters)}
+              activeFilterCount={activeFilterCount}
+            />
 
-                return (
-                  <div
-                    key={endpoint.id}
-                    className={`group relative rounded-xl border p-5 transition-all ${
-                      selected
-                        ? 'border-primary bg-primary/5 border-dashed shadow-sm'
-                        : 'border-border bg-card hover:shadow-md'
-                    }`}
+            {/* Active filters bar */}
+            {hasActiveFilters(filters) && (
+              <div className='mb-4 flex flex-wrap items-center gap-2'>
+                <span className='font-inter text-muted-foreground text-sm'>Active filters:</span>
+                {[...filters.tags].map((tag) => (
+                  <Badge
+                    key={tag}
+                    variant='secondary'
+                    className='font-inter flex items-center gap-1 text-xs'
                   >
-                    {/* Add to Context / Selected toggle button (data sources only) */}
-                    {canAddToContext && (
-                      <button
-                        type='button'
-                        onClick={() => {
-                          handleToggleSource(endpoint);
-                        }}
-                        aria-pressed={selected}
-                        aria-label={
-                          selected
-                            ? `Remove ${endpoint.name} from context`
-                            : `Add ${endpoint.name} to context`
-                        }
-                        className={`absolute top-3 right-3 z-10 flex h-7 w-7 items-center justify-center rounded-full border transition-all ${
-                          selected
-                            ? 'border-primary bg-primary text-primary-foreground'
-                            : 'border-border bg-card text-muted-foreground hover:border-primary hover:text-primary'
-                        }`}
-                      >
-                        {selected ? <Check className='h-4 w-4' /> : <Plus className='h-4 w-4' />}
-                      </button>
-                    )}
-
-                    {/* Stretched link makes the whole card navigable to the detail page,
-                        while leaving room for nested interactive elements (e.g. username link). */}
-                    <Link
-                      to={detailHref}
-                      aria-label={`View ${endpoint.name}`}
-                      className='absolute inset-0 z-0 rounded-xl'
-                    />
-                    <div className='pointer-events-none relative'>
-                      {/* Header */}
-                      <div className='mb-3 flex items-start justify-between'>
-                        <div className='min-w-0 flex-1 pr-8'>
-                          <h3 className='font-inter text-foreground group-hover:text-primary flex items-center gap-1.5 text-base font-semibold'>
-                            <EndpointTypeIcon type={endpoint.type} />
-                            <span className='truncate'>{endpoint.name}</span>
-                          </h3>
-                          {endpoint.owner_username && (
-                            <p className='font-inter text-muted-foreground mt-0.5 truncate text-xs'>
-                              by{' '}
-                              <Link
-                                to={`/${endpoint.owner_username}`}
-                                className='hover:text-primary pointer-events-auto hover:underline'
-                              >
-                                @{endpoint.owner_username}
-                              </Link>
-                            </p>
-                          )}
-                          <p className='font-inter text-muted-foreground mt-1.5 line-clamp-2 text-sm'>
-                            {endpoint.description}
-                          </p>
-                        </div>
-                        <ChevronRight
-                          className='text-muted-foreground mt-1 h-5 w-5 shrink-0 transition-transform group-hover:translate-x-0.5'
-                          aria-hidden='true'
-                        />
-                      </div>
-
-                      {/* Tags */}
-                      <div className='mb-3 flex flex-wrap items-center gap-2'>
-                        {endpoint.tags.slice(0, 3).map((tag) => (
-                          <Badge key={tag} variant='secondary' className='font-inter text-xs'>
-                            {tag}
-                          </Badge>
-                        ))}
-                        {endpoint.tags.length > 3 && (
-                          <Badge variant='secondary' className='font-inter text-xs'>
-                            +{endpoint.tags.length - 3}
-                          </Badge>
-                        )}
-                      </div>
-
-                      {/* Footer Info */}
-                      <div className='border-muted flex items-center justify-between border-t pt-3'>
-                        <div className='text-muted-foreground flex items-center gap-3 text-xs'>
-                          <div className='flex items-center gap-1'>
-                            {getVisibilityIcon()}
-                            <span>Public</span>
-                          </div>
-                          <div className='flex items-center gap-1'>
-                            <Package className='h-3 w-3' aria-hidden='true' />
-                            <span>v{endpoint.version}</span>
-                          </div>
-                        </div>
-                        <div className='text-muted-foreground flex items-center gap-3 text-xs'>
-                          {endpoint.stars_count > 0 && (
-                            <div className='flex items-center gap-1'>
-                              <Star className='h-3 w-3' aria-hidden='true' />
-                              <span>{endpoint.stars_count}</span>
-                            </div>
-                          )}
-                          <div className='flex items-center gap-1'>
-                            <Calendar className='h-3 w-3' aria-hidden='true' />
-                            <span>{endpoint.updated}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Pagination */}
-            {(hasPreviousPage || hasNextPage) && (
-              <div className='mt-8'>
-                <Pagination>
-                  <PaginationContent>
-                    <PaginationItem>
-                      <PaginationPrevious
-                        onClick={handlePreviousPage}
-                        disabled={!hasPreviousPage || isFetching}
-                        aria-disabled={!hasPreviousPage}
-                      />
-                    </PaginationItem>
-                    <PaginationItem>
-                      <PaginationButton isActive disabled className='pointer-events-none'>
-                        {page}
-                      </PaginationButton>
-                    </PaginationItem>
-                    <PaginationItem>
-                      <PaginationNext
-                        onClick={handleNextPage}
-                        disabled={!hasNextPage || isFetching}
-                        aria-disabled={!hasNextPage}
-                      />
-                    </PaginationItem>
-                  </PaginationContent>
-                </Pagination>
+                    {tag}
+                    <button
+                      type='button'
+                      onClick={() => {
+                        setFilters((previous) => {
+                          const newTags = new Set(previous.tags);
+                          newTags.delete(tag);
+                          return { ...previous, tags: newTags };
+                        });
+                      }}
+                      className='hover:text-foreground ml-0.5'
+                      aria-label={`Remove ${tag} filter`}
+                    >
+                      <X className='h-3 w-3' />
+                    </button>
+                  </Badge>
+                ))}
+                {[...filters.owners].map((owner) => (
+                  <Badge
+                    key={owner}
+                    variant='secondary'
+                    className='font-inter flex items-center gap-1 text-xs'
+                  >
+                    @{owner}
+                    <button
+                      type='button'
+                      onClick={() => {
+                        setFilters((previous) => {
+                          const newOwners = new Set(previous.owners);
+                          newOwners.delete(owner);
+                          return { ...previous, owners: newOwners };
+                        });
+                      }}
+                      className='hover:text-foreground ml-0.5'
+                      aria-label={`Remove @${owner} filter`}
+                    >
+                      <X className='h-3 w-3' />
+                    </button>
+                  </Badge>
+                ))}
+                <button
+                  type='button'
+                  onClick={handleClearFilters}
+                  className='font-inter text-muted-foreground hover:text-foreground ml-2 text-sm underline transition-colors'
+                >
+                  Clear all
+                </button>
               </div>
             )}
-          </>
-        ) : null}
 
-        {/* Bottom spacer when context bar is visible */}
-        {selectedSources.size > 0 && <div className='h-16' />}
+            {/* Page info */}
+            {!isLoading && !error && filteredEndpoints.length > 0 && (
+              <div className='text-muted-foreground mb-4 flex items-center justify-between'>
+                <span className='font-inter text-sm'>
+                  Page {page}
+                  {isFetching && (
+                    <span className='text-muted-foreground/60 ml-2'>(loading...)</span>
+                  )}
+                </span>
+                <span className='font-inter text-sm'>
+                  {filteredEndpoints.length} {filteredEndpoints.length === 1 ? 'result' : 'results'}
+                  {debouncedSearchQuery && ' (search results)'}
+                </span>
+              </div>
+            )}
+
+            {/* Content */}
+            {isLoading ? (
+              <div className='py-16 text-center'>
+                <LoadingSpinner size='lg' message='Loading endpoints…' className='justify-center' />
+              </div>
+            ) : null}
+            {!isLoading && error ? (
+              <div className='py-16 text-center'>
+                <div className='mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-50'>
+                  <Search className='h-8 w-8 text-red-500' />
+                </div>
+                <h3 className='font-inter text-foreground mb-2 text-lg font-medium'>
+                  Error Loading Endpoints
+                </h3>
+                <p className='font-inter text-muted-foreground'>{error.message}</p>
+              </div>
+            ) : null}
+            {!isLoading && !error && filteredEndpoints.length === 0 ? (
+              <div className='py-16 text-center'>
+                <div className='bg-muted mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full'>
+                  <Search className='text-muted-foreground h-8 w-8' />
+                </div>
+                <h3 className='font-inter text-foreground mb-2 text-lg font-medium'>
+                  No Results Found
+                </h3>
+                <p className='font-inter text-muted-foreground'>{getNoResultsMessage()}</p>
+                {hasActiveFilters(filters) && (
+                  <button
+                    type='button'
+                    onClick={handleClearFilters}
+                    className='font-inter text-primary hover:text-primary/80 mt-4 text-sm underline transition-colors'
+                  >
+                    Clear all filters
+                  </button>
+                )}
+              </div>
+            ) : null}
+            {!isLoading && !error && filteredEndpoints.length > 0 ? (
+              <>
+                <div className='grid gap-4 md:grid-cols-2 lg:grid-cols-3'>
+                  {filteredEndpoints.map((endpoint) => {
+                    const canAddToContext = isDataSourceEndpoint(endpoint.type);
+                    const selected = canAddToContext && selectedSources.has(endpoint.id);
+                    const detailHref = endpoint.owner_username
+                      ? `/${endpoint.owner_username}/${endpoint.slug}`
+                      : `/browse/${endpoint.slug}`;
+
+                    return (
+                      <div
+                        key={endpoint.id}
+                        className={`group relative rounded-xl border p-5 transition-all ${
+                          selected
+                            ? 'border-primary bg-primary/5 border-dashed shadow-sm'
+                            : 'border-border bg-card hover:shadow-md'
+                        }`}
+                      >
+                        {/* Add to Context / Selected toggle button (data sources only) */}
+                        {canAddToContext && (
+                          <button
+                            type='button'
+                            onClick={() => {
+                              handleToggleSource(endpoint);
+                            }}
+                            aria-pressed={selected}
+                            aria-label={
+                              selected
+                                ? `Remove ${endpoint.name} from context`
+                                : `Add ${endpoint.name} to context`
+                            }
+                            className={`absolute top-3 right-3 z-10 flex h-7 w-7 items-center justify-center rounded-full border transition-all ${
+                              selected
+                                ? 'border-primary bg-primary text-primary-foreground'
+                                : 'border-border bg-card text-muted-foreground hover:border-primary hover:text-primary'
+                            }`}
+                          >
+                            {selected ? (
+                              <Check className='h-4 w-4' />
+                            ) : (
+                              <Plus className='h-4 w-4' />
+                            )}
+                          </button>
+                        )}
+
+                        {/* Stretched link makes the whole card navigable to the detail page,
+                        while leaving room for nested interactive elements (e.g. username link). */}
+                        <Link
+                          to={detailHref}
+                          aria-label={`View ${endpoint.name}`}
+                          className='absolute inset-0 z-0 rounded-xl'
+                        />
+                        <div className='pointer-events-none relative'>
+                          {/* Header */}
+                          <div className='mb-3 flex items-start justify-between'>
+                            <div className='min-w-0 flex-1 pr-8'>
+                              <h3 className='font-inter text-foreground group-hover:text-primary flex items-center gap-1.5 text-base font-semibold'>
+                                <EndpointTypeIcon type={endpoint.type} />
+                                <span className='truncate'>{endpoint.name}</span>
+                              </h3>
+                              {endpoint.owner_username && (
+                                <p className='font-inter text-muted-foreground mt-0.5 truncate text-xs'>
+                                  by{' '}
+                                  <Link
+                                    to={`/${endpoint.owner_username}`}
+                                    className='hover:text-primary pointer-events-auto hover:underline'
+                                  >
+                                    @{endpoint.owner_username}
+                                  </Link>
+                                </p>
+                              )}
+                              <p className='font-inter text-muted-foreground mt-1.5 line-clamp-2 text-sm'>
+                                {endpoint.description}
+                              </p>
+                            </div>
+                            <ChevronRight
+                              className='text-muted-foreground mt-1 h-5 w-5 shrink-0 transition-transform group-hover:translate-x-0.5'
+                              aria-hidden='true'
+                            />
+                          </div>
+
+                          {/* Tags */}
+                          <div className='mb-3 flex flex-wrap items-center gap-2'>
+                            {endpoint.tags.slice(0, 3).map((tag) => (
+                              <Badge key={tag} variant='secondary' className='font-inter text-xs'>
+                                {tag}
+                              </Badge>
+                            ))}
+                            {endpoint.tags.length > 3 && (
+                              <Badge variant='secondary' className='font-inter text-xs'>
+                                +{endpoint.tags.length - 3}
+                              </Badge>
+                            )}
+                          </div>
+
+                          {/* Footer Info */}
+                          <div className='border-muted flex items-center justify-between border-t pt-3'>
+                            <div className='text-muted-foreground flex items-center gap-3 text-xs'>
+                              <div className='flex items-center gap-1'>
+                                {getVisibilityIcon()}
+                                <span>Public</span>
+                              </div>
+                              <div className='flex items-center gap-1'>
+                                <Package className='h-3 w-3' aria-hidden='true' />
+                                <span>v{endpoint.version}</span>
+                              </div>
+                            </div>
+                            <div className='text-muted-foreground flex items-center gap-3 text-xs'>
+                              {endpoint.stars_count > 0 && (
+                                <div className='flex items-center gap-1'>
+                                  <Star className='h-3 w-3' aria-hidden='true' />
+                                  <span>{endpoint.stars_count}</span>
+                                </div>
+                              )}
+                              <div className='flex items-center gap-1'>
+                                <Calendar className='h-3 w-3' aria-hidden='true' />
+                                <span>{endpoint.updated}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Pagination */}
+                {(hasPreviousPage || hasNextPage) && (
+                  <div className='mt-8'>
+                    <Pagination>
+                      <PaginationContent>
+                        <PaginationItem>
+                          <PaginationPrevious
+                            onClick={handlePreviousPage}
+                            disabled={!hasPreviousPage || isFetching}
+                            aria-disabled={!hasPreviousPage}
+                          />
+                        </PaginationItem>
+                        <PaginationItem>
+                          <PaginationButton isActive disabled className='pointer-events-none'>
+                            {page}
+                          </PaginationButton>
+                        </PaginationItem>
+                        <PaginationItem>
+                          <PaginationNext
+                            onClick={handleNextPage}
+                            disabled={!hasNextPage || isFetching}
+                            aria-disabled={!hasNextPage}
+                          />
+                        </PaginationItem>
+                      </PaginationContent>
+                    </Pagination>
+                  </div>
+                )}
+              </>
+            ) : null}
+
+            {/* Bottom spacer when context bar is visible */}
+            {selectedSources.size > 0 && <div className='h-16' />}
+          </>
+        )}
       </div>
 
       {/* Filters Modal */}

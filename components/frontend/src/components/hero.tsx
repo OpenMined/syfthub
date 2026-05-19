@@ -16,6 +16,7 @@ import { SearchInput } from '@/components/chat/search-input';
 import { Badge } from '@/components/ui/badge';
 import { WorkflowOverlay } from '@/components/workflow';
 import { useChatWorkflow } from '@/hooks/use-chat-workflow';
+import { useCollectives } from '@/hooks/use-collectives';
 import { useDataSources } from '@/hooks/use-data-sources';
 import { useModels } from '@/hooks/use-models';
 import { getPublicEndpointByPath } from '@/lib/endpoint-utils';
@@ -79,6 +80,7 @@ export function Hero({
     initialModel
   });
   const { sources } = useDataSources();
+  const { data: collectives } = useCollectives();
   const contextStore = useContextSelectionStore();
 
   // Source modal state
@@ -269,6 +271,7 @@ export function Hero({
         availableSources={sources}
         selectedSourceIds={new Set(contextStore.getSourcesArray().map((s) => s.id))}
         onConfirm={handleSourceModalConfirm}
+        availableCollectives={collectives ?? []}
       />
     </>
   );
