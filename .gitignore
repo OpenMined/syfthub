@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# unittest.mock artifacts
+MagicMock/
+
 # C extensions
 *.so
 

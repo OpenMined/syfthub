@@ -17,6 +17,7 @@ export const endpointKeys = {
   count: () => [...endpointKeys.all, 'count'] as const,
   byPath: (path: string) => [...endpointKeys.all, 'byPath', path] as const,
   byOwner: (owner: string) => [...endpointKeys.all, 'byOwner', owner] as const,
+  myEndpoints: (username: string) => [...endpointKeys.all, 'mine', username] as const,
   uptime: (owner: string, slug: string, windowHours: number) =>
     [...endpointKeys.all, 'uptime', owner, slug, windowHours] as const
 };
@@ -46,4 +47,14 @@ export const walletKeys = {
   subscriptions: () => [...walletKeys.all, 'subscriptions'] as const,
   subscriptionBalance: (creditsUrl: string) =>
     [...walletKeys.all, 'subscriptions', 'balance', creditsUrl] as const
+};
+
+export const collectiveKeys = {
+  all: ['collectives'] as const,
+  list: (ownerId?: number) => [...collectiveKeys.all, 'list', ownerId ?? 'all'] as const,
+  paginated: (page: number, limit: number, search?: string) =>
+    [...collectiveKeys.all, 'list', 'paginated', page, limit, search ?? ''] as const,
+  detail: (slug: string) => [...collectiveKeys.all, 'detail', slug] as const,
+  members: (collectiveId: number, status?: string) =>
+    [...collectiveKeys.all, 'members', collectiveId, status ?? 'all'] as const
 };

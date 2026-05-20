@@ -553,6 +553,243 @@ describe('ChatResource', () => {
       }
     });
   });
+
+  // ============================================================================
+  // collective path expansion
+  // ============================================================================
+
+  describe('collective path expansion', () => {
+    const guestModel: EndpointRef = { url: 'http://syftai:8080', slug: 'test-model' };
+    const guestOpts = {
+      guestMode: true as const,
+      aggregatorUrl: `${baseUrl}/aggregator/api/v1`,
+    };
+
+    it('should expand a single collective path to member endpoints', async () => {
+      const mockAliceDocs = {
+        name: 'Alice Docs',
+        slug: 'docs',
+        type: 'data_source',
+        ownerUsername: 'alice',
+        description: 'Alice data source',
+        version: '1.0.0',
+        stars_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        connect: [
+          {
+            type: 'syftai',
+            enabled: true,
+            description: 'Alice DS connection',
+            config: { url: 'http://alice-ds:8080' },
+          },
+        ],
+      };
+
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url.includes('/api/v1/collectives/by-slug/my-collective/endpoint-paths')) {
+          return new Response(JSON.stringify(['alice/docs']), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/v1/endpoints/public')) {
+          return new Response(JSON.stringify([mockAliceDocs]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/chat') && !url.includes('/stream')) {
+          return new Response(JSON.stringify(mockChatResponse), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      const response = await client.chat.complete({
+        prompt: 'What is machine learning?',
+        model: guestModel,
+        dataSources: ['collective/my-collective'],
+        ...guestOpts,
+      });
+
+      expect(response.response).toContain('Machine learning');
+
+      // Collective endpoint-paths was called
+      const collectiveCall = mockFetch.mock.calls.find((call: unknown[]) =>
+        (call[0] as string).includes('/api/v1/collectives/by-slug/my-collective/endpoint-paths')
+      );
+      expect(collectiveCall).toBeDefined();
+    });
+
+    it('should throw EndpointResolutionError when collective slug is not found', async () => {
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url.includes('/api/v1/collectives/by-slug/unknown-collective/endpoint-paths')) {
+          return new Response(JSON.stringify({ detail: 'Collective not found' }), {
+            status: 404,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      await expect(
+        client.chat.complete({
+          prompt: 'Hello',
+          model: guestModel,
+          dataSources: ['collective/unknown-collective'],
+          ...guestOpts,
+        })
+      ).rejects.toThrow(EndpointResolutionError);
+    });
+
+    it('should deduplicate paths when collective member appears as direct source', async () => {
+      const mockAliceDocs = {
+        name: 'Alice Docs',
+        slug: 'docs',
+        type: 'data_source',
+        ownerUsername: 'alice',
+        description: 'Alice data source',
+        version: '1.0.0',
+        stars_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        connect: [
+          {
+            type: 'syftai',
+            enabled: true,
+            description: 'Alice DS connection',
+            config: { url: 'http://alice-ds:8080' },
+          },
+        ],
+      };
+
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url.includes('/api/v1/collectives/by-slug/my-coll/endpoint-paths')) {
+          return new Response(JSON.stringify(['alice/docs']), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/api/v1/endpoints/public')) {
+          return new Response(JSON.stringify([mockAliceDocs]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/chat') && !url.includes('/stream')) {
+          return new Response(JSON.stringify(mockChatResponse), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      await client.chat.complete({
+        prompt: 'Hello',
+        model: guestModel,
+        // alice/docs appears once via the collective and once as a direct path
+        dataSources: ['collective/my-coll', 'alice/docs'],
+        ...guestOpts,
+      });
+
+      // /api/v1/endpoints/public should only have been called once (deduplication)
+      const publicCalls = mockFetch.mock.calls.filter((call: unknown[]) =>
+        (call[0] as string).includes('/api/v1/endpoints/public')
+      );
+      expect(publicCalls).toHaveLength(1);
+    });
+
+    it('should pass non-collective string paths through unchanged', async () => {
+      const mockAliceDocs = {
+        name: 'Alice Docs',
+        slug: 'docs',
+        type: 'data_source',
+        ownerUsername: 'alice',
+        description: 'Alice data source',
+        version: '1.0.0',
+        stars_count: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        connect: [
+          {
+            type: 'syftai',
+            enabled: true,
+            description: 'Alice DS connection',
+            config: { url: 'http://alice-ds:8080' },
+          },
+        ],
+      };
+
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url.includes('/api/v1/endpoints/public')) {
+          return new Response(JSON.stringify([mockAliceDocs]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/chat') && !url.includes('/stream')) {
+          return new Response(JSON.stringify(mockChatResponse), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      const response = await client.chat.complete({
+        prompt: 'Hello',
+        model: guestModel,
+        dataSources: ['alice/docs'],
+        ...guestOpts,
+      });
+
+      expect(response.response).toContain('Machine learning');
+
+      // The collective endpoint-paths API must NOT have been called
+      const collectiveCall = mockFetch.mock.calls.find((call: unknown[]) =>
+        (call[0] as string).includes('/api/v1/collectives/by-slug/')
+      );
+      expect(collectiveCall).toBeUndefined();
+    });
+
+    it('should handle an empty collective (zero members)', async () => {
+      mockFetch.mockImplementation(async (url: string) => {
+        if (url.includes('/api/v1/collectives/by-slug/empty-coll/endpoint-paths')) {
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        if (url.includes('/chat') && !url.includes('/stream')) {
+          return new Response(JSON.stringify(mockChatResponse), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('Not found', { status: 404 });
+      });
+
+      // Should complete without error even though collective has no members
+      const response = await client.chat.complete({
+        prompt: 'Hello',
+        model: guestModel,
+        dataSources: ['collective/empty-coll'],
+        ...guestOpts,
+      });
+
+      expect(response.response).toContain('Machine learning');
+
+      // The collective endpoint-paths API was called exactly once
+      const collectiveCalls = mockFetch.mock.calls.filter((call: unknown[]) =>
+        (call[0] as string).includes('/api/v1/collectives/by-slug/empty-coll/endpoint-paths')
+      );
+      expect(collectiveCalls).toHaveLength(1);
+    });
+  });
 });
 
 /**

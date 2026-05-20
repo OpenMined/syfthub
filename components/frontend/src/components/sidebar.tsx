@@ -6,6 +6,7 @@ import Globe from 'lucide-react/dist/esm/icons/globe';
 import Info from 'lucide-react/dist/esm/icons/info';
 import MessageSquare from 'lucide-react/dist/esm/icons/message-square';
 import UserPlus from 'lucide-react/dist/esm/icons/user-plus';
+import Users from 'lucide-react/dist/esm/icons/users';
 import { NavLink } from 'react-router-dom';
 
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
@@ -24,6 +25,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { id: 'home', path: '/', label: 'Chat', icon: MessageSquare, protected: false },
   { id: 'browse', path: '/browse', label: 'Browse', icon: Globe, protected: false },
+  { id: 'collectives', path: '/collectives', label: 'Collectives', icon: Users, protected: false },
   { id: 'endpoints', path: '/join', label: 'Participate', icon: UserPlus, protected: true },
   { id: 'build', path: '/build', label: 'Build', icon: FileText, protected: false },
   { id: 'about', path: '/about', label: 'About', icon: Info, protected: false }

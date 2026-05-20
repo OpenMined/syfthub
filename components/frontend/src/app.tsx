@@ -1,6 +1,6 @@
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 
 import { ProtectedRoute } from './components/auth/protected-route';
 import RootProvider from './components/providers/root';
@@ -28,6 +28,10 @@ const ProfilePage = lazyWithRetry(() => import('./pages/profile'));
 const EndpointsPage = lazyWithRetry(() => import('./pages/endpoints'));
 const EndpointDetailPage = lazyWithRetry(() => import('./pages/endpoint-detail'));
 const UserProfilePage = lazyWithRetry(() => import('./pages/user-profile'));
+const CollectivesPage = lazyWithRetry(() => import('./pages/collectives'));
+const CollectiveDetailPage = lazyWithRetry(() => import('./pages/collective-detail'));
+const CollectiveAdminPage = lazyWithRetry(() => import('./pages/collective-admin'));
+const CreateCollectivePage = lazyWithRetry(() => import('./pages/create-collective'));
 // TODO(agent-feature): Uncomment when agent endpoint UI is re-enabled
 // const AgentPage = lazyWithRetry(() => import('./pages/agent'));
 const NotFoundPage = lazyWithRetry(() => import('./pages/not-found'));
@@ -125,6 +129,51 @@ export default function App() {
                         element={
                           <RouteBoundary>
                             <AboutPage />
+                          </RouteBoundary>
+                        }
+                      />
+
+                      {/* Collectives — public discovery + protected create/admin */}
+                      <Route
+                        path='collectives'
+                        element={
+                          <RouteBoundary>
+                            <CollectivesPage />
+                          </RouteBoundary>
+                        }
+                      />
+                      {/* Browsing collectives now lives in the unified
+                          /browse page as a tab; keep the old path as a
+                          redirect for existing links and bookmarks. */}
+                      <Route
+                        path='collectives/browse'
+                        element={<Navigate to='/browse?tab=collectives' replace />}
+                      />
+                      <Route
+                        path='collectives/create'
+                        element={
+                          <ProtectedRoute>
+                            <RouteBoundary>
+                              <CreateCollectivePage />
+                            </RouteBoundary>
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path='c/:slug/admin'
+                        element={
+                          <ProtectedRoute>
+                            <RouteBoundary>
+                              <CollectiveAdminPage />
+                            </RouteBoundary>
+                          </ProtectedRoute>
+                        }
+                      />
+                      <Route
+                        path='c/:slug'
+                        element={
+                          <RouteBoundary>
+                            <CollectiveDetailPage />
                           </RouteBoundary>
                         }
                       />
