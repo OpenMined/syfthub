@@ -582,10 +582,11 @@ class ModelClient:
                 "message": {"role": "assistant", "content": str, "tokens": int},
                 "finish_reason": str,
                 "usage": {...},
-                "cost": float,
                 "provider_info": {...}
             } | null,
-            "references": {...} | null
+            "references": {...} | null,
+            "cost": float,
+            "currency": str
         }
 
         We extract from summary.message.content.
