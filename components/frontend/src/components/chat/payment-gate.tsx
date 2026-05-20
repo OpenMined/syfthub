@@ -31,7 +31,8 @@ import {
   fetchBalance,
   getSatelliteToken,
   openCheckoutWindow,
-  POLL_INTERVAL_MS
+  POLL_INTERVAL_MS,
+  UNIT_LABEL
 } from '@/lib/xendit-client';
 
 function distinctOwners(pending: PendingSubscription[]): string[] {
@@ -69,12 +70,13 @@ function renderStatusLine(pending: PendingSubscription, isActive: boolean, liveB
       </span>
     );
   }
-  if (pending.pricePerRequest === null) {
+  if (pending.pricePerUnit === null) {
     return <>Prepaid credits required</>;
   }
   return (
     <span className='tabular-nums'>
-      {pending.currency} {pending.pricePerRequest.toLocaleString()} per request
+      {pending.currency} {pending.pricePerUnit.toLocaleString()} per{' '}
+      {UNIT_LABEL[pending.unit].singular}
     </span>
   );
 }
@@ -103,11 +105,12 @@ function MppPaymentGateRow({ pending, onRemove }: Readonly<MppRowProperties>) {
               <span className='text-muted-foreground text-[11px]'>· {roleLabel}</span>
             </div>
             <div className='text-muted-foreground mt-0.5 text-[11px]'>
-              {pending.pricePerRequest === null ? (
+              {pending.pricePerUnit === null ? (
                 <>MPP credits required</>
               ) : (
                 <span className='tabular-nums'>
-                  {pending.currency} {pending.pricePerRequest.toLocaleString()} per request (MPP)
+                  {pending.currency} {pending.pricePerUnit.toLocaleString()} per{' '}
+                  {UNIT_LABEL[pending.unit].singular} (MPP)
                 </span>
               )}
             </div>
@@ -257,7 +260,8 @@ function PaymentGateRow({ pending, liveBalance, isActive, onRemove }: Readonly<R
                 onChange={setSelectedBundleName}
                 disabled={isBusy}
                 triggerClassName='h-8 min-w-[7rem]'
-                pricePerRequest={pending.pricePerRequest}
+                pricePerUnit={pending.pricePerUnit}
+                unit={pending.unit}
               />
               <button
                 type='button'
@@ -359,7 +363,7 @@ export function PaymentGate({
       // mpp has no payment flow yet — these rows can never become active.
       if (p.policyType === 'mpp') return false;
       const balance = balances[p.walletKey] ?? 0;
-      const threshold = p.pricePerRequest ?? 1;
+      const threshold = p.pricePerUnit ?? 1;
       return balance >= threshold;
     },
     [balances]

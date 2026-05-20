@@ -15,10 +15,15 @@
 import { useCallback } from 'react';
 
 import type { ChatSource, Policy } from '@/lib/types';
-import type { MoneyBundle, ParsedXenditConfig } from '@/lib/xendit-client';
+import type { MoneyBundle, ParsedXenditConfig, PolicyUnit } from '@/lib/xendit-client';
 
 import { syftClient } from '@/lib/sdk-client';
-import { fetchBalance, getSatelliteToken, parseXenditConfig } from '@/lib/xendit-client';
+import {
+  fetchBalance,
+  getSatelliteToken,
+  normalizeUnit,
+  parseXenditConfig
+} from '@/lib/xendit-client';
 
 export type EndpointRole = 'model' | 'data_source';
 
@@ -48,7 +53,8 @@ export interface PendingSubscription {
   creditsUrl: string;
   bundles: MoneyBundle[];
   currency: string;
-  pricePerRequest: number | null;
+  pricePerUnit: number | null;
+  unit: PolicyUnit;
   /** Last balance reading (0 when unsubscribed; always 0 for mpp). */
   balance: number;
 }
@@ -58,7 +64,8 @@ interface ResolvedXenditPolicy {
   creditsUrl: string;
   bundles: MoneyBundle[];
   currency: string;
-  pricePerRequest: number | null;
+  pricePerUnit: number | null;
+  unit: PolicyUnit;
 }
 
 function resolveXenditPolicy(policy: Policy): ResolvedXenditPolicy | null {
@@ -71,7 +78,8 @@ function resolveXenditPolicy(policy: Policy): ResolvedXenditPolicy | null {
     creditsUrl: parsed.creditsUrl,
     bundles: parsed.bundles,
     currency: parsed.currency,
-    pricePerRequest: parsed.pricePerRequest
+    pricePerUnit: parsed.pricePerUnit,
+    unit: parsed.unit
   };
 }
 
@@ -97,22 +105,24 @@ interface MppCandidate {
   kind: 'mpp';
   endpoint: EndpointReference;
   currency: string;
-  pricePerRequest: number | null;
+  pricePerUnit: number | null;
+  unit: PolicyUnit;
 }
 
 type Candidate = XenditCandidate | MppCandidate;
 
 function resolveMppPolicy(
   policy: Policy
-): { currency: string; pricePerRequest: number | null } | null {
+): { currency: string; pricePerUnit: number | null; unit: PolicyUnit } | null {
   if (!policy.enabled) return null;
   if (policy.type.toLowerCase() !== 'mpp') return null;
   const config = policy.config;
   const rawPrice = config.price ?? config.price_per_request ?? config.pricePerRequest;
-  const pricePerRequest = typeof rawPrice === 'number' ? rawPrice : null;
+  const pricePerUnit = typeof rawPrice === 'number' ? rawPrice : null;
   const rawCurrency = config.currency;
   const currency = typeof rawCurrency === 'string' && rawCurrency ? rawCurrency : 'USD';
-  return { currency, pricePerRequest };
+  const unit = normalizeUnit(config.unit_type ?? config.unitType);
+  return { currency, pricePerUnit, unit };
 }
 
 function candidatesFromSource(source: ChatSource, role: EndpointRole): Candidate[] {
@@ -205,7 +215,7 @@ export function useXenditPrecheck(options: UseXenditPrecheckOptions): UseXenditP
       for (const c of xenditCandidates) {
         const balance = balanceByCreditsUrl.get(c.policy.creditsUrl);
         if (balance === null || balance === undefined) continue;
-        const threshold = c.policy.pricePerRequest ?? 1;
+        const threshold = c.policy.pricePerUnit ?? 1;
         if (balance >= threshold) continue;
         out.push({
           policyType: 'xendit',
@@ -215,7 +225,8 @@ export function useXenditPrecheck(options: UseXenditPrecheckOptions): UseXenditP
           creditsUrl: c.policy.creditsUrl,
           bundles: c.policy.bundles,
           currency: c.policy.currency,
-          pricePerRequest: c.policy.pricePerRequest,
+          pricePerUnit: c.policy.pricePerUnit,
+          unit: c.policy.unit,
           balance
         });
       }
@@ -231,7 +242,8 @@ export function useXenditPrecheck(options: UseXenditPrecheckOptions): UseXenditP
           creditsUrl: '',
           bundles: [],
           currency: c.currency,
-          pricePerRequest: c.pricePerRequest,
+          pricePerUnit: c.pricePerUnit,
+          unit: c.unit,
           balance: 0
         });
       }
