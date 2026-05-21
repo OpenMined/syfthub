@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useState } from 'react';
 
+import { EventsOn } from '../../../wailsjs/runtime/runtime';
 import { useAppStore, SentReviewEntry } from '../../stores/appStore';
 import { Button } from '@/components/ui/button';
 import {
@@ -258,14 +259,39 @@ function SentReviewDetailPanel({
               </div>
             </div>
 
-            {/* Placeholder — what the caller received instead of the answer. */}
+            {/* Agent response — the real answer the agent produced for this
+                request, surfaced once the owner approved. This is what the
+                chat would have shown if no manual-review policy were in the
+                way. Empty until a host-confirmed approval lands; never shown
+                for rejected entries (no response is delivered on rejection
+                by design). */}
+            {review.status === 'approved' && review.responseText && (
+              <div>
+                <label className="text-xs text-muted-foreground uppercase">
+                  Agent response
+                </label>
+                <div className="mt-1 bg-chart-2/10 border border-chart-2/20 rounded p-2">
+                  <pre className="text-sm text-foreground whitespace-pre-wrap break-words font-sans">
+                    {review.responseText}
+                  </pre>
+                </div>
+              </div>
+            )}
+
+            {/* Placeholder — what the caller received instead of the answer
+                while the request was held. Kept visible after approval so
+                the user can see what they originally got vs the real answer
+                above. Demoted to "muted" treatment once the real response
+                is in. */}
             {review.placeholder && (
               <div>
                 <label className="text-xs text-muted-foreground uppercase">
-                  Placeholder you received
+                  {review.status === 'approved' && review.responseText
+                    ? 'Placeholder shown while held'
+                    : 'Placeholder you received'}
                 </label>
                 <div className="mt-1 bg-background rounded p-2">
-                  <pre className="text-sm text-foreground whitespace-pre-wrap break-words font-sans">
+                  <pre className="text-sm text-muted-foreground whitespace-pre-wrap break-words font-sans">
                     {review.placeholder}
                   </pre>
                 </div>
@@ -432,6 +458,17 @@ export function SentReviewsView() {
   // chat session since it was last opened.
   useEffect(() => {
     fetchSentReviews();
+  }, [fetchSentReviews]);
+
+  // Refresh when a host-delivered resolution lands. The Go ReviewInboxListener
+  // emits "manual-review:resolved" after every successful Apply, so this
+  // keeps the view live without polling. EventsOn returns a per-listener
+  // unsubscribe — return it directly so StrictMode's double-mount is safe.
+  useEffect(() => {
+    const off = EventsOn('manual-review:resolved', () => {
+      fetchSentReviews();
+    });
+    return off;
   }, [fetchSentReviews]);
 
   const handleRefresh = useCallback(() => {

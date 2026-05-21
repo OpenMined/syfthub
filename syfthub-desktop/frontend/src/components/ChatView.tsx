@@ -30,12 +30,13 @@ import { Tool, type ToolPart } from '@/components/prompt-kit/tool';
 import { MarkdownMessage } from '@/components/chat/markdown-message';
 import { ModelSelector } from '@/components/chat/model-selector';
 import { PolicyNotice } from '@/components/chat/policy-notice';
-import { SentReviewsView } from '@/components/chat/SentReviewsView';
+import { ChatSidebar } from '@/components/chat/ChatSidebar';
+import { ChatWorkflowProvider, useChatWorkflow } from '@/components/chat/ChatWorkflowProvider';
+import { ReviewChatPane } from '@/components/chat/ReviewChatPane';
 import { ThinkingIndicator } from '@/components/chat/thinking-indicator';
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 
 import { useCopyToClipboard } from '@/components/tool-ui/shared/use-copy-to-clipboard';
-import { useAgentWorkflow } from '@/hooks/use-agent-workflow';
 import type { AgentEntry } from '@/hooks/use-agent-workflow';
 import { useAppStore } from '@/stores/appStore';
 import { cn } from '@/lib/utils';
@@ -461,7 +462,7 @@ function UserBubble({
 function AgentChatContent() {
   const chatSelectedModel = useAppStore((s) => s.chatSelectedModel);
   const fetchNetworkAgents = useAppStore((s) => s.fetchNetworkAgents);
-  const setChatSubView = useAppStore((s) => s.setChatSubView);
+  const setActiveChat = useAppStore((s) => s.setActiveChat);
 
   // Refresh the hub catalog on entering the chat view; the hub has no push
   // signal, so the dropdown would otherwise show whatever was cached at boot.
@@ -470,6 +471,9 @@ function AgentChatContent() {
     void fetchNetworkAgents();
   }, [fetchNetworkAgents]);
 
+  // The workflow comes from the surrounding ChatWorkflowProvider so it stays
+  // in scope across sidebar switches — the live transcript survives a click
+  // away to a sent-review and back.
   const {
     entries,
     isRunning,
@@ -477,10 +481,7 @@ function AgentChatContent() {
     startSession,
     sendInput,
     stopSession,
-  } = useAgentWorkflow({
-    endpointPath: chatSelectedModel ? `${chatSelectedModel.ownerUsername}/${chatSelectedModel.slug}` : null,
-    endpointName: chatSelectedModel?.name ?? '',
-  });
+  } = useChatWorkflow();
 
   const { copiedId, copy: handleCopy } = useCopyToClipboard();
   const [inputValue, setInputValue] = useState('');
@@ -765,6 +766,7 @@ function AgentChatContent() {
                   // hold — it was durably captured, so offer a jump to the
                   // "Sent for Review" ledger where it lives on after the chat.
                   const tracked = status === 'pending' && typeof d.review_id === 'string' && Boolean(d.review_id);
+                  const reviewId = typeof d.review_id === 'string' ? d.review_id : '';
                   return (
                     <PolicyNotice
                       key={entry.id}
@@ -773,7 +775,11 @@ function AgentChatContent() {
                       policyName={d.policy_name ? String(d.policy_name) : undefined}
                       reason={d.reason ? String(d.reason) : undefined}
                       tracked={tracked}
-                      onOpenTracking={() => setChatSubView('reviews')}
+                      // Jump straight to the held request in the sidebar
+                      // rather than the old standalone reviews tab.
+                      onOpenTracking={() => {
+                        if (reviewId) setActiveChat({ kind: 'review', reviewId });
+                      }}
                     />
                   );
                 }
@@ -925,57 +931,70 @@ function AgentChatContent() {
 }
 
 // =============================================================================
-// Chat surface — Chat / Sent for Review sub-views
+// Chat surface — sidebar + main pane
 // =============================================================================
+//
+// Layout: ChatSidebar (left, collapsible) + main pane (right) that renders
+// one of:
+//   - AgentChatContent (when activeChat.kind === 'live') — the in-memory
+//     live session. Stays mounted ALWAYS (hidden via CSS when not selected)
+//     so the transcript survives a click-away to a sent-review and back.
+//   - ReviewChatPane (when activeChat.kind === 'review') — a recovered
+//     transcript from a sent-review row, with a continuation input.
+//
+// Both panes consume the same agent workflow via ChatWorkflowProvider, so
+// the continuation flow (typing in a review pane) seeds the live pane's
+// transcript directly.
 
-const CHAT_TABS = [
-  ['chat', 'Chat'],
-  ['reviews', 'Sent for Review'],
-] as const;
+export function ChatView() {
+  const chatSelectedModel = useAppStore((s) => s.chatSelectedModel);
+  const activeChat = useAppStore((s) => s.activeChat);
 
-function ChatSurfaceTabs({
-  active,
-  onChange,
-}: Readonly<{
-  active: 'chat' | 'reviews';
-  onChange: (v: 'chat' | 'reviews') => void;
-}>) {
+  // Derive the workflow's bound endpoint from the global selection. When the
+  // continuation flow runs it passes overrides directly to
+  // startSessionWithHistory, so this binding is only authoritative for the
+  // live pane's own startSession path.
+  const endpointPath = chatSelectedModel
+    ? `${chatSelectedModel.ownerUsername}/${chatSelectedModel.slug}`
+    : null;
+  const endpointName = chatSelectedModel?.name ?? '';
+
   return (
-    <div className='flex shrink-0 items-center gap-1 border-b border-border/50 px-4 py-2'>
-      {CHAT_TABS.map(([key, label]) => (
-        <button
-          key={key}
-          type='button'
-          onClick={() => onChange(key)}
-          aria-current={active === key ? 'page' : undefined}
-          className={cn(
-            'rounded-md px-3 py-1 text-xs font-medium transition-colors',
-            active === key
-              ? 'bg-muted text-foreground'
-              : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
-          )}
-        >
-          {label}
-        </button>
-      ))}
-    </div>
+    <ChatWorkflowProvider endpointPath={endpointPath} endpointName={endpointName}>
+      <ChatSurface activeChatKind={activeChat.kind} activeReviewId={activeChat.kind === 'review' ? activeChat.reviewId : ''} />
+    </ChatWorkflowProvider>
   );
 }
 
-export function ChatView() {
-  const chatSubView = useAppStore((s) => s.chatSubView);
-  const setChatSubView = useAppStore((s) => s.setChatSubView);
+// ChatSurface holds the layout. Split from ChatView so it can call
+// useChatWorkflow (the provider is mounted in the parent).
+function ChatSurface({
+  activeChatKind,
+  activeReviewId,
+}: Readonly<{ activeChatKind: 'live' | 'review'; activeReviewId: string }>) {
+  // The sidebar wants to know whether the live session is running so the
+  // "Active" pulse renders. Pulling state via the context keeps the sidebar
+  // and main pane consistent.
+  const { isRunning, awaitingInput } = useChatWorkflow();
+  const liveActive = isRunning || awaitingInput;
+  const liveEndpointName = useAppStore((s) => s.chatSelectedModel?.name ?? '');
 
   return (
-    <div className='flex h-full flex-col'>
-      <ChatSurfaceTabs active={chatSubView} onChange={setChatSubView} />
-      <div className='min-h-0 flex-1'>
-        {/* AgentChatContent stays mounted across the toggle so opening the
-            review ledger never tears down a live agent session. */}
-        <div className={cn('h-full', chatSubView !== 'chat' && 'hidden')}>
+    <div className='flex h-full'>
+      <ChatSidebar liveRunning={liveActive} liveEndpointName={liveEndpointName} />
+
+      <div className='relative min-h-0 min-w-0 flex-1'>
+        {/* AgentChatContent stays mounted in both cases so the live session
+            (entries, awaitingInput, attachments) is never torn down by a
+            sidebar click. */}
+        <div className={cn('absolute inset-0', activeChatKind !== 'live' && 'invisible pointer-events-none')}>
           <AgentChatContent />
         </div>
-        {chatSubView === 'reviews' && <SentReviewsView />}
+        {activeChatKind === 'review' && activeReviewId && (
+          <div className='absolute inset-0'>
+            <ReviewChatPane reviewId={activeReviewId} />
+          </div>
+        )}
       </div>
     </div>
   );

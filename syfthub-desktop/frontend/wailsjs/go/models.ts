@@ -811,6 +811,8 @@ export namespace main {
 	    rejectReason?: string;
 	    responseText?: string;
 	    userNote?: string;
+	    hostResolvedAt?: string;
+	    deliverySeq?: number;
 
 	    static createFrom(source: any = {}) {
 	        return new SentReviewEntry(source);
@@ -835,6 +837,8 @@ export namespace main {
 	        this.rejectReason = source["rejectReason"];
 	        this.responseText = source["responseText"];
 	        this.userNote = source["userNote"];
+	        this.hostResolvedAt = source["hostResolvedAt"];
+	        this.deliverySeq = source["deliverySeq"];
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -915,6 +919,7 @@ export namespace main {
 	    container_runtime?: string;
 	    container_image?: string;
 	    update_auto_check_enabled: boolean;
+	    device_id?: string;
 
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -939,6 +944,7 @@ export namespace main {
 	        this.container_runtime = source["container_runtime"];
 	        this.container_image = source["container_image"];
 	        this.update_auto_check_enabled = source["update_auto_check_enabled"];
+	        this.device_id = source["device_id"];
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -996,6 +1002,65 @@ export namespace main {
 	        this.errorMessage = source["errorMessage"];
 	        this.mode = source["mode"];
 	        this.uptime = source["uptime"];
+	    }
+	}
+
+}
+
+export namespace manualreview {
+
+	export class ResolvedEnvelope {
+	    protocol: string;
+	    type: string;
+	    review_id: string;
+	    session_id?: string;
+	    endpoint_owner: string;
+	    endpoint_slug: string;
+	    endpoint_name?: string;
+	    policy_name?: string;
+	    sender_public_key: string;
+	    nonce: string;
+	    encrypted_payload: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ResolvedEnvelope(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.protocol = source["protocol"];
+	        this.type = source["type"];
+	        this.review_id = source["review_id"];
+	        this.session_id = source["session_id"];
+	        this.endpoint_owner = source["endpoint_owner"];
+	        this.endpoint_slug = source["endpoint_slug"];
+	        this.endpoint_name = source["endpoint_name"];
+	        this.policy_name = source["policy_name"];
+	        this.sender_public_key = source["sender_public_key"];
+	        this.nonce = source["nonce"];
+	        this.encrypted_payload = source["encrypted_payload"];
+	    }
+	}
+	export class ResolvedPayload {
+	    review_id: string;
+	    status: string;
+	    resolved_at: string;
+	    response_text?: string;
+	    reject_reason?: string;
+	    resolver_user_id?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ResolvedPayload(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.review_id = source["review_id"];
+	        this.status = source["status"];
+	        this.resolved_at = source["resolved_at"];
+	        this.response_text = source["response_text"];
+	        this.reject_reason = source["reject_reason"];
+	        this.resolver_user_id = source["resolver_user_id"];
 	    }
 	}
 

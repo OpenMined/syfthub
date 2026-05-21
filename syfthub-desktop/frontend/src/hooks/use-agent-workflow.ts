@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { StartAgentSession, SendAgentMessage, StopAgentSession, RecordSentReview } from '../../wailsjs/go/main/App';
+import {
+  StartAgentSession,
+  StartAgentSessionWithHistory,
+  SendAgentMessage,
+  StopAgentSession,
+  RecordSentReview,
+} from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
 
@@ -40,6 +46,43 @@ export interface AttachmentMeta {
 }
 
 // =============================================================================
+// Transcript helpers
+// =============================================================================
+
+/** One turn in a conversation transcript — the shape the agent host expects
+ *  as prior-message context on session start. Roles are restricted to the
+ *  three the agent runtime understands. */
+export interface TranscriptMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
+
+/** entriesToTranscript distills the rich AgentEntry[] (which mixes user
+ *  messages, agent messages, tool calls, policy notices, etc.) down to the
+ *  pure conversation transcript an agent needs as history. Only `user` and
+ *  `message` (assistant) entries become turns; everything else — thinking,
+ *  tool calls, policy notices, attachments, status — is by design omitted
+ *  because they are derivable from the model context, not a part of it.
+ *
+ *  Used at hold time (so RecordSentReview captures the full thread) and at
+ *  continuation time (so StartAgentSessionWithHistory replays it). The
+ *  consistency between the two captures matters: a thread that goes user1 →
+ *  assistant1 → user2 → assistant2(held) must continue with that same
+ *  history minus the held turn (which is added back by the caller via
+ *  responseText). */
+export function entriesToTranscript(entries: AgentEntry[]): TranscriptMessage[] {
+  const out: TranscriptMessage[] = [];
+  for (const e of entries) {
+    if (e.kind === 'user') {
+      out.push({ role: 'user', content: e.content });
+    } else if (e.kind === 'message') {
+      out.push({ role: 'assistant', content: e.content });
+    }
+  }
+  return out;
+}
+
+// =============================================================================
 // Hook
 // =============================================================================
 
@@ -54,6 +97,17 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
   const [awaitingInput, setAwaitingInput] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
   const entryCounterRef = useRef(0);
+
+  // entriesRef mirrors `entries` so the EventsOn handler (which is registered
+  // ONCE with empty deps) can read the live value instead of the empty array
+  // captured at mount time. Without this, callbacks that capture state by
+  // closure (e.g. RecordSentReview's transcript build) see stale data — every
+  // manual-review hold would record an empty conversation, which is exactly
+  // the regression that produced "the chat got cleaned after approval".
+  const entriesRef = useRef<AgentEntry[]>([]);
+  useEffect(() => {
+    entriesRef.current = entries;
+  }, [entries]);
 
   // Streaming message accumulator for token events
   const streamingContentRef = useRef('');
@@ -230,15 +284,31 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
             policy.review_id
           ) {
             const ep = sessionEndpointRef.current;
+            // Capture the FULL conversation up to and including the held user
+            // message, not just lastUserPromptRef. A multi-turn chat that gets
+            // held on turn N must carry the prior N-1 turns so a later
+            // continuation can replay the full thread.
+            //
+            // entriesRef.current — NOT the closed-over `entries` — because the
+            // EventsOn handler is registered once with empty deps and its
+            // closure freezes the initial (empty) entries forever. Using the
+            // ref gives us the current value at event time.
+            const transcript = entriesToTranscript(entriesRef.current);
+            // Fall back to lastUserPromptRef when entries are empty
+            // (e.g. the policy held on the initial prompt before any state
+            // had time to populate). Keeps Phase 1 single-turn capture working.
+            const requestMessages = transcript.length > 0
+              ? transcript
+              : (lastUserPromptRef.current
+                  ? [{ role: 'user', content: lastUserPromptRef.current }]
+                  : []);
             void RecordSentReview(main.SentReviewInput.createFrom({
               reviewId: policy.review_id,
               endpointPath: ep.path,
               endpointName: ep.name,
               endpointType: 'agent',
               policyName: typeof policy.policy_name === 'string' ? policy.policy_name : '',
-              requestMessages: lastUserPromptRef.current
-                ? [{ role: 'user', content: lastUserPromptRef.current }]
-                : [],
+              requestMessages,
               // policy.reason carries the placeholder text the caller received;
               // content is the human-readable fallback sentence.
               placeholder: typeof policy.reason === 'string' ? policy.reason : content,
@@ -414,11 +484,81 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
     hasTokenEntryRef.current = false;
   }, []);
 
+  // startSessionWithHistory is the continuation variant of startSession used
+  // when the user types a follow-up in a recovered-from-review chat: the prior
+  // turns are seeded into entries[] AND sent to the host as conversation
+  // history. The agent sees the full thread (so its reply is coherent with
+  // the held turn) and the transcript visually picks up where the review left
+  // off rather than starting blank.
+  //
+  // overrideEndpointPath / overrideEndpointName let the caller pin a specific
+  // endpoint even when the global chatSelectedModel has not yet been switched
+  // (the chat UI changes the agent dropdown asynchronously after this call,
+  // so we can't rely on the closed-over endpointPath/endpointName).
+  const startSessionWithHistory = useCallback(async (
+    history: TranscriptMessage[],
+    prompt: string,
+    overrides?: { endpointPath: string; endpointName: string },
+  ) => {
+    const targetPath = overrides?.endpointPath ?? endpointPath;
+    const targetName = overrides?.endpointName ?? endpointName;
+    if (!targetPath || isRunning) return;
+
+    // Reset transient streaming state.
+    if (flushTimerRef.current !== null) {
+      cancelAnimationFrame(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
+    streamingContentRef.current = '';
+    hasTokenEntryRef.current = false;
+    entryCounterRef.current = 0;
+
+    sessionEndpointRef.current = { path: targetPath, name: targetName };
+    lastUserPromptRef.current = prompt;
+
+    // Seed entries with the prior history so the transcript reads continuously,
+    // then append the new user prompt. The renderer treats these like any
+    // freshly-arrived user/message entries.
+    const seeded: AgentEntry[] = history.map((m, i) => ({
+      id: `seed-${i}`,
+      kind: m.role === 'user' ? 'user' as const : 'message' as const,
+      content: m.content,
+      timestamp: Date.now() - (history.length - i),
+    }));
+    seeded.push({
+      id: 'user-0',
+      kind: 'user',
+      content: prompt,
+      timestamp: Date.now(),
+    });
+    setEntries(seeded);
+    setIsRunning(true);
+    setAwaitingInput(false);
+
+    try {
+      const sessionId = await StartAgentSessionWithHistory(
+        targetPath,
+        prompt,
+        JSON.stringify(history),
+      );
+      sessionIdRef.current = sessionId;
+    } catch (err) {
+      setEntries(prev => [...prev, {
+        id: makeId(),
+        kind: 'error',
+        content: `Failed to continue session: ${err}`,
+        timestamp: Date.now(),
+      }]);
+      setIsRunning(false);
+    }
+  }, [endpointPath, endpointName, isRunning]);
+
   return {
     entries,
     isRunning,
     awaitingInput,
     startSession,
+    startSessionWithHistory,
     sendInput,
     stopSession,
     clearEntries,

@@ -6,6 +6,10 @@ export function AddDependency(arg1, arg2, arg3) {
   return window['go']['main']['App']['AddDependency'](arg1, arg2, arg3);
 }
 
+export function ApplyHostResolution(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['ApplyHostResolution'](arg1, arg2, arg3, arg4);
+}
+
 export function ApproveManualReview(arg1, arg2) {
   return window['go']['main']['App']['ApproveManualReview'](arg1, arg2);
 }
@@ -72,6 +76,10 @@ export function DeleteLogs(arg1) {
 
 export function DeletePolicyFile(arg1, arg2) {
   return window['go']['main']['App']['DeletePolicyFile'](arg1, arg2);
+}
+
+export function DeleteSentReview(arg1) {
+  return window['go']['main']['App']['DeleteSentReview'](arg1);
 }
 
 export function DownloadActiveSessionAttachment(arg1, arg2) {
@@ -324,6 +332,10 @@ export function Start() {
 
 export function StartAgentSession(arg1, arg2) {
   return window['go']['main']['App']['StartAgentSession'](arg1, arg2);
+}
+
+export function StartAgentSessionWithHistory(arg1, arg2, arg3) {
+  return window['go']['main']['App']['StartAgentSessionWithHistory'](arg1, arg2, arg3);
 }
 
 export function Stop() {

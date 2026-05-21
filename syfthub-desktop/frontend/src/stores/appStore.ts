@@ -30,6 +30,7 @@ import {
   GetSentReviews,
   SetSentReviewStatus,
   SetSentReviewNote,
+  DeleteSentReview,
   CreateEndpoint,
   CheckEndpointExists,
   DeleteEndpoint,
@@ -61,6 +62,39 @@ export type SetupStatusInfo = main.SetupStatusInfo;
 export type SetupSpecInfo = main.SetupSpecInfo;
 export type SetupStepInfo = main.SetupStepInfo;
 export type NetworkAgentInfo = main.NetworkAgentInfo;
+
+// ActiveChat is the discriminated union that names which conversation the
+// chat surface currently renders. The live session and any sent-review can
+// each be selected; the live session's state lives in useAgentWorkflow,
+// reviews' state lives in the sentReviews ledger.
+export type ActiveChat =
+  | { kind: 'live' }
+  | { kind: 'review'; reviewId: string };
+
+// Key under which the chat sidebar's collapsed state is persisted in
+// localStorage. Keeping the key here (rather than inline at the read site)
+// makes it greppable and prevents accidental key drift.
+const CHAT_SIDEBAR_STORAGE_KEY = 'syfthub.chat.sidebar.collapsed';
+
+function loadChatSidebarCollapsed(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(CHAT_SIDEBAR_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function persistChatSidebarCollapsed(collapsed: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(CHAT_SIDEBAR_STORAGE_KEY, collapsed ? '1' : '0');
+  } catch {
+    // localStorage may be unavailable (private mode, denied permission). The
+    // in-memory state still works; the preference simply doesn't survive a
+    // restart in that environment.
+  }
+}
 
 // TS-only UI label set by the setupflow:complete listener. Not a Go wire value.
 export const SETUP_COMPLETE_STATUS = 'Setup complete' as const;
@@ -188,9 +222,16 @@ interface AppState {
   activeTab: 'settings' | 'code' | 'docs' | 'logs' | 'requests';
   settingsSection: 'overview' | 'environment' | 'dependencies' | 'policies' | 'skills';
   mainView: 'endpoints' | 'chat';
-  // Which sub-view the chat surface shows: the live chat, or the cross-endpoint
-  // "Sent for Review" ledger of manual-review holds the user submitted.
-  chatSubView: 'chat' | 'reviews';
+  // activeChat selects which conversation the chat surface renders. 'live'
+  // means the in-memory live agent session (AgentChatContent). 'review'
+  // means a recovered transcript from a sent_reviews row, rendered by
+  // ReviewChatPane. null means no chat is selected — show the empty state.
+  activeChat: ActiveChat;
+  // chatSidebarCollapsed persists the user's sidebar preference across
+  // sessions via localStorage (read on store init, written on each setter
+  // call). A boolean rather than 'collapsed' | 'expanded' string for the
+  // cheap toggle ergonomics.
+  chatSidebarCollapsed: boolean;
   showLibrary: boolean;
 
   // Logs state
@@ -269,7 +310,10 @@ interface AppState {
   setActiveTab: (tab: 'settings' | 'code' | 'docs' | 'logs' | 'requests') => void;
   setSettingsSection: (section: 'overview' | 'environment' | 'dependencies' | 'policies' | 'skills') => void;
   setMainView: (view: 'endpoints' | 'chat') => void;
-  setChatSubView: (view: 'chat' | 'reviews') => void;
+  // setActiveChat is the new entry point — sidebar items + continuation flow
+  // both use this to switch what the chat surface renders.
+  setActiveChat: (chat: ActiveChat) => void;
+  setChatSidebarCollapsed: (collapsed: boolean) => void;
   setShowLibrary: (show: boolean) => void;
 
   // Actions - Logs
@@ -293,6 +337,11 @@ interface AppState {
   setSentReviewsFilter: (status: string) => void;
   markSentReviewStatus: (reviewId: string, status: 'approved' | 'rejected', reason: string) => Promise<void>;
   saveSentReviewNote: (reviewId: string, note: string) => Promise<void>;
+  // deleteSentReview removes the row from the local ledger (no host
+  // communication). The caller is responsible for any UI consequences —
+  // notably, if the currently-active chat is this review, switching
+  // activeChat back to 'live' so the surface doesn't render a stale id.
+  deleteSentReview: (reviewId: string) => Promise<void>;
 
   // Actions - Code
   setRunnerCode: (code: string) => void;
@@ -397,7 +446,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeTab: 'settings',
   settingsSection: 'overview',
   mainView: 'endpoints',
-  chatSubView: 'chat',
+  activeChat: { kind: 'live' },
+  chatSidebarCollapsed: loadChatSidebarCollapsed(),
   showLibrary: false,
 
   // Logs initial state
@@ -835,8 +885,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ mainView: view, showLibrary: false });
   },
 
-  setChatSubView: (view) => {
-    set({ chatSubView: view });
+  setActiveChat: (chat) => {
+    // Mirror the chat selection into selectedSentReview when a review is
+    // chosen so existing detail-panel readers (the old SentReviewsView still
+    // mounted as a fallback) stay coherent. Cheap; no extra fetch.
+    if (chat.kind === 'review') {
+      const review = get().sentReviews.find((r) => r.reviewId === chat.reviewId) ?? null;
+      set({ activeChat: chat, selectedSentReview: review });
+    } else {
+      set({ activeChat: chat, selectedSentReview: null });
+    }
+  },
+
+  setChatSidebarCollapsed: (collapsed) => {
+    persistChatSidebarCollapsed(collapsed);
+    set({ chatSidebarCollapsed: collapsed });
   },
 
   setShowLibrary: (show) => {
@@ -1197,6 +1260,28 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (refreshed) set({ selectedSentReview: refreshed });
     } catch (err) {
       set({ error: `Failed to save note: ${err}` });
+      throw err;
+    }
+  },
+
+  deleteSentReview: async (reviewId: string) => {
+    try {
+      await DeleteSentReview(reviewId);
+      // If we just deleted the currently-active chat, fall back to the live
+      // pane — the surface can't render a row that no longer exists.
+      const active = get().activeChat;
+      if (active.kind === 'review' && active.reviewId === reviewId) {
+        get().setActiveChat({ kind: 'live' });
+      }
+      // Refetch with 'all' — NOT the default sentReviewsFilter — because the
+      // sidebar (currently the only consumer) renders the full list across
+      // all statuses. Defaulting to the filter would silently hide approved /
+      // rejected items after a delete, which looks like "neighbour rows
+      // disappeared too" and re-appeared on remount (when the sidebar's own
+      // useEffect refetches with 'all').
+      await get().fetchSentReviews('all');
+    } catch (err) {
+      set({ error: `Failed to delete review: ${err}` });
       throw err;
     }
   },
