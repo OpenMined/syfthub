@@ -43,7 +43,14 @@ const authRequestSubject = "$SYS.REQ.USER.AUTH"
 
 // jetStreamSubjects are the JetStream API, Object Store, and KV subjects an
 // agent host or client needs for the attachment Object Store and session KV.
-var jetStreamSubjects = []string{"$JS.API.>", "$O.>", "$KV.>"}
+// jetStreamSubjects is the allowlist of NATS-internal subjects every JetStream
+// client must reach. $JS.API.> is the management plane (stream/consumer
+// create, lookup, fetch). $JS.ACK.> is where pull-consumers publish explicit
+// ACK/NAK/TERM control messages — without it, a consumer can pull messages
+// but cannot acknowledge them, causing AckWait-based redelivery loops.
+// $O.> and $KV.> are the Object Store and KV bucket subjects (KV-backed
+// session registry, attachment object store).
+var jetStreamSubjects = []string{"$JS.API.>", "$JS.ACK.>", "$O.>", "$KV.>"}
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -305,14 +312,22 @@ func (a *authorizer) authorize(ctx context.Context, token string) (*perms, error
 		// space is gated by tunnel encryption + satellite-token verification.
 		// Subscribe is tightly scoped to the space's own inbox and peer
 		// namespace, so a host can never read another peer's traffic.
+		//
+		// syfthub.inbox.<user>.review is the manual-review resolution channel
+		// — same symmetric model: PUB is broadcast (the desktop is the host
+		// of *some* endpoint resolving a held request for any caller; payload
+		// is encrypted under the caller's identity key so cross-tenant misuse
+		// is contained at the crypto layer), SUB is restricted to the user's
+		// own inbox so a desktop can never read another user's resolutions.
 		return &perms{
 			kind: "host",
-			pub: append([]string{"_INBOX.>", "syfthub.peer.>", "syfthub.spaces.>"},
+			pub: append([]string{"_INBOX.>", "syfthub.peer.>", "syfthub.spaces.>", "syfthub.inbox.>"},
 				jetStreamSubjects...),
 			sub: append([]string{
 				"_INBOX.>",
 				"syfthub.spaces." + rec.Username,
 				"syfthub.peer." + rec.Username + ".>",
+				"syfthub.inbox." + rec.Username + ".review",
 			}, jetStreamSubjects...),
 		}, nil
 
