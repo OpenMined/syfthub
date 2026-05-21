@@ -8,6 +8,7 @@ import { Sidebar } from '@/components/Sidebar';
 import { EndpointDetail } from '@/components/EndpointDetail';
 import { MustUpdateModal } from '@/components/MustUpdateModal';
 import { InstallProgress } from '@/components/InstallProgress';
+import { LoadProgress } from '@/components/LoadProgress';
 
 // Loading spinner
 function LoadingSpinner() {
@@ -62,6 +63,7 @@ function App() {
       {body}
       <MustUpdateModal />
       <InstallProgress />
+      <LoadProgress />
     </>
   );
 }

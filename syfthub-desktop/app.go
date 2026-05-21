@@ -18,6 +18,7 @@ import (
 	"github.com/openmined/syfthub-desktop-gui/internal/updater"
 	syfthub "github.com/openmined/syfthub/sdk/golang/syfthub"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/filemode"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/transport"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -392,6 +393,14 @@ func (a *App) Start() error {
 		a.setErrorState(fmt.Sprintf("failed to create app: %v", err))
 		return err
 	}
+
+	// Wire endpoint-load progress to the frontend so the user sees what's
+	// happening during the multi-minute container-image build/pull phases.
+	// Must be set BEFORE core.Setup() because the provider captures the
+	// callback at construction time.
+	core.SetOnLoadProgress(func(ev filemode.LoadProgressEvent) {
+		runtime.EventsEmit(a.ctx, "app:load-progress", ev)
+	})
 
 	// Create cancellable context for the Run() goroutine
 	runCtx, cancel := context.WithCancel(context.Background())

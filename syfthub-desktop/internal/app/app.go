@@ -34,6 +34,7 @@ type App struct {
 	agentDialer        *transport.AgentDialer       // Outbound P2P agent dialer (tunnel mode); nil in HTTP mode
 	onEndpointsChanged func()                       // External notification callback for file watcher events
 	onNewLog           func(*syfthubapi.RequestLog) // External notification callback for new log entries
+	onLoadProgress     filemode.LoadProgressCallback
 }
 
 // Config holds application configuration.
@@ -179,6 +180,17 @@ func (a *App) SetOnNewLog(callback func(*syfthubapi.RequestLog)) {
 	a.onNewLog = callback
 }
 
+// SetOnLoadProgress sets a callback that will be invoked at every phase
+// transition during endpoint load (initial Setup and watcher reloads).
+// Container endpoints emit pending → resolving_image → pulling/building
+// /verifying → materializing → starting_container → ready (or failed).
+// Must be set BEFORE Setup() so the provider is wired with it.
+// The callback is invoked from multiple goroutines (container builds run
+// in parallel) — implementations must be concurrency-safe.
+func (a *App) SetOnLoadProgress(callback filemode.LoadProgressCallback) {
+	a.onLoadProgress = callback
+}
+
 // GetLogs retrieves logs for an endpoint with optional filters.
 func (a *App) GetLogs(ctx context.Context, slug string, opts *syfthubapi.LogQueryOptions) (*syfthubapi.LogQueryResult, error) {
 	if a.logStore == nil {
@@ -237,6 +249,7 @@ func (a *App) Setup(ctx context.Context) error {
 		Debounce:          a.config.WatchDebounce,
 		Logger:            a.logger,
 		OnReload:          a.handleReload,
+		OnProgress:        a.onLoadProgress,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create file provider: %w", err)

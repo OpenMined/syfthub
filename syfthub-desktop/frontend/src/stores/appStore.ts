@@ -96,6 +96,49 @@ const SETUP_FLOW_CLEARED: SetupFlowState = {
   confirm: null,
 };
 
+// LoadProgress event payload — matches filemode.LoadProgressEvent in the Go SDK.
+// Emitted on the 'app:load-progress' channel for every phase transition during
+// endpoint load. Frontend renders a per-endpoint progress overlay so the user
+// sees what's happening during multi-minute container image pulls/builds.
+export type LoadPhase =
+  | 'pending'
+  | 'resolving_image'
+  | 'pulling_image'
+  | 'building_image'
+  | 'verifying_image'
+  | 'materializing'
+  | 'starting_container'
+  | 'ready'
+  | 'failed';
+
+export interface LoadProgressEvent {
+  slug: string;
+  name: string;
+  phase: LoadPhase;
+  message?: string;
+  error?: string;
+  index: number;
+  total: number;
+}
+
+export interface LoadProgressEntry {
+  slug: string;
+  name: string;
+  phase: LoadPhase;
+  message?: string;
+  error?: string;
+}
+
+export interface LoadProgressState {
+  total: number;
+  entries: Record<string, LoadProgressEntry>;
+}
+
+const LOAD_PROGRESS_CLEARED: LoadProgressState = {
+  total: 0,
+  entries: {},
+};
+
 // Setup flow event payloads (match Go structs in setup_io.go)
 export interface SetupPromptEvent {
   message: string;
@@ -207,6 +250,10 @@ interface AppState {
   // Setup flow state
   setupFlow: SetupFlowState;
 
+  // Endpoint-load progress (initial startup and watcher reloads). Cleared
+  // when all entries terminate (ready or failed). See LoadProgress component.
+  loadProgress: LoadProgressState;
+
   // Actions - Core
   initialize: () => Promise<void>; // Initial app load
   fetchStatus: () => Promise<void>;
@@ -215,6 +262,7 @@ interface AppState {
   startService: () => Promise<void>;
   stopService: () => Promise<void>;
   reloadEndpoints: () => Promise<void>;
+  dismissLoadProgress: () => void;
 
   // Actions - Selection
   selectEndpoint: (slug: string | null) => Promise<void>;
@@ -401,6 +449,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Setup flow initial state
   setupFlow: { ...SETUP_FLOW_CLEARED },
 
+  // Load progress initial state
+  loadProgress: { ...LOAD_PROGRESS_CLEARED },
+
   // Core actions
   initialize: async () => {
     try {
@@ -426,6 +477,48 @@ export const useAppStore = create<AppState>((set, get) => ({
             cleanup();
             resolve(c);
           }
+        });
+      });
+
+      // Register the load-progress listener BEFORE Start() — Setup() runs
+      // synchronously inside Start() and emits every pending → ready event
+      // before Start() returns. Registering later (with the other listeners
+      // below) misses them all. EventsOff first so re-running initialize()
+      // doesn't stack handlers.
+      EventsOff('app:load-progress');
+      EventsOn('app:load-progress', (ev: LoadProgressEvent) => {
+        set(s => {
+          const prev = s.loadProgress.entries[ev.slug];
+          if (prev
+            && prev.phase === ev.phase
+            && prev.message === ev.message
+            && prev.error === ev.error
+            && ev.total <= s.loadProgress.total) {
+            return s;
+          }
+          const entry: LoadProgressEntry = {
+            slug: ev.slug,
+            name: ev.name,
+            phase: ev.phase,
+            message: ev.message,
+            error: ev.error,
+          };
+          const entries = { ...s.loadProgress.entries, [ev.slug]: entry };
+          let allTerminal = true;
+          let hadFailure = false;
+          for (const e of Object.values(entries)) {
+            if (e.phase === 'failed') hadFailure = true;
+            else if (e.phase !== 'ready') { allTerminal = false; break; }
+          }
+          if (allTerminal && !hadFailure) {
+            return { loadProgress: { ...LOAD_PROGRESS_CLEARED } };
+          }
+          return {
+            loadProgress: {
+              total: ev.total > s.loadProgress.total ? ev.total : s.loadProgress.total,
+              entries,
+            },
+          };
         });
       });
 
@@ -653,6 +746,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     } finally {
       set({ isLoading: false });
     }
+  },
+
+  dismissLoadProgress: () => {
+    set({ loadProgress: { ...LOAD_PROGRESS_CLEARED } });
   },
 
   // Selection actions
