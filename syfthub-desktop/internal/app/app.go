@@ -3,6 +3,7 @@ package app
 
 import (
 	"context"
+	"crypto/ecdh"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/containermode"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/filemode"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/heartbeat"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/manualreview"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/setupflow"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/transport"
 
@@ -32,6 +34,7 @@ type App struct {
 	logStore           *logs.FileLogStore
 	natsConn           *transport.NATSConn          // Shared NATS connection (tunnel mode); nil in HTTP mode
 	agentDialer        *transport.AgentDialer       // Outbound P2P agent dialer (tunnel mode); nil in HTTP mode
+	hostIdentityKey    *ecdh.PrivateKey             // X25519 identity key the host transport uses; nil in HTTP mode
 	onEndpointsChanged func()                       // External notification callback for file watcher events
 	onNewLog           func(*syfthubapi.RequestLog) // External notification callback for new log entries
 	onLoadProgress     filemode.LoadProgressCallback
@@ -46,6 +49,13 @@ type Config struct {
 	WatchDebounce     time.Duration
 	LogLevel          string
 	ContainerEnabled  bool
+
+	// RoutingRecorderFactory, when non-nil, is passed to the file-mode
+	// provider so each agent endpoint with policies gets a manual-review
+	// routing recorder. Built outside this package (in syfthub-desktop main)
+	// because the implementation pulls in a SQLite driver dependency the
+	// SDK intentionally doesn't carry. nil disables manual-review capture.
+	RoutingRecorderFactory manualreview.RoutingRecorderFactory
 }
 
 // DefaultConfig returns configuration with sensible defaults.
@@ -242,14 +252,15 @@ func (a *App) Setup(ctx context.Context) error {
 
 	// Create file provider
 	provider, err := filemode.NewProvider(&filemode.ProviderConfig{
-		BasePath:          a.config.EndpointsPath,
-		PythonPath:        a.config.PythonPath,
-		UseEmbeddedPython: a.config.UseEmbeddedPython,
-		WatchEnabled:      a.config.WatchEnabled,
-		Debounce:          a.config.WatchDebounce,
-		Logger:            a.logger,
-		OnReload:          a.handleReload,
-		OnProgress:        a.onLoadProgress,
+		BasePath:               a.config.EndpointsPath,
+		PythonPath:             a.config.PythonPath,
+		UseEmbeddedPython:      a.config.UseEmbeddedPython,
+		WatchEnabled:           a.config.WatchEnabled,
+		Debounce:               a.config.WatchDebounce,
+		Logger:                 a.logger,
+		OnReload:               a.handleReload,
+		OnProgress:             a.onLoadProgress,
+		RoutingRecorderFactory: a.config.RoutingRecorderFactory,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create file provider: %w", err)
@@ -466,6 +477,9 @@ func (a *App) setupNATSTransport(ctx context.Context, cfg *syfthubapi.Config) (s
 		return nil, fmt.Errorf("failed to create agent dialer: %w", err)
 	}
 	a.agentDialer = dialer
+	// Stash the privkey so the manual-review publisher can derive resolution
+	// ciphers without re-reading the on-disk key file.
+	a.hostIdentityKey = hostTransport.PrivateKey()
 
 	return hostTransport, nil
 }
@@ -605,4 +619,27 @@ func (a *App) API() *syfthubapi.SyftAPI {
 // sessions against remote hosts.
 func (a *App) AgentDialer() *transport.AgentDialer {
 	return a.agentDialer
+}
+
+// NATSConn returns the shared NATS connection, or nil when the app is not
+// running in tunnel mode. The host transport and the outbound agent dialer
+// both ride on this single connection; new subscribers (e.g. the
+// manual-review resolution inbox) should reuse it rather than dial a second.
+func (a *App) NATSConn() *transport.NATSConn {
+	return a.natsConn
+}
+
+// HostPrivateKey returns the long-term X25519 identity key the host uses
+// for v2 NATS-tunneled agent sessions. The same key derives manual-review
+// resolution ciphers — see syfthubapi/manualreview/cipher.go. Returns nil in
+// HTTP mode or before setupNATSTransport has run.
+func (a *App) HostPrivateKey() *ecdh.PrivateKey {
+	return a.hostIdentityKey
+}
+
+// Logger returns the core app's slog.Logger. Exposed so peer subsystems
+// (manual-review publisher + inbox listener wired by the Wails layer) can
+// share the same logger and have their lines colocated in the same sink.
+func (a *App) Logger() *slog.Logger {
+	return a.logger
 }

@@ -69,6 +69,18 @@ type App struct {
 	updater          *updater.Checker              // Auto-update checker; nil until startup completes
 	downloader       *updater.Downloader           // Update-artifact downloader; nil until startup completes
 	installer        *updater.Installer            // In-place binary installer; nil on macOS until Phase 4
+
+	// reviewPublisher delivers manual-review resolutions to caller inboxes
+	// over JetStream. Set once the NATS transport is up (post-Setup); nil in
+	// HTTP mode or when JetStream is unavailable. Reads/writes are guarded
+	// by mu — Setup runs after startup so the field would race a chat call
+	// otherwise.
+	reviewPublisher *ReviewPublisher
+
+	// reviewInboxListener long-running consumer of the caller's resolution
+	// inbox. Set on login, torn down on logout/shutdown. nil-safe when the
+	// app is in HTTP mode or before login completes.
+	reviewInboxListener *ReviewInboxListener
 }
 
 // NewApp creates a new App application struct.
@@ -143,6 +155,13 @@ func (a *App) startup(ctx context.Context) {
 	if a.settings != nil && a.settings.ContainerEnabled {
 		a.config.ContainerEnabled = true
 	}
+
+	// Wire the manual-review routing recorder factory so each agent endpoint
+	// with policies will get a per-endpoint recorder. The implementation
+	// lives in the desktop because it carries the SQLite driver dependency;
+	// the SDK only knows the interface. Safe to set before Start: the
+	// provider captures the factory at construction time inside core.Setup().
+	a.config.RoutingRecorderFactory = newRoutingRecorderFactory()
 
 	// Log startup
 	runtime.LogInfo(ctx, "SyftHub Desktop GUI starting up")
@@ -418,6 +437,13 @@ func (a *App) Start() error {
 		return err
 	}
 
+	// Wire the manual-review resolution channel now that the NATS conn +
+	// host identity key are available. Best-effort across the board: a
+	// JetStream-less server makes both calls fail, in which case the
+	// feature is silently disabled (the executor still captures routing
+	// rows; they just never get delivered until JetStream is provisioned).
+	a.setupManualReviewDelivery(runCtx, core)
+
 	// Wire file watcher events to frontend
 	core.SetOnEndpointsChanged(func() {
 		runtime.LogInfo(a.ctx, "File watcher detected changes, notifying frontend")
@@ -449,6 +475,11 @@ func (a *App) Start() error {
 				a.setErrorState(fmt.Sprintf("run error: %v", err))
 			}
 		}
+
+		// Tear down manual-review delivery before the NATS conn closes —
+		// the inbox listener holds an active JetStream consumer that must
+		// be unsubscribed cleanly so its durable position stays accurate.
+		a.teardownManualReviewDelivery()
 
 		// Mark as idle when done
 		a.mu.Lock()

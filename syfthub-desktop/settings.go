@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+
+	"github.com/google/uuid"
 )
 
 // AggregatorConfig represents configuration for an aggregator endpoint.
@@ -54,6 +56,16 @@ type Settings struct {
 	// Auto-update preference. Defaults to true via DefaultSettings.
 	// Plain bool (no omitempty) so an explicit "false" survives a round trip.
 	UpdateAutoCheckEnabled bool `json:"update_auto_check_enabled"`
+
+	// DeviceID is a UUID v4 minted on first launch and persisted forever
+	// after. It is the local-only stable identifier for this desktop install
+	// — distinct from the X25519 identity keypair (tunnel_key) which is the
+	// peer-to-peer identity. Used to name durable JetStream consumers (e.g.
+	// the manual-review resolution inbox: "mr-<username>-<deviceID>") so
+	// future multi-device installs can each consume the same inbox without
+	// stealing each other's messages. Empty in older settings files
+	// triggers a one-time mint on next LoadSettings.
+	DeviceID string `json:"device_id,omitempty"`
 }
 
 // DefaultSettings returns settings with sensible defaults.
@@ -129,6 +141,14 @@ func getDefaultEndpointsPath() (string, error) {
 
 // LoadSettings reads settings from the settings file.
 // Returns default settings if the file doesn't exist.
+//
+// As a side effect, the first load on a fresh install — and the first load
+// after an upgrade from a settings file that predates the DeviceID field —
+// mints a UUID v4 and persists it. A missing DeviceID would otherwise leave
+// us unable to name a stable durable consumer for the manual-review inbox.
+// Persist failures are non-fatal here: the caller still gets a settings
+// object with a populated DeviceID, and the persist will be retried the
+// next time settings are saved.
 func LoadSettings() (*Settings, error) {
 	path, err := getSettingsPath()
 	if err != nil {
@@ -138,7 +158,10 @@ func LoadSettings() (*Settings, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return DefaultSettings(), nil
+			s := DefaultSettings()
+			ensureDeviceID(s)
+			_ = SaveSettings(s) // best-effort first-launch persist
+			return s, nil
 		}
 		return DefaultSettings(), fmt.Errorf("failed to read settings: %w", err)
 	}
@@ -148,7 +171,26 @@ func LoadSettings() (*Settings, error) {
 		return DefaultSettings(), fmt.Errorf("failed to parse settings: %w", err)
 	}
 
+	if ensureDeviceID(settings) {
+		// Newly-minted device id — persist so subsequent loads see the same
+		// value. A failure here is logged via the return value of SaveSettings
+		// in the caller path; we don't propagate it as a load error because
+		// the in-memory settings are usable.
+		_ = SaveSettings(settings)
+	}
+
 	return settings, nil
+}
+
+// ensureDeviceID mints a UUID v4 into s.DeviceID when it is empty. Returns
+// true when it changed s (i.e. a new id was generated), false when s already
+// carried one. The id is opaque to everything except subscription naming.
+func ensureDeviceID(s *Settings) bool {
+	if s.DeviceID != "" {
+		return false
+	}
+	s.DeviceID = uuid.New().String()
+	return true
 }
 
 // SaveSettings writes settings to the settings file.

@@ -12,11 +12,6 @@ package main
 // sibling of settings.json — so a held request survives app restarts and chat
 // sessions. It is scoped by identity: the desktop app can be used by different
 // logged-in users, and one user must never see another's submissions.
-//
-// This is Phase 1 of the client review-tracking feature: capture + persist +
-// display, with no host cooperation. Phase 2 (a host status-query channel)
-// reuses this same table — hence response_text / status_source = "queried"
-// already exist in the schema.
 
 import (
 	"database/sql"
@@ -27,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/manualreview"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	_ "modernc.org/sqlite" // pure-Go SQLite driver, registered as "sqlite"
 )
@@ -88,6 +84,17 @@ type SentReviewEntry struct {
 	ResponseText string `json:"responseText,omitempty"`
 	// UserNote is optional free text the requester added to the entry.
 	UserNote string `json:"userNote,omitempty"`
+	// HostResolvedAt is the host-reported resolution timestamp, distinct
+	// from ResolvedAt which records the local clock when the row entered
+	// its terminal state. Same value for "queried" rows (the host's clock
+	// is authoritative); empty for "captured" and "manual" rows.
+	HostResolvedAt string `json:"hostResolvedAt,omitempty"`
+	// DeliverySeq is the JetStream sequence number of the resolution
+	// envelope that produced the current state. Used as a monotonic
+	// idempotency guard — a re-delivered message with seq <= stored seq
+	// must not overwrite a newer resolution. Zero until the first
+	// host-delivered resolution lands.
+	DeliverySeq uint64 `json:"deliverySeq,omitempty"`
 }
 
 // statusSource* records how a ledger entry's Status was last set.
@@ -101,13 +108,13 @@ const (
 // memory. Newest entries are returned first.
 const maxSentReviewRows = 1000
 
-// isoMicroLayout matches the timestamp shape policy_manager writes for its own
-// created_at (Python's datetime.now(UTC).isoformat()), keeping client and host
-// timestamps visually consistent.
-const isoMicroLayout = "2006-01-02T15:04:05.000000-07:00"
-
 // sentReviewsCreateTable / sentReviewsCreateIndex are run on every open — both
 // use IF NOT EXISTS, so a fresh or already-initialized ledger is self-healing.
+//
+// host_resolved_at and delivery_seq were added in schema v2 (see
+// sentReviewsSchemaVersion). They are part of CREATE TABLE so a brand-new
+// install gets the right shape, and they are also ALTER-added in
+// migrateSentReviewsSchema for installs that predate Phase 2.0.
 const sentReviewsCreateTable = `CREATE TABLE IF NOT EXISTS sent_reviews (
 	review_id        TEXT PRIMARY KEY,
 	identity         TEXT NOT NULL,
@@ -125,18 +132,26 @@ const sentReviewsCreateTable = `CREATE TABLE IF NOT EXISTS sent_reviews (
 	resolved_at      TEXT,
 	reject_reason    TEXT,
 	response_text    TEXT,
-	user_note        TEXT
+	user_note        TEXT,
+	host_resolved_at TEXT,
+	delivery_seq     INTEGER
 )`
 
 const sentReviewsCreateIndex = `CREATE INDEX IF NOT EXISTS
 	idx_sent_reviews_identity ON sent_reviews (identity, status)`
+
+// sentReviewsSchemaVersion is the on-disk schema version this code expects
+// to read and write. Bumped when a column is added; migrateSentReviewsSchema
+// upgrades older databases in place. Older builds opening a newer DB will
+// see PRAGMA user_version > theirs and refuse — that's the contract.
+const sentReviewsSchemaVersion = 2
 
 // sentReviewCols is the column list shared by every SELECT, kept in one place
 // so it stays in step with scanSentReviewRow.
 const sentReviewCols = `review_id, identity, endpoint_path, endpoint_owner,
 	endpoint_slug, endpoint_name, endpoint_type, policy_name, request_messages,
 	placeholder, submitted_at, status, status_source, resolved_at,
-	reject_reason, response_text, user_note`
+	reject_reason, response_text, user_note, host_resolved_at, delivery_seq`
 
 // sentReviewsDBFile resolves the client review ledger's SQLite path — a
 // sibling of settings.json. It is a var so tests can point it at a temp dir.
@@ -151,6 +166,11 @@ var sentReviewsDBFile = func() (string, error) {
 // openSentReviewsDB opens (creating if absent) the review ledger and ensures
 // its schema. busy_timeout + WAL let a frontend-triggered read coexist with a
 // capture write without either failing on a momentary lock.
+//
+// On open we run migrateSentReviewsSchema which uses PRAGMA user_version to
+// advance the DB through schema versions. A fresh install gets every column
+// from the CREATE TABLE directly; an upgrade install (Phase 1 → Phase 2.0)
+// picks up host_resolved_at and delivery_seq via ALTER TABLE.
 func openSentReviewsDB() (*sql.DB, error) {
 	path, err := sentReviewsDBFile()
 	if err != nil {
@@ -171,7 +191,89 @@ func openSentReviewsDB() (*sql.DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("failed to index review ledger: %w", err)
 	}
+	if err := migrateSentReviewsSchema(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate review ledger: %w", err)
+	}
 	return db, nil
+}
+
+// migrateSentReviewsSchema advances the database through schema versions.
+//
+// The version is stored in PRAGMA user_version (a 32-bit integer baked into
+// the SQLite file header). Going from version 0 (a Phase 1 install where
+// the field never existed) to version 2 requires ALTER TABLE-adding the two
+// columns CREATE TABLE writes for a fresh install. ALTER TABLE ADD COLUMN
+// in SQLite is fast — it rewrites only the schema metadata, not the data.
+//
+// We skip migration entirely on a brand-new DB (version 0 with no rows
+// would still need the ALTER, but CREATE TABLE already wrote the new
+// columns above — checking for column existence via PRAGMA table_info is
+// the safe way to decide).
+func migrateSentReviewsSchema(db *sql.DB) error {
+	var current int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&current); err != nil {
+		return fmt.Errorf("read user_version: %w", err)
+	}
+	if current >= sentReviewsSchemaVersion {
+		return nil
+	}
+
+	// Version 0 (pre-v2 install) → version 2: add host_resolved_at and
+	// delivery_seq. We add columns only if they don't already exist — a DB
+	// created fresh by sentReviewsCreateTable above already has them, so the
+	// ALTER would error.
+	hasHost, err := columnExists(db, "sent_reviews", "host_resolved_at")
+	if err != nil {
+		return err
+	}
+	if !hasHost {
+		if _, err := db.Exec(`ALTER TABLE sent_reviews ADD COLUMN host_resolved_at TEXT`); err != nil {
+			return fmt.Errorf("add host_resolved_at: %w", err)
+		}
+	}
+	hasSeq, err := columnExists(db, "sent_reviews", "delivery_seq")
+	if err != nil {
+		return err
+	}
+	if !hasSeq {
+		if _, err := db.Exec(`ALTER TABLE sent_reviews ADD COLUMN delivery_seq INTEGER`); err != nil {
+			return fmt.Errorf("add delivery_seq: %w", err)
+		}
+	}
+
+	// Stamp the version. PRAGMA user_version takes a bare integer, no params.
+	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", sentReviewsSchemaVersion)); err != nil {
+		return fmt.Errorf("stamp user_version: %w", err)
+	}
+	return nil
+}
+
+// columnExists reports whether table has a column with the given name. Uses
+// PRAGMA table_info — cheap, no full-table scan.
+func columnExists(db *sql.DB, table, column string) (bool, error) {
+	rows, err := db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return false, fmt.Errorf("table_info(%s): %w", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			cid     int
+			name    string
+			ctype   string
+			notnull int
+			dflt    sql.NullString
+			pk      int
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 // currentIdentity returns the logged-in user's username, or "" when not
@@ -189,6 +291,15 @@ func splitEndpointPath(path string) (owner, slug string) {
 		return parts[0], parts[1]
 	}
 	return "", path
+}
+
+// joinEndpointPath reverses splitEndpointPath. When both halves are empty it
+// returns "" (rather than "/") so callers don't have to special-case it.
+func joinEndpointPath(owner, slug string) string {
+	if owner == "" && slug == "" {
+		return ""
+	}
+	return owner + "/" + slug
 }
 
 // RecordSentReview durably records a manual-review hold the user just received
@@ -215,7 +326,7 @@ func (a *App) RecordSentReview(input SentReviewInput) error {
 	if err != nil {
 		return fmt.Errorf("failed to encode request messages: %w", err)
 	}
-	submittedAt := time.Now().UTC().Format(isoMicroLayout)
+	submittedAt := time.Now().UTC().Format(manualreview.ISOMicroLayout)
 
 	db, err := openSentReviewsDB()
 	if err != nil {
@@ -306,20 +417,23 @@ func sentReviewQuery(identity, statusFilter string) (string, []any) {
 // scanSentReviewRow reads one row into a decoded SentReviewEntry.
 func scanSentReviewRow(rows *sql.Rows) (SentReviewEntry, error) {
 	var (
-		entry        SentReviewEntry
-		policyName   sql.NullString
-		messagesJSON sql.NullString
-		placeholder  sql.NullString
-		resolvedAt   sql.NullString
-		rejectReason sql.NullString
-		responseText sql.NullString
-		userNote     sql.NullString
+		entry          SentReviewEntry
+		policyName     sql.NullString
+		messagesJSON   sql.NullString
+		placeholder    sql.NullString
+		resolvedAt     sql.NullString
+		rejectReason   sql.NullString
+		responseText   sql.NullString
+		userNote       sql.NullString
+		hostResolvedAt sql.NullString
+		deliverySeq    sql.NullInt64
 	)
 	if err := rows.Scan(
 		&entry.ReviewID, &entry.Identity, &entry.EndpointPath, &entry.EndpointOwner,
 		&entry.EndpointSlug, &entry.EndpointName, &entry.EndpointType, &policyName,
 		&messagesJSON, &placeholder, &entry.SubmittedAt, &entry.Status,
 		&entry.StatusSource, &resolvedAt, &rejectReason, &responseText, &userNote,
+		&hostResolvedAt, &deliverySeq,
 	); err != nil {
 		return SentReviewEntry{}, err
 	}
@@ -329,6 +443,10 @@ func scanSentReviewRow(rows *sql.Rows) (SentReviewEntry, error) {
 	entry.RejectReason = rejectReason.String
 	entry.ResponseText = responseText.String
 	entry.UserNote = userNote.String
+	entry.HostResolvedAt = hostResolvedAt.String
+	if deliverySeq.Valid {
+		entry.DeliverySeq = uint64(deliverySeq.Int64)
+	}
 	entry.RequestMessages = decodeMessagesJSON(messagesJSON.String)
 	return entry, nil
 }
@@ -377,7 +495,7 @@ func (a *App) SetSentReviewStatus(reviewID, status, reason string) error {
 	if status == reviewStatusRejected {
 		rejectReason = reason
 	}
-	resolvedAt := time.Now().UTC().Format(isoMicroLayout)
+	resolvedAt := time.Now().UTC().Format(manualreview.ISOMicroLayout)
 
 	res, err := db.Exec(
 		`UPDATE sent_reviews
@@ -398,6 +516,54 @@ func (a *App) SetSentReviewStatus(reviewID, status, reason string) error {
 	}
 	if a.ctx != nil {
 		runtime.LogDebug(a.ctx, fmt.Sprintf("SetSentReviewStatus: %s -> %s (manual)", reviewID, status))
+	}
+	return nil
+}
+
+// DeleteSentReview removes a single entry from the caller's ledger.
+//
+// This is a hard delete — the row is gone from sent-reviews.db with no
+// tombstone. A subsequent host-delivered resolution for the same review_id
+// (the host's manual_review_routing still has it, and JetStream retention
+// holds the envelope) will land via ApplyHostResolution's synth-INSERT path
+// and re-create a "queried" row. That's an intentional trade: tombstoning
+// would complicate every sent_reviews query for a rare race; if the user
+// really wants the row gone they can delete it again after the resolution
+// arrives.
+//
+// Identity-scoped so a delete from one user's session never touches another
+// user's row on a shared desktop install.
+func (a *App) DeleteSentReview(reviewID string) error {
+	if reviewID == "" {
+		return fmt.Errorf("review id is required")
+	}
+	identity := a.currentIdentity()
+	if identity == "" {
+		return fmt.Errorf("not authenticated")
+	}
+
+	db, err := openSentReviewsDB()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	res, err := db.Exec(
+		"DELETE FROM sent_reviews WHERE review_id = ? AND identity = ?",
+		reviewID, identity,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to delete review: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to confirm delete: %w", err)
+	}
+	if affected == 0 {
+		return fmt.Errorf("review %q not found", reviewID)
+	}
+	if a.ctx != nil {
+		runtime.LogDebug(a.ctx, fmt.Sprintf("DeleteSentReview: %s", reviewID))
 	}
 	return nil
 }

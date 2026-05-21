@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/manualreview"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	_ "modernc.org/sqlite" // pure-Go SQLite driver, registered as "sqlite"
 )
@@ -148,6 +150,14 @@ func (a *App) RejectManualReview(slug, reviewID, reason string) error {
 // resolved_at are set, pending is cleared, and reject_reason is stored only
 // for rejections — so a row resolved here is indistinguishable from one
 // resolved by the policy's own approve()/reject() helpers.
+//
+// After a successful UPDATE we additionally fire publishResolution to deliver
+// the outcome (and, on approval, the real held output) back to the caller via
+// the manual-review resolution channel. The publish is best-effort: a wire
+// failure does NOT roll back the local UPDATE, and the routing row is left
+// undelivered for a future reconcile pass to pick up. The publish runs in a
+// goroutine so the Wails Approve/Reject call doesn't block on a slow NATS
+// round-trip.
 func (a *App) resolveManualReview(slug, reviewID, status, reason string) error {
 	if err := validateSlug(slug); err != nil {
 		return err
@@ -183,9 +193,7 @@ func (a *App) resolveManualReview(slug, reviewID, status, reason string) error {
 		rejectReason = reason
 	}
 
-	// ISO-8601 UTC with microseconds and a +00:00 offset — the same shape
-	// Python's datetime.now(UTC).isoformat() writes for created_at.
-	resolvedAt := time.Now().UTC().Format("2006-01-02T15:04:05.000000-07:00")
+	resolvedAt := time.Now().UTC().Format(manualreview.ISOMicroLayout)
 
 	res, err := db.Exec(
 		`UPDATE manual_reviews
@@ -207,7 +215,160 @@ func (a *App) resolveManualReview(slug, reviewID, status, reason string) error {
 	if a.ctx != nil {
 		runtime.LogDebug(a.ctx, fmt.Sprintf("resolveManualReview: %s %s -> %s", slug, reviewID, status))
 	}
+
+	// Deliver the resolution over the wire. Fire-and-forget — the UPDATE
+	// above is the local source of truth and must not be rolled back on a
+	// publish failure. Snapshot the held output BEFORE returning so the
+	// goroutine can finish even after the SQLite connection here closes
+	// (the goroutine opens its own).
+	go a.publishResolution(slug, reviewID, status, reason, resolvedAt)
+
 	return nil
+}
+
+// publishResolution loads the routing row + the held handler output for a
+// resolved review, encrypts the payload to the caller, and publishes via
+// the ReviewPublisher. Errors are logged + recorded on the routing row but
+// not propagated — the local UPDATE in resolveManualReview is already
+// committed by the time we run.
+//
+// No publisher (HTTP mode, no JetStream, app not yet set up) → quiet no-op.
+// No routing row (capture failed, or pre-feature legacy hold) → quiet no-op.
+func (a *App) publishResolution(slug, reviewID, status, reason, resolvedAt string) {
+	a.mu.RLock()
+	pub := a.reviewPublisher
+	a.mu.RUnlock()
+	if pub == nil {
+		return
+	}
+
+	config, err := a.getConfig()
+	if err != nil {
+		a.logWarn("publishResolution: getConfig failed: %v", err)
+		return
+	}
+	dbPath := reviewStoreDBPath(config.EndpointsPath, slug)
+
+	// Look up the routing row. openRoutingRecorder is the SDK-facing
+	// constructor; it opens the same store.db the policy writes to.
+	recorder, err := openRoutingRecorder(dbPath)
+	if err != nil {
+		a.logWarn("publishResolution: open recorder: %v", err)
+		return
+	}
+	defer recorder.Close()
+
+	routing, err := recorder.Load(reviewID)
+	if err != nil {
+		a.logWarn("publishResolution: load routing %s: %v", reviewID, err)
+		return
+	}
+	if routing == nil {
+		// No routing row was ever captured (legacy hold, or recorder was
+		// absent at capture time). Nothing to do; the caller's "manual"
+		// override path is the only remaining channel.
+		a.logDebug("publishResolution: no routing row for %s (legacy hold)", reviewID)
+		return
+	}
+	if routing.DeliveredAt != "" {
+		// Already delivered (a re-resolve or a startup-replay race) — nothing
+		// to do. MarkDelivered's COALESCE keeps the original timestamp.
+		return
+	}
+
+	// Snapshot the held output + policy name from manual_reviews so we can
+	// hand them to the publisher. We open the same DB read-only here; the
+	// recorder's connection is for the routing table only.
+	heldOutput, policyName, endpointName := a.loadHeldOutput(dbPath, reviewID, slug)
+
+	payload := manualreview.ResolvedPayload{
+		ReviewID:       reviewID,
+		Status:         status,
+		ResolvedAt:     resolvedAt,
+		ResponseText:   resolutionResponseText(status, heldOutput),
+		RejectReason:   resolutionRejectReason(status, reason),
+		ResolverUserID: a.currentIdentity(),
+	}
+
+	pubCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	seq, err := pub.PublishWithMeta(pubCtx, *routing, payload,
+		a.currentIdentity(), slug, endpointName, policyName)
+	if err != nil {
+		a.logWarn("publishResolution: %s -> %s: %v", reviewID, routing.InboxSubject, err)
+		if rerr := recorder.RecordAttempt(reviewID,
+			time.Now().UTC().Format(manualreview.ISOMicroLayout), err.Error()); rerr != nil {
+			a.logWarn("publishResolution: record attempt: %v", rerr)
+		}
+		return
+	}
+	if err := recorder.MarkDelivered(reviewID,
+		time.Now().UTC().Format(manualreview.ISOMicroLayout)); err != nil {
+		a.logWarn("publishResolution: mark delivered: %v", err)
+	}
+	a.logDebug("publishResolution: delivered %s seq=%d", reviewID, seq)
+}
+
+// resolutionResponseText returns the held output as text for an approval,
+// empty otherwise. Even though the payload could carry the full held output
+// on rejection too, sending it would leak the real answer to a caller whose
+// request was deemed unfit — that's the whole point of rejection.
+func resolutionResponseText(status, heldOutput string) string {
+	if status == reviewStatusApproved {
+		return heldOutput
+	}
+	return ""
+}
+
+// resolutionRejectReason returns the reason for a rejection, empty otherwise.
+func resolutionRejectReason(status, reason string) string {
+	if status == reviewStatusRejected {
+		return reason
+	}
+	return ""
+}
+
+// loadHeldOutput reads the held handler output (the real answer the caller
+// never received) plus the policy_name and endpoint_name for one review_id.
+// Returns empty strings on any error — best-effort so a partial DB doesn't
+// block the publish.
+func (a *App) loadHeldOutput(dbPath, reviewID, slug string) (heldOutput, policyName, endpointName string) {
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=busy_timeout(5000)&mode=ro")
+	if err != nil {
+		return "", "", ""
+	}
+	defer db.Close()
+
+	var (
+		rawOutput string
+		policy    string
+	)
+	err = db.QueryRow(
+		`SELECT IFNULL(output, ''), IFNULL(policy_name, '') FROM manual_reviews WHERE review_id = ?`,
+		reviewID,
+	).Scan(&rawOutput, &policy)
+	if err != nil {
+		return "", "", ""
+	}
+	heldOutput = decodeReviewOutput(rawOutput)
+	policyName = policy
+	// endpoint_name isn't in manual_reviews; fall back to slug. The caller's
+	// frontend resolves the display name from the path on its end.
+	endpointName = slug
+	return heldOutput, policyName, endpointName
+}
+
+// logWarn / logDebug are nil-ctx-safe wrappers around the Wails logger so
+// unit tests (a.ctx == nil) can exercise these methods without panicking.
+func (a *App) logWarn(format string, args ...any) {
+	if a.ctx != nil {
+		runtime.LogWarning(a.ctx, fmt.Sprintf(format, args...))
+	}
+}
+func (a *App) logDebug(format string, args ...any) {
+	if a.ctx != nil {
+		runtime.LogDebug(a.ctx, fmt.Sprintf(format, args...))
+	}
 }
 
 // manualReviewsTableExists reports whether the manual_reviews table is present.

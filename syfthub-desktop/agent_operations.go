@@ -42,6 +42,43 @@ const agentStartTimeout = 30 * time.Second
 // Any previous session is cancelled before the new one starts so the frontend
 // only ever has one live transcript.
 func (a *App) StartAgentSession(endpointPath string, prompt string) (string, error) {
+	return a.startAgentSessionInternal(endpointPath, prompt, nil)
+}
+
+// StartAgentSessionWithHistory is the continuation variant: the agent receives
+// `history` as the prior conversation context before `prompt`. This is how the
+// chat UI resumes a thread from an approved sent-review — the held turn (user
+// message + agent's real reply) becomes the conversation history of the new
+// live session so the agent sees the full thread, not just the new prompt.
+//
+// historyJSON is a JSON-encoded []agenttypes.Message; we keep it as a string
+// at the Wails surface because the generated TypeScript bindings handle JSON
+// blobs more predictably than nested struct slices.
+func (a *App) StartAgentSessionWithHistory(endpointPath string, prompt string, historyJSON string) (string, error) {
+	var history []agenttypes.Message
+	if historyJSON != "" {
+		if err := json.Unmarshal([]byte(historyJSON), &history); err != nil {
+			return "", fmt.Errorf("invalid history payload: %w", err)
+		}
+	}
+	// Validate role values defensively — the host's policy engine sees these
+	// verbatim, and an unknown role could behave unpredictably. We trust the
+	// frontend but draw a single line of defense.
+	for i, m := range history {
+		switch m.Role {
+		case "user", "assistant", "system":
+		default:
+			return "", fmt.Errorf("history[%d]: unsupported role %q", i, m.Role)
+		}
+	}
+	return a.startAgentSessionInternal(endpointPath, prompt, history)
+}
+
+// startAgentSessionInternal does the actual dial work. history may be nil for
+// a fresh chat (the original StartAgentSession path) or carry prior turns for
+// a continuation. The dial path is identical either way — DialParams.Messages
+// is what carries the history to the host's AgentSessionStartPayload.
+func (a *App) startAgentSessionInternal(endpointPath, prompt string, history []agenttypes.Message) (string, error) {
 	a.mu.RLock()
 	client := a.syftClient
 	core := a.core
@@ -106,6 +143,7 @@ func (a *App) StartAgentSession(endpointPath string, prompt string) (string, err
 		SatelliteToken:   satResp.TargetToken,
 		Prompt:           prompt,
 		EndpointSlug:     slug,
+		Messages:         history,
 		Capabilities:     []string{agenttypes.AttachmentCapability},
 	})
 	if err != nil {
