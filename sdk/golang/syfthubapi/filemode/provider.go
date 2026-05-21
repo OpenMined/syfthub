@@ -15,6 +15,7 @@ import (
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/containermode"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/manualreview"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
@@ -59,7 +60,16 @@ type Provider struct {
 	endpoints        []*syfthubapi.Endpoint
 	executors        map[string]syfthubapi.Executor
 	noopHandlerPaths map[string]string // slug -> temp file path for noop policy handlers
-	mu               sync.RWMutex
+
+	// routingRecorderFactory, when non-nil, builds a manualreview.RoutingRecorder
+	// per agent endpoint that has policies configured. Set by the embedder
+	// (typically the desktop) which holds the SQLite driver dependency the
+	// SDK intentionally avoids. routingRecorders maps slug -> recorder for
+	// cleanup on endpoint removal and provider shutdown.
+	routingRecorderFactory manualreview.RoutingRecorderFactory
+	routingRecorders       map[string]manualreview.RoutingRecorder
+
+	mu sync.RWMutex
 
 	onReload   func([]*syfthubapi.Endpoint)
 	onProgress LoadProgressCallback
@@ -82,6 +92,15 @@ type ProviderConfig struct {
 	// transition during LoadEndpoints. Called from the build goroutine,
 	// so the callback must be safe for concurrent invocation.
 	OnProgress LoadProgressCallback
+
+	// RoutingRecorderFactory, when non-nil, is invoked once per agent
+	// endpoint that has policies configured. The resulting RoutingRecorder
+	// is wired into the AgentExecutor for that endpoint so pending policy
+	// notices carrying a manual_review handle are captured for later
+	// resolution delivery. When nil, manual-review capture is disabled and
+	// the executor still surfaces notices but resolutions can only be
+	// reconciled via the caller-side "mark manually" path.
+	RoutingRecorderFactory manualreview.RoutingRecorderFactory
 }
 
 // NewProvider creates a new file-based endpoint provider.
@@ -133,20 +152,22 @@ func NewProvider(cfg *ProviderConfig) (*Provider, error) {
 	}
 
 	p := &Provider{
-		basePath:         cfg.BasePath,
-		pythonPath:       pythonPath,
-		watchEnabled:     cfg.WatchEnabled,
-		debounce:         debounce,
-		logger:           logger,
-		loader:           loader,
-		venvManager:      venvManager,
-		embeddedPython:   embeddedPython,
-		executors:        make(map[string]syfthubapi.Executor),
-		noopHandlerPaths: make(map[string]string),
-		onReload:         cfg.OnReload,
-		onProgress:       cfg.OnProgress,
-		stopCh:           make(chan struct{}),
-		stoppedCh:        make(chan struct{}),
+		basePath:               cfg.BasePath,
+		pythonPath:             pythonPath,
+		watchEnabled:           cfg.WatchEnabled,
+		debounce:               debounce,
+		logger:                 logger,
+		loader:                 loader,
+		venvManager:            venvManager,
+		embeddedPython:         embeddedPython,
+		executors:              make(map[string]syfthubapi.Executor),
+		noopHandlerPaths:       make(map[string]string),
+		routingRecorderFactory: cfg.RoutingRecorderFactory,
+		routingRecorders:       make(map[string]manualreview.RoutingRecorder),
+		onReload:               cfg.OnReload,
+		onProgress:             cfg.OnProgress,
+		stopCh:                 make(chan struct{}),
+		stoppedCh:              make(chan struct{}),
 	}
 
 	return p, nil
@@ -259,6 +280,17 @@ func (p *Provider) cleanupResources() {
 		}
 	}
 	p.noopHandlerPaths = make(map[string]string)
+
+	// Close all manual-review routing recorders. Each recorder owns a SQLite
+	// connection to the endpoint's policy/store.db; the connection survives
+	// across reloads (executor lifecycle is independent) so closing here on
+	// provider shutdown is sufficient.
+	for slug, rec := range p.routingRecorders {
+		if err := rec.Close(); err != nil {
+			p.logger.Warn("failed to close routing recorder", "slug", slug, "error", err)
+		}
+	}
+	p.routingRecorders = make(map[string]manualreview.RoutingRecorder)
 
 	// Remove the entire synth root for this provider instance so
 	// container-mode endpoints don't leave stale staging dirs in $TMPDIR
@@ -554,6 +586,14 @@ func (p *Provider) createEndpoint(loaded *LoadedEndpoint) (*syfthubapi.Endpoint,
 			}
 			handlerCfg.PolicyExecutor = policyExec
 			p.executors[loaded.Config.Slug+".policy"] = policyExec
+
+			// Wire a manual-review routing recorder so pending policy notices
+			// surfaced during this agent's sessions are captured for later
+			// resolution delivery.
+			if rec := p.openRoutingRecorder(loaded); rec != nil {
+				handlerCfg.RoutingRecorder = rec
+				p.routingRecorders[loaded.Config.Slug] = rec
+			}
 		}
 	} else {
 		// Model/DataSource endpoints use one-shot subprocess executor
@@ -584,6 +624,27 @@ func (p *Provider) createEndpoint(loaded *LoadedEndpoint) (*syfthubapi.Endpoint,
 // noop handler, builds the executor, AND mutates p.noopHandlerPaths.
 // Caller must hold p.mu. Used by the file-mode createEndpoint path
 // (which already holds the lock for the whole loop).
+// openRoutingRecorder builds a manualreview routing recorder for loaded if the
+// embedder supplied a factory and the endpoint actually has a policy store.
+// Returns nil when capture is disabled or the factory fails (logged) — callers
+// treat nil as "manual-review delivery disabled for this endpoint" and the
+// agent executor still surfaces pending notices.
+func (p *Provider) openRoutingRecorder(loaded *LoadedEndpoint) manualreview.RoutingRecorder {
+	if p.routingRecorderFactory == nil || loaded.StoreConfig == nil || loaded.StoreConfig.Path == "" {
+		return nil
+	}
+	rec, err := p.routingRecorderFactory(loaded.StoreConfig.Path)
+	if err != nil {
+		p.logger.Warn("[POLICY-SETUP] failed to open manual-review routing recorder — manual-review delivery will be disabled for this endpoint",
+			"slug", loaded.Config.Slug,
+			"store_db", loaded.StoreConfig.Path,
+			"error", err,
+		)
+		return nil
+	}
+	return rec
+}
+
 func (p *Provider) createAgentPolicyExecutor(loaded *LoadedEndpoint, pythonPath string) (syfthubapi.Executor, error) {
 	exec, noopPath, err := p.buildAgentPolicyExecutor(loaded, pythonPath)
 	if err != nil {
@@ -747,6 +808,18 @@ func (p *Provider) removeEndpointLocked(slug string) {
 	delete(p.executors, slug)
 	delete(p.executors, slug+".policy")
 	// Keep p.noopHandlerPaths entry intact — see comment above.
+
+	// Close the routing recorder for this endpoint. Unlike the noop handler
+	// file, the recorder is purely in-memory state — closing it here is safe
+	// because the AgentExecutor that holds a reference to it goes away when
+	// the old invoker is closed by ReplaceFileBased (the new endpoint, if
+	// any, gets a fresh recorder via the factory in createEndpoint).
+	if rec, ok := p.routingRecorders[slug]; ok {
+		if err := rec.Close(); err != nil {
+			p.logger.Warn("failed to close routing recorder on reload", "slug", slug, "error", err)
+		}
+		delete(p.routingRecorders, slug)
+	}
 }
 
 // RemoveEndpoint removes a single endpoint by slug from both the executor map
@@ -810,6 +883,13 @@ type containerBuildResult struct {
 	executor   syfthubapi.Executor
 	policyExec syfthubapi.Executor // nil unless agent + policies
 	noopPath   string              // empty unless policyExec is set
+
+	// routingRecorder mirrors the subprocess path: when the agent endpoint
+	// has policies AND the provider has a recorder factory, we open a
+	// recorder against the policy store.db here so manual-review notices
+	// surfaced during the session are captured for later delivery. nil
+	// otherwise. Committed into p.routingRecorders by commitContainerBuild.
+	routingRecorder manualreview.RoutingRecorder
 }
 
 // createContainerEndpoint is preserved as a single-shot path used by the
@@ -1026,6 +1106,14 @@ func (p *Provider) buildContainerEndpoint(ctx context.Context, loaded *LoadedEnd
 			handlerCfg.PolicyExecutor = policyExec
 			br.policyExec = policyExec
 			br.noopPath = noopPath
+
+			// Wire a manual-review routing recorder so pending policy notices
+			// surfaced during this agent's container sessions are captured
+			// for later resolution delivery.
+			if rec := p.openRoutingRecorder(loaded); rec != nil {
+				handlerCfg.RoutingRecorder = rec
+				br.routingRecorder = rec
+			}
 		}
 	} else {
 		handlerCfg.Executor = executor
@@ -1050,6 +1138,14 @@ func (p *Provider) commitContainerBuild(br *containerBuildResult) {
 	}
 	if br.noopPath != "" {
 		p.noopHandlerPaths[slug] = br.noopPath
+	}
+	if br.routingRecorder != nil {
+		// Close any previous recorder for this slug (selective reload path)
+		// before stashing the new one so the prior SQLite handle is released.
+		if old, ok := p.routingRecorders[slug]; ok {
+			_ = old.Close()
+		}
+		p.routingRecorders[slug] = br.routingRecorder
 	}
 }
 

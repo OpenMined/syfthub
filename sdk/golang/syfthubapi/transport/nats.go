@@ -257,6 +257,14 @@ func (b *agentNATSBridge) handleSessionStart(env *syfthubapi.AgentEnvelope, ciph
 		"endpoint", startPayload.EndpointSlug,
 		"user_sub", user.Sub, "username", user.Username)
 
+	// Lift caller-identity material from the envelope into the payload so the
+	// session manager can plumb it into AgentSession. The envelope carries
+	// these unconditionally on the v2 path; the wire JSON does not (the
+	// fields are json:"-" on AgentSessionStartPayload) — this is the single
+	// point where they enter the parent package.
+	startPayload.CallerPublicKeyB64 = env.SenderPublicKey
+	startPayload.CallerReplyTo = env.ReplyTo
+
 	session, err := b.handler.StartSession(startPayload, user)
 	if err == nil && session != nil {
 		b.bindObjectStoreAttachments(session, startPayload.SessionAttachmentKey)

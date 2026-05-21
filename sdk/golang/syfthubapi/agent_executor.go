@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/manualreview"
 )
 
 // policyCheckTimeout caps every per-turn policy evaluation. Long enough to
@@ -32,16 +34,53 @@ type AgentExecutor struct {
 	policyExecutor Executor // runs `python -m policy_manager.runner`
 	slug           string
 	logger         *slog.Logger
+
+	// routingRecorder, when non-nil, captures a routing row for every pending
+	// policy notice that carries a manual_review handle. It lets the host
+	// later deliver the resolution back to the original caller via the
+	// durable resolution-inbox path (manualreview package). nil-safe: when
+	// no recorder is configured the executor still surfaces the notice,
+	// just without the durable-delivery side-effect.
+	routingRecorder manualreview.RoutingRecorder
+}
+
+// AgentExecutorConfig holds the optional dependencies an AgentExecutor can
+// be constructed with. Keeping these in a struct rather than positional args
+// lets new optional plumbing (like routingRecorder) land without churning
+// every caller.
+type AgentExecutorConfig struct {
+	Logger          *slog.Logger
+	RoutingRecorder manualreview.RoutingRecorder
 }
 
 // NewAgentExecutor creates an AgentExecutor that gates inner with the policy
 // chain carried by pol. pol is a policy-running Executor — it injects the
 // endpoint's policy configs and store config into each invocation.
+//
+// The signature is preserved for backwards compatibility; the new optional
+// plumbing (routing recorder) is set after construction via SetRoutingRecorder
+// or — preferred — through NewAgentExecutorWithConfig.
 func NewAgentExecutor(inner AgentHandler, pol Executor, slug string, logger *slog.Logger) *AgentExecutor {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &AgentExecutor{inner: inner, policyExecutor: pol, slug: slug, logger: logger}
+}
+
+// NewAgentExecutorWithConfig is the preferred constructor for callers that
+// want to wire the routing recorder at build time. Falls back to slog.Default
+// when cfg.Logger is nil.
+func NewAgentExecutorWithConfig(inner AgentHandler, pol Executor, slug string, cfg AgentExecutorConfig) *AgentExecutor {
+	a := NewAgentExecutor(inner, pol, slug, cfg.Logger)
+	a.routingRecorder = cfg.RoutingRecorder
+	return a
+}
+
+// SetRoutingRecorder installs (or replaces) the recorder. Safe to call
+// before Handler() is invoked; not safe to swap mid-session. Used by paths
+// that build the executor before the recorder is ready.
+func (a *AgentExecutor) SetRoutingRecorder(r manualreview.RoutingRecorder) {
+	a.routingRecorder = r
 }
 
 // Handler returns an AgentHandler that runs the wrapped agent with per-turn
@@ -273,12 +312,14 @@ func (a *AgentExecutor) handleReply(
 		a.logger.Info("[AGENT-POLICY] reply withheld pending policy resolution",
 			"slug", a.slug, "policy", out.PolicyResult.PolicyName,
 			"pending_flag", out.PolicyResult.Pending)
+		reviewID := metadataString(out.PolicyResult.Metadata, metadataReviewIDKey)
+		a.captureManualReviewRouting(outer, reviewID)
 		a.sendPolicyNotice(outer, policyNotice{
 			Status:     policyStatusPending,
 			Phase:      PolicyPhasePost,
 			PolicyName: out.PolicyResult.PolicyName,
 			Reason:     delivered,
-			ReviewID:   metadataString(out.PolicyResult.Metadata, metadataReviewIDKey),
+			ReviewID:   reviewID,
 		})
 		return
 	}
@@ -312,12 +353,22 @@ func (a *AgentExecutor) runPolicy(ctx context.Context, in *ExecutorInput) (*Exec
 }
 
 // checkPre runs the pre-execution chain against a user message.
+//
+// We pass the FULL conversation transcript (prior turns + the just-delivered
+// user message) — not just the new user text — so the policy runner stores
+// real context against the held request. The host's manual-review UI reads
+// manual_reviews.input verbatim, and a one-line snapshot of "user N just
+// said X" with no preceding context makes long threads impossible to review.
+// outer.Transcript() already returns the right sequence: seeded history from
+// session_start plus user messages appended by DeliverMessage plus assistant
+// messages appended by Send. The current user turn has already been
+// DeliverMessage'd by the bridge before we get here.
 func (a *AgentExecutor) checkPre(
 	ctx context.Context, outer *AgentSession, userText string,
 ) (*PolicyResultOutput, error) {
 	in := a.baseInput(outer)
 	in.PolicyPhase = PolicyPhasePre
-	in.Messages = []Message{{Role: "user", Content: userText}}
+	in.Messages = transcriptForPolicy(outer, userText)
 	out, err := a.runPolicy(ctx, in)
 	if err != nil {
 		return nil, err
@@ -326,14 +377,46 @@ func (a *AgentExecutor) checkPre(
 }
 
 // checkPost runs the post-execution chain against the agent's reply.
+//
+// As with checkPre, in.Messages carries the full transcript context — but
+// NOT the assistant reply being checked. The reply lives in in.Output, which
+// is what the post-execution policies (manual_review included) actually
+// evaluate against. The transcript ends at the user message that prompted
+// this reply so manual_reviews.input is the conversation up to (but not
+// including) the assistant turn that was held.
 func (a *AgentExecutor) checkPost(
 	ctx context.Context, outer *AgentSession, userText, reply string,
 ) (*ExecutorOutput, error) {
 	in := a.baseInput(outer)
 	in.PolicyPhase = PolicyPhasePost
-	in.Messages = []Message{{Role: "user", Content: userText}}
+	in.Messages = transcriptForPolicy(outer, userText)
 	in.Output, _ = json.Marshal(map[string]any{"response": reply})
 	return a.runPolicy(ctx, in)
+}
+
+// transcriptForPolicy returns the conversation the policy runner should see
+// for this turn. It prefers outer.Transcript() — which already accumulates
+// the seeded history + user/assistant messages — but defends against two
+// race-y states: an empty transcript (the bridge has not yet appended the
+// just-delivered user text), and a transcript whose tail does not match
+// userText (an external Send / DeliverMessage ordering edge case). In both
+// cases we synthesise / fix up the tail so the policy sees exactly
+// "[...prior, {user, userText}]".
+//
+// A transcript that DOES end with userText (the normal path) is returned
+// unchanged — the user message has already been recorded by DeliverMessage.
+func transcriptForPolicy(outer *AgentSession, userText string) []Message {
+	t := outer.Transcript()
+	if userText == "" {
+		return t
+	}
+	if n := len(t); n > 0 {
+		last := t[n-1]
+		if last.Role == "user" && last.Content == userText {
+			return t
+		}
+	}
+	return append(t, Message{Role: "user", Content: userText})
 }
 
 // baseInput builds the common ExecutorInput. The policy-running Executor
@@ -401,12 +484,14 @@ func (a *AgentExecutor) emitPending(outer *AgentSession, phase string, v *Policy
 		_ = outer.SendPaymentRequired(v.PolicyName, challenge, CopyPaymentMetadata(v.Metadata))
 		return
 	}
+	reviewID := metadataString(v.Metadata, metadataReviewIDKey)
+	a.captureManualReviewRouting(outer, reviewID)
 	a.sendPolicyNotice(outer, policyNotice{
 		Status:     policyStatusPending,
 		Phase:      phase,
 		PolicyName: v.PolicyName,
 		Reason:     v.Reason,
-		ReviewID:   metadataString(v.Metadata, metadataReviewIDKey),
+		ReviewID:   reviewID,
 	})
 }
 
@@ -462,6 +547,63 @@ func (a *AgentExecutor) reprompt(outer *AgentSession) {
 func metadataString(m map[string]any, key string) string {
 	s, _ := m[key].(string)
 	return s
+}
+
+// captureManualReviewRouting persists the metadata the host needs to deliver a
+// manual-review resolution back to the original caller hours or days after the
+// session ends. It is best-effort: a nil recorder, a missing review_id, or a
+// recorder error are logged and otherwise ignored — the pending notice still
+// surfaces. Capture must precede the notice surfacing so a crash between the
+// two leaves the routing row present rather than orphaning the caller.
+//
+// CallerPublicKeyB64 is the prerequisite — without it the host has no way to
+// derive a resolution cipher. When the session arrived through a path that
+// doesn't carry it (e.g. HTTP transport, in-process tests), the row would be
+// undeliverable, so we skip capture and the caller falls back to the existing
+// "manual status override" path on their side.
+func (a *AgentExecutor) captureManualReviewRouting(outer *AgentSession, reviewID string) {
+	if reviewID == "" {
+		return
+	}
+	if a.routingRecorder == nil {
+		// At info level so a misconfiguration (e.g. recorder factory not
+		// wired into the provider for one of the agent paths) is loud rather
+		// than silent. Phase 1 of this feature shipped with subprocess and
+		// container-mode wired in two different places — easy to forget one.
+		a.logger.Info("[AGENT-POLICY] manual-review routing recorder not configured — resolution will not be deliverable for this review",
+			"slug", a.slug, "session_id", outer.ID, "review_id", reviewID)
+		return
+	}
+	if outer.CallerPublicKeyB64 == "" {
+		a.logger.Info("[AGENT-POLICY] skipping routing capture — no caller pubkey on session (HTTP transport?)",
+			"slug", a.slug, "session_id", outer.ID, "review_id", reviewID)
+		return
+	}
+	if outer.User == nil || outer.User.Username == "" {
+		a.logger.Warn("[AGENT-POLICY] skipping routing capture — session has no authenticated user",
+			"slug", a.slug, "session_id", outer.ID, "review_id", reviewID)
+		return
+	}
+	row := manualreview.Routing{
+		ReviewID:        reviewID,
+		CallerUsername:  outer.User.Username,
+		CallerPubkeyB64: outer.CallerPublicKeyB64,
+		InboxSubject:    manualreview.InboxSubjectFor(outer.User.Username),
+		SessionID:       outer.ID,
+		PeerChannel:     outer.CallerReplyTo,
+		CapturedAt:      time.Now().UTC().Format(manualreview.ISOMicroLayout),
+	}
+	if err := a.routingRecorder.Record(row); err != nil {
+		// A capture failure must not block the user from learning the request
+		// was held — log and continue. The resolution can still be set
+		// manually on the caller side; only the durable-delivery path is lost.
+		a.logger.Error("[AGENT-POLICY] failed to record manual-review routing",
+			"slug", a.slug, "review_id", reviewID, "error", err)
+		return
+	}
+	a.logger.Info("[AGENT-POLICY] recorded manual-review routing",
+		"slug", a.slug, "review_id", reviewID,
+		"caller", outer.User.Username, "session_id", outer.ID)
 }
 
 // contentOfMessage extracts the content field of an agent.message event.

@@ -107,6 +107,22 @@ type AgentSessionStartPayload struct {
 	// "syfthub-attachment-v1" || file_id). Only meaningful when the
 	// "attachments" capability is present.
 	SessionAttachmentKey string `json:"session_attachment_key,omitempty"`
+
+	// CallerPublicKeyB64 is the caller's X25519 identity public key in
+	// base64url. The transport (agentNATSBridge.handleSessionStart) lifts it
+	// from the AgentEnvelope's SenderPublicKey and propagates it here so
+	// post-session features (manual-review resolution delivery) can encrypt
+	// to the caller without keeping a live NATS subscription. Never sent on
+	// the wire by clients — it is populated host-side from the envelope.
+	CallerPublicKeyB64 string `json:"-"`
+
+	// CallerReplyTo is the caller's per-session NATS reply channel name (the
+	// suffix of syfthub.peer.<channel>). Lifted from AgentEnvelope.ReplyTo by
+	// the transport. Used as a best-effort live-injection hint for
+	// resolutions that arrive while the session is still subscribed; the
+	// durable inbox is the authoritative delivery path. Never sent on the
+	// wire by clients.
+	CallerReplyTo string `json:"-"`
 }
 
 // HasCapability returns true if the payload declared the named capability.
@@ -167,14 +183,16 @@ func (m *AgentSessionManager) StartSession(
 	// Create session — long-lived WebSocket sessions use Background context
 	// (cancelled explicitly via CancelSession or session.Cancel).
 	session := NewAgentSession(context.Background(), AgentSessionParams{
-		ID:            payload.SessionID,
-		Prompt:        payload.Prompt,
-		EndpointSlug:  payload.EndpointSlug,
-		Messages:      payload.Messages,
-		Config:        payload.Config,
-		User:          user,
-		Capabilities:  payload.Capabilities,
-		AttachmentDir: attachDir,
+		ID:                 payload.SessionID,
+		Prompt:             payload.Prompt,
+		EndpointSlug:       payload.EndpointSlug,
+		Messages:           payload.Messages,
+		Config:             payload.Config,
+		User:               user,
+		Capabilities:       payload.Capabilities,
+		AttachmentDir:      attachDir,
+		CallerPublicKeyB64: payload.CallerPublicKeyB64,
+		CallerReplyTo:      payload.CallerReplyTo,
 	})
 
 	// Register session (enforce max sessions limit)
