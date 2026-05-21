@@ -77,6 +77,13 @@ func NewWatcher(cfg *WatcherConfig) (*Watcher, error) {
 			"store.db-wal",
 			"store.db-shm",
 			"store.db-journal",
+			// Handler workspace — the in-container runtime writes here on
+			// every agent session start (per-session subdirs under
+			// workspace/sessions/<id>/). Reloading on those writes would
+			// kill the active session by recreating its container. The
+			// workspace is bound R/W into the bwrap child by design; the
+			// host file watcher must stay out of it.
+			"workspace",
 		}
 	}
 
@@ -230,6 +237,20 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 		if err == nil && info.IsDir() && !w.shouldIgnore(event.Name) {
 			w.watcher.Add(event.Name)
 		}
+	}
+
+	// On Rename, drop the stale watch for the old path. inotify is inode-based,
+	// so when a watched directory is renamed fsnotify keeps the underlying
+	// watch alive with its recorded path stuck at the old name — and a later
+	// Add() for the new path is a no-op (fsnotify returns the existing watch
+	// unchanged when the inode is already known, backend_inotify.go:269-271).
+	// IN_MOVE_SELF then drops the watch entirely. Without this Remove(), every
+	// later event for the renamed directory would either arrive labelled with
+	// the old path or never arrive at all, and selective reload would chase a
+	// directory that no longer exists. By Remove'ing on Rename, the matching
+	// Create event for the new path is free to install a fresh watch.
+	if event.Op&fsnotify.Rename != 0 {
+		_ = w.watcher.Remove(event.Name)
 	}
 }
 

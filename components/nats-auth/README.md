@@ -11,7 +11,7 @@ scoped to exactly the subjects that connection may use.
 | Presented token | Source | Granted |
 |---|---|---|
 | **service token** | `NATS_AUTH_SERVICE_TOKEN` (backend, aggregator) | full `>` pub/sub |
-| **host token** `ht_…` | hub `GET /api/v1/nats/credentials` → Redis `nats:host:{tok}` | sub `syfthub.spaces.{user}`, pub `syfthub.peer.>`, JetStream |
+| **host token** `ht_…` | hub `GET /api/v1/nats/credentials` → Redis `nats:host:{tok}` | sub `syfthub.spaces.{user}`, `syfthub.inbox.{user}.review`, pub `syfthub.peer.>`, `syfthub.inbox.>`, JetStream |
 | **peer token** `pt_…` | hub `POST /api/v1/peer-token` → Redis `nats:peer:{tok}` | pub `syfthub.spaces.{target}`, sub `syfthub.peer.{channel}`, JetStream |
 | anything else | — | rejected |
 

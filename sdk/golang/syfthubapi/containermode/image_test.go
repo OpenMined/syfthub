@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -46,6 +47,7 @@ func TestResolveEndpointImage_DefaultFallback(t *testing.T) {
 		false, // no Dockerfile
 		"syfthub/endpoint-runner:latest",
 		logger,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -67,6 +69,7 @@ func TestResolveEndpointImage_RejectsNonCLIRuntime(t *testing.T) {
 		false,
 		"default:latest",
 		logger,
+		nil,
 	)
 	if err == nil {
 		t.Fatal("expected error for non-CLIRuntime with registry image")
@@ -81,6 +84,7 @@ func TestResolveEndpointImage_RejectsNonCLIRuntime(t *testing.T) {
 		true, // has Dockerfile
 		"default:latest",
 		logger,
+		nil,
 	)
 	if err == nil {
 		t.Fatal("expected error for non-CLIRuntime with Dockerfile")
@@ -88,26 +92,58 @@ func TestResolveEndpointImage_RejectsNonCLIRuntime(t *testing.T) {
 }
 
 func TestGetImageLabel_ReturnsEmptyOnMissing(t *testing.T) {
-	label := getImageLabel(context.Background(), "docker", "syfthub-nonexistent-test-image:never", "syfthub.dockerfile.hash")
-	if label != "" {
-		t.Errorf("expected empty label for nonexistent image, got %q", label)
+	labels, _ := getImageLabels(context.Background(), "docker", "syfthub-nonexistent-test-image:never", "syfthub.dockerfile.hash")
+	if got := labels["syfthub.dockerfile.hash"]; got != "" {
+		t.Errorf("expected empty label for nonexistent image, got %q", got)
 	}
 }
 
 func TestRunnerFS_ContainsAllFiles(t *testing.T) {
+	// The embedded runner/ dir is the build context for the default
+	// endpoint image. Files listed here MUST exist; the Dockerfile COPYs
+	// them into /usr/local/lib/syft_runtime/ and runs the bwrap probe.
 	expected := []string{
 		"runner/Dockerfile",
-		"runner/entrypoint.sh",
-		"runner/__init__.py",
-		"runner/__main__.py",
-		"runner/server.py",
-		"runner/session.py",
-		"runner/policy.py",
+		"runner/server.py",       // in-container HTTP multiplexer
+		"runner/syft_entry.py",   // in-bwrap loader
+		"runner/_syft_audit.py",  // audit hook (imported explicitly, NOT sitecustomize)
+		"runner/session_loop.py", // in-bwrap AgentSession
+		"runner/probe.sh",        // bwrap verification probe
 	}
 
 	for _, path := range expected {
 		if _, err := runnerFS.ReadFile(path); err != nil {
 			t.Errorf("missing embedded file %s: %v", path, err)
 		}
+	}
+}
+
+func TestBuildAugmentedDockerfile(t *testing.T) {
+	user := "FROM python:3.11-slim\nRUN pip install requests\n"
+	got := buildAugmentedDockerfile(user)
+	if !strings.HasPrefix(got, user) {
+		t.Errorf("augmented Dockerfile should start with user's content; got: %q", got[:min(len(got), 80)])
+	}
+	if !strings.Contains(got, "syfthub sandbox patch layer") {
+		t.Error("augmented Dockerfile missing sandbox patch marker")
+	}
+	if !strings.Contains(got, "bubblewrap") {
+		t.Error("augmented Dockerfile missing bubblewrap install")
+	}
+	if !strings.Contains(got, "/usr/local/lib/syft_runtime/server.py") {
+		t.Error("augmented Dockerfile missing entrypoint to server.py")
+	}
+	if !strings.Contains(got, `syfthub.sandbox.bwrap="verified"`) {
+		t.Error("augmented Dockerfile missing verified label")
+	}
+}
+
+func TestBuildAugmentedDockerfile_AddsNewlineWhenMissing(t *testing.T) {
+	// User's Dockerfile without trailing newline: the patch must not glue
+	// onto the last directive.
+	user := "FROM python:3.11-slim"
+	got := buildAugmentedDockerfile(user)
+	if !strings.Contains(got, "FROM python:3.11-slim\n") {
+		t.Errorf("augmented Dockerfile glued patch onto user's last line: %q", got)
 	}
 }

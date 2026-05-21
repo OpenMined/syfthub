@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/manualreview"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
 
@@ -194,6 +195,13 @@ type EndpointHandlerConfig struct {
 	AgentHandler   AgentHandler // for agents
 	PolicyExecutor Executor     // for agent policy checks
 	Logger         *slog.Logger // for agent invoker logging
+
+	// RoutingRecorder, when non-nil and the endpoint is an agent endpoint
+	// with policies, is wired into the AgentExecutor so each pending policy
+	// notice that carries a manual_review handle is captured for later
+	// resolution delivery. nil-safe for non-agent endpoints and for agents
+	// without policies — neither path needs it.
+	RoutingRecorder manualreview.RoutingRecorder
 }
 
 // SetHandler wires the endpoint's invoker from the given config.
@@ -208,7 +216,10 @@ func (e *Endpoint) SetHandler(cfg EndpointHandlerConfig) {
 		// path-specific code.
 		handler := cfg.AgentHandler
 		if cfg.PolicyExecutor != nil {
-			handler = NewAgentExecutor(handler, cfg.PolicyExecutor, e.Slug, cfg.Logger).Handler()
+			handler = NewAgentExecutorWithConfig(handler, cfg.PolicyExecutor, e.Slug, AgentExecutorConfig{
+				Logger:          cfg.Logger,
+				RoutingRecorder: cfg.RoutingRecorder,
+			}).Handler()
 		}
 		e.invoker = &AgentOneShotInvoker{
 			codec:          ModelCodec{},

@@ -89,6 +89,19 @@ type AgentSession struct {
 	// in session.start. See docs/architecture/attachments.md.
 	Capabilities []string
 
+	// CallerPublicKeyB64 is the caller's X25519 identity pubkey (base64url),
+	// lifted from AgentEnvelope.SenderPublicKey on session_start. Used by
+	// AgentExecutor to capture routing for a manual_review hold so the host
+	// can later encrypt the resolution back to the caller. Empty for sessions
+	// that arrived through paths that don't carry it (e.g. HTTP transport).
+	CallerPublicKeyB64 string
+
+	// CallerReplyTo is the caller's per-session NATS reply channel suffix
+	// (the part after "syfthub.peer."). Lifted from AgentEnvelope.ReplyTo on
+	// session_start; recorded so a manual-review resolution arriving while
+	// the session is still subscribed can be best-effort live-injected.
+	CallerReplyTo string
+
 	// AttachmentDir is the per-session tempdir for materialized attachment
 	// files. Set by the session manager when attachments are enabled; empty
 	// otherwise. Files in this directory are cleaned up on session end.
@@ -206,6 +219,13 @@ type AgentSessionParams struct {
 	User          *UserContext
 	Capabilities  []string
 	AttachmentDir string
+
+	// CallerPublicKeyB64 / CallerReplyTo are carried through from the
+	// session_start envelope so AgentSession can expose them. Both are
+	// optional — sessions not arriving over the v2 NATS transport may leave
+	// them empty.
+	CallerPublicKeyB64 string
+	CallerReplyTo      string
 }
 
 // NewAgentSession creates a new AgentSession with the given parameters.
@@ -219,20 +239,22 @@ func NewAgentSession(parentCtx context.Context, params AgentSessionParams) *Agen
 		recvAttachCh = make(chan AttachmentInfo, 32)
 	}
 	s := &AgentSession{
-		ID:            params.ID,
-		InitialPrompt: params.Prompt,
-		Messages:      params.Messages,
-		Config:        params.Config,
-		User:          params.User,
-		EndpointSlug:  params.EndpointSlug,
-		Capabilities:  params.Capabilities,
-		AttachmentDir: params.AttachmentDir,
-		recvAttachCh:  recvAttachCh,
-		ctx:           ctx,
-		cancel:        cancel,
-		sendCh:        make(chan AgentEventPayload, 100),
-		recvCh:        make(chan UserMessage, 100),
-		done:          make(chan struct{}),
+		ID:                 params.ID,
+		InitialPrompt:      params.Prompt,
+		Messages:           params.Messages,
+		Config:             params.Config,
+		User:               params.User,
+		EndpointSlug:       params.EndpointSlug,
+		Capabilities:       params.Capabilities,
+		AttachmentDir:      params.AttachmentDir,
+		CallerPublicKeyB64: params.CallerPublicKeyB64,
+		CallerReplyTo:      params.CallerReplyTo,
+		recvAttachCh:       recvAttachCh,
+		ctx:                ctx,
+		cancel:             cancel,
+		sendCh:             make(chan AgentEventPayload, 100),
+		recvCh:             make(chan UserMessage, 100),
+		done:               make(chan struct{}),
 	}
 	s.seedTranscript()
 	return s

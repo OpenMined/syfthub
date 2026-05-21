@@ -128,6 +128,10 @@ func TestWatcherShouldIgnoreDefaults(t *testing.T) {
 		{"/tmp/test/store.db-journal", true},
 		{"/tmp/test/runner.py", false},
 		{"/tmp/test/.env", false}, // .env should NOT be ignored
+		// Workspace — the in-container runtime writes session subdirs
+		// here on every agent session start. Reloading on those writes
+		// would kill the active session by rebuilding the container.
+		{"/tmp/test/workspace", true},
 	}
 
 	for _, tt := range tests {

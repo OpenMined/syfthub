@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/manualreview"
 )
 
 // fakeExecutor is a scripted policy Executor for AgentExecutor tests.
@@ -395,5 +398,188 @@ func TestAgentExecutor_PendingReplyCarriesPolicyNotice(t *testing.T) {
 	}
 	if got := firstContent(evs, EventTypeAgentMessage); strings.Contains(got, "the real reply") {
 		t.Errorf("the real reply leaked into a pending notice: %q", got)
+	}
+}
+
+// fakeRoutingRecorder captures Record calls and otherwise no-ops. The
+// recorder interface methods we don't exercise return nil/zero.
+type fakeRoutingRecorder struct {
+	mu      sync.Mutex
+	records []manualreview.Routing
+}
+
+func (f *fakeRoutingRecorder) Record(r manualreview.Routing) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.records = append(f.records, r)
+	return nil
+}
+func (f *fakeRoutingRecorder) Load(string) (*manualreview.Routing, error)       { return nil, nil }
+func (f *fakeRoutingRecorder) MarkDelivered(string, string) error               { return nil }
+func (f *fakeRoutingRecorder) RecordAttempt(string, string, string) error       { return nil }
+func (f *fakeRoutingRecorder) ListUndelivered() ([]manualreview.Routing, error) { return nil, nil }
+func (f *fakeRoutingRecorder) Close() error                                     { return nil }
+func (f *fakeRoutingRecorder) snapshot() []manualreview.Routing {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]manualreview.Routing, len(f.records))
+	copy(out, f.records)
+	return out
+}
+
+// runExecutorWith is runExecutor but with extra session params + an optional
+// recorder. The extra params let us populate CallerPublicKeyB64 / ReplyTo so
+// the routing-capture code path has the prerequisites it needs.
+func runExecutorWith(
+	t *testing.T,
+	fe *fakeExecutor,
+	inner AgentHandler,
+	prompt string,
+	sessionExtras AgentSessionParams,
+	rec manualreview.RoutingRecorder,
+	msgs ...UserMessage,
+) []AgentEventPayload {
+	t.Helper()
+	params := AgentSessionParams{
+		ID:                 "test",
+		Prompt:             prompt,
+		User:               &UserContext{Username: "alice"},
+		CallerPublicKeyB64: sessionExtras.CallerPublicKeyB64,
+		CallerReplyTo:      sessionExtras.CallerReplyTo,
+	}
+	if sessionExtras.ID != "" {
+		params.ID = sessionExtras.ID
+	}
+	if sessionExtras.User != nil {
+		params.User = sessionExtras.User
+	}
+	outer := NewAgentSession(context.Background(), params)
+	ax := NewAgentExecutorWithConfig(inner, fe, "ep", AgentExecutorConfig{RoutingRecorder: rec})
+	outer.RunHandler(ax.Handler())
+	for _, m := range msgs {
+		outer.DeliverMessage(m)
+	}
+	return drainSendCh(t, outer, time.Second)
+}
+
+// L — a manual_review hold (post-substitution) MUST record a routing row
+// before surfacing the pending notice, so the host can deliver the
+// resolution back to the caller after the session ends.
+func TestAgentExecutor_PendingNoticeCapturesRouting(t *testing.T) {
+	fe := &fakeExecutor{
+		pre: &PolicyResultOutput{Allowed: true},
+		post: func(_ *ExecutorInput) *ExecutorOutput {
+			return &ExecutorOutput{
+				Success: true,
+				Result:  json.RawMessage(`"Submitted for manual review"`),
+				PolicyResult: &PolicyResultOutput{
+					Allowed: true, Pending: true, PolicyName: "review-policy",
+					Metadata: map[string]any{"review_id": "0a1b2c3d4e5f"},
+				},
+			}
+		},
+	}
+	inner := func(_ context.Context, s *AgentSession) error {
+		return s.Send(agentMessageEvent("the real reply"))
+	}
+	rec := &fakeRoutingRecorder{}
+	_ = runExecutorWith(t, fe, inner, "hello",
+		AgentSessionParams{
+			ID:                 "sess-42",
+			CallerPublicKeyB64: "AAAA-caller-pubkey",
+			CallerReplyTo:      "peer-channel-xyz",
+		},
+		rec,
+	)
+
+	got := rec.snapshot()
+	if len(got) != 1 {
+		t.Fatalf("expected 1 routing record, got %d", len(got))
+	}
+	r := got[0]
+	if r.ReviewID != "0a1b2c3d4e5f" {
+		t.Errorf("ReviewID = %q, want %q", r.ReviewID, "0a1b2c3d4e5f")
+	}
+	if r.CallerUsername != "alice" {
+		t.Errorf("CallerUsername = %q, want %q", r.CallerUsername, "alice")
+	}
+	if r.CallerPubkeyB64 != "AAAA-caller-pubkey" {
+		t.Errorf("CallerPubkeyB64 = %q, want it lifted from the session", r.CallerPubkeyB64)
+	}
+	if r.InboxSubject != manualreview.InboxSubjectFor("alice") {
+		t.Errorf("InboxSubject = %q, want %q", r.InboxSubject, manualreview.InboxSubjectFor("alice"))
+	}
+	if r.SessionID != "sess-42" || r.PeerChannel != "peer-channel-xyz" {
+		t.Errorf("session/peer not plumbed: SessionID=%q PeerChannel=%q", r.SessionID, r.PeerChannel)
+	}
+	if r.CapturedAt == "" {
+		t.Error("CapturedAt should be set")
+	}
+}
+
+// M — when the session lacks a CallerPublicKeyB64 (e.g. HTTP-transport
+// session), capture is skipped silently — the notice still surfaces. The
+// alternative (capturing without a pubkey) would persist an undeliverable
+// row and confuse the delivery sweep.
+func TestAgentExecutor_PendingNoticeSkipsCaptureWithoutCallerPubkey(t *testing.T) {
+	fe := &fakeExecutor{
+		pre: &PolicyResultOutput{Allowed: true},
+		post: func(_ *ExecutorInput) *ExecutorOutput {
+			return &ExecutorOutput{
+				Success: true,
+				Result:  json.RawMessage(`"Submitted for manual review"`),
+				PolicyResult: &PolicyResultOutput{
+					Allowed: true, Pending: true, PolicyName: "review-policy",
+					Metadata: map[string]any{"review_id": "abcdef012345"},
+				},
+			}
+		},
+	}
+	inner := func(_ context.Context, s *AgentSession) error {
+		return s.Send(agentMessageEvent("the real reply"))
+	}
+	rec := &fakeRoutingRecorder{}
+	evs := runExecutorWith(t, fe, inner, "hello",
+		AgentSessionParams{ID: "sess-no-pubkey"}, // CallerPublicKeyB64 deliberately empty
+		rec,
+	)
+
+	if len(rec.snapshot()) != 0 {
+		t.Errorf("expected no routing capture without caller pubkey, got %d", len(rec.snapshot()))
+	}
+	// The pending notice still surfaces — the user gets the same UX.
+	if n := firstPolicyNotice(evs); n == nil || n.Status != policyStatusPending {
+		t.Errorf("pending notice still expected; got %+v", n)
+	}
+}
+
+// N — when no recorder is wired at all, the executor still surfaces the
+// pending notice without panicking. This is the legacy code path.
+func TestAgentExecutor_PendingNoticeNilRecorderIsSafe(t *testing.T) {
+	fe := &fakeExecutor{
+		pre: &PolicyResultOutput{Allowed: true},
+		post: func(_ *ExecutorInput) *ExecutorOutput {
+			return &ExecutorOutput{
+				Success: true,
+				Result:  json.RawMessage(`"Submitted for manual review"`),
+				PolicyResult: &PolicyResultOutput{
+					Allowed: true, Pending: true, PolicyName: "review-policy",
+					Metadata: map[string]any{"review_id": "deadbeefcafe"},
+				},
+			}
+		},
+	}
+	inner := func(_ context.Context, s *AgentSession) error {
+		return s.Send(agentMessageEvent("the real reply"))
+	}
+	evs := runExecutorWith(t, fe, inner, "hello",
+		AgentSessionParams{
+			ID:                 "sess-no-rec",
+			CallerPublicKeyB64: "BBBB",
+		},
+		nil, // explicitly nil recorder
+	)
+	if n := firstPolicyNotice(evs); n == nil || n.Status != policyStatusPending {
+		t.Errorf("pending notice still expected with nil recorder; got %+v", n)
 	}
 }

@@ -52,13 +52,13 @@ type AgentHandlerConfig struct {
 // agentWrapperScript is the Python script that bridges stdin/stdout JSON-lines
 // protocol to the user's runner.py handler(session) function.
 //
-// The AgentSession class defined here intentionally mirrors the SessionAPI
-// class in containermode/runner/session.py. The two implementations have
-// different runtime mechanics (stdin/stdout JSON-lines here vs. thread+queue
-// in containermode), but their PUBLIC METHOD NAMES and EVENT TYPE STRINGS
-// MUST stay identical so the same user-written runner.py works in both modes.
+// The AgentSession class defined here intentionally mirrors the AgentSession
+// class in containermode/runner/session_loop.py. Both speak JSON-lines on
+// stdin/stdout (the container runtime's bwrap child runs session_loop.py via
+// syft_entry.py). Their PUBLIC METHOD NAMES and EVENT TYPE STRINGS MUST stay
+// identical so the same user-written runner.py works in both modes.
 //
-// Public surface (keep in sync with containermode/runner/session.py SessionAPI):
+// Public surface (keep in sync with containermode/runner/session_loop.py AgentSession):
 //   - send_message(content)                          → event "agent.message"
 //   - send_thinking(content)                         → event "agent.thinking"
 //   - send_status(status, detail="")                 → event "agent.status"
@@ -72,11 +72,9 @@ type AgentHandlerConfig struct {
 //   - request_input(prompt)                          → event "agent.request_input"
 //   - request_confirmation(action, ...)              → tool_call w/ requires_confirmation
 //
-// Full Python-side deduplication is not viable: the queue-based SessionAPI
-// depends on a Session dataclass with thread/queue state that has no analog
-// in the one-shot subprocess model. Method-signature + event-name drift
-// between the two is caught at code-review time; any change to one side must
-// be mirrored to the other.
+// Method-signature + event-name drift between the two implementations is
+// caught at code-review time; any change to one side must be mirrored to
+// the other.
 const agentWrapperScript = `
 import sys
 import json
