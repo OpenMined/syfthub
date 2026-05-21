@@ -186,7 +186,7 @@ func ResolveEndpointImage(
 		}
 		emit(ImageStageVerifying)
 		if err := VerifyImage(ctx, rt, image, logger); err != nil {
-			return "", fmt.Errorf("Dockerfile image %q: %w", image, err)
+			return "", fmt.Errorf("dockerfile image %q: %w", image, err)
 		}
 		return image, nil
 	}
