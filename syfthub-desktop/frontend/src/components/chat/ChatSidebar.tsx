@@ -10,18 +10,13 @@
 // localStorage (see appStore.persistChatSidebarCollapsed). Collapsed shows
 // just icons; expanded shows endpoint name + status + date.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
-  CheckCircle2,
-  Clock,
   Trash2,
   Zap,
-  XCircle,
 } from 'lucide-react';
-
-import { EventsOn } from '../../../wailsjs/runtime/runtime';
 
 import {
   useAppStore,
@@ -29,6 +24,9 @@ import {
   type SentReviewEntry,
 } from '../../stores/appStore';
 import { cn } from '@/lib/utils';
+import { formatRelativeTime } from '@/lib/date-utils';
+import { resolveReviewVisual } from '@/lib/review-status';
+import { StatusBadge } from '@/components/chat/review-status-badge';
 import {
   Tooltip,
   TooltipContent,
@@ -45,34 +43,9 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
-// ── visual constants ─────────────────────────────────────────────
-// Icons mirror SentReviewsView's STATUS_STYLES so the same status reads
-// identically in both surfaces. Active (live) uses brand colour, distinct
-// from any sent-review state.
-const STATUS_VISUALS = {
-  approved: { Icon: CheckCircle2, cls: 'text-chart-2', label: 'Approved' },
-  pending: { Icon: Clock, cls: 'text-chart-3', label: 'Pending' },
-  rejected: { Icon: XCircle, cls: 'text-destructive', label: 'Rejected' },
-} as const;
-
-// ── time formatting ──────────────────────────────────────────────
-// Sidebar items show a compact relative time (e.g. "2h ago", "Mar 5") —
-// older formats roll over to a date the same way SentReviewsView does so
-// the two surfaces stay visually consistent.
-function relativeTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  const now = Date.now();
-  const ms = now - d.getTime();
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const sameYear = d.getFullYear() === new Date().getFullYear();
-  return d.toLocaleDateString('en-US',
-    sameYear ? { month: 'short', day: 'numeric' } : { year: 'numeric', month: 'short', day: 'numeric' });
-}
+// Visuals and relative-time formatting come from shared modules so the
+// sidebar's status icons and timestamps stay in lockstep with the table view
+// in SentReviewsView and the header in ReviewChatPane.
 
 // ── live session item ────────────────────────────────────────────
 // The "Active" item at the top represents the in-memory live agent session.
@@ -152,17 +125,16 @@ function ReviewItem({
   // destructive action behind a tooltip.
   onRequestDelete?: (review: SentReviewEntry) => void;
 }>) {
-  const visual = STATUS_VISUALS[review.status as keyof typeof STATUS_VISUALS] ?? {
-    Icon: Clock,
-    cls: 'text-muted-foreground',
-    label: review.status || 'Unknown',
-  };
-  const { Icon, cls, label } = visual;
+  // resolveReviewVisual gives us the label + text colour we still need for
+  // the inline subtitle / tooltip; the icon itself renders via StatusBadge so
+  // the visual stays in lockstep with the other surfaces.
+  const visual = resolveReviewVisual(review.status);
+  const { label, textCls } = visual;
 
   // The endpoint label prefers the display name; the raw "owner/slug" path
   // is the fallback when an older capture didn't record a name.
   const endpointLabel = review.endpointName || review.endpointPath || 'Unknown endpoint';
-  const when = relativeTime(review.submittedAt);
+  const when = formatRelativeTime(review.submittedAt, { fallback: review.submittedAt });
 
   const inner = (
     <div
@@ -182,12 +154,17 @@ function ReviewItem({
         aria-current={active ? 'page' : undefined}
         className='flex min-w-0 flex-1 items-center gap-2.5 bg-transparent text-left focus:outline-none'
       >
-        <Icon className={cn('h-4 w-4 shrink-0', cls)} aria-hidden='true' />
+        <StatusBadge
+          variant='icon-only'
+          size='md'
+          status={review.status}
+          className='shrink-0'
+        />
         {!collapsed && (
           <div className='min-w-0 flex-1'>
             <div className='truncate text-sm font-medium'>{endpointLabel}</div>
             <div className='flex items-center gap-1.5 text-[11px]'>
-              <span className={cls}>{label}</span>
+              <span className={textCls}>{label}</span>
               <span className='text-muted-foreground'>·</span>
               <span className='truncate'>{when}</span>
             </div>
@@ -234,7 +211,7 @@ function ReviewItem({
       <TooltipContent side='right'>
         <p className='font-medium'>{endpointLabel}</p>
         <p className='text-xs'>
-          <span className={cls}>{label}</span>
+          <span className={textCls}>{label}</span>
           <span className='text-muted-foreground'> · {when}</span>
         </p>
       </TooltipContent>
@@ -254,7 +231,6 @@ export interface ChatSidebarProps {
 
 export function ChatSidebar({ liveRunning, liveEndpointName }: Readonly<ChatSidebarProps>) {
   const sentReviews = useAppStore((s) => s.sentReviews);
-  const fetchSentReviews = useAppStore((s) => s.fetchSentReviews);
   const activeChat = useAppStore((s) => s.activeChat);
   const setActiveChat = useAppStore((s) => s.setActiveChat);
   const deleteSentReview = useAppStore((s) => s.deleteSentReview);
@@ -267,27 +243,10 @@ export function ChatSidebar({ liveRunning, liveEndpointName }: Readonly<ChatSide
   const [pendingDelete, setPendingDelete] = useState<SentReviewEntry | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  // Initial load + on mount. We always fetch 'all' because the sidebar
-  // shows every status — filtering by the global sentReviewsFilter (which
-  // defaults to 'pending') would hide approved/rejected rows.
-  useEffect(() => {
-    void fetchSentReviews('all');
-  }, [fetchSentReviews]);
-
-  // Live refresh on host-delivered resolutions. The old SentReviewsView
-  // used to own this subscription; with the sidebar now being the only
-  // place reviews are listed, it has to own it instead — otherwise a
-  // resolution that arrives while the user is sitting on the sidebar
-  // would never visibly land until they navigate away and back.
-  // EventsOn returns a per-listener unsubscribe; return it directly so
-  // StrictMode's double-mount doesn't tear down the listener the still-
-  // mounted instance owns.
-  useEffect(() => {
-    const off = EventsOn('manual-review:resolved', () => {
-      void fetchSentReviews('all');
-    });
-    return off;
-  }, [fetchSentReviews]);
+  // Initial fetchSentReviews('all') and the manual-review:resolved
+  // subscription both live in the store's initialize() now (design #3 —
+  // centralised event routing). The sidebar just reads sentReviews and
+  // re-renders when the store splices/reconciles.
 
   const handleConfirmDelete = useCallback(async () => {
     if (!pendingDelete) return;

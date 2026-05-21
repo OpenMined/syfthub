@@ -81,6 +81,30 @@ type App struct {
 	// inbox. Set on login, torn down on logout/shutdown. nil-safe when the
 	// app is in HTTP mode or before login completes.
 	reviewInboxListener *ReviewInboxListener
+
+	// dbMu protects the manual-review SQLite caches below. Hold only for cache
+	// lookup + map mutation, never across a query. MUST NOT acquire while
+	// holding a.mu in write mode.
+	dbMu sync.Mutex
+
+	// sentReviewsCache is the long-lived pool for the client-side review
+	// ledger (sent-reviews.db, sibling of settings.json). Lazily opened
+	// through sentReviewsOnce so schema migration runs once per process. The
+	// file is identity-fenced by an `identity` column, so this handle
+	// survives login/logout and is closed only at shutdown.
+	sentReviewsCache *sentReviewsHandle
+	sentReviewsOnce  sync.Once
+
+	// routingDBs caches one *sql.DB per endpoint policy store file (the same
+	// file ManualReviewPolicy uses for manual_reviews). Keyed by absolute
+	// storeDBPath. Two logical tables (manual_review_routing and
+	// manual_reviews) share each file, so one pool serves both read-only
+	// loadHeldOutput and the routing recorder writes.
+	routingDBs map[string]*sqliteHandle
+
+	// routingDBsClosed is set on shutdown so late goroutines see a definite
+	// ErrShuttingDown instead of accidentally repopulating the cache.
+	routingDBsClosed bool
 }
 
 // NewApp creates a new App application struct.
@@ -90,6 +114,7 @@ func NewApp() *App {
 		runDone:          make(chan struct{}),
 		runtimeStates:    make(map[string]string),
 		setupStatusCache: make(map[string]*SetupStatusInfo),
+		routingDBs:       make(map[string]*sqliteHandle),
 	}
 }
 
@@ -161,7 +186,7 @@ func (a *App) startup(ctx context.Context) {
 	// lives in the desktop because it carries the SQLite driver dependency;
 	// the SDK only knows the interface. Safe to set before Start: the
 	// provider captures the factory at construction time inside core.Setup().
-	a.config.RoutingRecorderFactory = newRoutingRecorderFactory()
+	a.config.RoutingRecorderFactory = a.newRoutingRecorderFactory()
 
 	// Log startup
 	runtime.LogInfo(ctx, "SyftHub Desktop GUI starting up")
@@ -233,6 +258,11 @@ func (a *App) shutdown(ctx context.Context) {
 	if running {
 		_ = a.Stop()
 	}
+
+	// Close the manual-review SQLite caches last. The Stop() path above tears
+	// down the listener and publisher; closing the underlying *sql.DB pools
+	// after that is safe.
+	a.closeAllDBs()
 }
 
 // GetStatus returns the current application status.
@@ -680,10 +710,23 @@ func (a *App) SaveSettingsData(syfthubURL, apiToken, endpointsPath string) error
 		os.Setenv("ENDPOINTS_PATH", resolvedPath)
 	}
 
-	// Update internal state
+	// Update internal state.
+	//
+	// app.ConfigFromEnv() returns a fresh *Config with only env-derived
+	// fields set, so any non-env wiring previously installed on a.config
+	// must be re-applied here — otherwise a Start after SaveSettings runs
+	// against a Config missing those fields. RoutingRecorderFactory is the
+	// concrete instance of that: a startup-time hook with no env equivalent,
+	// and without it manual-review captures silently disable on the agent
+	// host (AgentExecutor logs "manual-review routing recorder not
+	// configured" and resolutions never reach the caller).
 	a.mu.Lock()
 	a.settings = settings
 	a.config = app.ConfigFromEnv()
+	if a.settings != nil && a.settings.ContainerEnabled {
+		a.config.ContainerEnabled = true
+	}
+	a.config.RoutingRecorderFactory = a.newRoutingRecorderFactory()
 	a.mu.Unlock()
 
 	runtime.LogInfo(a.ctx, "Settings saved successfully")

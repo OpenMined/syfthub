@@ -1,6 +1,5 @@
 import { useEffect, useCallback, useState } from 'react';
 
-import { EventsOn } from '../../../wailsjs/runtime/runtime';
 import { useAppStore, SentReviewEntry } from '../../stores/appStore';
 import { Button } from '@/components/ui/button';
 import {
@@ -28,52 +27,20 @@ import {
   X,
 } from 'lucide-react';
 import { formatFullTimestamp } from '@/lib/utils';
+import { formatShortTime } from '@/lib/date-utils';
+import { StatusBadge } from '@/components/chat/review-status-badge';
 
 // Filter values offered in the header. Kept as a constant so the Select
 // options and the "is this a known filter" checks stay in sync.
 const FILTERS = ['pending', 'approved', 'rejected', 'all'] as const;
 
-// ── time formatting ─────────────────────────────────────────────
-// submitted_at spans days, so a bare time would be ambiguous. Same-day entries
-// show the time; older entries collapse to a date. Full timestamp in tooltip.
-function formatReviewTime(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  const sameDay = date.toDateString() === new Date().toDateString();
-  return sameDay
-    ? date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
-    : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-// ── status badge ────────────────────────────────────────────────
-// Colours mirror the host-side Requests tab so a "pending" hold reads the same
-// on both surfaces: chart-3 = waiting, chart-2 = approved, destructive =
-// rejected. The two views are the same system seen from opposite ends.
-const STATUS_STYLES: Record<
-  string,
-  { cls: string; Icon: typeof Clock; label: string }
-> = {
-  pending: { cls: 'bg-chart-3/20 text-chart-3', Icon: Clock, label: 'Pending' },
-  approved: { cls: 'bg-chart-2/20 text-chart-2', Icon: CheckCircle2, label: 'Approved' },
-  rejected: { cls: 'bg-destructive/20 text-destructive', Icon: XCircle, label: 'Rejected' },
-};
-
-function StatusBadge({ status }: { status: string }) {
-  const style = STATUS_STYLES[status] ?? {
-    cls: 'bg-secondary/50 text-muted-foreground',
-    Icon: Clock,
-    label: status || 'Unknown',
-  };
-  const { cls, Icon, label } = style;
-  return (
-    <span
-      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${cls}`}
-    >
-      <Icon className="w-3 h-3" />
-      {label}
-    </span>
-  );
-}
+// Time formatting and status badge moved to shared modules:
+//   - formatShortTime (lib/date-utils) replaces the local same-day/else-date
+//     splitter.
+//   - StatusBadge (components/chat/review-status-badge) replaces the local
+//     STATUS_STYLES table + ad-hoc badge component.
+// Other surfaces (ChatSidebar, ReviewChatPane) read from the same modules so a
+// "pending" hold renders identically wherever it appears.
 
 // provenanceCaption explains how an entry's status was last set, so a guess is
 // never mistaken for a confirmed outcome. "captured" needs no caption — a
@@ -99,7 +66,8 @@ function SentReviewDetailPanel({
   review: SentReviewEntry;
   onClose: () => void;
 }) {
-  const { markSentReviewStatus, saveSentReviewNote } = useAppStore();
+  const markSentReviewStatus = useAppStore((s) => s.markSentReviewStatus);
+  const saveSentReviewNote = useAppStore((s) => s.saveSentReviewNote);
 
   // Footer state: 'view' shows the override buttons; 'reject' reveals the
   // reason field. submitting disables every dismissal path while a write runs.
@@ -198,9 +166,9 @@ function SentReviewDetailPanel({
               </div>
               <div>
                 <label className="text-xs text-muted-foreground uppercase">Status</label>
-                <p className="text-sm">
+                <div className="text-sm">
                   <StatusBadge status={review.status} />
-                </p>
+                </div>
               </div>
               <div>
                 <label className="text-xs text-muted-foreground uppercase">Review ID</label>
@@ -444,32 +412,19 @@ function EmptyBody({ filterWord }: { filterWord: string }) {
 
 // ── main component ──────────────────────────────────────────────
 export function SentReviewsView() {
-  const {
-    sentReviews,
-    sentReviewsLoading,
-    selectedSentReview,
-    sentReviewsFilter,
-    fetchSentReviews,
-    setSelectedSentReview,
-    setSentReviewsFilter,
-  } = useAppStore();
+  const sentReviews = useAppStore((s) => s.sentReviews);
+  const sentReviewsLoading = useAppStore((s) => s.sentReviewsLoading);
+  const selectedSentReview = useAppStore((s) => s.selectedSentReview);
+  const sentReviewsFilter = useAppStore((s) => s.sentReviewsFilter);
+  const fetchSentReviews = useAppStore((s) => s.fetchSentReviews);
+  const setSelectedSentReview = useAppStore((s) => s.setSelectedSentReview);
+  const setSentReviewsFilter = useAppStore((s) => s.setSentReviewsFilter);
 
-  // Refresh on entering the view — the ledger may have gained entries from a
-  // chat session since it was last opened.
-  useEffect(() => {
-    fetchSentReviews();
-  }, [fetchSentReviews]);
-
-  // Refresh when a host-delivered resolution lands. The Go ReviewInboxListener
-  // emits "manual-review:resolved" after every successful Apply, so this
-  // keeps the view live without polling. EventsOn returns a per-listener
-  // unsubscribe — return it directly so StrictMode's double-mount is safe.
-  useEffect(() => {
-    const off = EventsOn('manual-review:resolved', () => {
-      fetchSentReviews();
-    });
-    return off;
-  }, [fetchSentReviews]);
+  // Initial load + the manual-review:resolved subscription both live in the
+  // store's initialize() now (design #3 — centralised event routing). This
+  // view only owns the explicit Refresh button and the filter Select; both
+  // of those still flow through the store. Removing the per-mount fetch
+  // also fixes the StrictMode double-fetch on first render.
 
   const handleRefresh = useCallback(() => {
     fetchSentReviews();
@@ -565,7 +520,7 @@ export function SentReviewsView() {
                   <td className="px-4 py-2 text-foreground whitespace-nowrap">
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <span>{formatReviewTime(review.submittedAt)}</span>
+                        <span>{formatShortTime(review.submittedAt, { fallback: review.submittedAt })}</span>
                       </TooltipTrigger>
                       <TooltipContent side="top">
                         <p>{formatFullTimestamp(review.submittedAt)}</p>

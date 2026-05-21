@@ -10,6 +10,10 @@ export function ApplyHostResolution(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ApplyHostResolution'](arg1, arg2, arg3, arg4);
 }
 
+export function ApplyHostResolutionDetailed(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['ApplyHostResolutionDetailed'](arg1, arg2, arg3, arg4);
+}
+
 export function ApproveManualReview(arg1, arg2) {
   return window['go']['main']['App']['ApproveManualReview'](arg1, arg2);
 }

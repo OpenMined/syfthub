@@ -98,23 +98,14 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
   const sessionIdRef = useRef<string | null>(null);
   const entryCounterRef = useRef(0);
 
-  // entriesRef mirrors `entries` so the EventsOn handler (which is registered
-  // ONCE with empty deps) can read the live value instead of the empty array
-  // captured at mount time. Without this, callbacks that capture state by
-  // closure (e.g. RecordSentReview's transcript build) see stale data — every
-  // manual-review hold would record an empty conversation, which is exactly
-  // the regression that produced "the chat got cleaned after approval".
-  const entriesRef = useRef<AgentEntry[]>([]);
-  useEffect(() => {
-    entriesRef.current = entries;
-  }, [entries]);
+  // Dedupe RecordSentReview calls by review_id so StrictMode double-invokes or
+  // any event replay never write the same hold twice.
+  const recordedReviewIdsRef = useRef<Set<string>>(new Set());
 
   // Streaming message accumulator for token events
   const streamingContentRef = useRef('');
   // Timer handle for batched token flushing (~frame-rate updates)
   const flushTimerRef = useRef<number | null>(null);
-  // Track whether we've already created a token entry for the current stream
-  const hasTokenEntryRef = useRef(false);
 
   // The endpoint a held request is attributed to — captured at session start
   // so it stays stable even if the user later changes the agent dropdown.
@@ -156,7 +147,6 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
         timestamp: Date.now(),
       }];
     });
-    hasTokenEntryRef.current = true;
   };
 
   // Schedule a batched flush at the next animation frame if not already scheduled
@@ -171,7 +161,6 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
   const resetStreaming = () => {
     flushTokens();
     streamingContentRef.current = '';
-    hasTokenEntryRef.current = false;
   };
 
   // Append a terminal entry, flush any pending tokens, and mark the session done.
@@ -262,60 +251,63 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
           // was blocked, or is pending review) — render it as a distinct card
           // rather than a normal agent reply.
           const policy = data.policy as Record<string, unknown> | undefined;
-          setEntries(prev => [...prev, {
+          const newEntry: AgentEntry = {
             id: makeId(),
             kind: policy ? 'policy' : 'message',
             content,
             data: policy,
             timestamp: Date.now(),
-          }]);
-
-          // A manual-review hold (a pending policy notice carrying a review_id)
-          // is durably recorded so the user can track it in "Sent for Review" —
-          // the chat transcript itself is in-memory and lost on restart. The
-          // review_id discriminates a manual-review hold from a payment hold
-          // (which arrives as agent.payment_required) or any other pending
-          // notice. Capture is idempotent on review_id and fire-and-forget so
-          // a ledger write never blocks or breaks the transcript.
-          if (
-            policy &&
-            policy.status === 'pending' &&
-            typeof policy.review_id === 'string' &&
-            policy.review_id
-          ) {
-            const ep = sessionEndpointRef.current;
-            // Capture the FULL conversation up to and including the held user
-            // message, not just lastUserPromptRef. A multi-turn chat that gets
-            // held on turn N must carry the prior N-1 turns so a later
-            // continuation can replay the full thread.
-            //
-            // entriesRef.current — NOT the closed-over `entries` — because the
-            // EventsOn handler is registered once with empty deps and its
-            // closure freezes the initial (empty) entries forever. Using the
-            // ref gives us the current value at event time.
-            const transcript = entriesToTranscript(entriesRef.current);
-            // Fall back to lastUserPromptRef when entries are empty
-            // (e.g. the policy held on the initial prompt before any state
-            // had time to populate). Keeps Phase 1 single-turn capture working.
-            const requestMessages = transcript.length > 0
-              ? transcript
-              : (lastUserPromptRef.current
-                  ? [{ role: 'user', content: lastUserPromptRef.current }]
-                  : []);
-            void RecordSentReview(main.SentReviewInput.createFrom({
-              reviewId: policy.review_id,
-              endpointPath: ep.path,
-              endpointName: ep.name,
-              endpointType: 'agent',
-              policyName: typeof policy.policy_name === 'string' ? policy.policy_name : '',
-              requestMessages,
-              // policy.reason carries the placeholder text the caller received;
-              // content is the human-readable fallback sentence.
-              placeholder: typeof policy.reason === 'string' ? policy.reason : content,
-            })).catch(() => {
-              /* best-effort — the pending notice still renders if this fails */
-            });
-          }
+          };
+          // Side effect lives inside setEntries so prev provides the fresh transcript; without this the closure captures the initial empty array.
+          setEntries(prev => {
+            const next = [...prev, newEntry];
+            // A manual-review hold (a pending policy notice carrying a review_id)
+            // is durably recorded so the user can track it in "Sent for Review" —
+            // the chat transcript itself is in-memory and lost on restart. The
+            // review_id discriminates a manual-review hold from a payment hold
+            // (which arrives as agent.payment_required) or any other pending
+            // notice. Capture is idempotent on review_id and fire-and-forget so
+            // a ledger write never blocks or breaks the transcript.
+            if (
+              policy &&
+              policy.status === 'pending' &&
+              typeof policy.review_id === 'string' &&
+              policy.review_id &&
+              !recordedReviewIdsRef.current.has(policy.review_id)
+            ) {
+              const reviewId = policy.review_id;
+              recordedReviewIdsRef.current.add(reviewId);
+              const ep = sessionEndpointRef.current;
+              // Capture the FULL conversation up to and including the held user
+              // message — derive from `prev` (the policy entry itself is not
+              // part of the transcript). A multi-turn chat held on turn N must
+              // carry the prior N-1 turns so a later continuation can replay
+              // the full thread.
+              const transcript = entriesToTranscript(prev);
+              // Fall back to lastUserPromptRef when entries are empty
+              // (e.g. the policy held on the initial prompt before any state
+              // had time to populate). Keeps Phase 1 single-turn capture working.
+              const requestMessages = transcript.length > 0
+                ? transcript
+                : (lastUserPromptRef.current
+                    ? [{ role: 'user', content: lastUserPromptRef.current }]
+                    : []);
+              void RecordSentReview(main.SentReviewInput.createFrom({
+                reviewId,
+                endpointPath: ep.path,
+                endpointName: ep.name,
+                endpointType: 'agent',
+                policyName: typeof policy.policy_name === 'string' ? policy.policy_name : '',
+                requestMessages,
+                // policy.reason carries the placeholder text the caller received;
+                // content is the human-readable fallback sentence.
+                placeholder: typeof policy.reason === 'string' ? policy.reason : content,
+              })).catch(() => {
+                /* best-effort — the pending notice still renders if this fails */
+              });
+            }
+            return next;
+          });
           break;
         }
 
@@ -403,7 +395,6 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
       flushTimerRef.current = null;
     }
     streamingContentRef.current = '';
-    hasTokenEntryRef.current = false;
     entryCounterRef.current = 0;
     // Pin the endpoint + opening prompt for this session so a held request is
     // attributed correctly even if the agent dropdown changes mid-session.
@@ -481,7 +472,6 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
     setAwaitingInput(false);
     sessionIdRef.current = null;
     streamingContentRef.current = '';
-    hasTokenEntryRef.current = false;
   }, []);
 
   // startSessionWithHistory is the continuation variant of startSession used
@@ -510,7 +500,6 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
       flushTimerRef.current = null;
     }
     streamingContentRef.current = '';
-    hasTokenEntryRef.current = false;
     entryCounterRef.current = 0;
 
     sessionEndpointRef.current = { path: targetPath, name: targetName };

@@ -103,6 +103,12 @@ func (a *App) setupManualReviewDelivery(ctx context.Context, core *app.App) {
 // teardownManualReviewDelivery stops the listener (the publisher has no
 // resources to release beyond the shared NATS conn the core app owns).
 // Called on Stop and on logout/identity change.
+//
+// Once the listener and publisher are gone no goroutine is left holding a
+// query against the cached routing pools, so we drop them too — the next
+// resolveManualReview / GetManualReviews call will re-open lazily. The
+// sent-reviews ledger stays cached because the identity column fences its
+// rows; it is closed only at app shutdown via closeAllDBs.
 func (a *App) teardownManualReviewDelivery() {
 	a.mu.Lock()
 	listener := a.reviewInboxListener
@@ -113,6 +119,7 @@ func (a *App) teardownManualReviewDelivery() {
 		listener.Stop()
 		runtime.LogInfo(a.ctx, "manual-review listener stopped")
 	}
+	a.closeIdentityScopedDBs()
 }
 
 // deviceIDLocked returns the persistent device id, loading it if needed.

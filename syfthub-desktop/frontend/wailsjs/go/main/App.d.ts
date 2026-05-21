@@ -8,6 +8,8 @@ export function AddDependency(arg1:string,arg2:string,arg3:string):Promise<void>
 
 export function ApplyHostResolution(arg1:string,arg2:manualreview.ResolvedEnvelope,arg3:manualreview.ResolvedPayload,arg4:number):Promise<boolean>;
 
+export function ApplyHostResolutionDetailed(arg1:string,arg2:manualreview.ResolvedEnvelope,arg3:manualreview.ResolvedPayload,arg4:number):Promise<main.HostResolutionOutcome>;
+
 export function ApproveManualReview(arg1:string,arg2:string):Promise<void>;
 
 export function AttachToActiveSession(arg1:string):Promise<main.AttachmentSummary>;

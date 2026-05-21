@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Markdown } from '@/components/prompt-kit/markdown';
 import { parseFrontmatter } from '@/lib/markdown';
+import { formatRelativeTime } from '@/lib/date-utils';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import {
   AlertDialog,
@@ -49,21 +50,11 @@ function formatBytes(n: number): string {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function formatRelativeTime(iso: string): string {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return '';
-  const diff = Date.now() - t;
-  const sec = Math.round(diff / 1000);
-  if (sec < 60) return 'just now';
-  const min = Math.round(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.round(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.round(hr / 24);
-  if (day < 30) return `${day}d ago`;
-  const mo = Math.round(day / 30);
-  return `${mo}mo ago`;
-}
+// formatRelativeTime imported from @/lib/date-utils — the shared helper uses
+// Math.floor and rolls entries older than 24h over to formatShortTime
+// (e.g. "Mar 5") instead of the previous Nd / Nmo buckets. The day-rollover
+// is an intentional improvement: a day-resolution bucket gets misleading fast
+// while an absolute date stays meaningful.
 
 type DropzoneState =
   | { phase: 'idle' }
@@ -72,7 +63,8 @@ type DropzoneState =
   | { phase: 'error'; message: string };
 
 export function SkillsSection({ embedded = false }: { embedded?: boolean } = {}) {
-  const { selectedEndpointSlug, selectedEndpointDetail } = useAppStore();
+  const selectedEndpointSlug = useAppStore((s) => s.selectedEndpointSlug);
+  const selectedEndpointDetail = useAppStore((s) => s.selectedEndpointDetail);
   const isAgent = selectedEndpointDetail?.type === 'agent';
   const outerCls = embedded ? 'space-y-4' : 'p-6 space-y-6';
 

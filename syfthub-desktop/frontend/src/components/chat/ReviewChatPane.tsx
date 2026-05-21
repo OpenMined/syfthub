@@ -20,10 +20,11 @@
 // into AgentChatContent's view with prior context already seeded.
 
 import { useCallback, useMemo, useState } from 'react';
-import { CheckCircle2, Clock, XCircle, ArrowUp } from 'lucide-react';
+import { Clock, ArrowUp } from 'lucide-react';
 
 import { useAppStore, type SentReviewEntry } from '@/stores/appStore';
 import { useChatWorkflow } from './ChatWorkflowProvider';
+import { StatusBadge } from '@/components/chat/review-status-badge';
 
 import {
   Message,
@@ -44,6 +45,28 @@ import { PolicyNotice } from '@/components/chat/policy-notice';
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 import { cn } from '@/lib/utils';
 import { formatFullTimestamp } from '@/lib/utils';
+
+function inputPlaceholderFor(status: SentReviewEntry['status']): string {
+  switch (status) {
+    case 'approved':
+      return 'Continue this conversation…';
+    case 'pending':
+      return 'Waiting for the endpoint owner to review this request…';
+    default:
+      return 'This request was rejected — start a new conversation to try again.';
+  }
+}
+
+function policyNoticeReason(review: SentReviewEntry): string {
+  switch (review.status) {
+    case 'pending':
+      return 'Held by the endpoint owner for manual review.';
+    case 'rejected':
+      return review.rejectReason || 'Rejected by the endpoint owner.';
+    default:
+      return 'Released by the endpoint owner.';
+  }
+}
 
 // ── small repeats from ChatView ──────────────────────────────────
 // UserBubble / AssistantAvatar are inlined here rather than extracted from
@@ -94,24 +117,8 @@ function AssistantMessage({ id, content }: Readonly<{ id: string; content: strin
   );
 }
 
-// ── status badge in the header ───────────────────────────────────
-function StatusPill({ status }: Readonly<{ status: string }>) {
-  const visuals = {
-    approved: { Icon: CheckCircle2, cls: 'bg-chart-2/20 text-chart-2', label: 'Approved' },
-    pending: { Icon: Clock, cls: 'bg-chart-3/20 text-chart-3', label: 'Pending' },
-    rejected: { Icon: XCircle, cls: 'bg-destructive/20 text-destructive', label: 'Rejected' },
-  } as const;
-  const v = visuals[status as keyof typeof visuals] ?? {
-    Icon: Clock, cls: 'bg-secondary/50 text-muted-foreground', label: status || 'Unknown',
-  };
-  const { Icon, cls, label } = v;
-  return (
-    <span className={cn('inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium', cls)}>
-      <Icon className='h-3 w-3' aria-hidden='true' />
-      {label}
-    </span>
-  );
-}
+// Status badge moved to <StatusBadge /> in components/chat/review-status-badge.
+// See lib/review-status for the single source of truth on status visuals.
 
 // ── empty state for unknown review (race / typo) ─────────────────
 function MissingReview({ reviewId }: Readonly<{ reviewId: string }>) {
@@ -198,11 +205,7 @@ export function ReviewChatPane({ reviewId }: Readonly<ReviewChatPaneProps>) {
   }
 
   const continuable = review.status === 'approved';
-  const inputPlaceholder = continuable
-    ? 'Continue this conversation…'
-    : review.status === 'pending'
-      ? 'Waiting for the endpoint owner to review this request…'
-      : 'This request was rejected — start a new conversation to try again.';
+  const inputPlaceholder = inputPlaceholderFor(review.status);
 
   // Render the transcript: prior turns + held-turn notice + (approved
   // response | rejected notice). Each turn boundary inserts an mt-6 spacer
@@ -223,7 +226,7 @@ export function ReviewChatPane({ reviewId }: Readonly<ReviewChatPaneProps>) {
             {review.hostResolvedAt && ` · Resolved ${formatFullTimestamp(review.hostResolvedAt)}`}
           </div>
         </div>
-        <StatusPill status={review.status} />
+        <StatusBadge status={review.status} />
       </div>
 
       {/* Transcript */}
@@ -248,13 +251,7 @@ export function ReviewChatPane({ reviewId }: Readonly<ReviewChatPaneProps>) {
               status={review.status === 'pending' ? 'pending' : 'blocked'}
               phase='post'
               policyName={review.policyName || undefined}
-              reason={
-                review.status === 'pending'
-                  ? 'Held by the endpoint owner for manual review.'
-                  : review.status === 'rejected'
-                    ? (review.rejectReason || 'Rejected by the endpoint owner.')
-                    : 'Released by the endpoint owner.'
-              }
+              reason={policyNoticeReason(review)}
               tracked={false}
             />
 

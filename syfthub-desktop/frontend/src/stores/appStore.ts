@@ -256,6 +256,13 @@ interface AppState {
   selectedSentReview: SentReviewEntry | null;
   sentReviewsFilter: string;
 
+  // currentIdentity is the logged-in user's identity string (username/email/
+  // whatever the Go side considers canonical). Used as defence-in-depth on
+  // the manual-review:resolved listener — if a payload carries an identity
+  // that doesn't match, drop it. Null when not yet known (the wire event has
+  // no identity today, so this is forward-compat groundwork).
+  currentIdentity: string | null;
+
   // Create endpoint state
   isCreateDialogOpen: boolean;
   isCreatingEndpoint: boolean;
@@ -342,6 +349,12 @@ interface AppState {
   // notably, if the currently-active chat is this review, switching
   // activeChat back to 'live' so the surface doesn't render a stale id.
   deleteSentReview: (reviewId: string) => Promise<void>;
+  // applyResolvedEvent is the internal handler wired to the Go runtime event
+  // 'manual-review:resolved'. Exposed on the store (rather than closed over
+  // in initialize) so it's unit-testable and so re-registering the listener
+  // doesn't need a fresh closure each time. Returns void; errors surface
+  // through the existing error field if any reconcile fetch fails.
+  applyResolvedEvent: (payload: ManualReviewResolvedPayload) => void;
 
   // Actions - Code
   setRunnerCode: (code: string) => void;
@@ -412,6 +425,111 @@ const initialStatus: StatusInfo = {
 
 let logStatsDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
+// Trailing-edge debounce for "the sent-reviews ledger may have changed but
+// the wire event didn't carry enough fields to splice in place". Mirrors the
+// logStatsDebounceTimer pattern: module-level so multiple events within the
+// window coalesce into a single fetchSentReviews call.
+let pendingReconcileTimer: ReturnType<typeof setTimeout> | null = null;
+
+// The shape of the payload emitted by the Go review_lifecycle.go runtime
+// event "manual-review:resolved". Kept as a TS-side type because Wails does
+// not generate a struct for this map[string]any literal.
+//
+// NOTE: the Go emit sites carry only these four fields. responseText /
+// resolvedAt are NOT in the payload — they live in the Go ledger and are
+// only readable via GetSentReviews. That's why this listener's splice path
+// can't update an approved row in place; it must reconcile via fetch.
+interface ManualReviewResolvedPayload {
+  reviewId?: string;
+  status?: string;
+  endpointSlug?: string;
+  endpointOwner?: string;
+  // Defence-in-depth: not currently emitted by Go, but the store accepts it
+  // if a future emit adds it, so the identity guard activates automatically.
+  identity?: string;
+}
+
+// Field-tuple equality for the SentReviews list. Avoids JSON.stringify (which
+// would be O(n × responseTextLength) — responseText can be very long for
+// approved entries). Compares only the fields that drive what the user sees;
+// other fields (endpointName, requestMessages, etc.) don't transition through
+// the manual-review:resolved event, so a change to them can be ignored here.
+// scheduleReconcile coalesces a burst of manual-review:resolved events into
+// a single fetchSentReviews call ~250ms after the last event. Trailing-edge
+// debounce — first event in a burst schedules, subsequent events reset the
+// timer, the fetch runs once when the burst settles. Mirrors the existing
+// logStatsDebounceTimer pattern; the function takes the store's `get` so
+// the always-current filter is read when the timer fires (not when it's
+// scheduled).
+function scheduleReconcile(get: () => AppState): void {
+  if (pendingReconcileTimer) clearTimeout(pendingReconcileTimer);
+  pendingReconcileTimer = setTimeout(() => {
+    pendingReconcileTimer = null;
+    void get().fetchSentReviews(get().sentReviewsFilter);
+  }, 250);
+}
+
+function sentReviewsEqual(a: SentReviewEntry[], b: SentReviewEntry[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.reviewId !== y.reviewId ||
+      x.status !== y.status ||
+      x.submittedAt !== y.submittedAt ||
+      x.userNote !== y.userNote ||
+      x.resolvedAt !== y.resolvedAt ||
+      x.responseText !== y.responseText
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function endpointsEqual(a: EndpointInfo[], b: EndpointInfo[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.slug !== y.slug ||
+      x.name !== y.name ||
+      x.type !== y.type ||
+      x.enabled !== y.enabled ||
+      x.version !== y.version ||
+      x.hasPolicies !== y.hasPolicies ||
+      x.runtimeState !== y.runtimeState
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function networkAgentsEqual(a: NetworkAgentInfo[], b: NetworkAgentInfo[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.slug !== y.slug ||
+      x.ownerUsername !== y.ownerUsername ||
+      x.name !== y.name ||
+      x.version !== y.version ||
+      x.starsCount !== y.starsCount ||
+      x.updatedAt !== y.updatedAt
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /** Build the state patch that removes `slug` from endpoint-related selections.
  * Note: chatSelectedModel is intentionally not touched here — it now points at
  * a hub-discovered NetworkAgentInfo, not a local endpoint.
@@ -469,6 +587,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   sentReviewsLoading: false,
   selectedSentReview: null,
   sentReviewsFilter: 'pending',
+  currentIdentity: null,
 
   // Create endpoint initial state
   isCreateDialogOpen: false,
@@ -604,6 +723,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         get().fetchConfig(),
         get().refreshAggregatorURL(),
         get().fetchNetworkAgents(),
+        // Initial sent-reviews load, moved out of the components. Uses 'all'
+        // so the sidebar's full list is populated regardless of the global
+        // sentReviewsFilter (which defaults to 'pending'); SentReviewsView
+        // narrows server-side by re-fetching when its filter Select changes.
+        get().fetchSentReviews('all'),
       ]);
 
       // Deregister any previous listeners before re-registering so multiple
@@ -612,6 +736,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         'app:config-ready',
         'app:endpoints-changed',
         'app:new-log',
+        'manual-review:resolved',
         'setupflow:started',
         'setupflow:prompt',
         'setupflow:select',
@@ -637,11 +762,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         EventsOn('app:endpoints-changed', (incomingEndpoints: EndpointInfo[]) => {
           const agentOnly = (incomingEndpoints || []).filter((ep: EndpointInfo) => ep.type === 'agent');
 
-          // Skip no-op updates so Zustand doesn't re-render when the list hasn't changed.
-          // Compare JSON fingerprints (not just slugs) so metadata-only changes are picked up.
-          const currentKey = JSON.stringify(get().endpoints);
-          const incomingKey = JSON.stringify(agentOnly);
-          if (currentKey === incomingKey) return;
+          if (endpointsEqual(get().endpoints, agentOnly)) return;
 
           const slugSet = new Set(agentOnly.map(ep => ep.slug));
           const { chatSelectedSources } = get();
@@ -681,6 +802,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
         EventsOn('setupflow:failed', (errorMsg: string) => {
           set({ setupFlow: { ...SETUP_FLOW_CLEARED, error: errorMsg } });
+        });
+
+        // Centralised subscription for host-delivered manual-review
+        // resolutions. The Go ReviewInboxListener emits one of these after
+        // every successful Apply. Routing through the store (rather than
+        // each view subscribing on its own) avoids duplicate listeners,
+        // gives StrictMode-safe cleanup via the EventsOff above, and lets
+        // the splice/reconcile logic live in one place.
+        EventsOn('manual-review:resolved', (payload: ManualReviewResolvedPayload) => {
+          useAppStore.getState().applyResolvedEvent(payload);
         });
 
         // Listen for new log events (real-time log updates). Agent sessions
@@ -1223,12 +1354,58 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ sentReviewsLoading: true });
       const statusFilter = status ?? get().sentReviewsFilter;
       const result = await GetSentReviews(statusFilter === 'all' ? '' : statusFilter);
-      set({ sentReviews: result || [] });
+      const next = result || [];
+      // Skip the array-reference replacement when the wire payload is
+      // structurally equal to what we already have so subscribers don't
+      // re-render on a no-op reconcile (the manual-review:resolved listener
+      // can fire a reconcile for every host-delivered resolution, including
+      // ones for rows already in the desired terminal state).
+      if (sentReviewsEqual(get().sentReviews, next)) {
+        set({ sentReviewsLoading: false });
+      } else {
+        set({ sentReviews: next, sentReviewsLoading: false });
+      }
     } catch (err) {
-      set({ error: `Failed to fetch sent reviews: ${err}` });
-    } finally {
-      set({ sentReviewsLoading: false });
+      set({ error: `Failed to fetch sent reviews: ${err}`, sentReviewsLoading: false });
     }
+  },
+
+  applyResolvedEvent: (payload: ManualReviewResolvedPayload) => {
+    if (!payload || !payload.reviewId) return;
+
+    // Defence-in-depth identity check. The Go emit site does not currently
+    // include `identity`, so this is a no-op today — but if a future change
+    // adds it, mismatched payloads (e.g. an event from a previous session's
+    // identity arriving after a logout/login) drop without polluting state.
+    const id = get().currentIdentity;
+    if (id && payload.identity && payload.identity !== id) return;
+
+    const reviewId = payload.reviewId;
+    const incomingStatus = payload.status ?? '';
+    const rows = get().sentReviews;
+    const idx = rows.findIndex((r) => r.reviewId === reviewId);
+
+    if (idx === -1) {
+      // Row not in current view (different filter, or never fetched). The
+      // event only carries status/owner/slug — not the full row — so we
+      // can't synthesize a row to insert. Schedule a reconcile so the
+      // filtered view re-queries the backend.
+      scheduleReconcile(get);
+      return;
+    }
+
+    if (rows[idx].status === incomingStatus && incomingStatus !== '') {
+      // Already in the resolved state — no-op, no fetch, no array
+      // replacement. This is the common case when the listener fires after
+      // a previous reconcile has already landed the new state.
+      return;
+    }
+
+    // The payload doesn't carry responseText/resolvedAt, so we can't
+    // produce a correct in-place splice for approvals (which need
+    // responseText) or rejections (which need rejectReason). Schedule a
+    // reconcile so the row's auxiliary fields come from the Go ledger.
+    scheduleReconcile(get);
   },
 
   setSelectedSentReview: (review: SentReviewEntry | null) => {
@@ -1395,10 +1572,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ networkAgentsLoading: true });
     try {
       const agents = (await ListNetworkAgents()) || [];
-      // Skip the array-reference replacement when the wire payload is unchanged
-      // so subscribers (and the ModelSelector's filteredModels useMemo) don't
-      // re-render on a no-op refresh. Mirrors the app:endpoints-changed guard.
-      const unchanged = JSON.stringify(get().networkAgents) === JSON.stringify(agents);
+      const unchanged = networkAgentsEqual(get().networkAgents, agents);
       set({
         ...(unchanged ? {} : { networkAgents: agents }),
         networkAgentsLoading: false,

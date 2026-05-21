@@ -56,14 +56,6 @@ type ManualReviewEntry struct {
 // large backlog cannot exhaust memory. Newest entries are returned first.
 const maxManualReviewRows = 500
 
-// Manual review statuses, mirroring the values ManualReviewPolicy writes to
-// the status column.
-const (
-	reviewStatusPending  = "pending"
-	reviewStatusApproved = "approved"
-	reviewStatusRejected = "rejected"
-)
-
 // reviewStoreDBPath is the SQLite file ManualReviewPolicy writes to — the
 // endpoint's shared policy store, reused because the policy is configured
 // without an explicit db_path.
@@ -88,16 +80,21 @@ func (a *App) GetManualReviews(slug, statusFilter string) ([]ManualReviewEntry, 
 		return nil, err
 	}
 
-	// busy_timeout lets this read coexist with the short-lived policy-runner
-	// subprocess, which holds the same WAL-mode database open while writing.
-	// mode=ro means a missing database fails the table check below (returning
-	// an empty list) rather than being created.
+	// The cached pool is RW (routingDB also serves the manual_review_routing
+	// table). When the store.db doesn't yet exist — endpoint that has never
+	// held a request — we return an empty list rather than creating an empty
+	// database, preserving the previous mode=ro behaviour.
 	dbPath := reviewStoreDBPath(config.EndpointsPath, slug)
-	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=busy_timeout(5000)&mode=ro")
+	if _, err := os.Stat(dbPath); err != nil {
+		if os.IsNotExist(err) {
+			return []ManualReviewEntry{}, nil
+		}
+		return nil, fmt.Errorf("failed to stat review database: %w", err)
+	}
+	db, err := a.routingDB(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open review database: %w", err)
 	}
-	defer db.Close()
 
 	if !manualReviewsTableExists(db) {
 		return []ManualReviewEntry{}, nil
@@ -136,13 +133,13 @@ func (a *App) GetManualReviews(slug, statusFilter string) ([]ManualReviewEntry, 
 // this only updates the row's status in the database — the held response is
 // not delivered and nothing else happens.
 func (a *App) ApproveManualReview(slug, reviewID string) error {
-	return a.resolveManualReview(slug, reviewID, reviewStatusApproved, "")
+	return a.resolveManualReview(slug, reviewID, manualreview.StatusApproved, "")
 }
 
 // RejectManualReview marks a held request as rejected, recording an optional
 // reason. Per the current scope this only updates the row's status.
 func (a *App) RejectManualReview(slug, reviewID, reason string) error {
-	return a.resolveManualReview(slug, reviewID, reviewStatusRejected, reason)
+	return a.resolveManualReview(slug, reviewID, manualreview.StatusRejected, reason)
 }
 
 // resolveManualReview flips one manual_reviews row to a terminal status. The
@@ -175,13 +172,12 @@ func (a *App) resolveManualReview(slug, reviewID, status, reason string) error {
 		return fmt.Errorf("no manual review database for endpoint %q", slug)
 	}
 
-	// Read-write open (no mode=ro) — this issues an UPDATE. busy_timeout lets
-	// the write wait out the policy-runner subprocess when it holds the lock.
-	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=busy_timeout(5000)")
+	// Read-write — this issues an UPDATE. The cached pool already has the
+	// busy_timeout + WAL pragmas applied at open time.
+	db, err := a.routingDB(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open review database: %w", err)
 	}
-	defer db.Close()
 
 	if !manualReviewsTableExists(db) {
 		return fmt.Errorf("no manual reviews recorded for endpoint %q", slug)
@@ -189,7 +185,7 @@ func (a *App) resolveManualReview(slug, reviewID, status, reason string) error {
 
 	// reject_reason is recorded only for rejections; approvals leave it NULL.
 	var rejectReason any
-	if status == reviewStatusRejected {
+	if status == manualreview.StatusRejected {
 		rejectReason = reason
 	}
 
@@ -249,9 +245,9 @@ func (a *App) publishResolution(slug, reviewID, status, reason, resolvedAt strin
 	}
 	dbPath := reviewStoreDBPath(config.EndpointsPath, slug)
 
-	// Look up the routing row. openRoutingRecorder is the SDK-facing
-	// constructor; it opens the same store.db the policy writes to.
-	recorder, err := openRoutingRecorder(dbPath)
+	// Look up the routing row. routingRecorder hands back a wrapper over the
+	// App-cached pool; its Close is a no-op so the deferred call is safe.
+	recorder, err := a.routingRecorder(dbPath)
 	if err != nil {
 		a.logWarn("publishResolution: open recorder: %v", err)
 		return
@@ -314,7 +310,7 @@ func (a *App) publishResolution(slug, reviewID, status, reason, resolvedAt strin
 // on rejection too, sending it would leak the real answer to a caller whose
 // request was deemed unfit — that's the whole point of rejection.
 func resolutionResponseText(status, heldOutput string) string {
-	if status == reviewStatusApproved {
+	if status == manualreview.StatusApproved {
 		return heldOutput
 	}
 	return ""
@@ -322,7 +318,7 @@ func resolutionResponseText(status, heldOutput string) string {
 
 // resolutionRejectReason returns the reason for a rejection, empty otherwise.
 func resolutionRejectReason(status, reason string) string {
-	if status == reviewStatusRejected {
+	if status == manualreview.StatusRejected {
 		return reason
 	}
 	return ""
@@ -333,11 +329,10 @@ func resolutionRejectReason(status, reason string) string {
 // Returns empty strings on any error — best-effort so a partial DB doesn't
 // block the publish.
 func (a *App) loadHeldOutput(dbPath, reviewID, slug string) (heldOutput, policyName, endpointName string) {
-	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=busy_timeout(5000)&mode=ro")
+	db, err := a.routingDB(dbPath)
 	if err != nil {
 		return "", "", ""
 	}
-	defer db.Close()
 
 	var (
 		rawOutput string
@@ -390,9 +385,9 @@ func manualReviewQuery(statusFilter string) (string, []any) {
 	order := fmt.Sprintf(" ORDER BY created_at DESC LIMIT %d", maxManualReviewRows)
 
 	switch statusFilter {
-	case reviewStatusPending:
+	case manualreview.StatusPending:
 		return base + " WHERE pending = 1" + order, nil
-	case reviewStatusApproved, reviewStatusRejected:
+	case manualreview.StatusApproved, manualreview.StatusRejected:
 		return base + " WHERE status = ?" + order, []any{statusFilter}
 	default: // "", "all", or anything unrecognized
 		return base + order, nil

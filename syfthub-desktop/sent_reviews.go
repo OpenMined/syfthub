@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/manualreview"
@@ -163,6 +164,14 @@ var sentReviewsDBFile = func() (string, error) {
 	return filepath.Join(dir, "sent-reviews.db"), nil
 }
 
+// sentReviewsHandle is the App-owned cache entry for the client review
+// ledger. One per process; reused across logins because the identity column
+// fences each row to its owning user.
+type sentReviewsHandle struct {
+	db  *sql.DB
+	err error
+}
+
 // openSentReviewsDB opens (creating if absent) the review ledger and ensures
 // its schema. busy_timeout + WAL let a frontend-triggered read coexist with a
 // capture write without either failing on a momentary lock.
@@ -171,6 +180,10 @@ var sentReviewsDBFile = func() (string, error) {
 // advance the DB through schema versions. A fresh install gets every column
 // from the CREATE TABLE directly; an upgrade install (Phase 1 → Phase 2.0)
 // picks up host_resolved_at and delivery_seq via ALTER TABLE.
+//
+// This is the raw connect-and-migrate helper. Production code goes through
+// App.sentReviewsDB() which wraps this in a sync.Once so the migration runs
+// at most once per process. Tests that need direct access call it directly.
 func openSentReviewsDB() (*sql.DB, error) {
 	path, err := sentReviewsDBFile()
 	if err != nil {
@@ -183,6 +196,8 @@ func openSentReviewsDB() (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open review ledger: %w", err)
 	}
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(2)
 	if _, err := db.Exec(sentReviewsCreateTable); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to initialize review ledger: %w", err)
@@ -196,6 +211,62 @@ func openSentReviewsDB() (*sql.DB, error) {
 		return nil, fmt.Errorf("migrate review ledger: %w", err)
 	}
 	return db, nil
+}
+
+// sentReviewsDB returns the App-cached ledger pool, opening + migrating on
+// first call. After closeAllDBs the cached handle is nil and this returns
+// ErrShuttingDown.
+func (a *App) sentReviewsDB() (*sql.DB, error) {
+	a.sentReviewsOnce.Do(a.initSentReviewsDB)
+
+	a.dbMu.Lock()
+	if a.routingDBsClosed {
+		a.dbMu.Unlock()
+		return nil, ErrShuttingDown
+	}
+	cache := a.sentReviewsCache
+	a.dbMu.Unlock()
+
+	if cache == nil {
+		return nil, ErrShuttingDown
+	}
+	if cache.err != nil {
+		return nil, cache.err
+	}
+	return cache.db, nil
+}
+
+// initSentReviewsDB is the once-protected body that opens the ledger pool.
+// On error the cache entry stores the error so subsequent callers see the
+// same failure without retrying.
+func (a *App) initSentReviewsDB() {
+	db, err := openSentReviewsDB()
+	a.dbMu.Lock()
+	defer a.dbMu.Unlock()
+	if a.routingDBsClosed {
+		// closeAllDBs raced ahead — discard the freshly-opened handle so
+		// nothing leaks.
+		if db != nil {
+			_ = db.Close()
+		}
+		return
+	}
+	a.sentReviewsCache = &sentReviewsHandle{db: db, err: err}
+}
+
+// resetSentReviewsDBForTest closes and clears the cached ledger handle so a
+// test that swaps sentReviewsDBFile can force a fresh open on the next call.
+// Returns the previous cache so tests can assert on close errors if needed.
+func (a *App) resetSentReviewsDBForTest() {
+	a.dbMu.Lock()
+	prev := a.sentReviewsCache
+	a.sentReviewsCache = nil
+	a.dbMu.Unlock()
+
+	a.sentReviewsOnce = sync.Once{}
+	if prev != nil && prev.db != nil {
+		_ = prev.db.Close()
+	}
 }
 
 // migrateSentReviewsSchema advances the database through schema versions.
@@ -328,11 +399,10 @@ func (a *App) RecordSentReview(input SentReviewInput) error {
 	}
 	submittedAt := time.Now().UTC().Format(manualreview.ISOMicroLayout)
 
-	db, err := openSentReviewsDB()
+	db, err := a.sentReviewsDB()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
 	// INSERT OR IGNORE makes capture idempotent — the PRIMARY KEY on review_id
 	// silently drops a duplicate rather than erroring.
@@ -344,7 +414,7 @@ func (a *App) RecordSentReview(input SentReviewInput) error {
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		input.ReviewID, identity, input.EndpointPath, owner, slug,
 		input.EndpointName, endpointType, input.PolicyName, string(messagesJSON),
-		input.Placeholder, submittedAt, reviewStatusPending, statusSourceCaptured,
+		input.Placeholder, submittedAt, manualreview.StatusPending, statusSourceCaptured,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to record review: %w", err)
@@ -367,11 +437,10 @@ func (a *App) GetSentReviews(statusFilter string) ([]SentReviewEntry, error) {
 		return []SentReviewEntry{}, nil
 	}
 
-	db, err := openSentReviewsDB()
+	db, err := a.sentReviewsDB()
 	if err != nil {
 		return nil, err
 	}
-	defer db.Close()
 
 	query, args := sentReviewQuery(identity, statusFilter)
 	rows, err := db.Query(query, args...)
@@ -407,7 +476,7 @@ func sentReviewQuery(identity, statusFilter string) (string, []any) {
 	base := "SELECT " + sentReviewCols + " FROM sent_reviews WHERE identity = ?"
 	order := fmt.Sprintf(" ORDER BY submitted_at DESC LIMIT %d", maxSentReviewRows)
 	switch statusFilter {
-	case reviewStatusPending, reviewStatusApproved, reviewStatusRejected:
+	case manualreview.StatusPending, manualreview.StatusApproved, manualreview.StatusRejected:
 		return base + " AND status = ?" + order, []any{identity, statusFilter}
 	default: // "", "all", or anything unrecognized
 		return base + order, []any{identity}
@@ -476,23 +545,22 @@ func (a *App) SetSentReviewStatus(reviewID, status, reason string) error {
 	if reviewID == "" {
 		return fmt.Errorf("review id is required")
 	}
-	if status != reviewStatusApproved && status != reviewStatusRejected {
-		return fmt.Errorf("status must be %q or %q", reviewStatusApproved, reviewStatusRejected)
+	if status != manualreview.StatusApproved && status != manualreview.StatusRejected {
+		return fmt.Errorf("status must be %q or %q", manualreview.StatusApproved, manualreview.StatusRejected)
 	}
 	identity := a.currentIdentity()
 	if identity == "" {
 		return fmt.Errorf("not authenticated")
 	}
 
-	db, err := openSentReviewsDB()
+	db, err := a.sentReviewsDB()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
 	// reject_reason is recorded only for rejections; approvals clear it.
 	var rejectReason any
-	if status == reviewStatusRejected {
+	if status == manualreview.StatusRejected {
 		rejectReason = reason
 	}
 	resolvedAt := time.Now().UTC().Format(manualreview.ISOMicroLayout)
@@ -542,11 +610,10 @@ func (a *App) DeleteSentReview(reviewID string) error {
 		return fmt.Errorf("not authenticated")
 	}
 
-	db, err := openSentReviewsDB()
+	db, err := a.sentReviewsDB()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
 	res, err := db.Exec(
 		"DELETE FROM sent_reviews WHERE review_id = ? AND identity = ?",
@@ -579,11 +646,10 @@ func (a *App) SetSentReviewNote(reviewID, note string) error {
 		return fmt.Errorf("not authenticated")
 	}
 
-	db, err := openSentReviewsDB()
+	db, err := a.sentReviewsDB()
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 
 	res, err := db.Exec(
 		"UPDATE sent_reviews SET user_note = ? WHERE review_id = ? AND identity = ?",

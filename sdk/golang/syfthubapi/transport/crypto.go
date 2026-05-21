@@ -4,27 +4,38 @@ import (
 	"crypto/cipher"
 	"crypto/ecdh"
 	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 
-	"golang.org/x/crypto/hkdf"
-
-	"crypto/sha256"
-
 	syfthubapi "github.com/openmined/syfthub/sdk/golang/syfthubapi"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/internal/cryptocore"
 )
 
-// Domain-separation labels for HKDF — must match the Python aggregator exactly.
+// HKDF domain-separation labels for the v1 ephemeral tunnel scheme — must
+// match the Python aggregator exactly. These are part of the wire contract.
 var (
-	hkdfRequestInfo  = []byte("syfthub-tunnel-request-v1")
-	hkdfResponseInfo = []byte("syfthub-tunnel-response-v1")
+	// domain: syfthub-tunnel-request-v1
+	domainTunnelRequestV1 = cryptocore.NewDomain("syfthub-tunnel-request-v1")
+	// domain: syfthub-tunnel-response-v1
+	domainTunnelResponseV1 = cryptocore.NewDomain("syfthub-tunnel-response-v1")
 )
 
-const nonceSize = 12 // 96-bit nonce for AES-256-GCM
+// Backward-compatible byte aliases for the labels above. Existing v1 tests
+// reference the byte-slice form (hkdfRequestInfo / hkdfResponseInfo); these
+// re-export the same bytes from the Domain values so neither the wire format
+// nor the test surface changes.
+var (
+	hkdfRequestInfo  = domainTunnelRequestV1.Bytes()
+	hkdfResponseInfo = domainTunnelResponseV1.Bytes()
+)
+
+// nonceSize is the package-local alias of cryptocore.NonceSize, kept so
+// in-package callers (attachment_encryptor.go, tests) and the package's
+// existing cross-language constant test continue to compile against a const.
+const nonceSize = cryptocore.NonceSize
 
 // GenerateX25519Keypair generates a fresh X25519 keypair.
 // Returns the private key and the raw (32-byte) public key bytes.
@@ -83,37 +94,31 @@ func LoadOrGenerateKey(keyPath string) (*ecdh.PrivateKey, error) {
 	return key, nil
 }
 
-// deriveKey performs X25519 ECDH then HKDF-SHA256 to produce a 32-byte AES key.
-// info must be one of hkdfRequestInfo or hkdfResponseInfo for domain separation.
+// deriveKey is the v1-tunnel key derivation: X25519 ECDH + HKDF-SHA256 with
+// zero salt. Thin wrapper over cryptocore.DeriveKey kept for in-package test
+// helpers that simulate the aggregator side; production paths call
+// cryptocore.DeriveKey directly.
 func deriveKey(privateKey *ecdh.PrivateKey, peerPublicKeyBytes []byte, info []byte) ([]byte, error) {
-	peerPub, err := ecdh.X25519().NewPublicKey(peerPublicKeyBytes)
-	if err != nil {
-		return nil, fmt.Errorf("invalid peer public key: %w", err)
+	// The v1 scheme used nil salt (HKDF then treats it as a zero-filled
+	// HashLen-byte buffer per RFC 5869). Cryptocore preserves that contract.
+	domain := domainTunnelRequestV1
+	if string(info) == string(hkdfResponseInfo) {
+		domain = domainTunnelResponseV1
 	}
-
-	sharedSecret, err := privateKey.ECDH(peerPub)
-	if err != nil {
-		return nil, fmt.Errorf("ECDH failed: %w", err)
-	}
-
-	// HKDF-SHA256: no salt (nil → HKDF uses a zero-filled salt of HashLen bytes per RFC 5869)
-	hkdfReader := hkdf.New(sha256.New, sharedSecret, nil, info)
-	aesKey := make([]byte, 32)
-	if _, err := io.ReadFull(hkdfReader, aesKey); err != nil {
-		return nil, fmt.Errorf("HKDF key derivation failed: %w", err)
-	}
-	return aesKey, nil
+	return cryptocore.DeriveKey(privateKey, peerPublicKeyBytes, nil, domain)
 }
 
 // encryptPayload encrypts plaintext with AES-256-GCM using a random nonce.
-// Returns (nonce, ciphertext_with_tag).
+// Returns (nonce, ciphertext_with_tag). Used by the v1-tunnel response path
+// and by in-package test helpers — operates on raw bytes (no base64 framing),
+// which is why it can't be replaced by cryptocore.Seal.
 func encryptPayload(plaintext, aesKey, aad []byte) (nonce, ciphertext []byte, err error) {
-	gcm, err := newAESGCM(aesKey)
+	gcm, err := cryptocore.NewAESGCM(aesKey)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	nonce = make([]byte, nonceSize)
+	nonce = make([]byte, cryptocore.NonceSize)
 	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, nil, fmt.Errorf("nonce generation failed: %w", err)
 	}
@@ -123,9 +128,11 @@ func encryptPayload(plaintext, aesKey, aad []byte) (nonce, ciphertext []byte, er
 }
 
 // decryptPayload decrypts AES-256-GCM ciphertext (which includes the 16-byte GCM tag).
-// Returns an error if decryption or authentication fails.
+// Returns an error if decryption or authentication fails. Raw-bytes counterpart
+// of encryptPayload; kept here because the v1 tunnel scheme passes nonce and
+// ciphertext as separate base64 fields rather than as a single bundle.
 func decryptPayload(ciphertextWithTag, aesKey, nonce, aad []byte) ([]byte, error) {
-	gcm, err := newAESGCM(aesKey)
+	gcm, err := cryptocore.NewAESGCM(aesKey)
 	if err != nil {
 		return nil, err
 	}
@@ -137,14 +144,15 @@ func decryptPayload(ciphertextWithTag, aesKey, nonce, aad []byte) ([]byte, error
 	return plaintext, nil
 }
 
-// b64urlEncode encodes bytes to base64url without padding.
+// b64urlEncode encodes bytes to base64url without padding. Thin wrapper over
+// cryptocore.EncodeB64URL kept for in-package callers and tests.
 func b64urlEncode(data []byte) string {
-	return base64.RawURLEncoding.EncodeToString(data)
+	return cryptocore.EncodeB64URL(data)
 }
 
-// b64urlDecode decodes a base64url string (with or without padding).
+// b64urlDecode decodes a base64url string with no padding.
 func b64urlDecode(s string) ([]byte, error) {
-	return base64.RawURLEncoding.DecodeString(s)
+	return cryptocore.DecodeB64URL(s)
 }
 
 // DecryptTunnelRequest decrypts the encrypted payload in an incoming TunnelRequest.
@@ -152,7 +160,7 @@ func b64urlDecode(s string) ([]byte, error) {
 // The aggregator encrypted the payload using:
 //   - An ephemeral public key (in req.EncryptionInfo.EphemeralPublicKey)
 //   - ECDH with the space's long-term public key
-//   - HKDF-SHA256 with hkdfRequestInfo
+//   - HKDF-SHA256 with domainTunnelRequestV1
 //
 // We reverse this using our long-term private key.
 //
@@ -174,25 +182,25 @@ func DecryptTunnelRequest(
 		return nil, fmt.Errorf("encryption_info is nil")
 	}
 
-	ephemeralPubBytes, err := b64urlDecode(encInfo.EphemeralPublicKey)
+	ephemeralPubBytes, err := cryptocore.DecodeB64URL(encInfo.EphemeralPublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("invalid ephemeral_public_key: %w", err)
 	}
 
-	nonce, err := b64urlDecode(encInfo.Nonce)
+	nonce, err := cryptocore.DecodeB64URL(encInfo.Nonce)
 	if err != nil {
 		return nil, fmt.Errorf("invalid nonce: %w", err)
 	}
-	if len(nonce) != nonceSize {
-		return nil, fmt.Errorf("nonce must be %d bytes, got %d", nonceSize, len(nonce))
+	if len(nonce) != cryptocore.NonceSize {
+		return nil, fmt.Errorf("nonce must be %d bytes, got %d", cryptocore.NonceSize, len(nonce))
 	}
 
-	ciphertext, err := b64urlDecode(encryptedPayloadB64)
+	ciphertext, err := cryptocore.DecodeB64URL(encryptedPayloadB64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid encrypted_payload: %w", err)
 	}
 
-	aesKey, err := deriveKey(privateKey, ephemeralPubBytes, hkdfRequestInfo)
+	aesKey, err := cryptocore.DeriveKey(privateKey, ephemeralPubBytes, nil, domainTunnelRequestV1)
 	if err != nil {
 		return nil, err
 	}
@@ -207,7 +215,7 @@ func DecryptTunnelRequest(
 // can decrypt it using the request's ephemeral private key (which it retains):
 //   - Generate fresh response ephemeral keypair (priv_r, pub_r)
 //   - shared_secret = X25519(priv_r, request_ephemeral_pub)
-//   - aes_key = HKDF-SHA256(shared_secret, hkdfResponseInfo)
+//   - aes_key = HKDF-SHA256(shared_secret, domainTunnelResponseV1)
 //   - Encrypt payload with AES-256-GCM; AAD = correlationID
 //
 // Args:
@@ -232,12 +240,12 @@ func EncryptTunnelResponse(
 	}
 	respPubBytes := respPriv.PublicKey().Bytes()
 
-	reqEphemeralPubBytes, err := b64urlDecode(requestEphemeralPubKeyB64)
+	reqEphemeralPubBytes, err := cryptocore.DecodeB64URL(requestEphemeralPubKeyB64)
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid request ephemeral_public_key: %w", err)
 	}
 
-	aesKey, err := deriveKey(respPriv, reqEphemeralPubBytes, hkdfResponseInfo)
+	aesKey, err := cryptocore.DeriveKey(respPriv, reqEphemeralPubBytes, nil, domainTunnelResponseV1)
 	if err != nil {
 		return nil, "", err
 	}
@@ -250,10 +258,10 @@ func EncryptTunnelResponse(
 
 	encInfo := &syfthubapi.EncryptionInfo{
 		Algorithm:          "X25519-ECDH-AES-256-GCM",
-		EphemeralPublicKey: b64urlEncode(respPubBytes),
-		Nonce:              b64urlEncode(nonce),
+		EphemeralPublicKey: cryptocore.EncodeB64URL(respPubBytes),
+		Nonce:              cryptocore.EncodeB64URL(nonce),
 	}
-	return encInfo, b64urlEncode(ciphertext), nil
+	return encInfo, cryptocore.EncodeB64URL(ciphertext), nil
 }
 
 // SessionEncryptor pre-computes the expensive X25519 ECDH + HKDF key derivation
@@ -297,24 +305,24 @@ func NewSessionEncryptor(requestEphemeralPubKeyB64 string) (*SessionEncryptor, e
 		return nil, fmt.Errorf("keypair generation failed: %w", err)
 	}
 
-	reqEphemeralPubBytes, err := b64urlDecode(requestEphemeralPubKeyB64)
+	reqEphemeralPubBytes, err := cryptocore.DecodeB64URL(requestEphemeralPubKeyB64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid request ephemeral_public_key: %w", err)
 	}
 
-	aesKey, err := deriveKey(respPriv, reqEphemeralPubBytes, hkdfResponseInfo)
+	aesKey, err := cryptocore.DeriveKey(respPriv, reqEphemeralPubBytes, nil, domainTunnelResponseV1)
 	if err != nil {
 		return nil, err
 	}
 
-	gcm, err := newAESGCM(aesKey)
+	gcm, err := cryptocore.NewAESGCM(aesKey)
 	if err != nil {
 		return nil, err
 	}
 
 	return &SessionEncryptor{
 		gcm:          gcm,
-		ephPubKeyB64: b64urlEncode(respPriv.PublicKey().Bytes()),
+		ephPubKeyB64: cryptocore.EncodeB64URL(respPriv.PublicKey().Bytes()),
 	}, nil
 }
 
@@ -325,7 +333,7 @@ func NewSessionEncryptor(requestEphemeralPubKeyB64 string) (*SessionEncryptor, e
 // Returns the EncryptionInfo (with the session's constant ephemeral public key and
 // a per-message nonce) and the base64url-encoded ciphertext.
 func (e *SessionEncryptor) Encrypt(payloadJSON []byte, correlationID string) (*syfthubapi.EncryptionInfo, string, error) {
-	nonce := make([]byte, nonceSize)
+	nonce := make([]byte, cryptocore.NonceSize)
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, "", fmt.Errorf("nonce generation failed: %w", err)
 	}
@@ -336,7 +344,7 @@ func (e *SessionEncryptor) Encrypt(payloadJSON []byte, correlationID string) (*s
 	encInfo := &syfthubapi.EncryptionInfo{
 		Algorithm:          "X25519-ECDH-AES-256-GCM",
 		EphemeralPublicKey: e.ephPubKeyB64,
-		Nonce:              b64urlEncode(nonce),
+		Nonce:              cryptocore.EncodeB64URL(nonce),
 	}
-	return encInfo, b64urlEncode(ciphertext), nil
+	return encInfo, cryptocore.EncodeB64URL(ciphertext), nil
 }

@@ -1,10 +1,27 @@
 package main
 
 import (
+	"database/sql"
 	"testing"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/manualreview"
 )
+
+// openTestSentReviewsDB opens the same on-disk ledger the App uses so the
+// helper-direct tests can call the unexported helpers against a real DB
+// without going through the BEGIN IMMEDIATE wrapper.
+//
+// withTempSettingsDir must have run first (the helper relies on it via
+// openSentReviewsDB). Closes via t.Cleanup so tests don't leak file handles.
+func openTestSentReviewsDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := openSentReviewsDB()
+	if err != nil {
+		t.Fatalf("open ledger: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
 
 // withLoggedInApp returns an *App seeded with `identity` for tests that need
 // a.RecordSentReview to succeed.
@@ -270,5 +287,216 @@ func TestApplyHostResolution_DoesNotMutateForeignIdentityRow(t *testing.T) {
 	}
 	if n != 0 {
 		t.Errorf("expected 0 carol rows after collision, got %d", n)
+	}
+}
+
+// probeReviewExists must return (false, nil) — not an error — when the row
+// is absent. This is the load-bearing branch that lets the orchestrator
+// distinguish "seq guard rejected" from "no such row, synthesize it".
+func TestProbeReviewExists_ReturnsFalseOnNoRows(t *testing.T) {
+	withTempSettingsDir(t)
+	db := openTestSentReviewsDB(t)
+
+	exists, err := probeReviewExists(db, "bob", "rid-missing")
+	if err != nil {
+		t.Fatalf("probe: %v", err)
+	}
+	if exists {
+		t.Error("expected exists=false for absent row")
+	}
+}
+
+// probeReviewExists is identity-scoped: a row owned by a different identity
+// must not be reported as existing for the queried identity. Without this,
+// the synth-INSERT path would be wrongly skipped on a cross-identity replay.
+func TestProbeReviewExists_ReturnsFalseForForeignIdentityRow(t *testing.T) {
+	a := withLoggedInApp(t, "bob")
+	if err := a.RecordSentReview(SentReviewInput{
+		ReviewID:     "rid-shared",
+		EndpointPath: "alice/ep",
+	}); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+
+	db := openTestSentReviewsDB(t)
+	exists, err := probeReviewExists(db, "carol", "rid-shared")
+	if err != nil {
+		t.Fatalf("probe: %v", err)
+	}
+	if exists {
+		t.Error("expected exists=false: row belongs to bob, query was for carol")
+	}
+}
+
+// ApplyHostResolutionDetailed must surface each of the four outcomes through
+// the typed return path. Table-driven to keep the matrix self-documenting:
+// every row exercises a distinct branch of applyHostResolutionTx.
+func TestApplyHostResolutionDetailed_OutcomesMatrix(t *testing.T) {
+	type rowSetup struct {
+		// seed runs before the apply call. nil = fresh ledger.
+		seed func(t *testing.T, a *App)
+		// applyIdentity is the identity used in the apply call.
+		applyIdentity string
+		// reviewID used by both seed and apply.
+		reviewID string
+		// deliverySeq for the apply call.
+		seq uint64
+		// expected outcome.
+		want HostResolutionOutcome
+		// expected Applied() collapse.
+		wantApplied bool
+	}
+
+	cases := map[string]rowSetup{
+		"Applied": {
+			seed: func(t *testing.T, a *App) {
+				if err := a.RecordSentReview(SentReviewInput{
+					ReviewID: "rid-a", EndpointPath: "alice/ep",
+				}); err != nil {
+					t.Fatalf("record: %v", err)
+				}
+			},
+			applyIdentity: "bob",
+			reviewID:      "rid-a",
+			seq:           10,
+			want:          OutcomeApplied,
+			wantApplied:   true,
+		},
+		"StaleIgnored": {
+			seed: func(t *testing.T, a *App) {
+				if err := a.RecordSentReview(SentReviewInput{
+					ReviewID: "rid-s", EndpointPath: "alice/ep",
+				}); err != nil {
+					t.Fatalf("record: %v", err)
+				}
+				// Land seq=100, then replay at seq=50 to trigger the
+				// stale-ignored branch.
+				if _, err := a.ApplyHostResolutionDetailed("bob",
+					sampleEnvelope("rid-s"),
+					samplePayload("rid-s", manualreview.StatusApproved, "first", ""),
+					100); err != nil {
+					t.Fatalf("seed apply: %v", err)
+				}
+			},
+			applyIdentity: "bob",
+			reviewID:      "rid-s",
+			seq:           50,
+			want:          OutcomeStaleIgnored,
+			wantApplied:   false,
+		},
+		"Synthesized": {
+			seed:          nil, // no row exists, fresh-device path.
+			applyIdentity: "bob",
+			reviewID:      "rid-y",
+			seq:           5,
+			want:          OutcomeSynthesized,
+			wantApplied:   true,
+		},
+		"ForeignCollision": {
+			seed: func(t *testing.T, a *App) {
+				// bob owns rid-f; carol's apply will collide on PK.
+				if err := a.RecordSentReview(SentReviewInput{
+					ReviewID: "rid-f", EndpointPath: "alice/ep",
+				}); err != nil {
+					t.Fatalf("record: %v", err)
+				}
+			},
+			applyIdentity: "carol",
+			reviewID:      "rid-f",
+			seq:           1,
+			want:          OutcomeForeignCollision,
+			wantApplied:   false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			a := withLoggedInApp(t, "bob")
+			if tc.seed != nil {
+				tc.seed(t, a)
+			}
+
+			outcome, err := a.ApplyHostResolutionDetailed(
+				tc.applyIdentity,
+				sampleEnvelope(tc.reviewID),
+				samplePayload(tc.reviewID, manualreview.StatusApproved, "body", ""),
+				tc.seq,
+			)
+			if err != nil {
+				t.Fatalf("apply: %v", err)
+			}
+			if outcome != tc.want {
+				t.Errorf("outcome = %v, want %v", outcome, tc.want)
+			}
+			if outcome.Applied() != tc.wantApplied {
+				t.Errorf("Applied() = %v, want %v", outcome.Applied(), tc.wantApplied)
+			}
+		})
+	}
+}
+
+// synthesizeReviewRow must return inserted=false (not error) when INSERT OR
+// IGNORE skips the row because the review_id PK is already taken by another
+// identity. This is the safety net behind OutcomeForeignCollision.
+func TestSynthesizeReviewRow_ReturnsInsertedFalseOnPKCollision(t *testing.T) {
+	a := withLoggedInApp(t, "bob")
+	if err := a.RecordSentReview(SentReviewInput{
+		ReviewID:     "rid-pk",
+		EndpointPath: "alice/ep",
+	}); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+
+	db := openTestSentReviewsDB(t)
+	inserted, err := synthesizeReviewRow(
+		db,
+		"carol",
+		sampleEnvelope("rid-pk"),
+		samplePayload("rid-pk", manualreview.StatusApproved, "leak?", ""),
+		1,
+	)
+	if err != nil {
+		t.Fatalf("synth: %v", err)
+	}
+	if inserted {
+		t.Error("expected inserted=false on PK collision against bob's row")
+	}
+}
+
+// tryUpdateExistingReview must return updated=false (not error) when the seq
+// guard rejects: row exists but its stored delivery_seq is >= incoming.
+// updated=false is what tells the orchestrator to fall through to the probe.
+func TestTryUpdateExistingReview_ReturnsFalseWhenSeqGuardRejects(t *testing.T) {
+	a := withLoggedInApp(t, "bob")
+	if err := a.RecordSentReview(SentReviewInput{
+		ReviewID:     "rid-g",
+		EndpointPath: "alice/ep",
+	}); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	// Seed delivery_seq=100 via a successful apply.
+	if _, err := a.ApplyHostResolutionDetailed(
+		"bob",
+		sampleEnvelope("rid-g"),
+		samplePayload("rid-g", manualreview.StatusApproved, "first", ""),
+		100,
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	db := openTestSentReviewsDB(t)
+	// Replay at the same seq — strict-less-than guard rejects.
+	updated, err := tryUpdateExistingReview(
+		db,
+		"bob",
+		sampleEnvelope("rid-g"),
+		samplePayload("rid-g", manualreview.StatusRejected, "", "spam"),
+		100,
+	)
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if updated {
+		t.Error("expected updated=false: seq guard should reject same-seq replay")
 	}
 }

@@ -28,21 +28,21 @@
 package transport
 
 import (
-	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ecdh"
-	"crypto/rand"
-	"crypto/sha256"
 	"fmt"
-	"io"
 
-	"golang.org/x/crypto/hkdf"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/internal/cryptocore"
 )
 
 // HKDF domain-separation labels for the v2 identity-keyed agent session crypto.
+// The string labels are part of the wire contract and must match the peer's
+// implementation byte-for-byte.
 var (
-	hkdfAgentRequestInfoV2  = []byte("syfthub-agent-request-v2")
-	hkdfAgentResponseInfoV2 = []byte("syfthub-agent-response-v2")
+	// domain: syfthub-agent-request-v2
+	domainAgentRequestV2 = cryptocore.NewDomain("syfthub-agent-request-v2")
+	// domain: syfthub-agent-response-v2
+	domainAgentResponseV2 = cryptocore.NewDomain("syfthub-agent-response-v2")
 )
 
 // SessionCipher holds the AES-256-GCM ciphers for both directions of one
@@ -63,26 +63,26 @@ func NewSessionCipher(identityKey *ecdh.PrivateKey, peerIdentityPubB64, sessionI
 	if sessionID == "" {
 		return nil, fmt.Errorf("session id is empty")
 	}
-	peerPubBytes, err := b64urlDecode(peerIdentityPubB64)
+	peerPubBytes, err := cryptocore.DecodeB64URL(peerIdentityPubB64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid peer identity public key: %w", err)
 	}
 	salt := []byte(sessionID)
 
-	reqKey, err := deriveSessionKey(identityKey, peerPubBytes, salt, hkdfAgentRequestInfoV2)
+	reqKey, err := cryptocore.DeriveKey(identityKey, peerPubBytes, salt, domainAgentRequestV2)
 	if err != nil {
 		return nil, err
 	}
-	respKey, err := deriveSessionKey(identityKey, peerPubBytes, salt, hkdfAgentResponseInfoV2)
+	respKey, err := cryptocore.DeriveKey(identityKey, peerPubBytes, salt, domainAgentResponseV2)
 	if err != nil {
 		return nil, err
 	}
 
-	reqAEAD, err := newAESGCM(reqKey)
+	reqAEAD, err := cryptocore.NewAESGCM(reqKey)
 	if err != nil {
 		return nil, err
 	}
-	respAEAD, err := newAESGCM(respKey)
+	respAEAD, err := cryptocore.NewAESGCM(respKey)
 	if err != nil {
 		return nil, err
 	}
@@ -92,85 +92,20 @@ func NewSessionCipher(identityKey *ecdh.PrivateKey, peerIdentityPubB64, sessionI
 // EncryptRequest encrypts a client→host message (session_start, user_message,
 // session_cancel, user_attachment). correlationID is bound as GCM AAD.
 func (c *SessionCipher) EncryptRequest(plaintext []byte, correlationID string) (nonceB64, ciphertextB64 string, err error) {
-	return sealAEAD(c.reqAEAD, plaintext, correlationID)
+	return cryptocore.Seal(c.reqAEAD, plaintext, []byte(correlationID))
 }
 
 // DecryptRequest decrypts a client→host message.
 func (c *SessionCipher) DecryptRequest(nonceB64, ciphertextB64, correlationID string) ([]byte, error) {
-	return openAEAD(c.reqAEAD, nonceB64, ciphertextB64, correlationID)
+	return cryptocore.Open(c.reqAEAD, nonceB64, ciphertextB64, []byte(correlationID))
 }
 
 // EncryptResponse encrypts a host→client message (agent_event).
 func (c *SessionCipher) EncryptResponse(plaintext []byte, correlationID string) (nonceB64, ciphertextB64 string, err error) {
-	return sealAEAD(c.respAEAD, plaintext, correlationID)
+	return cryptocore.Seal(c.respAEAD, plaintext, []byte(correlationID))
 }
 
 // DecryptResponse decrypts a host→client message.
 func (c *SessionCipher) DecryptResponse(nonceB64, ciphertextB64, correlationID string) ([]byte, error) {
-	return openAEAD(c.respAEAD, nonceB64, ciphertextB64, correlationID)
-}
-
-// deriveSessionKey performs X25519 ECDH then HKDF-SHA256 with an explicit salt,
-// producing a 32-byte AES key. Unlike deriveKey (v1, nil salt) it salts the
-// derivation with the session id so a stable identity-pair shared secret still
-// yields fresh keys for every session.
-func deriveSessionKey(identityKey *ecdh.PrivateKey, peerPubBytes, salt, info []byte) ([]byte, error) {
-	peerPub, err := ecdh.X25519().NewPublicKey(peerPubBytes)
-	if err != nil {
-		return nil, fmt.Errorf("invalid peer identity public key: %w", err)
-	}
-	shared, err := identityKey.ECDH(peerPub)
-	if err != nil {
-		return nil, fmt.Errorf("ECDH failed: %w", err)
-	}
-	r := hkdf.New(sha256.New, shared, salt, info)
-	key := make([]byte, 32)
-	if _, err := io.ReadFull(r, key); err != nil {
-		return nil, fmt.Errorf("HKDF key derivation failed: %w", err)
-	}
-	return key, nil
-}
-
-// newAESGCM builds an AES-256-GCM AEAD from a 32-byte key.
-func newAESGCM(key []byte) (cipher.AEAD, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, fmt.Errorf("AES cipher creation failed: %w", err)
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("GCM creation failed: %w", err)
-	}
-	return gcm, nil
-}
-
-// sealAEAD encrypts plaintext under a fresh random nonce; AAD = correlationID.
-// Returns base64url(nonce) and base64url(ciphertext+tag).
-func sealAEAD(aead cipher.AEAD, plaintext []byte, correlationID string) (nonceB64, ciphertextB64 string, err error) {
-	nonce := make([]byte, nonceSize)
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return "", "", fmt.Errorf("nonce generation failed: %w", err)
-	}
-	ciphertext := aead.Seal(nil, nonce, plaintext, []byte(correlationID))
-	return b64urlEncode(nonce), b64urlEncode(ciphertext), nil
-}
-
-// openAEAD decrypts a base64url nonce + ciphertext; AAD = correlationID.
-func openAEAD(aead cipher.AEAD, nonceB64, ciphertextB64, correlationID string) ([]byte, error) {
-	nonce, err := b64urlDecode(nonceB64)
-	if err != nil {
-		return nil, fmt.Errorf("invalid nonce: %w", err)
-	}
-	if len(nonce) != nonceSize {
-		return nil, fmt.Errorf("nonce must be %d bytes, got %d", nonceSize, len(nonce))
-	}
-	ciphertext, err := b64urlDecode(ciphertextB64)
-	if err != nil {
-		return nil, fmt.Errorf("invalid ciphertext: %w", err)
-	}
-	plaintext, err := aead.Open(nil, nonce, ciphertext, []byte(correlationID))
-	if err != nil {
-		return nil, fmt.Errorf("GCM decryption failed (wrong key, nonce, or tampered data): %w", err)
-	}
-	return plaintext, nil
+	return cryptocore.Open(c.respAEAD, nonceB64, ciphertextB64, []byte(correlationID))
 }

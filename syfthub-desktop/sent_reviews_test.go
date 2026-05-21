@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/manualreview"
 	_ "modernc.org/sqlite"
 )
 
@@ -59,7 +60,7 @@ func TestRecordAndGetSentReviews(t *testing.T) {
 	if e.EndpointType != "agent" {
 		t.Errorf("EndpointType = %q, want agent (default)", e.EndpointType)
 	}
-	if e.Status != reviewStatusPending || e.StatusSource != statusSourceCaptured {
+	if e.Status != manualreview.StatusPending || e.StatusSource != statusSourceCaptured {
 		t.Errorf("status/source = %q/%q, want pending/captured", e.Status, e.StatusSource)
 	}
 	if e.SubmittedAt == "" {
@@ -127,7 +128,7 @@ func TestGetSentReviewsStatusFilter(t *testing.T) {
 			t.Fatalf("record %s: %v", id, err)
 		}
 	}
-	if err := a.SetSentReviewStatus("rev-r00000000001", reviewStatusRejected, "off topic"); err != nil {
+	if err := a.SetSentReviewStatus("rev-r00000000001", manualreview.StatusRejected, "off topic"); err != nil {
 		t.Fatalf("SetSentReviewStatus: %v", err)
 	}
 
@@ -159,11 +160,11 @@ func TestSetSentReviewStatusManualOverride(t *testing.T) {
 	}
 
 	t.Run("approve stamps manual and clears reason", func(t *testing.T) {
-		if err := a.SetSentReviewStatus("rev-app000000001", reviewStatusApproved, "ignored"); err != nil {
+		if err := a.SetSentReviewStatus("rev-app000000001", manualreview.StatusApproved, "ignored"); err != nil {
 			t.Fatalf("SetSentReviewStatus: %v", err)
 		}
 		e := findEntry(t, a, "rev-app000000001")
-		if e.Status != reviewStatusApproved || e.StatusSource != statusSourceManual {
+		if e.Status != manualreview.StatusApproved || e.StatusSource != statusSourceManual {
 			t.Errorf("status/source = %q/%q, want approved/manual", e.Status, e.StatusSource)
 		}
 		if e.RejectReason != "" {
@@ -175,11 +176,11 @@ func TestSetSentReviewStatusManualOverride(t *testing.T) {
 	})
 
 	t.Run("reject stores the reason", func(t *testing.T) {
-		if err := a.SetSentReviewStatus("rev-rej000000001", reviewStatusRejected, "contained PII"); err != nil {
+		if err := a.SetSentReviewStatus("rev-rej000000001", manualreview.StatusRejected, "contained PII"); err != nil {
 			t.Fatalf("SetSentReviewStatus: %v", err)
 		}
 		e := findEntry(t, a, "rev-rej000000001")
-		if e.Status != reviewStatusRejected || e.RejectReason != "contained PII" {
+		if e.Status != manualreview.StatusRejected || e.RejectReason != "contained PII" {
 			t.Errorf("got status=%q reason=%q", e.Status, e.RejectReason)
 		}
 	})
@@ -191,7 +192,7 @@ func TestSetSentReviewStatusManualOverride(t *testing.T) {
 	})
 
 	t.Run("unknown review id errors", func(t *testing.T) {
-		if err := a.SetSentReviewStatus("rev-does-not-exist", reviewStatusApproved, ""); err == nil {
+		if err := a.SetSentReviewStatus("rev-does-not-exist", manualreview.StatusApproved, ""); err == nil {
 			t.Error("want an error for an unknown review id")
 		}
 	})
