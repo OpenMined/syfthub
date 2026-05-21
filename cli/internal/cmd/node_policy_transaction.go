@@ -315,9 +315,6 @@ func printTransactionPolicySuccess(slug string, out *transactionPolicyOutcome) {
 	}
 	fmt.Println("   Losing this secret invalidates all in-flight payment challenges.")
 	fmt.Println()
-
-	output.Info("Tip: paid endpoints benefit from container mode (~10x faster policy hot path).")
-	fmt.Println("     Add `runtime: { mode: container }` to your README.md frontmatter.")
 }
 
 // transactionArgsFromFlags snapshots the cobra flag globals into a value type

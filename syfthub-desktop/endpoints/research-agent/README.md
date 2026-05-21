@@ -6,7 +6,6 @@ description: LLM + MCP client agent. Connects to MCP servers for tools and drive
 enabled: true
 version: "2.2.0"
 runtime:
-  mode: subprocess
   workers: 1
   timeout: 300
 env:

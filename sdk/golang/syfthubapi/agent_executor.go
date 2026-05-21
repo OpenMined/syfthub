@@ -86,8 +86,12 @@ func (a *AgentExecutor) run(ctx context.Context, outer *AgentSession) error {
 	// AttachmentDir is intentionally omitted — relaying attachments through
 	// the policy boundary is a follow-up; under policy v1 agents do not
 	// exchange attachments.
+	//
+	// The inner ID uses an underscore (not a slash) as the suffix separator:
+	// containermode/agent_handler.go's HTTP/SSE routes embed the session id
+	// as a URL path segment ("/session/<id>/events" expects 3 segments).
 	inner := NewAgentSession(ctx, AgentSessionParams{
-		ID:           outer.ID + "/inner",
+		ID:           outer.ID + "_inner",
 		Prompt:       outer.InitialPrompt,
 		EndpointSlug: outer.EndpointSlug,
 		Messages:     outer.Messages,

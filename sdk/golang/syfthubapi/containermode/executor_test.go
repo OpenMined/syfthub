@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
@@ -20,12 +21,12 @@ func TestBuildEndpointSpec_Defaults(t *testing.T) {
 	}
 
 	spec := BuildEndpointSpec(EndpointSpecConfig{
-		Slug:       "my-model",
-		Dir:        "/path/to/endpoint",
-		Global:     cfg,
-		EnvVars:    []string{"KEY=value"},
-		InstanceID: "abc12345",
-		Image:      cfg.Image,
+		Slug:         "my-model",
+		SynthCodeDir: "/path/to/endpoint",
+		Global:       cfg,
+		EnvVars:      []string{"KEY=value"},
+		InstanceID:   "abc12345",
+		Image:        cfg.Image,
 	})
 
 	if spec.Name != "syfthub-my-model-abc12345" {
@@ -56,12 +57,25 @@ func TestBuildEndpointSpec_Defaults(t *testing.T) {
 		t.Error("expected instance label")
 	}
 
-	// Check mounts
+	// Check mounts: volumes first, then RO bind of synth dir.
 	if len(spec.Mounts) != 3 {
 		t.Fatalf("expected 3 mounts, got %d", len(spec.Mounts))
 	}
-	if spec.Mounts[0].Target != "/app/endpoint" || !spec.Mounts[0].ReadOnly {
-		t.Error("expected read-only /app/endpoint bind mount")
+	var synth *Mount
+	for i := range spec.Mounts {
+		if spec.Mounts[i].Target == "/app/synth" {
+			synth = &spec.Mounts[i]
+			break
+		}
+	}
+	if synth == nil {
+		t.Fatal("expected /app/synth mount")
+	}
+	if !synth.ReadOnly {
+		t.Error("expected /app/synth to be read-only")
+	}
+	if synth.Type != "bind" {
+		t.Errorf("expected /app/synth to be a bind mount, got %q", synth.Type)
 	}
 }
 
@@ -124,11 +138,11 @@ func TestBuildEndpointSpec_Labels(t *testing.T) {
 	}
 
 	spec := BuildEndpointSpec(EndpointSpecConfig{
-		Slug:       "test-endpoint",
-		Dir:        "/tmp/ep",
-		Global:     cfg,
-		InstanceID: "instance-42",
-		Image:      cfg.Image,
+		Slug:         "test-endpoint",
+		SynthCodeDir: "/tmp/ep",
+		Global:       cfg,
+		InstanceID:   "instance-42",
+		Image:        cfg.Image,
 	})
 
 	expectedLabels := map[string]string{
@@ -158,11 +172,11 @@ func TestBuildEndpointSpec_Security(t *testing.T) {
 	}
 
 	spec := BuildEndpointSpec(EndpointSpecConfig{
-		Slug:       "secure-ep",
-		Dir:        "/tmp/ep",
-		Global:     cfg,
-		InstanceID: "sec-id",
-		Image:      cfg.Image,
+		Slug:         "secure-ep",
+		SynthCodeDir: "/tmp/ep",
+		Global:       cfg,
+		InstanceID:   "sec-id",
+		Image:        cfg.Image,
 	})
 
 	if spec.User != "1000:1000" {
@@ -174,8 +188,24 @@ func TestBuildEndpointSpec_Security(t *testing.T) {
 	if len(spec.CapDrop) != 1 || spec.CapDrop[0] != "ALL" {
 		t.Errorf("CapDrop = %v, want [ALL]", spec.CapDrop)
 	}
-	if len(spec.SecurityOpts) != 1 || spec.SecurityOpts[0] != "no-new-privileges" {
-		t.Errorf("SecurityOpts = %v, want [no-new-privileges]", spec.SecurityOpts)
+	// Spec must include no-new-privileges, seccomp=unconfined, and
+	// apparmor=unconfined. seccomp+apparmor are required so the
+	// in-container bwrap can create a user namespace and remount /
+	// slave; Docker's default profiles block both. Defense-in-depth
+	// still holds via cap_drop ALL + read-only FS + non-root user +
+	// the in-bwrap audit hook.
+	gotOpts := map[string]bool{}
+	for _, o := range spec.SecurityOpts {
+		gotOpts[o] = true
+	}
+	for _, want := range []string{
+		"no-new-privileges",
+		"seccomp=unconfined",
+		"apparmor=unconfined",
+	} {
+		if !gotOpts[want] {
+			t.Errorf("SecurityOpts missing %q; got %v", want, spec.SecurityOpts)
+		}
 	}
 }
 
@@ -188,48 +218,57 @@ func TestBuildEndpointSpec_MountPaths(t *testing.T) {
 	}
 
 	spec := BuildEndpointSpec(EndpointSpecConfig{
-		Slug:       "my-ds",
-		Dir:        "/home/user/endpoints/my-ds",
-		Global:     cfg,
-		InstanceID: "mount-id",
-		Image:      cfg.Image,
+		Slug:         "my-ds",
+		SynthCodeDir: "/home/user/endpoints/my-ds",
+		Global:       cfg,
+		InstanceID:   "mount-id",
+		Image:        cfg.Image,
 	})
 
 	if len(spec.Mounts) != 3 {
 		t.Fatalf("expected 3 mounts, got %d", len(spec.Mounts))
 	}
 
-	// First mount: endpoint directory (read-only bind)
-	m0 := spec.Mounts[0]
-	if m0.Type != "bind" {
-		t.Errorf("mount[0].Type = %q, want bind", m0.Type)
-	}
-	if m0.Source != "/home/user/endpoints/my-ds" {
-		t.Errorf("mount[0].Source = %q", m0.Source)
-	}
-	if m0.Target != "/app/endpoint" {
-		t.Errorf("mount[0].Target = %q", m0.Target)
-	}
-	if !m0.ReadOnly {
-		t.Error("mount[0] should be read-only")
+	// Index mounts by target so tests don't depend on order.
+	byTarget := map[string]Mount{}
+	for _, m := range spec.Mounts {
+		byTarget[m.Target] = m
 	}
 
-	// Second mount: pip cache (volume)
-	m1 := spec.Mounts[1]
-	if m1.Type != "volume" {
-		t.Errorf("mount[1].Type = %q, want volume", m1.Type)
+	synth, ok := byTarget["/app/synth"]
+	if !ok {
+		t.Fatal("expected /app/synth mount")
 	}
-	if m1.Source != "syfthub-my-ds-pip-cache" {
-		t.Errorf("mount[1].Source = %q, want syfthub-my-ds-pip-cache", m1.Source)
+	if synth.Type != "bind" {
+		t.Errorf("/app/synth Type = %q, want bind", synth.Type)
+	}
+	if synth.Source != "/home/user/endpoints/my-ds" {
+		t.Errorf("/app/synth Source = %q", synth.Source)
+	}
+	if !synth.ReadOnly {
+		t.Error("/app/synth should be read-only")
 	}
 
-	// Third mount: policy store (volume)
-	m2 := spec.Mounts[2]
-	if m2.Type != "volume" {
-		t.Errorf("mount[2].Type = %q, want volume", m2.Type)
+	cache, ok := byTarget["/app/.cache"]
+	if !ok {
+		t.Fatal("expected /app/.cache mount")
 	}
-	if m2.Source != "syfthub-my-ds-policy-store" {
-		t.Errorf("mount[2].Source = %q, want syfthub-my-ds-policy-store", m2.Source)
+	if cache.Type != "volume" {
+		t.Errorf("/app/.cache Type = %q, want volume", cache.Type)
+	}
+	if cache.Source != "syfthub-my-ds-pip-cache" {
+		t.Errorf("/app/.cache Source = %q", cache.Source)
+	}
+
+	store, ok := byTarget["/app/.store"]
+	if !ok {
+		t.Fatal("expected /app/.store mount")
+	}
+	if store.Type != "volume" {
+		t.Errorf("/app/.store Type = %q, want volume", store.Type)
+	}
+	if store.Source != "syfthub-my-ds-policy-store" {
+		t.Errorf("/app/.store Source = %q", store.Source)
 	}
 }
 
@@ -243,16 +282,19 @@ func TestBuildEndpointSpec_EnvVars(t *testing.T) {
 
 	envVars := []string{"API_KEY=test123", "LOG_LEVEL=DEBUG", "ENDPOINT_SLUG=my-model"}
 	spec := BuildEndpointSpec(EndpointSpecConfig{
-		Slug:       "my-model",
-		Dir:        "/tmp/ep",
-		Global:     cfg,
-		EnvVars:    envVars,
-		InstanceID: "env-id",
-		Image:      cfg.Image,
+		Slug:         "my-model",
+		SynthCodeDir: "/tmp/ep",
+		Global:       cfg,
+		EnvVars:      envVars,
+		InstanceID:   "env-id",
+		Image:        cfg.Image,
 	})
 
+	// BuildEndpointSpec passes EnvVars through verbatim, optionally appending
+	// _SYFT_HANDLER_ENV when HandlerEnvKeys is non-empty. With no
+	// HandlerEnvKeys (this test) Env should equal EnvVars exactly.
 	if len(spec.Env) != 3 {
-		t.Fatalf("expected 3 env vars, got %d", len(spec.Env))
+		t.Fatalf("expected 3 env vars, got %d (%v)", len(spec.Env), spec.Env)
 	}
 	if spec.Env[0] != "API_KEY=test123" {
 		t.Errorf("Env[0] = %q", spec.Env[0])
@@ -271,15 +313,18 @@ func TestBuildEndpointSpec_NilEnvVars(t *testing.T) {
 	}
 
 	spec := BuildEndpointSpec(EndpointSpecConfig{
-		Slug:       "my-model",
-		Dir:        "/tmp/ep",
-		Global:     cfg,
-		InstanceID: "nil-env-id",
-		Image:      cfg.Image,
+		Slug:         "my-model",
+		SynthCodeDir: "/tmp/ep",
+		Global:       cfg,
+		InstanceID:   "nil-env-id",
+		Image:        cfg.Image,
 	})
 
-	if spec.Env != nil {
-		t.Errorf("expected nil Env, got %v", spec.Env)
+	// With no EnvVars and no HandlerEnvKeys, the resulting Env may be an
+	// empty (non-nil) slice — the implementation pre-allocates. Either
+	// nil or [] is acceptable.
+	if len(spec.Env) != 0 {
+		t.Errorf("expected empty Env, got %v", spec.Env)
 	}
 }
 
@@ -292,11 +337,11 @@ func TestBuildEndpointSpec_PortMapping(t *testing.T) {
 	}
 
 	spec := BuildEndpointSpec(EndpointSpecConfig{
-		Slug:       "port-test",
-		Dir:        "/tmp/ep",
-		Global:     cfg,
-		InstanceID: "port-id",
-		Image:      cfg.Image,
+		Slug:         "port-test",
+		SynthCodeDir: "/tmp/ep",
+		Global:       cfg,
+		InstanceID:   "port-id",
+		Image:        cfg.Image,
 	})
 
 	if len(spec.Ports) != 1 {
@@ -320,11 +365,11 @@ func TestBuildEndpointSpec_GPUFromGlobalConfig(t *testing.T) {
 	}
 
 	spec := BuildEndpointSpec(EndpointSpecConfig{
-		Slug:       "gpu-global",
-		Dir:        "/tmp/ep",
-		Global:     cfg,
-		InstanceID: "gpu-id",
-		Image:      cfg.Image,
+		Slug:         "gpu-global",
+		SynthCodeDir: "/tmp/ep",
+		Global:       cfg,
+		InstanceID:   "gpu-id",
+		Image:        cfg.Image,
 	})
 
 	if spec.GPU != "device=0" {
@@ -341,11 +386,11 @@ func TestBuildEndpointSpec_Tmpfs(t *testing.T) {
 	}
 
 	spec := BuildEndpointSpec(EndpointSpecConfig{
-		Slug:       "tmpfs-test",
-		Dir:        "/tmp/ep",
-		Global:     cfg,
-		InstanceID: "tmp-id",
-		Image:      cfg.Image,
+		Slug:         "tmpfs-test",
+		SynthCodeDir: "/tmp/ep",
+		Global:       cfg,
+		InstanceID:   "tmp-id",
+		Image:        cfg.Image,
 	})
 
 	if len(spec.Tmpfs) != 1 || spec.Tmpfs[0] != "/tmp" {
@@ -373,11 +418,11 @@ func TestBuildEndpointSpec_ContainerName(t *testing.T) {
 
 	for _, tt := range tests {
 		spec := BuildEndpointSpec(EndpointSpecConfig{
-			Slug:       tt.slug,
-			Dir:        "/tmp/ep",
-			Global:     cfg,
-			InstanceID: tt.instanceID,
-			Image:      cfg.Image,
+			Slug:         tt.slug,
+			SynthCodeDir: "/tmp/ep",
+			Global:       cfg,
+			InstanceID:   tt.instanceID,
+			Image:        cfg.Image,
 		})
 		if spec.Name != tt.wantName {
 			t.Errorf("slug=%q, instanceID=%q: Name = %q, want %q", tt.slug, tt.instanceID, spec.Name, tt.wantName)
@@ -395,11 +440,11 @@ func TestBuildEndpointSpec_CustomImage(t *testing.T) {
 
 	customImage := "myorg/custom-runner:v2"
 	spec := BuildEndpointSpec(EndpointSpecConfig{
-		Slug:       "custom-ep",
-		Dir:        "/tmp/ep",
-		Global:     cfg,
-		InstanceID: "test-id",
-		Image:      customImage,
+		Slug:         "custom-ep",
+		SynthCodeDir: "/tmp/ep",
+		Global:       cfg,
+		InstanceID:   "test-id",
+		Image:        customImage,
 	})
 
 	if spec.Image != customImage {
@@ -411,6 +456,160 @@ func TestBuildEndpointSpec_CustomImage(t *testing.T) {
 	}
 	if spec.MemoryMB != 512 {
 		t.Errorf("MemoryMB = %d, want 512", spec.MemoryMB)
+	}
+}
+
+func TestBuildEndpointSpec_HandlerEnvAllowlist(t *testing.T) {
+	cfg := syfthubapi.ContainerConfig{
+		Image:    "runner:latest",
+		CPUs:     1.0,
+		MemoryMB: 512,
+		Network:  "bridge",
+	}
+
+	spec := BuildEndpointSpec(EndpointSpecConfig{
+		Slug:           "policy-aware",
+		SynthCodeDir:   "/tmp/synth",
+		Global:         cfg,
+		EnvVars:        []string{"OPENAI_API_KEY=sk-x", "BILLING_TOKEN=tok", "LOG_LEVEL=INFO"},
+		HandlerEnvKeys: []string{"OPENAI_API_KEY", "LOG_LEVEL"},
+		InstanceID:     "h1",
+		Image:          cfg.Image,
+	})
+
+	var found bool
+	for _, kv := range spec.Env {
+		if kv == SyftHandlerEnvEnv+"=OPENAI_API_KEY,LOG_LEVEL" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected %s=OPENAI_API_KEY,LOG_LEVEL in Env, got %v",
+			SyftHandlerEnvEnv, spec.Env)
+	}
+}
+
+func TestBuildEndpointSpec_WorkspacePool(t *testing.T) {
+	cfg := syfthubapi.ContainerConfig{Image: "runner:latest", Network: "bridge"}
+
+	spec := BuildEndpointSpec(EndpointSpecConfig{
+		Slug:             "ws-test",
+		SynthCodeDir:     "/tmp/synth",
+		WorkspacePoolDir: "/host/workspaces/ws-test",
+		Global:           cfg,
+		InstanceID:       "w1",
+		Image:            cfg.Image,
+	})
+
+	var ws *Mount
+	for i := range spec.Mounts {
+		if spec.Mounts[i].Target == "/app/ws" {
+			ws = &spec.Mounts[i]
+			break
+		}
+	}
+	if ws == nil {
+		t.Fatal("expected /app/ws bind mount")
+	}
+	if ws.ReadOnly {
+		t.Error("/app/ws must be read-write")
+	}
+	if ws.Source != "/host/workspaces/ws-test" {
+		t.Errorf("/app/ws Source = %q", ws.Source)
+	}
+}
+
+func TestBuildEndpointSpec_NoRawEndpointDirMount(t *testing.T) {
+	// The whole point of the synth-dir refactor: /app/endpoint must NEVER
+	// appear in the mount list. Regression guard.
+	cfg := syfthubapi.ContainerConfig{Image: "runner:latest", Network: "bridge"}
+	spec := BuildEndpointSpec(EndpointSpecConfig{
+		Slug:         "no-raw",
+		SynthCodeDir: "/tmp/synth",
+		Global:       cfg,
+		InstanceID:   "r1",
+		Image:        cfg.Image,
+	})
+	for _, m := range spec.Mounts {
+		if m.Target == "/app/endpoint" {
+			t.Errorf("/app/endpoint must not be mounted (raw endpoint dir leaks secrets); got %+v", m)
+		}
+	}
+}
+
+func TestBuildEndpointSpec_SandboxControlEnv(t *testing.T) {
+	// AllowSubprocess + WorkspaceScope + SandboxNetMode must surface as
+	// container env vars so server.py picks them up at startup.
+	cfg := syfthubapi.ContainerConfig{Image: "runner:latest", Network: "bridge"}
+
+	spec := BuildEndpointSpec(EndpointSpecConfig{
+		Slug:         "control-env",
+		SynthCodeDir: "/tmp/synth",
+		Global:       cfg,
+		InstanceID:   "c1",
+		Image:        cfg.Image,
+		Sandbox: SandboxRuntimeConfig{
+			AllowSubprocess: true,
+			WorkspaceScope:  WorkspaceScopePerSession,
+			NetMode:         SandboxNetAllowlist,
+		},
+	})
+
+	want := map[string]string{
+		SyftAllowSubprocEnv:   "1",
+		SyftWorkspaceScopeEnv: "per_session",
+		SyftSandboxNetEnv:     "allowlist",
+	}
+	got := map[string]string{}
+	for _, kv := range spec.Env {
+		if k, v, ok := strings.Cut(kv, "="); ok {
+			got[k] = v
+		}
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("env %s = %q, want %q", k, got[k], v)
+		}
+	}
+}
+
+func TestBuildEndpointSpec_AllowSubprocessDefaultsOff(t *testing.T) {
+	// When AllowSubprocess is false, SYFT_ALLOW_SUBPROC must NOT appear.
+	// server.py treats absent and "0" the same (no subprocess), so an
+	// accidental setting would still be safe; this test pins the
+	// fail-closed default.
+	cfg := syfthubapi.ContainerConfig{Image: "runner:latest", Network: "bridge"}
+
+	spec := BuildEndpointSpec(EndpointSpecConfig{
+		Slug:         "subproc-off",
+		SynthCodeDir: "/tmp/synth",
+		Global:       cfg,
+		InstanceID:   "c1",
+		Image:        cfg.Image,
+		// Sandbox.AllowSubprocess not set → defaults to false
+	})
+	for _, kv := range spec.Env {
+		if strings.HasPrefix(kv, SyftAllowSubprocEnv+"=") {
+			t.Errorf("default spec should not set %s; got %q",
+				SyftAllowSubprocEnv, kv)
+		}
+	}
+}
+
+func TestBuildEndpointSpec_NetworkOverride(t *testing.T) {
+	cfg := syfthubapi.ContainerConfig{Image: "runner:latest", Network: "bridge"}
+
+	spec := BuildEndpointSpec(EndpointSpecConfig{
+		Slug:         "no-net",
+		SynthCodeDir: "/tmp/synth",
+		Global:       cfg,
+		NetworkMode:  "none",
+		InstanceID:   "n1",
+		Image:        cfg.Image,
+	})
+	if spec.Network != "none" {
+		t.Errorf("NetworkMode override ignored: got %q, want none", spec.Network)
 	}
 }
 

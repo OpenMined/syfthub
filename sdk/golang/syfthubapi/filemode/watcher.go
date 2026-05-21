@@ -77,6 +77,13 @@ func NewWatcher(cfg *WatcherConfig) (*Watcher, error) {
 			"store.db-wal",
 			"store.db-shm",
 			"store.db-journal",
+			// Handler workspace — the in-container runtime writes here on
+			// every agent session start (per-session subdirs under
+			// workspace/sessions/<id>/). Reloading on those writes would
+			// kill the active session by recreating its container. The
+			// workspace is bound R/W into the bwrap child by design; the
+			// host file watcher must stay out of it.
+			"workspace",
 		}
 	}
 

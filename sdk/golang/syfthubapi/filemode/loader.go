@@ -30,6 +30,88 @@ type EndpointConfig struct {
 	// from the caller. Default false. See docs/architecture/attachments.md.
 	// Only meaningful for agent endpoints.
 	AcceptsAttachments bool `yaml:"accepts_attachments"`
+
+	// Sandbox describes the in-container isolation policy for runner.py.
+	// Only takes effect in container mode; ignored in subprocess (host) mode,
+	// which is documented as insecure.
+	Sandbox SandboxConfig `yaml:"sandbox"`
+}
+
+// SandboxConfig captures the per-endpoint isolation intent. Every field has a
+// safe default so endpoints that omit `sandbox:` get sensible behavior.
+type SandboxConfig struct {
+	// Workspace describes the writable scratch dir for the handler.
+	Workspace WorkspaceConfig `yaml:"workspace"`
+
+	// ExposeEnv is the explicit allowlist of env-var names the handler can
+	// see at runtime. When nil/empty, defaults to EnvConfig.Required so
+	// existing endpoints keep working without a frontmatter change.
+	ExposeEnv []string `yaml:"expose_env"`
+
+	// SubprocessEnv is the allowlist of env-var names that pass through
+	// to subprocesses the handler spawns. Vars NOT in this list are
+	// stripped from the subprocess's environment regardless of whether
+	// runner.py can see them. Essentials (PATH, HOME, LANG, …) are
+	// always preserved. Default empty → subprocesses inherit only
+	// essentials; .env secrets stay inside runner.py.
+	//
+	// Use this for vars that need to reach a child binary (e.g.
+	// CLAUDE_SKIP_PERMISSIONS for the claude-code CLI). API keys and
+	// other secrets should NOT be listed here — the LLM agent inside
+	// can otherwise be prompted to read them via /proc/self/environ
+	// or by running `env` through its shell tool.
+	SubprocessEnv []string `yaml:"subprocess_env"`
+
+	// ExposeResources lists endpoint-relative paths that are exposed
+	// read-only to the handler in addition to *.py files. Use this for
+	// prompt templates, static data, etc.
+	ExposeResources []string `yaml:"expose_resources"`
+
+	// Network controls outbound network access for the handler.
+	Network NetworkConfig `yaml:"network"`
+
+	// AllowSubprocess, when true, lets the handler spawn child processes.
+	// Default false — the audit hook blocks subprocess.Popen.
+	AllowSubprocess bool `yaml:"allow_subprocess"`
+
+	// Limits caps CPU, memory, wall-clock, and tmpfs usage.
+	Limits LimitsConfig `yaml:"limits"`
+}
+
+// WorkspaceConfig describes the handler's writable scratch dir.
+type WorkspaceConfig struct {
+	// Path is the endpoint-relative subdir that holds workspace data.
+	// Default: "workspace".
+	Path string `yaml:"path"`
+
+	// Scope selects how the workspace is partitioned per invocation:
+	//   "shared"       — one dir shared across all invocations (default for
+	//                    one-shot endpoints)
+	//   "per_user"     — one dir per authenticated user
+	//   "per_session"  — one dir per agent session, deleted on session end
+	//                    (default for agent endpoints)
+	Scope string `yaml:"scope"`
+
+	// QuotaMB caps the workspace size in megabytes. 0 means unlimited.
+	QuotaMB int `yaml:"quota_mb"`
+}
+
+// NetworkConfig describes the handler's outbound network access.
+type NetworkConfig struct {
+	// Mode: "open" (default), "allowlist", or "none".
+	Mode string `yaml:"mode"`
+
+	// Hosts is the allowlist of FQDNs reachable when Mode == "allowlist".
+	Hosts []string `yaml:"hosts"`
+}
+
+// LimitsConfig caps resource usage. Zero values mean "use the container's
+// default" (i.e., the global ContainerConfig limits).
+type LimitsConfig struct {
+	CPUCores       float64 `yaml:"cpu_cores"`
+	MemoryMB       int     `yaml:"memory_mb"`
+	TimeoutSeconds int     `yaml:"timeout_seconds"`
+	TmpfsMB        int     `yaml:"tmpfs_mb"`
 }
 
 // EnvConfig specifies environment variable requirements.
@@ -64,10 +146,24 @@ type ContainerMount struct {
 
 // LoadedEndpoint represents a fully loaded endpoint from the file system.
 type LoadedEndpoint struct {
-	Config        *EndpointConfig
-	Dir           string   // Directory containing the endpoint
-	RunnerPath    string   // Path to runner.py
-	EnvVars       []string // Environment variables
+	Config     *EndpointConfig
+	Dir        string // Directory containing the endpoint
+	RunnerPath string // Path to runner.py
+
+	// EnvVars is the full env (required + inherit) used by the host-side
+	// policy_manager runner. Retained for backwards compatibility — when
+	// HandlerEnv is set, prefer that for the handler process.
+	EnvVars []string
+
+	// HandlerEnv is the narrow allowlist passed to the handler subprocess.
+	// Built from EnvVars intersected with SandboxConfig.ExposeEnv. Equal to
+	// EnvVars when no expose_env is configured (legacy behavior).
+	HandlerEnv []string
+
+	// PolicyEnv is the full env exposed to the host-side policy runner.
+	// Includes everything in EnvVars; never narrowed.
+	PolicyEnv []string
+
 	PolicyConfigs []syfthubapi.PolicyConfig
 	StoreConfig   *syfthubapi.StoreConfig
 	ReadmeBody    string // README markdown content (after frontmatter)
@@ -226,16 +322,65 @@ func (l *Loader) LoadEndpoint(dir string) (*LoadedEndpoint, error) {
 		)
 	}
 
+	handlerEnv, policyEnv := splitEnvForSandbox(envVars, &config.Sandbox)
+
 	return &LoadedEndpoint{
 		Config:        config,
 		Dir:           dir,
 		RunnerPath:    runnerPath,
 		EnvVars:       envVars,
+		HandlerEnv:    handlerEnv,
+		PolicyEnv:     policyEnv,
 		PolicyConfigs: policyConfigs,
 		StoreConfig:   storeConfig,
 		ReadmeBody:    readmeBody,
 		HasDockerfile: hasDockerfile,
 	}, nil
+}
+
+// splitEnvForSandbox separates the loaded env into two sets:
+//
+//   - HandlerEnv — what the in-bwrap handler subprocess sees via os.environ.
+//   - PolicyEnv  — the full env, retained for the host-side policy runner
+//     which never enters the container.
+//
+// DEFAULT (no sandbox.expose_env): the handler sees the FULL .env. This
+// matches pre-sandbox behavior where the runner subprocess received every
+// var declared in the endpoint's .env file. Most endpoints put things in
+// .env precisely because the handler needs them — narrowing by default
+// breaks the contract silently.
+//
+// OPT-IN narrowing via sandbox.expose_env: when the developer wants to
+// hide specific vars from the handler (e.g. a billing token that only
+// the host-side policy runner consumes), they declare a positive
+// allowlist. HandlerEnv is then the intersection of envVars and the
+// allowlist.
+func splitEnvForSandbox(envVars []string, sb *SandboxConfig) (handler, policy []string) {
+	// Policy runner always sees the full env. Returned as a fresh slice so
+	// the caller can mutate one set without disturbing the other.
+	policy = append(policy, envVars...)
+
+	// No explicit allowlist → handler sees the full .env (legacy default).
+	if sb == nil || len(sb.ExposeEnv) == 0 {
+		handler = append(handler, envVars...)
+		return handler, policy
+	}
+
+	// Explicit allowlist narrows the handler view.
+	allow := map[string]struct{}{}
+	for _, k := range sb.ExposeEnv {
+		allow[k] = struct{}{}
+	}
+	for _, kv := range envVars {
+		key, _, ok := strings.Cut(kv, "=")
+		if !ok || key == "" {
+			continue
+		}
+		if _, ok := allow[key]; ok {
+			handler = append(handler, kv)
+		}
+	}
+	return handler, policy
 }
 
 // parseReadme parses YAML frontmatter from README.md and returns the markdown body.
