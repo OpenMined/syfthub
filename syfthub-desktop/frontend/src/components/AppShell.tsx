@@ -8,6 +8,7 @@ import { ChatView } from './ChatView';
 import { LibraryView } from './LibraryView';
 import { UpdateBanner } from './UpdateBanner';
 import { WindowControls } from './ui/window-controls';
+import { WalletTab } from './tabs/WalletTab';
 
 const isMac = navigator.userAgent.includes('Macintosh');
 
@@ -52,6 +53,16 @@ export function AppShell({ sidebar, children }: AppShellProps) {
         }`}
       >
         Chat
+      </button>
+      <button
+        onClick={() => setMainView('wallet')}
+        className={`h-5 px-3 text-xs rounded transition-colors duration-150 ${
+          mainView === 'wallet'
+            ? 'bg-secondary text-foreground'
+            : 'text-muted-foreground hover:text-foreground'
+        }`}
+      >
+        Wallet
       </button>
     </div>
   );
@@ -106,6 +117,11 @@ export function AppShell({ sidebar, children }: AppShellProps) {
       {mainView === 'chat' && (
         <div className="flex-1 overflow-hidden bg-background">
           <ChatView />
+        </div>
+      )}
+      {mainView === 'wallet' && (
+        <div className="flex-1 overflow-hidden bg-background">
+          <WalletTab />
         </div>
       )}
 

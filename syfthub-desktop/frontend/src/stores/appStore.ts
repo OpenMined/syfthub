@@ -221,7 +221,7 @@ interface AppState {
   error: string | null;
   activeTab: 'settings' | 'code' | 'docs' | 'logs' | 'requests';
   settingsSection: 'overview' | 'environment' | 'dependencies' | 'policies' | 'skills';
-  mainView: 'endpoints' | 'chat';
+  mainView: 'endpoints' | 'chat' | 'wallet';
   // activeChat selects which conversation the chat surface renders. 'live'
   // means the in-memory live agent session (AgentChatContent). 'review'
   // means a recovered transcript from a sent_reviews row, rendered by
@@ -321,7 +321,7 @@ interface AppState {
   selectEndpoint: (slug: string | null) => Promise<void>;
   setActiveTab: (tab: 'settings' | 'code' | 'docs' | 'logs' | 'requests') => void;
   setSettingsSection: (section: 'overview' | 'environment' | 'dependencies' | 'policies' | 'skills') => void;
-  setMainView: (view: 'endpoints' | 'chat') => void;
+  setMainView: (view: 'endpoints' | 'chat' | 'wallet') => void;
   // setActiveChat is the new entry point — sidebar items + continuation flow
   // both use this to switch what the chat surface renders.
   setActiveChat: (chat: ActiveChat) => void;
