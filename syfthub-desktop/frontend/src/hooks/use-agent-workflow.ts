@@ -4,6 +4,7 @@ import {
   StartAgentSessionWithHistory,
   StartAgentSessionWithCredential,
   SendAgentMessage,
+  SendAgentMessageWithCredential,
   StopAgentSession,
   RecordSentReview,
   EvaluatePaymentDecision,
@@ -399,20 +400,42 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
             break;
           }
 
+          // Prefer mid-session retry (the session is still alive after a
+          // turn-level payment_required; agent_executor.relayInbound just
+          // reprompts and continues). Restarting only happens when the
+          // session is already terminated — i.e. the FIRST turn's policy
+          // denied and run() returned. In that case SendAgentMessage* will
+          // error with "no active agent session" and we fall back to a
+          // fresh StartAgentSessionWithCredential.
           const signAndRestart = async (cred: string) => {
             try {
-              const sessionId = await StartAgentSessionWithCredential(
-                endpointSlug, prompt, cred,
-              );
-              sessionIdRef.current = sessionId;
-            } catch (err) {
-              setEntries(prev => [...prev, {
-                id: makeId(),
-                kind: 'error',
-                content: `Payment retry failed: ${err}`,
-                timestamp: Date.now(),
-              }]);
-              setIsRunning(false);
+              await SendAgentMessageWithCredential(prompt, cred);
+            } catch (sendErr) {
+              const msg = String(sendErr);
+              if (!/no active/i.test(msg)) {
+                setEntries(prev => [...prev, {
+                  id: makeId(),
+                  kind: 'error',
+                  content: `Payment retry failed: ${sendErr}`,
+                  timestamp: Date.now(),
+                }]);
+                setIsRunning(false);
+                return;
+              }
+              try {
+                const sessionId = await StartAgentSessionWithCredential(
+                  endpointSlug, prompt, cred,
+                );
+                sessionIdRef.current = sessionId;
+              } catch (startErr) {
+                setEntries(prev => [...prev, {
+                  id: makeId(),
+                  kind: 'error',
+                  content: `Payment retry failed: ${startErr}`,
+                  timestamp: Date.now(),
+                }]);
+                setIsRunning(false);
+              }
             }
           };
 

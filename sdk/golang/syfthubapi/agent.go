@@ -578,6 +578,14 @@ type UserMessage struct {
 
 	// Reason is provided with user_deny.
 	Reason string `json:"reason,omitempty"`
+
+	// PaymentCredential is the wire-format mppx credential the caller signed
+	// for THIS specific turn (empty for free turns). x402_pay_per_request
+	// policies charge per request, so each priced turn carries its own
+	// credential rather than reusing the session-start one. Empty triggers
+	// the policy's pre_execute to issue a fresh challenge; the caller signs
+	// it and resends the same content via SendMessageWithCredential.
+	PaymentCredential string `json:"payment_credential,omitempty"`
 }
 
 // RunHandler spawns the agent handler in a goroutine with proper lifecycle management.

@@ -129,7 +129,12 @@ func (a *AgentExecutor) run(ctx context.Context, outer *AgentSession) error {
 	tracker := &turnTracker{currentUser: outer.InitialPrompt}
 
 	// Pre-check turn 1 (the initial prompt) before spawning the agent.
-	if outer.InitialPrompt != "" && !a.gateTurn(ctx, outer, outer.InitialPrompt) {
+	// The credential supplied in the session_start envelope pays for THIS
+	// turn only; we move it off the session afterwards so a subsequent turn
+	// cannot replay it. x402_pay_per_request is per-request, not per-session.
+	initialCredential := outer.PaymentCredential
+	outer.PaymentCredential = ""
+	if outer.InitialPrompt != "" && !a.gateTurn(ctx, outer, outer.InitialPrompt, initialCredential) {
 		return nil // denied/pending — the verdict event was already sent
 	}
 
@@ -174,8 +179,14 @@ func (a *AgentExecutor) run(ctx context.Context, outer *AgentSession) error {
 // gateTurn pre-checks one user message through the policy chain. It returns
 // true when the turn may proceed; on a denial, a pending verdict, or a runner
 // error it surfaces the appropriate event to the caller and returns false.
-func (a *AgentExecutor) gateTurn(ctx context.Context, outer *AgentSession, userText string) bool {
-	verdict, err := a.checkPre(ctx, outer, userText)
+//
+// credential is the wire-format mppx payment credential for THIS turn (empty
+// for unpaid turns). Carried as a parameter rather than read from the session
+// so each turn can present a distinct credential — pay-per-request, not
+// pay-per-session. Threaded into checkPre's ExecutorInput so the mppx gate
+// can verify it before the Python policy runs.
+func (a *AgentExecutor) gateTurn(ctx context.Context, outer *AgentSession, userText, credential string) bool {
+	verdict, err := a.checkPre(ctx, outer, userText, credential)
 	if err != nil {
 		// Fail closed and tell the user — a broken policy check must not
 		// silently let the request through or end with no message.
@@ -218,7 +229,7 @@ func (a *AgentExecutor) relayInbound(
 			continue
 		}
 
-		if !a.gateTurn(ctx, outer, msg.Content) {
+		if !a.gateTurn(ctx, outer, msg.Content, msg.PaymentCredential) {
 			a.reprompt(outer)
 			continue
 		}
@@ -376,12 +387,12 @@ func (a *AgentExecutor) runPolicy(ctx context.Context, in *ExecutorInput) (*Exec
 // messages appended by Send. The current user turn has already been
 // DeliverMessage'd by the bridge before we get here.
 func (a *AgentExecutor) checkPre(
-	ctx context.Context, outer *AgentSession, userText string,
+	ctx context.Context, outer *AgentSession, userText, credential string,
 ) (*PolicyResultOutput, error) {
 	in := a.baseInput(outer)
 	in.PolicyPhase = PolicyPhasePre
 	in.Messages = transcriptForPolicy(outer, userText)
-	in.PaymentCredential = outer.PaymentCredential
+	in.PaymentCredential = credential
 
 	// If a credential was supplied AND a mppx gate is wired, verify it BEFORE
 	// the Python policy runs. PreVerify populates in.Context.Metadata with
@@ -498,12 +509,14 @@ func transcriptForPolicy(outer *AgentSession, userText string) []Message {
 // supplies the per-turn input. The wire shape is "model" because agents are
 // parsed/formatted by ModelCodec, while the context records the true type.
 func (a *AgentExecutor) baseInput(outer *AgentSession) *ExecutorInput {
+	// PaymentCredential is intentionally NOT copied from the session — x402
+	// is per-request, so each turn's credential is supplied as a parameter
+	// to checkPre and threaded onto the ExecutorInput there. Reading it
+	// from the session would let one turn's payment cover every subsequent
+	// turn until session end (the bug observed before this refactor).
 	return buildExecutorInput(
 		string(EndpointTypeModel), a.slug, EndpointTypeAgent,
-		&RequestContext{
-			User:              outer.User,
-			PaymentCredential: outer.PaymentCredential,
-		},
+		&RequestContext{User: outer.User},
 	)
 }
 

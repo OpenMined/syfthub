@@ -182,6 +182,8 @@ export function SetSentReviewStatus(arg1:string,arg2:string,arg3:string):Promise
 
 export function Start():Promise<void>;
 
+export function SendAgentMessageWithCredential(arg1:string,arg2:string):Promise<void>;
+
 export function StartAgentSession(arg1:string,arg2:string):Promise<string>;
 
 export function StartAgentSessionWithCredential(arg1:string,arg2:string,arg3:string):Promise<string>;

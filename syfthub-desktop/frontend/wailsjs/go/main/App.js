@@ -358,6 +358,10 @@ export function Start() {
   return window['go']['main']['App']['Start']();
 }
 
+export function SendAgentMessageWithCredential(arg1, arg2) {
+  return window['go']['main']['App']['SendAgentMessageWithCredential'](arg1, arg2);
+}
+
 export function StartAgentSession(arg1, arg2) {
   return window['go']['main']['App']['StartAgentSession'](arg1, arg2);
 }

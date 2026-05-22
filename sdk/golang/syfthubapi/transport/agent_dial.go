@@ -216,6 +216,21 @@ func (s *AgentClientSession) SendMessage(content string) error {
 	})
 }
 
+// SendMessageWithCredential sends a follow-up user message carrying a
+// per-turn mppx payment credential. The producer's gateTurn passes the
+// credential into the policy chain's per-turn PreVerify so an
+// x402_pay_per_request endpoint can charge for each priced message. Use
+// this after handling a mid-session agent.payment_required event:
+// WalletPayChallenge signs a credential, then this method re-sends the
+// same content carrying it.
+func (s *AgentClientSession) SendMessageWithCredential(content, credential string) error {
+	return s.sendUserMessage(syfthubapi.UserMessage{
+		Type:              syfthubapi.UserMessageTypeMessage,
+		Content:           content,
+		PaymentCredential: credential,
+	})
+}
+
 // Confirm approves a tool call awaiting confirmation.
 func (s *AgentClientSession) Confirm(toolCallID string) error {
 	return s.sendUserMessage(syfthubapi.UserMessage{

@@ -275,6 +275,24 @@ func (a *App) SendAgentMessage(content string) error {
 	return sc.SendMessage(content)
 }
 
+// SendAgentMessageWithCredential sends a user follow-up carrying a per-turn
+// mppx payment credential. Use this after WalletPayChallenge produces a
+// credential in response to a mid-session agent.payment_required event:
+// the chat workflow resends the SAME content with the credential attached
+// so the producer's per-turn policy can verify it and allow the turn.
+//
+// Returns "no active session" if the session has already terminated — the
+// caller should fall back to StartAgentSessionWithCredential in that case.
+func (a *App) SendAgentMessageWithCredential(content, credentialWire string) error {
+	a.agentMu.Lock()
+	sc := a.agentSession
+	a.agentMu.Unlock()
+	if sc == nil {
+		return fmt.Errorf("no active agent session")
+	}
+	return sc.SendMessageWithCredential(content, credentialWire)
+}
+
 // StopAgentSession cancels the active agent session. The session ID is
 // recorded so the drain goroutine rewrites the trailing terminal event into
 // session.cancelled.
