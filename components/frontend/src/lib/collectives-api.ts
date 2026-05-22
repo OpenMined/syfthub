@@ -237,6 +237,29 @@ export async function listCollectivesPaginated(
   return { items: data.slice(0, limit), hasNextPage };
 }
 
+/**
+ * List approved collectives that an `owner/slug` endpoint participates in.
+ *
+ * Public-readable. Returns an empty array when the endpoint exists but is not
+ * an approved member of any collective, when the endpoint can't be resolved,
+ * or on a 404 — callers render "no card" for both cases.
+ */
+export async function listCollectivesForEndpoint(
+  owner: string,
+  slug: string
+): Promise<Collective[]> {
+  const response = await fetch(
+    `${BASE}/by-endpoint/${encodeURIComponent(owner)}/${encodeURIComponent(slug)}`
+  );
+  if (response.status === 404) return [];
+  if (!response.ok) {
+    throw new Error(
+      await errorMessage(response, `Failed to load collectives (${response.status})`)
+    );
+  }
+  return (await response.json()) as Collective[];
+}
+
 /** Fetch a collective by slug. Returns `null` on 404 so callers can render a not-found state. */
 export async function getCollectiveBySlug(slug: string): Promise<Collective | null> {
   const response = await fetch(`${BASE}/by-slug/${encodeURIComponent(slug)}`);

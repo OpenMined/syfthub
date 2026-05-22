@@ -195,6 +195,31 @@ class CollectiveMemberRepository(BaseRepository[CollectiveMemberModel]):
         except SQLAlchemyError:
             return []
 
+    def list_collectives_for_endpoint(
+        self,
+        endpoint_id: int,
+        statuses: Optional[Sequence[str]] = None,
+    ) -> List[CollectiveResponse]:
+        """List the collectives an endpoint participates in.
+
+        Joins ``collective_members`` to ``collectives`` so the caller gets full
+        collective rows without a second round-trip. Ordered by the membership's
+        ``requested_at`` descending — most recently joined first.
+        """
+        try:
+            stmt = (
+                select(CollectiveModel)
+                .join(self.model, self.model.collective_id == CollectiveModel.id)
+                .where(self.model.endpoint_id == endpoint_id)
+            )
+            if statuses:
+                stmt = stmt.where(self.model.status.in_(list(statuses)))
+            stmt = stmt.order_by(self.model.requested_at.desc())
+            models = self.session.execute(stmt).scalars().all()
+            return [CollectiveResponse.model_validate(m) for m in models]
+        except SQLAlchemyError:
+            return []
+
     def count_members(self, collective_id: int, status: str) -> int:
         """Count a single collective's memberships with the given status."""
         try:

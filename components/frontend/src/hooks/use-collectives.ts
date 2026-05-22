@@ -25,6 +25,7 @@ import {
   inviteEndpoint,
   inviteEndpointByPath,
   listCollectives,
+  listCollectivesForEndpoint,
   listCollectivesPaginated,
   listMembers,
   removeMember,
@@ -78,6 +79,22 @@ export function useInvitation(collectiveId: number | undefined, endpointId: numb
     queryKey: collectiveKeys.invitation(collectiveId ?? 0, endpointId ?? 0),
     queryFn: () => (collectiveId && endpointId ? getInvitation(collectiveId, endpointId) : null),
     enabled: Boolean(collectiveId && endpointId)
+  });
+}
+
+/**
+ * List approved collectives an `owner/slug` endpoint participates in. Backs the
+ * Collectives card on the endpoint detail page; gated until both parts of the
+ * path are known.
+ */
+export function useCollectivesForEndpoint(
+  owner: string | undefined | null,
+  slug: string | undefined | null
+) {
+  return useQuery({
+    queryKey: collectiveKeys.byEndpoint(owner ?? '', slug ?? ''),
+    queryFn: () => (owner && slug ? listCollectivesForEndpoint(owner, slug) : []),
+    enabled: Boolean(owner && slug)
   });
 }
 

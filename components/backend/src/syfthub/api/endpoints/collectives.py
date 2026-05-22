@@ -76,6 +76,23 @@ async def get_collective_by_slug(
     return service.get_collective_by_slug(slug)
 
 
+@router.get(
+    "/by-endpoint/{owner_username}/{slug}", response_model=List[CollectiveResponse]
+)
+async def list_collectives_for_endpoint(
+    owner_username: str,
+    slug: str,
+    service: Annotated[CollectiveService, Depends(get_collective_service)],
+) -> List[CollectiveResponse]:
+    """List approved collectives an ``owner/slug`` endpoint participates in.
+
+    Public-readable. Backs the Collectives card on the endpoint detail page;
+    returns an empty list when the endpoint exists but isn't an approved
+    member of any collective, or when the endpoint can't be resolved.
+    """
+    return service.list_collectives_for_endpoint(owner_username, slug)
+
+
 @router.get("/by-slug/{slug}/endpoint-paths", response_model=List[str])
 async def get_collective_endpoint_paths(
     slug: str,

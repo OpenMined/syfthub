@@ -152,6 +152,33 @@ class CollectiveService(BaseService):
             collective.owner_count = owner_counts.get(collective.id, 0)
         return collectives
 
+    def list_collectives_for_endpoint(
+        self, owner_username: str, slug: str
+    ) -> List[CollectiveResponse]:
+        """List approved collectives an ``owner/slug`` endpoint belongs to.
+
+        Public-readable. Returns only ``APPROVED`` memberships so pending /
+        invited / rejected state never leaks to non-owners — mirrors the
+        non-owner view of ``list_members``.
+        """
+        owner = self.user_repo.get_by_username(owner_username)
+        if owner is None:
+            return []
+        endpoint = self.endpoint_repo.get_by_user_and_slug(owner.id, slug)
+        if endpoint is None:
+            return []
+        collectives = self.member_repo.list_collectives_for_endpoint(
+            endpoint.id, [MembershipStatus.APPROVED.value]
+        )
+        ids = [c.id for c in collectives]
+        approved = MembershipStatus.APPROVED.value
+        member_counts = self.member_repo.count_members_bulk(ids, approved)
+        owner_counts = self.member_repo.count_owners_bulk(ids, approved)
+        for collective in collectives:
+            collective.member_count = member_counts.get(collective.id, 0)
+            collective.owner_count = owner_counts.get(collective.id, 0)
+        return collectives
+
     def update_collective(
         self, collective_id: int, data: CollectiveUpdate, current_user: User
     ) -> CollectiveResponse:

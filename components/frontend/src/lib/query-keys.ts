@@ -60,5 +60,7 @@ export const collectiveKeys = {
   members: (collectiveId: number, status?: string) =>
     [...collectiveKeys.all, 'members', collectiveId, status ?? 'all'] as const,
   invitation: (collectiveId: number, endpointId: number) =>
-    [...collectiveKeys.all, 'invitation', collectiveId, endpointId] as const
+    [...collectiveKeys.all, 'invitation', collectiveId, endpointId] as const,
+  byEndpoint: (owner: string, slug: string) =>
+    [...collectiveKeys.all, 'byEndpoint', owner, slug] as const
 };
