@@ -100,7 +100,7 @@ func TestEndpoint_Info_PoliciesPopulated(t *testing.T) {
 		},
 		{
 			Name: "pay",
-			Type: PolicyTypeTransaction,
+			Type: PolicyTypeX402PayPerRequest,
 			Config: map[string]interface{}{
 				"recipient":       "0xabc",
 				"amount":          "100",
@@ -141,7 +141,7 @@ func TestEndpoint_Info_PoliciesPopulated(t *testing.T) {
 
 	// Second policy: transaction — strict allow-list, secrets dropped.
 	pay := info.Policies[1]
-	if pay["name"] != "pay" || pay["type"] != PolicyTypeTransaction {
+	if pay["name"] != "pay" || pay["type"] != PolicyTypeX402PayPerRequest {
 		t.Errorf("unexpected pay header: %+v", pay)
 	}
 	payCfg, ok := pay["config"].(map[string]any)
@@ -236,7 +236,7 @@ func TestSanitizePolicyConfig_RemovesSecrets(t *testing.T) {
 			"_anything":       "drop",
 			"unknown_field":   "drop",
 		}
-		got := sanitizePolicyConfig(PolicyTypeTransaction, cfg)
+		got := sanitizePolicyConfig(PolicyTypeX402PayPerRequest, cfg)
 		for _, leak := range []string{"secret_key_path", "signing_key", "_anything", "unknown_field"} {
 			if _, present := got[leak]; present {
 				t.Errorf("transaction config leaked %q", leak)

@@ -524,9 +524,6 @@ func (l *Loader) loadPolicies(dir string) ([]syfthubapi.PolicyConfig, *syfthubap
 			continue
 		}
 
-		// Normalize the policy type (convert PascalCase to snake_case)
-		policy.Type = normalizePolicyType(policy.Type)
-
 		l.logger.Info("[POLICY-LOAD] Loaded policy from file",
 			"path", policyPath,
 			"name", policy.Name,
@@ -565,32 +562,6 @@ func (l *Loader) loadPolicies(dir string) ([]syfthubapi.PolicyConfig, *syfthubap
 	}
 
 	return policies, storeConfig, nil
-}
-
-// normalizePolicyType converts policy type names to the format expected by Python.
-// Handles both PascalCase (e.g., "AccessGroupPolicy") and snake_case (e.g., "access_group").
-func normalizePolicyType(t string) string {
-	// Map of PascalCase to snake_case conversions
-	typeMap := map[string]string{
-		"AccessGroupPolicy":  syfthubapi.PolicyTypeAccessGroup,
-		"RateLimitPolicy":    syfthubapi.PolicyTypeRateLimit,
-		"TokenLimitPolicy":   syfthubapi.PolicyTypeTokenLimit,
-		"PromptFilterPolicy": syfthubapi.PolicyTypePromptFilter,
-		"AttributionPolicy":  syfthubapi.PolicyTypeAttribution,
-		"ManualReviewPolicy": syfthubapi.PolicyTypeManualReview,
-		"TransactionPolicy":  syfthubapi.PolicyTypeTransaction,
-		"CustomPolicy":       syfthubapi.PolicyTypeCustom,
-		"AllOfPolicy":        syfthubapi.PolicyTypeAllOf,
-		"AnyOfPolicy":        syfthubapi.PolicyTypeAnyOf,
-		"NotPolicy":          syfthubapi.PolicyTypeNot,
-	}
-
-	if normalized, ok := typeMap[t]; ok {
-		return normalized
-	}
-
-	// Already in correct format or unknown type
-	return t
 }
 
 // validatePolicies validates a list of policy configurations.

@@ -823,38 +823,6 @@ func TestValidatePolicies(t *testing.T) {
 	})
 }
 
-func TestNormalizePolicyType(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"AccessGroupPolicy", syfthubapi.PolicyTypeAccessGroup},
-		{"RateLimitPolicy", syfthubapi.PolicyTypeRateLimit},
-		{"TokenLimitPolicy", syfthubapi.PolicyTypeTokenLimit},
-		{"PromptFilterPolicy", syfthubapi.PolicyTypePromptFilter},
-		{"AttributionPolicy", syfthubapi.PolicyTypeAttribution},
-		{"ManualReviewPolicy", syfthubapi.PolicyTypeManualReview},
-		{"TransactionPolicy", syfthubapi.PolicyTypeTransaction},
-		{"CustomPolicy", syfthubapi.PolicyTypeCustom},
-		{"AllOfPolicy", syfthubapi.PolicyTypeAllOf},
-		{"AnyOfPolicy", syfthubapi.PolicyTypeAnyOf},
-		{"NotPolicy", syfthubapi.PolicyTypeNot},
-		// Already normalized
-		{syfthubapi.PolicyTypeRateLimit, syfthubapi.PolicyTypeRateLimit},
-		// Unknown type (returned as-is)
-		{"unknown_type", "unknown_type"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := normalizePolicyType(tt.input)
-			if result != tt.expected {
-				t.Errorf("normalizePolicyType(%q) = %q, want %q", tt.input, result, tt.expected)
-			}
-		})
-	}
-}
-
 func TestLoadDotEnv(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "dotenv_test")
 	if err != nil {
