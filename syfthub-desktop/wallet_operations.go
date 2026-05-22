@@ -38,7 +38,7 @@ const (
 	defaultChainID = uint64(42431)
 	walletNetwork  = "tempo-testnet"
 
-	pathUSDContractAddress = "0x20c00000000000000000000000000000000000a3"
+	pathUSDContractAddress = "0x20c0000000000000000000000000000000000000"
 	pathUSDDecimals        = 6
 
 	rpcEnvVar = "SYFTHUB_TEMPO_RPC_URL"

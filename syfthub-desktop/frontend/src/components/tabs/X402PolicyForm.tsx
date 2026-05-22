@@ -28,7 +28,7 @@ import { CreatePolicyFile } from '../../../wailsjs/go/main/App';
 import { main } from '../../../wailsjs/go/models';
 
 // pathUSD on Tempo testnet — matches wallet_operations.go constants.
-const PATH_USD_ADDRESS = '0x20c00000000000000000000000000000000000a3';
+const PATH_USD_ADDRESS = '0x20c0000000000000000000000000000000000000';
 const PATH_USD_DECIMALS = 6;
 const TEMPO_TESTNET_CHAIN_ID = 42431;
 const DEFAULT_TTL_SECONDS = 300;

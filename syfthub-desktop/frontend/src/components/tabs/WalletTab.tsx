@@ -116,11 +116,11 @@ const PAGE_SIZE = 50;
 
 // FUND_URL is the testnet faucet — opened in the user's default browser via
 // the Wails BrowserOpenURL runtime so we don't rely on a real <a target>.
-const FUND_URL = 'https://tempo.xyz/fund';
+const FUND_URL = 'https://wallet.tempo.xyz/faucet';
 
 // EXPLORER_TX_PREFIX wraps a tx hash into the testnet block explorer link.
 // Empty/missing hashes are rendered without a link.
-const EXPLORER_TX_PREFIX = 'https://explorer.testnet.tempo.xyz/tx/';
+const EXPLORER_TX_PREFIX = 'https://explore.tempo.xyz/tx/';
 
 // callWailsMethod invokes a named Wails binding. Throws when the binding is
 // missing so the caller can surface a clear error to the user.

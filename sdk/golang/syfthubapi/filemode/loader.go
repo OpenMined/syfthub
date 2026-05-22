@@ -524,6 +524,19 @@ func (l *Loader) loadPolicies(dir string) ([]syfthubapi.PolicyConfig, *syfthubap
 			continue
 		}
 
+		// Compat shim: existing on-disk YAMLs may use PascalCase type names
+		// from older desktop builds (e.g. "AccessGroupPolicy"). Map them to
+		// the snake_case identifiers the runner now expects. New writes from
+		// the desktop already emit snake_case; this only protects legacy data.
+		if normalized, didNormalize := normalizeLegacyPolicyType(policy.Type); didNormalize {
+			l.logger.Info("[POLICY-LOAD] Normalized legacy PascalCase policy type",
+				"path", policyPath,
+				"from", policy.Type,
+				"to", normalized,
+			)
+			policy.Type = normalized
+		}
+
 		l.logger.Info("[POLICY-LOAD] Loaded policy from file",
 			"path", policyPath,
 			"name", policy.Name,
@@ -562,6 +575,35 @@ func (l *Loader) loadPolicies(dir string) ([]syfthubapi.PolicyConfig, *syfthubap
 	}
 
 	return policies, storeConfig, nil
+}
+
+// normalizeLegacyPolicyType maps legacy PascalCase policy type names emitted
+// by older desktop builds into the snake_case identifiers the policy_manager
+// runner expects. Returns the snake_case form and true when a mapping fired;
+// returns the input unchanged and false otherwise (already snake_case,
+// composite, or unknown — validatePolicies handles the unknown case).
+//
+// This is a compatibility shim for endpoint YAML files written before the
+// desktop was switched to emit snake_case directly. New writes never need
+// normalization. The shim can be removed once all on-disk YAMLs are confirmed
+// to be snake_case.
+func normalizeLegacyPolicyType(t string) (string, bool) {
+	legacy := map[string]string{
+		"AccessGroupPolicy":  syfthubapi.PolicyTypeAccessGroup,
+		"RateLimitPolicy":    syfthubapi.PolicyTypeRateLimit,
+		"TokenLimitPolicy":   syfthubapi.PolicyTypeTokenLimit,
+		"PromptFilterPolicy": syfthubapi.PolicyTypePromptFilter,
+		"AttributionPolicy":  syfthubapi.PolicyTypeAttribution,
+		"ManualReviewPolicy": syfthubapi.PolicyTypeManualReview,
+		"CustomPolicy":       syfthubapi.PolicyTypeCustom,
+		"AllOfPolicy":        syfthubapi.PolicyTypeAllOf,
+		"AnyOfPolicy":        syfthubapi.PolicyTypeAnyOf,
+		"NotPolicy":          syfthubapi.PolicyTypeNot,
+	}
+	if normalized, ok := legacy[t]; ok {
+		return normalized, true
+	}
+	return t, false
 }
 
 // validatePolicies validates a list of policy configurations.

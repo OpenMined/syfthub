@@ -28,7 +28,7 @@ import {
 // open a wrong-network page.
 const TEMPO_TESTNET_CHAIN_ID = 42431;
 const TEMPO_TESTNET_TX_URL = (hash: string) =>
-  `https://explorer.testnet.tempo.xyz/tx/${hash}`;
+  `https://explore.tempo.xyz/tx/${hash}`;
 
 const PAGE_SIZE = 50;
 const MAX_RECEIPTS = 500;
