@@ -218,19 +218,7 @@ func (a *AgentExecutor) gateTurn(ctx context.Context, outer *AgentSession, userT
 		})
 		return turnGateBlocked
 	}
-	if a.applyVerdict(outer, verdict) {
-		return turnGateProceed
-	}
-	if verdict != nil && verdict.Pending {
-		if _, hasSpec := verdict.Metadata["x402_challenge_spec"]; hasSpec {
-			return turnGatePaymentPending
-		}
-		if _, hasChallenge := PaymentChallengeFromMetadata(verdict.Metadata); hasChallenge {
-			return turnGatePaymentPending
-		}
-		return turnGateOtherPending
-	}
-	return turnGateBlocked
+	return a.applyVerdict(outer, verdict)
 }
 
 // watchCancel propagates an outer cancellation to the inner session as a
@@ -588,15 +576,18 @@ type policyNotice struct {
 // manual_review (policy_manager) reports the held request's identifier.
 const metadataReviewIDKey = "review_id"
 
-// applyVerdict acts on a pre-check verdict. Returns true when the turn may
-// proceed; on deny/pending it emits the appropriate notice and returns false.
-func (a *AgentExecutor) applyVerdict(outer *AgentSession, v *PolicyResultOutput) bool {
+// applyVerdict acts on a pre-check verdict and returns the outcome of the
+// surfacing: proceed when allowed; the appropriate "blocked/pending" sentinel
+// when not. The outcome is what gateTurn relies on — it must reflect what was
+// actually surfaced to the caller, not what metadata is leftover afterwards
+// (emitPending may mutate the metadata map mid-call, so reading it again from
+// gateTurn would race the mutation).
+func (a *AgentExecutor) applyVerdict(outer *AgentSession, v *PolicyResultOutput) turnGateOutcome {
 	if v == nil || v.Allowed {
-		return true
+		return turnGateProceed
 	}
 	if v.Pending {
-		a.emitPending(outer, PolicyPhasePre, v)
-		return false
+		return a.emitPending(outer, PolicyPhasePre, v)
 	}
 	a.sendPolicyNotice(outer, policyNotice{
 		Status:     policyStatusBlocked,
@@ -604,32 +595,56 @@ func (a *AgentExecutor) applyVerdict(outer *AgentSession, v *PolicyResultOutput)
 		PolicyName: v.PolicyName,
 		Reason:     v.Reason,
 	})
-	return false
+	return turnGateBlocked
 }
 
-// emitPending surfaces a pending policy verdict. A pending result carrying a
-// payment challenge becomes an agent.payment_required event; otherwise it is a
-// pending policy notice (e.g. manual_review without payment) so the user sees
-// why the turn did not produce a normal reply.
+// emitPending surfaces a pending policy verdict and reports which kind of
+// pending was actually emitted, so callers can decide whether to reprompt:
 //
-// When v.Metadata carries an x402_challenge_spec (the new
-// X402PayPerRequestPolicy round 1) and a gate is configured, BuildChallenge
-// is invoked first to materialize the canonical mppx payment_challenge in
-// place — after which the existing PaymentChallengeFromMetadata branch
-// emits the agent.payment_required as usual.
-func (a *AgentExecutor) emitPending(outer *AgentSession, phase string, v *PolicyResultOutput) {
-	if spec, ok := v.Metadata["x402_challenge_spec"].(map[string]any); ok && a.gate != nil {
+//   - turnGatePaymentPending: an agent.payment_required event was sent with
+//     an actionable challenge — the consumer's chat hook will auto-retry, so
+//     do NOT reprompt.
+//   - turnGateOtherPending: a non-payment pending notice was sent (e.g.
+//     manual_review hold) — the caller should reprompt so the user can
+//     provide different input.
+//   - turnGateBlocked: a hard block was sent (e.g. x402 challenge requested
+//     but the gate is unavailable or BuildChallenge failed) — semantically
+//     terminal for this turn; the caller decides whether to reprompt.
+//
+// When v.Metadata carries an x402_challenge_spec (X402PayPerRequestPolicy
+// round 1) and a gate is configured, BuildChallenge is invoked first to
+// materialize the canonical mppx payment_challenge. If no gate is configured,
+// or BuildChallenge fails, the spec is reported as a hard block — surfacing
+// a "pending" notice with no challenge would hang the session because the
+// consumer has nothing to sign.
+func (a *AgentExecutor) emitPending(outer *AgentSession, phase string, v *PolicyResultOutput) turnGateOutcome {
+	if spec, ok := v.Metadata["x402_challenge_spec"].(map[string]any); ok {
+		if a.gate == nil {
+			a.logger.Error("[AGENT-POLICY] payment policy returned x402_challenge_spec but no mppx gate is configured; surfacing as block",
+				"slug", a.slug, "session_id", outer.ID)
+			a.sendPolicyNotice(outer, policyNotice{
+				Status:     policyStatusBlocked,
+				Phase:      phase,
+				PolicyName: v.PolicyName,
+				Reason:     "this endpoint requires payment but the producer is not configured to issue challenges",
+			})
+			return turnGateBlocked
+		}
 		if err := a.gate.BuildChallenge(outer.Context(), spec, v.Metadata); err != nil {
-			a.logger.Error("[AGENT-POLICY] failed to build x402 challenge",
+			a.logger.Error("[AGENT-POLICY] failed to build x402 challenge; surfacing as block",
 				"slug", a.slug, "session_id", outer.ID, "error", err)
-			// Fall through — without payment_challenge in metadata the
-			// next branch will not fire and we'll emit a plain pending
-			// notice so the user at least sees that the turn was held.
+			a.sendPolicyNotice(outer, policyNotice{
+				Status:     policyStatusBlocked,
+				Phase:      phase,
+				PolicyName: v.PolicyName,
+				Reason:     "failed to build payment challenge",
+			})
+			return turnGateBlocked
 		}
 	}
 	if challenge, ok := PaymentChallengeFromMetadata(v.Metadata); ok {
 		_ = outer.SendPaymentRequired(v.PolicyName, challenge, CopyPaymentMetadata(v.Metadata))
-		return
+		return turnGatePaymentPending
 	}
 	reviewID := metadataString(v.Metadata, metadataReviewIDKey)
 	a.captureManualReviewRouting(outer, reviewID)
@@ -640,6 +655,7 @@ func (a *AgentExecutor) emitPending(outer *AgentSession, phase string, v *Policy
 		Reason:     v.Reason,
 		ReviewID:   reviewID,
 	})
+	return turnGateOtherPending
 }
 
 // sendPolicyNotice surfaces a policy outcome (a hard block or a pending

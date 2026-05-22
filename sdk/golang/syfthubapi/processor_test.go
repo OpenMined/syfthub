@@ -9,7 +9,29 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 )
+
+// x402PolicyConfig returns the minimal policy declaration that marks an
+// endpoint as taking x402 payments. The processor's Process gates PreVerify /
+// SettleAfterHandler / runPostSettlementPolicy on Endpoint.HasPaymentPolicy(),
+// so tests that exercise those paths MUST set this on their endpoints.
+func x402PolicyConfig() []nodeops.Policy {
+	return []nodeops.Policy{{
+		Name: "pay",
+		Type: PolicyTypeX402PayPerRequest,
+		Config: map[string]any{
+			"currency":  pathUSDContractForTest,
+			"amount":    "0.10",
+			"recipient": "0x0000000000000000000000000000000000000001",
+		},
+	}}
+}
+
+// pathUSDContractForTest is a fake contract address used only to fill the
+// policy config — the processor's payment-policy detection is type-based.
+const pathUSDContractForTest = "0x20c0000000000000000000000000000000000000"
 
 func TestNewRequestProcessor(t *testing.T) {
 	registry := NewEndpointRegistry()
@@ -504,7 +526,7 @@ func TestProcessor_X402SettlementInvokesPostExecute(t *testing.T) {
 		},
 	}
 
-	registry.Register(&Endpoint{
+	paidEP := &Endpoint{
 		Slug:    "paid-ep",
 		Name:    "Paid",
 		Type:    EndpointTypeModel,
@@ -515,7 +537,9 @@ func TestProcessor_X402SettlementInvokesPostExecute(t *testing.T) {
 			epType:   EndpointTypeModel,
 			executor: exec,
 		},
-	})
+	}
+	paidEP.SetPolicyConfigs(x402PolicyConfig())
+	registry.Register(paidEP)
 
 	payload, _ := json.Marshal(ModelQueryRequest{
 		Messages: []Message{{Role: "user", Content: "hi"}},
@@ -621,12 +645,13 @@ func TestProcessor_NoX402_DoesNotDoubleInvoke(t *testing.T) {
 	if gate.preVerifyCalls != 0 {
 		t.Errorf("PreVerify should not be called when no credential, got %d", gate.preVerifyCalls)
 	}
-	// SettleAfterHandler still runs (always called on handler success when
-	// gate is wired) but is a no-op because no signed-tx was parked. The
-	// stub records the call but writes no receipt, so the post-policy
-	// invocation must be skipped.
-	if gate.settleCalls != 1 {
-		t.Errorf("SettleAfterHandler calls = %d, want 1", gate.settleCalls)
+	// SettleAfterHandler must not run either: the endpoint declares no x402
+	// policy, so Process gates it out entirely. Previously the gate was
+	// called every time and relied on metadata-cleanliness for safety; the
+	// processor now refuses to mutate metadata or broadcast for endpoints
+	// the policy chain never required payment for.
+	if gate.settleCalls != 0 {
+		t.Errorf("SettleAfterHandler calls = %d, want 0 for endpoint with no x402 policy", gate.settleCalls)
 	}
 	if execCalls != 1 {
 		t.Errorf("Execute called %d times, want 1 (no post-settlement re-invoke)", execCalls)
@@ -702,7 +727,7 @@ func TestProcessor_X402SettlementReverted_StillInvokesPostExecute(t *testing.T) 
 		},
 	}
 
-	registry.Register(&Endpoint{
+	revEP := &Endpoint{
 		Slug:    "rev-ep",
 		Name:    "Reverted",
 		Type:    EndpointTypeModel,
@@ -713,7 +738,9 @@ func TestProcessor_X402SettlementReverted_StillInvokesPostExecute(t *testing.T) 
 			epType:   EndpointTypeModel,
 			executor: exec,
 		},
-	})
+	}
+	revEP.SetPolicyConfigs(x402PolicyConfig())
+	registry.Register(revEP)
 
 	payload, _ := json.Marshal(ModelQueryRequest{
 		Messages: []Message{{Role: "user", Content: "hi"}},

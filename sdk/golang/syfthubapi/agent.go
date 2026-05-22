@@ -482,6 +482,13 @@ func (s *AgentSession) recordOutboundEvent(event AgentEventPayload) {
 func (s *AgentSession) SendPaymentRequired(policyName, challenge string, details map[string]any) error {
 	payload := map[string]any{
 		"policy_name": policyName,
+		// chat_session_id and endpoint_slug are required JSON fields on
+		// agenttypes.AgentPaymentRequiredEvent. CLI/SDK consumers route the
+		// payment retry by chat_session_id, so omitting either yields a
+		// "session not found" 404 even though the user paid. Always emit them
+		// — the session has both at hand.
+		"chat_session_id": s.ID,
+		"endpoint_slug":   s.EndpointSlug,
 	}
 	if challenge != "" {
 		payload["challenge"] = challenge

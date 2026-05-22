@@ -166,7 +166,14 @@ func (p *RequestProcessor) Process(ctx context.Context, req *TunnelRequest) (*Tu
 	// it pre-handler (rather than inside the policy) keeps the crypto in
 	// Go and matches the "settle on success" lifecycle: PreVerify parks
 	// the signed tx, the handler runs, SettleAfterHandler broadcasts.
-	if reqCtx.PaymentCredential != "" && p.gate != nil {
+	//
+	// Skip entirely when the endpoint declares no x402 policy: PreVerify
+	// would otherwise mutate reqCtx.Metadata (payment_verified=true,
+	// payment_signed_tx_hex, ...) for a request the policy chain never
+	// required payment for, and SettleAfterHandler would later broadcast a
+	// transaction the endpoint did not ask for.
+	endpointTakesPayment := endpoint.HasPaymentPolicy()
+	if endpointTakesPayment && reqCtx.PaymentCredential != "" && p.gate != nil {
 		if err := p.gate.PreVerify(ctx, reqCtx.PaymentCredential, reqCtx.Metadata); err != nil {
 			p.logger.Info("[REQUEST] payment credential pre-verify failed; policy will issue fresh challenge",
 				"correlation_id", req.CorrelationID,
@@ -200,8 +207,10 @@ func (p *RequestProcessor) Process(ctx context.Context, req *TunnelRequest) (*Tu
 	// Handler succeeded — settle the parked payment (no-op when none is
 	// parked). Errors are non-fatal: the response still goes out, and the
 	// gate writes a payment_failure into metadata so post_execute can
-	// record the failed settlement attempt.
-	if p.gate != nil {
+	// record the failed settlement attempt. Mirror the PreVerify gate: if
+	// the endpoint declares no x402 policy, there is nothing parked, so
+	// skip the call entirely instead of relying on metadata cleanliness.
+	if endpointTakesPayment && p.gate != nil {
 		if err := p.gate.SettleAfterHandler(ctx, reqCtx.Metadata); err != nil {
 			p.logger.Warn("[REQUEST] payment settlement failed after successful handler",
 				"correlation_id", req.CorrelationID,
@@ -227,7 +236,7 @@ func (p *RequestProcessor) Process(ctx context.Context, req *TunnelRequest) (*Tu
 	// receipt we just wrote into metadata above. Only runs when the gate
 	// is wired AND SettleAfterHandler actually produced settlement output
 	// (receipt on success, payment_failure on reverted broadcast).
-	if p.gate != nil && hasSettlementOutcome(reqCtx.Metadata) {
+	if endpointTakesPayment && p.gate != nil && hasSettlementOutcome(reqCtx.Metadata) {
 		p.runPostSettlementPolicy(ctx, req, endpoint, reqCtx, formatted)
 	}
 

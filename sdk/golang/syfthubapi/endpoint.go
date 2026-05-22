@@ -99,6 +99,49 @@ func (e *Endpoint) SetPolicyConfigs(cfgs []nodeops.Policy) {
 	e.policyConfigs = cfgs
 }
 
+// HasPaymentPolicy reports whether this endpoint's policy chain includes an
+// x402_pay_per_request policy (directly or nested inside an all_of/any_of/not
+// composite). The processor uses this to gate PreVerify/SettleAfterHandler:
+// running them on endpoints with no payment policy would mutate request
+// metadata and trigger settlement broadcasts for requests the policy chain
+// never required payment for.
+func (e *Endpoint) HasPaymentPolicy() bool {
+	return policiesContainX402(e.policyConfigs)
+}
+
+// policiesContainX402 walks a policy list looking for any x402_pay_per_request
+// policy, recursing through composite (all_of/any_of/not) children carried in
+// the composite's config under the "policies" key (canonical shape used by
+// the Python policy_manager runner).
+func policiesContainX402(policies []nodeops.Policy) bool {
+	for _, p := range policies {
+		if p.Type == PolicyTypeX402PayPerRequest {
+			return true
+		}
+		if p.Type == PolicyTypeAllOf || p.Type == PolicyTypeAnyOf || p.Type == PolicyTypeNot {
+			if children, ok := p.Config["policies"].([]any); ok {
+				converted := make([]nodeops.Policy, 0, len(children))
+				for _, c := range children {
+					if m, ok := c.(map[string]any); ok {
+						child := nodeops.Policy{}
+						if t, ok := m["type"].(string); ok {
+							child.Type = t
+						}
+						if cfg, ok := m["config"].(map[string]any); ok {
+							child.Config = cfg
+						}
+						converted = append(converted, child)
+					}
+				}
+				if policiesContainX402(converted) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // sanitizePolicyConfig returns a copy of cfg with secret material removed so
 // that the result is safe to ship over the wire via Info().
 //
@@ -189,8 +232,9 @@ func (e *Endpoint) SetHandler(cfg EndpointHandlerConfig) {
 		// paths run this handler, so each inherits pre/post policy without
 		// path-specific code.
 		handler := cfg.AgentHandler
+		var executor *AgentExecutor
 		if cfg.PolicyExecutor != nil {
-			executor := NewAgentExecutorWithConfig(handler, cfg.PolicyExecutor, e.Slug, AgentExecutorConfig{
+			executor = NewAgentExecutorWithConfig(handler, cfg.PolicyExecutor, e.Slug, AgentExecutorConfig{
 				Logger:          cfg.Logger,
 				RoutingRecorder: cfg.RoutingRecorder,
 			})
@@ -203,6 +247,7 @@ func (e *Endpoint) SetHandler(cfg EndpointHandlerConfig) {
 			codec:          ModelCodec{},
 			handler:        handler,
 			policyExecutor: cfg.PolicyExecutor,
+			executor:       executor,
 			slug:           e.Slug,
 			logger:         cfg.Logger,
 		}
@@ -216,6 +261,19 @@ func (e *Endpoint) SetHandler(cfg EndpointHandlerConfig) {
 // IsFileBased returns whether this endpoint is file-based.
 func (e *Endpoint) IsFileBased() bool {
 	return e.isFileBased
+}
+
+// SetMppxGate retroactively swaps the x402 mppx gate on this endpoint's
+// AgentExecutor (when present). A no-op for non-agent endpoints, agent
+// endpoints without policies, or container endpoints whose policy runs
+// host-side via the same AgentExecutor — i.e. it follows the path that
+// emitPending uses, so a live endpoint built before the gate was configured
+// can start materializing payment_required events as soon as the host wires
+// a gate, without requiring a full reload.
+func (e *Endpoint) SetMppxGate(gate MppxGate) {
+	if inv, ok := e.invoker.(*AgentOneShotInvoker); ok && inv.executor != nil {
+		inv.executor.SetMppxGate(gate)
+	}
 }
 
 // invokeGuarded checks the endpoint type and invokes the registered invoker.
