@@ -319,6 +319,13 @@ func (g *TempoGate) BuildChallenge(ctx context.Context, spec map[string]any, res
 }
 
 // SettleAfterHandler implements Gate.
+//
+// Post-condition (relied on by the syfthubapi processor's post-execute
+// round-trip): on both the success and broadcast-failure paths the
+// metadata map carries MetaKeyPaymentChallengeID and MetaKeyPaymentNonce
+// — both written by PreVerify and never cleared here — so the Python
+// X402PayPerRequestPolicy.post_execute can locate the x402_transactions
+// row by its primary key (the canonical challenge id).
 func (g *TempoGate) SettleAfterHandler(ctx context.Context, metadata map[string]any) error {
 	if metadata == nil {
 		return nil
@@ -334,6 +341,16 @@ func (g *TempoGate) SettleAfterHandler(ctx context.Context, metadata map[string]
 		mu := g.payerLock(payer)
 		mu.Lock()
 		defer mu.Unlock()
+	}
+
+	// Defensive: PreVerify writes payment_challenge_id when it parks the
+	// signed tx; if for any reason it is missing here the Python
+	// post_execute would silently no-op (its row lookup is keyed on this
+	// id). Warn rather than fail — the broadcast itself can still succeed.
+	if cid, _ := metadata[MetaKeyPaymentChallengeID].(string); cid == "" {
+		g.logger.Warn("[X402] settle running without payment_challenge_id in metadata; post_execute will skip row update",
+			"payer", payer,
+		)
 	}
 
 	receipt, err := mppx.BroadcastSignedTransfer(ctx, signedTxHex, g.rpcURL)

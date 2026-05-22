@@ -219,6 +219,18 @@ func (p *RequestProcessor) Process(ctx context.Context, req *TunnelRequest) (*Tu
 
 	reqCtx.Output = formatted
 
+	// Close the x402 settle-on-success loop: re-invoke the runner with
+	// policy_phase="post" so the Python policy's post_execute can update
+	// its x402_transactions row from status='verified' to 'settled' (or
+	// 'failed' when the broadcast reverted). post_execute runs INSIDE the
+	// executor subprocess, so the original Invoke call cannot see the
+	// receipt we just wrote into metadata above. Only runs when the gate
+	// is wired AND SettleAfterHandler actually produced settlement output
+	// (receipt on success, payment_failure on reverted broadcast).
+	if p.gate != nil && hasSettlementOutcome(reqCtx.Metadata) {
+		p.runPostSettlementPolicy(ctx, req, endpoint, reqCtx, formatted)
+	}
+
 	p.logger.Debug("[REQUEST] endpoint execution succeeded",
 		"correlation_id", req.CorrelationID,
 		"slug", endpoint.Slug,
@@ -338,6 +350,69 @@ func (p *RequestProcessor) maybeBuildChallenge(ctx context.Context, req *TunnelR
 	resp := p.errorResponse(req, TunnelErrorCodePaymentRequired, "payment required")
 	resp.Error.Details = details
 	return resp
+}
+
+// hasSettlementOutcome reports whether mppxgate.SettleAfterHandler ran to
+// completion and wrote either a successful receipt or a broadcast failure
+// into metadata. Either case is grounds for re-invoking the runner with
+// policy_phase="post" so the Python policy can update its row.
+func hasSettlementOutcome(metadata map[string]any) bool {
+	if metadata == nil {
+		return false
+	}
+	if _, ok := metadata["payment_receipt"]; ok {
+		return true
+	}
+	if _, ok := metadata["payment_failure"]; ok {
+		return true
+	}
+	return false
+}
+
+// runPostSettlementPolicy re-invokes the endpoint's executor with
+// PolicyPhase="post" and the just-produced handler output. The Python
+// runner skips pre+handler and dispatches only the policy chain's
+// post_execute, which (for X402PayPerRequestPolicy) folds the receipt or
+// failure into the x402_transactions row.
+//
+// All errors are logged and swallowed — the original response has
+// already been computed and must still flow back to the caller.
+func (p *RequestProcessor) runPostSettlementPolicy(ctx context.Context, req *TunnelRequest, endpoint *Endpoint, reqCtx *RequestContext, formatted any) {
+	uinv, ok := endpoint.invoker.(*UnifiedInvoker)
+	if !ok || uinv == nil || uinv.executor == nil {
+		// AgentOneShotInvoker (and any future invoker) doesn't go through
+		// the Python runner with a discrete post phase — its policy
+		// enforcement is woven into the handler stream. Nothing to do.
+		return
+	}
+
+	outputBytes, err := json.Marshal(formatted)
+	if err != nil {
+		p.logger.Warn("[REQUEST] post-settlement policy: failed to marshal handler output",
+			"correlation_id", req.CorrelationID,
+			"slug", endpoint.Slug,
+			"error", err,
+		)
+		return
+	}
+
+	input := buildExecutorInput(string(uinv.epType), uinv.slug, uinv.epType, reqCtx)
+	input.PolicyPhase = PolicyPhasePost
+	input.Output = outputBytes
+
+	if _, err := uinv.executor.Execute(ctx, input); err != nil {
+		p.logger.Warn("[REQUEST] post-settlement policy invocation failed",
+			"correlation_id", req.CorrelationID,
+			"slug", endpoint.Slug,
+			"error", err,
+		)
+		return
+	}
+
+	p.logger.Debug("[REQUEST] post-settlement policy dispatched",
+		"correlation_id", req.CorrelationID,
+		"slug", endpoint.Slug,
+	)
 }
 
 // errorResponse creates an error tunnel response.
