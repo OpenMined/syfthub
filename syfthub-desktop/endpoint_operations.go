@@ -3,6 +3,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"io"
 	"os"
@@ -779,6 +780,33 @@ type NewPolicyRequest struct {
 	Type          string   `json:"type"`          // Policy type (e.g., "AccessGroupPolicy")
 	ChildPolicies []string `json:"childPolicies"` // For composite policies (AllOf, AnyOf, Not)
 	DenyReason    string   `json:"denyReason"`    // For NotPolicy
+	// X402 carries the optional configuration the producer-UI form collects
+	// for an X402PayPerRequestPolicy. When nil, generatePolicyYAML falls
+	// back to sensible defaults so a bare {Name,Type} request still produces
+	// a working template.
+	X402 *X402PolicyConfig `json:"x402,omitempty"`
+}
+
+// X402PolicyConfig is the producer-side configuration captured by the
+// X402PolicyForm in the desktop UI. All fields are optional; missing values
+// fall back to the defaults applied in generatePolicyYAML so the same
+// request shape can be used for both the bare new-policy modal and the
+// fully-populated dedicated form.
+//
+// PayTo is intentionally NOT here: the producer's wallet address is
+// authoritative — it comes from WalletShow() server-side, never from the
+// untrusted form. Sending it client-side would let the UI direct payments
+// to an arbitrary recipient.
+type X402PolicyConfig struct {
+	Price                         string   `json:"price,omitempty"`
+	Currency                      string   `json:"currency,omitempty"`
+	Decimals                      int      `json:"decimals,omitempty"`
+	ChainID                       int      `json:"chainId,omitempty"`
+	Realm                         string   `json:"realm,omitempty"`
+	HmacSecretKid                 string   `json:"hmacSecretKid,omitempty"`
+	ChallengeTTLSeconds           int      `json:"challengeTtlSeconds,omitempty"`
+	MaxPendingSettlementsPerPayer int      `json:"maxPendingSettlementsPerPayer,omitempty"`
+	AllowListedPayers             []string `json:"allowListedPayers,omitempty"`
 }
 
 // ListPolicyFiles returns all policy files in the endpoint's policy/ directory.
@@ -972,7 +1000,18 @@ func marshalPolicyYAML(comment string, def policyDef) string {
 
 // generatePolicyYAML generates YAML content for a policy based on its type.
 // Uses yaml.Marshal to ensure proper escaping of user-supplied values.
-func generatePolicyYAML(req NewPolicyRequest) string {
+//
+// ctx is the policy-creation context: slug owning the endpoint and the
+// host wallet address (when known). Both are used only by the
+// X402PayPerRequestPolicy template — slug as part of the default realm
+// ("syfthub:endpoint:<slug>:<policyName>") and walletAddress as the
+// authoritative pay_to. Other policy templates ignore them.
+type policyGenContext struct {
+	slug          string
+	walletAddress string
+}
+
+func generatePolicyYAML(ctx policyGenContext, req NewPolicyRequest) string {
 	switch req.Type {
 	case "AccessGroupPolicy":
 		type accessGroupConfig struct {
@@ -1048,6 +1087,70 @@ func generatePolicyYAML(req NewPolicyRequest) string {
 			}},
 		)
 
+	case "X402PayPerRequestPolicy":
+		// pay_to is sourced from the host wallet (ctx.walletAddress) — never
+		// from the request — so a producer cannot misroute payments via the
+		// UI. The rest of the knobs come from the X402PolicyForm; missing
+		// values fall back to demo-network defaults.
+		type x402Config struct {
+			PayTo                         string   `yaml:"pay_to"`
+			Price                         string   `yaml:"price"`
+			Currency                      string   `yaml:"currency"`
+			Decimals                      int      `yaml:"decimals"`
+			ChainID                       int      `yaml:"chain_id"`
+			Realm                         string   `yaml:"realm"`
+			HmacSecretKid                 string   `yaml:"hmac_secret_kid"`
+			ChallengeTTLSeconds           int      `yaml:"challenge_ttl_seconds"`
+			MaxPendingSettlementsPerPayer int      `yaml:"max_pending_settlements_per_payer"`
+			AllowListedPayers             []string `yaml:"allow_listed_payers,omitempty"`
+		}
+		cfg := x402Config{
+			PayTo:                         ctx.walletAddress,
+			Price:                         "0.01",
+			Currency:                      pathUSDContractAddress,
+			Decimals:                      pathUSDDecimals,
+			ChainID:                       int(defaultChainID),
+			Realm:                         defaultX402Realm(ctx.slug, req.Name),
+			HmacSecretKid:                 "default",
+			ChallengeTTLSeconds:           300,
+			MaxPendingSettlementsPerPayer: 16,
+			AllowListedPayers:             nil,
+		}
+		if req.X402 != nil {
+			form := req.X402
+			if strings.TrimSpace(form.Price) != "" {
+				cfg.Price = form.Price
+			}
+			if strings.TrimSpace(form.Currency) != "" {
+				cfg.Currency = form.Currency
+			}
+			if form.Decimals > 0 {
+				cfg.Decimals = form.Decimals
+			}
+			if form.ChainID > 0 {
+				cfg.ChainID = form.ChainID
+			}
+			if strings.TrimSpace(form.Realm) != "" {
+				cfg.Realm = form.Realm
+			}
+			if strings.TrimSpace(form.HmacSecretKid) != "" {
+				cfg.HmacSecretKid = form.HmacSecretKid
+			}
+			if form.ChallengeTTLSeconds > 0 {
+				cfg.ChallengeTTLSeconds = form.ChallengeTTLSeconds
+			}
+			if form.MaxPendingSettlementsPerPayer > 0 {
+				cfg.MaxPendingSettlementsPerPayer = form.MaxPendingSettlementsPerPayer
+			}
+			if len(form.AllowListedPayers) > 0 {
+				cfg.AllowListedPayers = form.AllowListedPayers
+			}
+		}
+		return marshalPolicyYAML(
+			"# X402 Pay-Per-Request Policy\n# Gates access behind on-chain Tempo (pathUSD) payment\n",
+			policyDef{Type: "x402_pay_per_request", Name: req.Name, Config: cfg},
+		)
+
 	case "AllOfPolicy":
 		type allOfConfig struct {
 			Policies []string `yaml:"policies"`
@@ -1102,6 +1205,17 @@ func generatePolicyYAML(req NewPolicyRequest) string {
 	}
 }
 
+// defaultX402Realm builds the default realm string the X402 policy template
+// emits when the form doesn't override it. The convention pins the realm
+// to a specific (slug, policy_name) pair so two policies on different
+// endpoints never collide on the producer's HMAC keystore.
+func defaultX402Realm(slug, policyName string) string {
+	if slug == "" {
+		return fmt.Sprintf("syfthub:endpoint:%s", policyName)
+	}
+	return fmt.Sprintf("syfthub:endpoint:%s:%s", slug, policyName)
+}
+
 // CreatePolicyFile creates a new policy file with a template based on the request.
 func (a *App) CreatePolicyFile(slug string, req NewPolicyRequest) error {
 	if err := validateSlug(slug); err != nil {
@@ -1137,8 +1251,19 @@ func (a *App) CreatePolicyFile(slug string, req NewPolicyRequest) error {
 		return fmt.Errorf("policy file already exists: %s", filename)
 	}
 
-	// Generate template content based on policy type
-	content := generatePolicyYAML(req)
+	// Generate template content based on policy type. X402 templates need the
+	// producer's wallet address to populate pay_to authoritatively; we look
+	// it up here rather than trusting the request payload. Missing-wallet
+	// failures are non-fatal — the YAML is still emitted with an empty
+	// pay_to so the operator can either edit it directly or initialise the
+	// wallet and recreate the policy.
+	ctx := policyGenContext{slug: slug}
+	if info, infoErr := a.WalletShow(); infoErr == nil {
+		ctx.walletAddress = info.Address
+	} else if a.ctx != nil {
+		runtime.LogWarning(a.ctx, fmt.Sprintf("CreatePolicyFile: wallet lookup failed (slug=%s): %v", slug, infoErr))
+	}
+	content := generatePolicyYAML(ctx, req)
 
 	if err := os.WriteFile(policyPath, []byte(content), 0644); err != nil {
 		return fmt.Errorf("failed to create policy file: %w", err)
@@ -1809,4 +1934,199 @@ func copyFileTo(src, dst string) error {
 		return err
 	}
 	return out.Close()
+}
+
+// ============================================================================
+// X402 receipts (producer-side ledger)
+//
+// The Python X402PayPerRequestPolicy writes its settlement ledger to the
+// endpoint's shared policy store (the same SQLite file ManualReviewPolicy
+// uses). The desktop UI surfaces those rows so a producer can audit who
+// has paid for access. The schema is documented in
+// policy_manager/policies/x402_pay_per_request.py.
+// ============================================================================
+
+// X402Receipt is one row of the producer's x402_transactions ledger,
+// formatted for the frontend. Field order/casing matches the snake_case
+// the rest of the Wails JSON payloads use.
+type X402Receipt struct {
+	ID            string `json:"id"`
+	Payer         string `json:"payer"`
+	PayTo         string `json:"pay_to"`
+	Amount        string `json:"amount"`
+	Currency      string `json:"currency"`
+	ChainID       uint64 `json:"chain_id"`
+	Nonce         int64  `json:"nonce"`
+	ChallengeID   string `json:"challenge_id"`
+	Status        string `json:"status"`
+	FailureReason string `json:"failure_reason,omitempty"`
+	TxHash        string `json:"tx_hash,omitempty"`
+	CreatedAt     string `json:"created_at"`
+	SettledAt     string `json:"settled_at,omitempty"`
+}
+
+// X402ReceiptFilter narrows a GetPolicyReceipts query. Empty Status / Payer
+// disable the corresponding clause. Limit clamps to [1, maxX402Receipts];
+// 0 (the JSON zero value) falls back to defaultX402Receipts so the
+// frontend can omit the field for the common "first page" case.
+type X402ReceiptFilter struct {
+	Status string `json:"status,omitempty"`
+	Payer  string `json:"payer,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
+}
+
+// X402ReceiptPage is the paginated result returned to the frontend. Total
+// is the full count for the (slug, policy, filter) combination, regardless
+// of Limit — handy for showing "showing 50 of 1234" in the UI.
+type X402ReceiptPage struct {
+	Records []X402Receipt `json:"records"`
+	Total   int           `json:"total"`
+}
+
+const (
+	defaultX402Receipts = 50
+	maxX402Receipts     = 500
+)
+
+// x402TableExists returns true when the x402_transactions table has been
+// created in the given pool. Mirrors manualReviewsTableExists so a fresh
+// endpoint (no payments yet) returns an empty page instead of erroring.
+func x402TableExists(db *sql.DB) bool {
+	var name string
+	err := db.QueryRow(
+		"SELECT name FROM sqlite_master WHERE type='table' AND name='x402_transactions'",
+	).Scan(&name)
+	return err == nil && name == "x402_transactions"
+}
+
+// GetPolicyReceipts returns one page of the producer-side x402 ledger
+// scoped to (slug, policyName). Reads the shared policy store
+// (<endpointDir>/policy/store.db) directly — the Python policy uses WAL +
+// busy_timeout=5000, which lets external readers coexist with the runner.
+//
+// A missing store file, or a present store with no x402_transactions
+// table yet, returns an empty page rather than an error: "no payments
+// yet" is a normal first-launch state, not a fault.
+func (a *App) GetPolicyReceipts(slug, policyName string, filter X402ReceiptFilter) (X402ReceiptPage, error) {
+	page := X402ReceiptPage{Records: []X402Receipt{}}
+	if err := validateSlug(slug); err != nil {
+		return page, err
+	}
+	if strings.TrimSpace(policyName) == "" {
+		return page, fmt.Errorf("policy name is required")
+	}
+	config, err := a.getConfig()
+	if err != nil {
+		return page, err
+	}
+
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = defaultX402Receipts
+	}
+	if limit > maxX402Receipts {
+		limit = maxX402Receipts
+	}
+
+	dbPath := reviewStoreDBPath(config.EndpointsPath, slug)
+	if _, err := os.Stat(dbPath); err != nil {
+		if os.IsNotExist(err) {
+			return page, nil
+		}
+		return page, fmt.Errorf("failed to stat policy store: %w", err)
+	}
+
+	db, err := a.routingDB(dbPath)
+	if err != nil {
+		return page, fmt.Errorf("failed to open policy store: %w", err)
+	}
+
+	if !x402TableExists(db) {
+		return page, nil
+	}
+
+	clauses := []string{"policy_name = ?"}
+	args := []any{policyName}
+	if s := strings.TrimSpace(filter.Status); s != "" {
+		clauses = append(clauses, "status = ?")
+		args = append(args, s)
+	}
+	if p := strings.TrimSpace(filter.Payer); p != "" {
+		clauses = append(clauses, "payer = ?")
+		args = append(args, p)
+	}
+	where := strings.Join(clauses, " AND ")
+
+	// Total first — independent of limit so the UI can show "n of N".
+	var total int
+	if err := db.QueryRow(
+		"SELECT COUNT(*) FROM x402_transactions WHERE "+where,
+		args...,
+	).Scan(&total); err != nil {
+		return page, fmt.Errorf("failed to count receipts: %w", err)
+	}
+	page.Total = total
+
+	rowArgs := make([]any, 0, len(args)+1)
+	rowArgs = append(rowArgs, args...)
+	rowArgs = append(rowArgs, limit)
+	rows, err := db.Query(
+		"SELECT id, payer, pay_to, amount, currency, chain_id, "+
+			"nonce, status, failure_reason, tx_hash, "+
+			"created_at, settled_at "+
+			"FROM x402_transactions WHERE "+where+
+			" ORDER BY created_at DESC LIMIT ?",
+		rowArgs...,
+	)
+	if err != nil {
+		return page, fmt.Errorf("failed to query receipts: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			rec           X402Receipt
+			nonce         sql.NullInt64
+			failureReason sql.NullString
+			txHash        sql.NullString
+			settledAt     sql.NullString
+		)
+		if err := rows.Scan(
+			&rec.ID,
+			&rec.Payer,
+			&rec.PayTo,
+			&rec.Amount,
+			&rec.Currency,
+			&rec.ChainID,
+			&nonce,
+			&rec.Status,
+			&failureReason,
+			&txHash,
+			&rec.CreatedAt,
+			&settledAt,
+		); err != nil {
+			if a.ctx != nil {
+				runtime.LogWarning(a.ctx, fmt.Sprintf("GetPolicyReceipts: skipping unreadable row: %v", err))
+			}
+			continue
+		}
+		rec.ChallengeID = rec.ID
+		if nonce.Valid {
+			rec.Nonce = nonce.Int64
+		}
+		if failureReason.Valid {
+			rec.FailureReason = failureReason.String
+		}
+		if txHash.Valid {
+			rec.TxHash = txHash.String
+		}
+		if settledAt.Valid {
+			rec.SettledAt = settledAt.String
+		}
+		page.Records = append(page.Records, rec)
+	}
+	if err := rows.Err(); err != nil {
+		return page, fmt.Errorf("failed to read receipts: %w", err)
+	}
+	return page, nil
 }

@@ -144,7 +144,7 @@ func TestGeneratePolicyYAML(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := generatePolicyYAML(tt.req)
+			result := generatePolicyYAML(policyGenContext{}, tt.req)
 			for _, want := range tt.wantContains {
 				if !strings.Contains(result, want) {
 					t.Errorf("generatePolicyYAML result missing %q\nGot:\n%s", want, result)
@@ -157,19 +157,108 @@ func TestGeneratePolicyYAML(t *testing.T) {
 func TestGeneratePolicyYAMLDefaults(t *testing.T) {
 	// Test AllOfPolicy without child policies uses defaults
 	req := NewPolicyRequest{Name: "test", Type: "AllOfPolicy"}
-	result := generatePolicyYAML(req)
+	result := generatePolicyYAML(policyGenContext{}, req)
 	if !strings.Contains(result, "policy_name_1") {
 		t.Error("AllOfPolicy without children should use default policy names")
 	}
 
 	// Test NotPolicy without children
 	req = NewPolicyRequest{Name: "test", Type: "NotPolicy"}
-	result = generatePolicyYAML(req)
+	result = generatePolicyYAML(policyGenContext{}, req)
 	if !strings.Contains(result, "policy_to_negate") {
 		t.Error("NotPolicy without children should use default policy name")
 	}
 	if !strings.Contains(result, "Access denied by policy negation") {
 		t.Error("NotPolicy without deny_reason should use default reason")
+	}
+}
+
+// ============================================================================
+// X402 Policy Template Tests
+// ============================================================================
+
+func TestGeneratePolicyYAMLX402Defaults(t *testing.T) {
+	// Bare request: no form overrides, no wallet — template should still emit
+	// every required key with sensible defaults so an operator can audit and
+	// edit the file directly. pay_to is intentionally left blank when no
+	// wallet is wired in (operator fills it in by hand).
+	req := NewPolicyRequest{Name: "pay-gate", Type: "X402PayPerRequestPolicy"}
+	result := generatePolicyYAML(policyGenContext{slug: "demo"}, req)
+
+	wantContains := []string{
+		"type: x402_pay_per_request",
+		"name: pay-gate",
+		"pay_to:",
+		"price: \"0.01\"",
+		"currency: " + pathUSDContractAddress,
+		"decimals: 6",
+		"chain_id: 42431",
+		"realm: syfthub:endpoint:demo:pay-gate",
+		"hmac_secret_kid: default",
+		"challenge_ttl_seconds: 300",
+		"max_pending_settlements_per_payer: 16",
+	}
+	for _, want := range wantContains {
+		if !strings.Contains(result, want) {
+			t.Errorf("X402 default template missing %q\nGot:\n%s", want, result)
+		}
+	}
+
+	// allow_listed_payers must be omitted (yaml omitempty) when nil so the
+	// template doesn't ship a misleading empty list.
+	if strings.Contains(result, "allow_listed_payers:") {
+		t.Errorf("X402 default template should omit allow_listed_payers; got:\n%s", result)
+	}
+}
+
+func TestGeneratePolicyYAMLX402WalletAndOverrides(t *testing.T) {
+	// Wallet address from ctx becomes pay_to; form overrides win over
+	// every default; allow_listed_payers materialises when non-empty.
+	req := NewPolicyRequest{
+		Name: "premium",
+		Type: "X402PayPerRequestPolicy",
+		X402: &X402PolicyConfig{
+			Price:                         "1.234567",
+			Currency:                      "0xabc0000000000000000000000000000000000001",
+			Decimals:                      8,
+			ChainID:                       1,
+			Realm:                         "custom-realm",
+			HmacSecretKid:                 "rotated-key",
+			ChallengeTTLSeconds:           120,
+			MaxPendingSettlementsPerPayer: 4,
+			AllowListedPayers:             []string{"alice@example.com", "bob@example.com"},
+		},
+	}
+	wallet := "0x1111111111111111111111111111111111111111"
+	result := generatePolicyYAML(policyGenContext{slug: "demo", walletAddress: wallet}, req)
+
+	wantContains := []string{
+		"pay_to: " + wallet,
+		"price: \"1.234567\"",
+		"currency: 0xabc0000000000000000000000000000000000001",
+		"decimals: 8",
+		"chain_id: 1",
+		"realm: custom-realm",
+		"hmac_secret_kid: rotated-key",
+		"challenge_ttl_seconds: 120",
+		"max_pending_settlements_per_payer: 4",
+		"allow_listed_payers:",
+		"- alice@example.com",
+		"- bob@example.com",
+	}
+	for _, want := range wantContains {
+		if !strings.Contains(result, want) {
+			t.Errorf("X402 override template missing %q\nGot:\n%s", want, result)
+		}
+	}
+}
+
+func TestDefaultX402Realm(t *testing.T) {
+	if got := defaultX402Realm("my-endpoint", "pay"); got != "syfthub:endpoint:my-endpoint:pay" {
+		t.Errorf("defaultX402Realm = %q, want syfthub:endpoint:my-endpoint:pay", got)
+	}
+	if got := defaultX402Realm("", "pay"); got != "syfthub:endpoint:pay" {
+		t.Errorf("defaultX402Realm empty slug = %q, want syfthub:endpoint:pay", got)
 	}
 }
 

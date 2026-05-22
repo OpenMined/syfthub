@@ -38,6 +38,8 @@ import { GetDependencies, AddDependency, DeleteDependency, OpenEndpointFolder, L
 import { main } from '../../../wailsjs/go/models';
 import Editor from '@monaco-editor/react';
 import { SkillsSection } from './SkillsSection';
+import { X402PolicyForm } from './X402PolicyForm';
+import { X402ReceiptsPanel } from './X402ReceiptsPanel';
 
 type Dependency = main.Dependency;
 type PolicyFileInfo = main.PolicyFileInfo;
@@ -551,10 +553,16 @@ const POLICY_TYPES = [
   { value: 'PromptFilterPolicy', label: 'Prompt Filter', description: 'Filters requests based on prompt patterns' },
   { value: 'AttributionPolicy', label: 'Attribution', description: 'Tracks data usage for audit' },
   { value: 'ManualReviewPolicy', label: 'Manual Review', description: 'Requires manual approval' },
+  { value: 'X402PayPerRequestPolicy', label: 'x402 Pay-Per-Request', description: 'Charge on-chain (Tempo pathUSD) per request; settle on handler success' },
   { value: 'AllOfPolicy', label: 'All Of (Composite)', description: 'ALL child policies must pass', isComposite: true },
   { value: 'AnyOfPolicy', label: 'Any Of (Composite)', description: 'At least ONE child policy must pass', isComposite: true },
   { value: 'NotPolicy', label: 'Not (Composite)', description: 'Inverts the wrapped policy', isComposite: true, isSingle: true },
 ] as const;
+
+// X402 policy uses a dedicated configuration form rather than the generic
+// "policy name only" modal — there are too many knobs and one of them
+// (pay_to) must be read from the host wallet rather than typed.
+const X402_POLICY_TYPE = 'X402PayPerRequestPolicy';
 
 // Composite policy types that need child policy selection
 const COMPOSITE_TYPES = ['AllOfPolicy', 'AnyOfPolicy', 'NotPolicy'];
@@ -571,6 +579,7 @@ const POLICY_CATEGORY: Record<string, keyof typeof POLICY_CATEGORY_STYLES> = {
   AccessGroupPolicy: 'access',
   AttributionPolicy: 'access',
   ManualReviewPolicy: 'access',
+  X402PayPerRequestPolicy: 'access',
   RateLimitPolicy: 'limit',
   TokenLimitPolicy: 'limit',
   PromptFilterPolicy: 'limit',
@@ -712,12 +721,17 @@ export function PoliciesSection() {
     if (!selectedEndpointSlug || !newPolicyName.trim()) return;
     setSaving(true);
     try {
+      // The generated NewPolicyRequest class now carries a convertValues
+      // helper method (since the optional nested x402 class was added).
+      // The Wails runtime just serializes JSON — it doesn't require an
+      // instance — so we cast through unknown rather than constructing
+      // the class for what is effectively a wire payload.
       const request = {
         name: newPolicyName.trim(),
         type: newPolicyType,
         childPolicies: COMPOSITE_TYPES.includes(newPolicyType) ? selectedChildPolicies : [],
         denyReason: newPolicyType === 'NotPolicy' ? denyReason : '',
-      };
+      } as unknown as main.NewPolicyRequest;
       await CreatePolicyFile(selectedEndpointSlug, request);
       // Reset form state
       setNewPolicyName('');
@@ -813,52 +827,14 @@ export function PoliciesSection() {
       ) : policyFiles.length > 0 ? (
         <div className="divide-y divide-border/30 border-y border-border/30">
           {policyFiles.map((policy) => (
-            <div
+            <PolicyRow
               key={policy.filename}
-              className="px-3 py-2.5 hover:bg-card/40 transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <ShieldIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                <span className="font-medium text-sm text-foreground flex-1 truncate">
-                  {policy.name}
-                </span>
-                <span className={`px-2 py-0.5 rounded text-xs ${getPolicyTypeBadgeColor(policy.type)}`}>
-                  {formatPolicyType(policy.type)}
-                </span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => handleEdit(policy)}
-                      className="p-1.5 text-muted-foreground hover:text-primary transition-colors rounded hover:bg-secondary/50"
-                    >
-                      <EditIcon className="w-4 h-4" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p>Edit policy</p>
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => handleDeleteClick(policy)}
-                      disabled={deleting === policy.filename}
-                      className="p-1.5 text-muted-foreground hover:text-destructive transition-colors rounded hover:bg-secondary/50 disabled:opacity-50"
-                    >
-                      {deleting === policy.filename ? (
-                        <span className="w-4 h-4 border border-muted-foreground border-t-foreground rounded-full animate-spin block" />
-                      ) : (
-                        <TrashIcon className="w-4 h-4" />
-                      )}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">
-                    <p>Delete policy</p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1 ml-6">{policy.filename}</p>
-            </div>
+              policy={policy}
+              endpointSlug={selectedEndpointSlug ?? ''}
+              deleting={deleting === policy.filename}
+              onEdit={() => handleEdit(policy)}
+              onDelete={() => handleDeleteClick(policy)}
+            />
           ))}
         </div>
       ) : (
@@ -874,26 +850,9 @@ export function PoliciesSection() {
       {/* New Policy Dialog */}
       {showNewDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-card rounded-lg p-5 w-[420px] border border-border max-h-[80vh] overflow-y-auto">
-            <h3 className="text-base font-medium text-foreground mb-4">New Policy</h3>
-
-            {/* Policy Name */}
-            <div className="mb-4">
-              <label className="block text-xs text-muted-foreground mb-1.5">Policy Name</label>
-              <Input
-                value={newPolicyName}
-                onChange={(e) => setNewPolicyName(e.target.value)}
-                placeholder="e.g., My Rate Limit"
-                className="h-9"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !isCompositeType) handleCreate();
-                  if (e.key === 'Escape') handleCloseNewDialog();
-                }}
-              />
-            </div>
-
-            {/* Policy Type */}
+          <div className="bg-card rounded-lg p-5 w-[480px] border border-border max-h-[85vh] overflow-y-auto">
+            {/* Policy Type — always visible so the user can switch between the
+                generic flow and the dedicated x402 form */}
             <div className="mb-4">
               <label className="block text-xs text-muted-foreground mb-1.5">Policy Type</label>
               <Select
@@ -920,6 +879,42 @@ export function PoliciesSection() {
               <p className="text-xs text-muted-foreground mt-1.5">
                 {POLICY_TYPES.find(pt => pt.value === newPolicyType)?.description}
               </p>
+            </div>
+
+            {newPolicyType === X402_POLICY_TYPE ? (
+              // x402 has its own form (price/currency/network/TTL/allow-list,
+              // plus a read-only wallet-derived pay_to). Render it inline so
+              // the user doesn't have to navigate twice.
+              selectedEndpointSlug ? (
+                <X402PolicyForm
+                  endpointSlug={selectedEndpointSlug}
+                  onCreated={() => {
+                    handleCloseNewDialog();
+                    fetchPolicyFiles();
+                  }}
+                  onCancel={handleCloseNewDialog}
+                />
+              ) : (
+                <p className="text-xs text-destructive">
+                  Select an endpoint first.
+                </p>
+              )
+            ) : (
+            <>
+            {/* Policy Name (generic flow only — x402 form collects its own) */}
+            <div className="mb-4">
+              <label className="block text-xs text-muted-foreground mb-1.5">Policy Name</label>
+              <Input
+                value={newPolicyName}
+                onChange={(e) => setNewPolicyName(e.target.value)}
+                placeholder="e.g., My Rate Limit"
+                className="h-9"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !isCompositeType) handleCreate();
+                  if (e.key === 'Escape') handleCloseNewDialog();
+                }}
+              />
             </div>
 
             {/* Child Policy Selection (for composite types) */}
@@ -1003,6 +998,8 @@ export function PoliciesSection() {
                 {saving ? 'Creating...' : 'Create Policy'}
               </Button>
             </div>
+            </>
+            )}
           </div>
         </div>
       )}
@@ -1265,5 +1262,101 @@ function ShieldIcon({ className }: { className?: string }) {
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
     </svg>
+  );
+}
+
+// ============================================================================
+// POLICY ROW (with expandable Receipts subtab for x402)
+// ============================================================================
+
+interface PolicyRowProps {
+  policy: PolicyFileInfo;
+  endpointSlug: string;
+  deleting: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}
+
+// PolicyRow renders a single policy entry. For x402 policies it adds a
+// collapsible "Receipts" subtab that lazy-mounts X402ReceiptsPanel — we
+// don't fetch the SQLite ledger until the producer actually expands the
+// row, which keeps the policies list cheap to render.
+function PolicyRow({ policy, endpointSlug, deleting, onEdit, onDelete }: PolicyRowProps) {
+  const [showReceipts, setShowReceipts] = useState(false);
+  const isX402 = policy.type === X402_POLICY_TYPE;
+
+  return (
+    <div className="px-3 py-2.5 hover:bg-card/40 transition-colors">
+      <div className="flex items-center gap-2">
+        <ShieldIcon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+        <span className="font-medium text-sm text-foreground flex-1 truncate">
+          {policy.name}
+        </span>
+        <span className={`px-2 py-0.5 rounded text-xs ${getPolicyTypeBadgeColor(policy.type)}`}>
+          {formatPolicyType(policy.type)}
+        </span>
+        {isX402 && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => setShowReceipts((v) => !v)}
+                aria-expanded={showReceipts}
+                className={`px-2 py-0.5 rounded text-xs transition-colors ${
+                  showReceipts
+                    ? 'bg-primary/15 text-primary'
+                    : 'text-muted-foreground hover:bg-secondary/50'
+                }`}
+              >
+                Receipts
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              <p>{showReceipts ? 'Hide' : 'Show'} payment receipts</p>
+            </TooltipContent>
+          </Tooltip>
+        )}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onEdit}
+              className="p-1.5 text-muted-foreground hover:text-primary transition-colors rounded hover:bg-secondary/50"
+            >
+              <EditIcon className="w-4 h-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <p>Edit policy</p>
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={onDelete}
+              disabled={deleting}
+              className="p-1.5 text-muted-foreground hover:text-destructive transition-colors rounded hover:bg-secondary/50 disabled:opacity-50"
+            >
+              {deleting ? (
+                <span className="w-4 h-4 border border-muted-foreground border-t-foreground rounded-full animate-spin block" />
+              ) : (
+                <TrashIcon className="w-4 h-4" />
+              )}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            <p>Delete policy</p>
+          </TooltipContent>
+        </Tooltip>
+      </div>
+      <p className="text-xs text-muted-foreground mt-1 ml-6">{policy.filename}</p>
+
+      {isX402 && showReceipts && endpointSlug && (
+        <div className="mt-3 ml-6 pt-3 border-t border-border/30">
+          <X402ReceiptsPanel
+            endpointSlug={endpointSlug}
+            policyName={policy.name}
+          />
+        </div>
+      )}
+    </div>
   );
 }
