@@ -547,6 +547,21 @@ func (api *SyftAPI) SetLogHook(hook RequestLogHook) {
 	}
 }
 
+// SetMppxGate installs (or replaces) the x402 mppx gate used by the request
+// processor (model / data_source endpoints) for PreVerify / BuildChallenge /
+// SettleAfterHandler. The gate is also recorded as the SyftAPI's default for
+// any agent endpoint that the file provider builds via SetHandler — callers
+// that want per-endpoint gates can still override via EndpointHandlerConfig.
+//
+// Safe to call before or after Run.
+func (api *SyftAPI) SetMppxGate(gate MppxGate) {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	if api.processor != nil {
+		api.processor.SetMppxGate(gate)
+	}
+}
+
 // SyncEndpointsAsync triggers a re-sync in a background goroutine.
 // This is useful for non-blocking updates like toggling endpoint enabled status.
 // Errors are logged but not returned.

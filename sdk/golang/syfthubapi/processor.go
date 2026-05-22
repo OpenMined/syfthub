@@ -8,6 +8,37 @@ import (
 	"time"
 )
 
+// MppxGate is the interface the processor uses to drive the x402 settle-on-
+// success flow. The concrete implementation lives in the mppxgate package
+// (TempoGate); the interface is mirrored here so the processor can hold it
+// without importing mppxgate back (an import cycle).
+//
+// All three methods accept and mutate the policy-result / request-context
+// metadata map. They are intentionally pointer-free and have no syfthubapi
+// types in their signatures, so mppxgate stays a leaf package.
+type MppxGate interface {
+	// PreVerify is called BEFORE invoker.ParseRequest when the caller
+	// supplied a payment_credential. Implementations verify the credential
+	// (HMAC + sender recovery + amount/recipient match + nonce freshness)
+	// and, on success, populate metadata with payment_verified=true plus
+	// payment_challenge_id / payment_nonce / payment_signed_tx_hex so the
+	// Python policy short-circuits its second pre_execute.
+	PreVerify(ctx context.Context, credential string, metadata map[string]any) error
+
+	// BuildChallenge is called when a policy result is Pending and carries
+	// an x402_challenge_spec. Implementations materialize the HMAC-bound
+	// mppx Challenge from the spec and write payment_challenge / amount /
+	// currency / recipient / challenge_id into resultMeta.
+	BuildChallenge(ctx context.Context, spec map[string]any, resultMeta map[string]any) error
+
+	// SettleAfterHandler is called AFTER invoker.Invoke succeeds. It
+	// broadcasts the signed transfer previously parked in metadata by
+	// PreVerify, then writes payment_receipt / payment_status so the
+	// Python post_execute can record settlement. No-op when metadata
+	// carries no signed tx.
+	SettleAfterHandler(ctx context.Context, metadata map[string]any) error
+}
+
 // RequestProcessor handles the execution of endpoint requests.
 // It orchestrates authentication and endpoint invocation.
 type RequestProcessor struct {
@@ -15,6 +46,7 @@ type RequestProcessor struct {
 	authClient *HubClient
 	logger     *slog.Logger
 	logHook    RequestLogHook
+	gate       MppxGate
 }
 
 // ProcessorConfig holds configuration for RequestProcessor.
@@ -22,6 +54,9 @@ type ProcessorConfig struct {
 	Registry   *EndpointRegistry
 	AuthClient *HubClient
 	Logger     *slog.Logger
+	// Gate is the optional x402 mppx gate. When nil the processor behaves
+	// exactly as before (no PreVerify, no BuildChallenge, no settle).
+	Gate MppxGate
 }
 
 // NewRequestProcessor creates a new request processor.
@@ -30,7 +65,14 @@ func NewRequestProcessor(cfg *ProcessorConfig) *RequestProcessor {
 		registry:   cfg.Registry,
 		authClient: cfg.AuthClient,
 		logger:     cfg.Logger,
+		gate:       cfg.Gate,
 	}
+}
+
+// SetMppxGate installs (or replaces) the mppx gate. Safe to call after
+// construction; not safe to swap mid-request.
+func (p *RequestProcessor) SetMppxGate(gate MppxGate) {
+	p.gate = gate
 }
 
 // SetLogHook sets the request log hook callback.
@@ -116,6 +158,24 @@ func (p *RequestProcessor) Process(ctx context.Context, req *TunnelRequest) (*Tu
 		"type", endpoint.Type,
 	)
 
+	// Verify a presented payment credential up-front, BEFORE invoking the
+	// handler. A failure here is non-fatal: we log it and fall through —
+	// the Python pre_execute will see no payment_verified flag in metadata
+	// and return a fresh challenge spec, which the policy chain surfaces
+	// as a PAYMENT_REQUIRED via the maybeBuildChallenge path below. Doing
+	// it pre-handler (rather than inside the policy) keeps the crypto in
+	// Go and matches the "settle on success" lifecycle: PreVerify parks
+	// the signed tx, the handler runs, SettleAfterHandler broadcasts.
+	if reqCtx.PaymentCredential != "" && p.gate != nil {
+		if err := p.gate.PreVerify(ctx, reqCtx.PaymentCredential, reqCtx.Metadata); err != nil {
+			p.logger.Info("[REQUEST] payment credential pre-verify failed; policy will issue fresh challenge",
+				"correlation_id", req.CorrelationID,
+				"slug", endpoint.Slug,
+				"error", err,
+			)
+		}
+	}
+
 	input, err := endpoint.invoker.ParseRequest(req.Payload)
 	if err != nil {
 		resp := p.errorResponse(req, TunnelErrorCodeExecutionFailed, err.Error())
@@ -125,7 +185,7 @@ func (p *RequestProcessor) Process(ctx context.Context, req *TunnelRequest) (*Tu
 
 	result, err := endpoint.invoker.Invoke(ctx, input, reqCtx)
 	if err != nil {
-		if resp := p.maybePaymentRequiredResponse(req, reqCtx); resp != nil {
+		if resp := p.maybeBuildChallenge(ctx, req, reqCtx); resp != nil {
 			return emitLogAndReturn(resp, userCtx, endpoint)
 		}
 		p.logger.Error("[REQUEST] Endpoint execution failed",
@@ -135,6 +195,20 @@ func (p *RequestProcessor) Process(ctx context.Context, req *TunnelRequest) (*Tu
 		)
 		resp := p.errorResponse(req, TunnelErrorCodeExecutionFailed, err.Error())
 		return emitLogAndReturn(resp, userCtx, endpoint)
+	}
+
+	// Handler succeeded — settle the parked payment (no-op when none is
+	// parked). Errors are non-fatal: the response still goes out, and the
+	// gate writes a payment_failure into metadata so post_execute can
+	// record the failed settlement attempt.
+	if p.gate != nil {
+		if err := p.gate.SettleAfterHandler(ctx, reqCtx.Metadata); err != nil {
+			p.logger.Warn("[REQUEST] payment settlement failed after successful handler",
+				"correlation_id", req.CorrelationID,
+				"slug", endpoint.Slug,
+				"error", err,
+			)
+		}
 	}
 
 	formatted, err := endpoint.invoker.FormatResponse(result)
@@ -215,17 +289,47 @@ func (p *RequestProcessor) verifyToken(ctx context.Context, token string) (*User
 	return p.authClient.VerifyToken(ctx, token)
 }
 
-// maybePaymentRequiredResponse builds a PAYMENT_REQUIRED tunnel response when
-// the policy chain returned a Pending result carrying a payment challenge.
+// maybeBuildChallenge builds a PAYMENT_REQUIRED tunnel response when the
+// policy chain returned a Pending result carrying either:
+//
+//   - an x402_challenge_spec (Python X402PayPerRequestPolicy round 1): the
+//     gate materializes the canonical HMAC-bound challenge in-place and the
+//     processor surfaces it as a PAYMENT_REQUIRED.
+//   - a pre-built payment_challenge wire string in metadata (legacy path used
+//     by other payment policies): surfaced unchanged.
+//
 // Returns nil if the request did not surface a payment challenge.
-func (p *RequestProcessor) maybePaymentRequiredResponse(req *TunnelRequest, reqCtx *RequestContext) *TunnelResponse {
+func (p *RequestProcessor) maybeBuildChallenge(ctx context.Context, req *TunnelRequest, reqCtx *RequestContext) *TunnelResponse {
 	if reqCtx.PolicyResult == nil || !reqCtx.PolicyResult.Pending {
 		return nil
 	}
-	if _, ok := PaymentChallengeFromMetadata(reqCtx.PolicyResult.Metadata); !ok {
+	meta := reqCtx.PolicyResult.Metadata
+	if meta == nil {
 		return nil
 	}
-	details := CopyPaymentMetadata(reqCtx.PolicyResult.Metadata)
+
+	// Legacy short-circuit: if metadata already has a payment_challenge,
+	// trust it and skip BuildChallenge. Some payment policies build the
+	// challenge themselves (e.g. the old MppAccountingPolicy path).
+	if _, ok := PaymentChallengeFromMetadata(meta); !ok {
+		// New x402 path: materialize the challenge from the Python spec.
+		spec, ok := meta["x402_challenge_spec"].(map[string]any)
+		if !ok || spec == nil {
+			return nil
+		}
+		if p.gate == nil {
+			p.logger.Warn("[REQUEST] x402 challenge spec present but no gate configured",
+				"correlation_id", req.CorrelationID)
+			return nil
+		}
+		if err := p.gate.BuildChallenge(ctx, spec, meta); err != nil {
+			p.logger.Error("[REQUEST] failed to build x402 challenge",
+				"correlation_id", req.CorrelationID, "error", err)
+			return nil
+		}
+	}
+
+	details := CopyPaymentMetadata(meta)
 	p.logger.Info("[REQUEST] Payment required",
 		"correlation_id", req.CorrelationID,
 		"challenge_id", details["challenge_id"],

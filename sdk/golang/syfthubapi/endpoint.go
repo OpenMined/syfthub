@@ -170,6 +170,12 @@ type EndpointHandlerConfig struct {
 	// resolution delivery. nil-safe for non-agent endpoints and for agents
 	// without policies — neither path needs it.
 	RoutingRecorder manualreview.RoutingRecorder
+
+	// MppxGate, when non-nil and the endpoint is an agent endpoint with
+	// policies, is wired into the AgentExecutor so pending policy results
+	// carrying an x402_challenge_spec are materialized into canonical mppx
+	// payment_challenges before they reach the caller. nil-safe.
+	MppxGate MppxGate
 }
 
 // SetHandler wires the endpoint's invoker from the given config.
@@ -184,10 +190,14 @@ func (e *Endpoint) SetHandler(cfg EndpointHandlerConfig) {
 		// path-specific code.
 		handler := cfg.AgentHandler
 		if cfg.PolicyExecutor != nil {
-			handler = NewAgentExecutorWithConfig(handler, cfg.PolicyExecutor, e.Slug, AgentExecutorConfig{
+			executor := NewAgentExecutorWithConfig(handler, cfg.PolicyExecutor, e.Slug, AgentExecutorConfig{
 				Logger:          cfg.Logger,
 				RoutingRecorder: cfg.RoutingRecorder,
-			}).Handler()
+			})
+			if cfg.MppxGate != nil {
+				executor.SetMppxGate(cfg.MppxGate)
+			}
+			handler = executor.Handler()
 		}
 		e.invoker = &AgentOneShotInvoker{
 			codec:          ModelCodec{},

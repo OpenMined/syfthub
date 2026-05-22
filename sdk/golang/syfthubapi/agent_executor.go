@@ -42,6 +42,12 @@ type AgentExecutor struct {
 	// no recorder is configured the executor still surfaces the notice,
 	// just without the durable-delivery side-effect.
 	routingRecorder manualreview.RoutingRecorder
+
+	// gate, when non-nil, materializes an x402 challenge spec into a
+	// canonical mppx payment_challenge before emitPending surfaces it as
+	// an agent.payment_required event. nil-safe: pending notices that do
+	// not carry a spec are unaffected.
+	gate MppxGate
 }
 
 // AgentExecutorConfig holds the optional dependencies an AgentExecutor can
@@ -81,6 +87,12 @@ func NewAgentExecutorWithConfig(inner AgentHandler, pol Executor, slug string, c
 // that build the executor before the recorder is ready.
 func (a *AgentExecutor) SetRoutingRecorder(r manualreview.RoutingRecorder) {
 	a.routingRecorder = r
+}
+
+// SetMppxGate installs (or replaces) the x402 mppx gate. Safe to call before
+// Handler() is invoked; not safe to swap mid-session.
+func (a *AgentExecutor) SetMppxGate(g MppxGate) {
+	a.gate = g
 }
 
 // Handler returns an AgentHandler that runs the wrapped agent with per-turn
@@ -485,7 +497,22 @@ func (a *AgentExecutor) applyVerdict(outer *AgentSession, v *PolicyResultOutput)
 // payment challenge becomes an agent.payment_required event; otherwise it is a
 // pending policy notice (e.g. manual_review without payment) so the user sees
 // why the turn did not produce a normal reply.
+//
+// When v.Metadata carries an x402_challenge_spec (the new
+// X402PayPerRequestPolicy round 1) and a gate is configured, BuildChallenge
+// is invoked first to materialize the canonical mppx payment_challenge in
+// place — after which the existing PaymentChallengeFromMetadata branch
+// emits the agent.payment_required as usual.
 func (a *AgentExecutor) emitPending(outer *AgentSession, phase string, v *PolicyResultOutput) {
+	if spec, ok := v.Metadata["x402_challenge_spec"].(map[string]any); ok && a.gate != nil {
+		if err := a.gate.BuildChallenge(outer.Context(), spec, v.Metadata); err != nil {
+			a.logger.Error("[AGENT-POLICY] failed to build x402 challenge",
+				"slug", a.slug, "session_id", outer.ID, "error", err)
+			// Fall through — without payment_challenge in metadata the
+			// next branch will not fire and we'll emit a plain pending
+			// notice so the user at least sees that the turn was held.
+		}
+	}
 	if challenge, ok := PaymentChallengeFromMetadata(v.Metadata); ok {
 		_ = outer.SendPaymentRequired(v.PolicyName, challenge, CopyPaymentMetadata(v.Metadata))
 		return
