@@ -1,14 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import type { Collective, CollectiveMember } from '@/lib/collectives-api';
+import type { ChatSource } from '@/lib/types';
 import type { ReactNode } from 'react';
 
 import ArrowLeft from 'lucide-react/dist/esm/icons/arrow-left';
+import Mail from 'lucide-react/dist/esm/icons/mail';
 import ShieldCheck from 'lucide-react/dist/esm/icons/shield-check';
 import Trash2 from 'lucide-react/dist/esm/icons/trash-2';
 import UserCheck from 'lucide-react/dist/esm/icons/user-check';
+import UserPlus from 'lucide-react/dist/esm/icons/user-plus';
 import UserX from 'lucide-react/dist/esm/icons/user-x';
 import Users from 'lucide-react/dist/esm/icons/users';
+import X from 'lucide-react/dist/esm/icons/x';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { Badge } from '@/components/ui/badge';
@@ -25,14 +29,16 @@ import {
   useCollectiveBySlug,
   useCollectiveMembers,
   useDeleteCollective,
+  useInviteEndpointByPath,
   useRemoveMember,
   useReviewRequest,
   useUpdateCollective
 } from '@/hooks/use-collectives';
-import { parseTags } from '@/lib/collectives-api';
+import { useEndpointByPath } from '@/hooks/use-endpoint-queries';
+import { isJoinableEndpointType, parseTags } from '@/lib/collectives-api';
 import { formatDate } from '@/lib/date-utils';
 
-type AdminTab = 'members' | 'requests' | 'settings';
+type AdminTab = 'members' | 'requests' | 'invitations' | 'settings';
 
 /**
  * Collective administration (`/c/:slug/admin`). Owner only — the route is
@@ -84,18 +90,22 @@ export default function CollectiveAdminPage() {
 
 function CollectiveAdminContent({ collective }: Readonly<{ collective: Collective }>) {
   const [activeTab, setActiveTab] = useState<AdminTab>('members');
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
 
   const { data: approvedMembers } = useCollectiveMembers(collective.id, 'approved');
   const { data: pendingMembers } = useCollectiveMembers(collective.id, 'pending');
+  const { data: invitedMembers } = useCollectiveMembers(collective.id, 'invited');
   const removeMember = useRemoveMember();
   const reviewRequest = useReviewRequest();
 
   const members = approvedMembers ?? [];
   const requests = pendingMembers ?? [];
+  const invitations = invitedMembers ?? [];
 
   const tabs: { id: AdminTab; label: string; badge?: number }[] = [
     { id: 'members', label: 'Members' },
     { id: 'requests', label: 'Requests', badge: requests.length },
+    { id: 'invitations', label: 'Invitations', badge: invitations.length },
     { id: 'settings', label: 'Settings' }
   ];
 
@@ -113,15 +123,28 @@ function CollectiveAdminContent({ collective }: Readonly<{ collective: Collectiv
             Back to {collective.name}
           </Link>
         </Button>
-        <h1 className='font-rubik text-foreground flex items-center gap-2 text-3xl font-semibold'>
-          Manage {collective.name}
-          {collective.verified && (
-            <ShieldCheck className='h-6 w-6 text-green-500' aria-label='Verified collective' />
-          )}
-        </h1>
-        <p className='font-inter text-muted-foreground mt-1'>
-          Administer this collective's members, join requests and settings
-        </p>
+        <div className='flex items-start justify-between gap-4'>
+          <div>
+            <h1 className='font-rubik text-foreground flex items-center gap-2 text-3xl font-semibold'>
+              Manage {collective.name}
+              {collective.verified && (
+                <ShieldCheck className='h-6 w-6 text-green-500' aria-label='Verified collective' />
+              )}
+            </h1>
+            <p className='font-inter text-muted-foreground mt-1'>
+              Administer this collective's members, join requests and settings
+            </p>
+          </div>
+          <Button
+            onClick={() => {
+              setInviteModalOpen(true);
+            }}
+            className='shrink-0'
+          >
+            <UserPlus className='mr-2 h-4 w-4' />
+            Invite endpoint
+          </Button>
+        </div>
       </div>
 
       <div className='mb-8 grid grid-cols-2 gap-4'>
@@ -195,8 +218,9 @@ function CollectiveAdminContent({ collective }: Readonly<{ collective: Collectiv
                       });
                     }}
                     title='Remove from collective'
+                    className='text-muted-foreground hover:text-destructive'
                   >
-                    <UserX className='h-4 w-4' />
+                    <Trash2 className='h-4 w-4' />
                   </Button>
                 }
               />
@@ -267,7 +291,67 @@ function CollectiveAdminContent({ collective }: Readonly<{ collective: Collectiv
         </div>
       )}
 
+      {activeTab === 'invitations' && (
+        <div className='space-y-3'>
+          {invitations.length > 0 ? (
+            invitations.map((invitation) => (
+              <MemberRow
+                key={invitation.id}
+                member={invitation}
+                subtitle={
+                  <>
+                    {invitation.endpoint_owner_username
+                      ? `@${invitation.endpoint_owner_username}`
+                      : 'owner unknown'}{' '}
+                    · invited {formatDate(invitation.requested_at)}
+                  </>
+                }
+                actions={
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    disabled={removeMember.isPending}
+                    onClick={() => {
+                      removeMember.mutate({
+                        collectiveId: collective.id,
+                        endpointId: invitation.endpoint_id
+                      });
+                    }}
+                    title='Cancel invitation'
+                  >
+                    <X className='mr-1 h-4 w-4' />
+                    Cancel
+                  </Button>
+                }
+              />
+            ))
+          ) : (
+            <Card className='text-muted-foreground p-12 text-center text-sm'>
+              <Mail className='mx-auto mb-3 h-8 w-8 opacity-50' />
+              <p>No pending invitations.</p>
+              <p className='mt-2 text-xs'>
+                Use the "Invite endpoint" button above to invite an endpoint by its
+                <code className='mx-1'>owner/slug</code>
+                path.
+              </p>
+            </Card>
+          )}
+        </div>
+      )}
+
       {activeTab === 'settings' && <CollectiveSettingsForm collective={collective} />}
+
+      <InviteEndpointModal
+        isOpen={inviteModalOpen}
+        collective={collective}
+        onClose={() => {
+          setInviteModalOpen(false);
+        }}
+        onInvited={() => {
+          setInviteModalOpen(false);
+          setActiveTab('invitations');
+        }}
+      />
     </div>
   );
 }
@@ -294,6 +378,203 @@ function MemberRow({
       </div>
     </Card>
   );
+}
+
+/**
+ * Modal for inviting an endpoint into the collective by `owner/slug` path.
+ *
+ * The collective owner enters a path (e.g. `alice/genome-data`), we preview
+ * the resolved endpoint via the public-by-path API, and on confirm send an
+ * invitation. Only data-source endpoints are joinable; the modal blocks
+ * submission when the resolved endpoint isn't eligible.
+ */
+function InviteEndpointModal({
+  isOpen,
+  collective,
+  onClose,
+  onInvited
+}: Readonly<{
+  isOpen: boolean;
+  collective: Collective;
+  onClose: () => void;
+  onInvited: () => void;
+}>) {
+  const [path, setPath] = useState('');
+  // Debounced path used for the actual lookup so we don't spam the API while
+  // the user is still typing.
+  const [debouncedPath, setDebouncedPath] = useState('');
+  const inviteMutation = useInviteEndpointByPath();
+  const resetInvite = inviteMutation.reset;
+
+  useEffect(() => {
+    const trimmed = path.trim();
+    if (!trimmed) {
+      setDebouncedPath('');
+      return;
+    }
+    const timer = setTimeout(() => {
+      setDebouncedPath(trimmed);
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [path]);
+
+  // Reset when the modal closes so reopening starts fresh. Depend on the
+  // stable `reset` method, not the mutation object — `useMutation` returns a
+  // fresh result object every render, which would re-fire this effect on
+  // every render.
+  useEffect(() => {
+    if (!isOpen) {
+      setPath('');
+      setDebouncedPath('');
+      resetInvite();
+    }
+  }, [isOpen, resetInvite]);
+
+  const parsed = parseOwnerSlug(debouncedPath);
+  const { data: endpoint, isFetching: isResolving } = useEndpointByPath(
+    parsed ? `${parsed.owner}/${parsed.slug}` : undefined
+  );
+
+  const ineligibleType = endpoint?.type != null && !isJoinableEndpointType(endpoint.type);
+
+  const canSubmit =
+    parsed != null && endpoint != null && !ineligibleType && !inviteMutation.isPending;
+
+  const handleSubmit = () => {
+    if (!parsed) return;
+    inviteMutation.mutate(
+      { collectiveId: collective.id, ownerUsername: parsed.owner, slug: parsed.slug },
+      { onSuccess: onInvited }
+    );
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title='Invite an endpoint'>
+      <div className='space-y-4'>
+        <div>
+          <Label htmlFor='invite-path'>Endpoint path</Label>
+          <Input
+            id='invite-path'
+            placeholder='owner/endpoint-slug'
+            value={path}
+            onChange={(e) => {
+              setPath(e.target.value);
+            }}
+            className='mt-1 font-mono text-sm'
+          />
+          <p className='text-muted-foreground mt-1 text-xs'>
+            Enter the public path of a data-source endpoint, e.g. <code>alice/genome-data</code>.
+            The endpoint owner receives an email and decides whether to accept.
+          </p>
+        </div>
+
+        <InvitePreview
+          path={debouncedPath}
+          parsed={parsed}
+          endpoint={endpoint ?? null}
+          isResolving={isResolving}
+          ineligibleType={ineligibleType}
+        />
+
+        {inviteMutation.isError && (
+          <p className='text-destructive text-sm'>
+            {inviteMutation.error instanceof Error
+              ? inviteMutation.error.message
+              : 'Failed to send invitation'}
+          </p>
+        )}
+
+        <div className='flex justify-end gap-2 pt-2'>
+          <Button variant='outline' onClick={onClose}>
+            Cancel
+          </Button>
+          <Button disabled={!canSubmit} onClick={handleSubmit}>
+            <Mail className='mr-2 h-4 w-4' />
+            {inviteMutation.isPending ? 'Sending...' : 'Send invitation'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/**
+ * Render the resolved-endpoint preview block beneath the path input — empty
+ * state, loading, error, mismatch, or a confirmed match.
+ */
+function InvitePreview({
+  path,
+  parsed,
+  endpoint,
+  isResolving,
+  ineligibleType
+}: Readonly<{
+  path: string;
+  parsed: { owner: string; slug: string } | null;
+  endpoint: ChatSource | null;
+  isResolving: boolean;
+  ineligibleType: boolean;
+}>) {
+  if (!path) {
+    return null;
+  }
+  if (!parsed) {
+    return (
+      <p className='text-destructive text-sm'>
+        Path must look like <code>owner/endpoint-slug</code>.
+      </p>
+    );
+  }
+  if (isResolving) {
+    return <p className='text-muted-foreground text-sm'>Looking up endpoint...</p>;
+  }
+  if (!endpoint) {
+    return (
+      <p className='text-destructive text-sm'>
+        No public endpoint at{' '}
+        <code>
+          {parsed.owner}/{parsed.slug}
+        </code>
+        .
+      </p>
+    );
+  }
+  if (ineligibleType) {
+    return (
+      <Card className='border-destructive/30 bg-destructive/5 p-3 text-sm'>
+        <p className='font-medium'>{endpoint.name}</p>
+        <p className='text-muted-foreground text-xs'>
+          @{endpoint.owner_username} · {endpoint.type}
+        </p>
+        <p className='text-destructive mt-2 text-xs'>
+          Only data-source endpoints can join a collective.
+        </p>
+      </Card>
+    );
+  }
+  return (
+    <Card className='border-primary/30 bg-primary/5 p-3 text-sm'>
+      <p className='font-medium'>{endpoint.name}</p>
+      <p className='text-muted-foreground text-xs'>
+        @{endpoint.owner_username} · {endpoint.type}
+      </p>
+      {endpoint.description && (
+        <p className='text-muted-foreground mt-2 text-xs'>{endpoint.description}</p>
+      )}
+    </Card>
+  );
+}
+
+function parseOwnerSlug(path: string): { owner: string; slug: string } | null {
+  const trimmed = path.trim().replace(/^@/, '').replace(/^\//, '');
+  if (!trimmed) return null;
+  const parts = trimmed.split('/');
+  if (parts.length !== 2) return null;
+  const [owner, slug] = parts;
+  if (!owner || !slug) return null;
+  return { owner, slug };
 }
 
 /** General-settings form + danger zone for the collective. */

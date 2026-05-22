@@ -19,10 +19,15 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/context/auth-context';
-import { useCollectiveBySlug, useCollectiveMembers, useRequestJoin } from '@/hooks/use-collectives';
+import {
+  useCollectiveBySlug,
+  useCollectiveMembers,
+  useRequestJoinMany
+} from '@/hooks/use-collectives';
 import { useMyEndpoints } from '@/hooks/use-endpoint-queries';
 import { isJoinableEndpointType } from '@/lib/collectives-api';
 import { getEndpointTypeLabel } from '@/lib/endpoint-utils';
@@ -443,8 +448,10 @@ function JoinCollectiveModal({
   collectiveName,
   username
 }: Readonly<JoinModalProps>) {
-  const [selectedEndpointId, setSelectedEndpointId] = useState<number | null>(null);
-  const requestJoin = useRequestJoin();
+  const [selectedEndpointIds, setSelectedEndpointIds] = useState<ReadonlySet<number>>(
+    () => new Set()
+  );
+  const requestJoinMany = useRequestJoinMany();
 
   const { data: endpoints, isLoading } = useMyEndpoints(username, isOpen);
 
@@ -455,19 +462,67 @@ function JoinCollectiveModal({
     [endpoints]
   );
 
+  const allSelected =
+    joinableEndpoints.length > 0 && selectedEndpointIds.size === joinableEndpoints.length;
+  const someSelected = selectedEndpointIds.size > 0 && !allSelected;
+  let selectAllChecked: boolean | 'indeterminate' = false;
+  if (allSelected) {
+    selectAllChecked = true;
+  } else if (someSelected) {
+    selectAllChecked = 'indeterminate';
+  }
+
+  const toggleEndpoint = (endpointId: number) => {
+    setSelectedEndpointIds((current) => {
+      const next = new Set(current);
+      if (next.has(endpointId)) {
+        next.delete(endpointId);
+      } else {
+        next.add(endpointId);
+      }
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    setSelectedEndpointIds((current) =>
+      current.size === joinableEndpoints.length
+        ? new Set()
+        : new Set(joinableEndpoints.map((endpoint) => endpoint.id))
+    );
+  };
+
   const handleClose = () => {
-    setSelectedEndpointId(null);
-    requestJoin.reset();
+    setSelectedEndpointIds(new Set());
+    requestJoinMany.reset();
     onClose();
   };
 
   const handleSubmit = () => {
-    if (selectedEndpointId == null) return;
-    requestJoin.mutate(
-      { collectiveId, endpointId: selectedEndpointId },
-      { onSuccess: handleClose }
+    if (selectedEndpointIds.size === 0) return;
+    requestJoinMany.mutate(
+      { collectiveId, endpointIds: [...selectedEndpointIds] },
+      {
+        onSuccess: (result) => {
+          // Only close when every request succeeded — otherwise stay open so
+          // the user can see which endpoints failed and retry just those.
+          if (result.failed.length === 0) {
+            handleClose();
+          } else {
+            setSelectedEndpointIds(new Set(result.failed.map((failure) => failure.endpointId)));
+          }
+        }
+      }
     );
   };
+
+  const failureById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const { endpointId, error } of requestJoinMany.data?.failed ?? []) {
+      map.set(endpointId, error.message);
+    }
+    return map;
+  }, [requestJoinMany.data]);
 
   let endpointPicker: ReactNode;
   if (isLoading) {
@@ -478,26 +533,50 @@ function JoinCollectiveModal({
     );
   } else if (joinableEndpoints.length > 0) {
     endpointPicker = (
-      <div className='max-h-64 space-y-2 overflow-y-auto'>
-        {joinableEndpoints.map((endpoint) => (
-          <button
-            key={endpoint.id}
-            type='button'
-            onClick={() => {
-              setSelectedEndpointId(endpoint.id);
-            }}
-            className={`w-full rounded-lg border p-3 text-left transition-colors ${
-              selectedEndpointId === endpoint.id
-                ? 'border-primary bg-primary/5'
-                : 'border-border hover:bg-muted/50'
-            }`}
-          >
-            <p className='text-sm font-medium'>{endpoint.name}</p>
-            <p className='text-muted-foreground text-xs'>
-              @{username}/{endpoint.slug}
-            </p>
-          </button>
-        ))}
+      <div className='space-y-2'>
+        <label className='hover:bg-muted/50 flex cursor-pointer items-center gap-3 rounded-lg border border-dashed px-3 py-2'>
+          <Checkbox
+            checked={selectAllChecked}
+            onCheckedChange={toggleAll}
+            aria-label='Select all data source endpoints'
+          />
+          <span className='text-sm font-medium'>Select all</span>
+          <span className='text-muted-foreground ml-auto text-xs'>
+            {selectedEndpointIds.size} of {joinableEndpoints.length} selected
+          </span>
+        </label>
+        <div className='max-h-64 space-y-2 overflow-y-auto'>
+          {joinableEndpoints.map((endpoint) => {
+            const checked = selectedEndpointIds.has(endpoint.id);
+            const failureMessage = failureById.get(endpoint.id);
+            return (
+              <label
+                key={endpoint.id}
+                className={`flex w-full cursor-pointer items-start gap-3 rounded-lg border p-3 text-left transition-colors ${
+                  checked ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'
+                }`}
+              >
+                <Checkbox
+                  checked={checked}
+                  onCheckedChange={() => {
+                    toggleEndpoint(endpoint.id);
+                  }}
+                  className='mt-0.5'
+                  aria-label={`Submit ${endpoint.name}`}
+                />
+                <div className='min-w-0 flex-1'>
+                  <p className='text-sm font-medium'>{endpoint.name}</p>
+                  <p className='text-muted-foreground truncate text-xs'>
+                    @{username}/{endpoint.slug}
+                  </p>
+                  {failureMessage && (
+                    <p className='text-destructive mt-1 text-xs'>{failureMessage}</p>
+                  )}
+                </div>
+              </label>
+            );
+          })}
+        </div>
       </div>
     );
   } else {
@@ -508,21 +587,39 @@ function JoinCollectiveModal({
     );
   }
 
+  const submitLabel = (() => {
+    if (requestJoinMany.isPending) return 'Submitting...';
+    const count = selectedEndpointIds.size;
+    if (count <= 1) return 'Submit';
+    return `Submit ${count} endpoints`;
+  })();
+
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title={`Join ${collectiveName}`}>
       <div className='space-y-4'>
         <p className='text-muted-foreground text-sm'>
-          Choose one of your data source endpoints to submit to this collective. Model and agent
-          endpoints aren't eligible to join.
+          Choose one or more of your data source endpoints to submit to this collective. Model and
+          agent endpoints aren't eligible to join.
         </p>
 
         {endpointPicker}
 
-        {requestJoin.isError && (
+        {requestJoinMany.isError && (
           <p className='text-destructive text-sm'>
-            {requestJoin.error instanceof Error
-              ? requestJoin.error.message
+            {requestJoinMany.error instanceof Error
+              ? requestJoinMany.error.message
               : 'Failed to submit request'}
+          </p>
+        )}
+        {requestJoinMany.data && requestJoinMany.data.failed.length > 0 && (
+          <p className='text-destructive text-sm'>
+            {requestJoinMany.data.succeeded.length > 0
+              ? `Submitted ${requestJoinMany.data.succeeded.length} endpoint${
+                  requestJoinMany.data.succeeded.length === 1 ? '' : 's'
+                }, but ${requestJoinMany.data.failed.length} failed.`
+              : `Failed to submit ${requestJoinMany.data.failed.length} endpoint${
+                  requestJoinMany.data.failed.length === 1 ? '' : 's'
+                }.`}
           </p>
         )}
 
@@ -532,9 +629,9 @@ function JoinCollectiveModal({
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={selectedEndpointId == null || requestJoin.isPending}
+            disabled={selectedEndpointIds.size === 0 || requestJoinMany.isPending}
           >
-            {requestJoin.isPending ? 'Submitting...' : 'Submit'}
+            {submitLabel}
           </Button>
         </div>
       </div>
