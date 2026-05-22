@@ -134,8 +134,14 @@ func (a *AgentExecutor) run(ctx context.Context, outer *AgentSession) error {
 	// cannot replay it. x402_pay_per_request is per-request, not per-session.
 	initialCredential := outer.PaymentCredential
 	outer.PaymentCredential = ""
-	if outer.InitialPrompt != "" && !a.gateTurn(ctx, outer, outer.InitialPrompt, initialCredential) {
-		return nil // denied/pending — the verdict event was already sent
+	if outer.InitialPrompt != "" {
+		if outcome := a.gateTurn(ctx, outer, outer.InitialPrompt, initialCredential); outcome != turnGateProceed {
+			// Denied or pending — the verdict event was already sent.
+			// We do not reprompt on the initial prompt because the consumer
+			// either restarts the session (payment) or sees the block notice
+			// and is in a terminal state regardless.
+			return nil
+		}
 	}
 
 	// Spawn the raw agent runtime against a private inner session.
@@ -176,16 +182,30 @@ func (a *AgentExecutor) run(ctx context.Context, outer *AgentSession) error {
 	return outcome
 }
 
+// turnGateOutcome captures what happened in a pre-check so relayInbound can
+// decide whether to reprompt the user. A blocked verdict (hard deny) means
+// the user must change their input — reprompt. A payment-required pending
+// verdict means the consumer's chat hook auto-retries with a credential —
+// reprompting would just show a misleading "send a different message"
+// banner mid-flight.
+type turnGateOutcome int
+
+const (
+	turnGateProceed        turnGateOutcome = iota // verdict allowed: handler may run
+	turnGateBlocked                               // hard deny: caller should reprompt
+	turnGatePaymentPending                        // payment_required: caller must NOT reprompt
+	turnGateOtherPending                          // any other pending (e.g. manual_review hold)
+)
+
 // gateTurn pre-checks one user message through the policy chain. It returns
-// true when the turn may proceed; on a denial, a pending verdict, or a runner
-// error it surfaces the appropriate event to the caller and returns false.
+// the outcome so the caller can decide how to proceed.
 //
 // credential is the wire-format mppx payment credential for THIS turn (empty
 // for unpaid turns). Carried as a parameter rather than read from the session
 // so each turn can present a distinct credential — pay-per-request, not
 // pay-per-session. Threaded into checkPre's ExecutorInput so the mppx gate
 // can verify it before the Python policy runs.
-func (a *AgentExecutor) gateTurn(ctx context.Context, outer *AgentSession, userText, credential string) bool {
+func (a *AgentExecutor) gateTurn(ctx context.Context, outer *AgentSession, userText, credential string) turnGateOutcome {
 	verdict, err := a.checkPre(ctx, outer, userText, credential)
 	if err != nil {
 		// Fail closed and tell the user — a broken policy check must not
@@ -196,9 +216,21 @@ func (a *AgentExecutor) gateTurn(ctx context.Context, outer *AgentSession, userT
 			Phase:  PolicyPhasePre,
 			Reason: "the policy check could not be completed — check the endpoint's policy configuration",
 		})
-		return false
+		return turnGateBlocked
 	}
-	return a.applyVerdict(outer, verdict)
+	if a.applyVerdict(outer, verdict) {
+		return turnGateProceed
+	}
+	if verdict != nil && verdict.Pending {
+		if _, hasSpec := verdict.Metadata["x402_challenge_spec"]; hasSpec {
+			return turnGatePaymentPending
+		}
+		if _, hasChallenge := PaymentChallengeFromMetadata(verdict.Metadata); hasChallenge {
+			return turnGatePaymentPending
+		}
+		return turnGateOtherPending
+	}
+	return turnGateBlocked
 }
 
 // watchCancel propagates an outer cancellation to the inner session as a
@@ -229,7 +261,17 @@ func (a *AgentExecutor) relayInbound(
 			continue
 		}
 
-		if !a.gateTurn(ctx, outer, msg.Content, msg.PaymentCredential) {
+		switch a.gateTurn(ctx, outer, msg.Content, msg.PaymentCredential) {
+		case turnGateProceed:
+			// fall through to deliverInbound below
+		case turnGatePaymentPending:
+			// The consumer's chat hook auto-handles payment_required: it
+			// signs a credential and resends the SAME content via
+			// SendMessageWithCredential. Reprompting here would surface a
+			// misleading "please send a different message" mid-flight,
+			// suppress the thinking indicator, and confuse the user.
+			continue
+		case turnGateBlocked, turnGateOtherPending:
 			a.reprompt(outer)
 			continue
 		}

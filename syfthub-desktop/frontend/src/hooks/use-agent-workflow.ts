@@ -128,6 +128,15 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
   // a credential and restarts the session with it attached.
   const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(null);
 
+  // suppressNextTerminalRef hides the session.{completed,cancelled,failed}
+  // event that the producer emits immediately after agent.payment_required.
+  // From the user's perspective, the payment-and-retry handshake is a single
+  // logical turn — they shouldn't see a "Session completed" notice between
+  // their message and the agent's reply. The flag is set when we receive a
+  // payment_required and consumed by the next terminal event; if the user
+  // cancels payment, the cancel path emits its own terminal entry instead.
+  const suppressNextTerminalRef = useRef(false);
+
   // Dedupe RecordSentReview calls by review_id so StrictMode double-invokes or
   // any event replay never write the same hold twice.
   const recordedReviewIdsRef = useRef<Set<string>>(new Set());
@@ -222,6 +231,21 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
       if (sessionIdRef.current && event.sessionId !== sessionIdRef.current) return;
 
       const data = event.data ?? {};
+
+      // Clear the post-payment terminal suppression once the retry has
+      // visibly settled — a new session lifecycle starts, or the producer
+      // begins emitting reply tokens/messages — so a later legitimate
+      // terminal still surfaces in the transcript. Done up front because
+      // any non-terminal event is enough evidence the retry is past.
+      if (
+        suppressNextTerminalRef.current &&
+        event.type !== 'session.completed' &&
+        event.type !== 'session.cancelled' &&
+        event.type !== 'session.failed' &&
+        event.type !== 'agent.payment_required'
+      ) {
+        suppressNextTerminalRef.current = false;
+      }
 
       switch (event.type) {
         case 'session.started':
@@ -363,10 +387,13 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
 
         case 'agent.payment_required': {
           // x402_pay_per_request policy held the turn until the caller settles
-          // a charge. The producer cancels its session immediately after this
-          // event (see [AGENT] Session ended logs), so the "retry" path is
-          // really "start a fresh session with the signed credential
-          // attached" — that's what StartAgentSessionWithCredential does.
+          // a charge. For the FIRST turn the producer cancels its session
+          // immediately after this event; for subsequent turns the session
+          // stays alive (relayInbound's payment-pending branch no longer
+          // reprompts). Either way the next session terminal — if one
+          // arrives — is plumbing the user shouldn't see, so arm the
+          // suppression flag now.
+          suppressNextTerminalRef.current = true;
           resetStreaming();
           // The wire shape is the typed agenttypes.AgentPaymentRequiredEvent
           // (amount / currency / recipient / challenge_id at top level).
@@ -526,19 +553,33 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
           break;
 
         case 'session.completed':
-          finalizeSession('completed', 'Session completed');
-          break;
-
         case 'session.cancelled':
-          // Backend rewrites a user-initiated stop's misleading subprocess
-          // "signal: killed" failure into this event so the UI treats it as
-          // a graceful termination rather than an error.
-          finalizeSession('cancelled', 'Session stopped');
+        case 'session.failed': {
+          // A terminal event arriving in the suppression window is the
+          // producer closing the dead session that's about to be replaced
+          // by a paid restart. Hide the entry, keep isRunning so the
+          // thinking indicator stays visible, clear sessionIdRef so the
+          // new session's events aren't filtered out by sessionId mismatch.
+          if (suppressNextTerminalRef.current) {
+            suppressNextTerminalRef.current = false;
+            sessionIdRef.current = null;
+            // Flush any buffered tokens before the new session starts so
+            // the next stream begins from a clean accumulator.
+            resetStreaming();
+            break;
+          }
+          if (event.type === 'session.cancelled') {
+            // Backend rewrites a user-initiated stop's misleading subprocess
+            // "signal: killed" failure into this event so the UI treats it as
+            // a graceful termination rather than an error.
+            finalizeSession('cancelled', 'Session stopped');
+          } else if (event.type === 'session.failed') {
+            finalizeSession('error', String(data.error ?? 'Session failed'));
+          } else {
+            finalizeSession('completed', 'Session completed');
+          }
           break;
-
-        case 'session.failed':
-          finalizeSession('error', String(data.error ?? 'Session failed'));
-          break;
+        }
       }
     });
 
