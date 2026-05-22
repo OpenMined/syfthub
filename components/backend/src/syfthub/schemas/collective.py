@@ -227,6 +227,18 @@ class CollectiveMemberRequest(BaseModel):
     endpoint_id: int = Field(..., description="ID of the endpoint")
 
 
+class CollectiveInviteByPathRequest(BaseModel):
+    """Request body for inviting an endpoint identified by ``owner/slug``.
+
+    Used by the admin UI's invite modal, which lookups endpoints by their
+    public path rather than the numeric id (the public endpoint API does not
+    expose the id field).
+    """
+
+    owner_username: str = Field(..., description="Username of the endpoint owner")
+    slug: str = Field(..., description="URL-safe identifier of the endpoint")
+
+
 class CollectiveReviewRequest(BaseModel):
     """Request body for a collective owner reviewing a pending join request."""
 
