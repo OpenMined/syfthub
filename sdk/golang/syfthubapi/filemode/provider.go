@@ -69,6 +69,14 @@ type Provider struct {
 	routingRecorderFactory manualreview.RoutingRecorderFactory
 	routingRecorders       map[string]manualreview.RoutingRecorder
 
+	// mppxGate, when non-nil, is wired into every agent endpoint's
+	// AgentExecutor (and every model/data_source SubprocessExecutor that
+	// participates in x402) at SetHandler time so pending policy results
+	// carrying an x402_challenge_spec are materialised into canonical mppx
+	// payment challenges before they reach the caller. Set by the embedder
+	// (desktop) which holds the wallet / secret store. nil disables x402.
+	mppxGate syfthubapi.MppxGate
+
 	mu sync.RWMutex
 
 	onReload   func([]*syfthubapi.Endpoint)
@@ -101,6 +109,25 @@ type ProviderConfig struct {
 	// the executor still surfaces notices but resolutions can only be
 	// reconciled via the caller-side "mark manually" path.
 	RoutingRecorderFactory manualreview.RoutingRecorderFactory
+
+	// MppxGate, when non-nil, is propagated into the EndpointHandlerConfig
+	// of every agent endpoint built by this provider so the AgentExecutor
+	// can materialise x402_challenge_spec metadata into a real mppx
+	// challenge. Set by the embedder (desktop). nil disables x402.
+	MppxGate syfthubapi.MppxGate
+}
+
+// SetMppxGate updates the gate used when building (or rebuilding) endpoint
+// handlers. Existing endpoints already constructed without a gate are NOT
+// retroactively re-wired here; callers that have already lost the chance to
+// inject at construction time should reload affected endpoints (e.g. via the
+// file watcher's reload path) so the new gate flows through.
+//
+// Safe to call before or after LoadEndpoints from any goroutine.
+func (p *Provider) SetMppxGate(gate syfthubapi.MppxGate) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.mppxGate = gate
 }
 
 // NewProvider creates a new file-based endpoint provider.
@@ -164,6 +191,7 @@ func NewProvider(cfg *ProviderConfig) (*Provider, error) {
 		noopHandlerPaths:       make(map[string]string),
 		routingRecorderFactory: cfg.RoutingRecorderFactory,
 		routingRecorders:       make(map[string]manualreview.RoutingRecorder),
+		mppxGate:               cfg.MppxGate,
 		onReload:               cfg.OnReload,
 		onProgress:             cfg.OnProgress,
 		stopCh:                 make(chan struct{}),
@@ -566,7 +594,7 @@ func (p *Provider) createEndpoint(loaded *LoadedEndpoint) (*syfthubapi.Endpoint,
 	}
 
 	// Build handler config based on endpoint type
-	handlerCfg := syfthubapi.EndpointHandlerConfig{Logger: p.logger}
+	handlerCfg := syfthubapi.EndpointHandlerConfig{Logger: p.logger, MppxGate: p.mppxGate}
 
 	if loaded.Config.Type == string(syfthubapi.EndpointTypeAgent) {
 		// Agent endpoints use a long-lived subprocess bridge
@@ -1091,7 +1119,7 @@ func (p *Provider) buildContainerEndpoint(ctx context.Context, loaded *LoadedEnd
 	// SubprocessExecutor (same mechanism as file mode). policy_manager is not
 	// installed inside the container image; it runs in the endpoint's host-side
 	// venv so the gate executes before the container session is ever started.
-	handlerCfg := syfthubapi.EndpointHandlerConfig{Logger: p.logger}
+	handlerCfg := syfthubapi.EndpointHandlerConfig{Logger: p.logger, MppxGate: p.mppxGate}
 	if loaded.Config.Type == string(syfthubapi.EndpointTypeAgent) {
 		handlerCfg.AgentHandler = containermode.NewContainerAgentHandler(executor, p.logger)
 		if len(loaded.PolicyConfigs) > 0 {

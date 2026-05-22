@@ -259,7 +259,10 @@ func (a *App) Setup(ctx context.Context) error {
 		a.logger.Info("using system Python")
 	}
 
-	// Create file provider
+	// Create file provider — passing the mppx gate up front so every agent
+	// endpoint built during LoadEndpoints() picks it up at construction time.
+	// Endpoints built without a gate cannot be retro-wired (the executor is
+	// captured inside a closure), so this is the only place we get to inject.
 	provider, err := filemode.NewProvider(&filemode.ProviderConfig{
 		BasePath:               a.config.EndpointsPath,
 		PythonPath:             a.config.PythonPath,
@@ -270,6 +273,7 @@ func (a *App) Setup(ctx context.Context) error {
 		OnReload:               a.handleReload,
 		OnProgress:             a.onLoadProgress,
 		RoutingRecorderFactory: a.config.RoutingRecorderFactory,
+		MppxGate:               a.config.MppxGate,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create file provider: %w", err)

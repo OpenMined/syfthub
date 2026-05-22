@@ -145,6 +145,15 @@ type ContainerRuntimeSetter interface {
 	SetContainerRuntime(rt ContainerRuntime, cfg *ContainerConfig, instanceID string)
 }
 
+// MppxGateSetter is implemented by file providers that build endpoint handlers
+// with x402 mppx gate wiring. Used by SyftAPI.SetMppxGate to push a gate into
+// the provider after construction so newly-built or reloaded endpoints pick it
+// up. Already-built endpoints must be reloaded through the file provider's
+// normal reload path to inherit a freshly-installed gate.
+type MppxGateSetter interface {
+	SetMppxGate(gate MppxGate)
+}
+
 // ContainerRuntimeFactory creates a ContainerRuntime from the given binary path and logger.
 type ContainerRuntimeFactory func(binary string, logger *slog.Logger) (ContainerRuntime, error)
 
@@ -559,6 +568,13 @@ func (api *SyftAPI) SetMppxGate(gate MppxGate) {
 	defer api.mu.Unlock()
 	if api.processor != nil {
 		api.processor.SetMppxGate(gate)
+	}
+	// Propagate to the file provider so any subsequently-built or reloaded
+	// endpoint gets the gate at construction time. Endpoints already built
+	// before this call still need a reload to pick it up — wire the gate
+	// BEFORE LoadEndpoints to avoid that gap.
+	if setter, ok := api.fileProvider.(MppxGateSetter); ok {
+		setter.SetMppxGate(gate)
 	}
 }
 
