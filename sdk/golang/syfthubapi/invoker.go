@@ -53,7 +53,7 @@ func executeViaExecutor(ctx context.Context, exec Executor, input *ExecutorInput
 }
 
 // buildExecutorInput creates an ExecutorInput with the given type and populates
-// context and transaction token from the RequestContext.
+// context and payment credential from the RequestContext.
 func buildExecutorInput(inputType string, slug string, endpointType EndpointType, reqCtx *RequestContext) *ExecutorInput {
 	input := &ExecutorInput{Type: inputType}
 	if reqCtx != nil {
@@ -67,7 +67,6 @@ func buildExecutorInput(inputType string, slug string, endpointType EndpointType
 			EndpointType: string(endpointType),
 			Metadata:     reqCtx.Metadata,
 		}
-		input.TransactionToken = reqCtx.TransactionToken
 		input.PaymentCredential = reqCtx.PaymentCredential
 	}
 	return input

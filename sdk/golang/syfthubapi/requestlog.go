@@ -38,9 +38,9 @@ type RequestLog struct {
 	// Policy contains policy evaluation results (if policies were applied).
 	Policy *LogPolicy `json:"policy,omitempty"`
 
-	// Payment contains payment information when a TransactionPolicy required
-	// (and possibly verified) an on-chain payment for this request. Nil when
-	// the endpoint had no payment policy attached.
+	// Payment contains payment information when an X402PayPerRequestPolicy
+	// required (and possibly verified) an on-chain payment for this request.
+	// Nil when the endpoint had no payment policy attached.
 	Payment *PaymentLog `json:"payment,omitempty"`
 
 	// Timing contains timing information.
@@ -68,8 +68,8 @@ const (
 )
 
 // PaymentLog captures on-chain payment metadata for a request that flowed
-// through a TransactionPolicy. It records both the issued challenge and, if
-// the caller settled it, the resulting on-chain transaction.
+// through an X402PayPerRequestPolicy. It records both the issued challenge
+// and, if the caller settled it, the resulting on-chain transaction.
 type PaymentLog struct {
 	// ChallengeID is the unique identifier for the payment challenge issued
 	// to the caller (mirrors the `id` field of the WWW-Authenticate-style header).
