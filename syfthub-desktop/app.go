@@ -736,7 +736,20 @@ func (a *App) SaveSettingsData(syfthubURL, apiToken, endpointsPath string) error
 	}
 	a.config.RoutingRecorderFactory = a.newRoutingRecorderFactory()
 	a.config.MppxGate = a.newMppxGate()
+	// Push the fresh gate into the already-running SyftAPI. Without this,
+	// settings saved AFTER Start was called would only update a.config but
+	// the live api keeps its boot-time (often nil) gate, so x402 policies
+	// surface a generic "pending" notice instead of an actionable payment
+	// challenge until the app is restarted.
+	core := a.core
+	gate := a.config.MppxGate
 	a.mu.Unlock()
+	if core != nil && gate != nil {
+		if api := core.API(); api != nil {
+			api.SetMppxGate(gate)
+			runtime.LogInfo(a.ctx, "[mppx] gate re-wired after settings save")
+		}
+	}
 
 	runtime.LogInfo(a.ctx, "Settings saved successfully")
 	runtime.LogInfo(a.ctx, fmt.Sprintf("SyftHub URL: %s", syfthubURL))
@@ -1252,6 +1265,20 @@ func (a *App) dispatchSDKEvent(event syfthub.ChatEvent, request ChatRequest) {
 		evt = ChatStreamEvent{Type: "done", Response: e.Response, Sources: sources}
 	case *syfthub.ErrorEvent:
 		evt = ChatStreamEvent{Type: "error", Message: e.Error}
+	case *syfthub.PaymentRequiredEvent:
+		// The non-agent chat surface (model/data_source endpoints) currently
+		// has no UI consumer mounted — ChatWorkflowProvider wires the agent
+		// workflow only, and the runtime use-chat-workflow hook is unused.
+		// Surfacing payment_required here would silently hang the stream
+		// because no listener can resolve it into a credential. Emit a
+		// clear error instead so the user knows the request needs payment
+		// and isn't just stuck. When the non-agent payment flow is wired
+		// up, replace this with the modal-driven retry like the agent path.
+		runtime.LogWarning(a.ctx, fmt.Sprintf("[chat] non-agent payment_required swallowed: no UI consumer; endpoint=%s challenge_id=%s", e.EndpointSlug, e.ChallengeID))
+		evt = ChatStreamEvent{
+			Type:    "error",
+			Message: fmt.Sprintf("Endpoint %s requires payment, but this chat surface does not yet support pay-per-request. Use an agent endpoint or upgrade the desktop app.", e.EndpointSlug),
+		}
 	default:
 		return
 	}

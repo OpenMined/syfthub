@@ -98,6 +98,11 @@ export function X402PolicyForm({ endpointSlug, onCreated, onCancel }: X402Policy
   const [price, setPrice] = useState('0.01');
   const [currencyChoice, setCurrencyChoice] = useState<CurrencyChoice['id']>('pathusd');
   const [customCurrency, setCustomCurrency] = useState('');
+  // ERC-20 contracts vary (USDC=6, DAI=18, …). Default to 18 for custom
+  // tokens since that is the ERC-20 reference value; producer must
+  // override to match the contract or the on-chain amount will be
+  // off by orders of magnitude.
+  const [customDecimals, setCustomDecimals] = useState<number>(18);
   const [chainId, setChainId] = useState<number>(TEMPO_TESTNET_CHAIN_ID);
   const [realm, setRealm] = useState('');
   const [realmTouched, setRealmTouched] = useState(false);
@@ -173,7 +178,9 @@ export function X402PolicyForm({ endpointSlug, onCreated, onCancel }: X402Policy
     return customCurrency.trim();
   }, [currencyChoice, customCurrency]);
 
-  const effectiveDecimals = currencyChoice === 'pathusd' ? PATH_USD_DECIMALS : PATH_USD_DECIMALS;
+  const effectiveDecimals = currencyChoice === 'pathusd' ? PATH_USD_DECIMALS : customDecimals;
+  const customDecimalsValid =
+    Number.isInteger(customDecimals) && customDecimals >= 0 && customDecimals <= 36;
 
   // Validation aggregated into one place so the Save button reflects it.
   const nameValid = isSlug(name.trim());
@@ -181,7 +188,7 @@ export function X402PolicyForm({ endpointSlug, onCreated, onCancel }: X402Policy
   const currencyValid =
     currencyChoice === 'pathusd'
       ? true
-      : /^0x[a-fA-F0-9]{40}$/.test(effectiveCurrency);
+      : /^0x[a-fA-F0-9]{40}$/.test(effectiveCurrency) && customDecimalsValid;
   const ttlValid =
     Number.isInteger(ttlSeconds) &&
     ttlSeconds >= MIN_TTL_SECONDS &&
@@ -322,14 +329,34 @@ export function X402PolicyForm({ endpointSlug, onCreated, onCancel }: X402Policy
           </SelectContent>
         </Select>
         {currencyChoice === 'custom' && (
-          <Input
-            value={customCurrency}
-            onChange={(e) => setCustomCurrency(e.target.value)}
-            placeholder="0x… ERC-20 contract address"
-            className="h-9 font-mono"
-          />
+          <>
+            <Input
+              value={customCurrency}
+              onChange={(e) => setCustomCurrency(e.target.value)}
+              placeholder="0x… ERC-20 contract address"
+              className="h-9 font-mono"
+            />
+            <div className="space-y-1.5">
+              <label className="text-xs text-muted-foreground">
+                Token decimals (must match the ERC-20 contract)
+              </label>
+              <Input
+                value={String(customDecimals)}
+                onChange={(e) => setCustomDecimals(Number(e.target.value))}
+                type="number"
+                min={0}
+                max={36}
+                className="h-9 font-mono"
+              />
+              {!customDecimalsValid && (
+                <p className="text-xs text-destructive">
+                  Must be an integer between 0 and 36 (e.g. 6 for USDC, 18 for DAI).
+                </p>
+              )}
+            </div>
+          </>
         )}
-        {currencyChoice === 'custom' && customCurrency && !currencyValid && (
+        {currencyChoice === 'custom' && customCurrency && !/^0x[a-fA-F0-9]{40}$/.test(effectiveCurrency) && (
           <p className="text-xs text-destructive">Enter a valid 0x-prefixed 40-hex address.</p>
         )}
       </div>

@@ -408,6 +408,12 @@ export function useChatWorkflow({
         }
         await StreamChat(request);
       } catch (err) {
+        // Clear the cached request so a delayed/duplicate payment_required
+        // event cannot silently replay this prompt against a fresh
+        // credential — the user did not re-issue the request after the
+        // error, so any later retry would charge the wallet without
+        // explicit consent.
+        lastRequestRef.current = null;
         const id = streamingIdRef.current;
         if (id) {
           setMessages((prev) =>
@@ -457,7 +463,11 @@ export function useChatWorkflow({
 
       const signAndRetry = async () => {
         try {
-          const credential = await WalletPayChallenge(fields.challengeWire);
+          const credential = await WalletPayChallenge(
+            fields.challengeWire,
+            fields.amount,
+            fields.currency,
+          );
           await retryRequestWithCredential(credential, fields.challengeId);
         } catch (err) {
           dispatch({ type: 'ERROR', error: `Payment failed: ${String(err)}` });
@@ -514,6 +524,10 @@ export function useChatWorkflow({
         },
         onCancel: () => {
           setPendingPayment(null);
+          // Drop the cached request so a duplicate or delayed
+          // payment_required event delivered after cancel cannot silently
+          // resubmit a paid request the user explicitly declined.
+          lastRequestRef.current = null;
           // The producer is still holding the request open; cancel cleanly
           // so the spinner stops and the user can retry later.
           void StopChat().catch(() => {});

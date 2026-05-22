@@ -448,6 +448,8 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
             } catch (sendErr) {
               const msg = String(sendErr);
               if (!/no active/i.test(msg)) {
+                // Retry path is dead — let future terminals through.
+                suppressNextTerminalRef.current = false;
                 setEntries(prev => [...prev, {
                   id: makeId(),
                   kind: 'error',
@@ -463,6 +465,8 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
                 );
                 sessionIdRef.current = sessionId;
               } catch (startErr) {
+                // New session never came up — disarm suppression.
+                suppressNextTerminalRef.current = false;
                 setEntries(prev => [...prev, {
                   id: makeId(),
                   kind: 'error',
@@ -476,9 +480,13 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
 
           const signAndRetry = async () => {
             try {
-              const credential = await WalletPayChallenge(challengeWire);
+              const credential = await WalletPayChallenge(challengeWire, amount, currency);
               await signAndRestart(credential);
             } catch (err) {
+              // Disarm the suppression — there is no retry coming, so the
+              // next terminal event (timeout, producer-side cancel, etc.)
+              // must be visible to the user rather than swallowed.
+              suppressNextTerminalRef.current = false;
               setEntries(prev => [...prev, {
                 id: makeId(),
                 kind: 'error',
@@ -520,6 +528,18 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
               },
               onCancel: () => {
                 setPendingPayment(null);
+                // The user explicitly bailed out — disarm the terminal
+                // suppression so any LATER terminal (session timeout,
+                // delayed producer cancel) is visible. Without this, the
+                // first such terminal is swallowed and the chat can be
+                // left in a stuck thinking state with no recovery.
+                suppressNextTerminalRef.current = false;
+                // Drop the cached prompt so a duplicate or delayed
+                // payment_required event cannot silently re-enter the
+                // signAndRetry path against a credential the user just
+                // declined to issue. The handler's `!prompt` guard then
+                // bails any straggling event out cleanly.
+                lastUserPromptRef.current = '';
                 setEntries(prev => [...prev, {
                   id: makeId(),
                   kind: 'cancelled',

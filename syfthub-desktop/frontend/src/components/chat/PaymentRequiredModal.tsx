@@ -95,6 +95,19 @@ export function PaymentRequiredModal({
   const [softCap, setSoftCap] = useState<string>(seedSoftCap);
   const [hardCap, setHardCap] = useState<string>(seedHardCap);
 
+  // Reseed cap values every time the modal opens so a re-open for a
+  // different endpoint/amount does not show stale values from the previous
+  // invocation. useState only honours its initial value on first mount,
+  // hence the explicit setSoftCap/setHardCap here.
+  useEffect(() => {
+    if (!open) return;
+    setSoftCap(seedSoftCap);
+    setHardCap(seedHardCap);
+    // seedSoftCap/seedHardCap are derived from `amount` only — including
+    // them in the dep list would not change behaviour because `amount`
+    // already triggers re-renders, but eslint-react-hooks needs them.
+  }, [open, seedSoftCap, seedHardCap]);
+
   // Check wallet state on open. WalletShow does NOT generate a key — the
   // user must explicitly opt in via WalletInit. If KeyExists is false we
   // render the init CTA instead of the pay button.
@@ -158,6 +171,16 @@ export function PaymentRequiredModal({
         //    paying so the cap reflects the user's intent regardless of
         //    whether the sign succeeds.
         if (mode === 'with_cap') {
+          // Client-side guard so the user gets immediate feedback before
+          // the Wails round-trip — the Go side also rejects soft > hard
+          // (payment_caps.go SetPaymentCap), but surfacing it here keeps
+          // the UX responsive when the user types an obviously inverted
+          // pair.
+          const softVal = Number(softCap.trim() || DEFAULT_SOFT_CAP);
+          const hardVal = Number(hardCap.trim() || DEFAULT_HARD_CAP);
+          if (Number.isFinite(softVal) && Number.isFinite(hardVal) && softVal > hardVal) {
+            throw new Error('Soft cap must be <= hard cap.');
+          }
           await SetPaymentCap(
             main.PaymentCap.createFrom({
               endpoint_slug: endpointSlug,
@@ -169,7 +192,11 @@ export function PaymentRequiredModal({
           );
         }
         // 2. Sign the challenge — produces a serialized mppx credential.
-        const credential = await WalletPayChallenge(challengeWire);
+        //    Pass the display amount + currency we showed the user so the
+        //    ledger records the human-readable value, not the token's base
+        //    units (otherwise an 18-decimal token like DAI gets recorded as
+        //    10^12× the real amount; see wallet_operations.go).
+        const credential = await WalletPayChallenge(challengeWire, amount, currency);
         // 3. Hand the credential to the caller so it can resubmit the
         //    original request. await so any caller error surfaces inline.
         await onPaid(credential);
