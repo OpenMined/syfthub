@@ -50,6 +50,8 @@ export function DownloadActiveSessionAttachment(arg1:string,arg2:string):Promise
 
 export function DownloadUpdate():Promise<void>;
 
+export function EvaluatePaymentDecision(arg1:string,arg2:string,arg3:string):Promise<main.PaymentDecision>;
+
 export function GetAggregatorURL():Promise<string>;
 
 export function GetConfig():Promise<main.ConfigInfo>;
@@ -78,7 +80,11 @@ export function GetLogs(arg1:string,arg2:number,arg3:number,arg4:string):Promise
 
 export function GetManualReviews(arg1:string,arg2:string):Promise<Array<main.ManualReviewEntry>>;
 
+export function GetPaymentCaps():Promise<main.PaymentCapsConfig>;
+
 export function GetPolicyFileYaml(arg1:string,arg2:string):Promise<string>;
+
+export function GetPolicyReceipts(arg1:string,arg2:string,arg3:main.X402ReceiptFilter):Promise<main.X402ReceiptPage>;
 
 export function GetReadme(arg1:string):Promise<string>;
 
@@ -126,6 +132,8 @@ export function OpenReleaseNotes(arg1:string):Promise<void>;
 
 export function ReadSkill(arg1:string,arg2:string):Promise<string>;
 
+export function RecordPayment(arg1:main.PaymentRecord):Promise<void>;
+
 export function RecordSentReview(arg1:main.SentReviewInput):Promise<void>;
 
 export function RejectManualReview(arg1:string,arg2:string,arg3:string):Promise<void>;
@@ -135,6 +143,8 @@ export function ReloadEndpoints():Promise<void>;
 export function RemoveSkill(arg1:string,arg2:string):Promise<void>;
 
 export function RenameEndpoint(arg1:string,arg2:string):Promise<string>;
+
+export function ResetPaymentCap(arg1:string):Promise<void>;
 
 export function RespondToSetupConfirm(arg1:boolean):Promise<void>;
 
@@ -164,6 +174,8 @@ export function SetContainerEnabled(arg1:boolean):Promise<void>;
 
 export function SetEnvironment(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function SetPaymentCap(arg1:main.PaymentCap):Promise<void>;
+
 export function SetSentReviewNote(arg1:string,arg2:string):Promise<void>;
 
 export function SetSentReviewStatus(arg1:string,arg2:string,arg3:string):Promise<void>;
@@ -184,4 +196,18 @@ export function StreamChat(arg1:main.ChatRequest):Promise<void>;
 
 export function ToggleEndpointEnabled(arg1:string):Promise<boolean>;
 
+export function TransactionHistory(arg1:main.TransactionFilter):Promise<main.TransactionPage>;
+
+export function TransactionHistoryExportCSV(arg1:main.TransactionFilter):Promise<string>;
+
 export function UpdateEndpointOverview(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
+
+export function UpdateSettlement(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number):Promise<void>;
+
+export function WalletBalance():Promise<main.WalletBalance>;
+
+export function WalletInit():Promise<main.WalletInfo>;
+
+export function WalletPayChallenge(arg1:string):Promise<string>;
+
+export function WalletShow():Promise<main.WalletInfo>;

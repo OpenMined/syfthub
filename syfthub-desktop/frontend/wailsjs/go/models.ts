@@ -756,11 +756,40 @@ export namespace main {
 	        this.updatedAt = source["updatedAt"];
 	    }
 	}
+	export class X402PolicyConfig {
+	    price?: string;
+	    currency?: string;
+	    decimals?: number;
+	    chainId?: number;
+	    realm?: string;
+	    hmacSecretKid?: string;
+	    challengeTtlSeconds?: number;
+	    maxPendingSettlementsPerPayer?: number;
+	    allowListedPayers?: string[];
+
+	    static createFrom(source: any = {}) {
+	        return new X402PolicyConfig(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.price = source["price"];
+	        this.currency = source["currency"];
+	        this.decimals = source["decimals"];
+	        this.chainId = source["chainId"];
+	        this.realm = source["realm"];
+	        this.hmacSecretKid = source["hmacSecretKid"];
+	        this.challengeTtlSeconds = source["challengeTtlSeconds"];
+	        this.maxPendingSettlementsPerPayer = source["maxPendingSettlementsPerPayer"];
+	        this.allowListedPayers = source["allowListedPayers"];
+	    }
+	}
 	export class NewPolicyRequest {
 	    name: string;
 	    type: string;
 	    childPolicies: string[];
 	    denyReason: string;
+	    x402?: X402PolicyConfig;
 
 	    static createFrom(source: any = {}) {
 	        return new NewPolicyRequest(source);
@@ -772,9 +801,170 @@ export namespace main {
 	        this.type = source["type"];
 	        this.childPolicies = source["childPolicies"];
 	        this.denyReason = source["denyReason"];
+	        this.x402 = this.convertValues(source["x402"], X402PolicyConfig);
 	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
+	export class PaymentCap {
+	    endpoint_slug: string;
+	    soft_cap: string;
+	    hard_cap: string;
+	    currency: string;
+	    updated_at: number;
+
+	    static createFrom(source: any = {}) {
+	        return new PaymentCap(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.endpoint_slug = source["endpoint_slug"];
+	        this.soft_cap = source["soft_cap"];
+	        this.hard_cap = source["hard_cap"];
+	        this.currency = source["currency"];
+	        this.updated_at = source["updated_at"];
+	    }
+	}
+	export class PaymentCapsConfig {
+	    defaults: PaymentCap;
+	    per_endpoint: Record<string, PaymentCap>;
+
+	    static createFrom(source: any = {}) {
+	        return new PaymentCapsConfig(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.defaults = this.convertValues(source["defaults"], PaymentCap);
+	        this.per_endpoint = this.convertValues(source["per_endpoint"], PaymentCap, true);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PaymentDecision {
+	    action: string;
+	    effective_cap: PaymentCap;
+	    reason?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new PaymentDecision(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.action = source["action"];
+	        this.effective_cap = this.convertValues(source["effective_cap"], PaymentCap);
+	        this.reason = source["reason"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PaymentRecord {
+	    id: string;
+	    timestamp_unix: number;
+	    endpoint_owner: string;
+	    endpoint_slug: string;
+	    endpoint_label?: string;
+	    amount: string;
+	    currency: string;
+	    chain_id: number;
+	    challenge_id: string;
+	    credential_hex: string;
+	    tx_hash?: string;
+	    status: string;
+	    failure_reason?: string;
+	    request_summary?: string;
+	    settled_unix?: number;
+
+	    static createFrom(source: any = {}) {
+	        return new PaymentRecord(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.timestamp_unix = source["timestamp_unix"];
+	        this.endpoint_owner = source["endpoint_owner"];
+	        this.endpoint_slug = source["endpoint_slug"];
+	        this.endpoint_label = source["endpoint_label"];
+	        this.amount = source["amount"];
+	        this.currency = source["currency"];
+	        this.chain_id = source["chain_id"];
+	        this.challenge_id = source["challenge_id"];
+	        this.credential_hex = source["credential_hex"];
+	        this.tx_hash = source["tx_hash"];
+	        this.status = source["status"];
+	        this.failure_reason = source["failure_reason"];
+	        this.request_summary = source["request_summary"];
+	        this.settled_unix = source["settled_unix"];
+	    }
+	}
+	export class PaymentTotals {
+	    spent_lifetime: string;
+	    spent_month: string;
+	    spent_session: string;
+
+	    static createFrom(source: any = {}) {
+	        return new PaymentTotals(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.spent_lifetime = source["spent_lifetime"];
+	        this.spent_month = source["spent_month"];
+	        this.spent_session = source["spent_session"];
+	    }
+	}
 
 	export class PolicyFileInfo {
 	    filename: string;
@@ -1007,6 +1197,185 @@ export namespace main {
 	        this.mode = source["mode"];
 	        this.uptime = source["uptime"];
 	    }
+	}
+	export class TransactionFilter {
+	    endpoint_slug?: string;
+	    status?: string;
+	    since_unix?: number;
+	    until_unix?: number;
+	    limit?: number;
+
+	    static createFrom(source: any = {}) {
+	        return new TransactionFilter(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.endpoint_slug = source["endpoint_slug"];
+	        this.status = source["status"];
+	        this.since_unix = source["since_unix"];
+	        this.until_unix = source["until_unix"];
+	        this.limit = source["limit"];
+	    }
+	}
+	export class TransactionPage {
+	    records: PaymentRecord[];
+	    total: number;
+	    totals: PaymentTotals;
+
+	    static createFrom(source: any = {}) {
+	        return new TransactionPage(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.records = this.convertValues(source["records"], PaymentRecord);
+	        this.total = source["total"];
+	        this.totals = this.convertValues(source["totals"], PaymentTotals);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class WalletBalance {
+	    address: string;
+	    amount: string;
+	    currency: string;
+	    decimals: number;
+	    as_of_unix: number;
+
+	    static createFrom(source: any = {}) {
+	        return new WalletBalance(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.address = source["address"];
+	        this.amount = source["amount"];
+	        this.currency = source["currency"];
+	        this.decimals = source["decimals"];
+	        this.as_of_unix = source["as_of_unix"];
+	    }
+	}
+	export class WalletInfo {
+	    address: string;
+	    chain_id: number;
+	    rpc_url: string;
+	    network: string;
+	    key_exists: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new WalletInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.address = source["address"];
+	        this.chain_id = source["chain_id"];
+	        this.rpc_url = source["rpc_url"];
+	        this.network = source["network"];
+	        this.key_exists = source["key_exists"];
+	    }
+	}
+
+	export class X402Receipt {
+	    id: string;
+	    payer: string;
+	    pay_to: string;
+	    amount: string;
+	    currency: string;
+	    chain_id: number;
+	    nonce: number;
+	    challenge_id: string;
+	    status: string;
+	    failure_reason?: string;
+	    tx_hash?: string;
+	    created_at: string;
+	    settled_at?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new X402Receipt(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.payer = source["payer"];
+	        this.pay_to = source["pay_to"];
+	        this.amount = source["amount"];
+	        this.currency = source["currency"];
+	        this.chain_id = source["chain_id"];
+	        this.nonce = source["nonce"];
+	        this.challenge_id = source["challenge_id"];
+	        this.status = source["status"];
+	        this.failure_reason = source["failure_reason"];
+	        this.tx_hash = source["tx_hash"];
+	        this.created_at = source["created_at"];
+	        this.settled_at = source["settled_at"];
+	    }
+	}
+	export class X402ReceiptFilter {
+	    status?: string;
+	    payer?: string;
+	    limit?: number;
+
+	    static createFrom(source: any = {}) {
+	        return new X402ReceiptFilter(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.status = source["status"];
+	        this.payer = source["payer"];
+	        this.limit = source["limit"];
+	    }
+	}
+	export class X402ReceiptPage {
+	    records: X402Receipt[];
+	    total: number;
+
+	    static createFrom(source: any = {}) {
+	        return new X402ReceiptPage(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.records = this.convertValues(source["records"], X402Receipt);
+	        this.total = source["total"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }

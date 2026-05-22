@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 
 import { main } from '../../wailsjs/go/models';
-import { StopChat, StreamChat } from '../../wailsjs/go/main/App';
+import {
+  EvaluatePaymentDecision,
+  StopChat,
+  StreamChat,
+  WalletPayChallenge,
+} from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 
 import type {
@@ -13,6 +18,7 @@ import type {
   WorkflowAction,
   WorkflowState,
 } from '@/lib/chat-types';
+import { PaymentDecisionAction } from '@/hooks/use-payment-caps';
 
 // Re-export types consumed by status-indicator and other chat components
 export type { PipelineStep, ProcessingStatus, SourceProgressInfo } from '@/lib/chat-types';
@@ -256,6 +262,29 @@ export interface UseChatWorkflowOptions {
   selectedSources: EndpointInfo[];
 }
 
+/**
+ * Snapshot of an active payment_required prompt awaiting user action.
+ *
+ * The chat workflow stores this in state when a producer signals payment is
+ * required AND EvaluatePaymentDecision returned "prompt" (i.e. either over
+ * the hard cap, or in an unfamiliar currency). The UI is expected to render
+ * <PaymentRequiredModal> bound to this snapshot. Auto-pay and toast-pay
+ * cases never reach this state — they sign-and-retry transparently.
+ */
+export interface PendingPaymentPrompt {
+  endpointSlug: string;
+  ownerLabel: string;
+  amount: string;
+  currency: string;
+  recipient: string;
+  challengeWire: string;
+  challengeId?: string;
+  /** Bound callback that the modal invokes with the signed credential. */
+  onPaid: (credential: string) => Promise<void>;
+  /** Bound callback invoked when the user dismisses without paying. */
+  onCancel: () => void;
+}
+
 export interface UseChatWorkflowReturn {
   messages: ChatMessage[];
   workflowState: WorkflowState;
@@ -263,6 +292,72 @@ export interface UseChatWorkflowReturn {
   stopStream: () => Promise<void>;
   clearMessages: () => void;
   isStreaming: boolean;
+  /** Non-null when a payment_required modal should be displayed. */
+  pendingPayment: PendingPaymentPrompt | null;
+  /** Dismiss the pending payment prompt without paying. */
+  dismissPaymentPrompt: () => void;
+}
+
+/**
+ * Wire-format payload of a `payment_required` chat-stream event.
+ *
+ * Not yet part of the generated `ChatStreamEvent` discriminated union (added
+ * to chat-types.ts by a separate unit), so we narrow at the event-handler
+ * level with a lightweight runtime predicate.
+ */
+interface PaymentRequiredStreamEvent {
+  type: 'payment_required';
+  /** "owner/slug" pair the producer is requesting payment for. */
+  endpointSlug?: string;
+  /** Wire-format payment_challenge from the producer. */
+  challenge?: string;
+  amount?: string;
+  currency?: string;
+  recipient?: string;
+  challengeId?: string;
+  /** Hub-side metadata bag for non-agent endpoints (mirrors PaymentMetadataKeys). */
+  details?: Record<string, unknown>;
+}
+
+function isPaymentRequiredEvent(
+  event: ChatStreamEvent | PaymentRequiredStreamEvent,
+): event is PaymentRequiredStreamEvent {
+  return (event as { type?: string }).type === 'payment_required';
+}
+
+/** Pull payment fields from either a flat event payload or its `details` map. */
+function extractPaymentFields(event: PaymentRequiredStreamEvent): {
+  endpointSlug: string;
+  amount: string;
+  currency: string;
+  recipient: string;
+  challengeWire: string;
+  challengeId: string;
+} {
+  const details = (event.details ?? {}) as Record<string, unknown>;
+  const pick = (k: string, fallback: string | undefined): string => {
+    const v = details[k];
+    if (typeof v === 'string' && v.length > 0) return v;
+    return fallback ?? '';
+  };
+  return {
+    endpointSlug: event.endpointSlug ?? pick('endpoint_slug', ''),
+    amount: event.amount ?? pick('payment_amount', ''),
+    currency: event.currency ?? pick('payment_currency', ''),
+    recipient: event.recipient ?? pick('payment_recipient', ''),
+    challengeWire: event.challenge ?? pick('payment_challenge', ''),
+    challengeId: event.challengeId ?? pick('challenge_id', ''),
+  };
+}
+
+/**
+ * ChatRequest is auto-generated from the Go struct and does not yet declare
+ * payment_credential. The producer-side decoder accepts it as an additional
+ * field, so we attach it via this loose extension at the call site.
+ */
+interface ChatRequestWithPayment extends main.ChatRequest {
+  payment_credential?: string;
+  payment_challenge_id?: string;
 }
 
 export function useChatWorkflow({
@@ -271,6 +366,7 @@ export function useChatWorkflow({
 }: UseChatWorkflowOptions): UseChatWorkflowReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [workflowState, dispatch] = useReducer(workflowReducer, initialWorkflowState);
+  const [pendingPayment, setPendingPayment] = useState<PendingPaymentPrompt | null>(null);
 
   // Track id of the message being streamed into so token updates hit the right msg
   const streamingIdRef = useRef<string | null>(null);
@@ -279,62 +375,239 @@ export function useChatWorkflow({
   const messagesRef = useRef(messages);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
+  // Cache the most recent request payload so a payment_required event can
+  // resubmit it verbatim with payment_credential added. Mutated by sendMessage
+  // and read by the retry helper.
+  const lastRequestRef = useRef<main.ChatRequest | null>(null);
+  // Cache the assistant placeholder id so the retry continues streaming
+  // into the same bubble (rather than appending a second empty assistant
+  // message). Cleared on done/error.
+  const placeholderIdRef = useRef<string | null>(null);
+
+  /**
+   * Re-issue the most recent request with payment_credential attached.
+   *
+   * Used by both auto-pay and modal-prompt code paths. Reads lastRequestRef
+   * — caller is responsible for ensuring it is set (sendMessage always sets
+   * it before issuing StreamChat).
+   */
+  const retryRequestWithCredential = useCallback(
+    async (credential: string, challengeId?: string) => {
+      const last = lastRequestRef.current;
+      if (!last) {
+        dispatch({ type: 'ERROR', error: 'No request to retry after payment' });
+        return;
+      }
+      try {
+        const request: ChatRequestWithPayment = main.ChatRequest.createFrom({
+          ...last,
+        }) as ChatRequestWithPayment;
+        request.payment_credential = credential;
+        if (challengeId) {
+          request.payment_challenge_id = challengeId;
+        }
+        await StreamChat(request);
+      } catch (err) {
+        const id = streamingIdRef.current;
+        if (id) {
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === id && msg.role === 'assistant'
+                ? { ...msg, isStreaming: false, content: msg.content || `Error: ${String(err)}` }
+                : msg,
+            ),
+          );
+          streamingIdRef.current = null;
+        }
+        dispatch({ type: 'ERROR', error: String(err) });
+      }
+    },
+    [],
+  );
+
+  /**
+   * Handle a payment_required event by consulting the per-endpoint cap store
+   * and either auto-paying, toast-paying, or surfacing the modal prompt.
+   */
+  const handlePaymentRequired = useCallback(
+    async (event: PaymentRequiredStreamEvent) => {
+      const fields = extractPaymentFields(event);
+      if (!fields.challengeWire || !fields.endpointSlug) {
+        dispatch({
+          type: 'ERROR',
+          error: 'Payment required but challenge/endpoint metadata is missing',
+        });
+        return;
+      }
+      let decision;
+      try {
+        decision = await EvaluatePaymentDecision(
+          fields.endpointSlug,
+          fields.amount,
+          fields.currency,
+        );
+      } catch (err) {
+        // Fall back to a blocking prompt on evaluator failure — we'd rather
+        // ask the user than silently auto-pay against a stale cap.
+        decision = main.PaymentDecision.createFrom({
+          action: PaymentDecisionAction.Prompt,
+          reason: `cap evaluation failed: ${String(err)}`,
+        });
+      }
+
+      const signAndRetry = async () => {
+        try {
+          const credential = await WalletPayChallenge(fields.challengeWire);
+          await retryRequestWithCredential(credential, fields.challengeId);
+        } catch (err) {
+          dispatch({ type: 'ERROR', error: `Payment failed: ${String(err)}` });
+          const id = streamingIdRef.current;
+          if (id) {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === id && msg.role === 'assistant'
+                  ? {
+                      ...msg,
+                      isStreaming: false,
+                      content: msg.content || `Payment failed: ${String(err)}`,
+                    }
+                  : msg,
+              ),
+            );
+            streamingIdRef.current = null;
+          }
+        }
+      };
+
+      if (decision.action === PaymentDecisionAction.AutoPay) {
+        await signAndRetry();
+        return;
+      }
+      if (decision.action === PaymentDecisionAction.ToastPay) {
+        // No global toast library is installed yet; surface the announcement
+        // via the workflow status so the existing status-indicator widget
+        // renders it. The producer's normal generation_start event will
+        // overwrite this once the retry resumes.
+        dispatch({
+          type: 'STREAM_EVENT',
+          event: {
+            type: 'generation_heartbeat',
+            timeMs: 0,
+          } as ChatStreamEvent,
+        });
+        await signAndRetry();
+        return;
+      }
+
+      // 'prompt' — stash the snapshot so <PaymentRequiredModal> renders.
+      setPendingPayment({
+        endpointSlug: fields.endpointSlug,
+        ownerLabel: fields.endpointSlug,
+        amount: fields.amount,
+        currency: fields.currency,
+        recipient: fields.recipient,
+        challengeWire: fields.challengeWire,
+        challengeId: fields.challengeId,
+        onPaid: async (credential: string) => {
+          setPendingPayment(null);
+          await retryRequestWithCredential(credential, fields.challengeId);
+        },
+        onCancel: () => {
+          setPendingPayment(null);
+          // The producer is still holding the request open; cancel cleanly
+          // so the spinner stops and the user can retry later.
+          void StopChat().catch(() => {});
+          const id = streamingIdRef.current;
+          if (id) {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === id && msg.role === 'assistant'
+                  ? { ...msg, isStreaming: false, content: msg.content || 'Payment declined.' }
+                  : msg,
+              ),
+            );
+            streamingIdRef.current = null;
+          }
+          dispatch({ type: 'RESET' });
+        },
+      });
+    },
+    [retryRequestWithCredential],
+  );
+
   // Register Wails event listener once
   useEffect(() => {
-    const unsubscribe = EventsOn('chat:stream-event', (event: ChatStreamEvent) => {
-      dispatch({ type: 'STREAM_EVENT', event });
+    const unsubscribe = EventsOn(
+      'chat:stream-event',
+      (event: ChatStreamEvent | PaymentRequiredStreamEvent) => {
+        // payment_required isn't part of the generated discriminated union;
+        // intercept it before the reducer dispatches so the workflow state
+        // doesn't see an unknown event type.
+        if (isPaymentRequiredEvent(event)) {
+          void handlePaymentRequired(event);
+          return;
+        }
 
-      if (event.type === 'token') {
-        const id = streamingIdRef.current;
-        if (id) {
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === id && msg.role === 'assistant'
-                ? { ...msg, content: msg.content + event.content }
-                : msg
-            )
-          );
+        dispatch({ type: 'STREAM_EVENT', event });
+
+        if (event.type === 'token') {
+          const id = streamingIdRef.current;
+          if (id) {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === id && msg.role === 'assistant'
+                  ? { ...msg, content: msg.content + event.content }
+                  : msg
+              )
+            );
+          }
+        } else if (event.type === 'done') {
+          const id = streamingIdRef.current;
+          if (id) {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === id && msg.role === 'assistant'
+                  ? {
+                      ...msg,
+                      isStreaming: false,
+                      annotatedResponse: event.response,
+                      sources: event.sources ?? {},
+                    }
+                  : msg
+              )
+            );
+            streamingIdRef.current = null;
+            placeholderIdRef.current = null;
+            // Clear the cached request so a future payment_required event
+            // doesn't accidentally fire after the original stream completed.
+            lastRequestRef.current = null;
+          }
+        } else if (event.type === 'error') {
+          const id = streamingIdRef.current;
+          if (id) {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === id && msg.role === 'assistant'
+                  ? {
+                      ...msg,
+                      isStreaming: false,
+                      content: msg.content || `Something went wrong: ${event.message}`,
+                    }
+                  : msg
+              )
+            );
+            streamingIdRef.current = null;
+            placeholderIdRef.current = null;
+            lastRequestRef.current = null;
+          }
         }
-      } else if (event.type === 'done') {
-        const id = streamingIdRef.current;
-        if (id) {
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === id && msg.role === 'assistant'
-                ? {
-                    ...msg,
-                    isStreaming: false,
-                    annotatedResponse: event.response,
-                    sources: event.sources ?? {},
-                  }
-                : msg
-            )
-          );
-          streamingIdRef.current = null;
-        }
-      } else if (event.type === 'error') {
-        const id = streamingIdRef.current;
-        if (id) {
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === id && msg.role === 'assistant'
-                ? {
-                    ...msg,
-                    isStreaming: false,
-                    content: msg.content || `Something went wrong: ${event.message}`,
-                  }
-                : msg
-            )
-          );
-          streamingIdRef.current = null;
-        }
-      }
-    });
+      },
+    );
 
     return () => {
       unsubscribe();
     };
-  }, []);
+  }, [handlePaymentRequired]);
 
   const sendMessage = useCallback(
     async (prompt: string) => {
@@ -375,6 +648,11 @@ export function useChatWorkflow({
           messages: historySnapshot,
         });
 
+        // Cache for the payment-required retry path (handlePaymentRequired
+        // resubmits this exact payload with payment_credential added).
+        lastRequestRef.current = request;
+        placeholderIdRef.current = assistantMsgId;
+
         await StreamChat(request);
         // StreamChat returns immediately — events arrive via EventsOn('chat:stream-event')
       } catch (err) {
@@ -407,6 +685,9 @@ export function useChatWorkflow({
       );
       streamingIdRef.current = null;
     }
+    placeholderIdRef.current = null;
+    lastRequestRef.current = null;
+    setPendingPayment(null);
     dispatch({ type: 'RESET' });
   }, []);
 
@@ -415,9 +696,21 @@ export function useChatWorkflow({
       void StopChat().catch(() => {});
       streamingIdRef.current = null;
     }
+    placeholderIdRef.current = null;
+    lastRequestRef.current = null;
+    setPendingPayment(null);
     setMessages([]);
     dispatch({ type: 'RESET' });
   }, []);
+
+  const dismissPaymentPrompt = useCallback(() => {
+    const current = pendingPayment;
+    if (current) {
+      current.onCancel();
+    } else {
+      setPendingPayment(null);
+    }
+  }, [pendingPayment]);
 
   const isStreaming =
     workflowState.phase === 'preparing' || workflowState.phase === 'streaming';
@@ -425,6 +718,8 @@ export function useChatWorkflow({
   return {
     messages,
     workflowState,
+    pendingPayment,
+    dismissPaymentPrompt,
     sendMessage,
     stopStream,
     clearMessages,

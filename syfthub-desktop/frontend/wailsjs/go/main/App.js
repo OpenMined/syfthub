@@ -94,6 +94,10 @@ export function DownloadUpdate() {
   return window['go']['main']['App']['DownloadUpdate']();
 }
 
+export function EvaluatePaymentDecision(arg1, arg2, arg3) {
+  return window['go']['main']['App']['EvaluatePaymentDecision'](arg1, arg2, arg3);
+}
+
 export function GetAggregatorURL() {
   return window['go']['main']['App']['GetAggregatorURL']();
 }
@@ -150,8 +154,16 @@ export function GetManualReviews(arg1, arg2) {
   return window['go']['main']['App']['GetManualReviews'](arg1, arg2);
 }
 
+export function GetPaymentCaps() {
+  return window['go']['main']['App']['GetPaymentCaps']();
+}
+
 export function GetPolicyFileYaml(arg1, arg2) {
   return window['go']['main']['App']['GetPolicyFileYaml'](arg1, arg2);
+}
+
+export function GetPolicyReceipts(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetPolicyReceipts'](arg1, arg2, arg3);
 }
 
 export function GetReadme(arg1) {
@@ -246,6 +258,10 @@ export function ReadSkill(arg1, arg2) {
   return window['go']['main']['App']['ReadSkill'](arg1, arg2);
 }
 
+export function RecordPayment(arg1) {
+  return window['go']['main']['App']['RecordPayment'](arg1);
+}
+
 export function RecordSentReview(arg1) {
   return window['go']['main']['App']['RecordSentReview'](arg1);
 }
@@ -264,6 +280,10 @@ export function RemoveSkill(arg1, arg2) {
 
 export function RenameEndpoint(arg1, arg2) {
   return window['go']['main']['App']['RenameEndpoint'](arg1, arg2);
+}
+
+export function ResetPaymentCap(arg1) {
+  return window['go']['main']['App']['ResetPaymentCap'](arg1);
 }
 
 export function RespondToSetupConfirm(arg1) {
@@ -322,6 +342,10 @@ export function SetEnvironment(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetEnvironment'](arg1, arg2, arg3);
 }
 
+export function SetPaymentCap(arg1) {
+  return window['go']['main']['App']['SetPaymentCap'](arg1);
+}
+
 export function SetSentReviewNote(arg1, arg2) {
   return window['go']['main']['App']['SetSentReviewNote'](arg1, arg2);
 }
@@ -362,6 +386,34 @@ export function ToggleEndpointEnabled(arg1) {
   return window['go']['main']['App']['ToggleEndpointEnabled'](arg1);
 }
 
+export function TransactionHistory(arg1) {
+  return window['go']['main']['App']['TransactionHistory'](arg1);
+}
+
+export function TransactionHistoryExportCSV(arg1) {
+  return window['go']['main']['App']['TransactionHistoryExportCSV'](arg1);
+}
+
 export function UpdateEndpointOverview(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['UpdateEndpointOverview'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function UpdateSettlement(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['UpdateSettlement'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function WalletBalance() {
+  return window['go']['main']['App']['WalletBalance']();
+}
+
+export function WalletInit() {
+  return window['go']['main']['App']['WalletInit']();
+}
+
+export function WalletPayChallenge(arg1) {
+  return window['go']['main']['App']['WalletPayChallenge'](arg1);
+}
+
+export function WalletShow() {
+  return window['go']['main']['App']['WalletShow']();
 }
