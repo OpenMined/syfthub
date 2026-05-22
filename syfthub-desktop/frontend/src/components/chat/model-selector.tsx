@@ -27,6 +27,11 @@ interface ModelSelectorProps<T extends SelectableModel> {
   isLoading?: boolean;
   /** Parent is responsible for coalescing/TTL — this fires on every open. */
   onOpen?: () => void;
+  /** When true, the trigger is rendered read-only: no popover, no selection
+   *  change. Used by ReviewChatPane to pin the dropdown to the review's
+   *  endpoint — the continuation is bound to that agent and letting the user
+   *  pick a different model would be silently overridden at submit time. */
+  locked?: boolean;
 }
 
 export function ModelSelector<T extends SelectableModel>({
@@ -34,7 +39,8 @@ export function ModelSelector<T extends SelectableModel>({
   onModelSelect,
   models,
   isLoading = false,
-  onOpen
+  onOpen,
+  locked = false,
 }: Readonly<ModelSelectorProps<T>>) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -75,6 +81,27 @@ export function ModelSelector<T extends SelectableModel>({
   const handleSearchChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(event.target.value);
   }, []);
+
+  // Locked variant: render a non-interactive button that shows the pinned
+  // model but never opens the popover. Keeps the same icon + name layout so
+  // the composer looks identical to the live pane — just without the chevron
+  // affordance and with a fixed cursor.
+  if (locked) {
+    return (
+      <button
+        type='button'
+        disabled
+        title={selectedModel?.name ? `Continuation pinned to ${selectedModel.name}` : 'Continuation locked to this agent'}
+        className='text-muted-foreground flex items-center gap-1 rounded-lg px-2.5 py-2 opacity-80 cursor-not-allowed'
+        aria-disabled='true'
+      >
+        <Brain className='h-3.5 w-3.5' aria-hidden='true' />
+        <span className='max-w-[120px] truncate text-xs font-normal'>
+          {selectedModel ? selectedModel.name : 'Locked'}
+        </span>
+      </button>
+    );
+  }
 
   return (
     <Popover open={isOpen} onOpenChange={handleOpenChange}>

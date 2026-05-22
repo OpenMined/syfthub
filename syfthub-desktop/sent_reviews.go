@@ -51,6 +51,11 @@ type SentReviewInput struct {
 	// Placeholder is the substitute text the caller received instead of the
 	// real response.
 	Placeholder string `json:"placeholder"`
+	// OriginReviewID, when non-empty, marks this hold as a continuation of an
+	// earlier review the user opened in ReviewChatPane. The store uses this to
+	// group the two rows into one "thread" so the sidebar shows a single item
+	// whose badge tracks the latest turn's status.
+	OriginReviewID string `json:"originReviewId,omitempty"`
 }
 
 // SentReviewEntry is one row of the client-side review ledger, decoded for
@@ -96,6 +101,13 @@ type SentReviewEntry struct {
 	// must not overwrite a newer resolution. Zero until the first
 	// host-delivered resolution lands.
 	DeliverySeq uint64 `json:"deliverySeq,omitempty"`
+	// ParentReviewID links a continuation hold back to the review the user
+	// was viewing when they sent the follow-up turn. The store walks these
+	// links to group reviews into threads. Empty for thread roots (the first
+	// hold in a conversation) and for synth rows produced by
+	// ApplyHostResolution on a device that never captured the original hold —
+	// the store falls back to transcript-prefix matching for those.
+	ParentReviewID string `json:"parentReviewId,omitempty"`
 }
 
 // statusSource* records how a ledger entry's Status was last set.
@@ -135,24 +147,33 @@ const sentReviewsCreateTable = `CREATE TABLE IF NOT EXISTS sent_reviews (
 	response_text    TEXT,
 	user_note        TEXT,
 	host_resolved_at TEXT,
-	delivery_seq     INTEGER
+	delivery_seq     INTEGER,
+	parent_review_id TEXT
 )`
 
 const sentReviewsCreateIndex = `CREATE INDEX IF NOT EXISTS
 	idx_sent_reviews_identity ON sent_reviews (identity, status)`
 
+// idx_sent_reviews_parent supports the parent-link walk that derives review
+// threads. The column is sparse (most rows are thread roots), so a partial
+// index would be the natural shape — SQLite supports `WHERE` clauses on
+// indexes, and a NULL-filtering predicate keeps the index small.
+const sentReviewsCreateParentIndex = `CREATE INDEX IF NOT EXISTS
+	idx_sent_reviews_parent ON sent_reviews (parent_review_id) WHERE parent_review_id IS NOT NULL`
+
 // sentReviewsSchemaVersion is the on-disk schema version this code expects
 // to read and write. Bumped when a column is added; migrateSentReviewsSchema
 // upgrades older databases in place. Older builds opening a newer DB will
 // see PRAGMA user_version > theirs and refuse — that's the contract.
-const sentReviewsSchemaVersion = 2
+const sentReviewsSchemaVersion = 3
 
 // sentReviewCols is the column list shared by every SELECT, kept in one place
 // so it stays in step with scanSentReviewRow.
 const sentReviewCols = `review_id, identity, endpoint_path, endpoint_owner,
 	endpoint_slug, endpoint_name, endpoint_type, policy_name, request_messages,
 	placeholder, submitted_at, status, status_source, resolved_at,
-	reject_reason, response_text, user_note, host_resolved_at, delivery_seq`
+	reject_reason, response_text, user_note, host_resolved_at, delivery_seq,
+	parent_review_id`
 
 // sentReviewsDBFile resolves the client review ledger's SQLite path — a
 // sibling of settings.json. It is a var so tests can point it at a temp dir.
@@ -209,6 +230,13 @@ func openSentReviewsDB() (*sql.DB, error) {
 	if err := migrateSentReviewsSchema(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migrate review ledger: %w", err)
+	}
+	// The parent-link index references parent_review_id, which a pre-v3
+	// ledger doesn't yet have. Create it AFTER migration so the ALTER TABLE
+	// runs first on upgrade installs.
+	if _, err := db.Exec(sentReviewsCreateParentIndex); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to index review ledger parent links: %w", err)
 	}
 	return db, nil
 }
@@ -313,6 +341,20 @@ func migrateSentReviewsSchema(db *sql.DB) error {
 		}
 	}
 
+	// v2 → v3: add parent_review_id so continuation reviews can be grouped
+	// into threads on the client. NULL on all existing rows; back-filled
+	// from useAgentWorkflow.originReviewIdRef going forward, with a
+	// transcript-prefix fallback in the store for legacy/synth rows.
+	hasParent, err := columnExists(db, "sent_reviews", "parent_review_id")
+	if err != nil {
+		return err
+	}
+	if !hasParent {
+		if _, err := db.Exec(`ALTER TABLE sent_reviews ADD COLUMN parent_review_id TEXT`); err != nil {
+			return fmt.Errorf("add parent_review_id: %w", err)
+		}
+	}
+
 	// Stamp the version. PRAGMA user_version takes a bare integer, no params.
 	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", sentReviewsSchemaVersion)); err != nil {
 		return fmt.Errorf("stamp user_version: %w", err)
@@ -410,11 +452,12 @@ func (a *App) RecordSentReview(input SentReviewInput) error {
 		`INSERT OR IGNORE INTO sent_reviews
 			(review_id, identity, endpoint_path, endpoint_owner, endpoint_slug,
 			 endpoint_name, endpoint_type, policy_name, request_messages,
-			 placeholder, submitted_at, status, status_source)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			 placeholder, submitted_at, status, status_source, parent_review_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		input.ReviewID, identity, input.EndpointPath, owner, slug,
 		input.EndpointName, endpointType, input.PolicyName, string(messagesJSON),
 		input.Placeholder, submittedAt, manualreview.StatusPending, statusSourceCaptured,
+		nullIfEmpty(input.OriginReviewID),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to record review: %w", err)
@@ -496,13 +539,14 @@ func scanSentReviewRow(rows *sql.Rows) (SentReviewEntry, error) {
 		userNote       sql.NullString
 		hostResolvedAt sql.NullString
 		deliverySeq    sql.NullInt64
+		parentReviewID sql.NullString
 	)
 	if err := rows.Scan(
 		&entry.ReviewID, &entry.Identity, &entry.EndpointPath, &entry.EndpointOwner,
 		&entry.EndpointSlug, &entry.EndpointName, &entry.EndpointType, &policyName,
 		&messagesJSON, &placeholder, &entry.SubmittedAt, &entry.Status,
 		&entry.StatusSource, &resolvedAt, &rejectReason, &responseText, &userNote,
-		&hostResolvedAt, &deliverySeq,
+		&hostResolvedAt, &deliverySeq, &parentReviewID,
 	); err != nil {
 		return SentReviewEntry{}, err
 	}
@@ -516,6 +560,7 @@ func scanSentReviewRow(rows *sql.Rows) (SentReviewEntry, error) {
 	if deliverySeq.Valid {
 		entry.DeliverySeq = uint64(deliverySeq.Int64)
 	}
+	entry.ParentReviewID = parentReviewID.String
 	entry.RequestMessages = decodeMessagesJSON(messagesJSON.String)
 	return entry, nil
 }

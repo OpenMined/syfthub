@@ -38,7 +38,7 @@ import { OpenMinedIcon } from '@/components/ui/openmined-icon';
 
 import { useCopyToClipboard } from '@/components/tool-ui/shared/use-copy-to-clipboard';
 import type { AgentEntry } from '@/hooks/use-agent-workflow';
-import { useAppStore } from '@/stores/appStore';
+import { useAppStore, type NetworkAgentInfo } from '@/stores/appStore';
 import { cn } from '@/lib/utils';
 
 // Generic agent-suitable suggestion chips for the welcome screen. Kept short
@@ -230,7 +230,7 @@ function RequestInputEntry({ prompt }: { prompt: string }) {
 // Shared Chat Input Area
 // =============================================================================
 
-interface ChatInputAreaProps {
+export interface ChatInputAreaProps {
   isLoading: boolean;
   inputDisabled: boolean;
   value: string;
@@ -245,6 +245,11 @@ interface ChatInputAreaProps {
   promptInputDisabled?: boolean;
   banner?: React.ReactNode;
   footer?: React.ReactNode;
+  showModelSelector?: boolean;
+  // When defined, the selector renders read-only pinned to this agent (null
+  // pins it to "no model" — e.g. the endpoint isn't in the network catalog).
+  // Undefined leaves the selector interactive against chatSelectedModel.
+  lockedModel?: NetworkAgentInfo | null;
   // Optional attachment props — only the agent path passes these. When the
   // staged list / handlers are provided, the input renders the paperclip
   // button + the staged-files chip strip.
@@ -256,7 +261,7 @@ interface ChatInputAreaProps {
   attachmentsDisabled?: boolean;
 }
 
-function ChatInputArea({
+export function ChatInputArea({
   isLoading,
   inputDisabled,
   value,
@@ -271,6 +276,8 @@ function ChatInputArea({
   promptInputDisabled,
   banner,
   footer,
+  showModelSelector = true,
+  lockedModel,
   staged,
   onPickAttachment,
   onRemoveAttachment,
@@ -373,13 +380,16 @@ function ChatInputArea({
               )}
             </div>
             <div className='flex items-center gap-1'>
-              <ModelSelector
-                models={modelEndpoints}
-                selectedModel={chatSelectedModel}
-                onModelSelect={setChatSelectedModel}
-                isLoading={networkAgentsLoading}
-                onOpen={() => { void fetchNetworkAgents(); }}
-              />
+              {showModelSelector && (
+                <ModelSelector
+                  models={modelEndpoints}
+                  selectedModel={lockedModel !== undefined ? lockedModel : chatSelectedModel}
+                  onModelSelect={lockedModel !== undefined ? () => { /* locked */ } : setChatSelectedModel}
+                  isLoading={lockedModel !== undefined ? false : networkAgentsLoading}
+                  onOpen={lockedModel !== undefined ? undefined : () => { void fetchNetworkAgents(); }}
+                  locked={lockedModel !== undefined}
+                />
+              )}
               {isActive ? (
                 <PromptInputAction tooltip={stopTooltip}>
                   <button

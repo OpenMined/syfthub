@@ -373,6 +373,7 @@ func (a *AgentExecutor) checkPre(
 	if err != nil {
 		return nil, err
 	}
+	outer.RecordPolicyResult(out.PolicyResult)
 	return out.PolicyResult, nil
 }
 
@@ -391,7 +392,12 @@ func (a *AgentExecutor) checkPost(
 	in.PolicyPhase = PolicyPhasePost
 	in.Messages = transcriptForPolicy(outer, userText)
 	in.Output, _ = json.Marshal(map[string]any{"response": reply})
-	return a.runPolicy(ctx, in)
+	out, err := a.runPolicy(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+	outer.RecordPolicyResult(out.PolicyResult)
+	return out, nil
 }
 
 // transcriptForPolicy returns the conversation the policy runner should see

@@ -19,23 +19,21 @@
 // After the call, activeChat is flipped to 'live' so the user transitions
 // into AgentChatContent's view with prior context already seeded.
 
-import { useCallback, useMemo, useState } from 'react';
-import { Clock, ArrowUp } from 'lucide-react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { Clock } from 'lucide-react';
 
 import { useAppStore, type SentReviewEntry } from '@/stores/appStore';
 import { useChatWorkflow } from './ChatWorkflowProvider';
-import { StatusBadge } from '@/components/chat/review-status-badge';
+import {
+  AttachToActiveSession,
+  BrowseForAttachment,
+} from '../../../wailsjs/go/main/App';
+import type { AttachmentSummary } from '@/hooks/use-attachments';
 
 import {
   Message,
   MessageContent,
 } from '@/components/prompt-kit/message';
-import {
-  PromptInput,
-  PromptInputAction,
-  PromptInputActions,
-  PromptInputTextarea,
-} from '@/components/prompt-kit/prompt-input';
 import {
   ChatContainerContent,
   ChatContainerRoot,
@@ -43,8 +41,8 @@ import {
 import { MarkdownMessage } from '@/components/chat/markdown-message';
 import { PolicyNotice } from '@/components/chat/policy-notice';
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
-import { cn } from '@/lib/utils';
-import { formatFullTimestamp } from '@/lib/utils';
+import { cn, extractErrorMessage, formatFullTimestamp } from '@/lib/utils';
+import { ChatInputArea } from '@/components/ChatView';
 
 function inputPlaceholderFor(status: SentReviewEntry['status']): string {
   switch (status) {
@@ -68,11 +66,8 @@ function policyNoticeReason(review: SentReviewEntry): string {
   }
 }
 
-// ── small repeats from ChatView ──────────────────────────────────
 // UserBubble / AssistantAvatar are inlined here rather than extracted from
-// ChatView because they are small and changing them in two places is less
-// risk than reorganizing ChatView's internals for this refactor. If a third
-// surface needs them, extract to a shared module.
+// ChatView — if a third surface needs them, extract to a shared module.
 
 function UserBubble({ id, content, isTurnBoundary }: Readonly<{
   id: string; content: string; isTurnBoundary?: boolean;
@@ -140,8 +135,16 @@ export interface ReviewChatPaneProps {
 }
 
 export function ReviewChatPane({ reviewId }: Readonly<ReviewChatPaneProps>) {
-  const review = useAppStore((s) =>
-    s.sentReviews.find((r) => r.reviewId === reviewId) ?? null);
+  // Resolve the thread that contains the activeChat reviewId — the sidebar
+  // sets activeChat to the latest review of a clicked thread, but a deep
+  // link or a continuation that just landed could point at any member. The
+  // pane always renders the thread's latest review (its transcript already
+  // contains all prior turns; its status drives the badge + input gate).
+  const thread = useAppStore((s) =>
+    s.sentReviewThreads.find((t) =>
+      t.reviews.some((r) => r.reviewId === reviewId),
+    ) ?? null);
+  const review = thread?.latestReview ?? null;
   const setActiveChat = useAppStore((s) => s.setActiveChat);
   const setChatSelectedModel = useAppStore((s) => s.setChatSelectedModel);
   const networkAgents = useAppStore((s) => s.networkAgents);
@@ -149,6 +152,16 @@ export function ReviewChatPane({ reviewId }: Readonly<ReviewChatPaneProps>) {
   const { startSessionWithHistory, isRunning } = useChatWorkflow();
   const [inputValue, setInputValue] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Pending attachments: host paths the user picked before the continuation
+  // session starts. AttachToActiveSession requires an active session, so we
+  // buffer the paths here keyed by a synthetic file_id (the chip's React
+  // key) and flush them after startSessionWithHistory resolves.
+  const [pendingIdToPath, setPendingIdToPath] = useState<Record<string, string>>({});
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  // Monotonic counter so synthetic chip ids stay unique even if two picks
+  // share a basename.
+  const pendingIdRef = useRef(0);
 
   // Continuation history: prior turns (requestMessages from the review) +
   // the agent's real reply (responseText). Together these are exactly what
@@ -167,6 +180,63 @@ export function ReviewChatPane({ reviewId }: Readonly<ReviewChatPaneProps>) {
     return history;
   }, [review]);
 
+  // Resolve the review's endpoint to a NetworkAgentInfo so the composer's
+  // ModelSelector can render the right name in its locked variant. Falls
+  // back to a synthetic object when the agent isn't in the network catalog
+  // — the selector only needs `name` and `slug`/`ownerUsername` to render.
+  const lockedAgent = useMemo(() => {
+    if (!review) return null;
+    const match = networkAgents.find(
+      (a) => `${a.ownerUsername}/${a.slug}` === review.endpointPath,
+    );
+    if (match) return match;
+    const [owner, slug] = (review.endpointPath ?? '').split('/');
+    return {
+      slug: slug ?? '',
+      name: review.endpointName || review.endpointPath || 'Unknown agent',
+      description: '',
+      ownerUsername: owner ?? '',
+      starsCount: 0,
+    };
+  }, [review, networkAgents]);
+
+  const handlePickAttachment = useCallback(async () => {
+    if (!review || review.status !== 'approved') return;
+    setAttachmentError(null);
+    try {
+      const path = await BrowseForAttachment();
+      if (!path) return;
+      pendingIdRef.current += 1;
+      const fileId = `pending:${pendingIdRef.current}`;
+      setPendingIdToPath((prev) => ({ ...prev, [fileId]: path }));
+    } catch (e) {
+      setAttachmentError(extractErrorMessage(e, String(e)));
+    }
+  }, [review]);
+
+  const handleRemoveAttachment = useCallback((fileId: string) => {
+    setPendingIdToPath((prev) => {
+      if (!(fileId in prev)) return prev;
+      const next = { ...prev };
+      delete next[fileId];
+      return next;
+    });
+  }, []);
+
+  // Synthetic chip data for the composer. The live pane's AttachmentChip
+  // component reads `file_id`/`name` and tolerates missing size/mime fields,
+  // so a minimal shape is enough to render "Foo.txt" while the session
+  // hasn't started yet.
+  const pendingStaged: AttachmentSummary[] = useMemo(() => {
+    return Object.entries(pendingIdToPath).map(([fileId, path]) => ({
+      file_id: fileId,
+      name: path.split(/[\\/]/).pop() ?? path,
+      mime: '',
+      size_bytes: 0,
+      sha256: '',
+    }));
+  }, [pendingIdToPath]);
+
   const handleSubmit = useCallback(async () => {
     if (!review || review.status !== 'approved') return;
     const prompt = inputValue.trim();
@@ -174,22 +244,33 @@ export function ReviewChatPane({ reviewId }: Readonly<ReviewChatPaneProps>) {
     setSubmitting(true);
     try {
       // Best-effort: align the global agent dropdown with this review's
-      // endpoint so the UI's other affordances (model name in the live
-      // pane's header, etc.) follow. We match by owner/slug — the most
-      // stable identity — and fall back to leaving the dropdown alone if
-      // the agent isn't in the catalog (continuation still works because
-      // we pass overrides to startSessionWithHistory).
-      const targetAgent = networkAgents.find(
-        (a) => `${a.ownerUsername}/${a.slug}` === review.endpointPath,
-      );
-      if (targetAgent) {
-        setChatSelectedModel(targetAgent);
+      // endpoint so other surfaces that key off chatSelectedModel pick up
+      // the same agent. Only do this when the lookup hit the catalog —
+      // lockedAgent's synthetic fallback isn't a real catalog entry.
+      if (lockedAgent && networkAgents.includes(lockedAgent)) {
+        setChatSelectedModel(lockedAgent);
       }
+      // Snapshot paths BEFORE the await so concurrent picks during the
+      // await aren't lost on the post-start attach.
+      const paths = Object.values(pendingIdToPath);
       await startSessionWithHistory(continuationHistory, prompt, {
         endpointPath: review.endpointPath,
         endpointName: review.endpointName || review.endpointPath,
+        // Stamp parent so the resulting hold is grouped with this review in
+        // the sidebar's thread view.
+        originReviewId: review.reviewId,
       });
-      // Transition to the live pane so the user sees the running session.
+      // Sequential because AttachToActiveSession is a stateful tunnel send;
+      // a per-file error surfaces in attachmentError but does NOT abort the
+      // remaining files (best-effort, matches the live pane's drag-drop loop).
+      for (const path of paths) {
+        try {
+          await AttachToActiveSession(path);
+        } catch (e) {
+          setAttachmentError(extractErrorMessage(e, String(e)));
+        }
+      }
+      setPendingIdToPath({});
       setActiveChat({ kind: 'live' });
       setInputValue('');
     } finally {
@@ -197,7 +278,8 @@ export function ReviewChatPane({ reviewId }: Readonly<ReviewChatPaneProps>) {
     }
   }, [
     review, inputValue, submitting, isRunning, continuationHistory,
-    networkAgents, setChatSelectedModel, startSessionWithHistory, setActiveChat,
+    networkAgents, lockedAgent, setChatSelectedModel, startSessionWithHistory,
+    setActiveChat, pendingIdToPath,
   ]);
 
   if (!review) {
@@ -214,21 +296,6 @@ export function ReviewChatPane({ reviewId }: Readonly<ReviewChatPaneProps>) {
 
   return (
     <div className='flex h-full flex-col'>
-      {/* Header — endpoint + status. Mirrors the live pane's header so the
-          two surfaces feel like the same chat product. */}
-      <div className='flex shrink-0 items-center justify-between gap-3 border-b border-border/50 px-4 py-3'>
-        <div className='min-w-0 flex-1'>
-          <div className='truncate text-sm font-medium text-foreground'>
-            {review.endpointName || review.endpointPath}
-          </div>
-          <div className='truncate text-[11px] text-muted-foreground'>
-            Sent {formatFullTimestamp(review.submittedAt)}
-            {review.hostResolvedAt && ` · Resolved ${formatFullTimestamp(review.hostResolvedAt)}`}
-          </div>
-        </div>
-        <StatusBadge status={review.status} />
-      </div>
-
       {/* Transcript */}
       <div className='relative min-h-0 flex-1'>
         <ChatContainerRoot className='h-full'>
@@ -277,46 +344,38 @@ export function ReviewChatPane({ reviewId }: Readonly<ReviewChatPaneProps>) {
         </ChatContainerRoot>
       </div>
 
-      {/* Input — enabled iff approved. Submitting triggers the continuation
-          flow which transitions the user into the live pane. */}
-      <div className='shrink-0 border-t border-border/50 bg-card/30 px-4 py-3'>
-        <div className='mx-auto w-full max-w-3xl'>
-          <PromptInput
-            value={inputValue}
-            onValueChange={setInputValue}
-            onSubmit={handleSubmit}
-            isLoading={submitting}
-          >
-            <PromptInputTextarea
-              placeholder={inputPlaceholder}
-              disabled={!continuable || submitting || isRunning}
-            />
-            <PromptInputActions>
-              <PromptInputAction tooltip={continuable ? 'Continue' : 'Continuation only available on approved reviews'}>
-                <button
-                  type='button'
-                  onClick={handleSubmit}
-                  disabled={!continuable || !inputValue.trim() || submitting || isRunning}
-                  aria-label='Send'
-                  className={cn(
-                    'inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors',
-                    continuable && inputValue.trim() && !submitting && !isRunning
-                      ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-                      : 'bg-muted text-muted-foreground opacity-60',
-                  )}
-                >
-                  <ArrowUp className='h-4 w-4' aria-hidden='true' />
-                </button>
-              </PromptInputAction>
-            </PromptInputActions>
-          </PromptInput>
-          {isRunning && (
-            <p className='mt-1.5 text-[11px] italic text-muted-foreground'>
-              A live session is already running. Stop it before continuing this thread.
-            </p>
-          )}
-        </div>
-      </div>
+      {/* Input — reuses the live pane's composer so the chat UX is unified.
+          Continuation is allowed only on approved reviews; submitting hands
+          off to startSessionWithHistory which transitions to the live pane
+          (so onStop, isActive etc. stay false here — the live session that
+          runs from this prompt is owned by the live pane). The ModelSelector
+          is hidden because the continuation pins the endpoint to the
+          review's original agent. */}
+      <ChatInputArea
+        isLoading={submitting}
+        inputDisabled={!continuable || submitting || isRunning}
+        value={inputValue}
+        onValueChange={setInputValue}
+        onSubmit={handleSubmit}
+        onStop={() => { /* no-op — review pane never owns an active session */ }}
+        canSubmit={continuable && inputValue.trim().length > 0 && !submitting && !isRunning}
+        placeholder={inputPlaceholder}
+        stopTooltip='Stop'
+        sendTooltip={continuable ? 'Continue' : 'Continuation only available on approved reviews'}
+        isActive={false}
+        lockedModel={lockedAgent}
+        staged={pendingStaged}
+        onPickAttachment={handlePickAttachment}
+        onRemoveAttachment={handleRemoveAttachment}
+        attachmentsBusy={false}
+        attachmentError={attachmentError}
+        attachmentsDisabled={!continuable || submitting || isRunning}
+        footer={isRunning ? (
+          <p className='mt-1.5 text-[11px] italic text-muted-foreground'>
+            A live session is already running. Stop it before continuing this thread.
+          </p>
+        ) : undefined}
+      />
     </div>
   );
 }

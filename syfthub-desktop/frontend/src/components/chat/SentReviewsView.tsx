@@ -436,7 +436,13 @@ export function SentReviewsView() {
     ? sentReviewsFilter
     : 'pending';
   const filterWord = activeFilter === 'all' ? '' : `${activeFilter} `;
-  const countNoun = sentReviews.length === 1 ? 'request' : 'requests';
+  // Client-side filter. The store holds every status (the sidebar's thread
+  // view requires that), so this view applies its dropdown locally rather
+  // than refetching with a status filter.
+  const visibleReviews = activeFilter === 'all'
+    ? sentReviews
+    : sentReviews.filter((r) => r.status === activeFilter);
+  const countNoun = visibleReviews.length === 1 ? 'request' : 'requests';
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -459,7 +465,7 @@ export function SentReviewsView() {
               </SelectContent>
             </Select>
             <span className="text-xs text-muted-foreground ml-2">
-              {sentReviews.length} {filterWord}{countNoun}
+              {visibleReviews.length} {filterWord}{countNoun}
             </span>
           </div>
 
@@ -485,14 +491,14 @@ export function SentReviewsView() {
 
       {/* Body — spinner / empty state / table. */}
       <div className="flex-1 overflow-auto">
-        {sentReviewsLoading && sentReviews.length === 0 ? (
+        {sentReviewsLoading && visibleReviews.length === 0 ? (
           <div className="flex items-center justify-center py-12">
             <div className="text-center text-muted-foreground">
               <RefreshCw className="w-8 h-8 mx-auto mb-2 animate-spin" />
               <p className="text-xs">Loading requests...</p>
             </div>
           </div>
-        ) : sentReviews.length === 0 ? (
+        ) : visibleReviews.length === 0 ? (
           <EmptyBody filterWord={filterWord} />
         ) : (
           <table className="w-full text-sm">
@@ -506,7 +512,7 @@ export function SentReviewsView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/30">
-              {sentReviews.map((review) => (
+              {visibleReviews.map((review) => (
                 <tr
                   key={review.reviewId}
                   className="hover:bg-card/30 cursor-pointer"

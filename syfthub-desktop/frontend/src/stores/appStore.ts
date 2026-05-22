@@ -255,6 +255,11 @@ interface AppState {
   sentReviewsLoading: boolean;
   selectedSentReview: SentReviewEntry | null;
   sentReviewsFilter: string;
+  /** Derived view of sentReviews grouped into continuation threads. Recomputed
+   *  by fetchSentReviews whenever the underlying list changes. Empty array
+   *  when no reviews exist. Consumers should prefer this over hand-rolling
+   *  the grouping on every render. */
+  sentReviewThreads: SentReviewThread[];
 
   // currentIdentity is the logged-in user's identity string (username/email/
   // whatever the Go side considers canonical). Used as defence-in-depth on
@@ -339,7 +344,7 @@ interface AppState {
   rejectManualReview: (reviewId: string, reason: string) => Promise<void>;
 
   // Actions - Sent reviews (the client's own manual-review ledger)
-  fetchSentReviews: (status?: string) => Promise<void>;
+  fetchSentReviews: () => Promise<void>;
   setSelectedSentReview: (review: SentReviewEntry | null) => void;
   setSentReviewsFilter: (status: string) => void;
   markSentReviewStatus: (reviewId: string, status: 'approved' | 'rejected', reason: string) => Promise<void>;
@@ -465,8 +470,143 @@ function scheduleReconcile(get: () => AppState): void {
   if (pendingReconcileTimer) clearTimeout(pendingReconcileTimer);
   pendingReconcileTimer = setTimeout(() => {
     pendingReconcileTimer = null;
-    void get().fetchSentReviews(get().sentReviewsFilter);
+    void get().fetchSentReviews();
   }, 250);
+}
+
+// SentReviewThread groups a chain of continuation reviews into one logical
+// conversation. The sidebar shows one item per thread; the chat pane
+// renders the thread's latest review (its status drives the badge, its
+// transcript drives the rendering). A thread with one review (no
+// continuations) is degenerate but still a thread.
+export interface SentReviewThread {
+  /** The root reviewId — earliest review in the chain. Stable thread key. */
+  threadId: string;
+  /** All reviews in chronological order (oldest first). */
+  reviews: SentReviewEntry[];
+  /** Most-recent review — drives sidebar badge + chat pane rendering. */
+  latestReview: SentReviewEntry;
+}
+
+/** Decide whether `b` is a continuation of `a` by transcript shape. Used
+ *  only as a fallback for rows that lack parentReviewId (synth rows from
+ *  ApplyHostResolution on a fresh device). `b` extends `a` iff b's first
+ *  N messages match a's transcript, position N is an assistant turn whose
+ *  content equals a.responseText, and b has at least one more message after
+ *  that (the new user turn). */
+function isTranscriptContinuation(
+  parent: SentReviewEntry,
+  child: SentReviewEntry,
+): boolean {
+  if (parent.endpointPath !== child.endpointPath) return false;
+  if (parent.status !== 'approved') return false;
+  const a = parent.requestMessages ?? [];
+  const b = child.requestMessages ?? [];
+  if (b.length < a.length + 2) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].role !== b[i].role || a[i].content !== b[i].content) return false;
+  }
+  const bridge = b[a.length];
+  if (bridge.role !== 'assistant') return false;
+  if (parent.responseText && bridge.content !== parent.responseText) return false;
+  return true;
+}
+
+/** Compute the thread grouping for a list of reviews.
+ *
+ *  Primary rule: walk `parentReviewId` links to find each review's root.
+ *  Fallback: for reviews with no parent (legacy rows, or synth rows from
+ *  cross-device delivery), attempt transcript-prefix matching against
+ *  candidate parents. The fallback only fires when the primary rule
+ *  couldn't link the row — it never overrides an explicit parent.
+ *
+ *  Complexity: O(n) for parent walking (with memoization), O(n²) worst
+ *  case for the fallback when many rows lack parentReviewId. At
+ *  maxSentReviewRows=1000 this is acceptable; we can index by endpointPath
+ *  if it ever becomes hot. */
+export function computeSentReviewThreads(reviews: SentReviewEntry[]): SentReviewThread[] {
+  if (reviews.length === 0) return [];
+
+  const byId = new Map<string, SentReviewEntry>();
+  for (const r of reviews) byId.set(r.reviewId, r);
+
+  // Resolve effective parents: explicit parentReviewId wins; otherwise try
+  // transcript-prefix matching against any prior review. The "newest viable
+  // parent" wins the tie if multiple candidates match (most recent context
+  // is most likely what the user was looking at).
+  const effectiveParent = new Map<string, string>();
+  // Iterate chronologically so a transcript-fallback lookup only sees
+  // reviews that existed when this one was captured.
+  const chrono = [...reviews].sort(
+    (a, b) => a.submittedAt.localeCompare(b.submittedAt),
+  );
+  for (let i = 0; i < chrono.length; i++) {
+    const r = chrono[i];
+    if (r.parentReviewId && byId.has(r.parentReviewId)) {
+      effectiveParent.set(r.reviewId, r.parentReviewId);
+      continue;
+    }
+    // Fallback only — scan earlier rows for a transcript-prefix match.
+    let bestParent: SentReviewEntry | null = null;
+    for (let j = i - 1; j >= 0; j--) {
+      const candidate = chrono[j];
+      if (isTranscriptContinuation(candidate, r)) {
+        if (
+          !bestParent ||
+          (candidate.requestMessages?.length ?? 0) > (bestParent.requestMessages?.length ?? 0)
+        ) {
+          bestParent = candidate;
+        }
+      }
+    }
+    if (bestParent) effectiveParent.set(r.reviewId, bestParent.reviewId);
+  }
+
+  // Resolve each review's root by walking the effective-parent map.
+  const rootCache = new Map<string, string>();
+  function findRoot(id: string, seen = new Set<string>()): string {
+    const cached = rootCache.get(id);
+    if (cached !== undefined) return cached;
+    if (seen.has(id)) {
+      // Cycle guard. parentReviewId is set on write and never updated, so
+      // a cycle is impossible in practice — but the cost of guarding is one
+      // Set, and the cost of NOT guarding is a stack overflow.
+      rootCache.set(id, id);
+      return id;
+    }
+    seen.add(id);
+    const parent = effectiveParent.get(id);
+    if (!parent || !byId.has(parent)) {
+      rootCache.set(id, id);
+      return id;
+    }
+    const root = findRoot(parent, seen);
+    rootCache.set(id, root);
+    return root;
+  }
+
+  const groups = new Map<string, SentReviewEntry[]>();
+  for (const r of reviews) {
+    const root = findRoot(r.reviewId);
+    const bucket = groups.get(root) ?? [];
+    bucket.push(r);
+    groups.set(root, bucket);
+  }
+
+  const threads: SentReviewThread[] = [];
+  for (const [threadId, members] of groups) {
+    members.sort((a, b) => a.submittedAt.localeCompare(b.submittedAt));
+    threads.push({
+      threadId,
+      reviews: members,
+      latestReview: members[members.length - 1],
+    });
+  }
+  // Sidebar reads this in order; newest activity first.
+  threads.sort(
+    (a, b) => b.latestReview.submittedAt.localeCompare(a.latestReview.submittedAt),
+  );
+  return threads;
 }
 
 function sentReviewsEqual(a: SentReviewEntry[], b: SentReviewEntry[]): boolean {
@@ -481,7 +621,8 @@ function sentReviewsEqual(a: SentReviewEntry[], b: SentReviewEntry[]): boolean {
       x.submittedAt !== y.submittedAt ||
       x.userNote !== y.userNote ||
       x.resolvedAt !== y.resolvedAt ||
-      x.responseText !== y.responseText
+      x.responseText !== y.responseText ||
+      x.parentReviewId !== y.parentReviewId
     ) {
       return false;
     }
@@ -584,6 +725,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Sent review initial state
   sentReviews: [],
+  sentReviewThreads: [],
   sentReviewsLoading: false,
   selectedSentReview: null,
   sentReviewsFilter: 'pending',
@@ -723,11 +865,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         get().fetchConfig(),
         get().refreshAggregatorURL(),
         get().fetchNetworkAgents(),
-        // Initial sent-reviews load, moved out of the components. Uses 'all'
-        // so the sidebar's full list is populated regardless of the global
-        // sentReviewsFilter (which defaults to 'pending'); SentReviewsView
-        // narrows server-side by re-fetching when its filter Select changes.
-        get().fetchSentReviews('all'),
+        // Initial sent-reviews load, moved out of the components. Always
+        // fetches the full list (see fetchSentReviews rationale); the view
+        // layer narrows by sentReviewsFilter.
+        get().fetchSentReviews(),
       ]);
 
       // Deregister any previous listeners before re-registering so multiple
@@ -1349,22 +1490,27 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Sent-for-review actions — the client's own manual-review ledger. Unlike
   // manual reviews these are cross-endpoint and identity-scoped (the Go
   // backend filters by the logged-in user), so there is no endpoint guard.
-  fetchSentReviews: async (status?: string) => {
+  // Always fetches the full list (two consumers — the sidebar's thread view
+  // and SentReviewsView's status-filtered list — share one store field, and
+  // server-side filtering would drop just-resolved rows out of the sidebar
+  // during reconciles). Status filtering happens client-side.
+  fetchSentReviews: async () => {
     try {
       set({ sentReviewsLoading: true });
-      const statusFilter = status ?? get().sentReviewsFilter;
-      const result = await GetSentReviews(statusFilter === 'all' ? '' : statusFilter);
+      const result = await GetSentReviews('');
       const next = result || [];
       // Skip the array-reference replacement when the wire payload is
       // structurally equal to what we already have so subscribers don't
-      // re-render on a no-op reconcile (the manual-review:resolved listener
-      // can fire a reconcile for every host-delivered resolution, including
-      // ones for rows already in the desired terminal state).
+      // re-render on a no-op reconcile.
       if (sentReviewsEqual(get().sentReviews, next)) {
         set({ sentReviewsLoading: false });
-      } else {
-        set({ sentReviews: next, sentReviewsLoading: false });
+        return;
       }
+      set({
+        sentReviews: next,
+        sentReviewThreads: computeSentReviewThreads(next),
+        sentReviewsLoading: false,
+      });
     } catch (err) {
       set({ error: `Failed to fetch sent reviews: ${err}`, sentReviewsLoading: false });
     }
@@ -1413,8 +1559,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setSentReviewsFilter: (status: string) => {
+    // Pure view-layer filter — SentReviewsView reads it and filters the
+    // full sentReviews list client-side. No refetch needed (the store
+    // already holds every status); refetching here would also blow away
+    // the cached full list during reconciles. See fetchSentReviews for the
+    // rationale.
     set({ sentReviewsFilter: status });
-    get().fetchSentReviews(status);
   },
 
   markSentReviewStatus: async (reviewId: string, status: 'approved' | 'rejected', reason: string) => {
@@ -1450,13 +1600,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (active.kind === 'review' && active.reviewId === reviewId) {
         get().setActiveChat({ kind: 'live' });
       }
-      // Refetch with 'all' — NOT the default sentReviewsFilter — because the
-      // sidebar (currently the only consumer) renders the full list across
-      // all statuses. Defaulting to the filter would silently hide approved /
-      // rejected items after a delete, which looks like "neighbour rows
-      // disappeared too" and re-appeared on remount (when the sidebar's own
-      // useEffect refetches with 'all').
-      await get().fetchSentReviews('all');
+      await get().fetchSentReviews();
     } catch (err) {
       set({ error: `Failed to delete review: ${err}` });
       throw err;

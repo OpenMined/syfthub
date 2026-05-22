@@ -285,8 +285,10 @@ func (b *agentNATSBridge) handleSessionStart(env *syfthubapi.AgentEnvelope, ciph
 		}
 		b.logger.Error("[AGENT] failed to start session",
 			"endpoint", startPayload.EndpointSlug, "error", err)
-		// Pre-session failures (policy denial, auth) have no transcript yet —
-		// synthesize one from the prompt so the log shows what was rejected.
+		// Pre-session failure: no transcript yet, and no typed verdict
+		// (StartSession surfaces a generic error) — synthesize a transcript
+		// from the prompt and emit with a nil policyResult so the log shows
+		// what was rejected without a policy badge.
 		b.emitSessionLog(
 			syfthubapi.NewRequestLogID(),
 			startPayload.SessionID,
@@ -297,6 +299,7 @@ func (b *agentNATSBridge) handleSessionStart(env *syfthubapi.AgentEnvelope, ciph
 			syfthubapi.LogStatusFailed,
 			err.Error(),
 			startTime,
+			nil,
 		)
 		fail(fmt.Sprintf("failed to start agent session: %v", err), syfthubapi.TunnelErrorCodeExecutionFailed)
 		return
@@ -417,6 +420,7 @@ func (b *agentNATSBridge) emitSessionLog(
 	status string,
 	failError string,
 	startTime time.Time,
+	policyResult *syfthubapi.PolicyResultOutput,
 ) {
 	b.logMu.Lock()
 	hook := b.logHook
@@ -476,6 +480,11 @@ func (b *agentNATSBridge) emitSessionLog(
 		log.Response.Error = failError
 	}
 
+	// Attach the latest policy verdict observed for this session so the per-
+	// request log carries Allowed/Denied/Pending instead of always rendering
+	// N/A. nil is expected for pre-session failures (no session context).
+	log.Policy = syfthubapi.NewLogPolicyFromResult(policyResult)
+
 	hook(context.Background(), log)
 }
 
@@ -532,6 +541,7 @@ func (b *agentNATSBridge) relayEvents(session *syfthubapi.AgentSession, replyTo 
 			status,
 			errMsg,
 			startTime,
+			session.LatestPolicyResult(),
 		)
 	}
 

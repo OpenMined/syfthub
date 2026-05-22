@@ -31,7 +31,7 @@ interface ChatWorkflowValue {
   startSessionWithHistory: (
     history: TranscriptMessage[],
     prompt: string,
-    overrides?: { endpointPath: string; endpointName: string },
+    overrides?: { endpointPath: string; endpointName: string; originReviewId?: string },
   ) => Promise<void>;
   sendInput: (content: string) => Promise<void>;
   stopSession: () => Promise<void>;

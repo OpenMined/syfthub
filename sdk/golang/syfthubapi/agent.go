@@ -165,6 +165,12 @@ type AgentSession struct {
 	// Read via Transcript().
 	transcript   []Message
 	transcriptMu sync.Mutex
+
+	// latestPolicy holds the most recent PolicyResult observed for this
+	// session. Read on every emitSessionLog snapshot (per session, ~1.5s)
+	// and written rarely (once per pre/post check), so atomic.Pointer keeps
+	// the hot snapshot path lock-free.
+	latestPolicy atomic.Pointer[PolicyResultOutput]
 }
 
 // AttachmentsEnabled reports whether the attachments capability is active
@@ -301,6 +307,21 @@ func (s *AgentSession) Transcript() []Message {
 	out := make([]Message, len(s.transcript))
 	copy(out, s.transcript)
 	return out
+}
+
+// RecordPolicyResult stores the most recent policy verdict. nil is ignored
+// so a failed check (no verdict) leaves the previous result in place.
+func (s *AgentSession) RecordPolicyResult(v *PolicyResultOutput) {
+	if v == nil {
+		return
+	}
+	s.latestPolicy.Store(v)
+}
+
+// LatestPolicyResult returns the most recent recorded verdict, or nil if no
+// policy check has fired yet.
+func (s *AgentSession) LatestPolicyResult() *PolicyResultOutput {
+	return s.latestPolicy.Load()
 }
 
 // Context returns the session's context.

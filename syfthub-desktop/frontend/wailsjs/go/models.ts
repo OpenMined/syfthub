@@ -813,6 +813,7 @@ export namespace main {
 	    userNote?: string;
 	    hostResolvedAt?: string;
 	    deliverySeq?: number;
+	    parentReviewId?: string;
 
 	    static createFrom(source: any = {}) {
 	        return new SentReviewEntry(source);
@@ -839,6 +840,7 @@ export namespace main {
 	        this.userNote = source["userNote"];
 	        this.hostResolvedAt = source["hostResolvedAt"];
 	        this.deliverySeq = source["deliverySeq"];
+	        this.parentReviewId = source["parentReviewId"];
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -867,6 +869,7 @@ export namespace main {
 	    policyName: string;
 	    requestMessages: ChatMessage[];
 	    placeholder: string;
+	    originReviewId?: string;
 
 	    static createFrom(source: any = {}) {
 	        return new SentReviewInput(source);
@@ -881,6 +884,7 @@ export namespace main {
 	        this.policyName = source["policyName"];
 	        this.requestMessages = this.convertValues(source["requestMessages"], ChatMessage);
 	        this.placeholder = source["placeholder"];
+	        this.originReviewId = source["originReviewId"];
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

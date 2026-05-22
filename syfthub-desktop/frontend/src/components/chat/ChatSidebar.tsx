@@ -22,6 +22,7 @@ import {
   useAppStore,
   type ActiveChat,
   type SentReviewEntry,
+  type SentReviewThread,
 } from '../../stores/appStore';
 import { cn } from '@/lib/utils';
 import { formatRelativeTime } from '@/lib/date-utils';
@@ -230,7 +231,12 @@ export interface ChatSidebarProps {
 }
 
 export function ChatSidebar({ liveRunning, liveEndpointName }: Readonly<ChatSidebarProps>) {
-  const sentReviews = useAppStore((s) => s.sentReviews);
+  // Threads (continuation chains) drive the sidebar — a multi-turn
+  // conversation collapses to one row whose badge tracks the latest turn.
+  // The raw sentReviews list is still available in the store for the
+  // SentReviewsView modal, but this surface intentionally hides that
+  // granularity from the user.
+  const sentReviewThreads = useAppStore((s) => s.sentReviewThreads);
   const activeChat = useAppStore((s) => s.activeChat);
   const setActiveChat = useAppStore((s) => s.setActiveChat);
   const deleteSentReview = useAppStore((s) => s.deleteSentReview);
@@ -239,20 +245,27 @@ export function ChatSidebar({ liveRunning, liveEndpointName }: Readonly<ChatSide
 
   // Pending-delete state. We confirm before deleting because the host's
   // resolution may still arrive later (and re-create a row via the synth
-  // INSERT path); the user should know what they're undoing.
-  const [pendingDelete, setPendingDelete] = useState<SentReviewEntry | null>(null);
+  // INSERT path); the user should know what they're undoing. The dialog
+  // operates on a thread — confirming deletes every review in the chain
+  // so the conversation disappears as a unit.
+  const [pendingDelete, setPendingDelete] = useState<SentReviewThread | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  // Initial fetchSentReviews('all') and the manual-review:resolved
-  // subscription both live in the store's initialize() now (design #3 —
-  // centralised event routing). The sidebar just reads sentReviews and
-  // re-renders when the store splices/reconciles.
+  // Initial fetch and the manual-review:resolved subscription both live in
+  // the store's initialize() now — sidebar just reads sentReviews.
 
   const handleConfirmDelete = useCallback(async () => {
     if (!pendingDelete) return;
     setDeleting(true);
     try {
-      await deleteSentReview(pendingDelete.reviewId);
+      // Delete every review in the thread so the conversation vanishes as a
+      // unit. Walking child → root so an earlier delete failure leaves the
+      // root (which still anchors the thread) rather than orphaning later
+      // turns into a separate sidebar item.
+      const ordered = [...pendingDelete.reviews].reverse();
+      for (const r of ordered) {
+        await deleteSentReview(r.reviewId);
+      }
       setPendingDelete(null);
     } catch {
       // The store recorded the error; close the dialog so the user can see
@@ -266,8 +279,9 @@ export function ChatSidebar({ liveRunning, liveEndpointName }: Readonly<ChatSide
   const isLiveActive = activeChat.kind === 'live';
   const activeReviewId = activeChat.kind === 'review' ? activeChat.reviewId : null;
 
-  const pendingLabel = pendingDelete
-    ? (pendingDelete.endpointName || pendingDelete.endpointPath || 'this chat')
+  const pendingLatest = pendingDelete?.latestReview;
+  const pendingLabel = pendingLatest
+    ? (pendingLatest.endpointName || pendingLatest.endpointPath || 'this chat')
     : '';
 
   return (
@@ -308,24 +322,32 @@ export function ChatSidebar({ liveRunning, liveEndpointName }: Readonly<ChatSide
           onClick={() => setActiveChat({ kind: 'live' })}
         />
 
-        {!collapsed && sentReviews.length > 0 && (
+        {!collapsed && sentReviewThreads.length > 0 && (
           <div className='px-1 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground'>
             Sent for review
           </div>
         )}
 
-        {sentReviews.map((r) => (
-          <ReviewItem
-            key={r.reviewId}
-            review={r}
-            active={r.reviewId === activeReviewId}
-            collapsed={collapsed}
-            onClick={() => setActiveChat({ kind: 'review', reviewId: r.reviewId })}
-            onRequestDelete={setPendingDelete}
-          />
-        ))}
+        {sentReviewThreads.map((t) => {
+          // "Active" matches when the active review anchor lives inside this
+          // thread — that handles both clicks (which set the anchor to the
+          // latest review) and any external setActiveChat targeting an
+          // older member.
+          const active = activeReviewId !== null
+            && t.reviews.some((r) => r.reviewId === activeReviewId);
+          return (
+            <ReviewItem
+              key={t.threadId}
+              review={t.latestReview}
+              active={active}
+              collapsed={collapsed}
+              onClick={() => setActiveChat({ kind: 'review', reviewId: t.latestReview.reviewId })}
+              onRequestDelete={() => setPendingDelete(t)}
+            />
+          );
+        })}
 
-        {!collapsed && sentReviews.length === 0 && (
+        {!collapsed && sentReviewThreads.length === 0 && (
           <p className='px-2 py-3 text-[11px] italic leading-relaxed text-muted-foreground'>
             Held requests will appear here once the endpoint owner reviews them.
           </p>
@@ -350,7 +372,7 @@ export function ChatSidebar({ liveRunning, liveEndpointName }: Readonly<ChatSide
                 Removes <span className='font-medium text-foreground'>{pendingLabel}</span> from
                 your local Sent for Review history. The chat transcript on this device is lost.
               </span>
-              {pendingDelete?.status === 'pending' && (
+              {pendingLatest?.status === 'pending' && (
                 <span className='mt-2 block text-xs'>
                   Note: this request is still pending review on the host. If the host approves
                   or rejects it later, the entry will re-appear here (with the resolution applied)

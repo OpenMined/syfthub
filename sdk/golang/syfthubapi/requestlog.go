@@ -170,6 +170,23 @@ type LogPolicy struct {
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
+// NewLogPolicyFromResult projects a PolicyResultOutput into the on-the-wire
+// LogPolicy shape. Returns nil when the result is nil so callers can assign
+// the result directly to RequestLog.Policy.
+func NewLogPolicyFromResult(r *PolicyResultOutput) *LogPolicy {
+	if r == nil {
+		return nil
+	}
+	return &LogPolicy{
+		Evaluated:  true,
+		Allowed:    r.Allowed,
+		PolicyName: r.PolicyName,
+		Reason:     r.Reason,
+		Pending:    r.Pending,
+		Metadata:   r.Metadata,
+	}
+}
+
 // LogTiming contains timing information for the log entry.
 type LogTiming struct {
 	// ReceivedAt is when the request was received.
@@ -339,16 +356,7 @@ func BuildRequestLog(
 	}
 
 	// Policy info
-	if policyResult != nil {
-		log.Policy = &LogPolicy{
-			Evaluated:  true,
-			Allowed:    policyResult.Allowed,
-			PolicyName: policyResult.PolicyName,
-			Reason:     policyResult.Reason,
-			Pending:    policyResult.Pending,
-			Metadata:   policyResult.Metadata,
-		}
-	}
+	log.Policy = NewLogPolicyFromResult(policyResult)
 
 	// Payment info — populated from transaction policy metadata.
 	if policyResult != nil && policyResult.Metadata != nil {

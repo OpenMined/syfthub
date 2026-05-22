@@ -8,6 +8,7 @@ import {
 } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
+import { useAppStore } from '../stores/appStore';
 
 // =============================================================================
 // Agent Event Types
@@ -113,6 +114,14 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
   // The prompt of the turn currently in flight — used to record what the user
   // actually asked when a manual-review hold arrives for that turn.
   const lastUserPromptRef = useRef('');
+
+  // originReviewIdRef carries the reviewId the current session is continuing
+  // from, so a hold captured in this session can stamp parent_review_id and
+  // the store can group both rows under one thread. Set by ReviewChatPane via
+  // startSessionWithHistory(..., { originReviewId }); cleared on startSession
+  // (fresh chat). After a hold is captured the ref bumps to the new reviewId
+  // so a subsequent continuation in the same session chains correctly.
+  const originReviewIdRef = useRef<string | null>(null);
 
   const makeId = () => {
     entryCounterRef.current += 1;
@@ -292,6 +301,10 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
                 : (lastUserPromptRef.current
                     ? [{ role: 'user', content: lastUserPromptRef.current }]
                     : []);
+              const originReviewId = originReviewIdRef.current ?? '';
+              // Fire the write, then refetch so the sidebar's thread list
+              // picks up the new row. Cheap if duplicated — the store
+              // dedupes via sentReviewsEqual.
               void RecordSentReview(main.SentReviewInput.createFrom({
                 reviewId,
                 endpointPath: ep.path,
@@ -302,9 +315,17 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
                 // policy.reason carries the placeholder text the caller received;
                 // content is the human-readable fallback sentence.
                 placeholder: typeof policy.reason === 'string' ? policy.reason : content,
-              })).catch(() => {
-                /* best-effort — the pending notice still renders if this fails */
-              });
+                originReviewId,
+              }))
+                .then(() => useAppStore.getState().fetchSentReviews())
+                .catch(() => {
+                  /* best-effort — the pending notice still renders if this fails */
+                });
+              // Subsequent holds in this same session (rare — typically the
+              // session is cancelled when policy holds, but a chain is
+              // possible) link to the freshly-captured review, not to the
+              // session's original origin.
+              originReviewIdRef.current = reviewId;
             }
             return next;
           });
@@ -400,6 +421,8 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
     // attributed correctly even if the agent dropdown changes mid-session.
     sessionEndpointRef.current = { path: endpointPath, name: endpointName };
     lastUserPromptRef.current = prompt;
+    // Fresh chat — no continuation parent.
+    originReviewIdRef.current = null;
     setEntries([{
       id: 'user-0',
       kind: 'user',
@@ -488,7 +511,7 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
   const startSessionWithHistory = useCallback(async (
     history: TranscriptMessage[],
     prompt: string,
-    overrides?: { endpointPath: string; endpointName: string },
+    overrides?: { endpointPath: string; endpointName: string; originReviewId?: string },
   ) => {
     const targetPath = overrides?.endpointPath ?? endpointPath;
     const targetName = overrides?.endpointName ?? endpointName;
@@ -504,6 +527,10 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
 
     sessionEndpointRef.current = { path: targetPath, name: targetName };
     lastUserPromptRef.current = prompt;
+    // Stamp the parent so any hold captured in this continuation session links
+    // back to the review the user was viewing. Empty string is treated as "no
+    // parent" by the IPC (matches the omitempty JSON tag).
+    originReviewIdRef.current = overrides?.originReviewId || null;
 
     // Seed entries with the prior history so the transcript reads continuously,
     // then append the new user prompt. The renderer treats these like any

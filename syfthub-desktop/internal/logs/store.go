@@ -68,6 +68,46 @@ type writeJob struct {
 	entry *syfthubapi.RequestLog
 }
 
+// bumpResponseCounters updates the success / error / policy-deny buckets and
+// totalDuration accumulator from a single log entry. Shared between the
+// initial full-scan, the lazy full-scan (getStatsFull), and the incremental
+// write-time update so new buckets land in one place.
+func bumpResponseCounters(stats *syfthubapi.LogStats, totalDuration *int64, log *syfthubapi.RequestLog) {
+	stats.TotalRequests++
+
+	if log.Response != nil && log.Response.Success {
+		stats.SuccessCount++
+	} else if countsAsError(log) {
+		stats.ErrorCount++
+	}
+
+	if log.Policy != nil && log.Policy.Evaluated && !log.Policy.Allowed {
+		stats.PolicyDenyCount++
+	}
+
+	if log.Timing != nil {
+		*totalDuration += log.Timing.DurationMs
+	}
+}
+
+// countsAsError reports whether an entry should be counted in ErrorCount.
+// Terminated sessions (user-stopped agent runs) have Response.Success=false
+// but represent an explicit cancellation, not a failure — bucketing them as
+// errors made the logs header read "0 success / 8 errors" for a list of
+// cleanly-stopped sessions. Running snapshots never reach the on-disk
+// counter path (Write returns early for them), but the same exclusion is
+// safe to keep here.
+func countsAsError(entry *syfthubapi.RequestLog) bool {
+	if entry == nil || entry.Response == nil || entry.Response.Success {
+		return false
+	}
+	switch entry.Status {
+	case syfthubapi.LogStatusTerminated, syfthubapi.LogStatusRunning:
+		return false
+	}
+	return true
+}
+
 // NewFileLogStore creates a new file-based log store.
 func NewFileLogStore(basePath string) (*FileLogStore, error) {
 	// Ensure base path exists
@@ -126,23 +166,7 @@ func (s *FileLogStore) initStatsCache() {
 			}
 
 			for _, log := range logs {
-				cached.stats.TotalRequests++
-
-				if log.Response != nil {
-					if log.Response.Success {
-						cached.stats.SuccessCount++
-					} else {
-						cached.stats.ErrorCount++
-					}
-				}
-
-				if log.Policy != nil && log.Policy.Evaluated && !log.Policy.Allowed {
-					cached.stats.PolicyDenyCount++
-				}
-
-				if log.Timing != nil {
-					cached.totalDuration += log.Timing.DurationMs
-				}
+				bumpResponseCounters(&cached.stats, &cached.totalDuration, log)
 
 				if log.Timestamp.After(lastTime) {
 					lastTime = log.Timestamp
@@ -441,23 +465,7 @@ func (s *FileLogStore) getStatsFull(_ context.Context, slug string) (*syfthubapi
 		}
 
 		for _, log := range logs {
-			stats.TotalRequests++
-
-			if log.Response != nil {
-				if log.Response.Success {
-					stats.SuccessCount++
-				} else {
-					stats.ErrorCount++
-				}
-			}
-
-			if log.Policy != nil && log.Policy.Evaluated && !log.Policy.Allowed {
-				stats.PolicyDenyCount++
-			}
-
-			if log.Timing != nil {
-				totalDuration += log.Timing.DurationMs
-			}
+			bumpResponseCounters(stats, &totalDuration, log)
 
 			if log.Timestamp.After(lastTime) {
 				lastTime = log.Timestamp
@@ -533,23 +541,7 @@ func (s *FileLogStore) updateStatsCache(slug string, entry *syfthubapi.RequestLo
 		s.statsCache[slug] = cached
 	}
 
-	cached.stats.TotalRequests++
-
-	if entry.Response != nil {
-		if entry.Response.Success {
-			cached.stats.SuccessCount++
-		} else {
-			cached.stats.ErrorCount++
-		}
-	}
-
-	if entry.Policy != nil && entry.Policy.Evaluated && !entry.Policy.Allowed {
-		cached.stats.PolicyDenyCount++
-	}
-
-	if entry.Timing != nil {
-		cached.totalDuration += entry.Timing.DurationMs
-	}
+	bumpResponseCounters(&cached.stats, &cached.totalDuration, entry)
 
 	// Recompute average
 	if cached.stats.TotalRequests > 0 {
@@ -703,12 +695,13 @@ func (s *FileLogStore) matchesFilters(log *syfthubapi.RequestLog, opts *syfthuba
 		return false
 	}
 
-	// Status filter
+	// Status filter. "error" excludes Terminated entries to match how the
+	// header counter buckets them (countsAsError).
 	if opts.Status != "" {
 		if opts.Status == "success" && (log.Response == nil || !log.Response.Success) {
 			return false
 		}
-		if opts.Status == "error" && (log.Response == nil || log.Response.Success) {
+		if opts.Status == "error" && !countsAsError(log) {
 			return false
 		}
 	}

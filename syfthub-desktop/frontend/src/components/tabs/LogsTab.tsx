@@ -228,7 +228,7 @@ function LogDetailPanel({
               </div>
               <div>
                 <label className="text-xs text-muted-foreground uppercase">Correlation ID</label>
-                <p className="text-sm text-secondary-foreground font-mono text-xs">{log.correlationId}</p>
+                <p className="text-sm text-foreground font-mono text-xs">{log.correlationId}</p>
               </div>
               <div>
                 <label className="text-xs text-muted-foreground uppercase">Status</label>
