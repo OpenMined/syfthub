@@ -218,8 +218,12 @@ func TestBuildChallenge_PopulatesMetadata(t *testing.T) {
 	if _, err := mppx.DeserializeChallenge(wire); err != nil {
 		t.Fatalf("DeserializeChallenge round-trip: %v", err)
 	}
-	if got, _ := meta[MetaKeyPaymentAmount].(string); got != "1000000" {
-		t.Fatalf("payment_amount: %q", got)
+	// payment_amount in metadata is now the display form (base units /
+	// 10^decimals) — the unit the consumer compares against per-endpoint
+	// caps and renders in the modal. spec carried 1000000 base units with
+	// decimals=6, so display is "1".
+	if got, _ := meta[MetaKeyPaymentAmount].(string); got != "1" {
+		t.Fatalf("payment_amount (display): %q, want %q", got, "1")
 	}
 	if got, _ := meta[MetaKeyPaymentCurrency].(string); got == "" {
 		t.Fatalf("payment_currency missing")

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -247,11 +248,16 @@ func (g *TempoGate) BuildChallenge(ctx context.Context, spec map[string]any, res
 	if err != nil {
 		return err
 	}
-	// Decimals is declared in the spec but the amount is already in base
-	// units (see _amount_base_units in the Python policy); we don't need
-	// to apply decimals again. Read it for validation only — a non-int
-	// value would mean the spec is malformed.
-	if _, err := intField(spec, specKeyDecimals); err != nil {
+	// Decimals is declared in the spec because the spec amount is in base
+	// units (see _amount_base_units in the Python policy). mppx itself does
+	// not need decimals applied again — we feed mppx the integer string —
+	// but we DO need decimals to derive the display amount we ship to the
+	// consumer for cap comparison and UI rendering. A consumer that compares
+	// base-unit amounts against a user-set cap like "1.00" would always
+	// over-trigger the modal, so the display-unit amount is what
+	// EvaluatePaymentDecision actually needs.
+	decimals, err := intField(spec, specKeyDecimals)
+	if err != nil {
 		return err
 	}
 
@@ -302,8 +308,15 @@ func (g *TempoGate) BuildChallenge(ctx context.Context, spec map[string]any, res
 		return fmt.Errorf("mppxgate: serialize challenge: %w", err)
 	}
 
+	// payment_amount carries the human-readable amount the consumer compares
+	// against per-endpoint caps and renders in the UI. The base-unit form
+	// stays inside the mppx challenge (where the signer needs it). Storing
+	// the user-friendly form here keeps cap evaluation and modal display
+	// consistent with how the consumer's ledger persists payments.
+	displayAmount := formatBaseUnitsAsDecimal(amount, decimals)
+
 	resultMeta[MetaKeyPaymentChallenge] = wire
-	resultMeta[MetaKeyPaymentAmount] = amount
+	resultMeta[MetaKeyPaymentAmount] = displayAmount
 	resultMeta[MetaKeyPaymentCurrency] = currency
 	resultMeta[MetaKeyPaymentRecipient] = payTo
 	resultMeta[MetaKeyChallengeID] = challenge.ID
@@ -311,7 +324,9 @@ func (g *TempoGate) BuildChallenge(ctx context.Context, spec map[string]any, res
 	g.logger.Info("[X402] challenge built",
 		"challenge_id", challenge.ID,
 		"realm", realm,
-		"amount", amount,
+		"amount_base_units", amount,
+		"amount_display", displayAmount,
+		"decimals", decimals,
 		"recipient", payTo,
 	)
 	_ = ctx // reserved for future cancellable paths
@@ -535,4 +550,51 @@ func parseISO(s string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, fmt.Errorf("invalid timestamp %q", s)
+}
+
+// formatBaseUnitsAsDecimal converts a base-unit integer string (e.g.
+// "15000000") into a user-facing decimal string (e.g. "15") given the
+// token's decimals count. The result is the canonical decimal — trailing
+// zeros after the decimal point are stripped and the decimal point itself
+// is dropped when the value is whole.
+//
+// This is the inverse of mppx's parseUnits and intentionally avoids floats
+// so token amounts at any decimal precision stay exact.
+//
+// On invalid input (non-numeric, negative, etc.) the function returns the
+// raw input unchanged so the producer log still shows what was offered;
+// EvaluatePaymentDecision will surface "invalid amount" downstream.
+func formatBaseUnitsAsDecimal(baseUnits string, decimals int) string {
+	if decimals <= 0 {
+		return baseUnits
+	}
+	s := baseUnits
+	neg := false
+	if len(s) > 0 && s[0] == '-' {
+		neg = true
+		s = s[1:]
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return baseUnits
+		}
+	}
+	if s == "" {
+		return baseUnits
+	}
+	// Left-pad with zeros so the decimal point lands inside the string.
+	for len(s) <= decimals {
+		s = "0" + s
+	}
+	cut := len(s) - decimals
+	whole := s[:cut]
+	frac := strings.TrimRight(s[cut:], "0")
+	out := whole
+	if frac != "" {
+		out = whole + "." + frac
+	}
+	if neg {
+		out = "-" + out
+	}
+	return out
 }
