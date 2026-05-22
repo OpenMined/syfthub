@@ -368,18 +368,26 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
           // really "start a fresh session with the signed credential
           // attached" — that's what StartAgentSessionWithCredential does.
           resetStreaming();
+          // The wire shape is the typed agenttypes.AgentPaymentRequiredEvent
+          // (amount / currency / recipient / challenge_id at top level).
+          // `details` is forward-compat (full mppxgate metadata projection)
+          // and falls in as a backup if the producer ever omits a top-level
+          // field. Read top-level first, fall back to details with the
+          // payment_ prefix.
           const details = (data.details ?? {}) as Record<string, unknown>;
-          const pick = (k: string): string => {
+          const topStr = (k: string): string => {
+            const v = (data as Record<string, unknown>)[k];
+            return typeof v === 'string' && v ? v : '';
+          };
+          const detailStr = (k: string): string => {
             const v = details[k];
             return typeof v === 'string' && v ? v : '';
           };
-          const challengeWire =
-            (typeof data.challenge === 'string' && data.challenge) ||
-            pick('payment_challenge');
-          const amount = pick('payment_amount');
-          const currency = pick('payment_currency');
-          const recipient = pick('payment_recipient');
-          const challengeId = pick('challenge_id');
+          const challengeWire = topStr('challenge') || detailStr('payment_challenge');
+          const amount = topStr('amount') || detailStr('payment_amount');
+          const currency = topStr('currency') || detailStr('payment_currency');
+          const recipient = topStr('recipient') || detailStr('payment_recipient');
+          const challengeId = topStr('challenge_id') || detailStr('challenge_id');
           const ep = sessionEndpointRef.current;
           const endpointSlug = ep.path;
           const prompt = lastUserPromptRef.current;

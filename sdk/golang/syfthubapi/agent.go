@@ -471,6 +471,14 @@ func (s *AgentSession) recordOutboundEvent(event AgentEventPayload) {
 // challenge is the WWW-Authenticate-style Payment challenge string; details
 // is the safe metadata projection from the policy result. Caller is expected
 // to cancel the session after this returns.
+//
+// Wire shape MUST line up with agenttypes.AgentPaymentRequiredEvent so the
+// consumer's typed deserializer can populate its fields. That struct reads
+// amount / currency / recipient / challenge_id / intent at the TOP level
+// with no payment_ prefix — so we lift them out of `details` here. The
+// `details` map keys use mppxgate's MetaKey* names (payment_amount, ...);
+// hub-bound non-agent endpoints still consume that map verbatim via the
+// TunnelError.Details path.
 func (s *AgentSession) SendPaymentRequired(policyName, challenge string, details map[string]any) error {
 	payload := map[string]any{
 		"policy_name": policyName,
@@ -478,6 +486,21 @@ func (s *AgentSession) SendPaymentRequired(policyName, challenge string, details
 	if challenge != "" {
 		payload["challenge"] = challenge
 	}
+	// Hoist the safe-projected fields into the top-level wire shape the
+	// consumer expects. Keep `details` too for forward-compat — newer
+	// clients can read it if they want the full safe projection.
+	lift := func(srcKey, dstKey string) {
+		if v, ok := details[srcKey]; ok {
+			if s, ok := v.(string); ok && s != "" {
+				payload[dstKey] = s
+			}
+		}
+	}
+	lift("payment_amount", "amount")
+	lift("payment_currency", "currency")
+	lift("payment_recipient", "recipient")
+	lift("challenge_id", "challenge_id")
+	lift("intent", "intent")
 	if len(details) > 0 {
 		payload["details"] = details
 	}
