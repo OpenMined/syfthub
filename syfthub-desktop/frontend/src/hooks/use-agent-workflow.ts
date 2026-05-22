@@ -2,9 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   StartAgentSession,
   StartAgentSessionWithHistory,
+  StartAgentSessionWithCredential,
   SendAgentMessage,
   StopAgentSession,
   RecordSentReview,
+  EvaluatePaymentDecision,
+  WalletPayChallenge,
 } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { main } from '../../wailsjs/go/models';
@@ -58,6 +61,25 @@ export interface TranscriptMessage {
   content: string;
 }
 
+/** PendingPayment is the snapshot the chat UI needs to render an x402
+ *  PaymentRequiredModal: the wallet-bound challenge plus a human-readable
+ *  price summary. onPaid is invoked with the wire-format mppx credential the
+ *  modal produced (via WalletPayChallenge); onCancel dismisses without
+ *  signing. The hook stashes this when a turn hits the x402 hard cap and
+ *  clears it after either onPaid or onCancel runs. */
+export interface PendingPayment {
+  endpointSlug: string;
+  ownerLabel: string;
+  amount: string;
+  currency: string;
+  recipient: string;
+  challengeWire: string;
+  challengeId: string;
+  prompt: string;
+  onPaid: (credential: string) => Promise<void> | void;
+  onCancel: () => void;
+}
+
 /** entriesToTranscript distills the rich AgentEntry[] (which mixes user
  *  messages, agent messages, tool calls, policy notices, etc.) down to the
  *  pure conversation transcript an agent needs as history. Only `user` and
@@ -98,6 +120,12 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
   const [awaitingInput, setAwaitingInput] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
   const entryCounterRef = useRef(0);
+
+  // pendingPayment is non-null when the active turn hit an x402 policy whose
+  // price exceeded the user's auto-pay cap. The chat UI renders
+  // <PaymentRequiredModal> off this value; the modal's onPaid callback signs
+  // a credential and restarts the session with it attached.
+  const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(null);
 
   // Dedupe RecordSentReview calls by review_id so StrictMode double-invokes or
   // any event replay never write the same hold twice.
@@ -333,26 +361,117 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
         }
 
         case 'agent.payment_required': {
-          // A transaction-style policy holds the turn until the user settles
-          // a charge. Surface it as a pending policy notice. (The full payment
-          // flow is not wired up yet — this just stops the turn vanishing
-          // silently.)
+          // x402_pay_per_request policy held the turn until the caller settles
+          // a charge. The producer cancels its session immediately after this
+          // event (see [AGENT] Session ended logs), so the "retry" path is
+          // really "start a fresh session with the signed credential
+          // attached" — that's what StartAgentSessionWithCredential does.
           resetStreaming();
-          const amount = String(data.amount ?? '').trim();
-          const currency = String(data.currency ?? '').trim();
-          const priced = amount ? `${amount}${currency ? ` ${currency}` : ''}` : '';
-          setEntries(prev => [...prev, {
-            id: makeId(),
-            kind: 'policy',
-            content: '',
-            data: {
-              status: 'pending',
-              reason: priced
-                ? `This request requires a payment of ${priced} to continue.`
-                : 'This request requires a payment to continue.',
-            },
-            timestamp: Date.now(),
-          }]);
+          const details = (data.details ?? {}) as Record<string, unknown>;
+          const pick = (k: string): string => {
+            const v = details[k];
+            return typeof v === 'string' && v ? v : '';
+          };
+          const challengeWire =
+            (typeof data.challenge === 'string' && data.challenge) ||
+            pick('payment_challenge');
+          const amount = pick('payment_amount');
+          const currency = pick('payment_currency');
+          const recipient = pick('payment_recipient');
+          const challengeId = pick('challenge_id');
+          const ep = sessionEndpointRef.current;
+          const endpointSlug = ep.path;
+          const prompt = lastUserPromptRef.current;
+          if (!challengeWire || !endpointSlug || !prompt) {
+            // Missing fields means we cannot retry; surface a policy notice
+            // so the user sees that the turn was held but no action is
+            // possible from the UI. (Producer-side bug — log loudly.)
+            setEntries(prev => [...prev, {
+              id: makeId(),
+              kind: 'policy',
+              content: '',
+              data: {
+                status: 'pending',
+                reason: 'Payment required, but the producer did not include a usable challenge.',
+              },
+              timestamp: Date.now(),
+            }]);
+            break;
+          }
+
+          const signAndRestart = async (cred: string) => {
+            try {
+              const sessionId = await StartAgentSessionWithCredential(
+                endpointSlug, prompt, cred,
+              );
+              sessionIdRef.current = sessionId;
+            } catch (err) {
+              setEntries(prev => [...prev, {
+                id: makeId(),
+                kind: 'error',
+                content: `Payment retry failed: ${err}`,
+                timestamp: Date.now(),
+              }]);
+              setIsRunning(false);
+            }
+          };
+
+          const signAndRetry = async () => {
+            try {
+              const credential = await WalletPayChallenge(challengeWire);
+              await signAndRestart(credential);
+            } catch (err) {
+              setEntries(prev => [...prev, {
+                id: makeId(),
+                kind: 'error',
+                content: `Payment failed: ${err}`,
+                timestamp: Date.now(),
+              }]);
+              setIsRunning(false);
+            }
+          };
+
+          (async () => {
+            let decision;
+            try {
+              decision = await EvaluatePaymentDecision(endpointSlug, amount, currency);
+            } catch (err) {
+              // Cap evaluator broken → fall back to a blocking prompt.
+              decision = main.PaymentDecision.createFrom({
+                action: 'prompt',
+                reason: `cap evaluation failed: ${String(err)}`,
+              });
+            }
+            if (decision.action === 'auto_pay' || decision.action === 'toast_pay') {
+              await signAndRetry();
+              return;
+            }
+            // 'prompt' — render the modal; resolves via onPaid/onCancel.
+            setPendingPayment({
+              endpointSlug,
+              ownerLabel: endpointSlug,
+              amount,
+              currency,
+              recipient,
+              challengeWire,
+              challengeId,
+              prompt,
+              onPaid: async (credential: string) => {
+                setPendingPayment(null);
+                await signAndRestart(credential);
+              },
+              onCancel: () => {
+                setPendingPayment(null);
+                setEntries(prev => [...prev, {
+                  id: makeId(),
+                  kind: 'cancelled',
+                  content: 'Payment declined — turn cancelled.',
+                  timestamp: Date.now(),
+                }]);
+                setIsRunning(false);
+              },
+            });
+          })().catch(() => { /* errors surfaced above */ });
           break;
         }
 
@@ -569,6 +688,13 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
     }
   }, [endpointPath, endpointName, isRunning]);
 
+  const dismissPayment = useCallback(() => {
+    setPendingPayment((prev) => {
+      if (prev) prev.onCancel();
+      return null;
+    });
+  }, []);
+
   return {
     entries,
     isRunning,
@@ -578,5 +704,7 @@ export function useAgentWorkflow({ endpointPath, endpointName }: UseAgentWorkflo
     sendInput,
     stopSession,
     clearEntries,
+    pendingPayment,
+    dismissPayment,
   };
 }

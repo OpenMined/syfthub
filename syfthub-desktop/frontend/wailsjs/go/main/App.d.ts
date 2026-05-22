@@ -184,6 +184,8 @@ export function Start():Promise<void>;
 
 export function StartAgentSession(arg1:string,arg2:string):Promise<string>;
 
+export function StartAgentSessionWithCredential(arg1:string,arg2:string,arg3:string):Promise<string>;
+
 export function StartAgentSessionWithHistory(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function Stop():Promise<void>;
@@ -205,6 +207,8 @@ export function UpdateEndpointOverview(arg1:string,arg2:string,arg3:string,arg4:
 export function UpdateSettlement(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number):Promise<void>;
 
 export function WalletBalance():Promise<main.WalletBalance>;
+
+export function WalletFund():Promise<main.FundResult>;
 
 export function WalletInit():Promise<main.WalletInfo>;
 

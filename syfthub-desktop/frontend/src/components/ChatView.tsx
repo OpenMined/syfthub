@@ -32,6 +32,7 @@ import { ModelSelector } from '@/components/chat/model-selector';
 import { PolicyNotice } from '@/components/chat/policy-notice';
 import { ChatSidebar } from '@/components/chat/ChatSidebar';
 import { ChatWorkflowProvider, useChatWorkflow } from '@/components/chat/ChatWorkflowProvider';
+import { PaymentRequiredModal } from '@/components/chat/PaymentRequiredModal';
 import { ReviewChatPane } from '@/components/chat/ReviewChatPane';
 import { ThinkingIndicator } from '@/components/chat/thinking-indicator';
 import { OpenMinedIcon } from '@/components/ui/openmined-icon';
@@ -491,6 +492,8 @@ function AgentChatContent() {
     startSession,
     sendInput,
     stopSession,
+    pendingPayment,
+    dismissPayment,
   } = useChatWorkflow();
 
   const { copiedId, copy: handleCopy } = useCopyToClipboard();
@@ -936,6 +939,19 @@ function AgentChatContent() {
           </div>
         </div>
       )}
+
+      <PaymentRequiredModal
+        open={pendingPayment !== null}
+        onClose={dismissPayment}
+        endpointSlug={pendingPayment?.endpointSlug ?? ''}
+        ownerLabel={pendingPayment?.ownerLabel ?? ''}
+        amount={pendingPayment?.amount ?? ''}
+        currency={pendingPayment?.currency ?? ''}
+        recipient={pendingPayment?.recipient ?? ''}
+        challengeWire={pendingPayment?.challengeWire ?? ''}
+        onPaid={pendingPayment?.onPaid ?? (() => {})}
+        onCancel={dismissPayment}
+      />
     </div>
   );
 }

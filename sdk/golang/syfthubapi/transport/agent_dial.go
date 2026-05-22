@@ -83,6 +83,13 @@ type DialParams struct {
 	Config *agenttypes.AgentConfig
 	// Capabilities lists optional protocol extensions (e.g. "attachments").
 	Capabilities []string
+
+	// PaymentCredential is the wire-format mppx credential to ship in the
+	// agent_session_start payload, used when the caller is restarting a
+	// session in response to a prior agent.payment_required event. Empty
+	// for fresh sessions; the host's policy chain will issue a challenge
+	// and the caller is expected to dial again with a non-empty credential.
+	PaymentCredential string
 }
 
 // Dial opens an agent session: it subscribes to the reply channel, publishes
@@ -139,11 +146,12 @@ func (d *AgentDialer) Dial(ctx context.Context, p DialParams) (*AgentClientSessi
 	s.sub = sub
 
 	startPayload := syfthubapi.AgentSessionStartPayload{
-		SessionID:    sessionID,
-		Prompt:       p.Prompt,
-		EndpointSlug: p.EndpointSlug,
-		Messages:     p.Messages,
-		Capabilities: p.Capabilities,
+		SessionID:         sessionID,
+		Prompt:            p.Prompt,
+		EndpointSlug:      p.EndpointSlug,
+		Messages:          p.Messages,
+		Capabilities:      p.Capabilities,
+		PaymentCredential: p.PaymentCredential,
 	}
 	if p.Config != nil {
 		startPayload.Config = *p.Config

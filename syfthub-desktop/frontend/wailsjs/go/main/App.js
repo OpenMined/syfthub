@@ -362,6 +362,10 @@ export function StartAgentSession(arg1, arg2) {
   return window['go']['main']['App']['StartAgentSession'](arg1, arg2);
 }
 
+export function StartAgentSessionWithCredential(arg1, arg2, arg3) {
+  return window['go']['main']['App']['StartAgentSessionWithCredential'](arg1, arg2, arg3);
+}
+
 export function StartAgentSessionWithHistory(arg1, arg2, arg3) {
   return window['go']['main']['App']['StartAgentSessionWithHistory'](arg1, arg2, arg3);
 }
@@ -404,6 +408,10 @@ export function UpdateSettlement(arg1, arg2, arg3, arg4, arg5) {
 
 export function WalletBalance() {
   return window['go']['main']['App']['WalletBalance']();
+}
+
+export function WalletFund() {
+  return window['go']['main']['App']['WalletFund']();
 }
 
 export function WalletInit() {

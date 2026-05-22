@@ -193,6 +193,7 @@ func (m *AgentSessionManager) StartSession(
 		AttachmentDir:      attachDir,
 		CallerPublicKeyB64: payload.CallerPublicKeyB64,
 		CallerReplyTo:      payload.CallerReplyTo,
+		PaymentCredential:  payload.PaymentCredential,
 	})
 
 	// Register session (enforce max sessions limit)

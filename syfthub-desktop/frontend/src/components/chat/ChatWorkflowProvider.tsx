@@ -18,10 +18,11 @@ import { useAgentWorkflow } from '@/hooks/use-agent-workflow';
 import type {
   AgentEntry,
   AgentStreamEvent,
+  PendingPayment,
   TranscriptMessage,
 } from '@/hooks/use-agent-workflow';
 
-export type { AgentEntry, AgentStreamEvent, TranscriptMessage };
+export type { AgentEntry, AgentStreamEvent, PendingPayment, TranscriptMessage };
 
 interface ChatWorkflowValue {
   entries: AgentEntry[];
@@ -36,6 +37,8 @@ interface ChatWorkflowValue {
   sendInput: (content: string) => Promise<void>;
   stopSession: () => Promise<void>;
   clearEntries: () => void;
+  pendingPayment: PendingPayment | null;
+  dismissPayment: () => void;
 }
 
 const ChatWorkflowContext = createContext<ChatWorkflowValue | null>(null);

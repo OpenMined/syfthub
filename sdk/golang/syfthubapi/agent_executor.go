@@ -381,11 +381,39 @@ func (a *AgentExecutor) checkPre(
 	in := a.baseInput(outer)
 	in.PolicyPhase = PolicyPhasePre
 	in.Messages = transcriptForPolicy(outer, userText)
+	in.PaymentCredential = outer.PaymentCredential
+
+	// If a credential was supplied AND a mppx gate is wired, verify it BEFORE
+	// the Python policy runs. PreVerify populates in.Context.Metadata with
+	// payment_verified=true, payment_challenge_id, payment_nonce, and
+	// payment_signed_tx_hex (the unbroadcast raw tx, used by SettleAfterHandler
+	// once the handler succeeds). The Python x402 policy then short-circuits
+	// to allow on round 2 instead of issuing a fresh challenge.
+	//
+	// A verification failure is logged but not surfaced as an error — the
+	// Python policy will see no payment_verified flag and return a fresh
+	// challenge, which the caller can pay and retry. This matches how the
+	// model/data_source processor handles the same failure mode.
+	if a.gate != nil && in.PaymentCredential != "" {
+		if in.Context.Metadata == nil {
+			in.Context.Metadata = map[string]any{}
+		}
+		if err := a.gate.PreVerify(ctx, in.PaymentCredential, in.Context.Metadata); err != nil {
+			a.logger.Warn("[AGENT-POLICY] mppx PreVerify failed; policy will issue fresh challenge",
+				"slug", a.slug, "error", err)
+		}
+	}
+
 	out, err := a.runPolicy(ctx, in)
 	if err != nil {
 		return nil, err
 	}
 	outer.RecordPolicyResult(out.PolicyResult)
+	// Stash the verify-time metadata on the session so checkPost can reuse
+	// it (and so SettleAfterHandler can find payment_signed_tx_hex after the
+	// handler returns). The session-scoped map is a turn-local channel
+	// between checkPre and the post-handler hook in handleReply.
+	outer.setLastTurnMetadata(in.Context.Metadata)
 	return out.PolicyResult, nil
 }
 
@@ -404,6 +432,34 @@ func (a *AgentExecutor) checkPost(
 	in.PolicyPhase = PolicyPhasePost
 	in.Messages = transcriptForPolicy(outer, userText)
 	in.Output, _ = json.Marshal(map[string]any{"response": reply})
+
+	// Carry the per-turn metadata populated by checkPre's PreVerify forward
+	// into the post phase so x402's post_execute can find
+	// payment_challenge_id (the row key it updates). If the gate is wired
+	// and a credential was supplied, also run SettleAfterHandler here — the
+	// handler has just succeeded, so the held signed tx can be broadcast
+	// and the resulting payment_receipt / payment_status surfaced to the
+	// post-execute policy chain.
+	if turnMeta := outer.LastTurnMetadata(); turnMeta != nil {
+		if in.Context.Metadata == nil {
+			in.Context.Metadata = turnMeta
+		} else {
+			for k, v := range turnMeta {
+				if _, exists := in.Context.Metadata[k]; !exists {
+					in.Context.Metadata[k] = v
+				}
+			}
+		}
+	}
+	if a.gate != nil && in.Context.Metadata != nil {
+		if _, settle := in.Context.Metadata["payment_signed_tx_hex"]; settle {
+			if err := a.gate.SettleAfterHandler(ctx, in.Context.Metadata); err != nil {
+				a.logger.Warn("[AGENT-POLICY] mppx SettleAfterHandler failed; post_execute will record failure",
+					"slug", a.slug, "error", err)
+			}
+		}
+	}
+
 	out, err := a.runPolicy(ctx, in)
 	if err != nil {
 		return nil, err
@@ -444,7 +500,10 @@ func transcriptForPolicy(outer *AgentSession, userText string) []Message {
 func (a *AgentExecutor) baseInput(outer *AgentSession) *ExecutorInput {
 	return buildExecutorInput(
 		string(EndpointTypeModel), a.slug, EndpointTypeAgent,
-		&RequestContext{User: outer.User},
+		&RequestContext{
+			User:              outer.User,
+			PaymentCredential: outer.PaymentCredential,
+		},
 	)
 }
 

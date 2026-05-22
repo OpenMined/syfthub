@@ -42,7 +42,19 @@ const agentStartTimeout = 30 * time.Second
 // Any previous session is cancelled before the new one starts so the frontend
 // only ever has one live transcript.
 func (a *App) StartAgentSession(endpointPath string, prompt string) (string, error) {
-	return a.startAgentSessionInternal(endpointPath, prompt, nil)
+	return a.startAgentSessionInternal(endpointPath, prompt, nil, "")
+}
+
+// StartAgentSessionWithCredential is the payment-retry variant. After a prior
+// session emitted agent.payment_required and the consumer signed an mppx
+// credential via WalletPayChallenge, the frontend re-opens the session with
+// that wire-format credential attached so the host's mppx gate can verify and
+// the per-turn policy short-circuits to allow.
+//
+// credentialWire is the string produced by mppx.SerializeCredential
+// (typically prefixed with "Payment "); empty falls back to a normal start.
+func (a *App) StartAgentSessionWithCredential(endpointPath string, prompt string, credentialWire string) (string, error) {
+	return a.startAgentSessionInternal(endpointPath, prompt, nil, credentialWire)
 }
 
 // StartAgentSessionWithHistory is the continuation variant: the agent receives
@@ -71,14 +83,17 @@ func (a *App) StartAgentSessionWithHistory(endpointPath string, prompt string, h
 			return "", fmt.Errorf("history[%d]: unsupported role %q", i, m.Role)
 		}
 	}
-	return a.startAgentSessionInternal(endpointPath, prompt, history)
+	return a.startAgentSessionInternal(endpointPath, prompt, history, "")
 }
 
 // startAgentSessionInternal does the actual dial work. history may be nil for
 // a fresh chat (the original StartAgentSession path) or carry prior turns for
-// a continuation. The dial path is identical either way — DialParams.Messages
-// is what carries the history to the host's AgentSessionStartPayload.
-func (a *App) startAgentSessionInternal(endpointPath, prompt string, history []agenttypes.Message) (string, error) {
+// a continuation. credentialWire is the wire-format mppx credential the
+// caller signed (empty for a fresh, unpaid session). The dial path is
+// identical regardless — DialParams.Messages carries the history and
+// DialParams.PaymentCredential carries the credential to the host's
+// AgentSessionStartPayload.
+func (a *App) startAgentSessionInternal(endpointPath, prompt string, history []agenttypes.Message, credentialWire string) (string, error) {
 	a.mu.RLock()
 	client := a.syftClient
 	core := a.core
@@ -137,14 +152,15 @@ func (a *App) startAgentSessionInternal(endpointPath, prompt string, history []a
 	}
 
 	session, err := dialer.Dial(startCtx, transport.DialParams{
-		TargetUsername:   owner,
-		HostPublicKeyB64: hostKey,
-		PeerChannel:      peerResp.PeerChannel,
-		SatelliteToken:   satResp.TargetToken,
-		Prompt:           prompt,
-		EndpointSlug:     slug,
-		Messages:         history,
-		Capabilities:     []string{agenttypes.AttachmentCapability},
+		TargetUsername:    owner,
+		HostPublicKeyB64:  hostKey,
+		PeerChannel:       peerResp.PeerChannel,
+		SatelliteToken:    satResp.TargetToken,
+		Prompt:            prompt,
+		EndpointSlug:      slug,
+		Messages:          history,
+		Capabilities:      []string{agenttypes.AttachmentCapability},
+		PaymentCredential: credentialWire,
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to start agent session: %w", err)

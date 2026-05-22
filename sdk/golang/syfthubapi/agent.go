@@ -102,6 +102,15 @@ type AgentSession struct {
 	// the session is still subscribed can be best-effort live-injected.
 	CallerReplyTo string
 
+	// PaymentCredential is the on-chain payment proof (a wire-format mppx
+	// credential) supplied by the caller in the agent_session_start envelope
+	// to satisfy an x402_pay_per_request policy. AgentExecutor threads this
+	// into per-turn RequestContext so the mppx gate's PreVerify can run
+	// before policy evaluation. Empty when the session was started without
+	// a pre-paid credential — the policy's pre_execute then issues a
+	// challenge and the caller is expected to restart the session with one.
+	PaymentCredential string
+
 	// AttachmentDir is the per-session tempdir for materialized attachment
 	// files. Set by the session manager when attachments are enabled; empty
 	// otherwise. Files in this directory are cleaned up on session end.
@@ -171,6 +180,43 @@ type AgentSession struct {
 	// and written rarely (once per pre/post check), so atomic.Pointer keeps
 	// the hot snapshot path lock-free.
 	latestPolicy atomic.Pointer[PolicyResultOutput]
+
+	// lastTurnMetadata is a per-turn scratchpad shared between checkPre
+	// (which the mppx gate's PreVerify writes into) and the post-handler
+	// settlement hook (which reads payment_signed_tx_hex / payment_challenge_id
+	// to broadcast the held tx and update the policy ledger). The map is
+	// REPLACED on each new turn, not merged, so stale fields from a prior
+	// turn cannot leak into the next pre/post evaluation. Guarded by
+	// lastTurnMetadataMu because checkPre and handleReply may run on
+	// different goroutines for the same session.
+	lastTurnMetadataMu sync.Mutex
+	lastTurnMetadata   map[string]any
+}
+
+// LastTurnMetadata returns a defensive copy of the per-turn metadata map
+// populated by the most recent checkPre. Callers that mutate the returned
+// map see no effect on the session; to push updates back, call
+// setLastTurnMetadata with the modified copy.
+func (s *AgentSession) LastTurnMetadata() map[string]any {
+	s.lastTurnMetadataMu.Lock()
+	defer s.lastTurnMetadataMu.Unlock()
+	if s.lastTurnMetadata == nil {
+		return nil
+	}
+	out := make(map[string]any, len(s.lastTurnMetadata))
+	for k, v := range s.lastTurnMetadata {
+		out[k] = v
+	}
+	return out
+}
+
+// setLastTurnMetadata installs metadata as the per-turn scratchpad. The map
+// reference is stored as-is (no copy) — callers must not mutate it after the
+// handoff. Use a fresh map per turn to avoid leaking fields across turns.
+func (s *AgentSession) setLastTurnMetadata(metadata map[string]any) {
+	s.lastTurnMetadataMu.Lock()
+	defer s.lastTurnMetadataMu.Unlock()
+	s.lastTurnMetadata = metadata
 }
 
 // AttachmentsEnabled reports whether the attachments capability is active
@@ -232,6 +278,11 @@ type AgentSessionParams struct {
 	// them empty.
 	CallerPublicKeyB64 string
 	CallerReplyTo      string
+
+	// PaymentCredential is the wire-format mppx credential the caller
+	// supplied in session_start (empty when not pre-paid). See the field
+	// of the same name on AgentSession for usage.
+	PaymentCredential string
 }
 
 // NewAgentSession creates a new AgentSession with the given parameters.
@@ -255,6 +306,7 @@ func NewAgentSession(parentCtx context.Context, params AgentSessionParams) *Agen
 		AttachmentDir:      params.AttachmentDir,
 		CallerPublicKeyB64: params.CallerPublicKeyB64,
 		CallerReplyTo:      params.CallerReplyTo,
+		PaymentCredential:  params.PaymentCredential,
 		recvAttachCh:       recvAttachCh,
 		ctx:                ctx,
 		cancel:             cancel,
