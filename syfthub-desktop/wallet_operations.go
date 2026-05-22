@@ -9,11 +9,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,6 +46,17 @@ const (
 	pathUSDDecimals        = 6
 
 	rpcEnvVar = "SYFTHUB_TEMPO_RPC_URL"
+
+	// faucetURL is the programmatic Tempo testnet faucet endpoint. A single
+	// POST funds the address with 1M each of pathUSD, AlphaUSD, BetaUSD,
+	// and ThetaUSD. May be overridden via SYFTHUB_TEMPO_FAUCET_URL for local
+	// proxies / alternative testnets.
+	faucetURL    = "https://docs.tempo.xyz/api/faucet"
+	faucetEnvVar = "SYFTHUB_TEMPO_FAUCET_URL"
+
+	// walletFundTimeout bounds the faucet POST. Funding fans out four
+	// transfers server-side, so we allow more headroom than the balance call.
+	walletFundTimeout = 30 * time.Second
 
 	// walletBalanceTimeout bounds the JSON-RPC call WalletBalance issues.
 	// Tempo testnet has been known to wedge on a slow upstream; this keeps
@@ -339,6 +354,117 @@ func (a *App) WalletPayChallenge(challengeWire string) (string, error) {
 	}
 
 	return wire, nil
+}
+
+// FundResult is the outcome of a faucet request. Hashes are the on-chain
+// transaction hashes for each asset the faucet sent (typically pathUSD,
+// AlphaUSD, BetaUSD, ThetaUSD — one per asset, in the order the faucet
+// returned them). The explorer link prefix is shared with the rest of the
+// app: ExplorerTxPrefix in the frontend.
+type FundResult struct {
+	Address   string   `json:"address"`
+	Hashes    []string `json:"hashes"`
+	Network   string   `json:"network"`
+	FaucetURL string   `json:"faucet_url"`
+}
+
+// faucetResponse is the JSON shape returned by the Tempo testnet faucet:
+//
+//	{"data":[{"hash":"0x..."},{"hash":"0x..."},...],"error":null}
+//
+// `error` is non-empty on rate-limit or invalid-address failures.
+type faucetResponse struct {
+	Data  []faucetHash `json:"data"`
+	Error any          `json:"error"`
+}
+
+type faucetHash struct {
+	Hash string `json:"hash"`
+}
+
+// faucetURLFor returns the faucet endpoint, allowing an env override for
+// local proxies or alternative testnets.
+func faucetURLFor() string {
+	if v := strings.TrimSpace(os.Getenv(faucetEnvVar)); v != "" {
+		return v
+	}
+	return faucetURL
+}
+
+// WalletFund requests testnet funding for the local wallet from the Tempo
+// faucet. Returns the transaction hashes the faucet broadcast — the user can
+// open each in the explorer to confirm receipt. The balance will visibly
+// update on the next WalletBalance call once the txs are mined.
+//
+// Returns ErrNoWallet when no on-disk key exists; the frontend should bounce
+// the user through WalletInit first. Surfaces the faucet's `error` field
+// verbatim when funding fails (typically a rate-limit message).
+func (a *App) WalletFund() (FundResult, error) {
+	acc, err := loadAccountFromFile()
+	if err != nil {
+		if os.IsNotExist(err) {
+			return FundResult{}, ErrNoWallet
+		}
+		return FundResult{}, err
+	}
+
+	// Tempo's faucet expects the address lowercase; mixed-case sometimes
+	// returns a generic 400.
+	address := strings.ToLower(acc.Address().Hex())
+	body, err := json.Marshal(map[string]string{"address": address})
+	if err != nil {
+		return FundResult{}, fmt.Errorf("encode faucet request: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), walletFundTimeout)
+	defer cancel()
+	url := faucetURLFor()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return FundResult{}, fmt.Errorf("build faucet request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return FundResult{}, fmt.Errorf("faucet request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if err != nil {
+		return FundResult{}, fmt.Errorf("read faucet response: %w", err)
+	}
+
+	if resp.StatusCode/100 != 2 {
+		return FundResult{}, fmt.Errorf("faucet returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+
+	var parsed faucetResponse
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return FundResult{}, fmt.Errorf("decode faucet response: %w (body: %s)", err, strings.TrimSpace(string(raw)))
+	}
+	if parsed.Error != nil && fmt.Sprint(parsed.Error) != "" && fmt.Sprint(parsed.Error) != "<nil>" {
+		return FundResult{}, fmt.Errorf("faucet error: %v", parsed.Error)
+	}
+	if len(parsed.Data) == 0 {
+		return FundResult{}, errors.New("faucet returned no transaction hashes")
+	}
+
+	hashes := make([]string, 0, len(parsed.Data))
+	for _, h := range parsed.Data {
+		if h.Hash != "" {
+			hashes = append(hashes, h.Hash)
+		}
+	}
+
+	return FundResult{
+		Address:   address,
+		Hashes:    hashes,
+		Network:   walletNetwork,
+		FaucetURL: url,
+	}, nil
 }
 
 // ErrNoWallet is returned by balance/show paths when no on-disk wallet

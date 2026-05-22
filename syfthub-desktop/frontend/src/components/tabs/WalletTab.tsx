@@ -101,6 +101,13 @@ export interface TransactionPage {
   totals: PaymentTotals;
 }
 
+export interface FundResult {
+  address: string;
+  hashes: string[];
+  network: string;
+  faucet_url: string;
+}
+
 type DateRange = '24h' | '7d' | '30d' | 'all';
 type StatusFilter =
   | 'all'
@@ -114,9 +121,13 @@ type StatusFilter =
 // The backend clamps at maxHistoryLimit=500; we stay well under that.
 const PAGE_SIZE = 50;
 
-// FUND_URL is the testnet faucet — opened in the user's default browser via
-// the Wails BrowserOpenURL runtime so we don't rely on a real <a target>.
+// FUND_URL is the human-facing testnet faucet page, kept as a fallback for
+// when WalletFund (the programmatic faucet POST) is unavailable.
 const FUND_URL = 'https://wallet.tempo.xyz/faucet';
+
+// FUND_BALANCE_REFRESH_DELAY_MS waits one Tempo block (~5s) before reloading
+// the balance so the user sees the new funds without needing a manual click.
+const FUND_BALANCE_REFRESH_DELAY_MS = 6000;
 
 // EXPLORER_TX_PREFIX wraps a tx hash into the testnet block explorer link.
 // Empty/missing hashes are rendered without a link.
@@ -330,6 +341,31 @@ export function WalletTab() {
     }
   }, [walletInfo?.address]);
 
+  const [fundRunning, setFundRunning] = useState(false);
+  const [fundResult, setFundResult] = useState<FundResult | null>(null);
+  const [fundError, setFundError] = useState<string | null>(null);
+
+  const fundFromFaucet = useCallback(async () => {
+    setFundRunning(true);
+    setFundError(null);
+    setFundResult(null);
+    try {
+      const result = await callWailsMethod<FundResult>('WalletFund');
+      setFundResult(result);
+      // Faucet txs typically mine within ~5s; refresh once so the new balance
+      // surfaces without a manual click.
+      window.setTimeout(() => {
+        void refreshWallet();
+      }, FUND_BALANCE_REFRESH_DELAY_MS);
+    } catch (err) {
+      setFundError(
+        err instanceof Error ? err.message : 'Failed to request faucet funds'
+      );
+    } finally {
+      setFundRunning(false);
+    }
+  }, [refreshWallet]);
+
   const openFundUrl = useCallback(() => {
     BrowserOpenURL(FUND_URL);
   }, []);
@@ -442,7 +478,11 @@ export function WalletTab() {
           copied={copiedAddress}
           onRefresh={refreshWallet}
           onCopyAddress={copyAddress}
-          onFund={openFundUrl}
+          onFund={fundFromFaucet}
+          onOpenFundPage={openFundUrl}
+          fundRunning={fundRunning}
+          fundResult={fundResult}
+          fundError={fundError}
           onInit={initWallet}
         />
 
@@ -645,6 +685,10 @@ interface WalletHeaderCardProps {
   onRefresh: () => void;
   onCopyAddress: () => void;
   onFund: () => void;
+  onOpenFundPage: () => void;
+  fundRunning: boolean;
+  fundResult: FundResult | null;
+  fundError: string | null;
   onInit: () => void;
 }
 
@@ -658,6 +702,10 @@ function WalletHeaderCard({
   onRefresh,
   onCopyAddress,
   onFund,
+  onOpenFundPage,
+  fundRunning,
+  fundResult,
+  fundError,
   onInit,
 }: WalletHeaderCardProps) {
   const hasWallet = Boolean(info?.key_exists);
@@ -728,6 +776,27 @@ function WalletHeaderCard({
           {error && (
             <p className="text-xs text-destructive">{error}</p>
           )}
+          {fundError && (
+            <p className="text-xs text-destructive">Fund: {fundError}</p>
+          )}
+          {fundResult && fundResult.hashes.length > 0 && (
+            <div className="text-xs text-muted-foreground">
+              Funded — {fundResult.hashes.length} faucet tx
+              {fundResult.hashes.length === 1 ? '' : 's'} broadcast.{' '}
+              <button
+                type="button"
+                onClick={() =>
+                  BrowserOpenURL(
+                    `${EXPLORER_TX_PREFIX}${fundResult.hashes[0]}`
+                  )
+                }
+                className="underline hover:text-foreground"
+              >
+                View first tx
+              </button>
+              . Balance will refresh shortly.
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -746,9 +815,27 @@ function WalletHeaderCard({
                 )}
                 Refresh
               </Button>
-              <Button variant="secondary" size="sm" onClick={onFund}>
-                <ExternalLink className="h-3 w-3" />
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={onFund}
+                disabled={fundRunning}
+                title="Request testnet tokens from the Tempo faucet"
+              >
+                {fundRunning ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <WalletIcon className="h-3 w-3" />
+                )}
                 Fund
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onOpenFundPage}
+                title="Open Tempo faucet page in browser"
+              >
+                <ExternalLink className="h-3 w-3" />
               </Button>
             </>
           ) : (
