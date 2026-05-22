@@ -241,7 +241,7 @@ func TestWalletPayChallenge_RoundTrip(t *testing.T) {
 		t.Fatalf("serialize challenge: %v", err)
 	}
 
-	credWire, err := a.WalletPayChallenge(wireChallenge)
+	credWire, err := a.WalletPayChallenge(wireChallenge, "1.00", pathUSDContractAddress)
 	if err != nil {
 		t.Fatalf("WalletPayChallenge: %v", err)
 	}
@@ -286,10 +286,10 @@ func TestWalletPayChallenge_RejectsEmpty(t *testing.T) {
 	resetPaymentsDBForTest(nil)
 	t.Cleanup(func() { resetPaymentsDBForTest(nil) })
 	a := &App{}
-	if _, err := a.WalletPayChallenge(""); err == nil {
+	if _, err := a.WalletPayChallenge("", "", ""); err == nil {
 		t.Fatal("expected error on empty challenge")
 	}
-	if _, err := a.WalletPayChallenge("not a real challenge"); err == nil {
+	if _, err := a.WalletPayChallenge("not a real challenge", "", ""); err == nil {
 		t.Fatal("expected error on garbage challenge")
 	}
 }

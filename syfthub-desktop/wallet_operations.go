@@ -310,9 +310,17 @@ func (a *App) WalletBalance() (WalletBalance, error) {
 // to the producer. It also persists a "signed" row in the local payment
 // ledger so the user can later see (and reconcile) what they paid for.
 //
+// displayAmount and currencyHint come from the payment_required event the
+// producer emitted (mppxgate.BuildChallenge writes a display-unit amount into
+// resultMeta separately from the base-unit amount baked into the challenge
+// wire). They are routed through to the ledger so the recorded "signed" row
+// reflects the human-readable amount the user actually saw and approved,
+// regardless of the token's decimals. Both are best-effort — pass "" to fall
+// back to extracting the (base-unit) amount + currency from the challenge.
+//
 // Wire format: the challenge is a base64url-encoded "Payment …" header value
 // as produced by mppx.SerializeChallenge.
-func (a *App) WalletPayChallenge(challengeWire string) (string, error) {
+func (a *App) WalletPayChallenge(challengeWire string, displayAmount string, currencyHint string) (string, error) {
 	if strings.TrimSpace(challengeWire) == "" {
 		return "", errors.New("challenge wire is empty")
 	}
@@ -343,7 +351,7 @@ func (a *App) WalletPayChallenge(challengeWire string) (string, error) {
 	// Persist a pending row so the history view immediately reflects the
 	// outgoing payment. UpdateSettlement (post-broadcast) will flip status
 	// to "settled" or "failed" once the producer reports the receipt.
-	rec := buildPendingPaymentRecord(ch, cred, wire)
+	rec := buildPendingPaymentRecord(ch, cred, wire, displayAmount, currencyHint)
 	if err := a.RecordPayment(rec); err != nil {
 		// History is non-fatal — the credential has been signed and the
 		// user should still be able to submit it. Log loudly so the
@@ -389,6 +397,54 @@ func faucetURLFor() string {
 		return v
 	}
 	return faucetURL
+}
+
+// faucetErrorMessage normalises the polymorphic `error` field on the faucet
+// response. Different faucet implementations encode "no error" differently:
+//   - `null` → parsed.Error == nil
+//   - `false` (boolean) → not nil but semantically success
+//   - `0` / `0.0` (numeric) → not nil but semantically success
+//   - `""` (empty string) → not nil but semantically success
+//   - any non-empty string / non-zero number / true / non-empty object → real error
+//
+// Returns the human-readable error message, or "" when the value should be
+// treated as success. Without this, fmt.Sprint(false) == "false" would
+// short-circuit funding with a misleading "faucet error: false" on responses
+// that explicitly signal success via a falsy error field.
+func faucetErrorMessage(v any) string {
+	if v == nil {
+		return ""
+	}
+	switch x := v.(type) {
+	case bool:
+		if !x {
+			return ""
+		}
+		return "true"
+	case string:
+		return strings.TrimSpace(x)
+	case float64:
+		if x == 0 {
+			return ""
+		}
+		return fmt.Sprintf("%v", x)
+	case map[string]any:
+		if len(x) == 0 {
+			return ""
+		}
+		// Prefer a "message" / "error" string field if the object carries one.
+		for _, k := range []string{"message", "error", "reason", "detail"} {
+			if s, ok := x[k].(string); ok && strings.TrimSpace(s) != "" {
+				return strings.TrimSpace(s)
+			}
+		}
+		return fmt.Sprintf("%v", x)
+	}
+	s := strings.TrimSpace(fmt.Sprint(v))
+	if s == "" || s == "<nil>" {
+		return ""
+	}
+	return s
 }
 
 // WalletFund requests testnet funding for the local wallet from the Tempo
@@ -445,8 +501,8 @@ func (a *App) WalletFund() (FundResult, error) {
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return FundResult{}, fmt.Errorf("decode faucet response: %w (body: %s)", err, strings.TrimSpace(string(raw)))
 	}
-	if parsed.Error != nil && fmt.Sprint(parsed.Error) != "" && fmt.Sprint(parsed.Error) != "<nil>" {
-		return FundResult{}, fmt.Errorf("faucet error: %v", parsed.Error)
+	if msg := faucetErrorMessage(parsed.Error); msg != "" {
+		return FundResult{}, fmt.Errorf("faucet error: %s", msg)
 	}
 	if len(parsed.Data) == 0 {
 		return FundResult{}, errors.New("faucet returned no transaction hashes")
@@ -476,17 +532,32 @@ var ErrNoWallet = errors.New("wallet not initialised — call WalletInit first")
 // buildPendingPaymentRecord extracts the audit fields (endpoint owner/slug,
 // amount, currency, chain id) from the credential's challenge and assembles
 // a PaymentRecord suitable for the initial "signed" insert.
-func buildPendingPaymentRecord(ch mppx.Challenge, cred mppx.Credential, wire string) PaymentRecord {
+//
+// displayAmount and currencyHint, when non-empty, take precedence over what
+// the challenge wire carries. The wire's amount is in base units of the
+// token's smallest unit, with no decimals field — so without the producer-
+// supplied display amount, the ledger can only guess at the human-readable
+// value and ends up wildly inflated for any token whose decimals differ from
+// pathUSD's six (e.g. an 18-decimal token records 10^12× the real amount).
+func buildPendingPaymentRecord(ch mppx.Challenge, cred mppx.Credential, wire string, displayAmount string, currencyHint string) PaymentRecord {
 	owner, slug := parseRealmEndpoint(ch.Realm)
-	amount := ""
-	currency := ""
+	amount := strings.TrimSpace(displayAmount)
+	currency := strings.TrimSpace(currencyHint)
 	chainID := defaultChainID
 	if ch.Request != nil {
-		if v, ok := ch.Request["amount"].(string); ok {
-			amount = formatDecimalAmount(v, pathUSDDecimals)
+		if amount == "" {
+			// No display amount supplied — fall back to the wire's base-unit
+			// integer, formatted with pathUSD decimals. This is only correct
+			// for pathUSD; the caller should pass displayAmount whenever the
+			// payment is in a different token.
+			if v, ok := ch.Request["amount"].(string); ok {
+				amount = formatDecimalAmount(v, pathUSDDecimals)
+			}
 		}
-		if v, ok := ch.Request["currency"].(string); ok {
-			currency = v
+		if currency == "" {
+			if v, ok := ch.Request["currency"].(string); ok {
+				currency = v
+			}
 		}
 		if md, ok := ch.Request["methodDetails"].(map[string]any); ok {
 			switch n := md["chainId"].(type) {

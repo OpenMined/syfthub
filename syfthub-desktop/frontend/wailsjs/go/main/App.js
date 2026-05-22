@@ -330,6 +330,10 @@ export function SendAgentMessage(arg1) {
   return window['go']['main']['App']['SendAgentMessage'](arg1);
 }
 
+export function SendAgentMessageWithCredential(arg1, arg2) {
+  return window['go']['main']['App']['SendAgentMessageWithCredential'](arg1, arg2);
+}
+
 export function SetAutoCheckEnabled(arg1) {
   return window['go']['main']['App']['SetAutoCheckEnabled'](arg1);
 }
@@ -356,10 +360,6 @@ export function SetSentReviewStatus(arg1, arg2, arg3) {
 
 export function Start() {
   return window['go']['main']['App']['Start']();
-}
-
-export function SendAgentMessageWithCredential(arg1, arg2) {
-  return window['go']['main']['App']['SendAgentMessageWithCredential'](arg1, arg2);
 }
 
 export function StartAgentSession(arg1, arg2) {
@@ -422,8 +422,8 @@ export function WalletInit() {
   return window['go']['main']['App']['WalletInit']();
 }
 
-export function WalletPayChallenge(arg1) {
-  return window['go']['main']['App']['WalletPayChallenge'](arg1);
+export function WalletPayChallenge(arg1, arg2, arg3) {
+  return window['go']['main']['App']['WalletPayChallenge'](arg1, arg2, arg3);
 }
 
 export function WalletShow() {

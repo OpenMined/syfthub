@@ -168,6 +168,8 @@ export function SaveSettingsData(arg1:string,arg2:string,arg3:string):Promise<vo
 
 export function SendAgentMessage(arg1:string):Promise<void>;
 
+export function SendAgentMessageWithCredential(arg1:string,arg2:string):Promise<void>;
+
 export function SetAutoCheckEnabled(arg1:boolean):Promise<void>;
 
 export function SetContainerEnabled(arg1:boolean):Promise<void>;
@@ -181,8 +183,6 @@ export function SetSentReviewNote(arg1:string,arg2:string):Promise<void>;
 export function SetSentReviewStatus(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function Start():Promise<void>;
-
-export function SendAgentMessageWithCredential(arg1:string,arg2:string):Promise<void>;
 
 export function StartAgentSession(arg1:string,arg2:string):Promise<string>;
 
@@ -214,6 +214,6 @@ export function WalletFund():Promise<main.FundResult>;
 
 export function WalletInit():Promise<main.WalletInfo>;
 
-export function WalletPayChallenge(arg1:string):Promise<string>;
+export function WalletPayChallenge(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function WalletShow():Promise<main.WalletInfo>;

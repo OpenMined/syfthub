@@ -148,6 +148,14 @@ type ChatStreamEvent struct {
 	Sources            map[string]ChatDocumentSource `json:"sources,omitempty"`
 	Response           string                        `json:"response,omitempty"`
 	ProfitShare        map[string]float64            `json:"profitShare,omitempty"`
+	// Payment-required fields (set only when Type == "payment_required"). The
+	// frontend's PaymentRequiredStreamEvent narrows on Type and reads these.
+	EndpointSlug string `json:"endpointSlug,omitempty"`
+	Challenge    string `json:"challenge,omitempty"`
+	Amount       string `json:"amount,omitempty"`
+	Currency     string `json:"currency,omitempty"`
+	Recipient    string `json:"recipient,omitempty"`
+	ChallengeID  string `json:"challengeId,omitempty"`
 }
 
 // ConfigRequest represents a configuration update from the frontend.

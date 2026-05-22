@@ -246,6 +246,16 @@ func (a *App) SetPaymentCap(entry PaymentCap) error {
 	if err != nil {
 		return err
 	}
+	// Reject soft_cap > hard_cap against the effective row that would result
+	// from persisting `entry` — otherwise EvaluatePaymentDecision would
+	// auto_pay anything below the inflated soft cap, fully overriding the
+	// (lower) hard cap the user intended to enforce.
+	eff := effectiveCap(cfg.Defaults, entry, slug)
+	softCap, sErr := parseDecimal(eff.SoftCap)
+	hardCap, hErr := parseDecimal(eff.HardCap)
+	if sErr == nil && hErr == nil && softCap.Cmp(hardCap) > 0 {
+		return fmt.Errorf("soft_cap (%s) must be <= hard_cap (%s)", eff.SoftCap, eff.HardCap)
+	}
 	stored := entry
 	stored.EndpointSlug = slug
 	stored.UpdatedAt = time.Now().Unix()
@@ -281,6 +291,7 @@ func (a *App) ResetPaymentCap(endpointSlug string) error {
 //
 // Rules:
 //   - amount unparseable          → prompt (reason: "invalid amount")
+//   - currency empty/missing       → prompt (reason: "missing currency")
 //   - currency != effective.Currency → prompt (reason: "different currency")
 //   - amount <= softCap            → auto_pay
 //   - softCap < amount <= hardCap  → toast_pay
@@ -302,8 +313,15 @@ func (a *App) EvaluatePaymentDecision(endpointSlug string, amount string, curren
 		return PaymentDecision{Action: PaymentDecisionPrompt, EffectiveCap: eff, Reason: "invalid amount"}, nil
 	}
 
-	// Currency mismatch always falls to the modal so the user can review.
-	if strings.TrimSpace(currency) != "" && !strings.EqualFold(strings.TrimSpace(currency), eff.Currency) {
+	// Missing currency must NOT auto-pay: the user's cap is denominated
+	// against a specific token (eff.Currency), so an unspecified currency
+	// could resolve to any on-chain asset. Fall to the modal so the user
+	// can review what they are actually paying for.
+	trimmedCurrency := strings.TrimSpace(currency)
+	if trimmedCurrency == "" {
+		return PaymentDecision{Action: PaymentDecisionPrompt, EffectiveCap: eff, Reason: "missing currency"}, nil
+	}
+	if !strings.EqualFold(trimmedCurrency, eff.Currency) {
 		return PaymentDecision{Action: PaymentDecisionPrompt, EffectiveCap: eff, Reason: "different currency"}, nil
 	}
 

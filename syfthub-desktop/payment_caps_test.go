@@ -108,6 +108,31 @@ func TestSetPaymentCap_RejectsInvalidAmount(t *testing.T) {
 	}
 }
 
+func TestSetPaymentCap_RejectsSoftAboveHard(t *testing.T) {
+	withTempHome(t)
+	app := &App{}
+	// Explicit inversion: soft above hard must be rejected so
+	// EvaluatePaymentDecision can't auto-pay anything below an inflated soft
+	// cap and silently bypass the (lower) hard cap.
+	if err := app.SetPaymentCap(PaymentCap{
+		EndpointSlug: "a/b",
+		SoftCap:      "5.00",
+		HardCap:      "1.00",
+		Currency:     pathUSDContractAddress,
+	}); err == nil {
+		t.Fatal("expected error for soft > hard")
+	}
+	// Partial override that inverts against defaults: defaults are
+	// soft=0.10/hard=1.00; overriding only soft=2.00 leaves effective
+	// hard=1.00, which is also an inversion.
+	if err := app.SetPaymentCap(PaymentCap{
+		EndpointSlug: "a/b",
+		SoftCap:      "2.00",
+	}); err == nil {
+		t.Fatal("expected error for soft > effective hard (defaults)")
+	}
+}
+
 func TestEvaluatePaymentDecision_UnderSoftCap(t *testing.T) {
 	withTempHome(t)
 	app := &App{}
@@ -163,6 +188,23 @@ func TestEvaluatePaymentDecision_DifferentCurrency(t *testing.T) {
 	}
 	if dec.Reason != "different currency" {
 		t.Errorf("want reason 'different currency', got %q", dec.Reason)
+	}
+}
+
+func TestEvaluatePaymentDecision_EmptyCurrencyFallsToPrompt(t *testing.T) {
+	// Empty currency must NOT auto-pay against the user's pathUSD cap —
+	// the on-chain asset is unknown, so the modal must surface for review.
+	withTempHome(t)
+	app := &App{}
+	dec, err := app.EvaluatePaymentDecision("alice/llm", "0.01", "")
+	if err != nil {
+		t.Fatalf("EvaluatePaymentDecision: %v", err)
+	}
+	if dec.Action != PaymentDecisionPrompt {
+		t.Errorf("want prompt for missing currency, got %q", dec.Action)
+	}
+	if dec.Reason != "missing currency" {
+		t.Errorf("want reason 'missing currency', got %q", dec.Reason)
 	}
 }
 

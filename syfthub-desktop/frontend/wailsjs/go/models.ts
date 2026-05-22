@@ -390,6 +390,24 @@ export namespace main {
 	        this.value = source["value"];
 	    }
 	}
+	export class FundResult {
+	    address: string;
+	    hashes: string[];
+	    network: string;
+	    faucet_url: string;
+
+	    static createFrom(source: any = {}) {
+	        return new FundResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.address = source["address"];
+	        this.hashes = source["hashes"];
+	        this.network = source["network"];
+	        this.faucet_url = source["faucet_url"];
+	    }
+	}
 	export class PackageConfigField {
 	    key: string;
 	    label: string;
