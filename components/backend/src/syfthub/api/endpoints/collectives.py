@@ -18,6 +18,7 @@ from syfthub.database.dependencies import get_collective_service
 from syfthub.schemas.collective import (
     CollectiveCreate,
     CollectiveInvitationResponse,
+    CollectiveInviteByPathRequest,
     CollectiveMemberRequest,
     CollectiveMemberResponse,
     CollectiveResponse,
@@ -210,6 +211,50 @@ async def invite_endpoint(
     if email_context is not None:
         background_tasks.add_task(send_collective_invitation_email, email_context)
     return membership
+
+
+@router.post(
+    "/{collective_id}/invitations/by-path",
+    response_model=CollectiveMemberResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def invite_endpoint_by_path(
+    collective_id: int,
+    data: CollectiveInviteByPathRequest,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    service: Annotated[CollectiveService, Depends(get_collective_service)],
+    background_tasks: BackgroundTasks,
+) -> CollectiveMemberResponse:
+    """Invite an endpoint into a collective by its ``owner/slug`` path.
+
+    Same semantics as ``POST /invitations`` — the body identifies the endpoint
+    by its public path instead of by numeric id. Used by the admin invite UI
+    since the public endpoint API does not expose ids.
+    """
+    membership, email_context = service.invite_endpoint_by_path(
+        collective_id, data.owner_username, data.slug, current_user
+    )
+    if email_context is not None:
+        background_tasks.add_task(send_collective_invitation_email, email_context)
+    return membership
+
+
+@router.get(
+    "/{collective_id}/invitations/{endpoint_id}",
+    response_model=CollectiveMemberResponse,
+)
+async def get_invitation(
+    collective_id: int,
+    endpoint_id: int,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    service: Annotated[CollectiveService, Depends(get_collective_service)],
+) -> CollectiveMemberResponse:
+    """Get the membership row for an invitation.
+
+    Readable by the endpoint owner, collective owner, or an admin — used by
+    the invitation landing page that the email links to.
+    """
+    return service.get_invitation(collective_id, endpoint_id, current_user)
 
 
 @router.post(

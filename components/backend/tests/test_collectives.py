@@ -469,6 +469,154 @@ def test_only_endpoint_owner_responds_to_invitation(
     assert resp.status_code == 403
 
 
+def test_get_invitation_readable_by_endpoint_owner(
+    client: TestClient, owner_headers: dict, member_headers: dict
+) -> None:
+    """The endpoint owner can fetch their own invitation row to render the
+    response landing page (list_members hides non-approved from non-managers)."""
+    collective = _create_collective(client, owner_headers)
+    cid = collective["id"]
+    endpoint_id = _create_endpoint(client, member_headers, "inv-target")
+    client.post(
+        f"{API}/collectives/{cid}/invitations",
+        json={"endpoint_id": endpoint_id},
+        headers=owner_headers,
+    )
+
+    resp = client.get(
+        f"{API}/collectives/{cid}/invitations/{endpoint_id}",
+        headers=member_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "invited"
+    assert body["endpoint_id"] == endpoint_id
+
+
+def test_get_invitation_readable_by_collective_owner(
+    client: TestClient, owner_headers: dict, member_headers: dict
+) -> None:
+    """The collective owner who sent the invitation can also read the row."""
+    collective = _create_collective(client, owner_headers)
+    cid = collective["id"]
+    endpoint_id = _create_endpoint(client, member_headers, "inv-target")
+    client.post(
+        f"{API}/collectives/{cid}/invitations",
+        json={"endpoint_id": endpoint_id},
+        headers=owner_headers,
+    )
+
+    resp = client.get(
+        f"{API}/collectives/{cid}/invitations/{endpoint_id}",
+        headers=owner_headers,
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_get_invitation_forbidden_for_outsider(client: TestClient) -> None:
+    """A user who is neither the endpoint owner nor the collective owner is
+    refused with 403."""
+    owner = _register_and_login(client, "co-owner")
+    ep_owner = _register_and_login(client, "ep-owner")
+    outsider = _register_and_login(client, "nobody")
+
+    collective = _create_collective(client, owner)
+    cid = collective["id"]
+    endpoint_id = _create_endpoint(client, ep_owner, "inv-target")
+    client.post(
+        f"{API}/collectives/{cid}/invitations",
+        json={"endpoint_id": endpoint_id},
+        headers=owner,
+    )
+
+    resp = client.get(
+        f"{API}/collectives/{cid}/invitations/{endpoint_id}",
+        headers=outsider,
+    )
+    assert resp.status_code == 403
+
+
+def test_get_invitation_404_when_missing(
+    client: TestClient, owner_headers: dict, member_headers: dict
+) -> None:
+    """No invitation row → 404, even when caller is otherwise authorized."""
+    collective = _create_collective(client, owner_headers)
+    cid = collective["id"]
+    endpoint_id = _create_endpoint(client, member_headers, "never-invited")
+
+    resp = client.get(
+        f"{API}/collectives/{cid}/invitations/{endpoint_id}",
+        headers=owner_headers,
+    )
+    assert resp.status_code == 404
+
+
+def test_invite_endpoint_by_path(
+    client: TestClient, owner_headers: dict, member_headers: dict
+) -> None:
+    """Invite-by-path resolves owner/slug and creates the same invited row
+    that the numeric-id route would."""
+    collective = _create_collective(client, owner_headers)
+    cid = collective["id"]
+    endpoint_id = _create_endpoint(client, member_headers, "by-path-target")
+
+    resp = client.post(
+        f"{API}/collectives/{cid}/invitations/by-path",
+        json={"owner_username": "member", "slug": "by-path-target"},
+        headers=owner_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["status"] == "invited"
+    assert body["endpoint_id"] == endpoint_id
+
+
+def test_invite_by_path_404_when_endpoint_missing(
+    client: TestClient, owner_headers: dict
+) -> None:
+    """Invite-by-path returns 404 when the path doesn't resolve."""
+    collective = _create_collective(client, owner_headers)
+    cid = collective["id"]
+    resp = client.post(
+        f"{API}/collectives/{cid}/invitations/by-path",
+        json={"owner_username": "nobody", "slug": "nothing"},
+        headers=owner_headers,
+    )
+    assert resp.status_code == 404
+
+
+def test_invite_by_path_rejects_private_endpoint(
+    client: TestClient, owner_headers: dict, member_headers: dict
+) -> None:
+    """Invite-by-path only resolves public endpoints — private endpoints are
+    not discoverable via owner/slug so the route refuses them with 404."""
+    collective = _create_collective(client, owner_headers)
+    cid = collective["id"]
+    _create_endpoint(client, member_headers, "secret-data", visibility="private")
+    resp = client.post(
+        f"{API}/collectives/{cid}/invitations/by-path",
+        json={"owner_username": "member", "slug": "secret-data"},
+        headers=owner_headers,
+    )
+    assert resp.status_code == 404
+
+
+def test_invite_by_path_requires_collective_owner(
+    client: TestClient, owner_headers: dict, member_headers: dict
+) -> None:
+    """A non-owner cannot invite via the path-based route either."""
+    collective = _create_collective(client, owner_headers)
+    cid = collective["id"]
+    _create_endpoint(client, member_headers, "by-path-target")
+
+    resp = client.post(
+        f"{API}/collectives/{cid}/invitations/by-path",
+        json={"owner_username": "member", "slug": "by-path-target"},
+        headers=member_headers,
+    )
+    assert resp.status_code == 403
+
+
 # ----------------------------------------------------------------------
 # Membership — endpoint type eligibility (data sources only)
 # ----------------------------------------------------------------------

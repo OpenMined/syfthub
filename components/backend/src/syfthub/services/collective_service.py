@@ -387,6 +387,68 @@ class CollectiveService(BaseService):
             reviewed_by_user_id=current_user.id,
         )
 
+    def invite_endpoint_by_path(
+        self,
+        collective_id: int,
+        owner_username: str,
+        slug: str,
+        current_user: User,
+    ) -> tuple[CollectiveMemberResponse, Optional[InvitationEmailContext]]:
+        """Invite an endpoint identified by ``owner/slug``.
+
+        Resolves the path to an endpoint id and delegates to ``invite_endpoint``.
+        Only public endpoints are resolvable here (this is how the admin UI
+        finds them); 404 otherwise.
+        """
+        owner = self.user_repo.get_by_username(owner_username)
+        if owner is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"User '{owner_username}' not found",
+            )
+        endpoint = self.endpoint_repo.get_by_owner_and_slug_any_state(owner.id, slug)
+        if endpoint is None or endpoint.visibility != EndpointVisibility.PUBLIC:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Endpoint '{owner_username}/{slug}' not found",
+            )
+        return self.invite_endpoint(collective_id, endpoint.id, current_user)
+
+    def get_invitation(
+        self, collective_id: int, endpoint_id: int, current_user: User
+    ) -> CollectiveMemberResponse:
+        """Return the membership row for an invitation.
+
+        Used by the invitation-response landing page so the recipient can see
+        the invite even before they accept. Readable by the endpoint owner,
+        the collective owner, and admins; everyone else gets 403. A row that
+        does not exist (or has been removed) yields 404. The status is not
+        constrained — the caller may want to render an "already accepted" or
+        "declined" state.
+        """
+        collective = self._get_collective_or_404(collective_id)
+        endpoint = self._get_endpoint_or_404(endpoint_id)
+
+        allowed = (
+            self._is_admin(current_user)
+            or collective.owner_id == current_user.id
+            or endpoint.user_id == current_user.id
+        )
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the collective owner or the endpoint owner "
+                "can view this invitation",
+            )
+
+        membership = self.member_repo.get_membership(collective_id, endpoint_id)
+        if membership is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Invitation not found",
+            )
+        return self._enrich(membership)
+
     def remove_member(
         self, collective_id: int, endpoint_id: int, current_user: User
     ) -> None:

@@ -21,7 +21,9 @@ import {
   createCollective,
   deleteCollective,
   getCollectiveBySlug,
+  getInvitation,
   inviteEndpoint,
+  inviteEndpointByPath,
   listCollectives,
   listCollectivesPaginated,
   listMembers,
@@ -66,6 +68,19 @@ export function useCollectiveBySlug(slug: string | undefined) {
   });
 }
 
+/**
+ * Fetch a single invitation (membership row) by collective + endpoint id.
+ * Readable by the endpoint owner, the collective owner, or an admin — backs
+ * the invitation-response landing page reached from the invitation email.
+ */
+export function useInvitation(collectiveId: number | undefined, endpointId: number | undefined) {
+  return useQuery({
+    queryKey: collectiveKeys.invitation(collectiveId ?? 0, endpointId ?? 0),
+    queryFn: () => (collectiveId && endpointId ? getInvitation(collectiveId, endpointId) : null),
+    enabled: Boolean(collectiveId && endpointId)
+  });
+}
+
 /** List a collective's memberships, optionally filtered by workflow status. */
 export function useCollectiveMembers(collectiveId: number | undefined, status?: MembershipStatus) {
   return useQuery({
@@ -91,7 +106,9 @@ function useInvalidateMembers() {
   const queryClient = useQueryClient();
   return useCallback(
     (collectiveId: number) =>
-      void queryClient.invalidateQueries({ queryKey: collectiveKeys.members(collectiveId) }),
+      void queryClient.invalidateQueries({
+        queryKey: collectiveKeys.membersByCollective(collectiveId)
+      }),
     [queryClient]
   );
 }
@@ -140,6 +157,53 @@ export function useRequestJoin() {
   });
 }
 
+/** Outcome of a {@link useRequestJoinMany} call. */
+export interface RequestJoinManyResult {
+  /** Endpoints whose join request succeeded. */
+  succeeded: number[];
+  /** Per-endpoint failures, surfaced so the UI can report a partial result. */
+  failed: { endpointId: number; error: Error }[];
+}
+
+/**
+ * Submit join requests for multiple endpoints in parallel.
+ *
+ * The backend exposes only the single-endpoint route, so we fan out and gather
+ * results with `Promise.allSettled` — every endpoint succeeds or fails on its
+ * own and the caller renders a partial-success summary if any fail.
+ */
+export function useRequestJoinMany() {
+  const invalidateMembers = useInvalidateMembers();
+  return useMutation<RequestJoinManyResult, Error, { collectiveId: number; endpointIds: number[] }>(
+    {
+      mutationFn: async ({ collectiveId, endpointIds }) => {
+        const settled = await Promise.allSettled(
+          endpointIds.map((endpointId) => requestJoin(collectiveId, endpointId))
+        );
+        const succeeded: number[] = [];
+        const failed: { endpointId: number; error: Error }[] = [];
+        for (const [index, outcome] of settled.entries()) {
+          const endpointId = endpointIds[index];
+          if (endpointId === undefined) continue;
+          if (outcome.status === 'fulfilled') {
+            succeeded.push(endpointId);
+          } else {
+            failed.push({
+              endpointId,
+              error:
+                outcome.reason instanceof Error ? outcome.reason : new Error(String(outcome.reason))
+            });
+          }
+        }
+        return { succeeded, failed };
+      },
+      onSuccess: (_data, { collectiveId }) => {
+        invalidateMembers(collectiveId);
+      }
+    }
+  );
+}
+
 /** Approve or reject a pending join request (collective owner). */
 export function useReviewRequest() {
   const invalidateMembers = useInvalidateMembers();
@@ -183,8 +247,31 @@ export function useInviteEndpoint() {
   });
 }
 
+/**
+ * Invite an endpoint into a collective by its `owner/slug` path. Backs the
+ * admin invite-endpoint modal.
+ */
+export function useInviteEndpointByPath() {
+  const invalidateMembers = useInvalidateMembers();
+  return useMutation({
+    mutationFn: ({
+      collectiveId,
+      ownerUsername,
+      slug
+    }: {
+      collectiveId: number;
+      ownerUsername: string;
+      slug: string;
+    }) => inviteEndpointByPath(collectiveId, ownerUsername, slug),
+    onSuccess: (_data, { collectiveId }) => {
+      invalidateMembers(collectiveId);
+    }
+  });
+}
+
 /** Accept or decline a collective invitation (endpoint owner). */
 export function useRespondToInvitation() {
+  const queryClient = useQueryClient();
   const invalidateMembers = useInvalidateMembers();
   return useMutation({
     mutationFn: ({
@@ -196,8 +283,11 @@ export function useRespondToInvitation() {
       endpointId: number;
       decision: InvitationDecision;
     }) => respondToInvitation(collectiveId, endpointId, decision),
-    onSuccess: (_data, { collectiveId }) => {
+    onSuccess: (_data, { collectiveId, endpointId }) => {
       invalidateMembers(collectiveId);
+      void queryClient.invalidateQueries({
+        queryKey: collectiveKeys.invitation(collectiveId, endpointId)
+      });
     }
   });
 }
