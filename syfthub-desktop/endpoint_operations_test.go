@@ -108,16 +108,6 @@ func TestGeneratePolicyYAML(t *testing.T) {
 			wantContains: []string{"type: ManualReviewPolicy", "placeholder_message:"},
 		},
 		{
-			name:         "TransactionPolicy",
-			req:          NewPolicyRequest{Name: "transaction", Type: "TransactionPolicy"},
-			wantContains: []string{"type: TransactionPolicy", "cost_per_request:"},
-		},
-		{
-			name:         "BundleSubscriptionPolicy",
-			req:          NewPolicyRequest{Name: "pro-plan", Type: "BundleSubscriptionPolicy"},
-			wantContains: []string{"type: bundle_subscription", "name: pro-plan", "plan_name:", "price:", "currency:", "billing_cycle:", "invoice_url:"},
-		},
-		{
 			name: "AllOfPolicy with children",
 			req: NewPolicyRequest{
 				Name:          "all-of",

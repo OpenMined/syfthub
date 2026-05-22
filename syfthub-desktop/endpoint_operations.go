@@ -1048,34 +1048,6 @@ func generatePolicyYAML(req NewPolicyRequest) string {
 			}},
 		)
 
-	case "TransactionPolicy":
-		type transactionConfig struct {
-			CostPerRequest int `yaml:"cost_per_request"`
-			InitialBalance int `yaml:"initial_balance"`
-		}
-		return marshalPolicyYAML(
-			"# Transaction Policy\n# Manages credit/token-based transactions\n",
-			policyDef{Type: "TransactionPolicy", Name: req.Name, Config: transactionConfig{
-				CostPerRequest: 1, InitialBalance: 100,
-			}},
-		)
-
-	case "BundleSubscriptionPolicy":
-		type bundleConfig struct {
-			PlanName     string  `yaml:"plan_name"`
-			Price        float64 `yaml:"price"`
-			Currency     string  `yaml:"currency"`
-			BillingCycle string  `yaml:"billing_cycle"`
-			InvoiceURL   string  `yaml:"invoice_url"`
-		}
-		return marshalPolicyYAML(
-			"# Bundle Subscription Policy\n# Gates access behind an active subscription plan\n",
-			policyDef{Type: "bundle_subscription", Name: req.Name, Config: bundleConfig{
-				PlanName: "Pro", Price: 29.99, Currency: "USD",
-				BillingCycle: "monthly", InvoiceURL: "",
-			}},
-		)
-
 	case "AllOfPolicy":
 		type allOfConfig struct {
 			Policies []string `yaml:"policies"`
