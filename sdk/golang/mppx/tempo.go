@@ -205,7 +205,10 @@ func SignCredential(ctx context.Context, ch Challenge, account *Account, rpcURL 
 	// Gas limit derived via eth_estimateGas (with a 25 % buffer) so a TIP-20
 	// transfer on Tempo doesn't strand on the under-provisioned static budget
 	// that mainnet ERC-20 examples use.
-	gasLimit := rpc.gasLimitFor(ctx, from, parsed.Currency, data)
+	gasLimit, err := rpc.gasLimitFor(ctx, from, parsed.Currency, data)
+	if err != nil {
+		return Credential{}, err
+	}
 	tx := types.NewTx(&types.LegacyTx{
 		Nonce:    nonce,
 		GasPrice: gasPrice,
@@ -638,21 +641,46 @@ func (c *rpcClient) estimateGas(ctx context.Context, from, to common.Address, da
 // observed to reject estimate calls under load. The fallback (600k) is
 // ~5x the mainnet ERC-20 baseline and ~2x the worst case observed on
 // Tempo testnet so a noisy block still settles.
-func (c *rpcClient) gasLimitFor(ctx context.Context, from, to common.Address, data []byte) uint64 {
+//
+// The sanity ceiling (gasLimitCeiling) is enforced AGAINST THE PADDED value
+// only: if the unpadded RPC estimate already exceeds the ceiling, the
+// estimate itself is returned rather than the ceiling so the broadcast does
+// not silently strand at out-of-gas below the RPC's own number. An estimate
+// that big is also a strong "something is wrong" signal; surface it via a
+// caller-handled error so the user can be told instead of getting their
+// transaction silently reverted on-chain.
+func (c *rpcClient) gasLimitFor(ctx context.Context, from, to common.Address, data []byte) (uint64, error) {
 	est, err := c.estimateGas(ctx, from, to, data)
-	if err == nil && est > 0 {
-		// 25 % padding — keep it integer-friendly so the encoded hex is short.
-		padded := est + est/4
-		if padded < est { // overflow guard, theoretical
-			return fallbackGasLimit
-		}
-		if padded > 5_000_000 { // sanity ceiling — never pay for runaway estimates
-			return 5_000_000
-		}
-		return padded
+	if err != nil || est == 0 {
+		return fallbackGasLimit, nil
 	}
-	return fallbackGasLimit
+	if est > gasLimitCeiling {
+		return 0, fmt.Errorf(
+			"mppx/tempo: eth_estimateGas returned %d, above the %d sanity ceiling — refusing to sign a tx the caller likely cannot afford",
+			est, gasLimitCeiling,
+		)
+	}
+	// 25 % padding — keep it integer-friendly so the encoded hex is short.
+	padded := est + est/4
+	if padded < est { // overflow guard, theoretical
+		return fallbackGasLimit, nil
+	}
+	if padded > gasLimitCeiling {
+		// Padded value would exceed the ceiling but the estimate itself
+		// is below it: cap the padded value at the ceiling so we still
+		// stay above the unpadded estimate.
+		return gasLimitCeiling, nil
+	}
+	return padded, nil
 }
+
+// gasLimitCeiling is the maximum gas limit gasLimitFor will silently apply.
+// 5,000,000 is well above the ~272k cost observed for a TIP-20 transfer on
+// Tempo testnet but well below the per-tx ceiling, so it absorbs both a
+// fat padding factor and the heavier paths (uninitialised-account
+// detection, settlement hooks) without giving a runaway estimate room to
+// drain the wallet.
+const gasLimitCeiling uint64 = 5_000_000
 
 // fallbackGasLimit is used when eth_estimateGas fails or returns zero.
 // 600,000 is well above the ~272k cost observed for a TIP-20 transfer on

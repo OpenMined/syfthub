@@ -77,8 +77,14 @@ func SignSignedTransferCredential(ctx context.Context, ch Challenge, account *Ac
 	// Gas limit derived via eth_estimateGas (with a 25 % buffer); a static
 	// 120k budget previously stranded transfers because Tempo's TIP-20
 	// runtime is heavier than a mainnet ERC-20. gasLimitFor falls back to
-	// 600k if the estimate RPC fails.
-	gasLimit := rpc.gasLimitFor(ctx, from, parsed.Currency, data)
+	// 600k if the estimate RPC fails, and returns an error if the estimate
+	// itself is above the sanity ceiling — better to surface that than to
+	// silently sign a tx the wallet cannot afford or that will revert on
+	// chain at out-of-gas.
+	gasLimit, err := rpc.gasLimitFor(ctx, from, parsed.Currency, data)
+	if err != nil {
+		return Credential{}, err
+	}
 	tx := types.NewTx(&types.LegacyTx{
 		Nonce:    nonce,
 		GasPrice: gasPrice,
