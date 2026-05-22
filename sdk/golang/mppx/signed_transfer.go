@@ -74,7 +74,11 @@ func SignSignedTransferCredential(ctx context.Context, ch Challenge, account *Ac
 
 	data := encodeERC20Transfer(parsed.Recipient, parsed.Amount)
 
-	gasLimit := uint64(120_000)
+	// Gas limit derived via eth_estimateGas (with a 25 % buffer); a static
+	// 120k budget previously stranded transfers because Tempo's TIP-20
+	// runtime is heavier than a mainnet ERC-20. gasLimitFor falls back to
+	// 600k if the estimate RPC fails.
+	gasLimit := rpc.gasLimitFor(ctx, from, parsed.Currency, data)
 	tx := types.NewTx(&types.LegacyTx{
 		Nonce:    nonce,
 		GasPrice: gasPrice,
