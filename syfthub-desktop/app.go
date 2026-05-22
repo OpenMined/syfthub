@@ -19,6 +19,7 @@ import (
 	syfthub "github.com/openmined/syfthub/sdk/golang/syfthub"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/filemode"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi/mppxgate"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/nodeops"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/transport"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -187,6 +188,13 @@ func (a *App) startup(ctx context.Context) {
 	// the SDK only knows the interface. Safe to set before Start: the
 	// provider captures the factory at construction time inside core.Setup().
 	a.config.RoutingRecorderFactory = a.newRoutingRecorderFactory()
+
+	// Wire the mppx gate so x402_pay_per_request policies can actually run.
+	// Without it the agent_executor's emitPending falls through to a generic
+	// "pending review" notice instead of surfacing a real payment challenge.
+	// Built here because it depends on the local wallet directory and the
+	// pathUSD RPC URL — concerns the SDK package shouldn't know about.
+	a.config.MppxGate = a.newMppxGate()
 
 	// Log startup
 	runtime.LogInfo(ctx, "SyftHub Desktop GUI starting up")
@@ -727,6 +735,7 @@ func (a *App) SaveSettingsData(syfthubURL, apiToken, endpointsPath string) error
 		a.config.ContainerEnabled = true
 	}
 	a.config.RoutingRecorderFactory = a.newRoutingRecorderFactory()
+	a.config.MppxGate = a.newMppxGate()
 	a.mu.Unlock()
 
 	runtime.LogInfo(a.ctx, "Settings saved successfully")
@@ -736,6 +745,34 @@ func (a *App) SaveSettingsData(syfthubURL, apiToken, endpointsPath string) error
 	runtime.EventsEmit(a.ctx, "app:config-ready")
 
 	return nil
+}
+
+// newMppxGate builds the x402 settlement gate the SyftAPI uses to materialise
+// HMAC-bound mppx challenges from policy-emitted specs, verify signed-transfer
+// credentials before invoking the handler, and broadcast the held tx after
+// handler success. Returns nil (and logs at warn level) on misconfiguration so
+// the rest of the app can boot — x402 policies just won't function.
+//
+// The HMAC secret store lives under the wallet directory (alongside wallet.key)
+// at ~/.syfthub-desktop/x402_secrets/, with one file per kid. The kid string
+// declared in each policy YAML (hmac_secret_kid, defaults to "default") picks
+// the file; on first use the file is generated with 32 fresh random bytes.
+func (a *App) newMppxGate() syfthubapi.MppxGate {
+	dir, err := walletDir()
+	if err != nil {
+		runtime.LogWarning(a.ctx, fmt.Sprintf("mppx gate: cannot resolve wallet dir, x402 disabled: %v", err))
+		return nil
+	}
+	secrets := mppxgate.NewFileSecretStore(filepath.Join(dir, "x402_secrets"))
+	gate, err := mppxgate.NewTempoGate(mppxgate.TempoGateOptions{
+		RPCURL:  rpcURL(),
+		Secrets: secrets,
+	})
+	if err != nil {
+		runtime.LogWarning(a.ctx, fmt.Sprintf("mppx gate: NewTempoGate failed, x402 disabled: %v", err))
+		return nil
+	}
+	return gate
 }
 
 // SetContainerEnabled toggles container mode on or off.

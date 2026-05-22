@@ -56,6 +56,15 @@ type Config struct {
 	// because the implementation pulls in a SQLite driver dependency the
 	// SDK intentionally doesn't carry. nil disables manual-review capture.
 	RoutingRecorderFactory manualreview.RoutingRecorderFactory
+
+	// MppxGate, when non-nil, is installed on the SyftAPI so x402 pay-per-request
+	// policies can issue HMAC-bound mppx challenges, verify signed-transfer
+	// credentials, and broadcast on handler success. Built outside this package
+	// (in syfthub-desktop main) because it needs access to the local wallet
+	// path and the host-side HMAC secret store. nil disables x402 — the policy
+	// will return Pending without a materialised challenge and the consumer
+	// will see a generic "pending review" notice instead of a payment modal.
+	MppxGate syfthubapi.MppxGate
 }
 
 // DefaultConfig returns configuration with sensible defaults.
@@ -309,6 +318,17 @@ func (a *App) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to setup transport: %w", err)
 	}
 	a.api.SetTransport(t)
+
+	// Install the x402 mppx gate if main provided one. Without this, agent
+	// endpoints carrying an x402_pay_per_request policy will surface a
+	// generic "pending" notice to the caller instead of an actionable
+	// payment challenge — the consumer never gets a chance to pay.
+	if a.config.MppxGate != nil {
+		a.api.SetMppxGate(a.config.MppxGate)
+		a.logger.Info("mppx gate wired", "purpose", "x402 pay-per-request settle-on-success")
+	} else {
+		a.logger.Warn("mppx gate not configured; x402 policies will not function")
+	}
 
 	// Setup heartbeat if enabled
 	if apiConfig.HeartbeatEnabled {
