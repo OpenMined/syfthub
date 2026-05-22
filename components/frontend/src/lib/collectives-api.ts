@@ -321,6 +321,34 @@ export function inviteEndpoint(
   });
 }
 
+/**
+ * Invite an endpoint into a collective by its `owner/slug` path. Collective
+ * owner only. Used by the admin invite UI since the public endpoint API does
+ * not expose numeric ids.
+ */
+export function inviteEndpointByPath(
+  collectiveId: number,
+  ownerUsername: string,
+  slug: string
+): Promise<CollectiveMember> {
+  return request<CollectiveMember>(`/${collectiveId}/invitations/by-path`, {
+    method: 'POST',
+    body: { owner_username: ownerUsername, slug },
+    auth: true
+  });
+}
+
+/**
+ * Fetch the membership row for an invitation. Readable by the endpoint owner,
+ * the collective owner, or an admin — backs the invitation-response landing
+ * page reached from the invitation email.
+ */
+export function getInvitation(collectiveId: number, endpointId: number): Promise<CollectiveMember> {
+  return request<CollectiveMember>(`/${collectiveId}/invitations/${endpointId}`, {
+    auth: true
+  });
+}
+
 /** Accept or decline a collective invitation. Endpoint owner only. */
 export function respondToInvitation(
   collectiveId: number,

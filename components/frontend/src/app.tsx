@@ -32,6 +32,7 @@ const CollectivesPage = lazyWithRetry(() => import('./pages/collectives'));
 const CollectiveDetailPage = lazyWithRetry(() => import('./pages/collective-detail'));
 const CollectiveAdminPage = lazyWithRetry(() => import('./pages/collective-admin'));
 const CreateCollectivePage = lazyWithRetry(() => import('./pages/create-collective'));
+const CollectiveInvitationPage = lazyWithRetry(() => import('./pages/collective-invitation'));
 // TODO(agent-feature): Uncomment when agent endpoint UI is re-enabled
 // const AgentPage = lazyWithRetry(() => import('./pages/agent'));
 const NotFoundPage = lazyWithRetry(() => import('./pages/not-found'));
@@ -155,6 +156,19 @@ export default function App() {
                           <ProtectedRoute>
                             <RouteBoundary>
                               <CreateCollectivePage />
+                            </RouteBoundary>
+                          </ProtectedRoute>
+                        }
+                      />
+                      {/* Invitation-response landing page linked from the
+                          invitation email — auth required so we know who
+                          is responding. */}
+                      <Route
+                        path='collectives/:slug/invitations/:endpointId'
+                        element={
+                          <ProtectedRoute>
+                            <RouteBoundary>
+                              <CollectiveInvitationPage />
                             </RouteBoundary>
                           </ProtectedRoute>
                         }
