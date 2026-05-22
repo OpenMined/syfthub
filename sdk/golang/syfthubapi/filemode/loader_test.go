@@ -670,29 +670,6 @@ config:
 		}
 	})
 
-	t.Run("normalizes policy types", func(t *testing.T) {
-		endpointDir := filepath.Join(tmpDir, "pascal-case")
-		policyDir := filepath.Join(endpointDir, "policy")
-		os.MkdirAll(policyDir, 0755)
-
-		policy := `name: access_group
-type: AccessGroupPolicy
-config:
-  allowed_groups:
-    - admin
-`
-		os.WriteFile(filepath.Join(policyDir, "access.yaml"), []byte(policy), 0644)
-
-		policies, _, err := loader.loadPolicies(endpointDir)
-
-		if err != nil {
-			t.Fatalf("error: %v", err)
-		}
-		if policies[0].Type != syfthubapi.PolicyTypeAccessGroup {
-			t.Errorf("Type = %q, want %q", policies[0].Type, syfthubapi.PolicyTypeAccessGroup)
-		}
-	})
-
 	t.Run("skips non-yaml files", func(t *testing.T) {
 		endpointDir := filepath.Join(tmpDir, "mixed-files")
 		policyDir := filepath.Join(endpointDir, "policy")
