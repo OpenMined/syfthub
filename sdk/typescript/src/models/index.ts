@@ -50,12 +50,7 @@ export type {
 export { getEndpointPublicPath, getSearchResultPath } from './endpoint.js';
 
 // Accounting / Wallet types
-export type {
-  WalletInfo,
-  WalletBalance,
-  WalletTransaction,
-  TransactionTokensResponse,
-} from './accounting.js';
+export type { WalletInfo, WalletBalance, WalletTransaction } from './accounting.js';
 
 // Chat types
 export type {

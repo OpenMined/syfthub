@@ -446,41 +446,6 @@ class AccountingResource:
     # Delegated Transaction Operations
     # =========================================================================
 
-    def create_transaction_token(self, recipient_email: str) -> str:
-        """Create a transaction token for delegated transfers.
-
-        Creates a JWT token that authorizes the recipient to create a
-        transaction on behalf of the sender (current user). The token
-        is short-lived (typically ~5 minutes).
-
-        Use this when you want to pre-authorize a payment that will be
-        initiated by the recipient (e.g., a service charging for usage).
-
-        Args:
-            recipient_email: Email of the authorized recipient
-
-        Returns:
-            JWT token string to share with recipient
-
-        Raises:
-            AuthenticationError: If authentication fails
-            APIError: On other errors
-
-        Example:
-            # Sender creates token
-            token = client.accounting.create_transaction_token("service@example.com")
-
-            # Share token with recipient out-of-band
-            # Recipient uses token to create delegated transaction
-        """
-        response = self._request(
-            "POST",
-            "/token/create",
-            json={"recipientEmail": recipient_email},
-        )
-        data = response if isinstance(response, dict) else {}
-        return str(data.get("token", ""))
-
     def create_delegated_transaction(
         self,
         sender_email: str,
@@ -497,7 +462,7 @@ class AccountingResource:
         Args:
             sender_email: Email of the sender who created the token
             amount: Amount to transfer (must be > 0)
-            token: JWT token from sender's create_transaction_token()
+            token: JWT token issued by the sender authorizing this transfer
 
         Returns:
             Transaction in PENDING status (created_by=RECIPIENT)

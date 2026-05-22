@@ -141,34 +141,26 @@ func (c *ChatResource) prepareRequest(ctx context.Context, req *ChatCompleteRequ
 		dsRefs = append(dsRefs, *ref)
 	}
 
-	// Fetch satellite and transaction tokens for all unique endpoint owners
+	// Fetch satellite tokens for all unique endpoint owners
 	uniqueOwners := c.collectUniqueOwners(modelRef, dsRefs)
 	var endpointTokens map[string]string
-	var transactionTokens *TransactionTokensResponse
 	if req.GuestMode {
 		endpointTokens, err = c.auth.GetGuestSatelliteTokens(ctx, uniqueOwners)
 		if err != nil {
 			slog.WarnContext(ctx, "failed to get guest satellite tokens, proceeding without them", "error", err)
 			endpointTokens = make(map[string]string)
 		}
-		transactionTokens = &TransactionTokensResponse{Tokens: make(map[string]string)}
 	} else {
 		endpointTokens, err = c.auth.GetSatelliteTokens(ctx, uniqueOwners)
 		if err != nil {
 			slog.WarnContext(ctx, "failed to get satellite tokens, proceeding without them", "error", err)
 			endpointTokens = make(map[string]string)
 		}
-		transactionTokens, err = c.auth.GetTransactionTokens(ctx, uniqueOwners)
-		if err != nil {
-			slog.WarnContext(ctx, "failed to get transaction tokens, proceeding without them", "error", err)
-			transactionTokens = &TransactionTokensResponse{Tokens: make(map[string]string)}
-		}
 	}
 
 	// Auto-fetch peer token if tunneling endpoints detected
 	tokens := chatTokens{
-		endpoint:    endpointTokens,
-		transaction: transactionTokens.Tokens,
+		endpoint: endpointTokens,
 	}
 	tunnelingUsernames := c.collectTunnelingUsernames(modelRef, dsRefs)
 	if len(tunnelingUsernames) > 0 {
@@ -541,7 +533,6 @@ func (c *ChatResource) collectTunnelingUsernames(modelRef *EndpointRef, dsRefs [
 // chatTokens bundles the token maps + peer info passed to buildRequestBody.
 type chatTokens struct {
 	endpoint    map[string]string
-	transaction map[string]string
 	peerToken   string
 	peerChannel string
 }
@@ -567,7 +558,6 @@ func (c *ChatResource) buildRequestBody(
 		},
 		"data_sources":         make([]map[string]interface{}, 0, len(dsRefs)),
 		"endpoint_tokens":      tokens.endpoint,
-		"transaction_tokens":   tokens.transaction,
 		"top_k":                defaults.topK,
 		"max_tokens":           defaults.maxTokens,
 		"temperature":          defaults.temperature,

@@ -54,20 +54,3 @@ export interface WalletTransaction {
   /** Endpoint path associated with the transaction */
   app_ep_path?: string;
 }
-
-// =============================================================================
-// Backward Compatibility Types
-// =============================================================================
-
-/**
- * Response from transaction tokens endpoint.
- *
- * @deprecated Transaction tokens are no longer used. Payments are handled
- * via the MPP 402 flow. Kept for backward compatibility with getTransactionTokens().
- */
-export interface TransactionTokensResponse {
-  /** Mapping of owner_username to transaction token */
-  tokens: Record<string, string>;
-  /** Mapping of owner_username to error message (for failed tokens) */
-  errors: Record<string, string>;
-}

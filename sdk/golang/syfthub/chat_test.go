@@ -704,7 +704,6 @@ func TestBuildRequestBody(t *testing.T) {
 	}
 
 	endpointTokens := map[string]string{"alice": "token_alice"}
-	transactionTokens := map[string]string{"bob": "tx_bob"}
 	messages := []Message{{Role: "user", Content: "Hello"}}
 
 	req := &ChatCompleteRequest{
@@ -719,7 +718,6 @@ func TestBuildRequestBody(t *testing.T) {
 	}
 	tokens := chatTokens{
 		endpoint:    endpointTokens,
-		transaction: transactionTokens,
 		peerToken:   "peer_token",
 		peerChannel: "peer_channel",
 	}

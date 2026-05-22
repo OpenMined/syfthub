@@ -285,30 +285,6 @@ func (a *AccountingResource) CancelTransaction(ctx context.Context, transactionI
 // Delegated Transaction Operations
 // =========================================================================
 
-// CreateTransactionToken creates a transaction token for delegated transfers.
-//
-// Creates a JWT token that authorizes the recipient to create a
-// transaction on behalf of the sender (current user). The token
-// is short-lived (typically ~5 minutes).
-//
-// Use this when you want to pre-authorize a payment that will be
-// initiated by the recipient (e.g., a service charging for usage).
-//
-// Errors:
-//   - AuthenticationError: If authentication fails
-func (a *AccountingResource) CreateTransactionToken(ctx context.Context, recipientEmail string) (string, error) {
-	var response struct {
-		Token string `json:"token"`
-	}
-	err := a.request(ctx, "POST", "/token/create", map[string]string{
-		"recipientEmail": recipientEmail,
-	}, &response)
-	if err != nil {
-		return "", err
-	}
-	return response.Token, nil
-}
-
 // CreateDelegatedTransactionRequest contains parameters for creating a delegated transaction.
 type CreateDelegatedTransactionRequest struct {
 	// SenderEmail is the email of the sender who created the token
@@ -317,7 +293,7 @@ type CreateDelegatedTransactionRequest struct {
 	// Amount is the amount to transfer (must be > 0)
 	Amount float64
 
-	// Token is the JWT token from sender's CreateTransactionToken()
+	// Token is the JWT token issued by the sender that authorizes this transfer
 	Token string
 }
 
