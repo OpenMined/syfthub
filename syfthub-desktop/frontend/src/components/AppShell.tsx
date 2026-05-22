@@ -9,6 +9,7 @@ import { LibraryView } from './LibraryView';
 import { UpdateBanner } from './UpdateBanner';
 import { WindowControls } from './ui/window-controls';
 import { WalletTab } from './tabs/WalletTab';
+import { WalletPopover } from './wallet/WalletPopover';
 
 const isMac = navigator.userAgent.includes('Macintosh');
 
@@ -54,16 +55,6 @@ export function AppShell({ sidebar, children }: AppShellProps) {
       >
         Chat
       </button>
-      <button
-        onClick={() => setMainView('wallet')}
-        className={`h-5 px-3 text-xs rounded transition-colors duration-150 ${
-          mainView === 'wallet'
-            ? 'bg-secondary text-foreground'
-            : 'text-muted-foreground hover:text-foreground'
-        }`}
-      >
-        Wallet
-      </button>
     </div>
   );
 
@@ -71,16 +62,26 @@ export function AppShell({ sidebar, children }: AppShellProps) {
     <div className={`h-screen flex flex-col bg-background text-foreground ${!isMac ? 'rounded-xl overflow-hidden shadow-2xl' : ''}`}>
       {isMac ? (
         /* macOS: transparent native title bar floats above; left pad reserves
-           space for the traffic-light controls overlaid by the OS. */
-        <div className="wails-drag h-9 flex-shrink-0 border-b border-border/30 bg-background flex items-center justify-center px-3 pl-[80px]">
-          {tabs}
+           space for the traffic-light controls overlaid by the OS. The right
+           rail hosts the wallet popover trigger — the underlying <button>
+           automatically opts out of the wails-drag region (see index.css). */
+        <div className="wails-drag h-9 flex-shrink-0 border-b border-border/30 bg-background flex items-center px-3 pl-[80px]">
+          <div className="flex-1" />
+          <div className="flex-1 flex items-center justify-center">{tabs}</div>
+          <div className="flex-1 flex items-center justify-end">
+            <WalletPopover />
+          </div>
         </div>
       ) : (
-        /* Windows / Linux: frameless window — draw our own controls. */
+        /* Windows / Linux: frameless window — draw our own controls. The
+           wallet popover sits in the right rail next to the window controls;
+           the underlying <button> auto-opts-out of the wails-drag region. */
         <div className="wails-drag h-9 flex-shrink-0 border-b border-border/30 bg-card/30 flex items-center px-3">
           <WindowControls />
           <div className="flex-1 flex items-center justify-center">{tabs}</div>
-          <div className="w-32" />
+          <div className="w-32 flex items-center justify-end">
+            <WalletPopover />
+          </div>
         </div>
       )}
 
