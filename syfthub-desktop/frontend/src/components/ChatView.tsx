@@ -25,7 +25,9 @@ import {
   PromptInputTextarea,
 } from '@/components/prompt-kit/prompt-input';
 import { ScrollButton } from '@/components/prompt-kit/scroll-button';
-import { Tool, type ToolPart } from '@/components/prompt-kit/tool';
+
+import { ToolDispatcher } from '@/components/chat/tool-views/ToolDispatcher';
+import { buildToolView, pairToolEntries } from '@/lib/tool-display';
 
 import { MarkdownMessage } from '@/components/chat/markdown-message';
 import { ModelSelector } from '@/components/chat/model-selector';
@@ -152,70 +154,6 @@ function StatusEntry({ content, isActive }: { content: string; isActive: boolean
       <span>{content}</span>
     </div>
   );
-}
-
-/**
- * Pre-scan entries to pair each tool_call with its nearest following tool_result.
- * Returns a map from tool_call entry index → tool_result entry index.
- * Also returns the set of tool_result indices that were consumed (so they can be skipped).
- */
-function pairToolEntries(entries: AgentEntry[]): { callToResult: Map<number, number>; consumedResults: Set<number> } {
-  const callToResult = new Map<number, number>();
-  const consumedResults = new Set<number>();
-
-  for (let i = 0; i < entries.length; i++) {
-    if (entries[i].kind !== 'tool_call') continue;
-    // Scan forward for the nearest unconsumed tool_result
-    for (let j = i + 1; j < entries.length; j++) {
-      if (entries[j].kind === 'tool_result' && !consumedResults.has(j)) {
-        callToResult.set(i, j);
-        consumedResults.add(j);
-        break;
-      }
-      // Stop scanning if we hit another tool_call (result belongs to a later call)
-      if (entries[j].kind === 'tool_call') break;
-    }
-  }
-
-  return { callToResult, consumedResults };
-}
-
-/** Build a ToolPart from a tool_call entry, optionally paired with its tool_result. */
-function buildToolPart(
-  callEntry: AgentEntry,
-  resultEntry: AgentEntry | undefined,
-  isRunning: boolean,
-): ToolPart {
-  const data = callEntry.data ?? {};
-  const toolName = String(data.tool_name ?? 'tool');
-  const args = data.arguments as Record<string, unknown> | undefined;
-  const toolCallId = data.tool_call_id ? String(data.tool_call_id) : undefined;
-
-  if (resultEntry) {
-    const rd = resultEntry.data ?? {};
-    const status = String(rd.status ?? 'success');
-    const isSuccess = status === 'success';
-    const result = rd.result as Record<string, unknown> | string | undefined;
-    const output = result != null
-      ? (typeof result === 'string' ? { result } : result)
-      : undefined;
-
-    return {
-      type: toolName,
-      state: isSuccess ? 'output-available' : 'output-error',
-      input: args,
-      output,
-      toolCallId,
-      errorText: isSuccess ? undefined : String(rd.error ?? rd.result ?? status),
-    };
-  }
-
-  return {
-    type: toolName,
-    state: isRunning ? 'input-streaming' : 'input-available',
-    input: args,
-    toolCallId,
-  };
 }
 
 function RequestInputEntry({ prompt }: { prompt: string }) {
@@ -629,6 +567,20 @@ function AgentChatContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toolFingerprint]);
 
+  // Lifecycle phase used by buildToolView for unpaired tool_calls. When the
+  // session ends cleanly we treat any straggler call as silently successful
+  // (the result event may have been batched after session.completed); when
+  // the session was stopped or failed, the call is marked interrupted.
+  const sessionPhase = useMemo<'running' | 'completed' | 'interrupted'>(() => {
+    if (isRunning) return 'running';
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const k = entries[i].kind;
+      if (k === 'completed') return 'completed';
+      if (k === 'cancelled' || k === 'error') return 'interrupted';
+    }
+    return 'completed';
+  }, [entries, isRunning]);
+
   const lastStatusIdx = useMemo(() => {
     return entries.reduce((last, e, i) => e.kind === 'status' ? i : last, -1);
   }, [entries]);
@@ -720,10 +672,10 @@ function AgentChatContent() {
                 if (entry.kind === 'tool_call') {
                   const resultIdx = callToResult.get(entryIndex);
                   const pairedResult = resultIdx != null ? entries[resultIdx] : undefined;
-                  const toolPart = buildToolPart(entry, pairedResult, isRunning);
+                  const view = buildToolView(entry, pairedResult, sessionPhase);
                   return (
                     <div key={entry.id} className='ml-10 max-w-2xl'>
-                      <Tool toolPart={toolPart} className='mt-0' />
+                      <ToolDispatcher view={view} />
                     </div>
                   );
                 }
@@ -731,15 +683,17 @@ function AgentChatContent() {
                 // Skip tool_result entries consumed by a tool_call above
                 if (entry.kind === 'tool_result') {
                   if (consumedResults.has(entryIndex)) return null;
-                  // Orphan tool_result — render standalone
-                  const toolPart = buildToolPart(
-                    { ...entry, data: { tool_name: String(entry.data?.tool_name ?? 'tool'), ...entry.data } },
-                    entry,
-                    isRunning,
-                  );
+                  // Orphan tool_result — synthesize a call-shaped entry from
+                  // the result so the dispatcher can still build a view.
+                  const synthCall: AgentEntry = {
+                    ...entry,
+                    kind: 'tool_call',
+                    data: { tool_name: String(entry.data?.tool_name ?? 'tool'), ...entry.data },
+                  };
+                  const view = buildToolView(synthCall, entry, sessionPhase);
                   return (
                     <div key={entry.id} className='ml-10 max-w-2xl'>
-                      <Tool toolPart={toolPart} className='mt-0' />
+                      <ToolDispatcher view={view} />
                     </div>
                   );
                 }
