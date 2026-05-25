@@ -39,6 +39,8 @@ export interface ToolCallEvent {
     arguments: Record<string, unknown>;
     requires_confirmation: boolean;
     description?: string;
+    /** Optional renderer hint — see agenttypes.ToolCall.Display. */
+    display?: string;
   };
 }
 
