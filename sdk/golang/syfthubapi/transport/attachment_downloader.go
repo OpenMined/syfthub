@@ -41,6 +41,42 @@ func NewObjectStoreDownloader(
 	}, nil
 }
 
+// DownloadOption customizes a streaming download.
+type DownloadOption func(*downloadOptions)
+
+type downloadOptions struct {
+	progress func(downloaded int64, total int64)
+}
+
+// WithProgress installs a callback fired as plaintext is written to the
+// destination. downloaded is the running plaintext byte count; total is
+// info.SizeBytes (declared, may be 0 if the producer didn't set it).
+// Fires at most once per AttachmentChunkSize boundary so it's safe to use
+// for UI updates without throttling at the call site.
+func WithProgress(cb func(downloaded int64, total int64)) DownloadOption {
+	return func(o *downloadOptions) { o.progress = cb }
+}
+
+// progressWriter is a small wrapper that ticks a progress callback as bytes
+// flow through it.
+type progressWriter struct {
+	w        io.Writer
+	total    int64
+	written  int64
+	progress func(int64, int64)
+}
+
+func (pw *progressWriter) Write(p []byte) (int, error) {
+	n, err := pw.w.Write(p)
+	if n > 0 {
+		pw.written += int64(n)
+		if pw.progress != nil {
+			pw.progress(pw.written, pw.total)
+		}
+	}
+	return n, err
+}
+
 // DownloadStream fetches the object-store ciphertext for info, decrypts it,
 // verifies the declared size and SHA-256, and writes the plaintext to w.
 //
@@ -49,7 +85,9 @@ func NewObjectStoreDownloader(
 // Callers that need atomic on-disk semantics should use DownloadAndMaterialize
 // instead, which buffers in memory and only writes the file after the SHA
 // check passes.
-func (d *ObjectStoreDownloader) DownloadStream(info *syfthubapi.AttachmentInfo, w io.Writer) error {
+//
+// Pass WithProgress to receive per-chunk byte-count callbacks for UI updates.
+func (d *ObjectStoreDownloader) DownloadStream(info *syfthubapi.AttachmentInfo, w io.Writer, opts ...DownloadOption) error {
 	if info.Transport != syfthubapi.AttachmentTransportObjectStore {
 		return fmt.Errorf("downloader called for transport=%q", info.Transport)
 	}
@@ -85,7 +123,16 @@ func (d *ObjectStoreDownloader) DownloadStream(info *syfthubapi.AttachmentInfo, 
 		return fmt.Errorf("object-store get: %w", err)
 	}
 
-	gotSize, gotSHA, err := d.encryptor.DecryptStream(fileKey, baseNonce, info.FileID, info.SizeBytes, &ct, w)
+	var dlOpts downloadOptions
+	for _, o := range opts {
+		o(&dlOpts)
+	}
+	dst := w
+	if dlOpts.progress != nil {
+		dst = &progressWriter{w: w, total: info.SizeBytes, progress: dlOpts.progress}
+	}
+
+	gotSize, gotSHA, err := d.encryptor.DecryptStream(fileKey, baseNonce, info.FileID, info.SizeBytes, &ct, dst)
 	if err != nil {
 		return fmt.Errorf("decrypt stream: %w", err)
 	}
