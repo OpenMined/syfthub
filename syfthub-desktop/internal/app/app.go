@@ -495,12 +495,14 @@ func (a *App) setupNATSTransport(ctx context.Context, cfg *syfthubapi.Config) (s
 	}
 
 	// Build the outbound agent dialer over the same connection, reusing the
-	// host's X25519 identity key — the desktop is a symmetric peer.
+	// host's X25519 identity key — the desktop is a symmetric peer. Borrow
+	// the host transport's JetStream Object Store handle so this client can
+	// send and receive object_store-tier attachments (large files).
 	dialer, err := transport.NewAgentDialer(natsConn, hostTransport.PrivateKey(), a.logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create agent dialer: %w", err)
 	}
-	a.agentDialer = dialer
+	a.agentDialer = dialer.WithAttachmentStore(hostTransport)
 	// Stash the privkey so the manual-review publisher can derive resolution
 	// ciphers without re-reading the on-disk key file.
 	a.hostIdentityKey = hostTransport.PrivateKey()

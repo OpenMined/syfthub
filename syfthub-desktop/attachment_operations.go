@@ -1,10 +1,17 @@
 // Package main: chat attachment bindings.
 //
-// Attachments flow through the active AgentClientSession: inline payloads
-// (≤64 KiB) ride encrypted inside the agent session's NATS messages.
-// Object-store (large-file) attachments are not yet supported on the direct
-// peer-to-peer path. This file caches inbound bytes for preview/save and
-// forwards outbound uploads.
+// Attachments flow through the active AgentClientSession in both directions
+// and on both transports:
+//   - inline (≤ syfthubapi.InlineMaxBytes): bytes ride encrypted in the
+//     agent session's NATS messages.
+//   - object_store (> InlineMaxBytes): ciphertext stored in NATS JetStream
+//     Object Store under a per-session bucket; the event/user-attachment
+//     message carries metadata + the wrapped per-file key.
+//
+// This file caches inbound bytes for preview/save and forwards outbound
+// uploads. Object_store support requires the AgentDialer to have been built
+// with WithAttachmentStore(hostTransport) in internal/app — the desktop
+// wires this at startup.
 package main
 
 import (
@@ -22,6 +29,7 @@ import (
 	"time"
 
 	"github.com/openmined/syfthub/sdk/golang/agenttypes"
+	"github.com/openmined/syfthub/sdk/golang/syfthubapi"
 	"github.com/openmined/syfthub/sdk/golang/syfthubapi/transport"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -39,16 +47,18 @@ type AttachmentSummary struct {
 
 // agentAttachment caches an inbound attachment for the active session. For
 // inline-tier attachments the SDK delivered the bytes in the event; we decode
-// once when the event arrives so save/preview is a buffer copy. Object-store-
-// tier attachments are not supported on the direct peer-to-peer path — only
-// the metadata is kept.
+// once when the event arrives so save/preview is a buffer copy. For
+// object_store-tier attachments only the metadata is kept; the bytes are
+// fetched on demand via the SDK's DownloadAttachment.
 type agentAttachment struct {
 	Meta  agenttypes.AttachmentEvent
 	Bytes []byte // populated only for inline transport
 }
 
 // cacheAgentAttachment stores an inbound attachment under the active session's
-// cache. No-op when the session has rotated since the event was emitted.
+// cache. No-op when the session has rotated since the event was emitted. Inline
+// integrity (size + SHA-256) is verified by agenttypes.AttachmentEvent.Bytes
+// indirectly — we just rely on its decoding plus our own size/SHA check below.
 func (a *App) cacheAgentAttachment(sessionID string, ev *agenttypes.AttachmentEvent) error {
 	entry := &agentAttachment{Meta: *ev}
 
@@ -146,7 +156,9 @@ func (a *App) resolveAttachment(fileID string) (*transport.AgentClientSession, *
 }
 
 // writeAttachment writes a resolved attachment's bytes into w. Inline reads
-// from cache; object-store is unsupported on the direct peer-to-peer path.
+// from the cache; object_store streams via the SDK's downloader. On a
+// streaming failure w may have received partial data — callers are
+// responsible for cleanup (e.g. SaveAgentAttachment removes a partial file).
 func (a *App) writeAttachment(ctx context.Context, sc *transport.AgentClientSession, entry *agentAttachment, w io.Writer) error {
 	if entry.Bytes != nil {
 		_, err := w.Write(entry.Bytes)
@@ -155,7 +167,8 @@ func (a *App) writeAttachment(ctx context.Context, sc *transport.AgentClientSess
 	if entry.Meta.Transport != "object_store" {
 		return fmt.Errorf("attachment %s has unknown transport %q", entry.Meta.FileID, entry.Meta.Transport)
 	}
-	return sc.DownloadAttachment(ctx, entry.Meta.FileID, w)
+	info := syfthubapi.AttachmentInfoFromEvent(&entry.Meta)
+	return sc.DownloadAttachment(ctx, info, w)
 }
 
 // SaveAgentAttachment writes an agent-emitted attachment into ~/Downloads
@@ -235,11 +248,16 @@ func (a *App) BrowseForAttachment() string {
 	return path
 }
 
-// AttachToActiveSession reads the file at hostPath and sends it to the agent
-// as an inline attachment over the encrypted agent session. Returns the
-// assigned file_id and metadata so the frontend can render a staged-attachment
-// chip and reference the file in follow-up messages with the
-// attachment://{file_id} URI.
+// AttachToActiveSession opens the file at hostPath and streams it to the
+// agent as an attachment over the encrypted agent session. Files ≤
+// syfthubapi.InlineMaxBytes ride inline; larger files spill to NATS
+// JetStream Object Store. Returns the assigned file_id + metadata so the
+// frontend can render a staged-attachment chip and reference the file in
+// follow-up messages with the attachment://{file_id} URI.
+//
+// The size is checked before opening to refuse pathological inputs early.
+// Files larger than syfthubapi.MaxAttachmentBytes (2 GiB) are rejected
+// outright.
 func (a *App) AttachToActiveSession(hostPath string) (*AttachmentSummary, error) {
 	a.agentMu.Lock()
 	sc := a.agentSession
@@ -255,11 +273,15 @@ func (a *App) AttachToActiveSession(hostPath string) (*AttachmentSummary, error)
 	if st.IsDir() {
 		return nil, fmt.Errorf("attachments must be files, not directories")
 	}
-
-	body, err := os.ReadFile(hostPath)
-	if err != nil {
-		return nil, fmt.Errorf("read: %w", err)
+	if st.Size() > syfthubapi.MaxAttachmentBytes {
+		return nil, fmt.Errorf("attachment too large: %d bytes (max %d)", st.Size(), syfthubapi.MaxAttachmentBytes)
 	}
+
+	f, err := os.Open(hostPath)
+	if err != nil {
+		return nil, fmt.Errorf("open: %w", err)
+	}
+	defer f.Close()
 
 	name := filepath.Base(hostPath)
 	mimeType := mime.TypeByExtension(filepath.Ext(hostPath))
@@ -269,7 +291,7 @@ func (a *App) AttachToActiveSession(hostPath string) (*AttachmentSummary, error)
 
 	ctx, cancel := a.attachmentContext()
 	defer cancel()
-	fileID, err := sc.SendAttachmentBytes(ctx, body, transport.AttachmentOpts{
+	info, err := sc.SendAttachment(ctx, f, transport.AttachmentOpts{
 		Name: name,
 		MIME: mimeType,
 	})
@@ -277,13 +299,12 @@ func (a *App) AttachToActiveSession(hostPath string) (*AttachmentSummary, error)
 		return nil, fmt.Errorf("send attachment: %w", err)
 	}
 
-	sum := sha256.Sum256(body)
 	return &AttachmentSummary{
-		FileID:    fileID,
-		Name:      name,
-		MIME:      mimeType,
-		SizeBytes: int64(len(body)),
-		SHA256:    hex.EncodeToString(sum[:]),
+		FileID:    info.FileID,
+		Name:      info.Name,
+		MIME:      info.MIME,
+		SizeBytes: info.SizeBytes,
+		SHA256:    info.PlaintextSHA256,
 	}, nil
 }
 
@@ -310,9 +331,9 @@ func (a *App) DownloadActiveSessionAttachment(fileID, destPath string) error {
 
 // AttachmentInlineBytes returns the plaintext bytes for an attachment so the
 // frontend can render image previews / inline content in the chat timeline.
-// For inline-tier attachments this is a cache read; object-store-tier
-// attachments are unsupported on the direct peer-to-peer path. maxBytes caps
-// the returned slice; 0 means no limit.
+// Inline-tier attachments are served from the in-memory cache; object_store-
+// tier attachments are streamed via the SDK and capped at maxBytes (0 means
+// no cap).
 func (a *App) AttachmentInlineBytes(fileID string, maxBytes int64) ([]byte, error) {
 	sc, entry, err := a.resolveAttachment(fileID)
 	if err != nil {
@@ -328,8 +349,9 @@ func (a *App) AttachmentInlineBytes(fileID string, maxBytes int64) ([]byte, erro
 	// Object-store tier: stream into a capped buffer.
 	ctx, cancel := a.attachmentContext()
 	defer cancel()
+	info := syfthubapi.AttachmentInfoFromEvent(&entry.Meta)
 	buf := newLimitedBuffer(maxBytes)
-	if err := sc.DownloadAttachment(ctx, fileID, buf); err != nil {
+	if err := sc.DownloadAttachment(ctx, info, buf); err != nil {
 		return nil, fmt.Errorf("download attachment: %w", err)
 	}
 	return buf.bytes, nil

@@ -13,9 +13,12 @@ package transport
 import (
 	"context"
 	"crypto/ecdh"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 
 	"github.com/google/uuid"
@@ -35,10 +38,19 @@ type AgentDialer struct {
 	identityKey *ecdh.PrivateKey
 	identityPub string
 	logger      *slog.Logger
+
+	// transport is an optional reference to the same-process NATSTransport,
+	// borrowed for its lazily-initialized JetStream Object Store handle.
+	// Required for object_store-tier attachments on the client side; when
+	// nil, attachment sends/receives larger than InlineMaxBytes fail.
+	// Wire via WithAttachmentStore.
+	transport *NATSTransport
 }
 
 // NewAgentDialer creates a dialer that signs sessions with the given X25519
-// identity key and routes traffic over conn.
+// identity key and routes traffic over conn. The resulting dialer supports
+// only inline-tier attachments. Call WithAttachmentStore to enable
+// object_store-tier (large-file) attachment sends and receives.
 func NewAgentDialer(conn *NATSConn, identityKey *ecdh.PrivateKey, logger *slog.Logger) (*AgentDialer, error) {
 	if conn == nil {
 		return nil, fmt.Errorf("nats connection is required")
@@ -55,6 +67,16 @@ func NewAgentDialer(conn *NATSConn, identityKey *ecdh.PrivateKey, logger *slog.L
 		identityPub: b64urlEncode(identityKey.PublicKey().Bytes()),
 		logger:      logger,
 	}, nil
+}
+
+// WithAttachmentStore attaches a NATSTransport whose lazily-initialized
+// JetStream Object Store handle is borrowed by sessions opened by this dialer
+// for object_store-tier (large-file) attachment transfers. Both peers in a
+// session must share the same Object Store (typically because they speak to
+// the same NATS cluster). Returns the dialer for chaining.
+func (d *AgentDialer) WithAttachmentStore(transport *NATSTransport) *AgentDialer {
+	d.transport = transport
+	return d
 }
 
 // DialParams describes the agent session to open. The caller resolves the
@@ -83,6 +105,15 @@ type DialParams struct {
 	Config *agenttypes.AgentConfig
 	// Capabilities lists optional protocol extensions (e.g. "attachments").
 	Capabilities []string
+
+	// SessionAttachmentKey is the 32-byte raw AES key shared between both
+	// peers for wrapping per-file content keys with HKDF-derived KEKs. When
+	// nil AND Capabilities contains AttachmentCapability, Dial mints a fresh
+	// 32-byte key. The encoded form is sent (base64) in the session_start
+	// payload so the host can construct the matching uploader/downloader.
+	// Provide a non-nil value only for deterministic tests; production
+	// callers should leave this nil.
+	SessionAttachmentKey []byte
 
 	// PaymentCredential is the wire-format mppx credential to ship in the
 	// agent_session_start payload, used when the caller is restarting a
@@ -123,18 +154,51 @@ func (d *AgentDialer) Dial(ctx context.Context, p DialParams) (*AgentClientSessi
 		return nil, fmt.Errorf("derive session cipher: %w", err)
 	}
 
+	// Mint the session attachment key when the caller requested the
+	// "attachments" capability but didn't supply one explicitly. The same
+	// 32-byte key is held client-side (for uploader/downloader construction)
+	// and shipped, base64-encoded, in the session_start payload so the host
+	// can build the matching encryptor.
+	var sessionAESKey []byte
+	if slices.Contains(p.Capabilities, syfthubapi.AttachmentCapability) {
+		sessionAESKey = p.SessionAttachmentKey
+		if sessionAESKey == nil {
+			sessionAESKey = make([]byte, 32)
+			if _, err := rand.Read(sessionAESKey); err != nil {
+				return nil, fmt.Errorf("mint session attachment key: %w", err)
+			}
+		} else if len(sessionAESKey) != 32 {
+			return nil, fmt.Errorf("SessionAttachmentKey must be 32 bytes (got %d)", len(sessionAESKey))
+		}
+	}
+
+	// Acquire the JetStream Object Store handle for object_store-tier
+	// attachments. Failure is non-fatal — the session still works for inline
+	// attachments; only large-file transfers will error at send/receive time.
+	var attachmentStore AttachmentObjectStore
+	if d.transport != nil && sessionAESKey != nil {
+		if store, storeErr := d.transport.getAttachmentObjectStore(); storeErr == nil {
+			attachmentStore = store
+		} else {
+			d.logger.Warn("[AGENT] failed to acquire attachment object store; large-file attachments will fail",
+				"session_id", sessionID, "error", storeErr)
+		}
+	}
+
 	s := &AgentClientSession{
-		SessionID:     sessionID,
-		cipher:        cipher,
-		senderPub:     d.identityPub,
-		conn:          d.conn.Conn(),
-		targetSubject: spaceSubjectPrefix + p.TargetUsername,
-		peerChannel:   p.PeerChannel,
-		logger:        d.logger,
-		inbox:         make(chan *nats.Msg, 256),
-		events:        make(chan agenttypes.AgentEvent, 64),
-		errs:          make(chan error, 8),
-		done:          make(chan struct{}),
+		SessionID:       sessionID,
+		cipher:          cipher,
+		senderPub:       d.identityPub,
+		conn:            d.conn.Conn(),
+		targetSubject:   spaceSubjectPrefix + p.TargetUsername,
+		peerChannel:     p.PeerChannel,
+		logger:          d.logger,
+		inbox:           make(chan *nats.Msg, 256),
+		events:          make(chan agenttypes.AgentEvent, 64),
+		errs:            make(chan error, 8),
+		done:            make(chan struct{}),
+		sessionAESKey:   sessionAESKey,
+		attachmentStore: attachmentStore,
 	}
 
 	// Subscribe to the reply channel before publishing so no early event is
@@ -152,6 +216,9 @@ func (d *AgentDialer) Dial(ctx context.Context, p DialParams) (*AgentClientSessi
 		Messages:          p.Messages,
 		Capabilities:      p.Capabilities,
 		PaymentCredential: p.PaymentCredential,
+	}
+	if sessionAESKey != nil {
+		startPayload.SessionAttachmentKey = base64.StdEncoding.EncodeToString(sessionAESKey)
 	}
 	if p.Config != nil {
 		startPayload.Config = *p.Config
@@ -195,6 +262,22 @@ type AgentClientSession struct {
 
 	closeOnce sync.Once
 	done      chan struct{}
+
+	// Attachment state. sessionAESKey is the per-session 32-byte AES key
+	// also shipped (base64) to the host in session_start; both peers derive
+	// per-file KEKs from it. attachmentStore is the JetStream Object Store
+	// handle borrowed from the dialer's transport (nil when the dialer was
+	// constructed without WithAttachmentStore — in which case object_store
+	// transfers fail). uploader/downloader are lazily built on first
+	// large-file send/receive respectively.
+	sessionAESKey   []byte
+	attachmentStore AttachmentObjectStore
+	upOnce          sync.Once
+	uploader        syfthubapi.AttachmentUploader
+	upErr           error
+	dlOnce          sync.Once
+	downloader      syfthubapi.AttachmentDownloader
+	dlErr           error
 }
 
 // Events returns the channel of typed host events. It is closed when the

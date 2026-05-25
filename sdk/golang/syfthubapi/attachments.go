@@ -39,6 +39,12 @@ const (
 // canonical definition in the dependency-free agenttypes package.
 const InlineMaxBytes = agenttypes.InlineAttachmentMaxBytes
 
+// MaxAttachmentBytes is the absolute hard cap on a single attachment's
+// plaintext size, regardless of transport. Beyond this, both client and
+// host SHOULD refuse the transfer before reading the file. 2 GiB is the
+// generous upper bound — most agents will reject far smaller payloads.
+const MaxAttachmentBytes int64 = 2 << 30
+
 // AttachmentCapability is the capabilities[] string clients/hosts declare in
 // session.start to opt into the attachments protocol. It re-exports the
 // canonical definition in the dependency-free agenttypes package.
@@ -123,6 +129,44 @@ func AttachmentInfoFromRaw(data json.RawMessage) (*AttachmentInfo, error) {
 		return nil, err
 	}
 	return &info, nil
+}
+
+// AttachmentInfoFromEvent converts an agenttypes.AttachmentEvent (the
+// dependency-free wire form delivered with agent.attachment events) into
+// the typed AttachmentInfo required by the downloader. The reverse direction
+// (AttachmentInfo → AttachmentEvent) is implicit: emitAttachmentEvent marshals
+// an AttachmentInfo to JSON which agenttypes decodes back into AttachmentEvent.
+func AttachmentInfoFromEvent(e *agenttypes.AttachmentEvent) AttachmentInfo {
+	info := AttachmentInfo{
+		FileID:          e.FileID,
+		Name:            e.Name,
+		MIME:            e.MIME,
+		SizeBytes:       e.SizeBytes,
+		PlaintextSHA256: e.PlaintextSHA256,
+		Transport:       AttachmentTransport(e.Transport),
+		InlineDataB64:   e.InlineDataB64,
+		ObjectBucket:    e.ObjectBucket,
+		ObjectKey:       e.ObjectKey,
+		ChunkSize:       e.ChunkSize,
+		BaseNonceB64:    e.BaseNonceB64,
+	}
+	if e.WrappedKey != nil {
+		wk := &WrappedKey{}
+		if s, ok := e.WrappedKey["algorithm"].(string); ok {
+			wk.Algorithm = s
+		}
+		if s, ok := e.WrappedKey["ciphertext"].(string); ok {
+			wk.Ciphertext = s
+		}
+		if s, ok := e.WrappedKey["nonce"].(string); ok {
+			wk.Nonce = s
+		}
+		if s, ok := e.WrappedKey["info"].(string); ok {
+			wk.Info = s
+		}
+		info.WrappedKey = wk
+	}
+	return info
 }
 
 // AgentUserAttachmentPayload is the decrypted payload of an agent_user_attachment

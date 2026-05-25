@@ -156,6 +156,7 @@ type AttachmentEvent struct {
 	ObjectBucket string         `json:"object_bucket,omitempty"`
 	ObjectKey    string         `json:"object_key,omitempty"`
 	ChunkSize    int            `json:"chunk_size,omitempty"`
+	BaseNonceB64 string         `json:"base_nonce,omitempty"`
 	WrappedKey   map[string]any `json:"wrapped_key,omitempty"`
 }
 
