@@ -156,6 +156,12 @@ func CompleteLsTarget(cmd *cobra.Command, args []string, toComplete string) ([]s
 			}
 		}
 	} else {
+		// Suggest the "agents" pseudo-target for browsing public agents on
+		// the network.
+		if strings.HasPrefix("agents", strings.ToLower(toComplete)) {
+			completions = append(completions, "agents\tList all public agents on the network")
+		}
+
 		// User is typing a username
 		seenUsers := make(map[string]int)
 		for _, ep := range endpoints {

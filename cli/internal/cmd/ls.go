@@ -27,6 +27,7 @@ var lsCmd = &cobra.Command{
 Usage modes:
 
 - syft ls           : List all active users with endpoint counts
+- syft ls agents    : List all public agent endpoints on the network
 - syft ls <user>    : List endpoints for a specific user
 - syft ls user/ep   : Show details/README for a specific endpoint`,
 	Args:              cobra.MaximumNArgs(1),
@@ -61,6 +62,9 @@ func runLs(cmd *cobra.Command, args []string) error {
 	if target == "" {
 		// Mode 1: List all users
 		return listUsers(ctx, client)
+	} else if target == "agents" {
+		// Mode 4: List all public agents on the network
+		return listNetworkAgents(ctx, client)
 	} else if strings.Contains(target, "/") {
 		// Mode 3: Show endpoint details
 		return showEndpoint(ctx, client, target)
@@ -68,6 +72,68 @@ func runLs(cmd *cobra.Command, args []string) error {
 		// Mode 2: List user's endpoints
 		return listUserEndpoints(ctx, client, target)
 	}
+}
+
+// listNetworkAgents browses the SyftHub network for all public agent
+// endpoints and renders them, mirroring the desktop ListNetworkAgents flow
+// (syfthub-desktop/app.go:1066-1097).
+func listNetworkAgents(ctx context.Context, client *syfthub.Client) error {
+	endpoints, err := client.Hub.Browse(ctx).All(ctx)
+	if err != nil {
+		return output.ReplyError(lsJSONOutput, "Failed to browse network: %v", err)
+	}
+
+	// Filter to agent endpoints, capped by --limit/-n.
+	agents := make([]output.EndpointInfo, 0)
+	for _, ep := range endpoints {
+		if ep.Type != syfthub.EndpointTypeAgent {
+			continue
+		}
+		// Prefix slug with owner so cross-network listings remain unambiguous
+		// in both the grid and table renderers (which don't include an owner
+		// column).
+		displaySlug := ep.Slug
+		if ep.OwnerUsername != "" {
+			displaySlug = ep.OwnerUsername + "/" + ep.Slug
+		}
+		agents = append(agents, output.EndpointInfo{
+			Name:        ep.Name,
+			Slug:        displaySlug,
+			Type:        string(ep.Type),
+			Version:     ep.Version,
+			Stars:       ep.StarsCount,
+			Description: ep.Description,
+			Owner:       ep.OwnerUsername,
+		})
+		if lsLimit > 0 && len(agents) >= lsLimit {
+			break
+		}
+	}
+
+	if lsJSONOutput {
+		result := make([]map[string]any, 0, len(agents))
+		for _, ep := range agents {
+			result = append(result, map[string]any{
+				"owner":       ep.Owner,
+				"slug":        ep.Slug,
+				"name":        ep.Name,
+				"type":        ep.Type,
+				"version":     ep.Version,
+				"stars":       ep.Stars,
+				"description": ep.Description,
+			})
+		}
+		output.JSON(map[string]any{
+			"status": output.StatusSuccess,
+			"agents": result,
+		})
+	} else if lsLongFormat {
+		output.PrintEndpointsTable(agents, "")
+	} else {
+		output.PrintEndpointsGrid(agents, "")
+	}
+
+	return nil
 }
 
 func listUsers(ctx context.Context, client *syfthub.Client) error {

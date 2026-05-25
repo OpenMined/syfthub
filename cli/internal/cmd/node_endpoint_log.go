@@ -21,6 +21,8 @@ var (
 	nodeEndpointLogFollow bool
 	nodeEndpointLogLimit  int
 	nodeEndpointLogJSON   bool
+	nodeEndpointLogStatus string
+	nodeEndpointLogOffset int
 )
 
 // jsonlBuf is a reusable 1 MiB scratch buffer for the tail-follow hot path in
@@ -60,7 +62,19 @@ var nodeEndpointLogCmd = &cobra.Command{
 Logs show incoming requests, responses, timing, and policy decisions —
 similar to the Logs tab in syfthub-desktop.
 
-Use -f to follow new log entries in real time.`,
+Use -f to follow new log entries in real time.
+
+Filtering:
+  --status ok|err|denied|all   Only show entries with the given outcome
+                                (default: all). Matches desktop GetLogs.
+  --offset N                   Skip the first N matching entries before
+                                applying --limit (for paging through
+                                results). Ignored in --follow mode.
+
+Examples:
+  syft node endpoint log my-endpoint --status err -n 20
+  syft node endpoint log my-endpoint --status denied --offset 50 -n 50
+  syft node endpoint log my-endpoint -f --status err`,
 	Args: cobra.ExactArgs(1),
 	RunE: runNodeEndpointLog,
 }
@@ -69,6 +83,40 @@ func init() {
 	nodeEndpointLogCmd.Flags().BoolVarP(&nodeEndpointLogFollow, "follow", "f", false, "Follow log output in real time")
 	nodeEndpointLogCmd.Flags().IntVarP(&nodeEndpointLogLimit, "limit", "n", 50, "Number of recent log entries to show")
 	nodeEndpointLogCmd.Flags().BoolVar(&nodeEndpointLogJSON, "json", false, "Output as raw JSON lines")
+	nodeEndpointLogCmd.Flags().StringVar(&nodeEndpointLogStatus, "status", "all", "Filter by outcome: ok, err, denied, all")
+	nodeEndpointLogCmd.Flags().IntVar(&nodeEndpointLogOffset, "offset", 0, "Skip the first N matching entries (ignored with --follow)")
+}
+
+// normalizedLogStatusFilter validates --status and returns the canonical
+// uppercase classification ("OK", "ERR", "DENIED") to match against, or
+// "" when no filter should be applied (all/empty).
+func normalizedLogStatusFilter(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "all":
+		return "", nil
+	case "ok":
+		return "OK", nil
+	case "err", "error":
+		return "ERR", nil
+	case "denied":
+		return "DENIED", nil
+	default:
+		return "", fmt.Errorf("invalid --status %q: must be one of ok, err, denied, all", raw)
+	}
+}
+
+// classifyLogStatus returns "OK", "ERR", or "DENIED" for a log entry, using
+// the same rules as printLogEntry's status banner. Keep these two in sync by
+// only changing the logic here.
+func classifyLogStatus(e *logEntry) string {
+	status := "OK"
+	if e.Response != nil && !e.Response.Success {
+		status = "ERR"
+	}
+	if e.Policy != nil && e.Policy.Evaluated && !e.Policy.Allowed {
+		status = "DENIED"
+	}
+	return status
 }
 
 // logEntry is a lightweight struct for reading request log JSONL files.
@@ -106,6 +154,13 @@ func runNodeEndpointLog(cmd *cobra.Command, args []string) error {
 	slug := args[0]
 	logDir := filepath.Join(nodeconfig.LogsDir, slug)
 
+	if _, err := normalizedLogStatusFilter(nodeEndpointLogStatus); err != nil {
+		return err
+	}
+	if nodeEndpointLogOffset < 0 {
+		return fmt.Errorf("invalid --offset %d: must be >= 0", nodeEndpointLogOffset)
+	}
+
 	if _, err := os.Stat(logDir); os.IsNotExist(err) {
 		if nodeEndpointLogJSON {
 			output.JSON(map[string]any{
@@ -127,6 +182,11 @@ func runNodeEndpointLog(cmd *cobra.Command, args []string) error {
 }
 
 func showRecentLogs(logDir, slug string) error {
+	statusFilter, err := normalizedLogStatusFilter(nodeEndpointLogStatus)
+	if err != nil {
+		return err
+	}
+
 	// Read all JSONL files, sorted by date descending
 	files, err := getLogFiles(logDir)
 	if err != nil {
@@ -146,7 +206,12 @@ func showRecentLogs(logDir, slug string) error {
 		return nil
 	}
 
-	// Collect entries from files (most recent first)
+	// Collect entries from files (most recent first). When filtering or
+	// paging, we cannot early-exit on len(entries) >= limit since the
+	// per-file batch may not yet contain enough matching entries — read
+	// across all files in that case.
+	needed := nodeEndpointLogOffset + nodeEndpointLogLimit
+	filtering := statusFilter != "" || nodeEndpointLogOffset > 0
 	var entries []logEntry
 	for _, file := range files {
 		fileEntries, err := readLogFile(filepath.Join(logDir, file))
@@ -154,9 +219,26 @@ func showRecentLogs(logDir, slug string) error {
 			continue
 		}
 		entries = append(entries, fileEntries...)
-		if len(entries) >= nodeEndpointLogLimit {
+		if !filtering && len(entries) >= nodeEndpointLogLimit {
 			break
 		}
+		if filtering && len(entries) >= needed*4 && needed > 0 {
+			// Heuristic stop: we've read 4x the needed window across
+			// files; further reads are unlikely to surface relevant
+			// older matches given timestamp-desc sort below.
+			break
+		}
+	}
+
+	// Apply status filter
+	if statusFilter != "" {
+		filtered := entries[:0]
+		for i := range entries {
+			if classifyLogStatus(&entries[i]) == statusFilter {
+				filtered = append(filtered, entries[i])
+			}
+		}
+		entries = filtered
 	}
 
 	// Sort by timestamp descending
@@ -164,7 +246,14 @@ func showRecentLogs(logDir, slug string) error {
 		return entries[i].Timestamp.After(entries[j].Timestamp)
 	})
 
-	// Trim to limit
+	// Apply --offset, then trim to --limit
+	if nodeEndpointLogOffset > 0 {
+		if nodeEndpointLogOffset >= len(entries) {
+			entries = nil
+		} else {
+			entries = entries[nodeEndpointLogOffset:]
+		}
+	}
 	if len(entries) > nodeEndpointLogLimit {
 		entries = entries[:nodeEndpointLogLimit]
 	}
@@ -193,9 +282,20 @@ func showRecentLogs(logDir, slug string) error {
 }
 
 func followEndpointLogs(logDir, slug string) error {
+	statusFilter, err := normalizedLogStatusFilter(nodeEndpointLogStatus)
+	if err != nil {
+		return err
+	}
+	if nodeEndpointLogOffset > 0 {
+		fmt.Fprintf(os.Stderr, "warning: --offset is ignored in --follow mode\n")
+	}
+
 	fmt.Printf("Following logs for '%s' (Ctrl+C to stop)...\n\n", slug)
 
 	emit := func(line []byte, entry *logEntry) {
+		if statusFilter != "" && classifyLogStatus(entry) != statusFilter {
+			return
+		}
 		if nodeEndpointLogJSON {
 			fmt.Println(string(line))
 		} else {
@@ -258,13 +358,7 @@ func followEndpointLogs(logDir, slug string) error {
 func printLogEntry(e *logEntry) {
 	ts := e.Timestamp.Local().Format("2006-01-02 15:04:05")
 
-	status := "OK"
-	if e.Response != nil && !e.Response.Success {
-		status = "ERR"
-	}
-	if e.Policy != nil && e.Policy.Evaluated && !e.Policy.Allowed {
-		status = "DENIED"
-	}
+	status := classifyLogStatus(e)
 
 	user := "-"
 	if e.User != nil && e.User.Username != "" {

@@ -178,9 +178,24 @@ func queryStream(ctx context.Context, client *syfthub.Client, target, prompt, ag
 					fmt.Println()
 				}
 
+			case *syfthub.RerankingStartEvent:
+				if queryVerbose {
+					output.Dim.Printf("Reranking %d documents...\n", e.Documents)
+				}
+
+			case *syfthub.RerankingCompleteEvent:
+				if queryVerbose {
+					output.Dim.Printf("Reranked in %dms\n", e.TimeMs)
+				}
+
 			case *syfthub.GenerationStartEvent:
 				if queryVerbose {
 					output.Dim.Println("Generating response...")
+				}
+
+			case *syfthub.GenerationHeartbeatEvent:
+				if queryVerbose {
+					output.Dim.Printf("Still generating (%dms elapsed)\n", e.ElapsedMs)
 				}
 
 			case *syfthub.TokenEvent:

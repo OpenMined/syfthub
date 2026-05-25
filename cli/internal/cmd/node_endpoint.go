@@ -51,7 +51,7 @@ var nodeEndpointCreateCmd = &cobra.Command{
 }
 
 func init() {
-	nodeEndpointCreateCmd.Flags().StringVar(&nodeEPCreateType, "type", "", "Endpoint type: model or data_source (required)")
+	nodeEndpointCreateCmd.Flags().StringVar(&nodeEPCreateType, "type", "", "Endpoint type: model, data_source, or agent (required)")
 	nodeEndpointCreateCmd.Flags().StringVar(&nodeEPCreateDescription, "description", "", "Endpoint description")
 	nodeEndpointCreateCmd.Flags().StringVar(&nodeEPCreateVersion, "version", "", "Endpoint version (default: 1.0.0)")
 	nodeEndpointCreateCmd.Flags().BoolVar(&nodeEPCreateJSON, "json", false, "Output result as JSON")
@@ -261,8 +261,8 @@ func runNodeEndpointEdit(cmd *cobra.Command, args []string) error {
 		updates["description"] = nodeEPEditDescription
 	}
 	if cmd.Flags().Changed("type") {
-		if nodeEPEditType != "model" && nodeEPEditType != "data_source" {
-			output.ReplyErrorSoft(nodeEPEditJSON, "type must be 'model' or 'data_source'")
+		if nodeEPEditType != "model" && nodeEPEditType != "data_source" && nodeEPEditType != "agent" {
+			output.ReplyErrorSoft(nodeEPEditJSON, "type must be 'model', 'data_source', or 'agent'")
 			return nil
 		}
 		updates["type"] = nodeEPEditType
